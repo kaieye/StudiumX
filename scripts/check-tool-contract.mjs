@@ -33,10 +33,21 @@ for (const source of registrySources) {
 for (const name of effectNames.keys()) assert.ok(registeredNames.has(name), `effect-policy tool ${name} is not present in registry sources`)
 for (const name of registeredNames) assert.ok(effectNames.has(name), `registered tool ${name} has no explicit effect-policy mapping`)
 
+// Inventory table only: stop before Capability / Permission companion sections so
+// effect-class default matrices (B-07) are not parsed as tool rows.
+const inventorySection = contract.split(/^## /m)[0] ?? contract
 const rows = new Map()
-for (const match of contract.matchAll(/^\| `([^`]+)` \| `([^`]+)` \|/gm)) rows.set(match[1], match[2])
+for (const match of inventorySection.matchAll(/^\| `([^`]+)` \| `([^`]+)` \|/gm)) {
+  // Tool inventory cells are toolName + effectClass (both backticked identifiers).
+  rows.set(match[1], match[2])
+}
 assert.deepEqual([...rows.keys()].sort(), [...registeredNames].sort(), 'TOOL_CONTRACT.md tool rows drift from registry')
 for (const [name, effectClass] of effectNames) assert.equal(rows.get(name), effectClass, `contract effectClass drift for ${name}`)
+// Capability companion section remains present for B-07 discovery metadata.
+assert.match(contract, /Capability metadata/)
+assert.match(contract, /maxConcurrency/)
+assert.match(contract, /isReadOnly|is_read_only/)
+assert.match(contract, /supportsCancel|supports_cancel/)
 assert.match(contract, /需批准/)
 assert.match(contract, /按风险/)
 assert.match(contract, /本课放行/)

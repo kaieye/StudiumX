@@ -23,12 +23,27 @@ import type {
   TeachingAppState,
   TeachingSystemApi
 } from '../../../shared/teaching-types'
+import {
+  AGENT_BUSY_FOLLOW_UP_QUEUE_HARD_CAP,
+  AGENT_SESSION_BUSY_QUEUED_ACK
+} from '../../../shared/agent-session-busy-ack'
+
+/** Local busy follow-up item (renderer queue; default policy = queue, never silent drop). */
+export type AgentBusyFollowUpItem = {
+  text: string
+  mode?: AgentChatMode
+  skillIds?: string[]
+}
 
 export type AgentConversationTurnRunnerState = {
   appState: TeachingAppState
   overviewDialogMode: string
   agentInput: string
   agentChatBusy: boolean
+  /** Closed-copy busy-ack banner while a follow-up is queued (B-12). */
+  agentBusyAckMessage: string | null
+  /** FIFO follow-ups accepted while a turn is busy (hard-capped). */
+  agentBusyFollowUpQueue: AgentBusyFollowUpItem[]
   agentStatus: string
   agentTurns: AgentChatTurn[]
   activeConversationId: string | null
@@ -47,6 +62,8 @@ export type AgentConversationTurnRunnerPatch<TError> = Partial<
     | 'appState'
     | 'agentInput'
     | 'agentChatBusy'
+    | 'agentBusyAckMessage'
+    | 'agentBusyFollowUpQueue'
     | 'agentStatus'
     | 'agentTurns'
     | 'activeConversationId'
@@ -101,6 +118,93 @@ export class AgentConversationTurnRunner<TError> {
     const initialState = this.dependencies.getState()
     const workspace = initialState.appState.activeWorkspace
     const input = (options.inputOverride ?? initialState.agentInput).trim()
+    if (!workspace || !input) return
+
+    // B-12: busy default is queue (never silent drop). Local FIFO + closed-copy ack banner.
+    if (initialState.agentChatBusy) {
+      this.enqueueBusyFollowUp({
+        text: input,
+        mode: options.mode,
+        skillIds: options.skillIds,
+        // Always clear composer on accept — caller may have passed inputOverride while
+        // leaving store.agentInput populated (OverviewChat temporary path).
+        clearComposerInput: true
+      })
+      return
+    }
+
+    await this.executeTurn(options)
+    await this.drainBusyFollowUpQueue()
+  }
+
+  /**
+   * Accept a follow-up while a turn is in flight. Does not start a second stream.
+   */
+  private enqueueBusyFollowUp(item: {
+    text: string
+    mode?: AgentChatMode
+    skillIds?: string[]
+    clearComposerInput: boolean
+  }): void {
+    const state = this.dependencies.getState()
+    const queue = state.agentBusyFollowUpQueue ?? []
+    if (queue.length >= AGENT_BUSY_FOLLOW_UP_QUEUE_HARD_CAP) {
+      this.dependencies.setState({
+        agentBusyAckMessage: `队列已满（最多 ${AGENT_BUSY_FOLLOW_UP_QUEUE_HARD_CAP} 条），请等待当前回合结束后再试。`,
+        ...(item.clearComposerInput ? { agentInput: '' } : {})
+      })
+      return
+    }
+    this.dependencies.setState({
+      agentBusyFollowUpQueue: [
+        ...queue,
+        {
+          text: item.text,
+          ...(item.mode ? { mode: item.mode } : {}),
+          ...(item.skillIds?.length ? { skillIds: item.skillIds } : {})
+        }
+      ],
+      agentBusyAckMessage: AGENT_SESSION_BUSY_QUEUED_ACK,
+      ...(item.clearComposerInput ? { agentInput: '' } : {})
+    })
+  }
+
+  /**
+   * After the live turn settles, drain queued follow-ups FIFO (one stream at a time).
+   * Cancel clears the queue, so this is a no-op after cancel.
+   */
+  private async drainBusyFollowUpQueue(): Promise<void> {
+    for (;;) {
+      const state = this.dependencies.getState()
+      if (state.agentChatBusy) return
+      const queue = state.agentBusyFollowUpQueue ?? []
+      if (queue.length === 0) {
+        if (state.agentBusyAckMessage) {
+          this.dependencies.setState({ agentBusyAckMessage: null })
+        }
+        return
+      }
+      const [next, ...rest] = queue
+      this.dependencies.setState({
+        agentBusyFollowUpQueue: rest,
+        agentBusyAckMessage: rest.length > 0 ? AGENT_SESSION_BUSY_QUEUED_ACK : null
+      })
+      await this.executeTurn({
+        inputOverride: next.text,
+        mode: next.mode,
+        skillIds: next.skillIds
+      })
+    }
+  }
+
+  private async executeTurn(options: RunAgentConversationTurnOptions = {}): Promise<void> {
+    const api = this.dependencies.getApi()
+    if (!api) return
+
+    const initialState = this.dependencies.getState()
+    const workspace = initialState.appState.activeWorkspace
+    const input = (options.inputOverride ?? initialState.agentInput).trim()
+    // Re-check: concurrent enqueue should not start a second stream.
     if (!workspace || !input || initialState.agentChatBusy) return
 
     const activeConversationMode = initialState.activeConversationScope
@@ -258,11 +362,16 @@ export class AgentConversationTurnRunner<TError> {
     const pending = state.pendingAgentConversation
     if (!pending || !state.agentChatBusy) return
 
-    this.dependencies.setState(cancelPendingAgentConversation({
-      pending,
-      activeConversationId: state.activeConversationId,
-      preserveToolsSupported: true
-    }))
+    this.dependencies.setState({
+      ...cancelPendingAgentConversation({
+        pending,
+        activeConversationId: state.activeConversationId,
+        preserveToolsSupported: true
+      }),
+      // Cancel drops queued follow-ups (same as main-process clearOnCancel).
+      agentBusyFollowUpQueue: [],
+      agentBusyAckMessage: null
+    })
     await this.dependencies.getApi()?.cancelAgentChatStream(pending.summary.id).catch(() => undefined)
   }
 
@@ -310,10 +419,14 @@ export class AgentConversationTurnRunner<TError> {
     const state = this.dependencies.getState()
     const pending = state.pendingAgentConversation
     if (!pending || pending.summary.id !== pendingConversationId) return
-    this.dependencies.setState(cancelPendingAgentConversation({
-      pending,
-      activeConversationId: state.activeConversationId
-    }))
+    this.dependencies.setState({
+      ...cancelPendingAgentConversation({
+        pending,
+        activeConversationId: state.activeConversationId
+      }),
+      agentBusyFollowUpQueue: [],
+      agentBusyAckMessage: null
+    })
   }
 
   private async failAndSave({

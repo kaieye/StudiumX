@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { AGENT_SESSION_BUSY_QUEUED_ACK } from '../../src/shared/agent-session-busy-ack'
 import {
   AgentConversationTurnRunner,
   type AgentConversationTurnRunnerApi,
@@ -28,6 +29,15 @@ type Harness = {
 }
 
 const createdAt = '2026-07-14T10:00:00.000Z'
+
+function deferredDone(): {
+  promise: Promise<void>
+  resolve: () => void
+} {
+  let resolve!: () => void
+  const promise = new Promise<void>((res) => { resolve = res })
+  return { promise, resolve }
+}
 
 function workspace(overrides: Partial<TeachingWorkspaceSummary> = {}): TeachingWorkspaceSummary {
   return {
@@ -79,6 +89,8 @@ function makeHarness(
     overviewDialogMode: 'teaching',
     agentInput: 'unused input',
     agentChatBusy: false,
+    agentBusyAckMessage: null,
+    agentBusyFollowUpQueue: [],
     agentStatus: '',
     agentTurns: [],
     activeConversationId: null,
@@ -823,4 +835,85 @@ describe('AgentConversationTurnRunner', () => {
       toolsSupported: true
     })
   })
+
+  it('queues follow-up while busy with closed-copy ack and does not start a second stream', async () => {
+    const gate = deferredDone()
+    const stream = vi.fn(async () => {
+      await gate.promise
+      return completedTurn()
+    })
+    const harness = makeHarness({
+      agentChatStream: stream,
+      saveAgentConversation: vi.fn(async ({ turns, conversationId }) => ({
+        state: appState(),
+        conversation: {
+          id: conversationId ?? 'conversation-1',
+          title: 'Physics',
+          createdAt,
+          updatedAt: createdAt,
+          relativePath: '.agent-sessions/conversations/conversation-1.json',
+          absolutePath: '/workspace/.agent-sessions/conversations/conversation-1.json',
+          messageCount: turns.length
+        }
+      })),
+      cancelAgentChatStream: vi.fn()
+    })
+
+    const first = harness.runner.run({ inputOverride: 'first turn' })
+    await Promise.resolve()
+    expect(harness.getState().agentChatBusy).toBe(true)
+    expect(stream).toHaveBeenCalledTimes(1)
+
+    await harness.runner.run({ inputOverride: 'queued follow-up' })
+    expect(stream).toHaveBeenCalledTimes(1)
+    expect(harness.getState()).toMatchObject({
+      agentBusyAckMessage: AGENT_SESSION_BUSY_QUEUED_ACK,
+      agentBusyFollowUpQueue: [{ text: 'queued follow-up' }]
+    })
+
+    gate.resolve()
+    await first
+
+    expect(stream).toHaveBeenCalledTimes(2)
+    expect(stream.mock.calls[1][0]).toEqual(expect.objectContaining({
+      userInput: 'queued follow-up'
+    }))
+    expect(harness.getState()).toMatchObject({
+      agentChatBusy: false,
+      agentBusyAckMessage: null,
+      agentBusyFollowUpQueue: []
+    })
+  })
+
+  it('clears busy follow-up queue on cancel and does not drain after cancel', async () => {
+    const gate = deferredDone()
+    const stream = vi.fn(async () => {
+      await gate.promise
+      return { streamId: 'pending-42', canceled: true as const }
+    })
+    const cancel = vi.fn(async () => ({ canceled: true as const }))
+    const harness = makeHarness({
+      agentChatStream: stream,
+      saveAgentConversation: vi.fn(),
+      cancelAgentChatStream: cancel
+    })
+
+    const first = harness.runner.run({ inputOverride: 'live' })
+    await Promise.resolve()
+    await harness.runner.run({ inputOverride: 'should-drop' })
+    expect(harness.getState().agentBusyFollowUpQueue).toHaveLength(1)
+
+    await harness.runner.cancel()
+    expect(cancel).toHaveBeenCalled()
+    expect(harness.getState()).toMatchObject({
+      agentBusyFollowUpQueue: [],
+      agentBusyAckMessage: null
+    })
+
+    gate.resolve()
+    await first
+    // Still only the original stream; no drain of dropped follow-up.
+    expect(stream).toHaveBeenCalledTimes(1)
+  })
+
 })

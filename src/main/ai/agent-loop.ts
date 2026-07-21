@@ -18,7 +18,19 @@ import {
   type RequestContextProjectionTrace
 } from './request-context-projection'
 import type { ToolHandlerMap, ToolRuntimeEvent } from './tools/registry'
-import { executeToolCall } from './tools/execution'
+import type { ToolExecutionResult } from './tools/execution'
+import { executeToolBatch } from './tools/batch-dispatch'
+import {
+  enforceToolResultTurnBudget,
+  type ToolResultTurnBudgetConfig
+} from './tools/tool-result-budget'
+import {
+  DEFAULT_PROVIDER_RETRY_MAX_ATTEMPTS,
+  extractRetryAfterMsFromError,
+  withProviderRetry
+} from '../../shared/provider-retry'
+import { createToolsSchemaGuardState } from './tools/tools-schema-fingerprint'
+import { applyToolsSchemaGuard } from './agent-loop-schema-guard'
 import type {
   AgentRunBudget,
   AgentRunBudgetStopReason,
@@ -29,6 +41,10 @@ import type {
 import type { AgentLoopStatus } from '../../shared/teaching-types'
 import { normalizeAgentRunBudget } from './agent-run-store'
 import { AgentLoopExecutionState } from './agent-loop-execution-state'
+import { legacyRequestFromMessages, safeFallbackText } from './agent-loop-fallback'
+import { budgetStopReasonFromError } from './agent-loop-budget-reason'
+import { closeOpenToolCalls } from './close-open-tool-calls'
+import { TOOL_CANCELED_MESSAGE } from './tools/tool-arguments'
 import { stripDsmlToolCallBlocks } from './provider-adapter/dsml-tool-calls'
 
 export type AgentLoopStopReason = 'final_answer' | 'max_iterations' | 'budget_exhausted' | 'error' | 'degraded' | 'canceled'
@@ -59,6 +75,19 @@ export type RunAgentLoopOptions = {
   messageTurnIds?: readonly (string | undefined)[]
   tools: ToolDefinition[]
   toolHandlers: ToolHandlerMap
+  /**
+   * Workspace root used for turn-level tool-result spill paths
+   * (`.studiumx/tool-results/<runId>/`). Optional; when missing, over-budget
+   * results fall back to inline preview without writing files.
+   */
+  workspaceRoot?: string
+  /**
+   * Agent run id for spill sandbox directory. Prefer the durable run/stream id.
+   * When missing, spill falls back to inline truncation.
+   */
+  runId?: string
+  /** Optional overrides for turn-aggregate tool result budget (B-04 / ADR-0056). */
+  toolResultTurnBudget?: Partial<ToolResultTurnBudgetConfig>
   /** Applied only to the first normal model request; subsequent turns return to automatic tool selection. */
   initialToolChoice?: ToolChoice
   maxIterations?: number
@@ -177,7 +206,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         },
         signal: runSignal
       })
-      execution.recordProviderUsage(summary.usage)
+      execution.recordProviderUsage(summary.usage, 'provider_reported', summary.finishReason)
       execution.maybeWarnBudget()
       return summary.text
     }
@@ -190,11 +219,32 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     )
     return (await requestContext.project(messages, tools, messageTurnIds)).messages
   }
+  const toolsSchemaGuard = createToolsSchemaGuardState()
   let degradedReason: string | undefined
   let iterations = 0
   let exhausted: AgentRunBudgetStopReason | undefined
   let durableFinalizationRequested = false
-  const canceledResult = (toolsSupported: boolean): RunAgentLoopResult => execution.canceled(transcript, toolsSupported, degradedReason)
+  const canceledResult = (toolsSupported: boolean): RunAgentLoopResult => {
+    // B-12: close unpaired tool_calls so canceled transcripts stay pair-closed.
+    const closed = closeOpenToolCalls(transcript)
+    if (closed.closed.length > 0) {
+      transcript.splice(0, transcript.length, ...closed.messages)
+      const canceledContent = JSON.stringify({
+        error: 'tool_canceled',
+        message: TOOL_CANCELED_MESSAGE
+      })
+      for (const item of closed.closed) {
+        emit({
+          type: 'tool_result',
+          toolCallId: item.toolCallId,
+          name: item.name,
+          result: canceledContent,
+          isError: true
+        })
+      }
+    }
+    return execution.canceled(transcript, toolsSupported, degradedReason)
+  }
   const exhaustedResult = (toolsSupported: boolean, reason: AgentRunBudgetStopReason): RunAgentLoopResult => {
     let fallbackText = ''
     try {
@@ -223,25 +273,31 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     execution.setIterations(iterations)
     emit({ type: 'status', status: 'answering', message: '当前端点格式不支持工具调用，已降级为纯文本生成。' })
     try {
-      const stop = execution.budgetStop('provider')
-      if (stop) return exhaustedResult(false, stop)
-      execution.startProviderCall()
+      const preStop = execution.budgetStop('provider')
+      if (preStop) return exhaustedResult(false, preStop)
       let answerStarted = false
-      const result = await streamProvider({
-        settings: opts.settings,
-        provider: opts.provider,
-        request: legacyRequestFromMessages(await prepareMessagesForProvider(transcript, [])),
-        callbacks: {
-          onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-          onToken: (delta) => {
-            if (!answerStarted) {
-              answerStarted = true
-              emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
-            }
-            emit({ type: 'token', delta })
-          }
-        },
-        signal: runSignal
+      const request = legacyRequestFromMessages(await prepareMessagesForProvider(transcript, []))
+      const result = await invokeProviderWithRetry({
+        execution,
+        emit,
+        signal: runSignal,
+        invoke: async () =>
+          streamProvider({
+            settings: opts.settings,
+            provider: opts.provider,
+            request,
+            callbacks: {
+              onReasoning: (delta) => emit({ type: 'reasoning', delta }),
+              onToken: (delta) => {
+                if (!answerStarted) {
+                  answerStarted = true
+                  emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
+                }
+                emit({ type: 'token', delta })
+              }
+            },
+            signal: runSignal
+          })
       })
       execution.recordProviderUsage(result.usage)
       execution.maybeWarnBudget()
@@ -260,6 +316,8 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     } catch (error) {
       if (execution.isCanceled) return canceledResult(false)
       if (execution.isDurationExhausted) return exhaustedResult(false, 'duration')
+      const budgetReason = budgetStopReasonFromError(error)
+      if (budgetReason) return exhaustedResult(false, budgetReason)
       const message = error instanceof Error ? error.message : String(error)
       return execution.failed(transcript, false, 'unsupported_endpoint_format', message)
     }
@@ -284,30 +342,46 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         exhausted = afterCompactionStop
         break
       }
-      execution.startProviderCall()
-      result = await streamChatProvider({
-        settings: opts.settings,
-        provider: opts.provider,
-        request: {
-          messages,
-          tools: opts.tools,
-          toolChoice: index === 0 ? (opts.initialToolChoice ?? 'auto') : 'auto',
-          jsonMode: opts.jsonMode === true
-        },
-        callbacks: {
-          onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-          // A provider may emit explanatory text before requesting a tool. Buffer the
-          // iteration until we know it is the final answer so intermediate preambles do
-          // not leak into (and get concatenated with) the user-facing response.
-          onToken: (delta) => bufferedAnswerDeltas.push(delta)
-        },
-        signal: runSignal
+      const schemaDecision = applyToolsSchemaGuard(toolsSchemaGuard, opts.tools, emit)
+      if (!schemaDecision.ok) {
+        return execution.failed(
+          transcript,
+          true,
+          degradedReason,
+          schemaDecision.reason
+        )
+      }
+      result = await invokeProviderWithRetry({
+        execution,
+        emit,
+        signal: runSignal,
+        invoke: async () =>
+          streamChatProvider({
+            settings: opts.settings,
+            provider: opts.provider,
+            request: {
+              messages,
+              tools: opts.tools,
+              toolChoice: index === 0 ? (opts.initialToolChoice ?? 'auto') : 'auto',
+              jsonMode: opts.jsonMode === true
+            },
+            callbacks: {
+              onReasoning: (delta) => emit({ type: 'reasoning', delta }),
+              // A provider may emit explanatory text before requesting a tool. Buffer the
+              // iteration until we know it is the final answer so intermediate preambles do
+              // not leak into (and get concatenated with) the user-facing response.
+              onToken: (delta) => bufferedAnswerDeltas.push(delta)
+            },
+            signal: runSignal
+          })
       })
-      execution.recordProviderUsage(result.usage)
+      execution.recordProviderUsage(result.usage, 'provider_reported', result.finishReason)
       execution.maybeWarnBudget()
     } catch (error) {
       if (execution.isCanceled) return canceledResult(true)
       if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
+      const budgetReason = budgetStopReasonFromError(error)
+      if (budgetReason) return exhaustedResult(true, budgetReason)
       const message = error instanceof Error ? error.message : String(error)
       return execution.failed(transcript, true, degradedReason, message)
     }
@@ -341,25 +415,60 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       })
     }
 
-    emit({ type: 'status', status: 'tool_running' })
-    for (const call of result.toolCalls) {
-      if (execution.isCanceled) return canceledResult(true)
-      const toolStop = execution.budgetStop('tool')
-      if (toolStop) {
-        exhausted = toolStop
-        break
-      }
-      execution.startToolCall()
-      emit({ type: 'tool_call', toolCall: call })
-      const toolResult = await executeToolCall(opts.toolHandlers, call, {
-        toolCallId: call.id,
-        toolName: call.function.name,
-        emit: (event) => emit(event),
-        signal: runSignal
+    // A-02: never execute tools when the provider finished due to length/truncation.
+    // Partial tool_calls under length are unsafe; reject the whole batch with zero handlers.
+    if (result.finishReason === 'length' && result.toolCalls.length > 0) {
+      const rejectedCount = result.toolCalls.length
+      emit({
+        type: 'status',
+        status: 'error',
+        message: `输出因长度截断，已拒绝执行 ${rejectedCount} 个工具调用，避免不完整参数导致副作用。`
       })
-      if (toolResult.isError) execution.recordToolError()
-      if (execution.isCanceled) return canceledResult(true)
-      if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
+      for (const call of result.toolCalls) {
+        const content = JSON.stringify({
+          error: 'tool_calls_rejected_due_to_length',
+          message: '模型输出因 length/max_tokens 截断，本批工具调用未执行。',
+          toolName: call.function.name
+        })
+        transcript.push({ role: 'tool', tool_call_id: call.id, content })
+        emit({
+          type: 'tool_result',
+          toolCallId: call.id,
+          name: call.function.name,
+          result: content,
+          isError: true
+        })
+        execution.recordToolError()
+      }
+      // Keep the transcript pair closed and ask the model (or finalization) to continue without side effects.
+      continue
+    }
+
+    emit({ type: 'status', status: 'tool_running' })
+    const batchOutcome = await executeToolBatch(result.toolCalls, opts.toolHandlers, {
+      emit: (event) => emit(event),
+      signal: runSignal,
+      runId: opts.runId
+    }, {
+      isCanceled: () => execution.isCanceled,
+      budgetStop: () => execution.budgetStop('tool'),
+      startToolCall: () => execution.startToolCall(),
+      recordToolError: () => execution.recordToolError(),
+      isDurationExhausted: () => execution.isDurationExhausted,
+      onToolCall: (call) => emit({ type: 'tool_call', toolCall: call })
+    })
+    if (batchOutcome.canceled) {
+      for (const toolResult of batchOutcome.results) {
+        transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
+        emit({ type: 'tool_result', toolCallId: toolResult.toolCallId, name: toolResult.name, result: toolResult.content, isError: toolResult.isError })
+      }
+      return canceledResult(true)
+    }
+    if (batchOutcome.durationExhausted) return exhaustedResult(true, 'duration')
+    if (batchOutcome.exhausted) exhausted = batchOutcome.exhausted
+    const turnToolResults = batchOutcome.results
+    const budgetedTurnResults = await applyTurnToolResultBudget(turnToolResults, opts)
+    for (const toolResult of budgetedTurnResults) {
       transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
       emit({ type: 'tool_result', toolCallId: toolResult.toolCallId, name: toolResult.name, result: toolResult.content, isError: toolResult.isError })
     }
@@ -404,30 +513,49 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
           exhausted = afterCompactionStop
           break
         }
-        execution.startProviderCall()
-        recoveryResult = await streamChatProvider({
-          settings: opts.settings,
-          provider: opts.provider,
-          request: {
-            messages,
-            tools: recovery.tools,
-            toolChoice: recovery.toolChoice,
-            jsonMode: opts.jsonMode === true
-          },
-          callbacks: {
-            onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-            // Recovery prose is not user-facing; only the subsequent no-tool
-            // finalization is streamed into the answer.
-            onToken: () => undefined
-          },
-          signal: runSignal
+        const recoverySchemaDecision = applyToolsSchemaGuard(toolsSchemaGuard, recovery.tools, emit)
+        if (!recoverySchemaDecision.ok) {
+          return execution.failed(
+            transcript,
+            true,
+            degradedReason,
+            recoverySchemaDecision.reason
+          )
+        }
+        recoveryResult = await invokeProviderWithRetry({
+          execution,
+          emit,
+          signal: runSignal,
+          invoke: async () =>
+            streamChatProvider({
+              settings: opts.settings,
+              provider: opts.provider,
+              request: {
+                messages,
+                tools: recovery.tools,
+                toolChoice: recovery.toolChoice,
+                jsonMode: opts.jsonMode === true
+              },
+              callbacks: {
+                onReasoning: (delta) => emit({ type: 'reasoning', delta }),
+                // Recovery prose is not user-facing; only the subsequent no-tool
+                // finalization is streamed into the answer.
+                onToken: () => undefined
+              },
+              signal: runSignal
+            })
         })
-        execution.recordProviderUsage(recoveryResult.usage)
+        execution.recordProviderUsage(recoveryResult.usage, 'provider_reported', recoveryResult.finishReason)
         execution.maybeWarnBudget()
         degradedReason ??= recoveryResult.degradedReason
       } catch (error) {
         if (execution.isCanceled) return canceledResult(true)
         if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
+        const budgetReason = budgetStopReasonFromError(error)
+        if (budgetReason) {
+          exhausted = budgetReason
+          break
+        }
         const message = error instanceof Error ? error.message : String(error)
         return execution.failed(transcript, true, degradedReason, message)
       }
@@ -440,25 +568,52 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       }
       transcript.push(assistantMsg)
       emit({ type: 'assistant_message', message: assistantMsg })
-      emit({ type: 'status', status: 'tool_running' })
 
-      for (const call of recoveryResult.toolCalls) {
-        if (execution.isCanceled) return canceledResult(true)
-        const toolStop = execution.budgetStop('tool')
-        if (toolStop) {
-          exhausted = toolStop
-          break
+      // A-02: recovery path also rejects tool execution under length truncation.
+      if (recoveryResult.finishReason === 'length') {
+        const rejectedCount = recoveryResult.toolCalls.length
+        emit({
+          type: 'status',
+          status: 'error',
+          message: `恢复阶段输出因长度截断，已拒绝执行 ${rejectedCount} 个工具调用。`
+        })
+        for (const call of recoveryResult.toolCalls) {
+          const content = JSON.stringify({
+            error: 'tool_calls_rejected_due_to_length',
+            message: '模型输出因 length/max_tokens 截断，本批工具调用未执行。',
+            toolName: call.function.name
+          })
+          transcript.push({ role: 'tool', tool_call_id: call.id, content })
+          emit({
+            type: 'tool_result',
+            toolCallId: call.id,
+            name: call.function.name,
+            result: content,
+            isError: true
+          })
+          execution.recordToolError()
         }
-        execution.startToolCall()
-        emit({ type: 'tool_call', toolCall: call })
-        const toolResult = allowedRecoveryTools.has(call.function.name) && recovery.shouldAttempt()
-          ? await executeToolCall(opts.toolHandlers, call, {
-              toolCallId: call.id,
-              toolName: call.function.name,
-              emit: (event) => emit(event),
-              signal: runSignal
-            })
-          : {
+        continue
+      }
+
+      emit({ type: 'status', status: 'tool_running' })
+      const recoveryBatch = await executeToolBatch(recoveryResult.toolCalls, opts.toolHandlers, {
+        emit: (event) => emit(event),
+        signal: runSignal,
+        runId: opts.runId
+      }, {
+        isCanceled: () => execution.isCanceled,
+        budgetStop: () => execution.budgetStop('tool'),
+        startToolCall: () => execution.startToolCall(),
+        recordToolError: () => execution.recordToolError(),
+        isDurationExhausted: () => execution.isDurationExhausted,
+        onToolCall: (call) => emit({ type: 'tool_call', toolCall: call }),
+        resolveCall: (call) => {
+          if (allowedRecoveryTools.has(call.function.name) && recovery.shouldAttempt()) {
+            return 'execute'
+          }
+          return {
+            skip: {
               toolCallId: call.id,
               name: call.function.name,
               content: allowedRecoveryTools.has(call.function.name)
@@ -466,9 +621,21 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
                 : `恢复阶段不允许调用工具 ${call.function.name}。`,
               isError: true
             }
-        if (toolResult.isError) execution.recordToolError()
-        if (execution.isCanceled) return canceledResult(true)
-        if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
+          }
+        }
+      })
+      if (recoveryBatch.canceled) {
+        for (const toolResult of recoveryBatch.results) {
+          transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
+          emit({ type: 'tool_result', toolCallId: toolResult.toolCallId, name: toolResult.name, result: toolResult.content, isError: toolResult.isError })
+        }
+        return canceledResult(true)
+      }
+      if (recoveryBatch.durationExhausted) return exhaustedResult(true, 'duration')
+      if (recoveryBatch.exhausted) exhausted = recoveryBatch.exhausted
+      const recoveryTurnResults = recoveryBatch.results
+      const budgetedRecoveryResults = await applyTurnToolResultBudget(recoveryTurnResults, opts)
+      for (const toolResult of budgetedRecoveryResults) {
         transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
         emit({
           type: 'tool_result',
@@ -503,25 +670,30 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     const messages = await prepareMessagesForProvider(transcript, [])
     const afterCompactionStop = execution.budgetStop('provider')
     if (afterCompactionStop) return exhaustedResult(true, afterCompactionStop)
-    execution.startProviderCall()
     let answerStarted = false
-    const final = await streamChatProvider({
-      settings: opts.settings,
-      provider: opts.provider,
-      request: { messages, tools: [], toolChoice: 'none', jsonMode: opts.jsonMode === true },
-      callbacks: {
-        onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-        onToken: (delta) => {
-          if (!answerStarted) {
-            answerStarted = true
-            emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
-          }
-          emit({ type: 'token', delta })
-        }
-      },
-      signal: runSignal
+    const final = await invokeProviderWithRetry({
+      execution,
+      emit,
+      signal: runSignal,
+      invoke: async () =>
+        streamChatProvider({
+          settings: opts.settings,
+          provider: opts.provider,
+          request: { messages, tools: [], toolChoice: 'none', jsonMode: opts.jsonMode === true },
+          callbacks: {
+            onReasoning: (delta) => emit({ type: 'reasoning', delta }),
+            onToken: (delta) => {
+              if (!answerStarted) {
+                answerStarted = true
+                emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
+              }
+              emit({ type: 'token', delta })
+            }
+          },
+          signal: runSignal
+        })
     })
-    execution.recordProviderUsage(final.usage)
+    execution.recordProviderUsage(final.usage, 'provider_reported', final.finishReason)
     if (execution.isCanceled) return canceledResult(true)
     if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
     degradedReason ??= final.degradedReason
@@ -577,42 +749,82 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
   } catch (error) {
     if (execution.isCanceled) return canceledResult(true)
     if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
+    const budgetReason = budgetStopReasonFromError(error)
+    if (budgetReason) return exhaustedResult(true, budgetReason)
     const message = error instanceof Error ? error.message : String(error)
     return execution.failed(transcript, true, degradedReason, message)
   }
 }
 
-function safeFallbackText(
-  fallback: ((transcript: readonly ChatMessage[]) => string | null | undefined) | undefined,
-  transcript: readonly ChatMessage[]
-): string {
-  if (!fallback) return ''
-  try {
-    return fallback(transcript)?.trim() ?? ''
-  } catch {
-    return ''
-  }
+
+
+async function invokeProviderWithRetry<T>(opts: {
+  execution: AgentLoopExecutionState
+  emit: (event: AgentLoopEvent) => void
+  signal: AbortSignal
+  invoke: () => Promise<T>
+  maxAttempts?: number
+}): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? DEFAULT_PROVIDER_RETRY_MAX_ATTEMPTS
+  return withProviderRetry({
+    budget: { maxAttempts, attemptsUsed: 0 },
+    signal: opts.signal,
+    extractRetryAfterMs: extractRetryAfterMsFromError,
+    onRetry: (info) => {
+      opts.execution.noteProviderRetry(info.attempt, info.reasonCode, info.delayMs)
+      opts.emit({
+        type: 'status',
+        status: 'thinking',
+        message: `auto_retry_scheduled:${info.reasonCode}:attempt=${info.attempt}:delayMs=${info.delayMs}`
+      })
+    },
+    onExhausted: (info) => {
+      // Non-retryable first-failure keeps silent UX (immediate fail).
+      // Exhausted attempt budget or multi-attempt fail surfaces a stable code.
+      if (info.reasonCode !== 'auto_retry_exhausted' && info.attemptsUsed <= 1) return
+      opts.emit({
+        type: 'status',
+        status: 'thinking',
+        message: `auto_retry_exhausted:${info.decision.reasonCode}:attempts=${info.attemptsUsed}`
+      })
+    },
+    run: async () => {
+      const stop = opts.execution.budgetStop('provider')
+      if (stop) {
+        throw Object.assign(new Error(`agent budget exhausted: ${stop}`), {
+          name: 'AgentBudgetExhaustedError',
+          budgetStopReason: stop
+        })
+      }
+      opts.execution.startProviderCall()
+      return opts.invoke()
+    }
+  })
 }
 
-function legacyRequestFromMessages(messages: ChatMessage[]): {
-  systemPrompt: string
-  userPrompt: string
-  jsonMode: boolean
-} {
-  const system = messages
-    .filter((m) => m.role === 'system')
-    .map((m) => m.content)
-    .filter(Boolean)
-    .join('\n\n')
-  // Fold prior turns into the user prompt so the degraded path retains context.
-  const turns = messages
-    .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .map((m) => {
-      const role = m.role === 'user' ? '用户' : '助手'
-      return `${role}：${m.content ?? ''}`
-    })
-  const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const userPrompt = turns.length > 1 ? `${turns.slice(0, -1).join('\n\n')}\n\n最新用户消息：${lastUser}` : lastUser
-  return { systemPrompt: system, userPrompt, jsonMode: false }
+async function applyTurnToolResultBudget(
+  results: ToolExecutionResult[],
+  opts: Pick<RunAgentLoopOptions, 'workspaceRoot' | 'runId' | 'toolResultTurnBudget'>
+): Promise<ToolExecutionResult[]> {
+  if (results.length === 0) return results
+  const outcome = await enforceToolResultTurnBudget(
+    results.map((result) => ({
+      toolCallId: result.toolCallId,
+      name: result.name,
+      content: result.content,
+      isError: result.isError
+    })),
+    {
+      workspaceRoot: opts.workspaceRoot ?? '',
+      runId: opts.runId ?? '',
+      config: opts.toolResultTurnBudget
+    }
+  )
+  return outcome.entries.map((entry) => ({
+    toolCallId: entry.toolCallId,
+    name: entry.name,
+    content: entry.content,
+    isError: entry.isError === true
+  }))
 }
 

@@ -15,6 +15,9 @@ import {
 } from './office-scene-runtime'
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
+import { EmptyStartSheet, type EmptyStartSheetResult } from './EmptyStartSheet'
+import type { EmptyStartAskAnswer, EmptyStartPolicy, FutureBlocksAskAnswer } from '../../study-space/session/useStudySession'
+import { FutureBlocksDecisionSheet, type FutureBlocksDecisionSheetResult } from './FutureBlocksDecisionSheet'
 import { WorkbenchTasks } from './WorkbenchTasks'
 import { WorkbenchMusicPlayer } from './WorkbenchMusicPlayer'
 import { StudyTaskSchedulePage } from './StudyTaskSchedulePage'
@@ -125,10 +128,85 @@ const WorkbenchAnalyticsPage = StudyAnalyticsPage
 
 export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const petAppearance = useAppStore((state) => state.settings.pet.appearance)
+  const workspaceRoot = useAppStore((state) => state.appState.activeWorkspace?.rootPath ?? null)
+  const emptyStartPolicy: EmptyStartPolicy = 'ask_every_time'
+  const [emptyStartOpen, setEmptyStartOpen] = useState(false)
+  const emptyStartResolverRef = useRef<((result: EmptyStartSheetResult) => void) | null>(null)
+  const [futureBlocksOpen, setFutureBlocksOpen] = useState(false)
+  const [futureBlocksPayload, setFutureBlocksPayload] = useState<{
+    taskId: string
+    taskTitle: string
+    futureBlockIds: string[]
+  } | null>(null)
+  const futureBlocksResolverRef = useRef<((result: FutureBlocksDecisionSheetResult) => void) | null>(null)
+
+  const askEmptyStart = useCallback((policy: EmptyStartPolicy): Promise<EmptyStartAskAnswer | null> => {
+    void policy
+    return new Promise((resolve) => {
+      emptyStartResolverRef.current = (result) => {
+        emptyStartResolverRef.current = null
+        setEmptyStartOpen(false)
+        if (result.choice === 'cancel') {
+          resolve(null)
+          return
+        }
+        if (result.choice === 'pick_task') {
+          resolve({ choice: 'pick_task', taskId: result.taskId })
+          return
+        }
+        if (result.choice === 'quick_start') {
+          resolve({ choice: 'quick_start', title: result.title })
+          return
+        }
+        resolve({ choice: 'unattributed' })
+      }
+      setEmptyStartOpen(true)
+    })
+  }, [])
+
+  const handleEmptyStartResolve = useCallback((result: EmptyStartSheetResult) => {
+    emptyStartResolverRef.current?.(result)
+  }, [])
+
+  const askFutureBlocks = useCallback(
+    (input: {
+      taskId: string
+      taskTitle: string
+      futureBlockIds: string[]
+    }): Promise<FutureBlocksAskAnswer | null> => {
+      return new Promise((resolve) => {
+        futureBlocksResolverRef.current = (result) => {
+          futureBlocksResolverRef.current = null
+          setFutureBlocksOpen(false)
+          setFutureBlocksPayload(null)
+          if (result.choice === 'dismiss') {
+            resolve({ decision: 'dismiss' })
+            return
+          }
+          resolve({
+            decision: result.choice,
+            ...(result.choice === 'reassign' && result.reassignTaskId
+              ? { reassignTaskId: result.reassignTaskId }
+              : {})
+          })
+        }
+        setFutureBlocksPayload(input)
+        setFutureBlocksOpen(true)
+      })
+    },
+    []
+  )
+
+  const handleFutureBlocksResolve = useCallback((result: FutureBlocksDecisionSheetResult) => {
+    futureBlocksResolverRef.current?.(result)
+  }, [])
+
   const {
     snapshot,
     presence,
     viewModel,
+    selectedTaskId,
+    selectTask,
     joinSpace,
     enterRandomSpace,
     chooseSeat,
@@ -144,7 +222,11 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     removeTask
   } = useStudySession({
     showNotification,
-    openFocusTheater: () => {}
+    openFocusTheater: () => {},
+    workspaceRoot,
+    emptyStartPolicy,
+    onEmptyStartAsk: askEmptyStart,
+    onFutureBlocksNeedDecision: askFutureBlocks
   })
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -585,6 +667,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           tasks={snapshot.tasks}
           openTasks={viewModel.openTasks}
           completedTasks={viewModel.completedTasks}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={selectTask}
           onAddScheduledTask={addScheduledTask}
           onUpdateTask={updateTask}
           onToggleTask={toggleTask}
@@ -626,6 +710,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           <WorkbenchPomodoro
             snapshot={snapshot}
             timerProgress={viewModel.timerProgress}
+            selectedTaskId={selectedTaskId}
             onToggleTimer={toggleTimer}
             onResetTimer={resetTimer}
             onStartTimerInMode={startTimerInMode}
@@ -637,6 +722,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             tasks={snapshot.tasks}
             openTasks={viewModel.openTasks}
             completedTasks={viewModel.completedTasks}
+            selectedTaskId={selectedTaskId}
+            onSelectTask={selectTask}
             onToggleTask={toggleTask}
             onRemoveTask={removeTask}
             onOpenSchedule={openTaskSchedule}
@@ -644,8 +731,35 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             onOpenAnalytics={openStudyAnalytics}
             analyticsButtonRef={analyticsButtonRef}
             defaultOpen={openTasksPanelForAnalytics}
+            activeTimer={
+              selectedTaskId
+              && (snapshot.timerState === 'running' || snapshot.timerState === 'paused')
+                ? { taskId: selectedTaskId, state: snapshot.timerState }
+                : null
+            }
           />
         </div>
+        <EmptyStartSheet
+          open={emptyStartOpen}
+          policy={emptyStartPolicy}
+          openTasks={snapshot.tasks.filter((task) => !task.done).map((task) => ({
+            id: task.id,
+            title: task.title
+          }))}
+          onResolve={handleEmptyStartResolve}
+        />
+
+      <FutureBlocksDecisionSheet
+        open={futureBlocksOpen}
+        taskId={futureBlocksPayload?.taskId ?? ''}
+        taskTitle={futureBlocksPayload?.taskTitle ?? ''}
+        futureBlockIds={futureBlocksPayload?.futureBlockIds ?? []}
+        reassignCandidates={snapshot.tasks
+          .filter((t) => !t.done && t.id !== futureBlocksPayload?.taskId)
+          .map((t) => ({ id: t.id, title: t.title }))}
+        onResolve={handleFutureBlocksResolve}
+      />
+
         {isTaskAddEditorOpen ? (
           <div className="office-workbench-task-add-overlay">
             <StudyTaskSchedulePage

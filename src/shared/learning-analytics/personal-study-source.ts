@@ -109,6 +109,8 @@ function isTaskState(value: unknown): value is StudyTaskStateSnapshot {
   return boundedString(value.taskId) && boundedString(value.title, 160) && typeof value.done === 'boolean'
     && (value.schedule === undefined || isTaskSchedule(value.schedule))
     && (value.workspaceId === undefined || boundedString(value.workspaceId))
+    && (value.categoryId === undefined || boundedString(value.categoryId, 64))
+    && (value.categoryName === undefined || boundedString(value.categoryName, 64))
 }
 
 function hasUniqueTaskIds(tasks: StudyTaskStateSnapshot[]): boolean {
@@ -320,17 +322,156 @@ export function buildPersonalStudyAnalytics(input: { query: LearningAnalyticsQue
   const focusData: FocusAnalytics = { daily: rows.map(({ covered: _covered, ...row }) => row), heatmap: rows.map((row) => ({ date: row.date, focusSeconds: row.focusSeconds, completedFocusSessions: row.completedFocusSessions, tasksCompleted: row.tasksCompleted, isCovered: row.covered })), trend: rows.map((row) => ({ date: row.date, focusSeconds: row.focusSeconds, completedFocusSessions: row.completedFocusSessions })), hourBuckets: rows.reduce((hours, row) => hours.map((value, index) => value + (row.hourBuckets[index] ?? 0)) as unknown as AnalyticsHourBuckets, EMPTY_HOURS()), modeBreakdown: sumDimension<StudyAnalyticsModeId>(rows, 'modeSeconds'), roomBreakdown: sumDimension<StudyAnalyticsRoomId>(rows, 'roomSeconds'), signalBreakdown: sumDimension<StudyAnalyticsSignalId>(rows, 'signalSeconds'), sessionStructure: { focusSeconds, breakSeconds, completed, interrupted, canceled, averageCompletedFocusSeconds: completed > 0 ? completedFacts.reduce((sum, fact) => sum + fact.activeSeconds, 0) / completed : null, completionRate: terminalFocus.length > 0 ? completed / terminalFocus.length : null }, currentGrowth: { xp: validation.snapshot.current.xp, level: growthLevel, streakDays: validation.snapshot.current.streakDays, badges: [], plantStage: plantStage(validation.snapshot.current.xp) } }
   const focus: AnalyticsSectionResult<FocusAnalytics> = rangedSessions.length === 0 && rows.some((row) => row.covered) ? { state: 'empty', data: focusData, reason: 'no_activity', temporal: { kind: 'range', range: query.range }, coverage: sectionCoverage, warnings } : rangedSessions.length === 0 ? { state: 'unavailable', reason: 'history_not_recorded', temporal: { kind: 'range', range: query.range }, coverage: sectionCoverage, warnings } : { state: sectionCoverage.complete ? 'available' : 'partial', data: focusData, temporal: { kind: 'range', range: query.range }, coverage: sectionCoverage, warnings }
   const activities = validation.snapshot.facts.filter((fact): fact is StudyTaskActivityFact => fact.factKind === 'study_activity' && fact.activity.kind.startsWith('task_') && inRange(fact.localDate, query.range))
-  const byTask = new Map<string, { title: string; seconds: number; completedInRange: boolean; currentlyDone: boolean | null }>()
+  const currentTasks = validation.snapshot.current.tasks
+  const currentTaskById = new Map(currentTasks.map((task) => [task.taskId, task]))
+  const byTask = new Map<string, {
+    title: string
+    seconds: number
+    completedInRange: boolean
+    currentlyDone: boolean | null
+    categoryId: string | null
+    categoryName: string | null
+  }>()
   for (const fact of sessions) {
     if (fact.timerMode !== 'focus' || fact.taskAttribution.kind !== 'explicit' || !fact.daySegments.some((segment) => inRange(segment.localDate, query.range))) continue
     const attribution = fact.taskAttribution
-    const item = byTask.get(attribution.taskId) ?? { title: attribution.taskTitleSnapshot, seconds: 0, completedInRange: false, currentlyDone: validation.snapshot.current.tasks.find((task) => task.taskId === attribution.taskId)?.done ?? null }
+    const currentTask = currentTaskById.get(attribution.taskId)
+    const item = byTask.get(attribution.taskId) ?? {
+      title: attribution.taskTitleSnapshot,
+      seconds: 0,
+      completedInRange: false,
+      currentlyDone: currentTask?.done ?? null,
+      categoryId: currentTask?.categoryId ?? null,
+      categoryName: currentTask?.categoryName ?? null
+    }
     item.seconds += sessionSecondsInRange(fact, query.range)
     item.completedInRange ||= fact.outcome === 'completed' && sessionEndsInRange(fact, query.range)
     byTask.set(attribution.taskId, item)
   }
-  const currentTasks = validation.snapshot.current.tasks
-  const taskData: TaskAnalytics = { current: { asOf: generatedAt, total: currentTasks.length, open: currentTasks.filter((task) => !task.done).length, completed: currentTasks.filter((task) => task.done).length, overdue: 0, completionRate: currentTasks.length ? currentTasks.filter((task) => task.done).length / currentTasks.length : null }, flow: { created: activities.filter((fact) => fact.activity.kind === 'task_created').length, completed: activities.filter((fact) => fact.activity.kind === 'task_completed').length, reopened: activities.filter((fact) => fact.activity.kind === 'task_reopened').length, deleted: activities.filter((fact) => fact.activity.kind === 'task_deleted').length, byDay: rows.map((row) => ({ date: row.date, created: row.tasksCreated, completed: row.tasksCompleted, reopened: row.tasksReopened, deleted: row.tasksDeleted })) }, plan: { plannedSeconds: 0, scheduledOccurrences: 0, attributedFocusSeconds: [...byTask.values()].reduce((sum, item) => sum + item.seconds, 0), executionRate: null }, topByAttributedFocus: [...byTask.entries()].sort((left, right) => right[1].seconds - left[1].seconds).slice(0, 10).map(([taskId, item]) => ({ taskId, title: item.title, focusSeconds: item.seconds, completedInRange: item.completedInRange, currentlyDone: item.currentlyDone })), unattributedFocusSeconds: sessions.filter((fact) => fact.timerMode === 'focus' && fact.taskAttribution.kind === 'unattributed').reduce((sum, fact) => sum + sessionSecondsInRange(fact, query.range), 0) }
+  const topByAttributedFocus = [...byTask.entries()]
+    .sort((left, right) => right[1].seconds - left[1].seconds)
+    .slice(0, 10)
+    .map(([taskId, item]) => ({
+      taskId,
+      title: item.title,
+      focusSeconds: item.seconds,
+      completedInRange: item.completedInRange,
+      currentlyDone: item.currentlyDone,
+      categoryId: item.categoryId,
+      categoryName: item.categoryName
+    }))
+  const byCategory = new Map<string, { categoryId: string; label: string; focusSeconds: number }>()
+  for (const item of byTask.values()) {
+    const categoryId = item.categoryId && item.categoryId.trim() ? item.categoryId : 'uncategorized'
+    const label = item.categoryName?.trim()
+      || (categoryId === 'uncategorized' ? 'Uncategorized' : categoryId)
+    const bucket = byCategory.get(categoryId) ?? { categoryId, label, focusSeconds: 0 }
+    bucket.focusSeconds += item.seconds
+    byCategory.set(categoryId, bucket)
+  }
+  const byCategoryFocus = [...byCategory.values()].sort((left, right) => right.focusSeconds - left.focusSeconds)
+
+  // Checklist completion share: range-filtered task_completed activity facts.
+  // Prefer category/title from the fact snapshot, fall back to current tasks.
+  const byCompletion = new Map<string, {
+    title: string
+    completionCount: number
+    categoryId: string | null
+    categoryName: string | null
+  }>()
+  for (const fact of activities) {
+    if (fact.activity.kind !== 'task_completed') continue
+    const after = fact.activity.after
+    const currentTask = currentTaskById.get(after.taskId)
+    const categoryId = after.categoryId ?? currentTask?.categoryId ?? null
+    const categoryName = after.categoryName ?? currentTask?.categoryName ?? null
+    const item = byCompletion.get(after.taskId) ?? {
+      title: after.title || currentTask?.title || after.taskId,
+      completionCount: 0,
+      categoryId,
+      categoryName
+    }
+    item.completionCount += 1
+    // Prefer non-empty category when a later completion has richer snapshot data.
+    if (!item.categoryId && categoryId) {
+      item.categoryId = categoryId
+      item.categoryName = categoryName
+    }
+    if (after.title) item.title = after.title
+    byCompletion.set(after.taskId, item)
+  }
+  // Inventory fallback: when the range has no task_completed facts but the learner has
+  // currently-done tasks, surface those as unit completion share so checklist UX is not empty.
+  if (byCompletion.size === 0) {
+    for (const task of currentTasks) {
+      if (!task.done) continue
+      byCompletion.set(task.taskId, {
+        title: task.title,
+        completionCount: 1,
+        categoryId: task.categoryId ?? null,
+        categoryName: task.categoryName ?? null
+      })
+    }
+  }
+  const topByCompletion = [...byCompletion.entries()]
+    .sort((left, right) => right[1].completionCount - left[1].completionCount || left[1].title.localeCompare(right[1].title))
+    .slice(0, 10)
+    .map(([taskId, item]) => ({
+      taskId,
+      title: item.title,
+      completionCount: item.completionCount,
+      categoryId: item.categoryId,
+      categoryName: item.categoryName
+    }))
+  const byCategoryCompletionMap = new Map<string, { categoryId: string; label: string; completionCount: number }>()
+  for (const item of byCompletion.values()) {
+    const categoryId = item.categoryId && item.categoryId.trim() ? item.categoryId : 'uncategorized'
+    const label = item.categoryName?.trim()
+      || (categoryId === 'uncategorized' ? 'Uncategorized' : categoryId)
+    const bucket = byCategoryCompletionMap.get(categoryId) ?? { categoryId, label, completionCount: 0 }
+    bucket.completionCount += item.completionCount
+    byCategoryCompletionMap.set(categoryId, bucket)
+  }
+  const byCategoryCompletion = [...byCategoryCompletionMap.values()]
+    .sort((left, right) => right.completionCount - left.completionCount || left.label.localeCompare(right.label))
+
+  const taskData: TaskAnalytics = {
+    current: {
+      asOf: generatedAt,
+      total: currentTasks.length,
+      open: currentTasks.filter((task) => !task.done).length,
+      completed: currentTasks.filter((task) => task.done).length,
+      overdue: 0,
+      completionRate: currentTasks.length ? currentTasks.filter((task) => task.done).length / currentTasks.length : null
+    },
+    flow: {
+      created: activities.filter((fact) => fact.activity.kind === 'task_created').length,
+      completed: activities.filter((fact) => fact.activity.kind === 'task_completed').length,
+      reopened: activities.filter((fact) => fact.activity.kind === 'task_reopened').length,
+      deleted: activities.filter((fact) => fact.activity.kind === 'task_deleted').length,
+      byDay: rows.map((row) => ({
+        date: row.date,
+        created: row.tasksCreated,
+        completed: row.tasksCompleted,
+        reopened: row.tasksReopened,
+        deleted: row.tasksDeleted
+      }))
+    },
+    plan: {
+      plannedSeconds: 0,
+      scheduledOccurrences: 0,
+      attributedFocusSeconds: [...byTask.values()].reduce((sum, item) => sum + item.seconds, 0),
+      executionRate: null
+    },
+    topByAttributedFocus,
+    byCategoryFocus,
+    topByCompletion,
+    byCategoryCompletion,
+    unattributedFocusSeconds: sessions
+      .filter((fact) => fact.timerMode === 'focus' && fact.taskAttribution.kind === 'unattributed')
+      .reduce((sum, fact) => sum + sessionSecondsInRange(fact, query.range), 0)
+  }
+
   const taskWarnings = [...warnings, warning('schedule_history_missing', 'Task plan history is not reconstructable; planned time and execution rate remain unavailable.')]
   if (taskData.plan.attributedFocusSeconds === 0) taskWarnings.push(warning('task_attribution_missing', 'No explicit task-attributed focus facts were available.'))
   const taskTemporal = { kind: 'mixed' as const, range: query.range, asOf: generatedAt, rangeFields: ['flow', 'plan'], rangeInvariantFields: ['current'] }

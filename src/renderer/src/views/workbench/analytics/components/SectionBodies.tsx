@@ -23,12 +23,33 @@ type Ctx = {
   localToday: AnalyticsLocalDate
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Stat({
+  label,
+  value,
+  hint,
+  tone = 'default'
+}: {
+  label: string
+  value: string
+  hint?: string
+  tone?: 'default' | 'ok' | 'warn' | 'alert'
+}) {
+  const valueClass =
+    tone === 'default' ? 'analytics-stat__value' : `analytics-stat__value analytics-stat__value--${tone}`
   return (
     <div className="analytics-stat">
       <span className="analytics-stat__label">{label}</span>
-      <strong className="analytics-stat__value">{value}</strong>
+      <strong className={valueClass}>{value}</strong>
       {hint ? <small className="analytics-stat__hint">{hint}</small> : null}
+    </div>
+  )
+}
+
+function KeyValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
     </div>
   )
 }
@@ -45,13 +66,23 @@ export function HeroBody({ data, copy, fmt }: Ctx & { data: LearningAnalyticsHer
         hint={copy.hero.inRange}
       />
       <Stat label={copy.hero.tokens} value={fmt.compact(data.totalTokens)} hint={copy.hero.inRange} />
-      <Stat label={copy.hero.streak} value={`${fmt.integer(data.currentStreakDays)} ${copy.hero.days}`} hint={copy.hero.current} />
+      <Stat
+        label={copy.hero.streak}
+        value={`${fmt.integer(data.currentStreakDays)} ${copy.hero.days}`}
+        hint={copy.hero.current}
+        tone="ok"
+      />
       <Stat
         label={copy.hero.level}
         value={`${fmt.integer(data.currentLevel.level)}${copy.hero.levelUnit ? ` ${copy.hero.levelUnit}` : ''}`}
         hint={copy.hero.current}
       />
-      <Stat label={copy.hero.tasks} value={fmt.percent(data.currentTaskCompletionRate)} hint={copy.hero.current} />
+      <Stat
+        label={copy.hero.tasks}
+        value={fmt.percent(data.currentTaskCompletionRate)}
+        hint={copy.hero.current}
+        tone={(data.currentTaskCompletionRate ?? 0) >= 0.7 ? 'ok' : (data.currentTaskCompletionRate ?? 0) > 0 ? 'warn' : 'default'}
+      />
     </div>
   )
 }
@@ -152,12 +183,12 @@ export function FocusBody({ data, copy, fmt, localToday }: Ctx & { data: FocusAn
       <div className="analytics-subcard analytics-focus__structure">
         <h3 className="analytics-subcard__title">{copy.focus.structureTitle}</h3>
         <dl className="analytics-keyvalue-grid">
-          <div><dt>{copy.focus.completed}</dt><dd>{fmt.integer(s.completed)}</dd></div>
-          <div><dt>{copy.focus.interrupted}</dt><dd>{fmt.integer(s.interrupted)}</dd></div>
-          <div><dt>{copy.focus.canceled}</dt><dd>{fmt.integer(s.canceled)}</dd></div>
-          <div><dt>{copy.focus.completionRate}</dt><dd>{fmt.percent(s.completionRate)}</dd></div>
-          <div><dt>{copy.focus.avgSession}</dt><dd>{fmt.duration(s.averageCompletedFocusSeconds)}</dd></div>
-          <div><dt>{copy.focus.breakTime}</dt><dd>{fmt.duration(s.breakSeconds)}</dd></div>
+          <KeyValue label={copy.focus.completed} value={fmt.integer(s.completed)} />
+          <KeyValue label={copy.focus.interrupted} value={fmt.integer(s.interrupted)} />
+          <KeyValue label={copy.focus.canceled} value={fmt.integer(s.canceled)} />
+          <KeyValue label={copy.focus.completionRate} value={fmt.percent(s.completionRate)} />
+          <KeyValue label={copy.focus.avgSession} value={fmt.duration(s.averageCompletedFocusSeconds)} />
+          <KeyValue label={copy.focus.breakTime} value={fmt.duration(s.breakSeconds)} />
         </dl>
       </div>
     </div>
@@ -202,38 +233,118 @@ export function TokenBody({ data, copy, fmt, localToday }: Ctx & { data: TokenAn
 /* --------------------------------------------------------------- Tasks --- */
 
 export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
+  // Prefer attributed focus-time pies; fall back to checklist completion counts so
+  // checking tasks on the list produces visible share charts without a focus run.
+  const hasFocusShare = data.topByAttributedFocus.some((task) => task.focusSeconds > 0)
+  const taskShareMode: 'focus' | 'completion' = hasFocusShare ? 'focus' : 'completion'
+  const taskFocusSlices: DonutSlice[] = hasFocusShare
+    ? data.topByAttributedFocus.map((task) => ({
+        id: task.taskId,
+        label: task.title,
+        value: task.focusSeconds
+      }))
+    : data.topByCompletion.map((task) => ({
+        id: task.taskId,
+        label: task.title,
+        value: task.completionCount
+      }))
+  const categoryFocusSlices: DonutSlice[] = hasFocusShare
+    ? data.byCategoryFocus.map((entry) => ({
+        id: entry.categoryId,
+        label:
+          entry.categoryId === 'uncategorized'
+            ? copy.tasks.uncategorized
+            : entry.label || entry.categoryId,
+        value: entry.focusSeconds
+      }))
+    : data.byCategoryCompletion.map((entry) => ({
+        id: entry.categoryId,
+        label:
+          entry.categoryId === 'uncategorized'
+            ? copy.tasks.uncategorized
+            : entry.label || entry.categoryId,
+        value: entry.completionCount
+      }))
+  const taskChartTitle = taskShareMode === 'focus' ? copy.tasks.byTaskTitle : copy.tasks.byTaskCompletionTitle
+  const categoryChartTitle = taskShareMode === 'focus' ? copy.tasks.byCategoryTitle : copy.tasks.byCategoryCompletionTitle
+  const formatShareValue = taskShareMode === 'focus'
+    ? fmt.duration
+    : (value: number) => `${fmt.integer(value)}${copy.tasks.completionCountUnit}`
+  const emptyShareLabel = taskShareMode === 'focus' ? copy.tasks.noTopTasks : copy.tasks.noCompletionShare
+  const rankedTasks = hasFocusShare
+    ? data.topByAttributedFocus.map((task) => ({
+        id: task.taskId,
+        label: task.title,
+        value: fmt.duration(task.focusSeconds)
+      }))
+    : data.topByCompletion.map((task) => ({
+        id: task.taskId,
+        label: task.title,
+        value: `${fmt.integer(task.completionCount)}${copy.tasks.completionCountUnit}`
+      }))
+  const rankTitle = hasFocusShare ? copy.tasks.topTasksTitle : copy.tasks.topCompletionTitle
+
   return (
     <div className="analytics-tasks">
       <div className="analytics-stat-row">
         <Stat label={copy.tasks.open} value={fmt.integer(data.current.open)} />
-        <Stat label={copy.tasks.completed} value={fmt.integer(data.current.completed)} />
-        <Stat label={copy.tasks.overdue} value={fmt.integer(data.current.overdue)} />
-        <Stat label={copy.tasks.completionRate} value={fmt.percent(data.current.completionRate)} />
+        <Stat label={copy.tasks.completed} value={fmt.integer(data.current.completed)} tone="ok" />
+        <Stat
+          label={copy.tasks.overdue}
+          value={fmt.integer(data.current.overdue)}
+          tone={data.current.overdue > 0 ? 'alert' : 'default'}
+        />
+        <Stat
+          label={copy.tasks.completionRate}
+          value={fmt.percent(data.current.completionRate)}
+          tone={(data.current.completionRate ?? 0) >= 0.7 ? 'ok' : (data.current.completionRate ?? 0) > 0 ? 'warn' : 'default'}
+        />
+      </div>
+
+      <div className="analytics-subcard analytics-tasks__donuts">
+        <div className="analytics-donut-cell">
+          <h3 className="analytics-subcard__title">{taskChartTitle}</h3>
+          <DonutChart
+            slices={taskFocusSlices}
+            title={taskChartTitle}
+            formatValue={formatShareValue}
+            emptyLabel={emptyShareLabel}
+          />
+        </div>
+        <div className="analytics-donut-cell">
+          <h3 className="analytics-subcard__title">{categoryChartTitle}</h3>
+          <DonutChart
+            slices={categoryFocusSlices}
+            title={categoryChartTitle}
+            formatValue={formatShareValue}
+            emptyLabel={emptyShareLabel}
+          />
+        </div>
       </div>
 
       <div className="analytics-subcard">
         <h3 className="analytics-subcard__title">{copy.tasks.flowTitle}</h3>
         <dl className="analytics-keyvalue-grid">
-          <div><dt>{copy.tasks.created}</dt><dd>{fmt.integer(data.flow.created)}</dd></div>
-          <div><dt>{copy.tasks.completed}</dt><dd>{fmt.integer(data.flow.completed)}</dd></div>
-          <div><dt>{copy.tasks.reopened}</dt><dd>{fmt.integer(data.flow.reopened)}</dd></div>
-          <div><dt>{copy.tasks.deleted}</dt><dd>{fmt.integer(data.flow.deleted)}</dd></div>
+          <KeyValue label={copy.tasks.created} value={fmt.integer(data.flow.created)} />
+          <KeyValue label={copy.tasks.completed} value={fmt.integer(data.flow.completed)} />
+          <KeyValue label={copy.tasks.reopened} value={fmt.integer(data.flow.reopened)} />
+          <KeyValue label={copy.tasks.deleted} value={fmt.integer(data.flow.deleted)} />
         </dl>
       </div>
 
       <div className="analytics-subcard">
-        <h3 className="analytics-subcard__title">{copy.tasks.topTasksTitle}</h3>
-        {data.topByAttributedFocus.length > 0 ? (
+        <h3 className="analytics-subcard__title">{rankTitle}</h3>
+        {rankedTasks.length > 0 ? (
           <ol className="analytics-rank-list">
-            {data.topByAttributedFocus.map((task) => (
-              <li key={task.taskId}>
-                <bdi dir="auto" className="analytics-rank-list__label">{task.title}</bdi>
-                <span className="analytics-rank-list__value">{fmt.duration(task.focusSeconds)}</span>
+            {rankedTasks.map((task) => (
+              <li key={task.id}>
+                <bdi dir="auto" className="analytics-rank-list__label">{task.label}</bdi>
+                <span className="analytics-rank-list__value">{task.value}</span>
               </li>
             ))}
           </ol>
         ) : (
-          <p className="analytics-chart-empty">{copy.tasks.noTopTasks}</p>
+          <p className="analytics-chart-empty">{emptyShareLabel}</p>
         )}
       </div>
     </div>
@@ -246,9 +357,13 @@ export function ReviewBody({ data, copy, fmt }: Ctx & { data: ReviewAnalytics })
   return (
     <div className="analytics-review">
       <div className="analytics-stat-row">
-        <Stat label={copy.review.accuracy} value={fmt.percent(data.cumulative.accuracy)} />
+        <Stat
+          label={copy.review.accuracy}
+          value={fmt.percent(data.cumulative.accuracy)}
+          tone={(data.cumulative.accuracy ?? 0) >= 0.8 ? 'ok' : (data.cumulative.accuracy ?? 0) > 0 ? 'warn' : 'default'}
+        />
         <Stat label={copy.review.answered} value={fmt.integer(data.cumulative.totalAnswered)} />
-        <Stat label={copy.review.correct} value={fmt.integer(data.cumulative.correct)} />
+        <Stat label={copy.review.correct} value={fmt.integer(data.cumulative.correct)} tone="ok" />
         <Stat label={copy.review.cards} value={fmt.integer(data.cumulative.cardCount)} />
       </div>
 
@@ -260,7 +375,7 @@ export function ReviewBody({ data, copy, fmt }: Ctx & { data: ReviewAnalytics })
               <li key={lesson.lessonId}>
                 <bdi dir="auto" className="analytics-rank-list__label">{lesson.title ?? lesson.lessonId}</bdi>
                 <span className="analytics-rank-list__value">
-                  {fmt.percent(lesson.accuracy)} · {fmt.integer(lesson.answered)}
+                  {`${fmt.percent(lesson.accuracy)} · ${fmt.integer(lesson.answered)}`}
                 </span>
               </li>
             ))}

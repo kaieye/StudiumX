@@ -96,6 +96,8 @@ const api: TeachingSystemApi = {
   replayAgentChatEvents: (payload) =>
     ipcRenderer.invoke(teachingInvokeChannels.replayAgentChatEvents, payload),
   cancelAgentChatStream: (streamId) => ipcRenderer.invoke(teachingInvokeChannels.cancelAgentChatStream, streamId),
+  steerAgentChatStream: (payload) => ipcRenderer.invoke(teachingInvokeChannels.steerAgentChatStream, payload),
+  followUpAgentChatStream: (payload) => ipcRenderer.invoke(teachingInvokeChannels.followUpAgentChatStream, payload),
   answerAgentChatTool: (streamId, toolCallId, answers) =>
     ipcRenderer.invoke(teachingInvokeChannels.answerAgentChatTool, { streamId, toolCallId, answers }),
   onAgentChatChunk: (handler) => registerIpcListener<AgentChatStreamChunk>(teachingEventChannels.agentChatChunk, handler),
@@ -136,7 +138,16 @@ const api: TeachingSystemApi = {
   updateMemory: (memoryId, patch) => ipcRenderer.invoke(teachingInvokeChannels.updateMemory, memoryId, patch),
   deleteMemory: (memoryId, workspaceRoot) => ipcRenderer.invoke(teachingInvokeChannels.deleteMemory, memoryId, workspaceRoot),
   openLogFile: () => ipcRenderer.invoke(teachingInvokeChannels.openLogFile),
-  openAppDataDir: () => ipcRenderer.invoke(teachingInvokeChannels.openAppDataDir)
+  openAppDataDir: () => ipcRenderer.invoke(teachingInvokeChannels.openAppDataDir),
+  runTeachingDoctor: (payload) => ipcRenderer.invoke(teachingInvokeChannels.runTeachingDoctor, payload),
+  projectTeachingTurnReview: (payload) => ipcRenderer.invoke(teachingInvokeChannels.projectTeachingTurnReview, payload),
+  decideTeachingTurnReview: (payload) => ipcRenderer.invoke(teachingInvokeChannels.decideTeachingTurnReview, payload),
+  projectTeachingTurnReviewHandoff: (payload) => ipcRenderer.invoke(teachingInvokeChannels.projectTeachingTurnReviewHandoff, payload),
+  getTeachingTurnReviewLastBundle: () => ipcRenderer.invoke(teachingInvokeChannels.getTeachingTurnReviewLastBundle),
+  saveTeachingTurnReviewLastBundle: (payload) => ipcRenderer.invoke(teachingInvokeChannels.saveTeachingTurnReviewLastBundle, payload),
+  projectAgentSessionQueue: (payload) => ipcRenderer.invoke(teachingInvokeChannels.projectAgentSessionQueue, payload),
+  readStudyPlanning: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readStudyPlanning, payload),
+  applyStudyPlanning: (payload) => ipcRenderer.invoke(teachingInvokeChannels.applyStudyPlanning, payload)
 }
 
 const musicApi: StudiumxMusicApi = {
@@ -153,3 +164,4 @@ const musicApi: StudiumxMusicApi = {
 
 contextBridge.exposeInMainWorld('teachingSystem', api)
 contextBridge.exposeInMainWorld('studiumxMusic', musicApi)
+

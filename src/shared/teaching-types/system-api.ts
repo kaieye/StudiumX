@@ -39,7 +39,11 @@ import type {
   UpdateAgentConversationBranchStatusPayload,
   UpdateAgentConversationBranchStatusResult,
   ProjectAgentConversationSummariesPayload,
-  ProjectAgentConversationSummariesResult
+  ProjectAgentConversationSummariesResult,
+  SteerAgentChatStreamPayload,
+  SteerAgentChatStreamResult,
+  FollowUpAgentChatStreamPayload,
+  FollowUpAgentChatStreamResult
 } from './agent'
 import type {
   CreateTeachingMemoryPayload,
@@ -110,6 +114,22 @@ import type {
 } from './analytics'
 
 import type { LearningOutcomeCommitResult } from './learning-outcome'
+import type { RunTeachingDoctorPayload, TeachingDoctorReport } from './teaching-doctor'
+import type {
+  DecideTeachingTurnReviewPayload,
+  DecideTeachingTurnReviewResult,
+  GetTeachingTurnReviewLastBundleResult,
+  ProjectTeachingTurnReviewHandoffPayload,
+  ProjectTeachingTurnReviewHandoffResult,
+  ProjectTeachingTurnReviewPayload,
+  ProjectTeachingTurnReviewResult,
+  SaveTeachingTurnReviewLastBundlePayload,
+  SaveTeachingTurnReviewLastBundleResult
+} from './teaching-turn-review-ipc'
+import type {
+  ProjectAgentSessionQueuePayload,
+  ProjectAgentSessionQueueResult
+} from './agent-session-queue'
 
 /** Versioned renderer command for committing a canonical Learning Session outcome. */
 export type CommitLearningOutcomeRequest = {
@@ -169,6 +189,10 @@ export type TeachingSystemApi = {
   listInterruptedAgentRuns: () => Promise<InterruptedAgentRun[]>
   replayAgentChatEvents: (payload: ReplayAgentChatEventsPayload) => Promise<AgentEventBusReplay>
   cancelAgentChatStream: (streamId: string) => Promise<{ canceled: boolean }>
+  /** Mid-run steer on an active stream (≠ abort). Product autoDrain remains false (ADR-0082). */
+  steerAgentChatStream: (payload: SteerAgentChatStreamPayload) => Promise<SteerAgentChatStreamResult>
+  /** Mid-run follow-up queue/inject on an active stream. */
+  followUpAgentChatStream: (payload: FollowUpAgentChatStreamPayload) => Promise<FollowUpAgentChatStreamResult>
   answerAgentChatTool: (
     streamId: string,
     toolCallId: string,
@@ -214,4 +238,65 @@ export type TeachingSystemApi = {
   deleteMemory: (memoryId: string, workspaceRoot?: string) => Promise<void>
   openLogFile: () => Promise<OpenPathResult>
   openAppDataDir: () => Promise<OpenPathResult>
+  /** Read-only TeachingDoctor: assembles process crash-marker facts + pure report (ADR-0084). */
+  runTeachingDoctor: (payload?: RunTeachingDoctorPayload) => Promise<TeachingDoctorReport>
+  /**
+   * Project teaching-turn review bundle (+ optional decision) to UI-safe DTO (ADR-0087).
+   * No auto-apply; approved ids are not an apply plan.
+   */
+  projectTeachingTurnReview: (payload: ProjectTeachingTurnReviewPayload) => Promise<ProjectTeachingTurnReviewResult>
+  /**
+   * Validate human decision + project (same pure path; clearer decision-submit name).
+   * Never installs skills / writes memory / mutates profile.
+   */
+  decideTeachingTurnReview: (payload: DecideTeachingTurnReviewPayload) => Promise<DecideTeachingTurnReviewResult>
+  /**
+   * Project post-approve handoff intents from approval projection or bundle+decision (ADR-0110).
+   * Consent-gated routing DTO only — never auto-apply / installSkill / createMemory.
+   */
+  projectTeachingTurnReviewHandoff: (
+    payload: ProjectTeachingTurnReviewHandoffPayload
+  ) => Promise<ProjectTeachingTurnReviewHandoffResult>
+  /**
+   * Load last durable teaching-turn review snapshot from userData (ADR-0114).
+   * Read-only product surface; never auto-applies.
+   */
+  getTeachingTurnReviewLastBundle: () => Promise<GetTeachingTurnReviewLastBundleResult>
+  /**
+   * Save last durable teaching-turn review snapshot to userData (ADR-0114).
+   * Fail-closed payload only; durable cache only — never auto-apply.
+   */
+  saveTeachingTurnReviewLastBundle: (
+    payload: SaveTeachingTurnReviewLastBundlePayload
+  ) => Promise<SaveTeachingTurnReviewLastBundleResult>
+  /**
+   * Read-only project of active agent session queue via façade.projectQueue (ADR-0091).
+   * Never drains / steers / aborts; product autoDrain remains false.
+   */
+  projectAgentSessionQueue: (payload: ProjectAgentSessionQueuePayload) => Promise<ProjectAgentSessionQueueResult>
+  /**
+   * Read StudyPlanningSnapshotV1 for a registered workspace (ADR-0117).
+   * File-backed sole-writer; not localStorage.
+   */
+  readStudyPlanning: (payload: {
+    workspaceRoot: string
+  }) => Promise<
+    | {
+        ok: true
+        snapshot: import('../study-planning').StudyPlanningSnapshotV1
+        path: string
+        source: 'canonical' | 'backup' | 'empty'
+      }
+    | { ok: false; error: { code: string; message: string } }
+  >
+  /**
+   * Apply one StudyPlanning command with expectedRevision CAS (ADR-0117).
+   * Exact actionId retry is process-local on the durable host.
+   */
+  applyStudyPlanning: (payload: {
+    workspaceRoot: string
+    expectedRevision: number
+    command: import('../study-planning').StudyPlanningCommandEnvelope
+  }) => Promise<import('../study-planning').ApplyResult & { path?: string }>
 }
+

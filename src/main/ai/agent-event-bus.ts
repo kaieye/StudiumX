@@ -9,6 +9,11 @@ import type {
   AgentLoopStatus
 } from '../../shared/teaching-types'
 import type { AgentLoopEvent } from './agent-loop'
+import {
+  mapAgentLoopEventToPresentation,
+  wrapPresentationCallbacks,
+  type AgentStreamPresentationDiagnostic
+} from './agent-stream-events'
 
 export type AgentEventBusOptions = {
   streamId: string
@@ -19,6 +24,11 @@ export type AgentEventBusOptions = {
   onTool: (event: AgentChatStreamToolEvent) => void
   onRealtimeEvent?: (event: AgentRealtimeEvent) => void
   onRecorded?: (event: AgentRealtimeEvent) => void
+  /**
+   * Local-only presentation diagnostic (B-06). Never remote telemetry.
+   * Presentation callback throws are swallowed after this hook runs.
+   */
+  onPresentationError?: (diagnostic: AgentStreamPresentationDiagnostic) => void
 }
 
 const DEFAULT_MAX_REPLAY_BYTES = 64 * 1024
@@ -43,52 +53,31 @@ export class AgentEventBus {
     this.streamId = options.streamId
     this.maxReplayBytes = Math.max(1024, Math.floor(options.maxReplayBytes ?? DEFAULT_MAX_REPLAY_BYTES))
     this.now = options.now ?? (() => new Date().toISOString())
-    this.onChunk = options.onChunk
-    this.onStatus = options.onStatus
-    this.onTool = options.onTool
-    this.onRealtimeEvent = options.onRealtimeEvent
-    this.onRecorded = options.onRecorded
+    // B-06: isolate presentation callbacks so UI/IPC throws never re-enter the agent loop.
+    const safe = wrapPresentationCallbacks({
+      onChunk: options.onChunk,
+      onStatus: options.onStatus,
+      onTool: options.onTool,
+      onRealtimeEvent: options.onRealtimeEvent,
+      onRecorded: options.onRecorded,
+      onPresentationError: options.onPresentationError
+    })
+    this.onChunk = safe.onChunk
+    this.onStatus = safe.onStatus
+    this.onTool = safe.onTool
+    this.onRealtimeEvent = safe.onRealtimeEvent
+    this.onRecorded = safe.onRecorded
   }
 
   publishLoopEvent(event: AgentLoopEvent): void {
-    if (event.type === 'status') {
-      this.publishStatus(event.status, event.message)
-    } else if (event.type === 'token') {
-      this.publishChunk(event.delta, 'answer')
-    } else if (event.type === 'reasoning') {
-      this.publishChunk(event.delta, 'reasoning')
-    } else if (event.type === 'tool_call') {
-      this.publishTool({
-        toolCall: {
-          id: event.toolCall.id,
-          name: event.toolCall.function.name,
-          arguments: event.toolCall.function.arguments
-        }
-      })
-    } else if (event.type === 'tool_result') {
-      this.publishTool({
-        toolCall: { id: event.toolCallId, name: event.name, arguments: '' },
-        result: event.result,
-        isError: event.isError
-      })
-    } else if (event.type === 'child_run_queued') {
-      this.publishStatus('tool_running', `子任务排队：${event.child.label}`)
-    } else if (event.type === 'child_run_started') {
-      this.publishStatus('tool_running', `子任务开始：${event.child.label}`)
-    } else if (event.type === 'child_run_delta') {
-      this.publishStatus('tool_running', `子任务进度：${event.childRunId}：${event.message}`)
-    } else if (event.type === 'child_run_completed') {
-      this.publishStatus('tool_done', `子任务完成：${event.child.label}`)
-    } else if (event.type === 'child_run_failed') {
-      this.publishStatus('tool_done', `子任务失败：${event.child.label}`)
-    } else if (event.type === 'child_run_canceled') {
-      this.publishStatus('tool_done', `子任务取消：${event.child.label}`)
-    } else if (event.type === 'context_compaction_started') {
-      this.publishStatus('thinking', `上下文压缩开始：${contextCompactionReasonLabel(event.reason)}`)
-    } else if (event.type === 'context_compaction_completed') {
-      this.publishStatus('thinking', `上下文压缩完成：约节省 ${Math.max(0, event.replacedTokens - event.summaryTokens)} token`)
-    } else if (event.type === 'context_compaction_failed') {
-      this.publishStatus('thinking', `上下文压缩失败，已保留原始历史：${event.error}`)
+    for (const action of mapAgentLoopEventToPresentation(this.streamId, event)) {
+      if (action.kind === 'status') {
+        this.publishStatus(action.status, action.message)
+      } else if (action.kind === 'chunk') {
+        this.publishChunk(action.delta, action.channel)
+      } else {
+        this.publishTool(action.event)
+      }
     }
   }
 
@@ -190,13 +179,6 @@ export class AgentEventBus {
 
 export function createAgentEventBus(options: AgentEventBusOptions): AgentEventBus {
   return new AgentEventBus(options)
-}
-
-function contextCompactionReasonLabel(reason: string): string {
-  if (reason === 'hard_threshold') return '接近硬阈值'
-  if (reason === 'soft_threshold') return '接近上下文阈值'
-  if (reason === 'manual') return '手动触发'
-  return reason
 }
 
 function eventByteSize(event: AgentRealtimeEvent): number {

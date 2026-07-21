@@ -308,6 +308,8 @@ function isTaskState(value: unknown): value is StudyTaskStateSnapshot {
     && typeof task.done === 'boolean'
     && (task.schedule === undefined || isTaskSchedule(task.schedule))
     && (task.workspaceId === undefined || typeof task.workspaceId === 'string')
+    && (task.categoryId === undefined || typeof task.categoryId === 'string')
+    && (task.categoryName === undefined || typeof task.categoryName === 'string')
 }
 
 function isStudyActivity(value: unknown): value is StudyActivityFact['activity'] {
@@ -647,6 +649,8 @@ export type StudyTaskLedgerItem = {
   id: string
   title: string
   done: boolean
+  categoryId?: string
+  categoryName?: string
   schedule?: {
     weekday: number
     startMinutes: number
@@ -683,7 +687,9 @@ function taskStateSnapshot(task: StudyTaskLedgerItem, workspaceId?: string): Stu
     title: task.title,
     done: task.done,
     ...(schedule ? { schedule } : {}),
-    ...(workspaceId ? { workspaceId } : {})
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(task.categoryId ? { categoryId: task.categoryId } : {}),
+    ...(task.categoryName ? { categoryName: task.categoryName } : {})
   }
 }
 

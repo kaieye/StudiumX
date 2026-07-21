@@ -14,13 +14,20 @@ const insufficientBalance = classifyProviderError(
 assert.deepEqual(insufficientBalance?.kind, 'insufficient_balance')
 assert.equal(insufficientBalance?.status, 402)
 assert.ok(insufficientBalance?.providerMessage?.includes('Insufficient Balance'))
-assert.equal(providerErrorReason(insufficientBalance), 'Provider 余额不足')
+assert.equal(providerErrorReason(insufficientBalance), 'Provider 余额或配额不足')
+
+// A-03: bare "quota exceeded" must not be rate_limit
+const quotaExceeded = classifyProviderError('quota exceeded')
+assert.equal(quotaExceeded?.kind, 'insufficient_balance')
+assert.notEqual(quotaExceeded?.kind, 'rate_limit')
+assert.equal(providerErrorReason(quotaExceeded), 'Provider 余额或配额不足')
 
 const auth = classifyProviderError('Provider 返回 401 Unauthorized：{"error":{"message":"Invalid API key"}}')
 assert.equal(auth?.kind, 'authentication')
 
 const rateLimit = classifyProviderError('Provider 返回 429 Too Many Requests：rate limit exceeded')
 assert.equal(rateLimit?.kind, 'rate_limit')
+assert.equal(providerErrorReason(rateLimit), 'Provider 速率限制')
 
 const redacted = redactProviderErrorText(
   'Authorization: Bearer sk-testsecret123456789 api_key=abc123 https://user:pass@example.test {"apiKey":"secret-value","x-api-key":"secret2"}'

@@ -18,3 +18,5 @@ export * from './teaching-types/config-optimistic-write'
 export * from './teaching-types/support-bundle'
 export * from './teaching-types/teaching-session-protocol'
 export * from './teaching-types/extension-manifest'
+export * from './teaching-types/teaching-turn-review-ipc'
+

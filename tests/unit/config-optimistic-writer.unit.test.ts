@@ -296,4 +296,121 @@ describe('config optimistic concurrency (CAS)', () => {
     expect(json).not.toContain('braveApiKey')
     expect(json).not.toMatch(/"url"\s*:/)
   })
+
+  it('preserves managed layer through CAS re-resolve on user write', () => {
+    const managedDoc = {
+      tools: { enabled: true, maxIterations: 11 },
+      memory: { maxInjected: 9 }
+    }
+    const userDoc = { tools: { maxIterations: 3 } }
+    const current = resolveTeachingConfig({
+      fallbackDefaultRoot: FALLBACK_ROOT,
+      managed: managedDoc,
+      user: userDoc
+    })
+
+    // User still wins on maxIterations; managed contributes tools.enabled + memory.
+    expect(current.value.tools.enabled).toBe(true)
+    expect(current.value.tools.maxIterations).toBe(3)
+    expect(current.value.memory.maxInjected).toBe(9)
+    expect(current.sources.some((s) => s.source === 'managed' && s.path === 'tools.enabled')).toBe(
+      true
+    )
+    expect(
+      current.sources.some((s) => s.source === 'managed' && s.path === 'memory.maxInjected')
+    ).toBe(true)
+
+    const result = compareAndProjectConfigWrite({
+      currentResolved: current,
+      expectedFingerprint: current.fingerprint,
+      nextOverlay: { tools: { maxIterations: 9 } },
+      layer: 'user',
+      baseScope: {
+        fallbackDefaultRoot: FALLBACK_ROOT,
+        managed: managedDoc,
+        user: userDoc
+      }
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // User write updated maxIterations; managed fields that user did not touch survive.
+    expect(result.value.tools.maxIterations).toBe(9)
+    expect(result.value.tools.enabled).toBe(true)
+    expect(result.value.memory.maxInjected).toBe(9)
+    expect(
+      result.resolved.sources.some((s) => s.source === 'managed' && s.path === 'tools.enabled')
+    ).toBe(true)
+    expect(
+      result.resolved.sources.some((s) => s.source === 'managed' && s.path === 'memory.maxInjected')
+    ).toBe(true)
+
+    // Without managed preserve (regression baseline): dropping managed would lose memory.maxInjected=9.
+    const dropped = compareAndProjectConfigWrite({
+      currentResolved: current,
+      expectedFingerprint: current.fingerprint,
+      nextOverlay: { tools: { maxIterations: 9 } },
+      layer: 'user',
+      baseScope: {
+        fallbackDefaultRoot: FALLBACK_ROOT,
+        // intentionally omit managed
+        user: userDoc
+      }
+    })
+    expect(dropped.ok).toBe(true)
+    if (!dropped.ok) return
+    // Default memory.maxInjected (4) differs from managed's 9 when managed is dropped.
+    expect(dropped.value.memory.maxInjected).not.toBe(9)
+    expect(
+      dropped.resolved.sources.some((s) => s.source === 'managed' && s.path === 'memory.maxInjected')
+    ).toBe(false)
+  })
+
+  it('writeConfigOptimistic preserves store-snapshot managed on re-resolve', async () => {
+    let written: unknown = null
+    const managedDoc = {
+      tools: { enabled: true },
+      memory: { maxInjected: 7 }
+    }
+    const userDoc = { tools: { maxIterations: 2 } }
+    const resolved = resolveTeachingConfig({
+      fallbackDefaultRoot: FALLBACK_ROOT,
+      managed: managedDoc,
+      user: userDoc
+    })
+
+    const store: ConfigOptimisticStore = {
+      async read() {
+        return {
+          fingerprint: resolved.fingerprint,
+          user: userDoc,
+          managed: managedDoc,
+          fallbackDefaultRoot: FALLBACK_ROOT
+        }
+      },
+      async writeAtomic(input) {
+        written = input
+      }
+    }
+
+    const ok = await writeConfigOptimistic(store, {
+      expectedFingerprint: resolved.fingerprint,
+      next: { tools: { maxIterations: 5 } },
+      layer: 'user'
+    })
+    expect(ok.ok).toBe(true)
+    if (!ok.ok) return
+    expect(ok.value).toBeDefined()
+    const value = ok.value as {
+      tools: { enabled: boolean; maxIterations: number }
+      memory: { maxInjected: number }
+    }
+    expect(value.tools.maxIterations).toBe(5)
+    expect(value.tools.enabled).toBe(true)
+    expect(value.memory.maxInjected).toBe(7)
+    expect(written).toMatchObject({
+      layer: 'user',
+      fingerprint: ok.fingerprint
+    })
+  })
 })

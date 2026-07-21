@@ -646,6 +646,14 @@
       "label": "Connectors",
       "detail": "Status and repair actions"
     },
+    "doctor": {
+      "label": "Doctor",
+      "detail": "Read-only diagnostics"
+    },
+    "review": {
+      "label": "Review",
+      "detail": "Post-turn candidates (human approve only)"
+    },
     "about": {
       "label": "About",
       "detail": "Version, logs, data folder"
@@ -963,6 +971,67 @@
       "local_search": "Local text search"
     }
   },
+  "review": {
+    "title": "Teaching turn review",
+    "subtitle": "Read-only projection of post-turn review candidates. Human approval only — never auto-apply. Demo bundle, local decisions, or optional last durable snapshot (cache only; not settlement truth).",
+    "demoProject": "Demo project",
+    "demoProjectDetail": "Build a client-side sample bundle and call projectTeachingTurnReview to list candidates.",
+    "submitDecisions": "Submit decisions",
+    "submitDecisionsDetail": "Call decideTeachingTurnReview to re-project. Does not install skills or write memory.",
+    "emptyTitle": "No review projection yet",
+    "empty": "Post-turn review candidates require human approval and never auto-apply. Approved ids are display-only handoff hints for existing consent / skill / memory paths. Durable last-bundle is a rebuildable cache only — not settlement truth and never auto-applied.",
+    "advisoryNote": "Never auto-apply — human approval only; approved ids are not an apply plan.",
+    "candidatesHeading": "Projected candidates",
+    "turnMeta": "turn {{turnId}} · {{generatedAt}}",
+    "generatedAt": "Generated at {{generatedAt}}",
+    "kindLabel": "Kind",
+    "requiresHumanApproval": "Requires human approval",
+    "noteLabel": "Note",
+    "approvedIdsHeading": "Approved candidate ids (display only)",
+    "approvedIdsNote": "These ids are not an apply plan. Downstream product paths must re-consent via skill-pack / memory / lesson flows.",
+    "apiUnavailable": "teachingSystem review API is unavailable. Restart the app to load the latest preload.",
+    "projectFailed": "Projection failed",
+    "decideFailed": "Decision submit failed",
+    "decision": {
+      "pending": "Pending",
+      "approve": "Approve",
+      "reject": "Reject",
+      "defer": "Defer"
+    },
+    "kind": {
+      "memory_candidate": "Memory candidate",
+      "skill_pack_hint": "Skill-pack hint",
+      "lesson_gap": "Lesson gap",
+      "other": "Other"
+    },
+    "handoffHeading": "Handoff intents (display only)",
+    "handoffNote": "Not an apply plan. These intents only describe which existing product consent surface may open later — never auto-apply, and this panel does not open real consent flows.",
+    "handoffTargetLabel": "Target",
+    "handoffRequiresConsent": "Requires product consent later",
+    "handoffUnmappedHeading": "Unmapped approved ids",
+    "handoffUnmappedNote": "Approved ids without a known handoff target. Display only — no execute path is implied.",
+    "handoffTarget": {
+      "memory_consent": "Memory consent",
+      "skill_pack_authoring": "Skill-pack authoring",
+      "lesson_followup": "Lesson follow-up",
+      "none": "None"
+    },
+    "handoffTargetLater": {
+      "memory_consent": "memory consent (product path later)",
+      "skill_pack_authoring": "skill-pack authoring (product path later)",
+      "lesson_followup": "lesson follow-up (product path later)",
+      "none": "product path later"
+    },
+    "loadLast": "Load last durable bundle",
+    "loadLastDetail": "Read the last saved review snapshot from app userData and project it. Durable cache only — never auto-apply.",
+    "saveLast": "Save current as last (demo)",
+    "saveLastDetail": "Write the current local bundle (+ optional decisions) as the last durable snapshot. Demo/manual only — never auto-apply.",
+    "loadLastEmpty": "No durable last-bundle snapshot is stored yet.",
+    "loadLastOk": "Loaded durable snapshot ({{source}} · {{savedAt}}). Projected only — not applied.",
+    "saveLastOk": "Saved current bundle as last durable snapshot (settings_demo). Not applied.",
+    "loadLastFailed": "Failed to load last durable bundle",
+    "saveLastFailed": "Failed to save last durable bundle"
+  },
   "about": {
     "title": "About StudiumX",
     "subtitle": "Diagnostics entry and current runtime info, to verify the full chain after migration.",
@@ -995,8 +1064,8 @@
       "detail": "Open Model settings and add an API key before using chat."
     },
     "providerInsufficientBalance": {
-      "message": "Provider balance is insufficient",
-      "detail": "The upstream model service returned 402 Payment Required. Add credits, switch provider, or use another available model."
+      "message": "Provider balance or quota is insufficient",
+      "detail": "The upstream model service reported insufficient balance, exhausted quota, or 402 Payment Required. Add credits, raise quota, switch provider, or use another available model. Retrying will not restore quota."
     },
     "providerAuth": {
       "message": "Provider authentication failed",
@@ -1004,7 +1073,7 @@
     },
     "providerRateLimit": {
       "message": "Provider rate limit reached",
-      "detail": "The upstream model service is temporarily limiting requests. Try later or switch provider/model."
+      "detail": "The upstream model service is temporarily throttling request rate (this is not quota exhaustion). Try later or switch provider/model."
     },
     "providerHttp": {
       "message": "Provider request failed",
@@ -1126,5 +1195,59 @@
     "streamingPlaceholder": "Waiting for the first token...",
     "emptyHint": "After you click generate, the static HTML lesson is saved into the current course's lessons folder and previewed here.",
     "loadingHint": "Loading lesson preview."
+  },
+  "doctor": {
+    "title": "Teaching Doctor",
+    "subtitle": "Run local, read-only health checks. Reports are advisory and never auto-repair.",
+    "run": "Run Doctor",
+    "running": "Running…",
+    "empty": "Doctor has not run yet. Click Run Doctor for a local, export-safe report. Nothing is uploaded and no repairs run automatically.",
+    "overallStatus": "Overall status",
+    "generatedAt": "Generated at",
+    "checks": "Checks",
+    "advisoryNote": "Read-only and advisory only. Never auto-repairs, never uploads, and does not clear crash markers.",
+    "error": "Doctor could not complete",
+    "copy": "Copy report JSON",
+    "copied": "Copied",
+    "unavailable": "Teaching Doctor is not available in this runtime.",
+    "fixSuggestion": "Manual fix guidance",
+    "recommendedAction": "Recommended action",
+    "result": {
+      "ok": "OK",
+      "warning": "Warning",
+      "fail": "Fail",
+      "skipped": "Skipped",
+      "error": "Error"
+    }
+  },
+  "queueDiagnostics": {
+    "title": "Agent session queue (read-only)",
+    "subtitle": "Snapshot of the main-process façade queue for debugging. Never drains, steers, aborts, or changes autoDrain. Free-text is never requested.",
+    "streamId": "Stream / conversation id",
+    "streamIdDetail": "Product streamId equals the agent conversation id.",
+    "streamIdPlaceholder": "Paste conversation id…",
+    "refresh": "Refresh queue projection",
+    "refreshing": "Refreshing…",
+    "readOnlyNote": "Read-only projection only. Product autoDrain stays false.",
+    "empty": "Enter a stream id and click Refresh to load the main queue snapshot.",
+    "error": "Queue projection failed",
+    "unavailable": "Queue projection is not available in this runtime.",
+    "missingStreamId": "Enter a non-empty stream / conversation id.",
+    "noActiveSession": "No active agent session for this stream id.",
+    "busy": "Busy",
+    "busyTrue": "Busy",
+    "busyFalse": "Idle",
+    "phase": "Phase",
+    "autoDrain": "autoDrain",
+    "autoDrainTrue": "true",
+    "autoDrainFalse": "false",
+    "autoDrainExpectedFalse": "Product path expects false (ADR-0096).",
+    "queueDepth": "Queue depth / capacity",
+    "closed": "Closed",
+    "closedTrue": "Yes",
+    "closedFalse": "No",
+    "entries": "Entries",
+    "entriesEmpty": "Queue has no projected entries.",
+    "enqueuedAt": "Enqueued at"
   }
 }

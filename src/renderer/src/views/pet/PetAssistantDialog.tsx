@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next'
 import remarkGfm from 'remark-gfm'
 import { selectPendingAsk, selectPendingToolPermission } from '../../agent-conversation-state'
 import { useAppStore } from '../../app-shell/appStore'
+import { AGENT_SESSION_BUSY_QUEUED_ACK } from '../../../../shared/agent-session-busy-ack'
 import { AssistantTodoCapture } from '../../study-space/assistantTodo'
 import {
   PET_ASSISTANT_GEOMETRY_STORAGE_KEY,
@@ -81,6 +82,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
   const activeConversationId = useAppStore((state) => state.activeConversationId)
   const agentTurns = useAppStore((state) => state.agentTurns)
   const agentChatBusy = useAppStore((state) => state.agentChatBusy)
+  const agentBusyAckMessage = useAppStore((state) => state.agentBusyAckMessage)
   const agentStatus = useAppStore((state) => state.agentStatus)
   const error = useAppStore((state) => state.error)
   const pendingConversation = useAppStore((state) => state.pendingAgentConversation)
@@ -137,7 +139,8 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     : pendingAsk
       ? { kind: 'question' as const, identity: pendingAsk.toolCallId }
       : null
-  const canSend = Boolean(activeWorkspace && input.trim() && !agentChatBusy && !hasInterruption)
+  // Busy default = queue (B-12): allow send while busy so runner enqueues + shows busy-ack.
+  const canSend = Boolean(activeWorkspace && input.trim() && !hasInterruption)
   const suggestions = [
     t('resources.pets.assistant.suggestions.todo'),
     t('resources.pets.assistant.suggestions.focus'),
@@ -242,7 +245,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
 
   const sendPrompt = (rawPrompt: string): void => {
     const prompt = rawPrompt.trim()
-    if (!activeWorkspace || !prompt || agentChatBusy || hasInterruption) return
+    if (!activeWorkspace || !prompt || hasInterruption) return
     rememberAgentInput(prompt)
     setInput('')
     void agentChat(AssistantTodoCapture.preparePrompt(prompt), { mode: 'temporary' })
@@ -466,6 +469,12 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
         </button>
       ) : null}
 
+      {agentBusyAckMessage ? (
+        <div className="pet-assistant-busy-ack" role="status" aria-live="polite">
+          {agentBusyAckMessage}
+        </div>
+      ) : null}
+
       <form className="pet-assistant-composer" onSubmit={handleSubmit}>
         <textarea
           ref={inputRef}
@@ -480,17 +489,19 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
           rows={2}
         />
         <button
-          type={agentChatBusy ? 'button' : 'submit'}
-          onClick={agentChatBusy ? () => void cancelAgentChat() : undefined}
-          disabled={agentChatBusy ? false : !canSend}
-          aria-label={agentChatBusy
+          type={agentChatBusy && !input.trim() ? 'button' : 'submit'}
+          onClick={agentChatBusy && !input.trim() ? () => void cancelAgentChat() : undefined}
+          disabled={agentChatBusy && !input.trim() ? false : !canSend}
+          aria-label={agentChatBusy && !input.trim()
             ? t('resources.pets.assistant.actions.stop')
             : t('resources.pets.assistant.actions.send')}
-          title={agentChatBusy
+          title={agentChatBusy && !input.trim()
             ? t('resources.pets.assistant.actions.stop')
-            : t('resources.pets.assistant.actions.send')}
+            : agentChatBusy
+              ? AGENT_SESSION_BUSY_QUEUED_ACK
+              : t('resources.pets.assistant.actions.send')}
         >
-          {agentChatBusy ? <Square size={15} /> : <SendHorizontal size={16} />}
+          {agentChatBusy && !input.trim() ? <Square size={15} /> : <SendHorizontal size={16} />}
         </button>
       </form>
 

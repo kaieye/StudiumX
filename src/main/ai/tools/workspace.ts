@@ -758,7 +758,10 @@ export async function runWorkspaceWriteWithDurableDependenciesForTesting(
         workspaceRoot: ctx.workspaceRoot,
         relativePath: target.relativePath,
         runId: ctx.runId,
-        content: input.content
+        content: input.content,
+        ...(ctx.lastJournalPermissionDecision
+          ? { permissionDecision: ctx.lastJournalPermissionDecision }
+          : {})
       })
     } catch {
       // Journal failures must not block durable publication.

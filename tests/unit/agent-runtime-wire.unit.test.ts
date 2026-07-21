@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agentRuntimeEventFromWire, agentRuntimeEventToWire } from '../../src/main/ai/agent-runtime-wire'
+import { agentRuntimeEventFromWire, agentRuntimeEventToWire } from '../../src/shared/protocol'
 
 describe('agent runtime wire', () => {
   it('serializes a closed-set event without shared references', () => {

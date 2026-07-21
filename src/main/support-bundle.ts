@@ -20,6 +20,11 @@ import {
   type SupportBundleSectionPreview
 } from '../shared/teaching-types/support-bundle'
 import { redactAgentSecretText } from '../shared/agent-secret-redaction'
+import {
+  REDACTED_ABSOLUTE_PATH,
+  redactExportString,
+  redactPath as sharedRedactPath
+} from './observability/redact'
 import { exportTeachingDoctorReport } from './teaching-doctor'
 import {
   projectSafeTeachingAuditMetadata,
@@ -34,10 +39,11 @@ import type {
   WorkspaceInspectionFinding,
   WorkspaceInspectionReport
 } from './teaching-workspace-inspector'
-import { normalizeWorkspaceRelativePath } from './teaching-workspace-paths'
 
-const REDACTED_ABSOLUTE_PATH = '<redacted-absolute-path>'
+/** Local hard-cap for free-text fields after shared export redaction. */
 const MAX_STRING_LENGTH = 480
+// Shared absolute-path marker must stay identical: '<redacted-absolute-path>'
+// (imported as REDACTED_ABSOLUTE_PATH from observability/redact; ADR-0107).
 const MAX_FINDINGS = 40
 const MAX_CAPABILITY_ITEMS = 48
 const MAX_SOURCE_ENTRIES = 80
@@ -521,19 +527,13 @@ function deepRedactJson(value: unknown, workspaceRoot: string | null, depth = 0)
 function redactStringValue(value: string, workspaceRoot: string | null): string {
   // Stable identifiers (checkId, status, snake_case codes) must not be
   // collapsed by high-entropy credential detection. Only free-text / mixed
-  // prose goes through full secret scrubbing.
-  const pathSafe = scrubAbsolutePaths(value, workspaceRoot)
-  if (looksLikeAbsolutePath(pathSafe)) {
-    return redactPath(pathSafe, workspaceRoot)
+  // prose goes through full secret scrubbing (shared observability/redact;
+  // ADR-0107). Denied-field / stable-id policy stays local.
+  if (looksLikeStableIdentifier(value)) {
+    return compact(value, MAX_STRING_LENGTH)
   }
-  if (looksLikeStableIdentifier(pathSafe)) {
-    return compact(pathSafe, MAX_STRING_LENGTH)
-  }
-  const redacted = scrubAbsolutePaths(redactAgentSecretText(pathSafe), workspaceRoot)
-  if (looksLikeAbsolutePath(redacted)) {
-    return redactPath(redacted, workspaceRoot)
-  }
-  return compact(redacted, MAX_STRING_LENGTH)
+  // Free text: secrets via shared agent-secret primitive, paths via shared redactPath.
+  return compact(sharedRedactPath(redactAgentSecretText(value), workspaceRoot), MAX_STRING_LENGTH)
 }
 
 function looksLikeStableIdentifier(value: string): boolean {
@@ -543,112 +543,22 @@ function looksLikeStableIdentifier(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
 }
 
+/**
+ * Free-text redaction for section builders. Thin wrapper over shared
+ * `redactExportString` (secrets + absolute paths) with local length cap.
+ */
 function redactText(value: string, workspaceRoot: string | null = null): string {
-  return compact(scrubAbsolutePaths(redactAgentSecretText(value), workspaceRoot), MAX_STRING_LENGTH)
+  return compact(redactExportString(value, workspaceRoot), MAX_STRING_LENGTH)
 }
 
 /**
- * Rewrite absolute host paths embedded in free-text diagnostics.
- * Prefer workspace-relative when a root is known; otherwise stub.
+ * Path field redaction. Thin wrapper over shared `redactPath`.
+ * Marker string remains `<redacted-absolute-path>` (shared constant).
  */
-function scrubAbsolutePaths(value: string, workspaceRoot: string | null): string {
-  let next = value
-
-  if (workspaceRoot) {
-    const root = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '')
-    if (root.length > 0) {
-      // Match both forward and backslash forms of the workspace root.
-      const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\//g, '[\\\\/]')
-      const rootPattern = new RegExp(`${escaped}(?=[\\\\/]|$)`, 'gi')
-      next = next.replace(rootPattern, (match) => {
-        // Keep trailing separator behaviour for the subsequent relative rewrite.
-        return ''
-      })
-      // Clean doubled separators left after root strip: "at /lessons" or "at \lessons"
-      next = next.replace(/([=\s:(])[\\/]+(?=[A-Za-z0-9._-])/g, '$1')
-    }
-  }
-
-  // Windows drive paths: C:\... or C:/...
-  next = next.replace(/\b[A-Za-z]:[\\/][^\s"'`]+/g, (match) => {
-    if (workspaceRoot) {
-      const relative = tryWorkspaceRelative(workspaceRoot, match)
-      if (relative != null) return normalizeWorkspaceRelativePath(relative)
-    }
-    return REDACTED_ABSOLUTE_PATH
-  })
-
-  // UNC paths
-  next = next.replace(/\\\\[^\s"'`]+/g, REDACTED_ABSOLUTE_PATH)
-
-  // POSIX home-ish absolute paths
-  next = next.replace(
-    /(?:^|[\s="'(:])(\/(?:Users|home|private\/var|var\/folders)\/[^\s"'`]+)/g,
-    (full, pathPart: string) => {
-      const prefix = full.slice(0, full.length - pathPart.length)
-      if (workspaceRoot) {
-        const relative = tryWorkspaceRelative(workspaceRoot, pathPart)
-        if (relative != null) return `${prefix}${normalizeWorkspaceRelativePath(relative)}`
-      }
-      return `${prefix}${REDACTED_ABSOLUTE_PATH}`
-    }
-  )
-
-  return next
-}
-
 function redactPath(value: string, workspaceRoot: string | null): string {
-  const trimmed = String(value ?? '').trim()
-  if (!trimmed) return ''
-
-  const secretSafe = redactAgentSecretText(trimmed)
-
-  if (workspaceRoot) {
-    const relative = tryWorkspaceRelative(workspaceRoot, secretSafe)
-    if (relative != null) {
-      return compact(normalizeWorkspaceRelativePath(relative), MAX_STRING_LENGTH)
-    }
-  }
-
-  if (looksLikeAbsolutePath(secretSafe)) {
-    return REDACTED_ABSOLUTE_PATH
-  }
-
-  // Relative-looking path: normalize separators only.
-  if (secretSafe.includes('/') || secretSafe.includes('\\')) {
-    return compact(normalizeWorkspaceRelativePath(secretSafe), MAX_STRING_LENGTH)
-  }
-
-  return compact(secretSafe, MAX_STRING_LENGTH)
-}
-
-function tryWorkspaceRelative(workspaceRoot: string, absoluteOrAny: string): string | null {
-  const root = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '')
-  const candidate = absoluteOrAny.replace(/\\/g, '/')
-  if (!root || !candidate) return null
-
-  const rootLower = root.toLowerCase()
-  const candidateLower = candidate.toLowerCase()
-  if (candidateLower === rootLower) return '.'
-  const prefix = `${rootLower}/`
-  if (candidateLower.startsWith(prefix)) {
-    return candidate.slice(root.length).replace(/^[/\\]+/, '')
-  }
-  return null
-}
-
-function looksLikeAbsolutePath(value: string): boolean {
-  if (!value) return false
-  if (/^[A-Za-z]:[\\/]/.test(value)) return true
-  if (value.startsWith('\\\\')) return true
-  if (value.startsWith('/Users/') || value.startsWith('/home/') || value.startsWith('/private/var/')) {
-    return true
-  }
-  // Generic POSIX absolute with user-home-ish segments
-  if (value.startsWith('/') && /\/(Users|home|Documents|Desktop|Downloads)\//i.test(value)) {
-    return true
-  }
-  return false
+  const next = sharedRedactPath(value, workspaceRoot)
+  // Shared marker identity remains '<redacted-absolute-path>'.
+  return next === REDACTED_ABSOLUTE_PATH ? REDACTED_ABSOLUTE_PATH : next
 }
 
 function looksLikePathField(key: string): boolean {

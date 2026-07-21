@@ -1,5 +1,9 @@
 import type { ConnectorStatus, TeachingSettingsV1 } from '../shared/teaching-types'
 import { buildToolContext, type ToolContext } from './ai/tools/registry'
+import {
+  loadAndMergeToolPolicyDocumentsFromWorkspace,
+  toolPolicyDocumentOption
+} from './ai/tools/tool-policy-fs'
 import { availableProviders, resolveConfiguredProvider } from './ai/tools/web-search/providers'
 
 export type ConnectorStatusWorkspace = {
@@ -36,10 +40,20 @@ export class ConnectorHealthCatalog {
   ) {}
 
   async evaluate(settings: TeachingSettingsV1, workspace: ConnectorStatusWorkspace): Promise<ConnectorStatus[]> {
+    // ADR-0101 / ADR-0117: optional workspace tool-policy multi-path for catalog/read probes.
+    // Non-empty root → load+merge; null doc omits field (default-equivalent).
+    const workspaceRoot =
+      typeof workspace?.rootPath === 'string' ? workspace.rootPath.trim() : ''
+    const workspaceToolPolicy = workspaceRoot
+      ? await loadAndMergeToolPolicyDocumentsFromWorkspace({ workspaceRoot })
+      : null
     const input: ConnectorHealthCheckInput = {
       settings,
       workspace,
-      context: buildToolContext(settings, { workspaceRoot: workspace?.rootPath })
+      context: buildToolContext(settings, {
+        workspaceRoot: workspace?.rootPath,
+        ...toolPolicyDocumentOption(workspaceToolPolicy)
+      })
     }
     const statuses: ConnectorStatus[] = []
     for (const check of this.checks) {

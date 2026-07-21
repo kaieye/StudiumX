@@ -15,6 +15,8 @@ export type SettingsSection =
   | 'memory'
   | 'notifications'
   | 'privacy'
+  | 'doctor'
+  | 'review'
   | 'about'
 
 export type ThemePreference = 'system' | 'light' | 'dark'

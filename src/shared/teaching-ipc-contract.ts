@@ -50,6 +50,8 @@ export const teachingInvokeChannels = {
   listInterruptedAgentRuns: 'teach:list-interrupted-agent-runs',
   replayAgentChatEvents: 'teach:agent-chat-replay',
   cancelAgentChatStream: 'teach:cancel-agent-chat-stream',
+  steerAgentChatStream: 'teach:agent-chat-steer',
+  followUpAgentChatStream: 'teach:agent-chat-follow-up',
   answerAgentChatTool: 'teach:agent-chat-tool-answer',
   saveAgentConversation: 'teach:save-agent-conversation',
   renameAgentConversation: 'teach:rename-agent-conversation',
@@ -85,7 +87,16 @@ export const teachingInvokeChannels = {
   updateMemory: 'teach:update-memory',
   deleteMemory: 'teach:delete-memory',
   openLogFile: 'teach:open-log',
-  openAppDataDir: 'teach:open-app-data-dir'
+  openAppDataDir: 'teach:open-app-data-dir',
+  runTeachingDoctor: 'teach:run-teaching-doctor',
+  projectTeachingTurnReview: 'teach:project-teaching-turn-review',
+  decideTeachingTurnReview: 'teach:decide-teaching-turn-review',
+  projectTeachingTurnReviewHandoff: 'teach:project-teaching-turn-review-handoff',
+  getTeachingTurnReviewLastBundle: 'teach:get-teaching-turn-review-last-bundle',
+  saveTeachingTurnReviewLastBundle: 'teach:save-teaching-turn-review-last-bundle',
+  projectAgentSessionQueue: 'teach:project-agent-session-queue',
+  readStudyPlanning: 'teach:read-study-planning',
+  applyStudyPlanning: 'teach:apply-study-planning'
 } satisfies Record<TeachingInvokeCapability, string>
 
 export const teachingEventChannels = {
@@ -96,3 +107,4 @@ export const teachingEventChannels = {
   agentChatTool: 'teach:agent-chat-tool',
   agentChatEvent: 'teach:agent-chat-event'
 } satisfies Record<TeachingEventChannel, string>
+

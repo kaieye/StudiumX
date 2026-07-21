@@ -20,6 +20,11 @@ export function redactProviderErrorText(value: string): string {
     .replace(/\bsk-[A-Za-z0-9][A-Za-z0-9._-]{12,}\b/g, '[redacted]')
 }
 
+/**
+ * UX-facing provider error kind. Keep this axis separate from recovery flags
+ * in `provider-recovery.ts` (A-04). Billing / quota exhaustion must never map
+ * to `rate_limit` — only true throttle signals (429 / too many requests).
+ */
 export function classifyProviderError(value: unknown): ProviderErrorInfo | null {
   const raw = String(value ?? '').trim()
   if (!raw) return null
@@ -28,13 +33,9 @@ export function classifyProviderError(value: unknown): ProviderErrorInfo | null 
   const providerMessage = extractProviderMessage(raw)
   const haystack = `${raw}\n${providerMessage ?? ''}`.toLowerCase()
 
-  if (
-    status === 402 ||
-    /payment required/.test(haystack) ||
-    /insufficient[_\s-]*(balance|quota|credit|credits|funds)/.test(haystack) ||
-    /out of (credit|credits|funds)/.test(haystack) ||
-    /余额不足|额度不足/.test(raw)
-  ) {
+  // Billing / quota first — before rate_limit — so "quota exceeded" never
+  // lands in the throttle bucket (A-03).
+  if (isBillingOrQuota(haystack, raw, status)) {
     return { kind: 'insufficient_balance', status, providerMessage }
   }
 
@@ -49,7 +50,7 @@ export function classifyProviderError(value: unknown): ProviderErrorInfo | null 
 
   if (
     status === 429 ||
-    /rate limit|too many requests|quota exceeded/.test(haystack)
+    /rate[_\s-]*limit|too many requests|请求过于频繁|速率限制/.test(haystack)
   ) {
     return { kind: 'rate_limit', status, providerMessage }
   }
@@ -64,7 +65,9 @@ export function classifyProviderError(value: unknown): ProviderErrorInfo | null 
 export function providerErrorReason(info: ProviderErrorInfo): string {
   switch (info.kind) {
     case 'insufficient_balance':
-      return 'Provider 余额不足'
+      // Covers both cash-balance (402) and quota/billing exhaustion so users
+      // never confuse them with rate_limit throttling.
+      return 'Provider 余额或配额不足'
     case 'authentication':
       return 'Provider 认证失败'
     case 'rate_limit':
@@ -72,6 +75,21 @@ export function providerErrorReason(info: ProviderErrorInfo): string {
     case 'http':
       return info.status ? `Provider HTTP ${info.status}` : 'Provider 错误'
   }
+}
+
+function isBillingOrQuota(haystack: string, raw: string, status: number | undefined): boolean {
+  if (status === 402) return true
+  if (/payment required/.test(haystack)) return true
+  if (/insufficient[_\s-]*(balance|quota|credit|credits|funds)/.test(haystack)) return true
+  if (/out of (credit|credits|funds)/.test(haystack)) return true
+  // Standalone quota / billing exhaustion (must NOT be rate_limit).
+  if (/\bquota[_\s-]*exceeded\b/.test(haystack)) return true
+  if (/\binsufficient[_\s-]*quota\b/.test(haystack)) return true
+  if (/\bbilling\b/.test(haystack) && /(exceed|limit|required|error|hard)/.test(haystack)) return true
+  if (/exceeded.*(quota|budget|credit|credits)|(quota|budget|credit|credits).*exceeded/.test(haystack)) return true
+  if (/(free|go|trial)\s+(tier|plan|limit|quota)/.test(haystack)) return true
+  if (/余额不足|额度不足|配额不足|配额已用完|额度已用尽/.test(raw)) return true
+  return false
 }
 
 function extractStatus(raw: string): number | undefined {

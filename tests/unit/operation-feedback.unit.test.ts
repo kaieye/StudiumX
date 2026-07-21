@@ -17,4 +17,23 @@ describe('operationFeedback', () => {
       detail: 'errors.agentToolLimit.detail'
     })
   })
+
+  it('maps quota exceeded to balance/quota UX, not rate_limit', () => {
+    const feedback = operationFeedback({
+      outcome: 'failure',
+      error: new Error('Provider error: quota exceeded'),
+      translate
+    })
+    expect(feedback.visibleError?.message).toBe('errors.providerInsufficientBalance.message')
+    expect(feedback.visibleError?.detail).toContain('errors.providerInsufficientBalance.detail')
+  })
+
+  it('maps true rate limit to rate_limit UX', () => {
+    const feedback = operationFeedback({
+      outcome: 'failure',
+      error: new Error('Provider 返回 429 Too Many Requests：rate limit exceeded'),
+      translate
+    })
+    expect(feedback.visibleError?.message).toBe('errors.providerRateLimit.message')
+  })
 })

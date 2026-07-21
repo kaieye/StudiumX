@@ -13,6 +13,14 @@ import {
 } from './annotations'
 import { classifyToolEffect } from './effect-policy'
 import {
+  DEFAULT_IN_PROCESS_TOOL_POLICY_DOCUMENT,
+  evaluateRegistryToolPolicyGate,
+  journalPermissionDecisionFromGateAndResolution,
+  type JournalPermissionDecision,
+  type ToolPolicyDocument
+} from './tool-policy'
+import { capabilitiesForTool, type ToolCapabilities } from './tool-capabilities'
+import {
   getWorkspaceWriteToolAvailability,
   workspaceReadTools,
   writeWorkspaceFileTool
@@ -63,6 +71,20 @@ export type ToolContext = {
   permissionGrants: ToolRunPermissionGrants
   /** Abort signal for the current agent run. Tools should compose this with their own timeouts. */
   signal?: AbortSignal
+  /**
+   * Optional declarative tool-policy document (ADR-0063).
+   * When omitted, DEFAULT_IN_PROCESS_TOOL_POLICY_DOCUMENT is used (defaultDecision allow:
+   * existing approvalMode lattice remains in charge until rules are supplied).
+   */
+  toolPolicyDocument?: ToolPolicyDocument | null
+  /**
+   * Optional journal audit only (ADR-0063 residual / B-08 capture wire / ADR-0108).
+   * Set by registry after permission resolve when a decision is known, immediately
+   * before invoking the tool handler for that call.
+   * Never used to re-authorize writes; capture may read and pass through.
+   * Per-call overwrite; agent loop serializes write tools (single-threaded assumption).
+   */
+  lastJournalPermissionDecision?: JournalPermissionDecision
 }
 
 export type ToolRuntimeChildRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'canceled'
@@ -120,6 +142,8 @@ export type ToolEntry = {
   permission?: ToolPermissionDescriptor
   /** Optional risk annotations; defaults from classifyToolEffect when omitted. */
   annotations?: ToolRiskAnnotations
+  /** Optional capability metadata; defaults from capabilitiesForTool when omitted. */
+  capabilities?: ToolCapabilities
   /** Optional hard result byte budget; defaults to DEFAULT_TOOL_RESULT_BUDGET_BYTES. */
   resultBudget?: number | ToolResultBudgetPolicy
   handler: (args: unknown, ctx: ToolContext, callCtx?: ToolCallContext) => Promise<string>
@@ -128,6 +152,10 @@ export type ToolEntry = {
 
 export function resolveToolEntryAnnotations(entry: ToolEntry): ToolRiskAnnotations {
   return entry.annotations ?? annotationsForEffectClass(classifyToolEffect(entry.definition.function.name))
+}
+
+export function resolveToolEntryCapabilities(entry: ToolEntry): ToolCapabilities {
+  return entry.capabilities ?? capabilitiesForTool(entry.definition.function.name)
 }
 
 export class ToolRegistry {
@@ -167,6 +195,7 @@ export class ToolRegistry {
           try {
             request = await describeToolPermission(name, permission, args, ctx, callCtx)
           } catch (error) {
+            delete ctx.lastJournalPermissionDecision
             return JSON.stringify({
               tool: name,
               error: error instanceof Error ? error.message : String(error),
@@ -176,17 +205,25 @@ export class ToolRegistry {
               }
             }, null, 2)
           }
-          const decision = await resolveToolPermission(request, ctx, callCtx)
-          if (decision.decision === 'deny') {
+          const resolved = await resolveToolPermission(request, ctx, callCtx)
+          // Journal audit slot only — never re-authorizes. Deny paths do not run capture.
+          if (resolved.journalPermissionDecision !== undefined) {
+            ctx.lastJournalPermissionDecision = resolved.journalPermissionDecision
+          } else {
+            delete ctx.lastJournalPermissionDecision
+          }
+          if (resolved.decision.decision === 'deny') {
             return JSON.stringify({
               tool: name,
-              error: decision.reason ?? '工具调用未获批准。',
+              error: resolved.decision.reason ?? '工具调用未获批准。',
               permission: {
                 kind: permission.kind,
-                decision: decision.decision
+                decision: resolved.decision.decision
               }
             }, null, 2)
           }
+        } else {
+          delete ctx.lastJournalPermissionDecision
         }
         const operationJournal = resolveOperationJournal(ctx.operationJournal)
         if (permission?.kind !== 'workspace_write' || !operationJournal || !ctx.runId || !callCtx?.toolCallId) {
@@ -246,6 +283,7 @@ export function buildToolContext(
     runId?: string
     operationJournal?: ToolOperationJournal | { readonly operations: ToolOperationJournal }
     permissionGrants?: ToolRunPermissionGrants
+    toolPolicyDocument?: ToolPolicyDocument | null
   } = {}
 ): ToolContext {
   const proxyUrl = settings.provider.proxy.enabled ? settings.provider.proxy.url.trim() : ''
@@ -258,7 +296,8 @@ export function buildToolContext(
     signal: options.signal,
     runId: options.runId,
     operationJournal: options.operationJournal,
-    permissionGrants: options.permissionGrants ?? new ToolRunPermissionGrants()
+    permissionGrants: options.permissionGrants ?? new ToolRunPermissionGrants(),
+    toolPolicyDocument: options.toolPolicyDocument
   }
 }
 
@@ -282,12 +321,49 @@ export function buildDefaultRegistry(
   return registry
 }
 
+type ResolvedToolPermission = {
+  decision: ToolPermissionDecision
+  /** Journal audit vocab only; omit when unknown. */
+  journalPermissionDecision?: JournalPermissionDecision
+}
+
 async function resolveToolPermission(
   request: ToolPermissionRequest,
   ctx: ToolContext,
   callCtx?: ToolCallContext
-): Promise<ToolPermissionDecision> {
-  if (request.kind !== 'workspace_write') return { decision: 'allow_once' }
+): Promise<ResolvedToolPermission> {
+  if (request.kind !== 'workspace_write') {
+    return {
+      decision: { decision: 'allow_once' },
+      journalPermissionDecision: 'allow'
+    }
+  }
+
+  // Declarative tool-policy (ADR-0063): forbidden short-circuits full_access /
+  // based_on_approval creates auto-allow. prompt forces interactive path.
+  // allow only defers to existing approvalMode — never invents YOLO bypass.
+  const effectClass = classifyToolEffect(request.toolName)
+  const policyDocument = ctx.toolPolicyDocument ?? DEFAULT_IN_PROCESS_TOOL_POLICY_DOCUMENT
+  const policyGate = evaluateRegistryToolPolicyGate({
+    toolName: request.toolName,
+    effectClass,
+    path: request.targetPath,
+    document: policyDocument
+  })
+  if (policyGate.action === 'deny') {
+    return {
+      decision: {
+        decision: 'deny',
+        reason: `声明式工具策略禁止 ${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}（${policyGate.policyReason}）。`
+      },
+      journalPermissionDecision: journalPermissionDecisionFromGateAndResolution({
+        policyAction: 'deny',
+        interactiveDecision: 'deny'
+      })
+    }
+  }
+  const forceInteractive = policyGate.action === 'force_interactive'
+  const policyAction = forceInteractive ? 'force_interactive' : 'defer_to_approval_mode'
 
   // Synthetic teaching memory mutations always require human approval
   // (Slice F / ADR-0050). Prior run grants still apply after an explicit allow.
@@ -295,32 +371,73 @@ async function resolveToolPermission(
     request.toolName === 'remember_teaching_memory' ||
     request.toolName === 'forget_teaching_memory'
 
-  if (!requiresHumanMemoryApproval) {
+  if (!requiresHumanMemoryApproval && !forceInteractive) {
     switch (ctx.settings.tools.approvalMode) {
-      case 'full_access':
-        return { decision: 'allow_for_run' }
+      case 'full_access': {
+        const decision: ToolPermissionDecision = { decision: 'allow_for_run' }
+        return {
+          decision,
+          journalPermissionDecision: journalPermissionDecisionFromGateAndResolution({
+            policyAction,
+            interactiveDecision: decision.decision
+          })
+        }
+      }
       case 'based_on_approval':
         // Creating a new in-workspace text file is reversible and constrained by
         // the workspace path guard. Replacing an existing file remains a risk and
         // therefore flows through the same explicit approval mechanism below.
-        if (request.creates === true) return { decision: 'allow_for_run' }
+        if (request.creates === true) {
+          const decision: ToolPermissionDecision = { decision: 'allow_for_run' }
+          return {
+            decision,
+            journalPermissionDecision: journalPermissionDecisionFromGateAndResolution({
+              policyAction,
+              interactiveDecision: decision.decision
+            })
+          }
+        }
         break
       case 'request_approval':
         break
     }
   }
 
-  if (await ctx.permissionGrants.allows(request, ctx)) return { decision: 'allow_for_run' }
+  if (await ctx.permissionGrants.allows(request, ctx)) {
+    const decision: ToolPermissionDecision = { decision: 'allow_for_run' }
+    return {
+      decision,
+      journalPermissionDecision: journalPermissionDecisionFromGateAndResolution({
+        policyAction,
+        interactiveDecision: decision.decision
+      })
+    }
+  }
   if (!ctx.requestToolPermission) {
     return {
-      decision: 'deny',
-      reason: `需要用户批准 ${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}，但当前会话没有审批通道。`
+      decision: {
+        decision: 'deny',
+        reason: `需要用户批准 ${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}，但当前会话没有审批通道。`
+      },
+      journalPermissionDecision: journalPermissionDecisionFromGateAndResolution({
+        policyAction,
+        interactiveDecision: 'deny'
+      })
     }
   }
   const rawDecision = await ctx.requestToolPermission(request, callCtx)
-  const decision = rawDecision.decision === 'allow' ? { ...rawDecision, decision: 'allow_once' as const } : rawDecision
+  const decision =
+    rawDecision.decision === 'allow'
+      ? { ...rawDecision, decision: 'allow_once' as const }
+      : rawDecision
   if (decision.decision !== 'deny') await ctx.permissionGrants.remember(request, decision, ctx)
-  return decision
+  return {
+    decision,
+    journalPermissionDecision: journalPermissionDecisionFromGateAndResolution({
+      policyAction,
+      interactiveDecision: decision.decision
+    })
+  }
 }
 
 async function describeToolPermission(

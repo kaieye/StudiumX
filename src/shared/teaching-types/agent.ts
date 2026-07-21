@@ -290,6 +290,56 @@ export type AgentChatStreamPayload = {
   userInput: string
 }
 
+/** Mid-run steer / follow-up against an active agent chat stream (ADR-0082). */
+export type SteerAgentChatStreamPayload = {
+  streamId: string
+  text: string
+  conversationId?: string
+  expectedRevision?: number
+}
+
+export type FollowUpAgentChatStreamPayload = SteerAgentChatStreamPayload
+
+export type AgentChatSteerFollowUpDisposition =
+  | 'accepted'
+  | 'queued'
+  | 'steered'
+  | 'rejected'
+  | 'interrupt_pending'
+  | 'no_active_session'
+
+export type AgentChatSteerFollowUpSnapshot = {
+  busy: boolean
+  phase: string
+  queueDepth: number
+  queueCapacity: number
+  streamId?: string
+  runId?: string
+  conversationId?: string
+}
+
+export type SteerAgentChatStreamResult =
+  | {
+      ok: true
+      disposition: Extract<AgentChatSteerFollowUpDisposition, 'accepted' | 'queued' | 'steered'>
+      reason: string
+      depth?: number
+      snapshot: AgentChatSteerFollowUpSnapshot
+    }
+  | {
+      ok: false
+      disposition: Extract<
+        AgentChatSteerFollowUpDisposition,
+        'rejected' | 'interrupt_pending' | 'no_active_session'
+      >
+      reason: string
+      depth?: number
+      enqueueReason?: string
+      snapshot?: AgentChatSteerFollowUpSnapshot
+    }
+
+export type FollowUpAgentChatStreamResult = SteerAgentChatStreamResult
+
 export type AgentRunBudgetStopReason =
   | 'duration'
   | 'provider_calls'

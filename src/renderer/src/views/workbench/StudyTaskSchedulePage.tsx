@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarDays, Check, ChevronDown, Clock3, PencilLine, Plus, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, ChevronDown, Clock3, PencilLine, Plus, Target, Trash2, X } from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -54,6 +54,8 @@ type StudyTaskSchedulePageProps = {
   tasks: StudyTask[]
   openTasks: number
   completedTasks: number
+  selectedTaskId?: string | null
+  onSelectTask?: (taskId: string | null) => void
   onAddScheduledTask: (title: string, schedule: StudyTaskScheduleInput, categoryId?: StudyTaskCategoryId | null) => boolean
   onUpdateTask: (taskId: string, update: StudyTaskUpdateInput) => boolean
   onToggleTask: (taskId: string) => void
@@ -479,6 +481,8 @@ export function StudyTaskSchedulePage({
   tasks,
   openTasks,
   completedTasks,
+  selectedTaskId = null,
+  onSelectTask,
   onAddScheduledTask,
   onUpdateTask,
   onToggleTask,
@@ -799,7 +803,8 @@ export function StudyTaskSchedulePage({
     clearLongPressTimer()
     pendingTaskDragRef.current = null
     const menuWidth = 148
-    const menuHeight = 92
+    // Edit + remove always; open tasks also get set/clear focus.
+    const menuHeight = !task.done && onSelectTask ? 126 : 92
     setContextMenu({
       taskId: task.id,
       x: clamp(event.clientX, 8, Math.max(8, window.innerWidth - menuWidth - 8)),
@@ -810,6 +815,12 @@ export function StudyTaskSchedulePage({
   const editTaskFromContextMenu = (task: ScheduledStudyTask): void => {
     setContextMenu(null)
     openEditEditor(task)
+  }
+
+  const selectFocusFromContextMenu = (task: ScheduledStudyTask): void => {
+    if (!onSelectTask || task.done) return
+    setContextMenu(null)
+    onSelectTask(selectedTaskId === task.id ? null : task.id)
   }
 
   const removeTaskFromSchedule = (taskId: string): void => {
@@ -1273,10 +1284,11 @@ export function StudyTaskSchedulePage({
                 const leftPercent = lane * widthPercent
                 const editingTitle = inlineTitle?.taskId === task.id
                 const draggingThisTask = taskDrag?.taskId === task.id
+                const isFocusTask = selectedTaskId === task.id
                 return (
                   <div
                     key={task.id}
-                    className={`study-schedule-event${task.done ? ' is-done' : ''}${editingTitle ? ' is-editing-title' : ''}${draggingThisTask ? ' is-drag-source' : ''}`}
+                    className={`study-schedule-event${task.done ? ' is-done' : ''}${editingTitle ? ' is-editing-title' : ''}${draggingThisTask ? ' is-drag-source' : ''}${isFocusTask ? ' is-focus-task' : ''}`}
                     role="button"
                     tabIndex={0}
                     onDoubleClick={() => openEditEditor(task)}
@@ -1287,7 +1299,7 @@ export function StudyTaskSchedulePage({
                     onPointerMove={(event) => handleTaskPointerMove(event, task, dayIndex)}
                     onPointerUp={(event) => finishTaskPointerDrag(event, task.id)}
                     onPointerCancel={(event) => cancelTaskPointerDrag(event, task.id)}
-                    aria-label={`${day} ${formatScheduleMinutes(task.schedule.startMinutes)} 到 ${formatScheduleMinutes(task.schedule.endMinutes)}，${task.title}`}
+                    aria-label={`${day} ${formatScheduleMinutes(task.schedule.startMinutes)} 到 ${formatScheduleMinutes(task.schedule.endMinutes)}，${task.title}${isFocusTask ? '，当前专注' : ''}`}
                     style={{
                       '--event-start-ratio': task.schedule.startMinutes / MINUTES_PER_DAY,
                       '--event-duration-ratio': (task.schedule.endMinutes - task.schedule.startMinutes) / MINUTES_PER_DAY,
@@ -1356,7 +1368,24 @@ export function StudyTaskSchedulePage({
                       >
                         {task.done ? <Check size={11} /> : null}
                       </button>
-                      <span>{task.done ? '已完成' : '待完成'}</span>
+                      {onSelectTask && !task.done ? (
+                        <button
+                          type="button"
+                          className={`study-schedule-event-focus${isFocusTask ? ' is-active' : ''}`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onSelectTask(isFocusTask ? null : task.id)
+                          }}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          aria-pressed={isFocusTask}
+                          aria-label={isFocusTask ? `取消专注任务：${task.title}` : `设为专注任务：${task.title}`}
+                          title={isFocusTask ? '取消专注' : '设为专注'}
+                        >
+                          <Target size={11} aria-hidden="true" />
+                        </button>
+                      ) : null}
+                      <span>{isFocusTask && !task.done ? '专注中' : task.done ? '已完成' : '待完成'}</span>
                     </div>
                   </div>
                 )
@@ -1396,6 +1425,12 @@ export function StudyTaskSchedulePage({
           onPointerDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
         >
+          {onSelectTask && !contextMenuTask.done ? (
+            <button type="button" role="menuitem" onClick={() => selectFocusFromContextMenu(contextMenuTask)}>
+              <Target size={14} />
+              {selectedTaskId === contextMenuTask.id ? '取消专注' : '设为专注'}
+            </button>
+          ) : null}
           <button type="button" role="menuitem" onClick={() => editTaskFromContextMenu(contextMenuTask)}>
             <PencilLine size={14} />
             编辑

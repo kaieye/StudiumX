@@ -4,6 +4,7 @@
  * Results are returned to the model as tool output only — never auto-baked into system prefix.
  */
 import type { TeachingMemoryRecord } from '../../../shared/teaching-types'
+import { sanitizeMemoryInjectionText } from '../../../shared/memory-sanitize'
 import { searchLexicalDocuments, type LexicalDocument } from '../teaching-lexical-search'
 import type { ToolContext, ToolEntry } from './registry'
 
@@ -72,10 +73,12 @@ function memoryToDocument(record: TeachingMemoryRecord): {
   title: string
   meta: Record<string, string | number | boolean | null | undefined>
 } {
+  // Sanitize at tool-result / model-facing projection only; catalog storage stays raw.
+  const text = sanitizeMemoryInjectionText(record.content)
   return {
     id: record.id,
-    text: record.content,
-    title: titleFromContent(record.content),
+    text,
+    title: titleFromContent(text),
     meta: {
       kind: isSyntheticTeachingMemory(record) ? 'teaching_synthetic' : 'memory',
       scope: record.scope,
@@ -279,7 +282,9 @@ export function buildTeachingSyntheticMemoryIndexLines(
     .filter((record) => !record.deletedAt && !record.disabledAt && isSyntheticTeachingMemory(record))
     .slice(0, limit)
     .map((record) => {
-      const title = titleFromContent(record.content).replace(/\s+/g, ' ').trim()
+      const title = titleFromContent(sanitizeMemoryInjectionText(record.content))
+        .replace(/\s+/g, ' ')
+        .trim()
       return `- id=${record.id}; scope=${record.scope}; title=${title}`
     })
 }

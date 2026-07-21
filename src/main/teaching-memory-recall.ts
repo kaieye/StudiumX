@@ -3,6 +3,7 @@ import type {
   TeachingMemoryRecord,
   TeachingSettingsV1
 } from '../shared/teaching-types'
+import { sanitizeMemoryInjectionText } from '../shared/memory-sanitize'
 import { TeachingMemoryCatalog } from './teaching-memory-catalog'
 
 export type TeachingMemoryRecallInput = {
@@ -16,6 +17,7 @@ export type TeachingMemoryRecallInput = {
  *
  * Callers receive only records selected for their request; scope eligibility,
  * settings, ranking, limits, and injection telemetry remain local here.
+ * Content is sanitized at the recall→inject boundary (ADR-0076) before return.
  */
 export class TeachingMemoryRecall {
   private lastInjectedCount = 0
@@ -42,7 +44,13 @@ export class TeachingMemoryRecall {
       .filter((entry) => entry.score > 0)
       .sort((a, b) => b.score - a.score || b.record.updatedAt.localeCompare(a.record.updatedAt))
       .map((entry) => entry.record)
-    const result = [...userMemories, ...scored].slice(0, limit)
+    const selected = [...userMemories, ...scored].slice(0, limit)
+    const result = selected
+      .map((record) => ({
+        ...record,
+        content: sanitizeMemoryInjectionText(record.content)
+      }))
+      .filter((record) => record.content.length > 0)
     this.setLastInjected(result.map((record) => record.id))
     return result
   }

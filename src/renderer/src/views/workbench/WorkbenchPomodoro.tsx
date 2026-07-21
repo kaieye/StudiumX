@@ -7,6 +7,7 @@ import { useWorkbenchDisclosureReveal } from './useWorkbenchDisclosureReveal'
 type WorkbenchPomodoroProps = {
   snapshot: StudySnapshot
   timerProgress: number
+  selectedTaskId?: string | null
   onToggleTimer: () => void
   onResetTimer: () => void
   onStartTimerInMode: (timerMode: StudyTimerMode) => void
@@ -30,6 +31,7 @@ function createTimerPlanDraft(snapshot: StudySnapshot): TimerPlanDraft {
 export function WorkbenchPomodoro({
   snapshot,
   timerProgress,
+  selectedTaskId = null,
   onToggleTimer,
   onResetTimer,
   onStartTimerInMode,
@@ -53,6 +55,12 @@ export function WorkbenchPomodoro({
   const displayedProgress = isModePreview ? 0 : Math.min(100, Math.max(0, timerProgress))
   const timerRingStyle = { '--timer-ring-offset': `${100 - displayedProgress}` } as CSSProperties
   const timerLabel = selectedMode === 'focus' ? '专注计时' : '休息计时'
+  const focusTask = selectedTaskId
+    ? snapshot.tasks.find((task) => task.id === selectedTaskId) ?? null
+    : null
+  const focusTaskLabel = selectedMode === 'focus'
+    ? (focusTask ? focusTask.title : '未选择任务（时间不计入任务占比）')
+    : null
   const remainingTime = formatStudyDuration(displayedRemainingSeconds)
   const timerIsRunning = snapshot.timerState === 'running' && !isModePreview
   const timerActionLabel = timerIsRunning
@@ -286,6 +294,11 @@ export function WorkbenchPomodoro({
                 </svg>
                 <div className="workbench-pomodoro-time">
                   <strong>{remainingTime}</strong>
+                  {focusTaskLabel ? (
+                    <span className="workbench-pomodoro-time__task" title={focusTaskLabel}>
+                      {focusTask ? `FOCUS · ${focusTaskLabel}` : focusTaskLabel}
+                    </span>
+                  ) : null}
                   <span className="workbench-pomodoro-time__settings">
                     {snapshot.focusMinutes} / {snapshot.breakMinutes} 分钟 · {snapshot.simulationStartTime}–{snapshot.simulationEndTime}
                   </span>

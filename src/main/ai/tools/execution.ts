@@ -65,3 +65,12 @@ export type {
   ParallelReadDispatchSource
 } from './parallel-read-dispatcher'
 
+export {
+  executeToolBatch,
+  partitionToolCalls
+} from './batch-dispatch'
+export type {
+  ToolBatchCallContext,
+  ToolBatchControl,
+  ToolBatchResult
+} from './batch-dispatch'

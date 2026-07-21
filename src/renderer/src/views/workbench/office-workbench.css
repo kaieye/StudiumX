@@ -721,6 +721,45 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.36);
 }
 
+/* STC-302 task timeline view tabs (thin WorkbenchTasks adapter) */
+.workbench-task-view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0 2px;
+}
+
+.workbench-task-view-tab {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.workbench-task-view-tab:hover {
+  border-color: color-mix(in srgb, var(--pomodoro-accent, #5b8def) 35%, var(--line));
+  color: var(--text);
+}
+
+.workbench-task-view-tab.is-active {
+  border-color: color-mix(in srgb, var(--pomodoro-accent, #5b8def) 55%, var(--line));
+  background: color-mix(in srgb, var(--pomodoro-accent, #5b8def) 16%, var(--surface-solid));
+  color: var(--text);
+}
+
+.workbench-task-view-tab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--pomodoro-accent, #5b8def) 70%, transparent);
+  outline-offset: 2px;
+}
+
 .workbench-task-list {
   display: grid;
   gap: 6px;
@@ -2713,9 +2752,67 @@
 }
 
 .workbench-task-row {
-  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
   gap: 6px;
   padding: 4px;
+}
+
+.workbench-task-row:not(:has(.workbench-task-focus)) {
+  grid-template-columns: minmax(0, 1fr) 30px;
+}
+
+.workbench-task-row.is-focus-task {
+  border-color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 46%, var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34)));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 24%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.workbench-task-focus {
+  display: inline-grid;
+  place-items: center;
+  align-self: center;
+  width: 30px;
+  height: 30px;
+  color: var(--text-muted);
+  border: 1px solid var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34));
+  border-radius: var(--workbench-control-radius, 10px);
+  background: var(--liquid-glass-control-fill, rgba(255, 255, 255, 0.2));
+  box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, rgba(255, 255, 255, 0.4));
+}
+
+.workbench-task-focus.is-active {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 50%, transparent);
+  background: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 82%, #163b2d);
+}
+
+.workbench-task-focus:hover {
+  color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 80%, var(--text));
+  border-color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 40%, var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34)));
+  background: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 16%, transparent);
+}
+
+@media (hover: hover) {
+  .workbench-task-focus:not(.is-active) {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(3px);
+    transition:
+      opacity 140ms ease,
+      transform 140ms ease,
+      color 160ms ease,
+      border-color 160ms ease,
+      background-color 160ms ease;
+  }
+
+  .workbench-task-row:hover .workbench-task-focus,
+  .workbench-task-row:focus-within .workbench-task-focus,
+  .workbench-task-focus.is-active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
 }
 
 .workbench-task-toggle {
@@ -3506,6 +3603,35 @@
 }
 
 .study-schedule-event.is-done .study-schedule-event-status button {
+  background: color-mix(in srgb, #ffffff 28%, transparent);
+}
+
+.study-schedule-event.is-focus-task {
+  box-shadow:
+    0 10px 22px color-mix(in srgb, var(--event-color) 28%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, #ffffff 58%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 55%, transparent);
+}
+
+.study-schedule-event-focus {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  color: #ffffff;
+  border: 1px solid color-mix(in srgb, #ffffff 52%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, #ffffff 18%, transparent);
+}
+
+.study-schedule-event-focus.is-active {
+  color: #ffffff;
+  border-color: color-mix(in srgb, #ffffff 70%, transparent);
+  background: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 78%, #163b2d);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 40%, transparent);
+}
+
+.study-schedule-event-focus:hover {
   background: color-mix(in srgb, #ffffff 28%, transparent);
 }
 
@@ -6915,4 +7041,234 @@
     max-height: calc(100vh - 20px);
     padding: 13px;
   }
+}
+
+
+/* Focus-task attribution chip on the pomodoro face */
+.workbench-pomodoro-time__task {
+  display: block;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 0 10px;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 78%, #163b2d);
+  font-size: 0.5625rem;
+  font-weight: 740;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-time__settings {
+  display: block;
+}
+
+/* Empty-start sheet (STC-401 cutover C) — reuses scene-picker visual language */
+.workbench-empty-start-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 32;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(3, 7, 15, 0.46);
+  backdrop-filter: blur(16px) saturate(135%);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+}
+
+.workbench-empty-start-sheet {
+  box-sizing: border-box;
+  width: min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  color: var(--text);
+  border: 1px solid var(--workbench-quick-note-line);
+  border-radius: 22px;
+  background: var(--workbench-quick-note-surface);
+  box-shadow:
+    var(--workbench-quick-note-shadow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+  animation: workbench-scene-picker-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  outline: none;
+}
+
+.workbench-empty-start-sheet__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.workbench-empty-start-sheet__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.workbench-empty-start-sheet__header h2 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.workbench-empty-start-sheet__header p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.workbench-empty-start-sheet__close {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  color: var(--text-muted);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-solid) 54%, transparent);
+  cursor: pointer;
+}
+
+.workbench-empty-start-sheet__actions {
+  display: grid;
+  gap: 10px;
+}
+
+.workbench-empty-start-sheet__action {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.workbench-empty-start-sheet__action strong {
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.workbench-empty-start-sheet__action small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workbench-empty-start-sheet__action.is-recommended {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.workbench-empty-start-sheet__action:focus-visible,
+.workbench-empty-start-sheet__close:focus-visible,
+.workbench-empty-start-sheet__primary:focus-visible,
+.workbench-empty-start-sheet__secondary:focus-visible,
+.workbench-empty-start-sheet__cancel:focus-visible,
+.workbench-empty-start-sheet__task:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.workbench-empty-start-sheet__cancel {
+  margin-top: 2px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.workbench-empty-start-sheet__task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.workbench-empty-start-sheet__task {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 58%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.workbench-empty-start-sheet__task.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-solid));
+}
+
+.workbench-empty-start-sheet__field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.workbench-empty-start-sheet__field input {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.workbench-empty-start-sheet__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.workbench-empty-start-sheet__primary,
+.workbench-empty-start-sheet__secondary {
+  padding: 9px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workbench-empty-start-sheet__primary {
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-solid));
+  color: var(--text);
+}
+
+.workbench-empty-start-sheet__primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.workbench-empty-start-sheet__secondary {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.workbench-empty-start-sheet__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }

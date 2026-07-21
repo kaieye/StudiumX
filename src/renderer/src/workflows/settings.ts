@@ -12,6 +12,8 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
+  FileCheck2,
+  Stethoscope,
   Wrench
 } from 'lucide-react'
 import i18n from '../i18n'
@@ -59,6 +61,8 @@ export const settingsNavItems = [
   { id: 'memory', icon: BrainCircuit },
   { id: 'notifications', icon: Bell },
   { id: 'privacy', icon: Lock },
+  { id: 'doctor', icon: Stethoscope },
+  { id: 'review', icon: FileCheck2 },
   { id: 'about', icon: Info }
 ] satisfies Array<{ id: SettingsSection; icon: LucideIcon }>
 

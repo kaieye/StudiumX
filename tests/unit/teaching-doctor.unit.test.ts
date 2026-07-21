@@ -44,6 +44,9 @@ function healthyFacts(): TeachingDoctorFacts {
       removedCount: 0,
       recoveredRelativePaths: [],
       removedRelativePaths: []
+    },
+    processCrashMarker: {
+      present: false
     }
   }
 }
@@ -64,7 +67,7 @@ describe('TeachingDoctor', () => {
     expect(report.workspaceOpenPolicy).toBe('read_only_allowed')
     expect(report.diagnostics.autoRepair).toBe('disabled')
     expect(report.overallStatus).toBe('ok')
-    expect(report.checks).toHaveLength(5)
+    expect(report.checks).toHaveLength(6)
     expect(report.checks.every((check) => check.result === 'ok')).toBe(true)
     expect(report.checks.every((check) => check.repair.autoRepairAllowed === false)).toBe(true)
   })
@@ -270,6 +273,34 @@ describe('TeachingDoctor', () => {
     const report = runTeachingDoctor(facts, NOW)
     expect(byId(report, 'config_availability').result).toBe('warning')
     expect(report.overallStatus).toBe('warning')
+  })
+
+  it('reports a prior-process crash marker as warning without auto-repair or upload', () => {
+    const facts = healthyFacts()
+    facts.processCrashMarker = {
+      present: true,
+      writtenAt: '2026-07-20T07:55:00.000Z',
+      reasonCode: 'uncaught_exception',
+      runId: 'run_abc'
+    }
+
+    const report = runTeachingDoctor(facts, NOW)
+    const check = byId(report, 'local_process_crash_marker')
+
+    expect(report.overallStatus).toBe('warning')
+    expect(check.result).toBe('warning')
+    expect(check.evidence.fields.present).toBe(true)
+    expect(check.evidence.fields.reasonCode).toBe('uncaught_exception')
+    expect(check.repair.autoRepairAllowed).toBe(false)
+    expect(check.recommendedAction).toMatch(/clear|crash marker|never auto-upload/i)
+  })
+
+  it('skips process crash marker when facts are omitted', () => {
+    const facts = healthyFacts()
+    delete facts.processCrashMarker
+    const report = runTeachingDoctor(facts, NOW)
+    const check = byId(report, 'local_process_crash_marker')
+    expect(check.result).toBe('skipped')
   })
 })
 

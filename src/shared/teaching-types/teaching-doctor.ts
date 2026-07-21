@@ -9,6 +9,7 @@ export type TeachingDoctorCheckId =
   | 'config_availability'
   | 'source_gap'
   | 'catalog_drift'
+  | 'local_process_crash_marker'
 
 /**
  * Check result ladder. `error` means the check itself failed to execute; that
@@ -130,10 +131,32 @@ export type TeachingDoctorCatalogDriftFacts = {
   removedRelativePaths: readonly string[]
 }
 
+export type TeachingDoctorProcessCrashMarkerFacts = {
+  /** True when a valid crash marker was found under appData observability. */
+  present: boolean
+  /** ISO-8601 write time from marker, if present. */
+  writtenAt?: string | null
+  /** Closed reason code from marker (opaque). */
+  reasonCode?: string | null
+  /** Optional opaque run id from marker. */
+  runId?: string | null
+}
+
 export type TeachingDoctorFacts = {
   sessionCrashWindow?: TeachingDoctorSessionCrashWindowFacts | null
   outcomeCrashWindow?: TeachingDoctorOutcomeCrashWindowFacts | null
   config?: TeachingDoctorConfigFacts | null
   sourceGap?: TeachingDoctorSourceGapFacts | null
   catalogDrift?: TeachingDoctorCatalogDriftFacts | null
+  /** Local process crash marker from prior abnormal exit (collector I/O). */
+  processCrashMarker?: TeachingDoctorProcessCrashMarkerFacts | null
+}
+
+/**
+ * Product IPC payload for \unTeachingDoctor\ (ADR-0084).
+ * Fail-closed: only optional includeProcessCrashMarker; no free-form facts from renderer.
+ */
+export type RunTeachingDoctorPayload = {
+  /** When true (default), collect local process crash marker facts from main store. */
+  includeProcessCrashMarker?: boolean
 }

@@ -18,6 +18,8 @@ assert.equal(teachingInvokeChannels.applyLessonStyle, 'teach:apply-lesson-style'
 assert.equal('cleanupAgentArtifacts' in teachingInvokeChannels, false, 'agent artifact cleanup must not be a renderer IPC capability')
 assert.equal(Object.values(teachingInvokeChannels).includes('teach:cleanup-agent-artifacts'), false, 'agent artifact cleanup channel must not be published')
 assert.equal(teachingInvokeChannels.projectAgentConversationSummaries, 'teach:project-agent-conversation-summaries')
+assert.equal(teachingInvokeChannels.steerAgentChatStream, 'teach:agent-chat-steer')
+assert.equal(teachingInvokeChannels.followUpAgentChatStream, 'teach:agent-chat-follow-up')
 assert.equal(teachingEventChannels.lessonStreamChunk, 'teach:generate-lesson-chunk')
 assert.equal(teachingEventChannels.agentChatTool, 'teach:agent-chat-tool')
 assert.equal(teachingEventChannels.agentChatEvent, 'teach:agent-chat-event')

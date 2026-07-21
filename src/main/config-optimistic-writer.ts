@@ -8,6 +8,10 @@
  *
  * Never persists secrets into the fingerprint surface. Detectable secret
  * paths in the write overlay are rejected before apply.
+ *
+ * Managed layer (ADR-0086 / ADR-0092): when baseScope / store snapshot carries
+ * `managed`, CAS re-resolve preserves it so a user/workspace write does not
+ * drop the school/org overlay. The writer does not auto-load managed from disk.
  */
 
 import {
@@ -37,6 +41,7 @@ export type CompareAndProjectConfigWriteInput = {
    * Base scope used to re-resolve after applying the overlay.
    * When omitted, the pure core re-resolves with only the projected layer
    * over empty defaults (tests may pass a full scope).
+   * `managed` (when present) is always preserved through re-resolve.
    */
   baseScope?: TeachingConfigScope
 }
@@ -57,6 +62,8 @@ export type CompareAndProjectConfigWriteResult =
 /**
  * Pure CAS projection: compare expected fingerprint, reject secret-bearing
  * overlays, then apply the overlay as a user/workspace layer and re-resolve.
+ * Always copies `baseScope.managed` through so product re-resolve does not
+ * drop the managed overlay layer.
  */
 export function compareAndProjectConfigWrite(
   input: CompareAndProjectConfigWriteInput
@@ -101,6 +108,8 @@ export function compareAndProjectConfigWrite(
 
   const nextScope: TeachingConfigScope = {
     fallbackDefaultRoot: baseScope.fallbackDefaultRoot ?? '',
+    // Preserve managed through CAS re-resolve (S-11 residual / ADR-0092).
+    ...(baseScope.managed !== undefined ? { managed: baseScope.managed } : {}),
     user: layer === 'user' ? input.nextOverlay : baseScope.user,
     workspace: layer === 'workspace' ? input.nextOverlay : baseScope.workspace,
     sessionOverride: baseScope.sessionOverride
@@ -164,6 +173,8 @@ export function projectConfigWriteRequest(
  * Optional durable CAS adapter: read → pure project → atomic write.
  * Store implementations map onto TeachingSettingsService.save or file writers.
  * This function is intentionally thin so pure unit tests never need I/O.
+ * When the store snapshot carries optional `managed`, it is preserved into
+ * the re-resolve baseScope (does not auto-load managed from disk).
  */
 export async function writeConfigOptimistic(
   store: ConfigOptimisticStore,
@@ -181,6 +192,7 @@ export async function writeConfigOptimistic(
   const current = await store.read()
   const currentResolved = resolveTeachingConfig({
     fallbackDefaultRoot: current.fallbackDefaultRoot ?? '',
+    ...(current.managed !== undefined ? { managed: current.managed } : {}),
     user: current.user,
     workspace: current.workspace
   })
@@ -204,6 +216,7 @@ export async function writeConfigOptimistic(
     layer,
     baseScope: {
       fallbackDefaultRoot: current.fallbackDefaultRoot ?? '',
+      ...(current.managed !== undefined ? { managed: current.managed } : {}),
       user: current.user,
       workspace: current.workspace
     }

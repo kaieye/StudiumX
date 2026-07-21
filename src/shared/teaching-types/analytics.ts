@@ -327,6 +327,10 @@ export type StudyTaskStateSnapshot = {
   done: boolean
   schedule?: StudyTaskScheduleSnapshot
   workspaceId?: string
+  /** Optional Study task category id (builtin or custom-*). */
+  categoryId?: string
+  /** Display name captured with the snapshot; analytics may fall back to id. */
+  categoryName?: string
 }
 
 type StudyActivityFactBase = {
@@ -589,6 +593,31 @@ export type TaskAnalytics = {
     focusSeconds: number
     completedInRange: boolean
     currentlyDone: boolean | null
+    categoryId?: string | null
+    categoryName?: string | null
+  }>
+  /** Focus-time share rolled up by task category (range-filtered attribution). */
+  byCategoryFocus: Array<{
+    categoryId: string
+    label: string
+    focusSeconds: number
+  }>
+  /**
+   * Range-filtered task_completed events rolled up by task.
+   * Powers checklist-driven pies when no attributed focus exists yet.
+   */
+  topByCompletion: Array<{
+    taskId: string
+    title: string
+    completionCount: number
+    categoryId?: string | null
+    categoryName?: string | null
+  }>
+  /** Completion-count share rolled up by task category (range-filtered). */
+  byCategoryCompletion: Array<{
+    categoryId: string
+    label: string
+    completionCount: number
   }>
   unattributedFocusSeconds: number
 }

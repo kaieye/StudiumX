@@ -9,6 +9,14 @@ import {
 } from './child-run-supervisor'
 import type { ToolRuntimeEvent } from './tools/registry'
 import { buildDefaultRegistry, buildToolContext } from './tools/registry'
+import {
+  loadAndMergeToolPolicyDocumentsFromWorkspace,
+  toolPolicyDocumentOption
+} from './tools/tool-policy-fs'
+import {
+  assertChildCapabilitiesSubsetOrThrow,
+  intersectChildToolsWithParent
+} from './child-capability-subset'
 
 export {
   ChildRunStore,
@@ -52,6 +60,8 @@ export type DelegationRuntimeOptions = {
   parentStreamId?: string
   signal?: AbortSignal
   stageTranscript?: (childRunId: string, transcript: string) => Promise<AgentArtifactRef>
+  /** Optional parent allow-list; when set, child tools are intersected and subset-proved (B-10). */
+  parentAllowedToolNames?: readonly string[]
 }
 
 export type DelegationRuntimeRunOptions = {
@@ -135,7 +145,8 @@ export class DelegationRuntime {
     const registry = childRegistryForProfile({
       settings: this.options.settings,
       workspaceRoot: this.options.workspaceRoot,
-      profile: input.profile
+      profile: input.profile,
+      parentAllowedToolNames: this.options.parentAllowedToolNames
     })
     const childEvents: AgentLoopEvent[] = []
     const initialMessages = buildChildMessages(input)
@@ -143,15 +154,27 @@ export class DelegationRuntime {
     let stopReason: string | undefined
     let output: ChildRunExecutionResult
     try {
+      // Optional workspace tool-policy (ADR-0088 / ADR-0117 multi-path): load when
+      // workspaceRoot is non-empty; omit field on null (default-equivalent).
+      const workspaceRoot = this.options.workspaceRoot
+      const workspaceToolPolicy =
+        workspaceRoot
+          ? await loadAndMergeToolPolicyDocumentsFromWorkspace({ workspaceRoot })
+          : null
+
       const result = await runAgentLoop({
         settings: this.options.settings,
         provider: this.options.provider,
         messages: initialMessages,
         tools: registry.definitions(),
         toolHandlers: registry.handlerMap(buildToolContext(this.options.settings, {
-          workspaceRoot: this.options.workspaceRoot,
-          signal: lifecycle.signal
+          workspaceRoot,
+          signal: lifecycle.signal,
+          runId: lifecycle.childRunId,
+          ...toolPolicyDocumentOption(workspaceToolPolicy)
         })),
+        workspaceRoot: this.options.workspaceRoot,
+        runId: lifecycle.childRunId,
         maxIterations: input.maxIterations,
         // A bounded child that has already gathered evidence should spend one
         // final provider call summarizing partial findings instead of failing
@@ -221,20 +244,50 @@ export class DelegationRuntime {
     return archive ? { ...output, archive } : output
   }
 }
+/**
+ * Resolve the child's tool allow-list for a profile, optionally intersected with
+ * the parent grant. When `parentAllowedToolNames` is provided, intersection is
+ * fail-closed (empty parent → empty child) and subset is asserted.
+ */
+export function resolveChildToolAllowList(options: {
+  profile: ChildAgentProfile
+  parentAllowedToolNames?: readonly string[]
+}): string[] {
+  const proposed = toolNamesForProfile(options.profile)
+  if (options.parentAllowedToolNames === undefined) return proposed
+  return intersectChildToolsWithParent({
+    parentAllowedToolNames: options.parentAllowedToolNames,
+    childProposedToolNames: proposed
+  })
+}
+
 export function childRegistryForProfile(options: {
   settings: TeachingSettingsV1
   workspaceRoot?: string
   profile: ChildAgentProfile
+  /** When provided, child tools are intersected with this parent grant (B-10). */
+  parentAllowedToolNames?: readonly string[]
 }) {
+  const allow = resolveChildToolAllowList({
+    profile: options.profile,
+    parentAllowedToolNames: options.parentAllowedToolNames
+  })
+  if (options.parentAllowedToolNames !== undefined) {
+    assertChildCapabilitiesSubsetOrThrow({
+      parentAllowedToolNames: options.parentAllowedToolNames,
+      childAllowedToolNames: allow,
+      childProfile: options.profile
+    })
+  }
   const base = buildDefaultRegistry(options.settings, {
     workspaceRoot: options.workspaceRoot,
     workspaceWrite: false
   })
-  const allow = toolNamesForProfile(options.profile)
   return base.project({ allow })
 }
 
-function toolNamesForProfile(profile: ChildAgentProfile): string[] {
+/** Profile → proposed child tools (before parent intersection). Exported for subset tests. */
+export function toolNamesForProfile(profile: ChildAgentProfile): string[] {
   if (profile === 'workspace_audit') return [...WORKSPACE_READ_TOOL_NAMES]
   return [...WORKSPACE_READ_TOOL_NAMES, ...WEB_TOOL_NAMES]
 }

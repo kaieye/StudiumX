@@ -1,0 +1,16 @@
+# Dependabot — GitHub Actions only (A-09 / ADR-0054)
+# Do not add npm here unless a separate ADR expands package ecosystems.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: chore
+      include: scope

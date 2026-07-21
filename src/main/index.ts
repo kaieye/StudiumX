@@ -16,6 +16,7 @@ import { openExternalHttpUrl } from './external-links'
 import { createApplicationRuntime, type ApplicationRuntime } from './application-runtime'
 import { PREVIEW_PROTOCOL } from '../shared/preview-markdown-bridge'
 import type { TeachingSettingsV1 } from '../shared/teaching-types'
+import { createCrashMarkerStore, installLocalCrashMarkerHooks } from './observability'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
@@ -204,12 +205,17 @@ if (!hasSingleInstanceLock) {
   app.quit()
 } else {
   let runtime: ApplicationRuntime | undefined
+  let uninstallCrashMarkerHooks: (() => void) | undefined
 
   app.whenReady().then(async () => {
     app.setName(APP_NAME)
     app.setAppUserModelId('com.local.studiumx')
 
     const userDataPath = app.getPath('userData')
+    // Local crash marker (ADR-0066 / B-11): next-start doctor visibility only.
+    // No upload, OTEL, or remote telemetry.
+    const crashMarkers = createCrashMarkerStore({ appDataRoot: userDataPath })
+    uninstallCrashMarkerHooks = installLocalCrashMarkerHooks(crashMarkers)
     const defaultRoot = join(app.getPath('documents'), `${APP_NAME} Workspaces`)
     const registryPath = join(userDataPath, 'studiumx-workspaces.json')
 
@@ -319,7 +325,9 @@ if (!hasSingleInstanceLock) {
           learningAnalyticsService,
           logger,
           applyAppBehavior: (settings) => applyAppBehavior(settings, tray, logger),
-          turnCoordinatorHost
+          turnCoordinatorHost,
+          // B-11 / ADR-0084: product TeachingDoctor IPC reads process crash marker.
+          crashMarkerStore: crashMarkers
         })
 
         registerMusicIpcGateway()
@@ -355,6 +363,13 @@ if (!hasSingleInstanceLock) {
 
   app.on('before-quit', (event) => {
     setAppIsQuitting(true)
+    // Best-effort: drop process hooks on clean quit so normal exit does not
+    // race a late uncaught handler after shutdown begins.
+    try {
+      uninstallCrashMarkerHooks?.()
+    } catch {
+      // ignore
+    }
     const shutdown = runtime?.beginShutdown()
     if (!shutdown) return
 

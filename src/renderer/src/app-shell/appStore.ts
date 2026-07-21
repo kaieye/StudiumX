@@ -208,6 +208,8 @@ export type StoreState = {
   activeConversationRevision: number | null
   activeSessionTree: AgentConversationSessionTree | null
   agentChatBusy: boolean
+  agentBusyAckMessage: string | null
+  agentBusyFollowUpQueue: Array<{ text: string; mode?: AgentChatMode; skillIds?: string[] }>
   agentStatus: string
   agentInput: string
   agentInputHistory: string[]
@@ -833,6 +835,8 @@ export const useAppStore = create<StoreState>((set, get) => {
   activeConversationRevision: null,
   activeSessionTree: null,
   agentChatBusy: false,
+  agentBusyAckMessage: null,
+  agentBusyFollowUpQueue: [],
   agentStatus: '',
   agentInput: '',
   agentInputHistory: readPersistedAgentInputHistory(),
@@ -849,10 +853,10 @@ export const useAppStore = create<StoreState>((set, get) => {
   },
   clearAgentChat: () => {
     if (get().agentChatBusy && get().pendingAgentConversation) {
-      set({ agentTurns: [], activeConversationId: null, activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null, agentStatus: '', agentInput: '', agentToolsSupported: null })
+      set({ agentTurns: [], activeConversationId: null, activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentBusyAckMessage: null, agentBusyFollowUpQueue: [] })
       return
     }
-    set({ agentTurns: [], activeConversationId: null, activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null })
+    set({ agentTurns: [], activeConversationId: null, activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null, agentBusyAckMessage: null, agentBusyFollowUpQueue: [] })
   },
   cancelAgentChat: async () => {
     await createAgentConversationTurnRunner(get, set).cancel()
@@ -1006,6 +1010,8 @@ export const useAppStore = create<StoreState>((set, get) => {
         activeSessionTree: recoverySessionTree,
         agentStatus: interrupted ? '上次运行已中断，需要人工确认；不会自动继续或重做。' : '',
         agentChatBusy: false,
+        agentBusyAckMessage: null,
+        agentBusyFollowUpQueue: [],
         pendingAgentConversation: null
       })
       // Reload recovery: status poll only (workspaceId + actionId). Never auto-resubmit or reattach streams.

@@ -7,6 +7,43 @@ import {
 export type ContextCompactionMode = 'normal' | 'aggressive' | 'manual'
 export type ContextCompactionReason = 'soft_threshold' | 'hard_threshold' | 'manual'
 
+/**
+ * Closed outcome codes for compaction audit events.
+ * Prefer these over free-form strings when interpreting failure/success.
+ */
+export type ContextCompactionOutcomeCode =
+  | 'completed'
+  | 'insufficient_reduction'
+  | 'summary_empty'
+  | 'summarize_error'
+
+/**
+ * Documented cut-point strategy for provider-projection compaction (ADR-0045 layer A / ADR-0064).
+ *
+ * Selection order (immutable product defaults — not a second engine):
+ * 1. **System boundary** — keep a leading contiguous `system` prefix untouched.
+ * 2. **Recent tail** — grow a suffix from the end within token budget
+ *    (`normalTailRatio` / `aggressiveTailRatio`) and at least `minTailMessages`.
+ * 3. **Latest user anchor** — never place the cut after the latest `user` message
+ *    (recent dialogue stays in the kept suffix).
+ * 4. **Tool-pair repair** — if a kept `tool` result would orphan its assistant
+ *    `tool_calls`, pull the boundary earlier to include that assistant message.
+ * 5. **Middle compact slice** — only `[systemCount, cutIndex)` is summarized;
+ *    require `minMessagesToCompact` or skip.
+ * 6. **Reference-only insert** — summary is a system message between prefix and tail;
+ *    **no default durable rewrite** of the learner conversation body / session JSON.
+ * 7. **Insufficient-reduction guard** — if token savings after replace fall below the
+ *    configured floor, treat as no-op failure and keep the original transcript.
+ */
+export const CONTEXT_COMPACTOR_CUT_POINT_STRATEGY = {
+  preserveLeadingSystem: true,
+  preserveLatestUserInTail: true,
+  repairToolPairs: true,
+  referenceOnlySummary: true,
+  durableRewriteDefault: false,
+  insufficientReductionGuard: true
+} as const
+
 export type ContextCompactionSummaryRequest = {
   messages: ChatMessage[]
   mode: ContextCompactionMode
@@ -32,6 +69,27 @@ export type ContextCompactionOptions = {
   summaryInputTokenLimit?: number
   maxSummaryTokens?: number
   failureCooldownMs?: number
+  /**
+   * Absolute minimum token savings (`before - after`) required to accept a compaction.
+   * Defaults to a small floor so pure churn / inflate paths fail closed.
+   */
+  minTokenSavings?: number
+  /**
+   * Relative savings floor: `(before - after) / before` must be ≥ this ratio when
+   * `before > 0`. Defaults to 5%. Either this or `minTokenSavings` may trip the guard.
+   */
+  minTokenReductionRatio?: number
+}
+
+export type ContextCompactionCutAudit = {
+  /** Index of the first kept tail message in the original array (exclusive end of compact slice). */
+  cutIndex: number
+  /** Leading system messages retained as prefix. */
+  systemPrefixCount: number
+  /** Messages in the compact slice that would be replaced by the summary. */
+  messagesRemovedCount: number
+  /** Messages retained after the cut (kept suffix). */
+  keptSuffixCount: number
 }
 
 export type ContextCompactionEvent =
@@ -43,6 +101,10 @@ export type ContextCompactionEvent =
       thresholdTokens: number
       contextWindowTokens: number
       sourceDigest: string
+      cutIndex: number
+      systemPrefixCount: number
+      messagesRemovedCount: number
+      keptSuffixCount: number
     }
   | {
       type: 'context_compaction_completed'
@@ -52,8 +114,16 @@ export type ContextCompactionEvent =
       summaryTokens: number
       beforeTokens: number
       afterTokens: number
+      /** @deprecated Prefer `messagesRemovedCount` — same value. */
       replacedMessages: number
+      /** @deprecated Prefer `keptSuffixCount` — same value. */
       tailMessages: number
+      messagesRemovedCount: number
+      keptSuffixCount: number
+      cutIndex: number
+      systemPrefixCount: number
+      tokenSavings: number
+      outcomeCode: 'completed'
       sourceDigest: string
       cached: boolean
       compactionId: string
@@ -70,6 +140,14 @@ export type ContextCompactionEvent =
       compactionId: string
       createdAt: string
       replacedTurnIds: string[]
+      outcomeCode: ContextCompactionOutcomeCode
+      cutIndex: number
+      systemPrefixCount: number
+      messagesRemovedCount: number
+      keptSuffixCount: number
+      beforeTokens?: number
+      afterTokens?: number
+      tokenSavings?: number
     }
 
 export type ContextCompactionResult = {
@@ -83,7 +161,9 @@ export type ContextCompactionResult = {
 
 export type ContextCompactorSummarizer = (request: ContextCompactionSummaryRequest) => Promise<string>
 
-type NormalizedContextCompactionOptions = Required<Omit<ContextCompactionOptions, 'softThresholdTokens' | 'hardThresholdTokens'>> & {
+type NormalizedContextCompactionOptions = Required<
+  Omit<ContextCompactionOptions, 'softThresholdTokens' | 'hardThresholdTokens'>
+> & {
   softThresholdTokens?: number
   hardThresholdTokens?: number
 }
@@ -96,6 +176,9 @@ type CompactionPlan = {
   systemPrefix: ChatMessage[]
   compactedMessages: ChatMessage[]
   tailMessages: ChatMessage[]
+  /** Exclusive end of the compact slice / first kept tail index. */
+  cutIndex: number
+  systemPrefixCount: number
   sourceDigest: string
   replacedTurnIds: string[]
   summaryInput: ChatMessage[]
@@ -112,6 +195,8 @@ const DEFAULT_MIN_MESSAGES_TO_COMPACT = 4
 const DEFAULT_SUMMARY_INPUT_TOKEN_LIMIT = 16_000
 const DEFAULT_MAX_SUMMARY_TOKENS = 1_200
 const DEFAULT_FAILURE_COOLDOWN_MS = 5 * 60 * 1000
+const DEFAULT_MIN_TOKEN_SAVINGS = 32
+const DEFAULT_MIN_TOKEN_REDUCTION_RATIO = 0.05
 const SUMMARY_START = '[CONTEXT COMPACTION - REFERENCE ONLY]'
 const SUMMARY_END = '[END CONTEXT COMPACTION]'
 
@@ -153,6 +238,7 @@ export class ContextCompactor {
     const plan = this.plan(input.messages, input.tools, estimateBefore, input.messageTurnIds)
     if (!plan) return unchanged()
 
+    const cutAudit = cutAuditFromPlan(plan)
     const events: ContextCompactionEvent[] = [
       {
         type: 'context_compaction_started',
@@ -161,7 +247,8 @@ export class ContextCompactor {
         estimate: estimateBefore,
         thresholdTokens: plan.thresholdTokens,
         contextWindowTokens: plan.contextWindowTokens,
-        sourceDigest: plan.sourceDigest
+        sourceDigest: plan.sourceDigest,
+        ...cutAudit
       }
     ]
 
@@ -176,8 +263,18 @@ export class ContextCompactor {
         maxSummaryTokens: this.options.maxSummaryTokens
       })
       const cleanSummary = cleanSummaryText(summary)
-      if (!cleanSummary) throw new Error('Compaction summary was empty.')
-      this.summaries.set(plan.sourceDigest, cleanSummary)
+      if (!cleanSummary) {
+        return this.failClosed({
+          inputMessages: input.messages,
+          estimateBefore,
+          events,
+          plan,
+          cutAudit,
+          error: 'Compaction summary was empty.',
+          outcomeCode: 'summary_empty',
+          replacedTurnIds: []
+        })
+      }
 
       const summaryMessage: ChatMessage = {
         role: 'system',
@@ -189,20 +286,53 @@ export class ContextCompactor {
           replacedMessages: plan.compactedMessages.length
         })
       }
-      const messages = [...plan.systemPrefix, summaryMessage, ...plan.tailMessages]
-      const estimateAfter = this.estimator.estimateRequest(messages, { tools: input.tools })
+      const candidateMessages = [...plan.systemPrefix, summaryMessage, ...plan.tailMessages]
+      const estimateAfter = this.estimator.estimateRequest(candidateMessages, { tools: input.tools })
       const replacedTokens = this.estimator.estimateMessages(plan.compactedMessages)
       const summaryTokens = this.estimator.estimateMessage(summaryMessage)
+      const beforeTokens = estimateBefore.totalTokens
+      const afterTokens = estimateAfter.totalTokens
+      const tokenSavings = beforeTokens - afterTokens
+
+      if (!reductionMeetsGuard({
+        beforeTokens,
+        afterTokens,
+        minTokenSavings: this.options.minTokenSavings,
+        minTokenReductionRatio: this.options.minTokenReductionRatio
+      })) {
+        // Do not cache a summary that produced insufficient reduction.
+        return this.failClosed({
+          inputMessages: input.messages,
+          estimateBefore,
+          events,
+          plan,
+          cutAudit,
+          error: `Insufficient reduction: saved ${tokenSavings} token(s) (before=${beforeTokens}, after=${afterTokens}).`,
+          outcomeCode: 'insufficient_reduction',
+          replacedTurnIds: plan.replacedTurnIds,
+          beforeTokens,
+          afterTokens,
+          tokenSavings
+        })
+      }
+
+      this.summaries.set(plan.sourceDigest, cleanSummary)
       events.push({
         type: 'context_compaction_completed',
         reason: plan.reason,
         mode: plan.mode,
         replacedTokens,
         summaryTokens,
-        beforeTokens: estimateBefore.totalTokens,
-        afterTokens: estimateAfter.totalTokens,
+        beforeTokens,
+        afterTokens,
         replacedMessages: plan.compactedMessages.length,
         tailMessages: plan.tailMessages.length,
+        messagesRemovedCount: cutAudit.messagesRemovedCount,
+        keptSuffixCount: cutAudit.keptSuffixCount,
+        cutIndex: cutAudit.cutIndex,
+        systemPrefixCount: cutAudit.systemPrefixCount,
+        tokenSavings,
+        outcomeCode: 'completed',
         sourceDigest: plan.sourceDigest,
         cached: Boolean(cached),
         compactionId: `compaction:${plan.sourceDigest}`,
@@ -210,7 +340,7 @@ export class ContextCompactor {
         replacedTurnIds: plan.replacedTurnIds
       })
       return {
-        messages,
+        messages: candidateMessages,
         changed: true,
         estimateBefore,
         estimateAfter,
@@ -218,27 +348,61 @@ export class ContextCompactor {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      const failedAtMs = this.options.now()
-      const cooldownUntilMs = failedAtMs + this.options.failureCooldownMs
-      this.failureCooldownUntil = cooldownUntilMs
-      events.push({
-        type: 'context_compaction_failed',
-        reason: plan.reason,
-        mode: plan.mode,
+      return this.failClosed({
+        inputMessages: input.messages,
+        estimateBefore,
+        events,
+        plan,
+        cutAudit,
         error: message,
-        cooldownUntil: new Date(cooldownUntilMs).toISOString(),
-        sourceDigest: plan.sourceDigest,
-        compactionId: `compaction:${plan.sourceDigest}:failed`,
-        createdAt: new Date(failedAtMs).toISOString(),
+        outcomeCode: 'summarize_error',
         replacedTurnIds: []
       })
-      return {
-        messages: input.messages,
-        changed: false,
-        estimateBefore,
-        estimateAfter: estimateBefore,
-        events
-      }
+    }
+  }
+
+  private failClosed(input: {
+    inputMessages: ChatMessage[]
+    estimateBefore: TokenEstimate
+    events: ContextCompactionEvent[]
+    plan: CompactionPlan
+    cutAudit: ContextCompactionCutAudit
+    error: string
+    outcomeCode: Exclude<ContextCompactionOutcomeCode, 'completed'>
+    replacedTurnIds: string[]
+    beforeTokens?: number
+    afterTokens?: number
+    tokenSavings?: number
+  }): ContextCompactionResult {
+    const failedAtMs = this.options.now()
+    const cooldownUntilMs = failedAtMs + this.options.failureCooldownMs
+    this.failureCooldownUntil = cooldownUntilMs
+    input.events.push({
+      type: 'context_compaction_failed',
+      reason: input.plan.reason,
+      mode: input.plan.mode,
+      error: input.error,
+      cooldownUntil: new Date(cooldownUntilMs).toISOString(),
+      sourceDigest: input.plan.sourceDigest,
+      compactionId: `compaction:${input.plan.sourceDigest}:failed`,
+      createdAt: new Date(failedAtMs).toISOString(),
+      replacedTurnIds: input.replacedTurnIds,
+      outcomeCode: input.outcomeCode,
+      cutIndex: input.cutAudit.cutIndex,
+      systemPrefixCount: input.cutAudit.systemPrefixCount,
+      messagesRemovedCount: input.cutAudit.messagesRemovedCount,
+      keptSuffixCount: input.cutAudit.keptSuffixCount,
+      beforeTokens: input.beforeTokens,
+      afterTokens: input.afterTokens,
+      tokenSavings: input.tokenSavings
+    })
+    // Product floor: never drop or rewrite the original transcript on failure.
+    return {
+      messages: input.inputMessages,
+      changed: false,
+      estimateBefore: input.estimateBefore,
+      estimateAfter: input.estimateBefore,
+      events: input.events
     }
   }
 
@@ -294,6 +458,8 @@ export class ContextCompactor {
       systemPrefix,
       compactedMessages,
       tailMessages,
+      cutIndex: boundary,
+      systemPrefixCount: systemCount,
       sourceDigest,
       replacedTurnIds,
       summaryInput,
@@ -355,6 +521,56 @@ export function buildSummaryRequestMessages(input: {
   ]
 }
 
+/**
+ * Pure guard used after a candidate compaction estimate is available.
+ * Returns true when savings meet both absolute and relative floors.
+ */
+export function reductionMeetsGuard(input: {
+  beforeTokens: number
+  afterTokens: number
+  minTokenSavings: number
+  minTokenReductionRatio: number
+}): boolean {
+  const before = Math.max(0, Math.floor(input.beforeTokens))
+  const after = Math.max(0, Math.floor(input.afterTokens))
+  const savings = before - after
+  if (savings < input.minTokenSavings) return false
+  if (before <= 0) return savings > 0
+  const ratio = savings / before
+  return ratio + Number.EPSILON >= input.minTokenReductionRatio
+}
+
+/**
+ * Select the exclusive cut index for the compact slice using the documented
+ * cut-point strategy (tail budget + min messages + latest-user anchor).
+ * Exported for unit verification of cut-point behaviour.
+ */
+export function selectCompactionCutIndex(input: {
+  messages: ChatMessage[]
+  systemCount: number
+  tailBudgetTokens: number
+  minTailMessages: number
+  estimator: ContextEstimator
+}): number {
+  const initial = chooseTailBoundary(
+    input.messages,
+    input.systemCount,
+    input.tailBudgetTokens,
+    input.minTailMessages,
+    input.estimator
+  )
+  return repairToolPairBoundary(input.messages, initial, input.systemCount)
+}
+
+function cutAuditFromPlan(plan: CompactionPlan): ContextCompactionCutAudit {
+  return {
+    cutIndex: plan.cutIndex,
+    systemPrefixCount: plan.systemPrefixCount,
+    messagesRemovedCount: plan.compactedMessages.length,
+    keptSuffixCount: plan.tailMessages.length
+  }
+}
+
 function normalizeOptions(
   options: ContextCompactionOptions & { summarize: ContextCompactorSummarizer }
 ): NormalizedContextCompactionOptions {
@@ -392,6 +608,8 @@ function normalizeOptions(
     ),
     maxSummaryTokens: clampInteger(options.maxSummaryTokens, 128, 8_000, DEFAULT_MAX_SUMMARY_TOKENS),
     failureCooldownMs: clampInteger(options.failureCooldownMs, 1_000, 60 * 60 * 1000, DEFAULT_FAILURE_COOLDOWN_MS),
+    minTokenSavings: clampInteger(options.minTokenSavings, 0, 1_000_000, DEFAULT_MIN_TOKEN_SAVINGS),
+    minTokenReductionRatio: clampRatio(options.minTokenReductionRatio, DEFAULT_MIN_TOKEN_REDUCTION_RATIO),
     now: options.now ?? (() => Date.now())
   }
 }

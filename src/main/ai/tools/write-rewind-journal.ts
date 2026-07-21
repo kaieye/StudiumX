@@ -18,6 +18,12 @@ export type WriteRewindJournalEntry = Readonly<{
   /** SHA-256 of the content that was about to be written (for safe create-rewind). */
   writtenContentSha256: string
   bytes: number
+  /**
+   * Optional permission audit metadata (ADR-0063 residual / C2).
+   * Policy allow|prompt|forbidden, or interactive deny. Omitted when capture path
+   * does not know a decision; journal does not own permission settlement.
+   */
+  permissionDecision?: 'allow' | 'prompt' | 'forbidden' | 'deny'
 }>
 
 export type CaptureWritePreImageInput = Readonly<{
@@ -26,6 +32,8 @@ export type CaptureWritePreImageInput = Readonly<{
   runId: string
   content: string
   nowIso?: () => string
+  /** Optional permission audit when capture path already knows the decision. */
+  permissionDecision?: 'allow' | 'prompt' | 'forbidden' | 'deny'
 }>
 
 export type RestoreWriteRewindResult = Readonly<{
@@ -101,7 +109,13 @@ export async function captureAndAppendWritePreImage(
     existed,
     preImageUtf8,
     writtenContentSha256: sha256Utf8(input.content),
-    bytes: Buffer.byteLength(input.content, 'utf8')
+    bytes: Buffer.byteLength(input.content, 'utf8'),
+    ...(input.permissionDecision === 'allow' ||
+    input.permissionDecision === 'prompt' ||
+    input.permissionDecision === 'forbidden' ||
+    input.permissionDecision === 'deny'
+      ? { permissionDecision: input.permissionDecision }
+      : {})
   }
 
   await appendWriteRewindJournalEntry({ workspaceRoot, runId, entry })
@@ -226,4 +240,22 @@ export function normalizeRelativeWorkspacePath(value: string): string | null {
 function isPathInsideRoot(root: string, absolutePath: string): boolean {
   const rel = relative(resolve(root), resolve(absolutePath))
   return rel !== '' && !rel.startsWith(`..${sep}`) && !rel.startsWith('..') && rel !== '..'
+}
+/**
+ * Pure association for audit metadata (does not write FS).
+ * Prefer captureAndAppendWritePreImage({ permissionDecision }) at write time.
+ */
+export function withPermissionDecision(
+  entry: WriteRewindJournalEntry,
+  decision: WriteRewindJournalEntry['permissionDecision']
+): WriteRewindJournalEntry {
+  if (
+    decision !== 'allow' &&
+    decision !== 'prompt' &&
+    decision !== 'forbidden' &&
+    decision !== 'deny'
+  ) {
+    return entry
+  }
+  return { ...entry, permissionDecision: decision }
 }

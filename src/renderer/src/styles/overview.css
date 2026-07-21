@@ -1238,3 +1238,9 @@
   color: #8591a3;
   font-size: 11px;
 }
+
+
+/* B-12: busy-ack note in OverviewChat statusbar (queue, not ask interruption). */
+.overview-dialog-busy-ack {
+  color: var(--text-secondary, #5b6472);
+}

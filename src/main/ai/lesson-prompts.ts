@@ -3,6 +3,7 @@ import {
   DEFAULT_LESSON_PREVIEW_CAPABILITIES,
   type LessonPreviewCapabilities
 } from '../../shared/lesson-preview-capabilities'
+import { sanitizeMemoryInjectionText } from '../../shared/memory-sanitize'
 
 /**
  * A workspace file (NOTES.md / GLOSSARY.md / RESOURCES.md) excerpt injected
@@ -115,7 +116,7 @@ export function buildLessonSystemPrompt(opts: {
 ${priorLessonsBlock}${conversationBlock}${ctxBlock}
 
 ${opts.memories.length > 0 ? `# 可用长期记忆
-${opts.memories.map((memory, index) => `- [${index + 1}] (${memory.scope}) ${memory.content}`).join('\n')}
+${opts.memories.map((memory, index) => `- [${index + 1}] (${memory.scope}) ${sanitizeMemoryInjectionText(memory.content)}`).join('\n')}
 
 ` : ''}# 要求
 - 全部用中文，内容贴合 Mission 和用户输入。
@@ -171,7 +172,7 @@ export function buildLessonUserPrompt(opts: {
 ${opts.prompt}
 
 ${opts.memories.length > 0 ? `相关长期记忆：
-${opts.memories.map((memory, index) => `${index + 1}. ${memory.content}`).join('\n')}
+${opts.memories.map((memory, index) => `${index + 1}. ${sanitizeMemoryInjectionText(memory.content)}`).join('\n')}
 
 ` : ''}请按系统约定的 JSON 结构输出本节课程。`
 }

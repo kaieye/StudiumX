@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { readStudySnapshot } from '../../../study-space/domain'
+import { listStudyTaskCategories, resolveStudyTaskCategory } from '../../../study-space/taskCategories'
 import { createPersonalStudyAnalyticsSnapshot, subscribeStudyAnalyticsStore } from './domain/activityLedger'
 import type {
   AnalyticsDateRange,
@@ -267,7 +268,9 @@ function personalStudyRequest(query: LearningAnalyticsQuery): LearningAnalyticsR
     personalStudy: createPersonalStudyAnalyticsSnapshot(query.scope.personalFocus.clientId, {
       xp: study.xp,
       streakDays: study.streakDays,
-      tasks: study.tasks.map((task) => {
+      tasks: (() => {
+        const categories = listStudyTaskCategories()
+        return study.tasks.map((task) => {
         const schedule = task.schedule
         const validSchedule = schedule
           && Number.isInteger(schedule.weekday)
@@ -275,10 +278,15 @@ function personalStudyRequest(query: LearningAnalyticsQuery): LearningAnalyticsR
           && schedule.weekday <= 6
           && Number.isFinite(schedule.startMinutes)
           && Number.isFinite(schedule.endMinutes)
+        const category = resolveStudyTaskCategory(task.categoryId, categories)
+        const categoryId = category?.id ?? task.categoryId
+        const categoryName = category?.name
         return {
           taskId: task.id,
           title: task.title,
           done: task.done,
+          ...(categoryId ? { categoryId } : {}),
+          ...(categoryName ? { categoryName } : {}),
           ...(validSchedule ? {
             schedule: {
               weekday: schedule.weekday as 0 | 1 | 2 | 3 | 4 | 5 | 6,
@@ -289,6 +297,7 @@ function personalStudyRequest(query: LearningAnalyticsQuery): LearningAnalyticsR
           } : {})
         }
       })
+      })()
     })
   }
 }

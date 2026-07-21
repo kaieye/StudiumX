@@ -144,8 +144,6 @@
 }
 .resource-home-search:focus-within {
   color: #5d6570;
-  border-color: #ccd4df;
-  box-shadow: 0 0 0 3px rgba(49, 92, 255, 0.08);
 }
 .resource-home-search input {
   width: 100%;
@@ -189,7 +187,7 @@
   display: flex;
   align-items: center;
   gap: 13px;
-  margin-top: 16px;
+  margin-top: 0;
 }
 .resource-installed-icon {
   position: relative;
@@ -298,7 +296,7 @@
 }
 .resource-entry-card {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 42px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -1703,8 +1701,6 @@
 }
 :root[data-resolved-theme='dark'] .resource-home-search:focus-within {
   color: var(--text-muted);
-  border-color: var(--line-strong);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 :root[data-resolved-theme='dark'] .resource-home-search input {
   color: var(--text);

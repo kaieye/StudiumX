@@ -1,5 +1,6 @@
 import type { ModelEndpointFormat } from '../../../shared/teaching-types'
 import type { ToolCall } from '../provider-adapter'
+import { normalizeStopReason, type ProviderStopReason } from '../provider-hooks'
 import { parseDsmlToolCalls, stripDsmlToolCallBlocks } from './dsml-tool-calls'
 import { toolsSupportedForFormat } from './formats'
 
@@ -37,6 +38,44 @@ function finiteTokenCount(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
     : undefined
+}
+
+/**
+ * Normalize provider finish/stop signals into ProviderStopReason.
+ * Returns undefined when the body carries no usable terminal signal (caller must not forge `stop`).
+ */
+export function extractFinishReason(format: ModelEndpointFormat, body: unknown): ProviderStopReason | undefined {
+  if (!body || typeof body !== 'object') return undefined
+
+  if (format === 'messages') {
+    const stopReason = (body as { stop_reason?: unknown }).stop_reason
+    if (typeof stopReason === 'string' && stopReason.trim()) return normalizeStopReason(stopReason)
+    return undefined
+  }
+
+  if (format === 'responses') {
+    const status = (body as { status?: unknown }).status
+    if (typeof status === 'string' && status.trim()) {
+      if (status === 'completed') return 'stop'
+      if (status === 'incomplete') {
+        const detail = (body as { incomplete_details?: { reason?: unknown } }).incomplete_details?.reason
+        if (typeof detail === 'string' && detail.trim()) return normalizeStopReason(detail)
+        return 'length'
+      }
+      if (status === 'failed') return 'error'
+      if (status === 'cancelled' || status === 'canceled') return 'canceled'
+      return normalizeStopReason(status)
+    }
+    return undefined
+  }
+
+  // chat_completions / custom_endpoint
+  const choices = (body as { choices?: unknown }).choices
+  if (Array.isArray(choices) && choices.length > 0) {
+    const finishReason = (choices[0] as { finish_reason?: unknown })?.finish_reason
+    if (typeof finishReason === 'string' && finishReason.trim()) return normalizeStopReason(finishReason)
+  }
+  return undefined
 }
 
 export function extractText(format: ModelEndpointFormat, body: unknown): string {
@@ -104,3 +143,4 @@ export function extractToolCalls(format: ModelEndpointFormat, body: unknown): To
         : ''
   return [...nativeCalls, ...parseDsmlToolCalls(text)]
 }
+

@@ -68,6 +68,13 @@ export type ConfigOptimisticStoreRead = {
   user?: unknown
   /** Current workspace overlay (optional). */
   workspace?: unknown
+  /**
+   * Optional school/org managed overlay snapshot (secret-free intent).
+   * When present, CAS re-resolve preserves it so user/workspace writes do not
+   * drop the managed layer (ADR-0086 / ADR-0092). Store adapters that load
+   * managed via teaching-managed-config-fs may surface it here.
+   */
+  managed?: unknown
   /** Fallback root used when resolving defaults. */
   fallbackDefaultRoot?: string
 }

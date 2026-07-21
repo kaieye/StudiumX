@@ -12,6 +12,11 @@ import {
 } from './ai/agent-capability-policy'
 import { resolveActiveProvider } from './ai/provider-adapter'
 import { buildToolContext } from './ai/tools/registry'
+import type { ToolPolicyDocument } from './ai/tools/tool-policy'
+import {
+  loadAndMergeToolPolicyDocumentsFromWorkspace,
+  toolPolicyDocumentOption
+} from './ai/tools/tool-policy-fs'
 import {
   availableProviders,
   resolveConfiguredProvider,
@@ -70,6 +75,13 @@ export type TeachingCapabilityCatalogRequest = Readonly<{
   workspaceToolAccessGranted?: boolean
   hasLessonGenerator?: boolean
   workspaceRoot?: string | null
+  /**
+   * Optional preloaded workspace tool-policy (ADR-0101 / option B).
+   * Pass a document after async FS load at the composition edge; omit or pass
+   * null for default-equivalent (no field on ToolContext). Sync `snapshot`
+   * never reads disk — product callers use {@link loadToolPolicyForCapabilityCatalog}.
+   */
+  toolPolicyDocument?: ToolPolicyDocument | null
   /** Installed/built-in skill summaries already loaded from SkillLibraryService. */
   skills?: readonly SkillSummary[]
   skillLoadError?: string
@@ -156,6 +168,21 @@ export function snapshotTeachingCapabilities(
   return createTeachingCapabilityCatalog({ defaultTtlMs: 0, now: request.now }).snapshot(request)
 }
 
+/**
+ * Async edge helper: load optional workspace tool-policy when `workspaceRoot`
+ * is a non-empty string (ADR-0101). Empty/missing root → null, no FS read.
+ * Composition roots may pass the result as `request.toolPolicyDocument` into
+ * sync {@link snapshotTeachingCapabilities} / `catalog.snapshot`.
+ */
+export async function loadToolPolicyForCapabilityCatalog(
+  workspaceRoot: string | null | undefined
+): Promise<ToolPolicyDocument | null> {
+  const root = typeof workspaceRoot === 'string' ? workspaceRoot.trim() : ''
+  if (!root) return null
+  // ADR-0117: multi-path (primary + course overlay) shares conversation loader.
+  return loadAndMergeToolPolicyDocumentsFromWorkspace({ workspaceRoot: root })
+}
+
 /** Planner/context helper: only prompt-eligible available capabilities. */
 export function selectPromptEligibleCapabilities(
   snapshot: CapabilitySnapshot
@@ -185,7 +212,7 @@ function buildSnapshot(
   const items: CapabilityItem[] = [
     describeToolsMaster(settings),
     describeModelProvider(settings),
-    describeWebSearch(settings, policy, request.workspaceRoot),
+    describeWebSearch(settings, policy, request.workspaceRoot, request.toolPolicyDocument),
     describeWebFetch(settings, policy),
     describeWorkspaceTools(settings, policy, hasTeachingWorkspace, workspaceToolAccessGranted),
     describeDelegation(policy),
@@ -313,7 +340,8 @@ function describeModelProvider(settings: TeachingSettingsV1): CapabilityItem {
 function describeWebSearch(
   settings: TeachingSettingsV1,
   policy: TeachingCapabilityPolicy,
-  workspaceRoot: string | null | undefined
+  workspaceRoot: string | null | undefined,
+  toolPolicyDocument?: ToolPolicyDocument | null
 ): CapabilityItem {
   if (!settings.tools.enabled) {
     return capabilityItem({
@@ -346,7 +374,10 @@ function describeWebSearch(
     })
   }
 
-  const context = buildToolContext(settings, { workspaceRoot })
+  const context = buildToolContext(settings, {
+    workspaceRoot,
+    ...toolPolicyDocumentOption(toolPolicyDocument ?? null)
+  })
   const configured = resolveConfiguredProvider(context)
 
   if (configured.requestedBackend) {
@@ -743,6 +774,7 @@ function buildCacheKey(request: TeachingCapabilityCatalogRequest): string {
     workspaceToolAccessGranted: request.workspaceToolAccessGranted === true,
     hasLessonGenerator: request.hasLessonGenerator === true,
     workspaceRoot: request.workspaceRoot ?? null,
+    toolPolicyDocument: request.toolPolicyDocument ?? null,
     skillLoadError: request.skillLoadError ?? null,
     skillIds,
     tools: settings.tools,

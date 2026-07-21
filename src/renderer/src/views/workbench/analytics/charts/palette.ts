@@ -1,16 +1,25 @@
 /**
  * Categorical series colors for multi-slice charts (donuts, stacked bars).
- * Values are HSL triples so a slice can borrow the same hue for a soft fill.
- * The sequence is tuned for legibility over the translucent analytics cards in
- * both light and dark themes; it wraps if a series exceeds its length.
+ * Industrial instrument palette: near-black with restrained green / amber / red
+ * status accents, tuned for the white-on-white analytics dashboard.
  */
-const CATEGORICAL_HUES = [214, 262, 152, 28, 340, 190, 48, 122] as const
+const CATEGORICAL = [
+  '#1a1a1a',
+  '#2f9b73',
+  '#b57617',
+  '#c45772',
+  '#4a4a4a',
+  '#1f7a5a',
+  '#8a5a12',
+  '#8a3a4a'
+] as const
 
-export function categoricalColor(index: number, saturation = 68, lightness = 58): string {
-  const hue = CATEGORICAL_HUES[((index % CATEGORICAL_HUES.length) + CATEGORICAL_HUES.length) % CATEGORICAL_HUES.length]
-  return `hsl(${hue} ${saturation}% ${lightness}%)`
+export function categoricalColor(index: number, _saturation = 68, _lightness = 58): string {
+  const safeIndex = ((index % CATEGORICAL.length) + CATEGORICAL.length) % CATEGORICAL.length
+  return CATEGORICAL[safeIndex]
 }
 
 export function categoricalSoftColor(index: number): string {
-  return categoricalColor(index, 62, 88)
+  const base = categoricalColor(index)
+  return `color-mix(in srgb, ${base} 18%, #ffffff)`
 }

@@ -119,3 +119,30 @@ describe('write rewind journal', () => {
     expect(text).toContain('"relativePath":"notes/a.md"')
   })
 })
+
+  it('persists permissionDecision when provided and omits when unknown', async () => {
+    const root = await workspace()
+    const withDecision = await captureAndAppendWritePreImage({
+      workspaceRoot: root,
+      relativePath: 'notes/with-decision.md',
+      runId: 'run-perm-1',
+      content: 'a',
+      permissionDecision: 'allow',
+      nowIso: () => '2026-07-21T03:00:00.000Z'
+    })
+    expect(withDecision?.permissionDecision).toBe('allow')
+
+    const withoutDecision = await captureAndAppendWritePreImage({
+      workspaceRoot: root,
+      relativePath: 'notes/without-decision.md',
+      runId: 'run-perm-1',
+      content: 'b',
+      nowIso: () => '2026-07-21T03:01:00.000Z'
+    })
+    expect(withoutDecision).toBeTruthy()
+    expect(withoutDecision).not.toHaveProperty('permissionDecision')
+
+    const journal = await readWriteRewindJournal({ workspaceRoot: root, runId: 'run-perm-1' })
+    expect(journal.map((e) => e.permissionDecision)).toEqual(['allow', undefined])
+  })
+

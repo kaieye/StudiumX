@@ -9,6 +9,10 @@ import {
 import { buildCompactLessonRegenerationPrompt, buildLessonRepairPrompt } from './ai/lesson-prompts'
 import { runAgentLoop } from './ai/agent-loop'
 import { buildDefaultRegistry, buildToolContext } from './ai/tools/registry'
+import {
+  loadAndMergeToolPolicyDocumentsFromWorkspace,
+  toolPolicyDocumentOption
+} from './ai/tools/tool-policy-fs'
 import { cleanText } from './teaching-workspace-paths'
 import { type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
 import { classifyProviderError, providerErrorReason } from '../shared/provider-error'
@@ -73,6 +77,20 @@ export async function produce(prepared: PreparedLessonPlanRequest): Promise<Less
   const workspaceToolOptions = workspace.workspaceToolAccessGranted === true
     ? { workspaceRoot: workspace.rootPath }
     : {}
+  // Optional workspace tool-policy only when grant is true (ADR-0088 / ADR-0117 multi-path).
+  // Grant false: no FS load and no toolPolicyDocument field.
+  let toolContextOptions: {
+    workspaceRoot?: string
+  } & ReturnType<typeof toolPolicyDocumentOption> = { ...workspaceToolOptions }
+  if (workspace.workspaceToolAccessGranted === true && workspace.rootPath) {
+    const workspaceToolPolicy = await loadAndMergeToolPolicyDocumentsFromWorkspace({
+      workspaceRoot: workspace.rootPath
+    })
+    toolContextOptions = {
+      ...toolContextOptions,
+      ...toolPolicyDocumentOption(workspaceToolPolicy)
+    }
+  }
   const registry = buildDefaultRegistry(productionSettings, workspaceToolOptions)
   const toolDefinitions = registry.definitions()
   const useTools = productionSettings.tools.enabled &&
@@ -89,7 +107,9 @@ export async function produce(prepared: PreparedLessonPlanRequest): Promise<Less
           { role: 'user', content: userPrompt }
         ],
         tools: toolDefinitions,
-        toolHandlers: registry.handlerMap(buildToolContext(productionSettings, workspaceToolOptions)),
+        toolHandlers: registry.handlerMap(buildToolContext(productionSettings, toolContextOptions)),
+        workspaceRoot: workspaceToolOptions.workspaceRoot,
+        runId: `lesson-plan-${Date.now()}`,
         jsonMode: true,
         maxIterations: productionSettings.tools.maxIterations,
         callbacks: {

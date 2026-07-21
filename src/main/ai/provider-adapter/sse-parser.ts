@@ -1,5 +1,6 @@
 import type { ModelEndpointFormat } from '../../../shared/teaching-types'
 import type { ToolCall } from '../provider-adapter'
+import { normalizeStopReason, type ProviderStopReason } from '../provider-hooks'
 import { parseDsmlToolCalls, stripDsmlToolCallBlocks } from './dsml-tool-calls'
 import { toolsSupportedForFormat } from './formats'
 
@@ -95,6 +96,7 @@ function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
   content?: string
   reasoning?: string
   toolCalls?: ToolCallFragment[]
+  finishReason?: ProviderStopReason
 } {
   if (!event || typeof event !== 'object') return {}
   if (!toolsSupportedForFormat(format)) {
@@ -102,9 +104,22 @@ function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
   }
   const choices = (event as { choices?: unknown }).choices
   if (!Array.isArray(choices) || choices.length === 0) return {}
-  const delta = (choices[0] as { delta?: { content?: string; reasoning_content?: string; reasoning?: string; tool_calls?: unknown } })?.delta
-  if (!delta) return {}
-  const out: { content?: string; reasoning?: string; toolCalls?: ToolCallFragment[] } = {}
+  const choice = choices[0] as {
+    finish_reason?: unknown
+    delta?: { content?: string; reasoning_content?: string; reasoning?: string; tool_calls?: unknown }
+  }
+  const delta = choice?.delta
+  if (!delta && (typeof choice?.finish_reason !== 'string' || !choice.finish_reason.trim())) return {}
+  const out: {
+    content?: string
+    reasoning?: string
+    toolCalls?: ToolCallFragment[]
+    finishReason?: ProviderStopReason
+  } = {}
+  if (typeof choice.finish_reason === 'string' && choice.finish_reason.trim()) {
+    out.finishReason = normalizeStopReason(choice.finish_reason)
+  }
+  if (!delta) return out
   if (typeof delta.content === 'string') out.content = delta.content
   const reasoning = delta.reasoning_content ?? delta.reasoning
   if (typeof reasoning === 'string') out.reasoning = reasoning
@@ -124,8 +139,9 @@ function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
 
 function assembleStream(
   textAcc: string,
-  toolAcc: Map<number, { index: number; id?: string; name?: string; arguments: string }>
-): { text: string; toolCalls: ToolCall[] } {
+  toolAcc: Map<number, { index: number; id?: string; name?: string; arguments: string }>,
+  finishReason?: ProviderStopReason
+): { text: string; toolCalls: ToolCall[]; finishReason?: ProviderStopReason } {
   const nativeToolCalls: ToolCall[] = []
   for (const slot of toolAcc.values()) {
     if (!slot.id || !slot.name) continue
@@ -141,7 +157,8 @@ function assembleStream(
   const toolCalls = [...nativeToolCalls, ...dsmlToolCalls]
   return {
     text: stripDsmlToolCallBlocks(textAcc),
-    toolCalls
+    toolCalls,
+    ...(finishReason ? { finishReason } : {})
   }
 }
 
@@ -150,11 +167,12 @@ export async function readChatSseStream(
   format: ModelEndpointFormat,
   onToken?: (delta: string) => void,
   onReasoning?: (delta: string) => void
-): Promise<{ text: string; toolCalls: ToolCall[] }> {
+): Promise<{ text: string; toolCalls: ToolCall[]; finishReason?: ProviderStopReason }> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   let textAcc = ''
+  let finishReason: ProviderStopReason | undefined
   const toolAcc = new Map<number, { index: number; id?: string; name?: string; arguments: string }>()
   for (;;) {
     const { done, value } = await reader.read()
@@ -166,7 +184,7 @@ export async function readChatSseStream(
       const trimmed = line.trim()
       if (!trimmed.startsWith('data:')) continue
       const data = trimmed.slice(5).trim()
-      if (data === '[DONE]') return assembleStream(textAcc, toolAcc)
+      if (data === '[DONE]') return assembleStream(textAcc, toolAcc, finishReason)
       if (!data) continue
       const delta = extractChatDelta(format, safeJsonParse(data))
       if (delta.reasoning) onReasoning?.(delta.reasoning)
@@ -174,6 +192,7 @@ export async function readChatSseStream(
         textAcc += delta.content
         onToken?.(delta.content)
       }
+      if (delta.finishReason) finishReason = delta.finishReason
       if (delta.toolCalls) {
         for (const f of delta.toolCalls) {
           const slot = toolAcc.get(f.index) ?? { index: f.index, arguments: '' }
@@ -185,5 +204,6 @@ export async function readChatSseStream(
       }
     }
   }
-  return assembleStream(textAcc, toolAcc)
+  return assembleStream(textAcc, toolAcc, finishReason)
 }
+

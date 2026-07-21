@@ -288,6 +288,37 @@ describe('support bundle', () => {
     expect(JSON.stringify(exported.sections[0]?.payload)).toContain('"overallStatus":"fail"')
   })
 
+  it('uses shared absolute-path marker for non-workspace host paths', () => {
+    const preview = previewSupportBundle({
+      now: () => NOW,
+      workspaceRoot: WORKSPACE_ROOT,
+      inspector: {
+        schemaVersion: 1,
+        readOnly: true,
+        inspectedAt: NOW,
+        status: 'warning',
+        findings: [
+          {
+            code: 'host_path_probe',
+            severity: 'info',
+            category: 'dangling_links',
+            message: 'saw foreign path C:/Users/bob/other-project/notes.md',
+            evidence: {
+              relativePath: 'notes.md',
+              detail: 'absolute=C:/Users/bob/other-project/notes.md'
+            },
+            repairability: 'manual'
+          }
+        ],
+        summary: { findingCount: 1, errorCount: 0, warningCount: 0, infoCount: 1 }
+      }
+    })
+
+    const json = JSON.stringify(preview)
+    expect(json).not.toMatch(/C:\/Users\/bob/i)
+    expect(json).toContain('<redacted-absolute-path>')
+  })
+
   it('strips denied free-text fields such as learner answers and prompts', () => {
     const preview = previewSupportBundle({
       now: () => NOW,

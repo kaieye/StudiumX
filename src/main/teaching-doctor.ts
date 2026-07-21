@@ -8,6 +8,7 @@ import {
   type TeachingDoctorFacts,
   type TeachingDoctorFixSuggestion,
   type TeachingDoctorOutcomeCrashWindowFacts,
+  type TeachingDoctorProcessCrashMarkerFacts,
   type TeachingDoctorReport,
   type TeachingDoctorRepairRecommendation,
   type TeachingDoctorSafeEvidence,
@@ -20,7 +21,7 @@ import { redactAgentSecretText } from '../shared/agent-secret-redaction'
  * Structured, read-only TeachingDoctor.
  *
  * `run()` diagnoses P0 crash windows, config unavailability, source gaps, and
- * catalog drift. Repair is never executed here — recommendations are separate
+ * catalog drift, and local process crash markers. Repair is never executed here — recommendations are separate
  * effect metadata only. Doctor failure never blocks read-only workspace open.
  */
 export interface TeachingDoctor {
@@ -48,7 +49,8 @@ export function runTeachingDoctor(facts: TeachingDoctorFacts, generatedAt: strin
     checkOutcomePublicationCrashWindow(facts.outcomeCrashWindow),
     checkConfigAvailability(facts.config),
     checkSourceGap(facts.sourceGap),
-    checkCatalogDrift(facts.catalogDrift)
+    checkCatalogDrift(facts.catalogDrift),
+    checkLocalProcessCrashMarker(facts.processCrashMarker)
   ]
 
   return {
@@ -457,6 +459,74 @@ function checkCatalogDrift(
   )
 }
 
+
+function checkLocalProcessCrashMarker(
+  facts: TeachingDoctorProcessCrashMarkerFacts | null | undefined
+): TeachingDoctorCheckItem {
+  const checkId: TeachingDoctorCheckId = 'local_process_crash_marker'
+  if (facts == null) {
+    return item(checkId, 'skipped', 'Process crash-marker facts were not supplied.', emptyEvidence(), {
+      kind: 'none',
+      description: 'No repair; supply crash-marker scan facts for next-start visibility.',
+      autoRepairAllowed: false
+    }, 'Collect the local crash marker from appData/observability and re-run TeachingDoctor.')
+  }
+
+  const present = facts.present === true
+  const reasonCode = typeof facts.reasonCode === 'string' && facts.reasonCode.trim()
+    ? redactText(facts.reasonCode.trim().slice(0, 64))
+    : null
+  const writtenAt = typeof facts.writtenAt === 'string' && facts.writtenAt.trim()
+    ? redactText(facts.writtenAt.trim().slice(0, 40))
+    : null
+  const runId = typeof facts.runId === 'string' && facts.runId.trim()
+    ? redactText(facts.runId.trim().slice(0, 128))
+    : null
+
+  const evidence = safeEvidence({
+    present,
+    ...(reasonCode ? { reasonCode } : {}),
+    ...(writtenAt ? { writtenAt } : {}),
+    ...(runId ? { runId } : {})
+  })
+
+  if (!present) {
+    return item(
+      checkId,
+      'ok',
+      'No prior-process crash marker present.',
+      evidence,
+      repair('none', 'No repair required.'),
+      'No action required.'
+    )
+  }
+
+  return item(
+    checkId,
+    'warning',
+    'Prior process crash marker present; last session may have ended abnormally.',
+    evidence,
+    repair(
+      'manual_review',
+      'Review local logs and session/outcome crash windows; clear the crash marker after investigation. No auto-upload.'
+    ),
+    'Inspect local logs and P0 crash-window checks. Clear the marker via CrashMarkerStore.clear() after review. Never auto-upload crash reports.',
+    {
+      fixSuggestion: {
+        code: 'review_local_crash_marker',
+        title: 'Review local crash marker',
+        steps: [
+          'Confirm TeachingDoctor P0 session and outcome crash-window checks.',
+          'Inspect studiumx.log under userData (already secret-redacted at write).',
+          'Clear appData/observability/crash-marker.json after investigation.',
+          'Do not enable remote telemetry or auto-upload of crash reports.'
+        ],
+        docsRef: 'adr-0066-local-observability'
+      }
+    }
+  )
+}
+
 function overallStatus(checks: readonly TeachingDoctorCheckItem[]): TeachingDoctorCheckResult {
   if (checks.some((check) => check.result === 'error')) return 'error'
   if (checks.some((check) => check.result === 'fail')) return 'fail'
@@ -589,3 +659,4 @@ function uniqueStrings(values: readonly string[] | undefined): string[] {
   if (!values) return []
   return [...new Set(values.map((value) => String(value)).filter(Boolean))].sort()
 }
+

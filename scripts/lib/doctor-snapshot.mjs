@@ -11,6 +11,31 @@ const CHECK_STATUSES = new Set(['passed', 'failed', 'timeout'])
 const CHECK_CLASSIFICATIONS = new Set(['passed', 'failed', 'timeout', 'runner_error'])
 
 /**
+ * Local build identity for doctor text/json (S-12).
+ * Mirrors src/shared/build-identity.ts precedence without importing TS / network / git.
+ * Unknown → "unknown"; never throws; no absolute paths.
+ */
+function readDoctorBuildIdentity(env = process.env, pkg = null) {
+  const candidates = [env?.SOURCE_REV, env?.GITHUB_SHA, env?.GIT_DESCRIBE]
+  let sourceRev = 'unknown'
+  for (const raw of candidates) {
+    if (typeof raw !== 'string') continue
+    const trimmed = raw.trim()
+    if (!trimmed || trimmed.length > 64) continue
+    if (trimmed.includes('\\') || trimmed.includes('..') || trimmed.includes('://')) continue
+    if (trimmed.startsWith('/') || /^[A-Za-z]:/.test(trimmed)) continue
+    if (!/^[A-Za-z0-9._+/-]+$/.test(trimmed)) continue
+    sourceRev = trimmed
+    break
+  }
+  const nodeEngine =
+    typeof pkg?.engines?.node === 'string' && pkg.engines.node.trim()
+      ? pkg.engines.node.trim()
+      : '>=22 <25'
+  return { sourceRev, nodeEngine }
+}
+
+/**
  * Collect the local, content-free readiness snapshot used by the doctor CLI.
  * The caller supplies the check catalog; this module owns how that catalog is
  * executed, classified, summarized, redacted, and rendered.
@@ -49,6 +74,10 @@ export async function collectDoctorSnapshot(options = {}) {
     ? runSecurityChecks(normalized.checkCatalog, normalized.cwd)
     : []
 
+  // Local process crash marker (ADR-0066): read-only facts for next-start visibility.
+  // Never uploads. Clearing the marker is a separate deliberate effect.
+  const processCrashMarker = await readProcessCrashMarkerFacts(normalized.userDataPath)
+
   const snapshot = {
     generatedAt: new Date().toISOString(),
     durationMs: Math.max(0, Date.now() - startedAt),
@@ -56,7 +85,8 @@ export async function collectDoctorSnapshot(options = {}) {
       name: pkg?.name ?? 'unknown',
       version: pkg?.version ?? 'unknown',
       productName: pkg?.build?.productName ?? 'unknown',
-      packageManager: pkg?.packageManager ?? null
+      packageManager: pkg?.packageManager ?? null,
+      ...readDoctorBuildIdentity(process.env, pkg)
     },
     runtime: {
       node: process.version,
@@ -90,7 +120,8 @@ export async function collectDoctorSnapshot(options = {}) {
       workspaceContent: 'not_included'
     },
     learningWork,
-    securityChecks
+    securityChecks,
+    processCrashMarker
   }
   snapshot.readiness = classifyDoctorChecks(snapshot.securityChecks)
   assertDoctorSnapshot(snapshot)
@@ -134,7 +165,7 @@ export function formatDoctorReport(snapshot, format = 'text') {
 
   const lines = [
     `StudiumX doctor (${snapshot.generatedAt})`,
-    `app: ${snapshot.app.name} ${snapshot.app.version}`,
+    `app: ${snapshot.app.name} ${snapshot.app.version} (sourceRev=${snapshot.app.sourceRev ?? 'unknown'}; nodeEngine=${snapshot.app.nodeEngine ?? 'n/a'})`,
     `userData: ${snapshot.paths.userDataPath}`,
     `settings: ${snapshot.settings.exists ? 'found' : 'missing'} (${snapshot.settings.storage})`,
     `runtime posture: approval=${snapshot.runtimePosture?.approvalMode ?? 'n/a'}; tools=${snapshot.runtimePosture?.toolsEnabled ? 'on' : 'off'}; proxy=${snapshot.runtimePosture?.proxyEnabled ? 'on' : 'off'}; keys=${snapshot.runtimePosture?.keyStorage ?? 'n/a'}; shell=${snapshot.runtimePosture?.shellExecution ?? 'n/a'}`
@@ -149,6 +180,14 @@ export function formatDoctorReport(snapshot, format = 'text') {
   }
   for (const ledger of snapshot.learningWork) {
     lines.push(`learning work (${ledger.scope}): ${ledger.status}, ${ledger.conversations} conversation(s)`)
+  }
+  if (snapshot.processCrashMarker && typeof snapshot.processCrashMarker === 'object') {
+    const marker = snapshot.processCrashMarker
+    if (marker.present === true) {
+      lines.push(`process crash marker: present${marker.reasonCode ? ` (${marker.reasonCode})` : ''}${marker.writtenAt ? ` at ${marker.writtenAt}` : ''}`)
+    } else {
+      lines.push('process crash marker: absent')
+    }
   }
   return `${lines.join('\n')}\n`
 }
@@ -461,4 +500,59 @@ function stringValue(value) {
 
 function numberValue(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/**
+ * Read local crash-marker facts under appData/observability (fail-closed).
+ * Mirrors src/main/observability/process-crash-marker-facts.ts shape for CLI doctor.
+ * Pure read: never clears or uploads.
+ */
+async function readProcessCrashMarkerFacts(userDataPath) {
+  const markerPath = join(userDataPath, 'observability', 'crash-marker.json')
+  try {
+    const raw = await readFile(markerPath, 'utf8')
+    return mapProcessCrashMarkerFacts(raw)
+  } catch {
+    return { present: false }
+  }
+}
+
+/** Pure map of crash-marker JSON text -> TeachingDoctor-compatible facts. */
+export function mapProcessCrashMarkerFacts(raw) {
+  if (typeof raw !== 'string' || raw.trim().length === 0) return { present: false }
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { present: false }
+  }
+  if (!isRecord(parsed) || parsed.schemaVersion !== 1) return { present: false }
+  if (typeof parsed.writtenAt !== 'string' || !parsed.writtenAt.trim()) return { present: false }
+  for (const key of Object.keys(parsed)) {
+    if (key === 'schemaVersion' || key === 'writtenAt' || key === 'reasonCode' || key === 'runId') continue
+    return { present: false }
+  }
+  if (typeof parsed.reasonCode !== 'string' || !parsed.reasonCode.trim()) return { present: false }
+  if (looksLikePathOrSecret(parsed.writtenAt)) return { present: false }
+  const runId =
+    typeof parsed.runId === 'string' &&
+    parsed.runId.trim() &&
+    !looksLikePathOrSecret(parsed.runId) &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(parsed.runId.trim())
+      ? parsed.runId.trim()
+      : null
+  return {
+    present: true,
+    writtenAt: parsed.writtenAt.trim(),
+    reasonCode: parsed.reasonCode.trim().slice(0, 64),
+    ...(runId ? { runId } : {})
+  }
+}
+
+function looksLikePathOrSecret(value) {
+  if (typeof value !== 'string') return true
+  if (/[\\/]/.test(value)) return true
+  if (/^[A-Za-z]:/.test(value)) return true
+  if (/api[_-]?key|secret|token|password|bearer/i.test(value)) return true
+  return false
 }

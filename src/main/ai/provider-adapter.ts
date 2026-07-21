@@ -9,6 +9,7 @@ import {
   streamTextInvocation
 } from './provider-adapter/invocation'
 import type { ProviderUsage } from './provider-adapter/response-parser'
+import type { ProviderStopReason } from './provider-hooks'
 
 export { toolsSupportedForFormat } from './provider-adapter/formats'
 export { adapterAuthHeaders } from './provider-adapter/request-builder'
@@ -61,6 +62,12 @@ export type ChatAdapterResult = {
   text: string
   toolCalls: ToolCall[]
   toolsSupported: boolean
+  /**
+   * Normalized provider finish/stop reason when the adapter observed one.
+   * Absent means the response body/stream did not carry a usable signal —
+   * callers must not forge `stop` into the provider hook ledger.
+   */
+  finishReason?: ProviderStopReason
   degradedReason?: string
   usage?: ProviderUsage
 }

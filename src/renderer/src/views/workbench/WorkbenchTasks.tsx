@@ -1,17 +1,26 @@
-import { CalendarDays, ChartColumn, Check, CheckCircle2, ChevronUp, Plus, Trash2 } from 'lucide-react'
-import { type CSSProperties, type RefObject } from 'react'
+import { CalendarDays, ChartColumn, Check, CheckCircle2, ChevronUp, Plus, Target, Trash2 } from 'lucide-react'
+import { useMemo, useState, type CSSProperties, type RefObject } from 'react'
 import type { StudyTask } from '../../study-space/types'
 import {
   getReadableCategoryInk,
   listStudyTaskCategories,
   resolveStudyTaskCategory
 } from '../../study-space/taskCategories'
+import {
+  emptyLabelForTaskListView,
+  projectStudyTasksForView,
+  TASK_LIST_VIEWS,
+  type ActiveTimerHint,
+  type TaskListViewId
+} from '../../study-space/planning-task-timeline-adapter'
 import { useWorkbenchDisclosureReveal } from './useWorkbenchDisclosureReveal'
 
 type WorkbenchTasksProps = {
   tasks: StudyTask[]
   openTasks: number
   completedTasks: number
+  selectedTaskId?: string | null
+  onSelectTask?: (taskId: string | null) => void
   onToggleTask: (taskId: string) => void
   onRemoveTask: (taskId: string) => void
   onOpenSchedule: () => void
@@ -19,6 +28,10 @@ type WorkbenchTasksProps = {
   onOpenAnalytics: () => void
   analyticsButtonRef?: RefObject<HTMLButtonElement | null>
   defaultOpen?: boolean
+  /** Optional active timer for "now" view (STC-302). */
+  activeTimer?: ActiveTimerHint | null
+  /** Initial timeline view; default "today" matches prior "今日清单" label. */
+  defaultView?: TaskListViewId
 }
 
 function formatTaskMinutes(minutes: number): string {
@@ -39,23 +52,41 @@ export function WorkbenchTasks({
   tasks,
   openTasks,
   completedTasks,
+  selectedTaskId = null,
+  onSelectTask,
   onToggleTask,
   onRemoveTask,
   onOpenSchedule,
   onOpenAddTask,
   onOpenAnalytics,
   analyticsButtonRef,
-  defaultOpen = false
+  defaultOpen = false,
+  activeTimer = null,
+  defaultView = 'today'
 }: WorkbenchTasksProps) {
   const { open, isClosing, revealHeight, revealRef, revealInnerRef, toggle } = useWorkbenchDisclosureReveal({
     defaultOpen
   })
+  const [view, setView] = useState<TaskListViewId>(defaultView)
   const categories = listStudyTaskCategories()
   const taskCount = openTasks + completedTasks
   const completedRatio = taskCount > 0 ? Math.round((completedTasks / taskCount) * 100) : 0
 
+  const visibleTasks = useMemo(
+    () =>
+      projectStudyTasksForView({
+        view,
+        tasks,
+        activeTimer,
+        nowMs: Date.now()
+      }),
+    [view, tasks, activeTimer]
+  )
+
+  const emptyLabel = emptyLabelForTaskListView(view)
+
   return (
-    <section className={`workbench-disclosure-card workbench-task-card${open ? ' is-open' : ''}${isClosing ? ' is-closing' : ''}`} aria-label="今日清单">
+    <section className={`workbench-disclosure-card workbench-task-card${open ? ' is-open' : ''}${isClosing ? ' is-closing' : ''}`} aria-label="任务清单">
       <div
         ref={revealRef}
         className="workbench-disclosure-reveal workbench-task-reveal"
@@ -110,13 +141,39 @@ export function WorkbenchTasks({
               </div>
             </div>
 
-            <div className="workbench-task-list" aria-label="任务列表">
-              {tasks.length === 0 ? (
+            <div className="workbench-task-view-tabs" role="tablist" aria-label="任务视图">
+              {TASK_LIST_VIEWS.map((tab) => {
+                const selected = view === tab.id
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    id={`workbench-task-tab-${tab.id}`}
+                    aria-selected={selected}
+                    aria-controls="workbench-task-list"
+                    className={`workbench-task-view-tab${selected ? ' is-active' : ''}`}
+                    onClick={() => setView(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div
+              id="workbench-task-list"
+              className="workbench-task-list"
+              role="tabpanel"
+              aria-labelledby={`workbench-task-tab-${view}`}
+              aria-label={TASK_LIST_VIEWS.find((t) => t.id === view)?.ariaLabel ?? '任务列表'}
+            >
+              {visibleTasks.length === 0 ? (
                 <div className="workbench-task-empty">
                   <CheckCircle2 size={17} />
-                  <span>清单已完成</span>
+                  <span>{emptyLabel}</span>
                 </div>
-              ) : tasks.map((task) => {
+              ) : visibleTasks.map((task) => {
                 const scheduleLabel = formatTaskSchedule(task)
                 const category = resolveStudyTaskCategory(task.categoryId, categories)
                   ?? resolveStudyTaskCategory('study', categories)
@@ -126,10 +183,11 @@ export function WorkbenchTasks({
                       '--task-category-ink': getReadableCategoryInk(category.color)
                     }
                   : undefined
+                const isFocusTask = selectedTaskId === task.id
                 return (
                   <div
                     key={task.id}
-                    className={`workbench-task-row${task.done ? ' is-done' : ''}`}
+                    className={`workbench-task-row${task.done ? ' is-done' : ''}${isFocusTask ? ' is-focus-task' : ''}`}
                   >
                     <button
                       type="button"
@@ -144,8 +202,20 @@ export function WorkbenchTasks({
                           {category.name}
                         </small>
                       ) : null}
-                      {scheduleLabel ? <small>{scheduleLabel}</small> : null}
+                      {scheduleLabel ? <small className="workbench-task-schedule">{scheduleLabel}</small> : null}
                     </button>
+                    {onSelectTask && !task.done ? (
+                      <button
+                        type="button"
+                        className={`workbench-task-focus${isFocusTask ? ' is-active' : ''}`}
+                        onClick={() => onSelectTask(isFocusTask ? null : task.id)}
+                        aria-pressed={isFocusTask}
+                        aria-label={isFocusTask ? `取消专注任务：${task.title}` : `设为专注任务：${task.title}`}
+                        title={isFocusTask ? '取消专注' : '设为专注'}
+                      >
+                        <Target size={13} aria-hidden="true" />
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="workbench-task-delete"
@@ -172,7 +242,7 @@ export function WorkbenchTasks({
       >
         <span className="workbench-disclosure-label workbench-task-toggle-label">
           <CheckCircle2 size={15} />
-          今日清单
+          任务清单
         </span>
         <span className="workbench-disclosure-meta workbench-task-toggle-meta">
           <strong>{openTasks} 待办</strong>

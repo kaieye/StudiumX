@@ -93,8 +93,8 @@ function sessionFact(overrides: Partial<StudySessionFact> = {}): StudySessionFac
   }
 }
 
-function taskCompletedFact(): StudyTaskActivityFact {
-  const before = { taskId: 'task-1', title: 'Cross-day task', done: false }
+function taskCompletedFact(overrides: Partial<StudyTaskActivityFact> & { activity?: StudyTaskActivityFact['activity'] } = {}): StudyTaskActivityFact {
+  const before = { taskId: 'task-1', title: 'Cross-day task', done: false, categoryId: 'study', categoryName: '学习' }
   return {
     factVersion: 1,
     factKind: 'study_activity',
@@ -104,12 +104,13 @@ function taskCompletedFact(): StudyTaskActivityFact {
     recordedAt: '2026-07-12T01:25:00.000Z',
     localDate: '2026-07-12',
     timezoneOffsetMinutes: -480,
-    activity: { kind: 'task_completed', before, after: { ...before, done: true } }
+    activity: { kind: 'task_completed', before, after: { ...before, done: true } },
+    ...overrides
   }
 }
 
 function snapshot(overrides: Partial<PersonalStudyAnalyticsSnapshot> = {}): PersonalStudyAnalyticsSnapshot {
-  const current = overrides.current ?? { xp: 375, streakDays: 4, tasks: [{ taskId: 'task-1', title: 'Cross-day task', done: true }] }
+  const current = overrides.current ?? { xp: 375, streakDays: 4, tasks: [{ taskId: 'task-1', title: 'Cross-day task', done: true, categoryId: 'study', categoryName: '学习' }] }
   return {
     version: 1,
     identity: 'snapshot-1',
@@ -201,7 +202,29 @@ describe('personal Study analytics snapshot seam', () => {
       plan: { attributedFocusSeconds: 1500 }
     })
     expect(dataOf(sections.tasks).topByAttributedFocus).toEqual([
-      expect.objectContaining({ taskId: 'task-1', focusSeconds: 1500, completedInRange: true, currentlyDone: true })
+      expect.objectContaining({
+        taskId: 'task-1',
+        focusSeconds: 1500,
+        completedInRange: true,
+        currentlyDone: true,
+        categoryId: 'study',
+        categoryName: '学习'
+      })
+    ])
+    expect(dataOf(sections.tasks).byCategoryFocus).toEqual([
+      expect.objectContaining({ categoryId: 'study', label: '学习', focusSeconds: 1500 })
+    ])
+    expect(dataOf(sections.tasks).topByCompletion).toEqual([
+      expect.objectContaining({
+        taskId: 'task-1',
+        title: 'Cross-day task',
+        completionCount: 1,
+        categoryId: 'study',
+        categoryName: '学习'
+      })
+    ])
+    expect(dataOf(sections.tasks).byCategoryCompletion).toEqual([
+      expect.objectContaining({ categoryId: 'study', label: '学习', completionCount: 1 })
     ])
     expect(dataOf(sections.hero)).toMatchObject({
       focusSeconds: 1500,
@@ -211,6 +234,53 @@ describe('personal Study analytics snapshot seam', () => {
       totalTokens: 42,
       currentTaskCompletionRate: 1
     })
+  })
+
+  it('falls back to currently done tasks for completion share when no completion facts exist', () => {
+    const { sections } = calculate(query(), snapshot({
+      facts: [],
+      current: {
+        xp: 100,
+        streakDays: 1,
+        tasks: [
+          { taskId: 'task-a', title: 'Math drill', done: true, categoryId: 'study', categoryName: '学习' },
+          { taskId: 'task-b', title: 'Run', done: true, categoryId: 'exercise', categoryName: '锻炼' },
+          { taskId: 'task-c', title: 'Open item', done: false, categoryId: 'study', categoryName: '学习' }
+        ]
+      }
+    }))
+    const tasks = dataOf(sections.tasks)
+    expect(tasks.topByCompletion).toEqual([
+      expect.objectContaining({ taskId: 'task-a', completionCount: 1, categoryId: 'study' }),
+      expect.objectContaining({ taskId: 'task-b', completionCount: 1, categoryId: 'exercise' })
+    ])
+    expect(tasks.byCategoryCompletion).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ categoryId: 'study', completionCount: 1 }),
+        expect.objectContaining({ categoryId: 'exercise', completionCount: 1 })
+      ])
+    )
+  })
+
+  it('builds completion share pies from task_completed facts without focus attribution', () => {
+    const completedOnly = taskCompletedFact()
+    const { sections } = calculate(query(), snapshot({ facts: [completedOnly] }))
+    expect(sections.tasks.state).toBe('available')
+    const tasks = dataOf(sections.tasks)
+    expect(tasks.topByAttributedFocus).toEqual([])
+    expect(tasks.byCategoryFocus).toEqual([])
+    expect(tasks.topByCompletion).toEqual([
+      expect.objectContaining({
+        taskId: 'task-1',
+        completionCount: 1,
+        categoryId: 'study',
+        categoryName: '学习'
+      })
+    ])
+    expect(tasks.byCategoryCompletion).toEqual([
+      expect.objectContaining({ categoryId: 'study', label: '学习', completionCount: 1 })
+    ])
+    expect(tasks.flow.completed).toBe(1)
   })
 
   it('keeps an empty covered day distinct from a day before tracking began', () => {

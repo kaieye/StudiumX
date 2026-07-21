@@ -4,6 +4,17 @@ import { basename, resolve } from 'node:path'
 import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import { cancelStreamToolPermissionPending, resolveToolPermissionPending } from './ai/tool-permission-pending'
 import type { AgentEventBus } from './ai/agent-event-bus'
+import { AgentInputQueueRegistry } from './ai/agent-input-queue'
+import { AgentSessionFacade, AgentSessionFacadeRegistry } from './ai/agent-session-facade'
+import {
+  mapAgentSessionPromptResultToIpc,
+  noActiveAgentSessionIpcResult
+} from './ai/agent-chat-steer-followup-ipc'
+import { runProjectAgentSessionQueueIpc } from './ai/agent-session-queue-ipc'
+import {
+  mapAgentChatStreamResultToRunResult,
+  mapProductAgentChatInvokerPayload
+} from './ai/product-agent-chat-invoker'
 import { openExternalHttpUrl } from './external-links'
 import type { Logger } from './logger'
 import { isPathInsideConfiguredRoot, isRealPathInsideRoot } from './path-access'
@@ -22,11 +33,11 @@ import {
   parsePreviewLessonInteractionIntent,
   parseReplayAgentConversationBranchPayload,
   parseRebuildAgentHistoryIndexPayload, parseResolveAgentConversationCheckpointPayload,
-  parseReadWorkspaceMarkdownPayload, parseRecordProgressPayload, parseRemoveGitWorktreePayload, parseReplayAgentChatEventsPayload,
+  parseReadWorkspaceMarkdownPayload, parseRecordProgressPayload, parseRemoveGitWorktreePayload, parseReplayAgentChatEventsPayload, parseSteerAgentChatPayload, parseFollowUpAgentChatPayload, parseProjectAgentSessionQueuePayload,
   parseSaveAgentConversationPayload, parseSaveWorkspaceMarkdownPayload, parseSettingsPatch,
   parseUpdateAgentConversationBranchStatusPayload, parseUpdateMemoryPayload, parseUpdateMissionPayload, parseSetWorkspaceTrustPayload,
   parseWorkspaceItemMetaPayload,
-  parseWorkspaceItemRemovePayload, parseWorkspaceRemovePayload, requireStreamId, requireString,
+  parseWorkspaceItemRemovePayload, parseWorkspaceRemovePayload, parseRunTeachingDoctorPayload, parseProjectTeachingTurnReviewPayload, parseDecideTeachingTurnReviewPayload, parseProjectTeachingTurnReviewHandoffPayload, parseGetTeachingTurnReviewLastBundlePayload, parseSaveTeachingTurnReviewLastBundlePayload, requireStreamId, requireString,
   requireWindowControlAction
 } from './teaching-ipc-commands'
 import type { TeachingSettingsService } from './teaching-settings'
@@ -39,6 +50,24 @@ import {
 import type { LearningAnalyticsService } from './teaching/services/learning-analytics'
 import type { TeachingTurnCoordinatorHost } from './teaching-turn-coordinator-host'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
+import { createTeachingDoctorCatalogDriftFactsCollector, createTeachingDoctorConfigFactsCollector, createTeachingDoctorSessionOutcomeScanFactsCollector, createTeachingDoctorSourceGapFactsCollector, runProductTeachingDoctor, type ProductTeachingDoctorCrashMarkerStore } from './observability'
+import { createLearningSessionLedger } from './learning-session-ledger'
+import { planLessonIndexReconciliation } from './teaching-workspace/catalog-reconciliation'
+import {
+  runDecideTeachingTurnReviewIpc,
+  runProjectTeachingTurnReviewHandoffIpc,
+  runProjectTeachingTurnReviewIpc
+} from './teaching-turn-review-ipc'
+import {
+  runGetTeachingTurnReviewLastBundleIpc,
+  runSaveTeachingTurnReviewLastBundleIpc
+} from './teaching-turn-review-last-bundle-ipc'
+import {
+  parseApplyStudyPlanningPayload,
+  parseReadStudyPlanningPayload,
+  runApplyStudyPlanningIpc,
+  runReadStudyPlanningIpc
+} from './study-planning-ipc'
 import type { AnalyticsExportRequest, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
 
 /** Dependencies owned by the main-process Teaching IPC composition root. */
@@ -55,12 +84,29 @@ export interface TeachingIpcRegistration {
    * instead of renderer-driven service orchestration.
    */
   turnCoordinatorHost?: TeachingTurnCoordinatorHost
+  /**
+   * Optional local crash-marker store for product TeachingDoctor IPC (ADR-0084).
+   * Read-only for this channel; clear is a separate deliberate effect.
+   */
+  crashMarkerStore?: ProductTeachingDoctorCrashMarkerStore | null
 }
 
 type GatewayContext = TeachingIpcRegistration & {
   activeAgentChatStreams: Map<string, AbortController>
   retainedAgentEventBuses: Map<string, AgentEventBus>
   agentStreamSessions: WeakMap<Electron.IpcMainInvokeEvent, AgentStreamSession>
+  /**
+   * Per-stream busy follow-up/steer queues (B-01 / B-02).
+   * Cancel always clears via clearOnCancel. Façade owns drain policy; gateway
+   * only holds the optional registry for stream-keyed attach/abort.
+   */
+  agentInputQueues: AgentInputQueueRegistry
+  /**
+   * Optional AgentSessionFacade registry (B-02). Service layer may attach a
+   * façade per streamId; cancel aborts + detaches when present. Does not replace
+   * TeachingSessionProtocol (ADR-0040).
+   */
+  agentSessionFacades: AgentSessionFacadeRegistry
   /** Weakly remembers senders whose preview lifecycle hooks are already installed. */
   previewBindingLifecycleSenders: WeakSet<Electron.WebContents>
 }
@@ -177,6 +223,8 @@ export function registerTeachingIpcGateway(registration: TeachingIpcRegistration
     activeAgentChatStreams: new Map(),
     retainedAgentEventBuses: new Map(),
     agentStreamSessions: new WeakMap(),
+    agentInputQueues: new AgentInputQueueRegistry(),
+    agentSessionFacades: new AgentSessionFacadeRegistry(),
     previewBindingLifecycleSenders: new WeakSet()
   }
   const channels = new Set<string>()
@@ -287,19 +335,86 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         const controller = new AbortController()
         context.activeAgentChatStreams.set(streamId, controller)
         context.agentStreamSessions.set(event, { streamId, controller })
+        // B-02: product stream is driven through AgentSessionFacade.prompt with a real
+        // invoker that calls service.agentChatStream once (not a second loop).
+        // autoDrain stays false (ADR-0082): mid-run steer/follow-up IPC is available, but product
+        // multi-turn autoDrain remains off until renderer queue sync lands (ADR-0067 residual).
+        // createAbortController always returns the shared controller so cancel aborts
+        // the same signal the service stream observes.
+        let productStreamResult: Awaited<ReturnType<TeachingWorkspaceService['agentChatStream']>> | undefined
+        const facade = new AgentSessionFacade({
+          streamId,
+          conversationId: payload.conversationId,
+          createAbortController: () => controller,
+          autoDrain: false,
+          run: async (invokerInput) => {
+            try {
+              const mappedPayload = mapProductAgentChatInvokerPayload(payload, {
+                text: invokerInput.text,
+                conversationId: invokerInput.conversationId,
+                expectedRevision: invokerInput.expectedRevision,
+                streamId: invokerInput.streamId ?? streamId,
+                runId: invokerInput.runId
+              })
+              const result = await service.agentChatStream(mappedPayload, {
+                streamId,
+                signal: invokerInput.signal,
+                onChunk: (chunk) => safeSend(event.sender, teachingEventChannels.agentChatChunk, chunk),
+                onStatus: (status) => safeSend(event.sender, teachingEventChannels.agentChatStatus, status),
+                onTool: (toolEvent) => safeSend(event.sender, teachingEventChannels.agentChatTool, toolEvent),
+                onRealtimeEvent: (realtimeEvent) => safeSend(event.sender, teachingEventChannels.agentChatEvent, realtimeEvent),
+                onEventBusReady: (eventBus) => retainAgentEventBus(streamId, eventBus)
+              })
+              productStreamResult = result
+              return mapAgentChatStreamResultToRunResult(streamId, result)
+            } catch (error) {
+              if (invokerInput.signal.aborted || controller.signal.aborted) {
+                productStreamResult = { canceled: true as const }
+                return { streamId, canceled: true }
+              }
+              const message = errorMessage(error)
+              context.logger.error(`Agent chat stream failed: ${message}`)
+              productStreamResult = { error: true as const, message }
+              return { streamId, error: message }
+            }
+          }
+        })
+        context.agentSessionFacades.attach(streamId, facade)
         try {
-          const result = await service.agentChatStream(payload, {
-            streamId, signal: controller.signal,
-            onChunk: (chunk) => safeSend(event.sender, teachingEventChannels.agentChatChunk, chunk),
-            onStatus: (status) => safeSend(event.sender, teachingEventChannels.agentChatStatus, status),
-            onTool: (toolEvent) => safeSend(event.sender, teachingEventChannels.agentChatTool, toolEvent),
-            onRealtimeEvent: (realtimeEvent) => safeSend(event.sender, teachingEventChannels.agentChatEvent, realtimeEvent),
-            onEventBusReady: (eventBus) => retainAgentEventBus(streamId, eventBus)
+          // Idle prompt → accept + run. prompt() sets phase provider while live and
+          // settles to idle/turn_boundary; do not pre-set provider (would busy-queue).
+          const promptResult = await facade.prompt({
+            text: payload.userInput,
+            conversationId: payload.conversationId,
+            expectedRevision: payload.expectedBranchRevision
           })
-          return { streamId, ...result }
+          if (!promptResult.ok) {
+            // Unexpected on first turn (idle); fail closed without inventing a second loop.
+            return {
+              streamId,
+              error: true as const,
+              message: `Agent session rejected prompt: ${promptResult.reason}`
+            }
+          }
+          if (productStreamResult !== undefined) {
+            return { streamId, ...productStreamResult }
+          }
+          // Invoker returned without capturing (e.g. empty DEFAULT); map façade run.
+          const run = promptResult.run
+          if (run?.canceled) return { streamId, canceled: true as const }
+          if (run?.error) return { streamId, error: true as const, message: run.error }
+          return {
+            streamId,
+            error: true as const,
+            message: 'Agent chat stream completed without a product result.'
+          }
         } catch (error) {
           if (controller.signal.aborted) return { streamId, canceled: true as const }
           const message = errorMessage(error); context.logger.error(`Agent chat stream failed: ${message}`); return { streamId, error: true as const, message }
+        } finally {
+          // Detach when stream ends cleanly; cancel path uses abortAndDetach first.
+          context.agentSessionFacades.detach(streamId)
+          facade.setPhase('idle')
         }
       },
       reply: identityReply,
@@ -308,6 +423,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         if (!session) return
         if (context.activeAgentChatStreams.get(session.streamId) === session.controller) context.activeAgentChatStreams.delete(session.streamId)
         context.agentStreamSessions.delete(event)
+        // Safety: drop façade if action finally did not run (e.g. parse failure).
+        context.agentSessionFacades.detach(session.streamId)
       }
     }),
     command({
@@ -320,9 +437,59 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: (_event, streamId) => {
         const controller = context.activeAgentChatStreams.get(streamId)
         if (controller) { controller.abort(); context.activeAgentChatStreams.delete(streamId) }
+        // B-01/B-02: cancel clears queued follow-up/steer (registry + optional façade).
+        // steer ≠ silent drop on cancel; façade.abort also clearOnCancel+reopen its own queue.
+        context.agentSessionFacades.abortAndDetach(streamId, 'cancel_agent_chat_stream')
+        context.agentInputQueues.clearOnCancel(streamId, 'cancel_agent_chat_stream')
         cancelStreamAskPending(streamId); cancelStreamToolPermissionPending(streamId)
         return { canceled: Boolean(controller) }
       }, reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.steerAgentChatStream,
+      parser: (payload) => parseSteerAgentChatPayload(payload),
+      action: async (_event, payload) => {
+        // Mid-run steer delegates to the attached façade (≠ abort). Product autoDrain stays false.
+        const facade = context.agentSessionFacades.get(payload.streamId)
+        if (!facade) return noActiveAgentSessionIpcResult()
+        const result = await facade.steer({
+          text: payload.text,
+          conversationId: payload.conversationId,
+          expectedRevision: payload.expectedRevision
+        })
+        return mapAgentSessionPromptResultToIpc(result, facade.snapshot())
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.followUpAgentChatStream,
+      parser: (payload) => parseFollowUpAgentChatPayload(payload),
+      action: async (_event, payload) => {
+        // Mid-run follow-up: busy policy queues by default; does not flip autoDrain.
+        const facade = context.agentSessionFacades.get(payload.streamId)
+        if (!facade) return noActiveAgentSessionIpcResult()
+        const result = await facade.followUp({
+          text: payload.text,
+          conversationId: payload.conversationId,
+          expectedRevision: payload.expectedRevision
+        })
+        return mapAgentSessionPromptResultToIpc(result, facade.snapshot())
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.projectAgentSessionQueue,
+      parser: (payload) => parseProjectAgentSessionQueuePayload(payload),
+      action: (_event, payload) => {
+        // Read-only queue projection (ADR-0091 / ADR-0089). Product autoDrain remains false.
+        // Never drains, steers, prompts, aborts, or flips autoDrain.
+        const facade = context.agentSessionFacades.get(payload.streamId)
+        return runProjectAgentSessionQueueIpc(payload, facade)
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
     }),
     command({
       channel: teachingInvokeChannels.answerAgentChatTool, parser: (payload) => decodeToolAnswerPayload(payload),
@@ -509,6 +676,121 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       channel: teachingInvokeChannels.openAppDataDir, parser: () => undefined,
       action: async () => { const message = await shell.openPath(app.getPath('userData')); return { ok: message.length === 0, message: message || undefined } },
       reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.runTeachingDoctor,
+      parser: (payload) => parseRunTeachingDoctorPayload(payload),
+      action: async (_event, request) => runProductTeachingDoctor(request, {
+        crashMarkerStore: context.crashMarkerStore ?? null,
+        factsCollectors: [
+          createTeachingDoctorConfigFactsCollector({
+            load: () => context.settingsService.load()
+          }),
+          createTeachingDoctorSessionOutcomeScanFactsCollector({
+            loadScan: async () => {
+              const state = await context.workspaceService.getState()
+              const ws = state.activeWorkspace
+              if (!ws?.rootPath) return null
+              // Thin composition: public ledger factory only — no peel of FileLearningSessionLedger internals.
+              return createLearningSessionLedger({ workspaceRoot: ws.rootPath }).scan()
+            }
+          }),
+          createTeachingDoctorCatalogDriftFactsCollector({
+            loadPlan: async () => {
+              const state = await context.workspaceService.getState()
+              const ws = state.activeWorkspace
+              if (!ws) return null
+              const plan = await planLessonIndexReconciliation({
+                rootPath: ws.rootPath,
+                workspaceName: ws.name,
+                workspaceId: ws.id,
+                lessons: ws.lessons
+              })
+              return {
+                requiresPersist: plan.requiresPersist,
+                recoveredRelativePaths: plan.recoveredRelativePaths,
+                removedRelativePaths: plan.removedRelativePaths
+              }
+            }
+          }),
+          createTeachingDoctorSourceGapFactsCollector({
+            loadSummary: async () => {
+              const state = await context.workspaceService.getState()
+              const ws = state.activeWorkspace
+              if (!ws) return null
+              return {
+                resourcesCount: Array.isArray(ws.resources) ? ws.resources.length : 0,
+                referenceCount: typeof ws.referenceCount === 'number' ? ws.referenceCount : 0,
+                assetsReady: ws.assetsReady === true
+              }
+            }
+          })
+        ]
+      }),
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.projectTeachingTurnReview,
+      parser: (payload) => parseProjectTeachingTurnReviewPayload(payload),
+      // Pure projection only — never auto-apply / installSkill / createMemory / write files.
+      action: (_event, payload) => runProjectTeachingTurnReviewIpc(payload),
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.decideTeachingTurnReview,
+      parser: (payload) => parseDecideTeachingTurnReviewPayload(payload),
+      // Decision submit maps to the same pure project path; approved ids are not an apply plan.
+      action: (_event, payload) => runDecideTeachingTurnReviewIpc(payload),
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.projectTeachingTurnReviewHandoff,
+      parser: (payload) => parseProjectTeachingTurnReviewHandoffPayload(payload),
+      // Pure handoff intents only — never auto-apply / installSkill / createMemory / write files.
+      action: (_event, payload) => runProjectTeachingTurnReviewHandoffIpc(payload),
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.getTeachingTurnReviewLastBundle,
+      parser: (payload) => parseGetTeachingTurnReviewLastBundlePayload(payload),
+      // Durable last-bundle read only — never auto-apply / installSkill / createMemory.
+      action: async () =>
+        runGetTeachingTurnReviewLastBundleIpc({ rootPath: app.getPath('userData') }),
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.saveTeachingTurnReviewLastBundle,
+      parser: (payload) => parseSaveTeachingTurnReviewLastBundlePayload(payload),
+      // Durable last-bundle write only — never auto-apply after save.
+      action: async (_event, payload) =>
+        runSaveTeachingTurnReviewLastBundleIpc(payload, { rootPath: app.getPath('userData') }),
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.readStudyPlanning,
+      parser: (payload) => parseReadStudyPlanningPayload(payload),
+      // ADR-0117: workspace-scoped snapshot read; registered roots only.
+      action: async (_event, payload) =>
+        runReadStudyPlanningIpc(payload, async (raw) => {
+          const access = await resolveGitWorkspaceRoot(raw)
+          return access.ok
+            ? { ok: true as const, rootPath: access.rootPath }
+            : { ok: false as const, message: access.message }
+        }),
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.applyStudyPlanning,
+      parser: (payload) => parseApplyStudyPlanningPayload(payload),
+      // ADR-0117: sole-writer apply with revision CAS; no silent first-task bind here.
+      action: async (_event, payload) =>
+        runApplyStudyPlanningIpc(payload, async (raw) => {
+          const access = await resolveGitWorkspaceRoot(raw)
+          return access.ok
+            ? { ok: true as const, rootPath: access.rootPath }
+            : { ok: false as const, message: access.message }
+        }),
+      reply: identityReply, streamCleanup: noStreamCleanup
     })
   ]
 }
@@ -528,4 +810,8 @@ function resolveProxyUrl(settings: TeachingSettingsV1): string {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
+
+
+
+
 

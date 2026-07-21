@@ -64,6 +64,8 @@ import {
 } from './SettingsPrimitives'
 import { useTeachingWorkspaceConfiguration } from '../../workflows/teaching-workspace-configuration'
 import { ModelProviderSettingsSection } from './sections/ModelProviderSettingsSection'
+import { TeachingDoctorSettingsSection } from './sections/TeachingDoctorSettingsSection'
+import { TeachingTurnReviewSettingsSection } from './sections/TeachingTurnReviewSettingsSection'
 
 export function SettingsView({
   section,
@@ -957,6 +959,12 @@ export function SettingsView({
             </SettingsCard>
           </SettingsPanel>
         )}
+
+        {section === 'review' && (
+          <TeachingTurnReviewSettingsSection />
+        )}
+
+        {section === 'doctor' && <TeachingDoctorSettingsSection />}
 
         {section === 'about' && (
           <SettingsPanel

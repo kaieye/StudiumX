@@ -23,7 +23,8 @@ for (const checkId of [
   'p0_outcome_publication_crash_window',
   'config_availability',
   'source_gap',
-  'catalog_drift'
+  'catalog_drift',
+  'local_process_crash_marker'
 ]) {
   assert.match(shared, new RegExp(`'${checkId}'`), `Shared contract must declare checkId ${checkId}.`)
   assert.match(source, new RegExp(checkId), `Implementation must produce check ${checkId}.`)
@@ -55,6 +56,7 @@ assert.match(unit, /reports catalog drift/, 'Unit coverage must retain catalog-d
 assert.match(unit, /exports a redacted report that strips secret-shaped values/, 'Unit coverage must retain redaction export.')
 assert.match(unit, /always allows read-only open even when overall status is fail/, 'Unit coverage must retain read-only open policy.')
 assert.match(unit, /never auto-repairs/, 'Unit coverage must retain no auto-repair.')
+assert.match(unit, /prior-process crash marker/, 'Unit coverage must retain local process crash marker finding.')
 
 // Runtime unit gate via local vitest entry (avoid pnpm install side effects in CI-less shells).
 const vitestEntry = [
@@ -71,3 +73,4 @@ const unitResult = spawnSync(
 assert.equal(unitResult.status, 0, unitResult.stdout + unitResult.stderr)
 
 console.log('teaching doctor gate ok')
+

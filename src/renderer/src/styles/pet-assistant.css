@@ -374,3 +374,16 @@
   white-space: nowrap;
   border: 0;
 }
+
+
+/* B-12: closed-copy busy-ack when a follow-up is queued during a live turn. */
+.pet-assistant-busy-ack {
+  margin: 0 12px 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary, #5b6472);
+  background: color-mix(in srgb, var(--surface-elevated, #f4f6f8) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-subtle, #d7dde5) 80%, transparent);
+}

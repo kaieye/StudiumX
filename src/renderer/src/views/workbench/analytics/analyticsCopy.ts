@@ -103,7 +103,16 @@ type AnalyticsCopy = {
     reopened: string
     deleted: string
     topTasksTitle: string
+    topCompletionTitle: string
     noTopTasks: string
+    noCompletionShare: string
+    byTaskTitle: string
+    byCategoryTitle: string
+    byTaskCompletionTitle: string
+    byCategoryCompletionTitle: string
+    noCategoryShare: string
+    completionCountUnit: string
+    uncategorized: string
   }
   review: {
     title: string
@@ -289,7 +298,16 @@ export const analyticsCopy: AnalyticsCopy = {
     reopened: '重新打开',
     deleted: '已删除',
     topTasksTitle: '专注投入最多的任务',
-    noTopTasks: '尚无带专注归属的任务。'
+    topCompletionTitle: '完成次数最多的任务',
+    noTopTasks: '尚无带专注归属的任务。选择任务并完成专注后会出现时间占比。',
+    noCompletionShare: '尚无任务完成记录。在清单中勾选任务后会出现完成占比。',
+    byTaskTitle: '任务时间占比',
+    byCategoryTitle: '类别时间占比',
+    byTaskCompletionTitle: '任务完成占比',
+    byCategoryCompletionTitle: '类别完成占比',
+    noCategoryShare: '尚无任务类别时间分布。',
+    completionCountUnit: ' 次',
+    uncategorized: '未分类'
   },
   review: {
     title: '复习分析',
@@ -436,7 +454,16 @@ const analyticsCopyEn: AnalyticsCopy = {
     reopened: 'Reopened',
     deleted: 'Deleted',
     topTasksTitle: 'Top tasks by focus',
-    noTopTasks: 'No tasks with attributed focus yet.'
+    topCompletionTitle: 'Top tasks by completion',
+    noTopTasks: 'No tasks with attributed focus yet. Select a task and finish a focus session to see time share.',
+    noCompletionShare: 'No task completions yet. Check tasks off the list to see completion share.',
+    byTaskTitle: 'Focus by task',
+    byCategoryTitle: 'Focus by category',
+    byTaskCompletionTitle: 'Completions by task',
+    byCategoryCompletionTitle: 'Completions by category',
+    noCategoryShare: 'No task-category focus share yet.',
+    completionCountUnit: 'x',
+    uncategorized: 'Uncategorized'
   },
   review: {
     title: 'Review analytics',

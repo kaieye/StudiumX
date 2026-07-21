@@ -110,4 +110,55 @@ describe('memory tools', () => {
     expect(lines).toEqual(['- id=mem_1; scope=workspace; title=短标题'])
     expect(lines.join('\n')).not.toContain('很长的正文')
   })
+
+  it('sanitizes memory content projected into memory_search tool results', async () => {
+    const store = {
+      list: async () => [
+        record({
+          id: 'mem_dirty',
+          content:
+            '导数易混\u0000\nBearer sk-abcdefghijklmnopqrstuvwxyz012345\nC:\\Users\\alice\\notes.md',
+          tags: [TEACHING_SYNTHETIC_MEMORY_TAG]
+        })
+      ],
+      create: async () => {
+        throw new Error('create should not run')
+      },
+      delete: async () => {
+        throw new Error('delete should not run')
+      }
+    }
+    const tools = createMemoryTools({ memoryStore: store })
+    const search = tools.find((tool) => tool.definition.function.name === 'memory_search')!
+    const ctx = buildToolContext(defaultSettings('D:/tmp/memory-tools'), {
+      workspaceRoot: 'D:/tmp/memory-tools'
+    })
+    const raw = await search.handler({ query: '导数 易混', limit: 5 }, ctx)
+    const parsed = JSON.parse(raw) as {
+      ok: boolean
+      hits: Array<{ id: string; title: string | null; snippet: string }>
+    }
+    expect(parsed.ok).toBe(true)
+    expect(parsed.hits[0]?.id).toBe('mem_dirty')
+    const blob = JSON.stringify(parsed.hits)
+    expect(blob).not.toMatch(/sk-abcdefghijklmnopqrstuvwxyz012345/)
+    expect(blob).not.toContain('C:\\Users\\alice')
+    expect(blob).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/)
+    expect(blob).toMatch(/\[redacted\]|\[path\]/)
+  })
+
+  it('sanitizes titles in synthetic memory index lines', () => {
+    const lines = buildTeachingSyntheticMemoryIndexLines([
+      record({
+        id: 'mem_1',
+        content: 'Bearer sk-abcdefghijklmnopqrstuvwxyz012345 标题\n\nbody',
+        tags: [TEACHING_SYNTHETIC_MEMORY_TAG],
+        scope: 'workspace'
+      })
+    ])
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('id=mem_1')
+    expect(lines.join('\n')).not.toMatch(/sk-abcdefghijklmnopqrstuvwxyz012345/)
+    expect(lines.join('\n')).toContain('[redacted]')
+  })
 })

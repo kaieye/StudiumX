@@ -73,6 +73,16 @@ function fallbackStateFor(phase: ReturnType<typeof useStudyAnalytics>['phase']):
   return 'request-error'
 }
 
+function statusTone(
+  phase: ReturnType<typeof useStudyAnalytics>['phase'],
+  isRefreshing: boolean
+): 'ok' | 'warn' | 'alert' | 'idle' {
+  if (isRefreshing || phase === 'loading') return 'warn'
+  if (phase === 'ready') return 'ok'
+  if (phase === 'error' || phase === 'unavailable') return 'alert'
+  return 'idle'
+}
+
 export function StudyAnalyticsPage({
   onBack,
   client,
@@ -87,7 +97,7 @@ export function StudyAnalyticsPage({
   const [identity] = useState<StudyAnalyticsIdentity>(() => identityOverride ?? defaultIdentity())
   const [preset, setPreset] = useState<Exclude<AnalyticsRangePreset, 'custom'>>('week')
 
-  const workspaceIdsKey = workspaces.map((workspace) => workspace.id).join('')
+  const workspaceIdsKey = workspaces.map((workspace) => workspace.id).join('\u001f')
   const query = useMemo(() => buildLearningAnalyticsQuery({
     range: buildAnalyticsDateRange(preset, localToday),
     localToday,
@@ -130,6 +140,7 @@ export function StudyAnalyticsPage({
     isStale: analytics.isStale
   }
   const ctx = { copy, fmt, localToday }
+  const ledTone = statusTone(analytics.phase, analytics.isRefreshing)
 
   return (
     <div className="study-analytics-page">
@@ -157,6 +168,15 @@ export function StudyAnalyticsPage({
             </button>
           </div>
 
+          <div className="analytics-instrument-strip" aria-hidden="true">
+            <span className="analytics-instrument-meta">
+              <span className="analytics-glyph-led" data-tone={ledTone} />
+              System Status
+            </span>
+            <span className="analytics-instrument-meta">Channel · Study Analytics</span>
+            <span className="analytics-instrument-meta">Range · {copy.ranges[preset]}</span>
+            <span className="analytics-instrument-meta">Clock · {localToday}</span>
+          </div>
 
           <div className="analytics-range-bar" role="group" aria-label={copy.page.rangeLabel}>
             {RANGE_PRESETS.map((value) => (

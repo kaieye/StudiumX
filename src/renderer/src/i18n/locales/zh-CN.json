@@ -646,6 +646,14 @@
       "label": "连接器",
       "detail": "状态和修复动作"
     },
+    "doctor": {
+      "label": "诊断",
+      "detail": "只读健康检查"
+    },
+    "review": {
+      "label": "复核",
+      "detail": "回合后候选（仅人批）"
+    },
     "about": {
       "label": "关于",
       "detail": "版本、日志、数据目录"
@@ -963,6 +971,67 @@
       "local_search": "本地文本搜索"
     }
   },
+  "review": {
+    "title": "教学回合复核",
+    "subtitle": "查看 post-turn 复核候选的只读投影。需要人工批准，永不自动 apply。可用演示 bundle、本地决策，或可选加载上次 durable 快照（仅缓存；非 settlement 真相）。",
+    "demoProject": "演示投影",
+    "demoProjectDetail": "用客户端示例 bundle 调用 projectTeachingTurnReview，展示候选列表。",
+    "submitDecisions": "提交决策",
+    "submitDecisionsDetail": "调用 decideTeachingTurnReview 重新投影；不安装 skill、不写 memory。",
+    "emptyTitle": "暂无复核投影",
+    "empty": "回合后的复核候选必须经人批，且永不自动 apply。批准后的 id 只会作为显示用线索，后续再走既有 consent / skill / memory 路径。Durable last-bundle 只是可重建缓存 — 不是 settlement 真相，也永不自动 apply。",
+    "advisoryNote": "永不自动 apply — 仅人批；批准 id 不是执行计划。",
+    "candidatesHeading": "投影候选",
+    "turnMeta": "turn {{turnId}} · {{generatedAt}}",
+    "generatedAt": "生成于 {{generatedAt}}",
+    "kindLabel": "类型",
+    "requiresHumanApproval": "需人批",
+    "noteLabel": "备注",
+    "approvedIdsHeading": "已批准候选 id（仅展示）",
+    "approvedIdsNote": "这些 id 不是 apply plan。后续若要生效，须再走既有 consent / skill-pack / memory / lesson 路径。",
+    "apiUnavailable": "teachingSystem 复核 API 不可用。请重启应用以加载最新 preload。",
+    "projectFailed": "投影失败",
+    "decideFailed": "决策提交失败",
+    "decision": {
+      "pending": "待定",
+      "approve": "批准",
+      "reject": "拒绝",
+      "defer": "暂缓"
+    },
+    "kind": {
+      "memory_candidate": "记忆候选",
+      "skill_pack_hint": "技能包提示",
+      "lesson_gap": "课时缺口",
+      "other": "其他"
+    },
+    "handoffHeading": "Handoff 意图（仅展示）",
+    "handoffNote": "这不是 apply plan。这些意图只描述后续可能打开的既有产品 consent 表面 — 永不自动 apply，且本面板不打开真实 consent 流程。",
+    "handoffTargetLabel": "目标",
+    "handoffRequiresConsent": "后续仍需产品 consent",
+    "handoffUnmappedHeading": "未映射的已批准 id",
+    "handoffUnmappedNote": "已批准但尚无已知 handoff 目标。仅展示 — 不暗示任何可执行路径。",
+    "handoffTarget": {
+      "memory_consent": "记忆同意",
+      "skill_pack_authoring": "技能包编写",
+      "lesson_followup": "课时跟进",
+      "none": "无"
+    },
+    "handoffTargetLater": {
+      "memory_consent": "记忆同意（产品路径稍后）",
+      "skill_pack_authoring": "技能包编写（产品路径稍后）",
+      "lesson_followup": "课时跟进（产品路径稍后）",
+      "none": "产品路径稍后"
+    },
+    "loadLast": "加载上次 durable bundle",
+    "loadLastDetail": "从应用 userData 读取上次保存的复核快照并投影。仅 durable 缓存 — 永不自动 apply。",
+    "saveLast": "保存当前为上次（演示）",
+    "saveLastDetail": "把当前本地 bundle（+ 可选决策）写成上次 durable 快照。仅演示/手动 — 永不自动 apply。",
+    "loadLastEmpty": "尚未存储 durable last-bundle 快照。",
+    "loadLastOk": "已加载 durable 快照（{{source}} · {{savedAt}}）。仅投影 — 未 apply。",
+    "saveLastOk": "已将当前 bundle 保存为上次 durable 快照（settings_demo）。未 apply。",
+    "loadLastFailed": "加载上次 durable bundle 失败",
+    "saveLastFailed": "保存上次 durable bundle 失败"
+  },
   "about": {
     "title": "关于 StudiumX",
     "subtitle": "诊断入口和当前运行时信息，便于检查迁移后的完整链路。",
@@ -995,8 +1064,8 @@
       "detail": "请打开模型设置并填写 API Key，然后再使用对话。"
     },
     "providerInsufficientBalance": {
-      "message": "Provider 余额不足",
-      "detail": "上游模型服务返回 402 Payment Required。请充值、切换 provider 或换用可用模型。"
+      "message": "Provider 余额或配额不足",
+      "detail": "上游模型服务返回余额不足、配额耗尽或 402 Payment Required。请充值、提高配额、切换 provider 或换用可用模型。重试不会恢复额度。"
     },
     "providerAuth": {
       "message": "Provider 认证失败",
@@ -1004,7 +1073,7 @@
     },
     "providerRateLimit": {
       "message": "Provider 速率限制",
-      "detail": "上游模型服务暂时限制请求。请稍后重试，或切换 provider/model。"
+      "detail": "上游模型服务暂时限制请求频率（与配额耗尽不同）。请稍后重试，或切换 provider/model。"
     },
     "providerHttp": {
       "message": "Provider 请求失败",
@@ -1126,5 +1195,59 @@
     "streamingPlaceholder": "等待第一个 token...",
     "emptyHint": "点击生成按钮后，静态 HTML lesson 会保存到当前课程的 lessons 文件夹，并在这里预览。",
     "loadingHint": "正在读取 lesson 预览。"
+  },
+  "doctor": {
+    "title": "教学诊断",
+    "subtitle": "运行本地只读健康检查。报告仅作建议，绝不自动修复。",
+    "run": "运行诊断",
+    "running": "诊断中…",
+    "empty": "尚未运行诊断。点击「运行诊断」获取本地、可导出的报告。不会上传，也不会自动修复。",
+    "overallStatus": "总体状态",
+    "generatedAt": "生成时间",
+    "checks": "检查项",
+    "advisoryNote": "只读建议；绝不自动修复、不上传、不清除崩溃标记。",
+    "error": "诊断未能完成",
+    "copy": "复制报告 JSON",
+    "copied": "已复制",
+    "unavailable": "当前运行时不可用教学诊断。",
+    "fixSuggestion": "手动修复指引",
+    "recommendedAction": "建议操作",
+    "result": {
+      "ok": "正常",
+      "warning": "警告",
+      "fail": "失败",
+      "skipped": "跳过",
+      "error": "错误"
+    }
+  },
+  "queueDiagnostics": {
+    "title": "Agent 会话队列（只读）",
+    "subtitle": "主进程 façade 队列快照，仅供调试。绝不 drain、steer、abort 或改动 autoDrain；永不请求正文预览。",
+    "streamId": "Stream / 会话 id",
+    "streamIdDetail": "产品路径中 streamId 即 agent conversation id。",
+    "streamIdPlaceholder": "粘贴 conversation id…",
+    "refresh": "刷新队列投影",
+    "refreshing": "刷新中…",
+    "readOnlyNote": "仅只读投影。产品 autoDrain 保持 false。",
+    "empty": "输入 stream id 后点击刷新，加载主进程队列快照。",
+    "error": "队列投影失败",
+    "unavailable": "当前运行时不可用队列投影。",
+    "missingStreamId": "请输入非空的 stream / conversation id。",
+    "noActiveSession": "该 stream id 没有活动 agent session。",
+    "busy": "忙碌",
+    "busyTrue": "忙碌",
+    "busyFalse": "空闲",
+    "phase": "阶段",
+    "autoDrain": "autoDrain",
+    "autoDrainTrue": "true",
+    "autoDrainFalse": "false",
+    "autoDrainExpectedFalse": "产品路径期望 false（ADR-0096）。",
+    "queueDepth": "队列深度 / 容量",
+    "closed": "已关闭",
+    "closedTrue": "是",
+    "closedFalse": "否",
+    "entries": "条目",
+    "entriesEmpty": "队列无投影条目。",
+    "enqueuedAt": "入队时间"
   }
 }

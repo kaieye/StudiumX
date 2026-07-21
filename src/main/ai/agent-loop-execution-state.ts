@@ -88,12 +88,15 @@ export class AgentLoopExecutionState {
 
   recordProviderUsage(
     providerUsage: ChatAdapterResult['usage'],
-    source: ProviderUsageSource = 'provider_reported'
+    source: ProviderUsageSource = 'provider_reported',
+    finishReason?: ChatAdapterResult['finishReason']
   ): void {
     const callId = this.currentProviderCallId
     if (callId) {
       if (providerUsage) this.providerHooks.record({ kind: 'usage', callId, usage: providerUsage, source })
-      this.providerHooks.record({ kind: 'stop', callId, reason: 'stop' })
+      // Only record a terminal stop when the adapter observed a real finish signal.
+      // Do not forge `stop` when finishReason is absent (ledger stays non-terminal).
+      if (finishReason) this.providerHooks.record({ kind: 'stop', callId, reason: finishReason })
     }
     if (!providerUsage) return
     if (providerUsage.promptTokens !== undefined) {
@@ -110,6 +113,19 @@ export class AgentLoopExecutionState {
   /** Feed an already-normalized provider hook event into the ledger (SDK adapters). */
   recordProviderHookEvent(event: Parameters<ProviderHookLedger['record']>[0]): void {
     this.providerHooks.record(event)
+  }
+
+  /**
+   * Record a transport-level auto-retry against the most recent provider call.
+   * A-05: pairs with status events `auto_retry_scheduled` / `auto_retry_exhausted`.
+   */
+  noteProviderRetry(attempt: number, reason?: string, delayMs?: number): void {
+    const callId = this.currentProviderCallId
+    if (!callId) return
+    this.providerHooks.record({ kind: 'retry', callId, attempt, reason, delayMs })
+    if (reason === 'rate_limit') {
+      this.providerHooks.record({ kind: 'rate_limit', callId, attempt, retryAfterMs: delayMs })
+    }
   }
 
   startToolCall(): void {

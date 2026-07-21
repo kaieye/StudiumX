@@ -16,7 +16,7 @@ import type {
 } from '../provider-adapter'
 import { toolsSupportedForFormat } from './formats'
 import { buildChatRequest, buildRequest } from './request-builder'
-import { extractText, extractToolCalls, extractUsage } from './response-parser'
+import { extractFinishReason, extractText, extractToolCalls, extractUsage } from './response-parser'
 import { readChatSseStream, readSseStream } from './sse-parser'
 
 export type AdapterErrorKind = 'no_api_key' | 'network' | 'http' | 'parse' | 'timeout' | 'unsupported'
@@ -174,10 +174,12 @@ export async function streamChatInvocation(opts: InvocationBase & {
     if (!text && toolCalls.length === 0) {
       throw new ProviderAdapterError('parse', 'Provider 响应未包含可用的文本内容或工具调用。')
     }
+    const finishReason = extractFinishReason(format, parsed)
     const result: ChatAdapterResult = {
       text,
       toolCalls,
       toolsSupported,
+      ...(finishReason ? { finishReason } : {}),
       usage: extractUsage(format, parsed)
     }
     emitStreamingChat(opts.callbacks, result)
@@ -185,7 +187,7 @@ export async function streamChatInvocation(opts: InvocationBase & {
   }
 
   opts.callbacks.onStatus?.('streaming')
-  const { text, toolCalls } = await readChatSseStream(
+  const { text, toolCalls, finishReason } = await readChatSseStream(
     response.body,
     format,
     (delta) => opts.callbacks.onToken?.(delta),
@@ -194,7 +196,12 @@ export async function streamChatInvocation(opts: InvocationBase & {
   if (!text && toolCalls.length === 0) {
     throw new ProviderAdapterError('parse', '流式响应未产生任何内容或工具调用。')
   }
-  const result: ChatAdapterResult = { text, toolCalls, toolsSupported }
+  const result: ChatAdapterResult = {
+    text,
+    toolCalls,
+    toolsSupported,
+    ...(finishReason ? { finishReason } : {})
+  }
   emitToolCalls(opts.callbacks, toolCalls)
   return result
 }
@@ -232,7 +239,14 @@ async function requestChatJson(
     if (!text && toolCalls.length === 0) {
       throw new ProviderAdapterError('parse', 'Provider 响应未包含可用的文本内容或工具调用。')
     }
-    return { text, toolCalls, toolsSupported, usage: extractUsage(format, parsed) }
+    const finishReason = extractFinishReason(format, parsed)
+    return {
+      text,
+      toolCalls,
+      toolsSupported,
+      ...(finishReason ? { finishReason } : {}),
+      usage: extractUsage(format, parsed)
+    }
   }
 
   try {

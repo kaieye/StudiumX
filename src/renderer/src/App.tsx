@@ -1736,7 +1736,6 @@ function ResourceHome({
           style: currentStyleName
         }),
         meta: t('resources.home.stylesMeta'),
-        action: t('resources.home.open'),
         icon: 'styles' as const,
         onOpen: onOpenStyles
       },
@@ -1748,7 +1747,6 @@ function ResourceHome({
           installed: installedSkillCount
         }),
         meta: t('resources.home.skillsMeta'),
-        action: t('resources.home.open'),
         icon: 'skills' as const,
         onOpen: onOpenSkills
       },
@@ -1757,7 +1755,6 @@ function ResourceHome({
         title: t('resources.pets.title'),
         detail: t('resources.home.petsDetail'),
         meta: t('resources.home.petsMeta'),
-        action: t('resources.home.open'),
         icon: 'pets' as const,
         onOpen: onOpenPets
       }
@@ -1773,14 +1770,6 @@ function ResourceHome({
 
   return (
     <div className="resource-home">
-      <div className="resource-home-tabs" role="tablist" aria-label={t('resources.home.tabsAria')}>
-        <button type="button" role="tab" aria-selected="true" className="is-active">
-          {t('resources.home.tabs.resources')}
-        </button>
-        <button type="button" role="tab" aria-selected="false" disabled>
-          {t('resources.home.tabs.workspace')}
-        </button>
-      </div>
       <div className="resource-home-head">
         <h1>{t('resources.title')}</h1>
         <p>{t('resources.home.subtitle')}</p>
@@ -1794,49 +1783,6 @@ function ResourceHome({
           onChange={(event) => setQuery(event.currentTarget.value)}
         />
       </label>
-      <section className="resource-installed-strip" aria-label={t('resources.home.installed')}>
-        <div className="resource-installed-head">
-          <strong>{t('resources.home.installed')}</strong>
-          <span className="resource-icon-button" aria-hidden="true">
-            <Settings size={15} />
-          </span>
-        </div>
-        <div className="resource-installed-icons">
-          <button
-            className="resource-installed-icon resource-installed-icon--styles"
-            type="button"
-            aria-label={t('resources.styles.title')}
-            title={t('resources.styles.title')}
-            onClick={onOpenStyles}
-          >
-            <Palette size={22} />
-          </button>
-          <button
-            className="resource-installed-icon resource-installed-icon--skills"
-            type="button"
-            aria-label={t('skills.title')}
-            title={t('skills.title')}
-            onClick={onOpenSkills}
-          >
-            <GraduationCap size={21} />
-            {installedSkillCount > 0 ? <span>{installedSkillCount}</span> : null}
-          </button>
-          <button
-            className="resource-installed-icon resource-installed-icon--pets"
-            type="button"
-            aria-label={t('resources.pets.title')}
-            title={t('resources.pets.title')}
-            onClick={onOpenPets}
-          >
-            <PetSprite appearance={petAppearance} className="resource-home-pet-sprite" label="" size={27} state="idle" />
-          </button>
-        </div>
-      </section>
-      <div className="resource-source-row" aria-label={t('resources.home.sourcesAria')}>
-        <span className="is-active">{t('resources.home.sources.builtIn')}</span>
-        <span>{t('resources.home.sources.workspace')}</span>
-        <span>{t('resources.home.sources.personal')}</span>
-      </div>
       <section className="resource-directory-section">
         <div className="resource-section-label">
           <h2>{t('resources.home.featured')}</h2>
@@ -1866,10 +1812,6 @@ function ResourceHome({
                 <span className="resource-entry-body">
                   <strong>{entry.title}</strong>
                   <span>{entry.detail}</span>
-                </span>
-                <span className="resource-entry-action">
-                  {entry.action}
-                  <ArrowUpRight size={13} />
                 </span>
               </button>
             ))}
@@ -2129,6 +2071,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const {
     agentTurns,
     agentChatBusy,
+    agentBusyAckMessage,
     agentStatus,
     agentInput,
     setAgentInput,
@@ -2237,7 +2180,14 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const blockedPermission = conversationPresentation.blocked?.kind === 'tool_permission'
     ? conversationPresentation.blocked
     : null
-  const canSend = Boolean(active && inputValue.trim() && !busy && !hasPendingInterruption && !activeBranchReadOnly)
+  // B-12: agentChatBusy defaults to queue (not hard-block). Still block on generation pipeline / interruption / readonly.
+  const canSend = Boolean(
+    active &&
+    inputValue.trim() &&
+    !(isTeachingMode && generating) &&
+    !hasPendingInterruption &&
+    !activeBranchReadOnly
+  )
   const sentInputHistory = useMemo(
     () => mergeAgentInputHistory(agentInputHistory, userTurnInputHistory(agentTurns)),
     [agentInputHistory, agentTurns]
@@ -2578,13 +2528,21 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
               <OverviewReasoningPicker />
               <button
                 className="send-button overview-dialog-send"
-                type={canCancelAgentChat ? 'button' : 'submit'}
-                aria-label={canCancelAgentChat ? '中断对话' : '发送消息'}
-                title={canCancelAgentChat ? '中断对话' : '发送消息'}
-                disabled={canCancelAgentChat ? false : !canSend}
-                onClick={canCancelAgentChat ? () => void cancelAgentChat() : undefined}
+                type={canCancelAgentChat && !inputValue.trim() ? 'button' : 'submit'}
+                aria-label={canCancelAgentChat && !inputValue.trim() ? '中断对话' : '发送消息'}
+                title={canCancelAgentChat && !inputValue.trim()
+                  ? '中断对话'
+                  : canCancelAgentChat
+                    ? (agentBusyAckMessage ?? '当前回合进行中，发送将加入队列')
+                    : '发送消息'}
+                disabled={canCancelAgentChat && !inputValue.trim() ? false : !canSend}
+                onClick={canCancelAgentChat && !inputValue.trim() ? () => void cancelAgentChat() : undefined}
               >
-                {canCancelAgentChat ? <Square size={16} /> : busy ? <Loader2 className="spin" size={18} /> : <SendHorizontal size={18} />}
+                {canCancelAgentChat && !inputValue.trim()
+                  ? <Square size={16} />
+                  : busy
+                    ? <Loader2 className="spin" size={18} />
+                    : <SendHorizontal size={18} />}
               </button>
             </div>
           </div>
@@ -2597,6 +2555,11 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           <div className="overview-dialog-status-group">
             {isTeachingMode && generating ? <span className="overview-dialog-status-text">{t('lessons.composerTitle')}</span> : null}
             {!isTeachingMode && agentStatus ? <span className="overview-dialog-status-text">{agentStatus}</span> : null}
+            {agentBusyAckMessage ? (
+              <span className="overview-dialog-status-text overview-dialog-busy-ack" role="status" aria-live="polite">
+                {agentBusyAckMessage}
+              </span>
+            ) : null}
             {isTeachingMode && teachingComposerNotice ? (
               <span className="overview-dialog-status-text" role="status" aria-live="polite">{teachingComposerNotice}</span>
             ) : null}

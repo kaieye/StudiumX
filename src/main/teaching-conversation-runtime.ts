@@ -3,6 +3,7 @@ import { createAgentEventBus, type AgentEventBus } from './ai/agent-event-bus'
 import { attachAgentRunAuditMetadata } from './ai/agent-run-audit'
 import { resolveActiveProvider, type ChatMessage } from './ai/provider-adapter'
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
+import { loadAndMergeToolPolicyDocumentsFromWorkspace, toolPolicyDocumentOption } from './ai/tools/tool-policy-fs'
 import { createAskToolEntry } from './ai/tools/ask'
 import { createDelegationToolEntries } from './ai/tools/delegation'
 import { createReadSkillResourceTool } from './ai/tools/skill-resource'
@@ -203,6 +204,17 @@ async function runTeachingConversationTurnActive(
   })
   stream.onEventBusReady?.(eventBus)
 
+  // Optional workspace tool-policy (ADR-0083 / ADR-0115 / B-08): multi-path load+merge
+  // (primary + optional course overlay); fail-closed; omit field on null so registry
+  // keeps DEFAULT_IN_PROCESS_TOOL_POLICY_DOCUMENT (default-equivalent). Secondary miss
+  // is fail-soft and keeps primary-only behavior identical to single-file load.
+  const workspaceToolPolicy =
+    conversation.workspaceRoot
+      ? await loadAndMergeToolPolicyDocumentsFromWorkspace({
+          workspaceRoot: conversation.workspaceRoot
+        })
+      : null
+
   const ctx = buildToolContext(settings, {
     workspaceRoot: conversation.workspaceRoot,
     signal: stream.signal,
@@ -224,7 +236,8 @@ async function runTeachingConversationTurnActive(
           pendingPermissionId: undefined
         })
       }
-    })
+    }),
+    ...toolPolicyDocumentOption(workspaceToolPolicy)
   })
   // Register the established candidates first, then project the completed registry
   // through the explicit turn policy below. The allow-list keeps new registrations
@@ -409,6 +422,8 @@ async function runTeachingConversationTurnActive(
     messageTurnIds,
     tools: availableTools,
     toolHandlers,
+    workspaceRoot: conversation.workspaceRoot,
+    runId: stream.streamId,
     initialToolChoice: requiresFreshWebSearch
       ? { type: 'function', function: { name: 'web_search' } }
       : undefined,

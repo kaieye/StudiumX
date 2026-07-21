@@ -132,12 +132,17 @@
     "audit:release": "node scripts/release-audit.mjs",
     "check:teaching-capability-catalog": "node scripts/check-teaching-capability-catalog.mjs",
     "check:blocking-ci": "node scripts/check-blocking-ci.mjs",
+    "check:ci-results": "node scripts/check-ci-results.mjs",
+    "check:clean-worktree": "node scripts/check-clean-worktree.mjs",
+    "check:format": "node scripts/check-format-subset.mjs",
     "check:session-resume-picker": "node scripts/check-session-resume-picker.mjs",
     "check:tech-inspector": "node scripts/check-tech-inspector.mjs",
     "check:config-optimistic-concurrency": "node scripts/check-config-optimistic-concurrency.mjs",
     "check:support-bundle": "node scripts/check-support-bundle.mjs",
     "check:tool-contract": "node scripts/check-tool-contract.mjs",
     "check:prepush": "node scripts/check-prepush.mjs",
+    "check:module-size": "node scripts/check-module-size.mjs",
+    "check:workspace-host-imports": "node scripts/check-workspace-host-imports.mjs",
     "check:teaching-impact": "node scripts/check-teaching-impact.mjs"
   },
   "dependencies": {
@@ -218,6 +223,9 @@
       "node_modules/file-uri-to-path/**"
     ],
     "npmRebuild": false
+  },
+  "engines": {
+    "node": ">=22 <25"
   },
   "packageManager": "pnpm@11.9.0"
 }

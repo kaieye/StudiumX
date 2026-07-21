@@ -21,6 +21,30 @@ This contract is the reviewable inventory of registered teaching tools. `scripts
 | `web_search` | `external_write` | Snip bounded external results with provenance; treat content as untrusted | Network access is externally observable and provider-configured. |
 | `web_fetch` | `external_write` | Snip bounded fetched text with provenance; treat content as untrusted | Public HTTP(S) safety checks and redirect/DNS validation apply. |
 
+## Capability metadata (B-07)
+
+Runtime capability discovery is implemented in `src/main/ai/tools/tool-capabilities.ts` via `capabilitiesForTool(toolName)`. Capabilities are **metadata only** — they do not authorize execution. The effect lattice and registry permission descriptor remain the pre-execution gates.
+
+| Field | Meaning |
+| --- | --- |
+| `isReadOnly` | Pure read stance (`effectClass === read`). |
+| `maxConcurrency` | Declared upper bound for concurrent instances of this tool. |
+| `supportsCancel` | Whether the tool cooperates with `AbortSignal` / run cancel. |
+| `effectClass` | Same lattice as the inventory table above. |
+
+### Effect-class defaults
+
+| effectClass | isReadOnly | maxConcurrency | supportsCancel |
+| --- | --- | --- | --- |
+| `read` | `true` | `4` (aligned with parallel-read default) | `true` |
+| `workspace_write` | `false` | **`1` (hard)** | `true` |
+| `external_write` | `false` | **`1` (hard)** | `true` |
+| `privileged` (incl. unknown) | `false` | **`1` (hard)** | `true` |
+
+**Invariant:** non-`read` tools never advertise `maxConcurrency > 1`. Declaring capability metadata does **not** open write parallelism. Bounded parallel dispatch remains limited to pure-read tools (ADR-0032).
+
+Registry discovery: optional `ToolEntry.capabilities` overrides defaults; `resolveToolEntryCapabilities(entry)` falls back to `capabilitiesForTool(name)`.
+
 ## Permission and UI guidance
 
 The contract does not authorize execution by itself. The effect lattice remains the pre-execution gate, and the registry permission descriptor remains the interactive gate. UI copy should describe the three states as **需批准** (approval required), **按风险** (risk-based), and **本课放行** (this lesson/run allows it). Do not expose or label a mode as “YOLO”.
