@@ -10,9 +10,9 @@ import type { TeachingMemoryCatalogIndexScan } from '../teaching-memory-catalog'
 import type { AnalyticsWorkspaceScanResult } from '../teaching/services/learning-analytics'
 import type { LedgerSnapshot, LearningWorkLedgerSnapshotsRead } from '../teaching/services/analytics/token-evidence'
 import { readDurableJsonlSources } from '../durable-jsonl'
-import { SchemaMigrationChecksumConflict, migrateLocalDataIndex } from './schema-migration'
+import { SchemaMigrationChecksumConflict, listAppliedSchemaMigrations, migrateLocalDataIndex } from './schema-migration'
 
-export { LOCAL_DATA_INDEX_MIGRATIONS, migrateLocalDataIndex } from './schema-migration'
+export { LOCAL_DATA_INDEX_MIGRATIONS, SCHEMA_MIGRATION_APPLIED_BY, ensureSchemaMigrationMetadataColumns, listAppliedSchemaMigrations, migrateLocalDataIndex, type AppliedSchemaMigration } from './schema-migration'
 
 export type LocalDataIndexStatus = 'ready' | 'building' | 'incomplete' | 'unavailable' | 'closed'
 export type LocalDataIndexIssue = { sourceKey: string; sourcePath?: string; code: string; message: string }
@@ -181,6 +181,8 @@ export class LocalDataIndex {
     }
   }
   issues(): LocalDataIndexIssue[] { return this.db ? this.db.prepare('SELECT source_key sourceKey, source_path sourcePath, code, message FROM index_issue ORDER BY id').all() as LocalDataIndexIssue[] : [] }
+  /** Applied migration ids + checksum digests for doctor (no SQL bodies). */
+  appliedMigrations() { return this.db ? listAppliedSchemaMigrations(this.db) : [] }
   close(): void { this.closeDbOnly(); this.readyInputFingerprint = null; this.statusValue = 'closed' }
 
   private openDatabase(): void {
