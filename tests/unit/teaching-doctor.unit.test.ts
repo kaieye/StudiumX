@@ -44,6 +44,16 @@ function healthyFacts(): TeachingDoctorFacts {
       removedCount: 0,
       recoveredRelativePaths: [],
       removedRelativePaths: []
+    },
+    localDataIndex: {
+      pathExists: true,
+      indexPathLabel: 'userData/studiumx-index.sqlite',
+      status: 'ready',
+      reason: null,
+      complete: true,
+      rebuiltAt: NOW,
+      migrationIds: ['0001', '0002'],
+      issueCountsByCode: {}
     }
   }
 }
@@ -64,7 +74,7 @@ describe('TeachingDoctor', () => {
     expect(report.workspaceOpenPolicy).toBe('read_only_allowed')
     expect(report.diagnostics.autoRepair).toBe('disabled')
     expect(report.overallStatus).toBe('ok')
-    expect(report.checks).toHaveLength(5)
+    expect(report.checks).toHaveLength(6)
     expect(report.checks.every((check) => check.result === 'ok')).toBe(true)
     expect(report.checks.every((check) => check.repair.autoRepairAllowed === false)).toBe(true)
   })
@@ -271,6 +281,77 @@ describe('TeachingDoctor', () => {
     expect(byId(report, 'config_availability').result).toBe('warning')
     expect(report.overallStatus).toBe('warning')
   })
+  it('reports stable local data index diagnostics for unavailable / incomplete / ready', () => {
+    const unavailable = runTeachingDoctor(
+      {
+        ...healthyFacts(),
+        localDataIndex: {
+          pathExists: false,
+          indexPathLabel: 'userData/studiumx-index.sqlite',
+          status: 'unavailable',
+          reason: 'native binding missing',
+          complete: null,
+          rebuiltAt: null,
+          migrationIds: [],
+          issueCountsByCode: {}
+        }
+      },
+      NOW
+    )
+    const unavailableCheck = byId(unavailable, 'local_data_index')
+    expect(unavailableCheck.result).toBe('warning')
+    expect(unavailableCheck.evidence.fields.status).toBe('unavailable')
+    expect(unavailableCheck.evidence.fields.pathExists).toBe(false)
+    expect(unavailableCheck.evidence.fields.disposable).toBe(true)
+    expect(unavailableCheck.evidence.notes.some((note) => /safely deleted and rebuilt/i.test(note))).toBe(true)
+    expect(unavailableCheck.configPath).toBe('userData/studiumx-index.sqlite')
+    expect(JSON.stringify(unavailableCheck)).not.toMatch(/\/Users\//)
+
+    const incomplete = runTeachingDoctor(
+      {
+        ...healthyFacts(),
+        localDataIndex: {
+          pathExists: true,
+          indexPathLabel: 'userData/studiumx-index.sqlite',
+          status: 'incomplete',
+          reason: null,
+          complete: false,
+          rebuiltAt: NOW,
+          migrationIds: ['0001', '0002'],
+          issueCountsByCode: { source_drift: 2, read_failed: 1 }
+        }
+      },
+      NOW
+    )
+    const incompleteCheck = byId(incomplete, 'local_data_index')
+    expect(incompleteCheck.result).toBe('warning')
+    expect(incompleteCheck.evidence.fields.status).toBe('incomplete')
+    expect(incompleteCheck.evidence.fields.complete).toBe(false)
+    expect(incompleteCheck.evidence.fields.issueCount).toBe(3)
+    expect(incompleteCheck.evidence.notes.some((note) => note.includes('source_drift=2'))).toBe(true)
+    expect(incompleteCheck.evidence.notes.some((note) => note.includes('read_failed=1'))).toBe(true)
+    expect(incompleteCheck.repair.kind).toBe('deterministic_projection_rebuild')
+    expect(incompleteCheck.repair.autoRepairAllowed).toBe(false)
+    expect(incompleteCheck.fixSuggestion?.code).toBe('rebuild_local_data_index')
+
+    const ready = runTeachingDoctor(healthyFacts(), NOW)
+    const readyCheck = byId(ready, 'local_data_index')
+    expect(readyCheck.result).toBe('ok')
+    expect(readyCheck.evidence.fields.status).toBe('ready')
+    expect(readyCheck.evidence.fields.complete).toBe(true)
+    expect(readyCheck.evidence.fields.migrationCount).toBe(2)
+    expect(readyCheck.evidence.notes.some((note) => note.includes('migration_ids=0001,0002'))).toBe(true)
+    expect(readyCheck.recommendedAction).toMatch(/safely deleted and rebuilt/i)
+  })
+
+  it('skips local data index when facts are omitted without failing other checks', () => {
+    const facts = healthyFacts()
+    delete facts.localDataIndex
+    const report = runTeachingDoctor(facts, NOW)
+    expect(byId(report, 'local_data_index').result).toBe('skipped')
+    expect(byId(report, 'config_availability').result).toBe('ok')
+  })
+
 })
 
 function deepFreeze<T>(value: T): T {

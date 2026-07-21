@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { renameSync } from 'node:fs'
+import { existsSync, renameSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
@@ -10,12 +10,35 @@ import type { TeachingMemoryCatalogIndexScan } from '../teaching-memory-catalog'
 import type { AnalyticsWorkspaceScanResult } from '../teaching/services/learning-analytics'
 import type { LedgerSnapshot, LearningWorkLedgerSnapshotsRead } from '../teaching/services/analytics/token-evidence'
 import { readDurableJsonlSources } from '../durable-jsonl'
-import { SchemaMigrationChecksumConflict, listAppliedSchemaMigrations, migrateLocalDataIndex } from './schema-migration'
+import { SchemaMigrationChecksumConflict, listAppliedSchemaMigrations, migrateLocalDataIndex, type AppliedSchemaMigration } from './schema-migration'
 
 export { LOCAL_DATA_INDEX_MIGRATIONS, SCHEMA_MIGRATION_APPLIED_BY, ensureSchemaMigrationMetadataColumns, listAppliedSchemaMigrations, migrateLocalDataIndex, type AppliedSchemaMigration } from './schema-migration'
 
 export type LocalDataIndexStatus = 'ready' | 'building' | 'incomplete' | 'unavailable' | 'closed'
 export type LocalDataIndexIssue = { sourceKey: string; sourcePath?: string; code: string; message: string }
+export type LocalDataIndexDiagnostics = {
+  /** Projection file basename only — never an absolute host path. */
+  indexFileName: typeof INDEX_FILE
+  /** Whether the disposable projection file currently exists on disk. */
+  pathExists: boolean
+  status: LocalDataIndexStatus
+  reason: string | null
+  /** index_state.complete when a DB is open; null when unavailable/closed without state. */
+  complete: boolean | null
+  rebuiltAt: string | null
+  version: string | null
+  /** Applied migration ids only (no SQL bodies). */
+  migrationIds: string[]
+  appliedMigrations: AppliedSchemaMigration[]
+  /** Aggregate issue counts by stable issue code (source_drift / read_failed / …). */
+  issueCountsByCode: Record<string, number>
+  issueCount: number
+  /** True: support tooling must never pack conversation/memory projection row bodies. */
+  aggregateOnly: true
+  /** Explicit support copy: projection may be deleted and rebuilt. */
+  disposable: true
+  disposableNote: string
+}
 export type LocalDataIndexTestHooks = {
   /** Deterministic seams for C-1 source-currentness boundary tests. */
   beforeCurrentnessVerification?: () => void | Promise<void>
@@ -56,6 +79,10 @@ export type LocalDataIndexTokenEvidenceAdapters = {
 
 const INDEX_FILE = 'studiumx-index.sqlite'
 const INDEX_VERSION = '2'
+
+/** Explicit support copy: projection may be deleted and rebuilt from canonical files. */
+export const LOCAL_DATA_INDEX_DISPOSABLE_NOTE =
+  'studiumx-index.sqlite can be safely deleted and rebuilt from canonical local files (JSON/JSONL).'
 
 /** A disposable, main-process-only SQLite projection of canonical local files. */
 export class LocalDataIndex {
@@ -182,7 +209,54 @@ export class LocalDataIndex {
   }
   issues(): LocalDataIndexIssue[] { return this.db ? this.db.prepare('SELECT source_key sourceKey, source_path sourcePath, code, message FROM index_issue ORDER BY id').all() as LocalDataIndexIssue[] : [] }
   /** Applied migration ids + checksum digests for doctor (no SQL bodies). */
-  appliedMigrations() { return this.db ? listAppliedSchemaMigrations(this.db) : [] }
+  appliedMigrations(): AppliedSchemaMigration[] { return this.db ? listAppliedSchemaMigrations(this.db) : [] }
+
+  /**
+   * Aggregate-only diagnostics for TeachingDoctor / support-bundle.
+   * Never includes conversation/memory projection row bodies or absolute paths
+   * beyond path existence; callers should treat the file as disposable.
+   */
+  diagnostics(): LocalDataIndexDiagnostics {
+    const pathExists = existsSync(this.path)
+    const appliedMigrations = this.appliedMigrations()
+    const issueRows = this.issues()
+    const issueCountsByCode: Record<string, number> = {}
+    for (const issue of issueRows) {
+      const code = issue.code || 'unknown'
+      issueCountsByCode[code] = (issueCountsByCode[code] ?? 0) + 1
+    }
+    let complete: boolean | null = null
+    let rebuiltAt: string | null = null
+    let version: string | null = null
+    if (this.db) {
+      try {
+        complete = getState(this.db, 'complete') === '1'
+        rebuiltAt = getState(this.db, 'rebuilt_at')
+        version = getState(this.db, 'version')
+      } catch {
+        complete = null
+        rebuiltAt = null
+        version = null
+      }
+    }
+    return {
+      indexFileName: INDEX_FILE,
+      pathExists,
+      status: this.statusValue,
+      reason: this.unavailableReason,
+      complete,
+      rebuiltAt,
+      version,
+      migrationIds: appliedMigrations.map((row) => row.id),
+      appliedMigrations,
+      issueCountsByCode,
+      issueCount: issueRows.length,
+      aggregateOnly: true,
+      disposable: true,
+      disposableNote: LOCAL_DATA_INDEX_DISPOSABLE_NOTE
+    }
+  }
+
   close(): void { this.closeDbOnly(); this.readyInputFingerprint = null; this.statusValue = 'closed' }
 
   private openDatabase(): void {
@@ -344,6 +418,10 @@ function isMissing(error: unknown): boolean { return typeof error === 'object' &
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error) }
 function sourceDriftIssue(message: string): LocalDataIndexIssue { return { sourceKey: 'source_manifest', code: 'source_drift', message } }
 function putState(db: ProjectionDb, key: string, value: string): void { db.prepare('INSERT INTO index_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value) }
+function getState(db: ProjectionDb, key: string): string | null {
+  const row = db.prepare('SELECT value FROM index_state WHERE key = ?').get(key) as { value?: string } | undefined
+  return typeof row?.value === 'string' ? row.value : null
+}
 function fingerprintJson(value: unknown): string { return createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex') }
 function workspaceIdentity(item: AnalyticsWorkspaceScanResult) { return { workspaceId: item.workspaceId, workspaceName: item.workspaceName, rootPath: item.rootPath, summary: item.summary?.conversations.map((c) => ({ id: c.id, updatedAt: c.updatedAt, messageCount: c.messageCount, relativePath: c.relativePath })) ?? null, error: item.error } }
 function memoryIdentity(item: TeachingMemoryRecord) { return { id: item.id, scope: item.scope, workspace: item.workspace, project: item.project, sourceLessonId: item.sourceLessonId, tags: item.tags, confidence: item.confidence, createdAt: item.createdAt, updatedAt: item.updatedAt, disabledAt: item.disabledAt, deletedAt: item.deletedAt } }
