@@ -3,7 +3,7 @@
 - **状态：** 已实施；**2026-07-21 修订** — 对齐「分层权威」与 list/analytics 优选读路径；no-FTS 默认产品面仍关闭
 - **范围：** C-1 可重建 SQLite analytics / list metadata projection 及其 no-FTS 边界
 - **证据提交：** `d9de382`（`feat(data): add rebuildable SQLite analytics index`）及后续 LocalDataIndex 演进
-- **活文档：** [database-authority-model.md](../improvements/database-authority-model.md)
+- **政策总闸 / 分层权威：** [ADR-0053](0053-database-layered-authority-and-pr-gates.md)
 
 ## 决定
 
@@ -32,7 +32,7 @@ C-1 **默认不授权** 用户可见全文搜索产品面，也不得把 analyti
 - 为搜索而把 prompt、turn content、tool payload、secret、raw Memory content 编入 query 语料；
 - 因查询在 UI/API/日志中返回 content snippet、敏感 path、checksum 作为检索结果展示。
 
-**重新开启检索索引** 不要求放弃文件写权威；要求 **独立 disposable 索引文件** + 新 ADR + 经验证用户任务（见 DB-P2-2 与 `database-authority-model.md` §3.2）。不得 silently 把 analytics 库改成搜索引擎。
+**重新开启检索索引** 不要求放弃文件写权威；要求 **独立 disposable 索引文件** + 新 ADR + 经验证用户任务（见 [ADR-0053](0053-database-layered-authority-and-pr-gates.md) DB-P2-2）。不得 silently 把 analytics 库改成搜索引擎。
 
 ## 已落地范围与验证入口
 
@@ -89,10 +89,11 @@ pnpm exec vitest run --project unit tests/unit/local-data-index.unit.test.ts
 ## 修订说明（2026-07-21）
 
 挑战结论：产品需要的是 **教学可迁移（文件写权威）**，不是 **「SQLite 永不参与读路径」**。  
-本修订把 ADR 从「投影几乎无权威」改为「写权威在文件；读路径可分层」。政策细节与优化锚点见 `docs/improvements/database-authority-model.md`。
+本修订把 ADR 从「投影几乎无权威」改为「写权威在文件；读路径可分层」。政策总闸、P2 边界与切片状态见 [ADR-0053](0053-database-layered-authority-and-pr-gates.md)。
 
 | 日期 | 说明 |
 | --- | --- |
 | 2026-07-21 | 分层权威修订；对齐 list/analytics 优选读 |
 | 2026-07-21 | 沉淀 DB-P1-4/OPT-2 rebuild 默认与骨架；沉淀 DB-P1-5 backup/export 可丢弃声明（自 `docs/improvements/*`） |
 | 2026-07-21 | 沉淀 DB-OPT-1：`absolute_path` 非 durable 权威；新 rebuild 写空 + relative hydrate 与 preferred-read 一致 |
+| 2026-07-21 | 活文档指针改挂 ADR-0053；删除 `docs/improvements/database-*` 草稿 |

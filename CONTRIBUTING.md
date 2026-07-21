@@ -54,11 +54,11 @@ Do not burn real model API keys in default CI.
 
 ## Database PR gates
 
-When a PR touches LocalDataIndex / SQLite projection / usage or approval projections / database roadmap policy:
+When a PR touches LocalDataIndex / SQLite projection / usage or approval projections / database policy:
 
-1. Fill the living checklist in [`docs/improvements/database-acceptance-gates.md`](docs/improvements/database-acceptance-gates.md) (roadmap §8).
-2. Confirm P2 items stay out of scope unless a **new ADR** already landed — see [`docs/improvements/database-p2-boundaries.md`](docs/improvements/database-p2-boundaries.md) (DB-P2-1…4; DB-P2-3 **won't do** for teaching/session **write** SoT; optional runtime store needs its own ADR).
-3. Keep layered authority: files are write-authority for teaching assets/transcripts/ledgers; SQLite is disposable projection (preferred read for list/analytics when ready); no analytics-DB FTS product surface; no secrets/prompts in projections. See [`docs/improvements/database-authority-model.md`](docs/improvements/database-authority-model.md).
+1. Fill the checklist in [ADR-0053](docs/adr/0053-database-layered-authority-and-pr-gates.md) §2 (six gates + PR copy block).
+2. Confirm P2 items stay out of scope unless a **new ADR** already landed — see ADR-0053 §3 (DB-P2-1…4; DB-P2-3 **won't do** for teaching/session **write** SoT; optional runtime store needs its own ADR / ADR-0052).
+3. Keep layered authority: files are write-authority for teaching assets/transcripts/ledgers; SQLite is disposable projection (preferred read for list/analytics when ready); no analytics-DB FTS product surface; no secrets/prompts in projections. See ADR-0053 §1 and [ADR-0001](docs/adr/0001-rebuildable-sqlite-projection.md).
 
 Doc-contract unit: `pnpm exec vitest run --project unit tests/unit/database-pr-gates.unit.test.ts`
 

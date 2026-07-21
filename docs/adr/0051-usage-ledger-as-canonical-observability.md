@@ -1,9 +1,9 @@
 # ADR-0051：Usage Ledger 作为可观测性的细粒度 canonical 账本
 
-- **状态：** 已设计（DB-P1-1 design gate；实现切片另案分派）
+- **状态：** 设计权威已采纳；**DB-P0-3 最小实现已落地**（JSONL writer + optional SQLite projection）；非「仅 design、未实现」
 - **日期：** 2026-07-21
 - **范围：** Token / tool / turn usage 细粒度 observability ledger 的权威边界、布局、保留、脱敏与 projection 关系
-- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0007](0007-persisted-user-history-redaction.md)、[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0028](0028-teaching-audit-correlation-safe-metadata.md)、[ADR-0034](0034-redacted-support-bundle.md)、[ADR-0040](0040-teaching-session-protocol-facade.md)、[ADR-0041](0041-tool-annotations-and-result-budget.md)、docs/improvements/database-roadmap.md（DB-P0-3 / DB-P1-1）
+- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0007](0007-persisted-user-history-redaction.md)、[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0028](0028-teaching-audit-correlation-safe-metadata.md)、[ADR-0034](0034-redacted-support-bundle.md)、[ADR-0040](0040-teaching-session-protocol-facade.md)、[ADR-0041](0041-tool-annotations-and-result-budget.md)、[ADR-0053](0053-database-layered-authority-and-pr-gates.md)（DB-P0-3 / DB-P1-1 状态）
 
 ## 背景
 
@@ -57,6 +57,10 @@ V1 只允许下列字段（名称稳定，便于 JSONL + SQLite 对齐）：
 | `readOnly` / `destructive` | 布尔；可自 effect annotations 派生（ADR-0041） |
 | `approvalStatus` | `not_required` \| `pending` \| `allowed` \| `denied` \| `unknown` |
 | `traceId` / `turnId` / `conversationId` | **opaque** correlation（ADR-0005 / 0028）；无 title、无 path、无 learner content |
+| `ttftMs` | 可选；time-to-first-token 毫秒（非负整数；流式延迟观测） |
+| `retryCount` | 可选；provider/tool 重试次数（非负整数） |
+| `truncated` | 可选；布尔；结果是否被 budget 截断 |
+| `errorType` | 可选；稳定错误类短标签：`provider_error` \| `timeout` \| `canceled` \| `tool_error` \| `rate_limit` \| `auth_error` \| `validation_error` \| `unknown`（**非** raw exception message / stack） |
 
 **显式禁止写入 / 持久化：**
 
@@ -140,7 +144,7 @@ V1 只允许下列字段（名称稳定，便于 JSONL + SQLite 对齐）：
 - 不把 usage 升格为 teaching canonical 或 settlement authority。
 - 不授权全量 AG-UI / token stream 落库。
 - 不引入 SQLite FTS 或用户可见 usage 全文搜索。
-- 不在本 ADR 中实现 writer / projection / UI（设计 gate only；实现见 DB-P0-3 及后续 PR）。
+- ~~不在本 ADR 中实现 writer / projection / UI（设计 gate only）~~ — **实现状态（2026-07-21）：** 最小 writer + optional SQLite projection 已由 DB-P0-3 落地（`src/main/usage-ledger.ts` + LocalDataIndex）；本 ADR 仍为设计权威，renderer 全量聚合 UI 仍非强制。
 - 不授权基于 usage 的自动删课、自动删 Memory 或 agent-artifact lifecycle。
 - 不改变 ADR-0002 对 teaching canonical 的永久保留边界。
 
@@ -151,11 +155,11 @@ V1 只允许下列字段（名称稳定，便于 JSONL + SQLite 对齐）：
 - [x] 覆盖：JSONL canonical + UTC 分段、optional SQLite、正交 learning-session、retention 默认、redaction、与 DB-P0-3 关系
 - [x] 单元测试锁定 ADR 必需章节与禁区声明（见 `tests/unit/usage-ledger-adr.unit.test.ts`）
 
-## 后续实现入口（非本切片）
+## 实现入口状态
 
 ```text
-DB-P0-3  → 最小 writer + projection + tests
-（可选）→ analytics adapter 只读聚合
-（可选）→ doctor 暴露 segment/invalid 计数
-（信号）→ retention worker 与 settings 显式 usage 策略（须核对本 ADR §5）
+DB-P0-3  → 最小 writer + projection + tests  ✅ Done（见 ADR-0053 §4）
+（可选）→ analytics adapter 只读聚合       ✅ 可选投影路径已有
+（可选）→ doctor 暴露 segment/invalid 计数 ✅ DB-OPT-4 Done
+（信号）→ retention worker 与 settings 显式 usage 策略（须核对本 ADR §5；默认诊断级）
 ```

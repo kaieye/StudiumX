@@ -3,7 +3,7 @@
 - **状态：** Proposed / **未实施**（DB-OPT-6 设计 gate only）
 - **日期：** 2026-07-21
 - **范围：** 高 churn 运行时会话中间态的 **可选 disposable SQLite 缓存** 形状、硬门槛与 non-claims
-- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0040](0040-teaching-session-protocol-facade.md)、[`database-authority-model.md`](../improvements/database-authority-model.md)、[`database-p2-boundaries.md`](../improvements/database-p2-boundaries.md)（**DB-P2-3**）、[`database-roadmap.md`](../improvements/database-roadmap.md)（DB-OPT-6）
+- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0040](0040-teaching-session-protocol-facade.md)、[ADR-0053](0053-database-layered-authority-and-pr-gates.md)（分层权威 / **DB-P2-3** / DB-OPT-6）
 
 ## 背景
 
@@ -76,10 +76,11 @@ LocalDataIndex **不是** runtime session store：前者 rebuildable analytics�
 
 - **正向**：产品与工程可讨论 runtime 性能而不误读为「会话 SoT 迁库」。
 - **负向 / 约束**：在实现 PR 合并前，代码库 **不得** 出现 runtime session store 的生产 schema 或写路径。
-- **文档**：`database-roadmap.md` DB-OPT-6 = 设计完成；实现状态仍为未授权。
+- **文档**：[ADR-0053](0053-database-layered-authority-and-pr-gates.md) DB-OPT-6 = 设计完成；实现状态仍为未授权。
 
 ## 变更记录
 
 | 日期 | 说明 |
 | --- | --- |
 | 2026-07-21 | 初版：DB-OPT-6 设计 only；明确与 DB-P2-3 拆分 |
+| 2026-07-21 | 交叉链接改挂 ADR-0053（删除 improvements 活草稿） |

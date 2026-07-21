@@ -5,16 +5,18 @@ import { resolve } from 'node:path'
 const root = resolve(__dirname, '../..')
 const adrPath = resolve(root, 'docs/adr/0051-usage-ledger-as-canonical-observability.md')
 const readmePath = resolve(root, 'docs/adr/README.md')
-const roadmapPath = resolve(root, 'docs/improvements/database-roadmap.md')
+const policyPath = resolve(root, 'docs/adr/0053-database-layered-authority-and-pr-gates.md')
 
 describe('ADR-0051 usage-ledger-as-canonical-observability (DB-P1-1)', () => {
   const adr = readFileSync(adrPath, 'utf8')
   const readme = readFileSync(readmePath, 'utf8')
-  const roadmap = readFileSync(roadmapPath, 'utf8')
+  const policy = readFileSync(policyPath, 'utf8')
 
-  it('exists as the next free ADR after 0050 with design status', () => {
+  it('exists as the next free ADR after 0050 with design authority + P0-3 implemented status', () => {
     expect(adr).toMatch(/^# ADR-0051：Usage Ledger/)
-    expect(adr).toMatch(/\*\*状态：\*\* 已设计/)
+    // Honest status: design authority adopted; minimal DB-P0-3 implementation landed (not design-only).
+    expect(adr).toMatch(/\*\*状态：\*\*.*(设计权威|已设计|已采纳)/)
+    expect(adr).toMatch(/DB-P0-3|最小实现|已落地/)
     expect(adr).toMatch(/usage-ledger-as-canonical-observability|Usage Ledger 作为可观测性/)
   })
 
@@ -81,8 +83,8 @@ describe('ADR-0051 usage-ledger-as-canonical-observability (DB-P1-1)', () => {
     expect(readme).toMatch(/Usage ledger as canonical observability|usage 观测/)
   })
 
-  it('is referenced from the database roadmap DB-P1-1 section', () => {
-    expect(roadmap).toMatch(/DB-P1-1/)
-    expect(roadmap).toMatch(/ADR-0051|0051-usage-ledger-as-canonical-observability/)
+  it('is referenced from ADR-0053 DB-P1-1 closeout status', () => {
+    expect(policy).toMatch(/DB-P1-1/)
+    expect(policy).toMatch(/ADR-0051|0051-usage-ledger-as-canonical-observability/)
   })
 })
