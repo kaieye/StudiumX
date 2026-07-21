@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
 import type { AgentConversationRecord, AgentConversationSummary, TeachingMemoryRecord } from '../../shared/teaching-types'
+import { resolveTeachingMemoryKind, resolveTeachingMemoryStatus } from '../../shared/teaching-memory-kind'
 import { sanitizePersistedAgentConversationRecord, sanitizePersistedConversationTitle } from '../../shared/agent-persisted-history'
 import { listPersistedAgentConversationRecords } from '../teaching-agent-conversations'
 import type { TeachingMemoryCatalogIndexScan } from '../teaching-memory-catalog'
@@ -172,7 +173,7 @@ export class LocalDataIndex {
         db.exec('DELETE FROM workspace_projection; DELETE FROM conversation_projection; DELETE FROM memory_projection; DELETE FROM learning_work_projection; DELETE FROM source_provenance; DELETE FROM index_issue;')
         const workspace = db.prepare('INSERT INTO workspace_projection VALUES (?, ?, ?, ?, ?)')
         const conversation = db.prepare('INSERT INTO conversation_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        const memory = db.prepare('INSERT INTO memory_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        const memory = db.prepare('INSERT INTO memory_projection (memory_id, scope, workspace_path, project_path, source_lesson_id, tags_json, confidence, created_at, updated_at, disabled_at, deleted_at, source_fingerprint, indexed_at, kind, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         const ledger = db.prepare('INSERT INTO learning_work_projection VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         const provenance = db.prepare('INSERT INTO source_provenance VALUES (?, ?, ?, ?, ?)')
         const issue = db.prepare('INSERT INTO index_issue (rebuild_id, source_key, source_path, code, message, created_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -182,7 +183,7 @@ export class LocalDataIndex {
           conversation.run(sourceKey, item.workspaceId ?? null, item.summary.id, item.scope, item.summary.title, item.summary.createdAt, item.summary.updatedAt, item.summary.relativePath, item.path, item.summary.messageCount, JSON.stringify(projectConversation(item.record)), item.fingerprint, this.nowIso())
         }
         const memoryFingerprints = new Map(input.memory.recordFingerprints.map((item) => [item.memoryId, item.fingerprint]))
-        for (const item of input.memory.records) memory.run(item.id, item.scope, item.workspace ?? null, item.project ?? null, item.sourceLessonId ?? null, JSON.stringify(item.tags), item.confidence, item.createdAt, item.updatedAt, item.disabledAt ?? null, item.deletedAt ?? null, memoryFingerprints.get(item.id) ?? fingerprintJson(memoryIdentity(item)), this.nowIso())
+        for (const item of input.memory.records) memory.run(item.id, item.scope, item.workspace ?? null, item.project ?? null, item.sourceLessonId ?? null, JSON.stringify(item.tags), item.confidence, item.createdAt, item.updatedAt, item.disabledAt ?? null, item.deletedAt ?? null, memoryFingerprints.get(item.id) ?? fingerprintJson(memoryIdentity(item)), this.nowIso(), resolveTeachingMemoryKind(item) ?? null, resolveTeachingMemoryStatus(item))
         for (const item of projections.ledgers) ledger.run(item.sourceKey, item.workspaceId, item.conversationId, item.entryId, item.occurredAt, item.ledgerCreatedAt, JSON.stringify(snapshotProjection(item)), item.path, item.fingerprint, this.nowIso())
         for (const item of projections.provenance) provenance.run(item.sourceKey, item.kind, item.path, item.fingerprint, this.nowIso())
         for (const item of issues) issue.run(rebuildId, item.sourceKey, item.sourcePath ?? null, item.code, item.message, this.nowIso())
@@ -462,7 +463,7 @@ function getState(db: ProjectionDb, key: string): string | null {
 }
 function fingerprintJson(value: unknown): string { return createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex') }
 function workspaceIdentity(item: AnalyticsWorkspaceScanResult) { return { workspaceId: item.workspaceId, workspaceName: item.workspaceName, rootPath: item.rootPath, summary: item.summary?.conversations.map((c) => ({ id: c.id, updatedAt: c.updatedAt, messageCount: c.messageCount, relativePath: c.relativePath })) ?? null, error: item.error } }
-function memoryIdentity(item: TeachingMemoryRecord) { return { id: item.id, scope: item.scope, workspace: item.workspace, project: item.project, sourceLessonId: item.sourceLessonId, tags: item.tags, confidence: item.confidence, createdAt: item.createdAt, updatedAt: item.updatedAt, disabledAt: item.disabledAt, deletedAt: item.deletedAt } }
+function memoryIdentity(item: TeachingMemoryRecord) { return { id: item.id, scope: item.scope, workspace: item.workspace, project: item.project, sourceLessonId: item.sourceLessonId, memoryKind: item.memoryKind, tags: item.tags, confidence: item.confidence, createdAt: item.createdAt, updatedAt: item.updatedAt, disabledAt: item.disabledAt, deletedAt: item.deletedAt } }
 function sourceManifestFingerprint(
   input: BuildInput,
   provenance: Array<{ sourceKey: string; kind: string; path: string; fingerprint: string }>

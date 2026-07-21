@@ -55,7 +55,13 @@ CREATE TABLE learning_work_projection (
   source_fingerprint TEXT NOT NULL,
   indexed_at TEXT NOT NULL
 );
-CREATE INDEX learning_work_projection_latest_idx ON learning_work_projection(workspace_id, conversation_id, occurred_at DESC, ledger_created_at DESC, entry_id DESC);`
+CREATE INDEX learning_work_projection_latest_idx ON learning_work_projection(workspace_id, conversation_id, occurred_at DESC, ledger_created_at DESC, entry_id DESC);`,
+  `
+ALTER TABLE memory_projection ADD COLUMN kind TEXT;
+ALTER TABLE memory_projection ADD COLUMN status TEXT;
+CREATE INDEX IF NOT EXISTS memory_projection_kind_status_idx ON memory_projection(kind, status);
+CREATE INDEX IF NOT EXISTS memory_projection_status_idx ON memory_projection(status);
+`
 ]
 
 export const LOCAL_DATA_INDEX_MIGRATIONS: readonly SchemaMigration[] = migrationSql.map((sql, index) => ({

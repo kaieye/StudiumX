@@ -72,6 +72,46 @@ describe('local data SQLite index migrations', () => {
     } finally { db.close() }
   })
 
+
+  it('applies migration 0003 memory_projection kind/status columns for analytics metadata', () => {
+    const db = new Database(join(runtime.userDataDir, 'memory-kind-migration.sqlite'))
+    try {
+      // Apply only historical migrations 0001+0002, then run full migrate for 0003.
+      db.exec(LOCAL_DATA_INDEX_MIGRATIONS[0]!.sql)
+      db.prepare('INSERT INTO schema_migration (id, checksum, applied_at) VALUES (?, ?, ?)').run(
+        LOCAL_DATA_INDEX_MIGRATIONS[0]!.id,
+        LOCAL_DATA_INDEX_MIGRATIONS[0]!.checksum,
+        '2026-01-01T00:00:00.000Z'
+      )
+      db.exec(LOCAL_DATA_INDEX_MIGRATIONS[1]!.sql)
+      db.prepare('INSERT INTO schema_migration (id, checksum, applied_at) VALUES (?, ?, ?)').run(
+        LOCAL_DATA_INDEX_MIGRATIONS[1]!.id,
+        LOCAL_DATA_INDEX_MIGRATIONS[1]!.checksum,
+        '2026-01-01T00:00:00.000Z'
+      )
+
+      const before = (db.prepare('PRAGMA table_info(memory_projection)').all() as Array<{ name: string }>).map((c) => c.name)
+      expect(before).not.toContain('kind')
+      expect(before).not.toContain('status')
+      expect(before).not.toContain('content')
+
+      migrateLocalDataIndex(db)
+
+      const after = (db.prepare('PRAGMA table_info(memory_projection)').all() as Array<{ name: string }>).map((c) => c.name)
+      expect(after).toEqual(expect.arrayContaining(['kind', 'status']))
+      expect(after).not.toContain('content')
+      expect(listAppliedSchemaMigrations(db).map((row) => row.id)).toEqual(
+        LOCAL_DATA_INDEX_MIGRATIONS.map((row) => row.id)
+      )
+
+      const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'memory_projection'").all() as Array<{ name: string }>).map((row) => row.name)
+      expect(indexes).toEqual(expect.arrayContaining([
+        'memory_projection_kind_status_idx',
+        'memory_projection_status_idx'
+      ]))
+    } finally { db.close() }
+  })
+
   it('upgrades legacy schema_migration columns without rewriting applied history', () => {
     const db = new Database(join(runtime.userDataDir, 'legacy-migration.sqlite'))
     try {
@@ -167,6 +207,71 @@ describe('local data SQLite projections', () => {
       expect(JSON.stringify(row)).not.toContain(secret)
     } finally { db.close() }
   })
+
+  it('projects memory kind/status metadata without content (DB-P1-2)', async () => {
+    const memories: TeachingMemoryRecord[] = [
+      {
+        id: 'kind-explicit',
+        content: 'secret learner profile body must not land in SQLite',
+        scope: 'user',
+        memoryKind: 'learner-profile',
+        tags: ['custom-tag'],
+        confidence: 0.95,
+        createdAt: instant,
+        updatedAt: instant
+      },
+      {
+        id: 'kind-from-tag',
+        content: 'secret experience body must not land in SQLite',
+        scope: 'user',
+        tags: ['teaching-experience'],
+        confidence: 0.8,
+        createdAt: instant,
+        updatedAt: instant,
+        disabledAt: instant
+      },
+      {
+        id: 'kind-deleted',
+        content: 'secret deleted body must not land in SQLite',
+        scope: 'user',
+        tags: ['episodic-session'],
+        confidence: 0.5,
+        createdAt: instant,
+        updatedAt: instant,
+        deletedAt: instant
+      },
+      {
+        id: 'kind-unspecified',
+        content: 'secret generic body must not land in SQLite',
+        scope: 'user',
+        tags: ['misc'],
+        confidence: 0.4,
+        createdAt: instant,
+        updatedAt: instant
+      }
+    ]
+    const index = makeIndex({ memory: memories })
+    expect(index.open()).toBe(true)
+    await index.rebuild()
+    expect(index.status).toBe('ready')
+    index.close()
+
+    const db = new Database(join(runtime.userDataDir, 'studiumx-index.sqlite'), { readonly: true })
+    try {
+      const columns = (db.prepare('PRAGMA table_info(memory_projection)').all() as Array<{ name: string }>).map((c) => c.name)
+      expect(columns).toEqual(expect.arrayContaining(['kind', 'status']))
+      expect(columns).not.toContain('content')
+      const rows = db.prepare('SELECT memory_id, kind, status FROM memory_projection ORDER BY memory_id').all()
+      expect(rows).toEqual([
+        { memory_id: 'kind-deleted', kind: 'episodic-session', status: 'deleted' },
+        { memory_id: 'kind-explicit', kind: 'learner-profile', status: 'active' },
+        { memory_id: 'kind-from-tag', kind: 'teaching-experience', status: 'disabled' },
+        { memory_id: 'kind-unspecified', kind: null, status: 'active' }
+      ])
+      expect(JSON.stringify(db.prepare('SELECT * FROM memory_projection').all())).not.toMatch(/secret|learner profile body|experience body|deleted body|generic body/)
+    } finally { db.close() }
+  })
+
   it('indexes flat and UTC-partitioned conversations, sealed+active ledgers, and memory metadata without memory content', async () => {
     const flat = record('flat')
     const partitioned = record('partitioned')
