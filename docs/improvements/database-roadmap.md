@@ -290,6 +290,8 @@ Marvis 的 episodic / experience / semantic 分层对“教学经验 / 学习者
 
 ---
 
+
+> **DB-P1-3-5 合批交付（本 worktree）**：`docs/improvements/event-density-policy.md`、`docs/improvements/multi-workspace-projection-perf.md`、`docs/improvements/backup-export-policy.md`；策略模块 `src/shared/event-density-policy.ts` / `src/shared/backup-export-policy.ts`；learning-work / session ledger guards；export 默认排除 projection。增量 rebuild **未** 实现（测量门槛未过，见 multi-workspace-projection-perf.md）。
 ### DB-P1-3：教学事件密度策略（从 Marvis 反例学习）
 
 **动机**  

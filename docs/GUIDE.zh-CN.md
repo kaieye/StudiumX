@@ -25,6 +25,20 @@ StudiumX 是面向 **本地教学工作区** 的 Electron 应用。磁盘上的�
 - **支持包**须同意后导出且脱敏（ADR-0034）。日常粘贴诊断优先 `pnpm doctor`。
 - Doctor 的 **runtime posture** 会汇总审批模式、工具开关、代理是否启用、密钥存储形态，并明确 shell / MCP 市场未产品化。
 
+
+## 备份 vs 可丢弃 projection
+
+StudiumX 以**磁盘文件**为真相源。SQLite 永远不是权威。
+
+| 类别 | 内容 | 运维动作 |
+| --- | --- | --- |
+| **必须备份** | 工作区教学文件（`MISSION.md`、`courses/`、`learning-sessions/`、Memory）、`.studiumx/learning-work.jsonl`（含 sealed 段）、审批 receipt；应用 settings/registry（**密钥脱敏**） | 真实备份必须包含 |
+| **可丢弃** | `studiumx-index.sqlite*`（含 quarantine）、Electron 缓存、诊断日志 | 可安全删除；rebuild 恢复 analytics projection |
+
+**导出默认**排除可丢弃 projection。可选 `includeProjections` 仅用于**调试**，且标记为 **untrusted**（不得作为权威恢复）。
+
+策略模块：`src/shared/backup-export-policy.ts`。详见：`docs/improvements/backup-export-policy.md`。
+
 ## 明确不做
 
 - 默认不提供 shell / 任意代码执行。

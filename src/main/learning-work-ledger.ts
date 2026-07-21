@@ -7,6 +7,7 @@ import {
   type LearningWorkLedgerSnapshot
 } from './learning-work-ledger/evidence-snapshot'
 import { appendDurableJsonlLine, readDurableJsonlLines } from './durable-jsonl'
+import { assertLearningWorkCanonicalEntry } from '../shared/event-density-policy'
 
 export const LEARNING_WORK_LEDGER_RELATIVE_PATH = '.studiumx/learning-work.jsonl'
 
@@ -68,11 +69,16 @@ async function appendSnapshotOnce(
   snapshot: LearningWorkLedgerSnapshot,
   beforeAppend?: () => Promise<void>
 ): Promise<void> {
+  // DB-P1-3: refuse debug / stream kinds and non-snapshot rows before durable append.
+  assertLearningWorkCanonicalEntry(snapshot)
   const previous = pendingSnapshotAppends.get(ledgerPath) ?? Promise.resolve()
   const append = previous.catch(() => undefined).then(async () => {
     const exists = await ledgerEntryExists(ledgerPath, snapshot)
     await beforeAppend?.()
-    if (!exists) await appendDurableJsonlLine({ activePath: ledgerPath }, JSON.stringify(snapshot))
+    if (!exists) {
+      assertLearningWorkCanonicalEntry(snapshot)
+      await appendDurableJsonlLine({ activePath: ledgerPath }, JSON.stringify(snapshot))
+    }
   })
   pendingSnapshotAppends.set(ledgerPath, append)
   try {
