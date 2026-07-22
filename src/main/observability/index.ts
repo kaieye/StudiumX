@@ -101,5 +101,11 @@ export {
   type TeachingDoctorSourceGapWorkspaceSummary
 } from './teaching-doctor-source-gap-facts'
 
-
+export {
+  TEACHING_DOCTOR_MCP_CONFIG_PATH_LABEL,
+  createTeachingDoctorMcpFactsCollector,
+  mapMcpFacts,
+  type CreateTeachingDoctorMcpFactsCollectorOptions,
+  type TeachingDoctorMcpFactsSource
+} from './teaching-doctor-mcp-facts'
 

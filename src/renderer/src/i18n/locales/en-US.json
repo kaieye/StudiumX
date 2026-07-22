@@ -657,6 +657,10 @@
     "about": {
       "label": "About",
       "detail": "Version, logs, data folder"
+    },
+    "mcp": {
+      "label": "MCP",
+      "detail": "User-configured external tools (default off)"
     }
   },
   "general": {
@@ -903,6 +907,12 @@
       "save": "Save",
       "contentPlaceholder": "Record a fact, preference, or constraint that future lesson generation should remember.",
       "tagsPlaceholder": "Tags, comma-separated"
+    },
+    "platformProfile": {
+      "label": "Platform I/O profile",
+      "posix": "POSIX descriptor (strict)",
+      "windowsLimited": "Windows limited persistence (direct-path, non-CAS)",
+      "unavailable": "Unavailable on this host"
     }
   },
   "notifications": {
@@ -951,7 +961,7 @@
   },
   "connectors": {
     "title": "Connector Status",
-    "subtitle": "Checks the teaching-focused connectors already built into StudiumX; generic MCP execution stays deferred.",
+    "subtitle": "Checks the teaching-focused connectors already built into StudiumX. User MCP servers are configured under Settings → MCP (default off).",
     "refresh": "Refresh",
     "loading": "Loading connector status...",
     "empty": "No connector status available.",
@@ -1152,6 +1162,18 @@
     "directLessonActionRejected": {
       "message": "Lesson generation rejected",
       "detail": "The request was rejected ({{code}}). Check the workspace and submit again as a new user action."
+    },
+    "platformCapabilityDegraded": {
+      "message": "Platform capability limited",
+      "detail": "This host is using a reduced I/O profile. Chat continues; durable writes may be unavailable or limited. This is not a model or network error."
+    },
+    "emptyStream": {
+      "message": "Empty model response",
+      "detail": "The provider returned no content. A bounded retry or fallback may apply. This is separate from platform capability limits."
+    },
+    "memoryWriteUnavailable": {
+      "message": "Memory could not be saved",
+      "detail": "Durable memory write is unavailable or failed on this host profile. Nothing was silently marked as saved."
     }
   },
   "errorBoundary": {
@@ -1249,5 +1271,71 @@
     "entries": "Entries",
     "entriesEmpty": "Queue has no projected entries.",
     "enqueuedAt": "Enqueued at"
+  },
+  "platformCapability": {
+    "posixDescriptorStrict": "POSIX descriptor-relative I/O (strict containment profile).",
+    "windowsDirectPathNonCas": "Windows root-constrained direct-path I/O (non-CAS; not descriptor-equivalent).",
+    "windowsMemoryLimitedPersistence": "Windows memory uses limited direct-path persistence (non-CAS, not descriptor-equivalent).",
+    "memoryChatDegradedEmpty": "Memory catalog is unavailable on this host; chat continues without injected memories.",
+    "writeUnavailable": "Durable write capability is unavailable on this host.",
+    "unavailable": "No safe platform I/O profile is available.",
+    "outcomeWindowsNotStrict": "Learning-outcome strict settlement profile is not claimed on Windows (ADR-0035).",
+    "sessionAuditWindowsLimited": "Session audit durable profile remains limited on Windows (ADR-0019/0035)."
+  },
+  "mcp": {
+    "title": "User MCP servers",
+    "subtitle": "Opt-in Model Context Protocol servers. Default is off: no connections and no MCP tools until you enable the root switch and at least one server. Tools require approval through the existing permission flow — not auto-approved.",
+    "rootEnabled": {
+      "label": "Enable MCP",
+      "detail": "Master switch. When off, StudiumX never spawns MCP processes and never injects MCP tools into teaching or temporary chats."
+    },
+    "riskNote": "MCP tools default to privileged (needs approval). MCP never writes the workspace or teaching ledger by itself. There is no marketplace and no YOLO mode.",
+    "servers": {
+      "heading": "Servers",
+      "empty": "No servers configured yet. Add a stdio MCP server to get started.",
+      "add": "Add server",
+      "remove": "Remove",
+      "enabled": "Enabled",
+      "label": "Label",
+      "id": "Server id",
+      "idHint": "Lowercase letters, digits, _ and - (must start with a letter).",
+      "command": "Command",
+      "args": "Args",
+      "argsHint": "Space-separated arguments (quotes not supported in this editor).",
+      "cwd": "Working directory",
+      "cwdHint": "Optional absolute path only. Workspace-relative paths are rejected.",
+      "transport": "Transport",
+      "transportStdio": "stdio (Phase A)",
+      "test": "Test connection",
+      "testing": "Testing…",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "reload": "Reload",
+      "runtime": "Runtime"
+    },
+    "status": {
+      "loading": "Loading MCP configuration…",
+      "unavailable": "MCP settings API is unavailable in this runtime.",
+      "saved": "MCP configuration saved.",
+      "casConflict": "Configuration changed elsewhere. Reloaded latest — review and save again.",
+      "invalid": "Invalid MCP configuration.",
+      "testOk": "Connected. {{count}} tool(s) listed.",
+      "testFail": "Test failed: {{message}}",
+      "disabledRoot": "Root switch is off — servers stay disconnected.",
+      "experimental": "Experimental feature (user_mcp_servers). Product remains local-first; no marketplace."
+    },
+    "runtimeState": {
+      "disabled": "Disabled",
+      "idle": "Idle",
+      "connecting": "Connecting",
+      "connected": "Connected",
+      "error": "Error"
+    },
+    "toolsSummary": {
+      "heading": "Tools from last test",
+      "registered": "Registered",
+      "skipped": "Not registered",
+      "effect": "Effect"
+    }
   }
 }

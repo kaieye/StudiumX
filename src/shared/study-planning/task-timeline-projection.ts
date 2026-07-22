@@ -207,6 +207,113 @@ export function applyCompleteTaskFutureBlocks(input: {
   }
 }
 
+export type ReopenTaskResult = {
+  task: PlanningTask
+  /** True when status transitioned (done|cancelled → open). */
+  changed: boolean
+}
+
+/**
+ * Pure reopen: done or cancelled → open (product toggle done→open).
+ * Idempotent when already open (no revision bump).
+ * Does not invent schedule blocks or clear history TimerSession refs.
+ */
+export function applyReopenTask(input: {
+  task: PlanningTask
+}): ReopenTaskResult {
+  if (input.task.status === 'open') {
+    return { task: input.task, changed: false }
+  }
+  return {
+    task: {
+      ...input.task,
+      status: 'open',
+      revision: input.task.revision + 1
+    },
+    changed: true
+  }
+}
+
+export type DeleteTaskWithFutureBlocksResult = {
+  task: PlanningTask
+  scheduleBlocks: ScheduleBlock[]
+  /** True when future blocks exist and no decision was provided — UI must ask (§7.3). */
+  requiresDecision: boolean
+  futureBlockIds: string[]
+}
+
+/**
+ * Pure delete-task + future block handling (roadmap §7.3).
+ * Marks task `cancelled` (not hard-deleted) so TimerSession history can keep taskId refs.
+ * Does not invent a default for future blocks unless `decision` is provided.
+ */
+export function applyDeleteTaskFutureBlocks(input: {
+  task: PlanningTask
+  scheduleBlocks: readonly ScheduleBlock[]
+  nowMs: number
+  decision?: FutureBlocksDecision
+  reassignTaskId?: string | null
+}): DeleteTaskWithFutureBlocksResult {
+  const future = input.scheduleBlocks.filter(
+    (b) =>
+      b.taskId === input.task.id &&
+      b.startAtMs > input.nowMs &&
+      b.status !== 'cancelled' &&
+      b.status !== 'completed'
+  )
+  const futureBlockIds = future.map((b) => b.id)
+  // Idempotent: already-cancelled keeps cancelled; bump revision only when transitioning.
+  const nextStatus: PlanningTask['status'] = 'cancelled'
+  const cancelledTask: PlanningTask = {
+    ...input.task,
+    status: nextStatus,
+    revision:
+      input.task.status === 'cancelled' ? input.task.revision : input.task.revision + 1
+  }
+
+  if (future.length === 0) {
+    return {
+      task: cancelledTask,
+      scheduleBlocks: [...input.scheduleBlocks],
+      requiresDecision: false,
+      futureBlockIds: []
+    }
+  }
+
+  if (!input.decision) {
+    return {
+      task: cancelledTask,
+      scheduleBlocks: [...input.scheduleBlocks],
+      requiresDecision: true,
+      futureBlockIds
+    }
+  }
+
+  const nextBlocks = input.scheduleBlocks.map((block) => {
+    if (!futureBlockIds.includes(block.id)) return block
+    if (input.decision === 'cancel_blocks') {
+      return { ...block, status: 'cancelled' as const, revision: block.revision + 1 }
+    }
+    if (input.decision === 'keep_as_review') {
+      // Keep planned on cancelled task for review (parity with complete keep_as_review).
+      return block
+    }
+    // reassign
+    return {
+      ...block,
+      taskId: input.reassignTaskId ?? null,
+      revision: block.revision + 1
+    }
+  })
+
+  return {
+    task: cancelledTask,
+    scheduleBlocks: nextBlocks,
+    requiresDecision: false,
+    futureBlockIds
+  }
+}
+
 /** Diff helper for allocation proposal confirm UI (STC-308 pure). */
 export function diffScheduleBlocks(
   current: readonly ScheduleBlock[],

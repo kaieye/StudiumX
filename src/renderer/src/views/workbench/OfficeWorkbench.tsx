@@ -14,10 +14,43 @@ import {
   type OfficeSceneSeatState
 } from './office-scene-runtime'
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
+import { readBrowserNotificationPermission } from '../../study-space/planning-notification-host'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { EmptyStartSheet, type EmptyStartSheetResult } from './EmptyStartSheet'
-import type { EmptyStartAskAnswer, EmptyStartPolicy, FutureBlocksAskAnswer } from '../../study-space/session/useStudySession'
+import type {
+  BreakEndPromptAskAnswer,
+  ClassificationPromptAskAnswer,
+  PhasePromptAskAnswer,
+  ReconcileAskAnswer,
+  EmptyStartAskAnswer,
+  EmptyStartPolicy,
+  FutureBlocksAskAnswer
+} from '../../study-space/session/useStudySession'
 import { FutureBlocksDecisionSheet, type FutureBlocksDecisionSheetResult } from './FutureBlocksDecisionSheet'
+import {
+  ClassificationPromptSheet,
+  type ClassificationPromptSheetResult
+} from './ClassificationPromptSheet'
+import {
+  PhasePromptSheet,
+  type PhasePromptSheetResult
+} from './PhasePromptSheet'
+import {
+  BreakEndPromptSheet,
+  type BreakEndPromptSheetResult
+} from './BreakEndPromptSheet'
+import {
+  ReconcileSheet,
+  type ReconcileSheetResult
+} from './ReconcileSheet'
+import type { TimerSessionRecord } from '../../../../shared/study-planning'
+import {
+  BatchClassifySheet,
+  type BatchClassifySheetResult
+} from './BatchClassifySheet'
+import { MigrationBannerSheet, type MigrationBannerSheetResult } from './MigrationBannerSheet'
+import { buildMigrationBannerModel } from '../../study-space/planning-migration-banner'
+import { listStudyTaskCategories } from '../../study-space/taskCategories'
 import { WorkbenchTasks } from './WorkbenchTasks'
 import { WorkbenchMusicPlayer } from './WorkbenchMusicPlayer'
 import { StudyTaskSchedulePage } from './StudyTaskSchedulePage'
@@ -129,7 +162,6 @@ const WorkbenchAnalyticsPage = StudyAnalyticsPage
 export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const petAppearance = useAppStore((state) => state.settings.pet.appearance)
   const workspaceRoot = useAppStore((state) => state.appState.activeWorkspace?.rootPath ?? null)
-  const emptyStartPolicy: EmptyStartPolicy = 'ask_every_time'
   const [emptyStartOpen, setEmptyStartOpen] = useState(false)
   const emptyStartResolverRef = useRef<((result: EmptyStartSheetResult) => void) | null>(null)
   const [futureBlocksOpen, setFutureBlocksOpen] = useState(false)
@@ -139,6 +171,24 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     futureBlockIds: string[]
   } | null>(null)
   const futureBlocksResolverRef = useRef<((result: FutureBlocksDecisionSheetResult) => void) | null>(null)
+  const [classificationOpen, setClassificationOpen] = useState(false)
+  const [classificationPayload, setClassificationPayload] = useState<{
+    taskId: string
+    taskTitle: string
+  } | null>(null)
+  const classificationResolverRef = useRef<((result: ClassificationPromptSheetResult) => void) | null>(null)
+  const [phasePromptOpen, setPhasePromptOpen] = useState(false)
+  const [phasePromptCompleted, setPhasePromptCompleted] = useState<TimerSessionRecord | null>(null)
+  const phasePromptResolverRef = useRef<((result: PhasePromptSheetResult) => void) | null>(null)
+  const [breakEndPromptOpen, setBreakEndPromptOpen] = useState(false)
+  const [breakEndPromptCompleted, setBreakEndPromptCompleted] = useState<TimerSessionRecord | null>(null)
+  const breakEndPromptResolverRef = useRef<((result: BreakEndPromptSheetResult) => void) | null>(null)
+  const [reconcileOpen, setReconcileOpen] = useState(false)
+  const [reconcileSession, setReconcileSession] = useState<TimerSessionRecord | null>(null)
+  const [reconcileGapSeconds, setReconcileGapSeconds] = useState(0)
+  const reconcileResolverRef = useRef<((result: ReconcileSheetResult) => void) | null>(null)
+  const [batchClassifyOpen, setBatchClassifyOpen] = useState(false)
+  const [batchClassifyTaskIds, setBatchClassifyTaskIds] = useState<string[]>([])
 
   const askEmptyStart = useCallback((policy: EmptyStartPolicy): Promise<EmptyStartAskAnswer | null> => {
     void policy
@@ -201,6 +251,109 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     futureBlocksResolverRef.current?.(result)
   }, [])
 
+  const askClassificationPrompt = useCallback(
+    (input: { taskId: string; taskTitle: string }): Promise<ClassificationPromptAskAnswer | null> => {
+      return new Promise((resolve) => {
+        classificationResolverRef.current = (result) => {
+          classificationResolverRef.current = null
+          setClassificationOpen(false)
+          setClassificationPayload(null)
+          if (result.action === 'classify') {
+            resolve({ action: 'classify', categoryId: result.categoryId })
+            return
+          }
+          resolve({ action: result.action })
+        }
+        setClassificationPayload(input)
+        setClassificationOpen(true)
+      })
+    },
+    []
+  )
+
+  const handleClassificationPromptResolve = useCallback((result: ClassificationPromptSheetResult) => {
+    classificationResolverRef.current?.(result)
+  }, [])
+
+  const askPhasePrompt = useCallback(
+    (input: { completed: TimerSessionRecord }): Promise<PhasePromptAskAnswer | null> => {
+      return new Promise((resolve) => {
+        phasePromptResolverRef.current = (result) => {
+          phasePromptResolverRef.current = null
+          setPhasePromptOpen(false)
+          setPhasePromptCompleted(null)
+          if (result.action === 'extend_and_start') {
+            resolve({ action: 'extend_and_start', extendMinutes: result.extendMinutes })
+            return
+          }
+          resolve({ action: result.action })
+        }
+        setPhasePromptCompleted(input.completed)
+        setPhasePromptOpen(true)
+      })
+    },
+    []
+  )
+
+  const handlePhasePromptResolve = useCallback((result: PhasePromptSheetResult) => {
+    phasePromptResolverRef.current?.(result)
+  }, [])
+
+  const askBreakEndPrompt = useCallback(
+    (input: { completed: TimerSessionRecord }): Promise<BreakEndPromptAskAnswer | null> => {
+      return new Promise((resolve) => {
+        breakEndPromptResolverRef.current = (result) => {
+          breakEndPromptResolverRef.current = null
+          setBreakEndPromptOpen(false)
+          setBreakEndPromptCompleted(null)
+          resolve({ action: result.action })
+        }
+        setBreakEndPromptCompleted(input.completed)
+        setBreakEndPromptOpen(true)
+      })
+    },
+    []
+  )
+
+  const handleBreakEndPromptResolve = useCallback((result: BreakEndPromptSheetResult) => {
+    breakEndPromptResolverRef.current?.(result)
+  }, [])
+
+  const askReconcile = useCallback(
+    (input: {
+      session: TimerSessionRecord
+      gapSeconds: number
+    }): Promise<ReconcileAskAnswer | null> => {
+      return new Promise((resolve) => {
+        reconcileResolverRef.current = (result) => {
+          reconcileResolverRef.current = null
+          setReconcileOpen(false)
+          setReconcileSession(null)
+          setReconcileGapSeconds(0)
+          resolve({ action: result.action })
+        }
+        setReconcileSession(input.session)
+        setReconcileGapSeconds(input.gapSeconds)
+        setReconcileOpen(true)
+      })
+    },
+    []
+  )
+
+  const handleReconcileResolve = useCallback((result: ReconcileSheetResult) => {
+    reconcileResolverRef.current?.(result)
+  }, [])
+
+  // STC-601/605 live signals for lifecycle notifications (read by getter at dispatch time).
+  const notificationHostLiveRef = useRef({
+    fullscreen: false,
+    notificationsEnabled: true as boolean,
+    quietUntilMs: null as number | null,
+    systemPermission: 'default' as 'granted' | 'denied' | 'default' | 'unsupported'
+  })
+  const notificationsEnabled = useAppStore((state) => state.settings.notifications.enabled)
+  const quietUntilMs = useAppStore((state) => state.settings.pet.notificationPreferences.quietUntil)
+
   const {
     snapshot,
     presence,
@@ -216,18 +369,73 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     saveTimerPlan,
     applyTimerPlan,
     removeTimerPlan,
+    copyTimerPlan,
+    renameTimerPlan,
+    setDefaultTimerPlan,
+    defaultTimerPlanId,
+    emptyStartPolicy,
+    setEmptyStartPolicyPreference,
+    classificationPromptOptOut,
+    setClassificationPromptOptOutPreference,
     addScheduledTask,
     updateTask,
     toggleTask,
-    removeTask
+    removeTask,
+    batchClassifyTasks,
+    completeTasksBatch,
+    scheduleBlocks,
+    canonicalCategories,
+    timerSessions,
+    activeTimerSession,
+    extendActiveTimerTarget,
+    createFocusBlock,
+    deleteScheduleBlock,
+    applyAllocationProposal,
+    migrationOffer,
+    migrationBusy,
+    migrationError,
+    confirmMigrationOffer,
+    dismissMigrationOffer
   } = useStudySession({
     showNotification,
     openFocusTheater: () => {},
     workspaceRoot,
-    emptyStartPolicy,
     onEmptyStartAsk: askEmptyStart,
-    onFutureBlocksNeedDecision: askFutureBlocks
+    onFutureBlocksNeedDecision: askFutureBlocks,
+    onClassificationPromptAsk: askClassificationPrompt,
+    onPhasePromptAsk: askPhasePrompt,
+    onBreakEndPromptAsk: askBreakEndPrompt,
+    onReconcileAsk: askReconcile,
+    getNotificationHostContext: () => notificationHostLiveRef.current
   })
+
+  const openBatchClassify = useCallback((taskIds: string[]) => {
+    const ids = taskIds.filter((id) => typeof id === 'string' && id.trim().length > 0)
+    if (ids.length === 0) return
+    setBatchClassifyTaskIds(ids)
+    setBatchClassifyOpen(true)
+  }, [])
+
+  const handleBatchClassifyResolve = useCallback(
+    (result: BatchClassifySheetResult) => {
+      setBatchClassifyOpen(false)
+      setBatchClassifyTaskIds([])
+      if (result.action !== 'classify') return
+      batchClassifyTasks(result.taskIds, result.categoryId)
+    },
+    [batchClassifyTasks]
+  )
+
+  const handleMigrationBannerResolve = useCallback(
+    (result: MigrationBannerSheetResult) => {
+      if (result.choice === 'confirm') {
+        void confirmMigrationOffer()
+        return
+      }
+      dismissMigrationOffer(result.choice === 'dismiss' ? 'dismiss' : 'later')
+    },
+    [confirmMigrationOffer, dismissMigrationOffer]
+  )
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<OfficeSceneRuntime | null>(null)
@@ -249,6 +457,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const [route, setRoute] = useState<WorkbenchRoute>(() => parseWorkbenchRoute(window.location.search))
   const [immersivePhase, setImmersivePhase] = useState<ImmersivePhase>('closed')
   const [isFullscreen, setIsFullscreen] = useState(false)
+
   const [areRoomCardsHidden, setAreRoomCardsHidden] = useState(false)
   const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false)
   const [isScenePickerOpen, setIsScenePickerOpen] = useState(false)
@@ -261,6 +470,16 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const [isTaskAddEditorOpen, setIsTaskAddEditorOpen] = useState(false)
   const [isImmersiveArcPointerActive, setIsImmersiveArcPointerActive] = useState(false)
   const [isImmersiveArcFocusActive, setIsImmersiveArcFocusActive] = useState(false)
+
+  useEffect(() => {
+    notificationHostLiveRef.current = {
+      fullscreen: isFullscreen,
+      notificationsEnabled,
+      quietUntilMs,
+      systemPermission: readBrowserNotificationPermission()
+    }
+  }, [isFullscreen, notificationsEnabled, quietUntilMs])
+
   const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
   const clockTime = clockState.current
   const occupantsByDeskId = new Map<DeskId, OfficeSceneSeatOccupant>()
@@ -674,6 +893,29 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           onToggleTask={toggleTask}
           onRemoveTask={removeTask}
           onBack={closeTaskSchedule}
+          scheduleBlocks={scheduleBlocks}
+          planningContext={{
+            workspaceRoot,
+            api:
+              typeof window !== 'undefined'
+                ? (window.teachingSystem as import('../../study-space/planning-client').StudyPlanningApi | undefined) ?? null
+                : null
+          }}
+          canonicalCategories={canonicalCategories}
+          onCreateFocusBlock={createFocusBlock}
+          onDeleteScheduleBlock={deleteScheduleBlock}
+          simulationStartTime={snapshot.simulationStartTime}
+          simulationEndTime={snapshot.simulationEndTime}
+          focusMinutes={snapshot.focusMinutes}
+          breakMinutes={snapshot.breakMinutes}
+          activeTimerPlanId={defaultTimerPlanId ?? snapshot.timerPlans[0]?.id ?? 'classic_25_5'}
+          activeTimerPlanName={
+            snapshot.timerPlans.find((p) => p.id === (defaultTimerPlanId ?? snapshot.timerPlans[0]?.id))?.name
+            ?? snapshot.timerPlans[0]?.name
+            ?? null
+          }
+          onApplyAllocationProposal={applyAllocationProposal}
+          timerSessions={timerSessions}
         />
       </section>
     )
@@ -711,12 +953,25 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             snapshot={snapshot}
             timerProgress={viewModel.timerProgress}
             selectedTaskId={selectedTaskId}
+            defaultTimerPlanId={defaultTimerPlanId}
+            emptyStartPolicy={emptyStartPolicy}
+            classificationPromptOptOut={classificationPromptOptOut}
+            activeTimerSession={activeTimerSession}
+            timerSessions={timerSessions}
             onToggleTimer={toggleTimer}
             onResetTimer={resetTimer}
             onStartTimerInMode={startTimerInMode}
             onSaveTimerPlan={saveTimerPlan}
             onApplyTimerPlan={applyTimerPlan}
             onRemoveTimerPlan={removeTimerPlan}
+            onCopyTimerPlan={copyTimerPlan}
+            onRenameTimerPlan={renameTimerPlan}
+            onSetDefaultTimerPlan={setDefaultTimerPlan}
+            onEmptyStartPolicyChange={setEmptyStartPolicyPreference}
+            onClassificationPromptOptOutChange={setClassificationPromptOptOutPreference}
+            onExtendActiveTimer={(minutes) => {
+              extendActiveTimerTarget({ addMinutes: minutes })
+            }}
           />
           <WorkbenchTasks
             tasks={snapshot.tasks}
@@ -737,6 +992,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                 ? { taskId: selectedTaskId, state: snapshot.timerState }
                 : null
             }
+            onOpenBatchClassify={openBatchClassify}
+            onCompleteTasksBatch={completeTasksBatch}
           />
         </div>
         <EmptyStartSheet
@@ -760,6 +1017,64 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         onResolve={handleFutureBlocksResolve}
       />
 
+      <ClassificationPromptSheet
+        open={classificationOpen}
+        taskId={classificationPayload?.taskId ?? ''}
+        taskTitle={classificationPayload?.taskTitle ?? ''}
+        categories={listStudyTaskCategories().map((c) => ({
+          id: c.id,
+          name: c.name,
+          color: c.color
+        }))}
+        onResolve={handleClassificationPromptResolve}
+      />
+
+      <PhasePromptSheet
+        open={phasePromptOpen}
+        completed={phasePromptCompleted}
+        onResolve={handlePhasePromptResolve}
+      />
+
+      <BreakEndPromptSheet
+        open={breakEndPromptOpen}
+        completed={breakEndPromptCompleted}
+        onResolve={handleBreakEndPromptResolve}
+      />
+
+      <ReconcileSheet
+        open={reconcileOpen}
+        session={reconcileSession}
+        gapSeconds={reconcileGapSeconds}
+        onResolve={handleReconcileResolve}
+      />
+
+      <BatchClassifySheet
+        open={batchClassifyOpen}
+        tasks={snapshot.tasks.map((t) => ({ id: t.id, title: t.title }))}
+        taskIds={batchClassifyTaskIds}
+        categories={listStudyTaskCategories().map((c) => ({
+          id: c.id,
+          name: c.name,
+          color: c.color
+        }))}
+        onResolve={handleBatchClassifyResolve}
+      />
+
+      <MigrationBannerSheet
+        open={Boolean(migrationOffer)}
+        model={
+          migrationOffer
+            ? buildMigrationBannerModel({
+                summary: migrationOffer.summary,
+                busy: migrationBusy
+              })
+            : null
+        }
+        busy={migrationBusy}
+        errorMessage={migrationError}
+        onResolve={handleMigrationBannerResolve}
+      />
+
         {isTaskAddEditorOpen ? (
           <div className="office-workbench-task-add-overlay">
             <StudyTaskSchedulePage
@@ -774,6 +1089,15 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               openAddEditorOnMount
               showAddEditorOnly
               onEditorDismiss={closeTaskAddEditor}
+              scheduleBlocks={scheduleBlocks}
+              planningContext={{
+                workspaceRoot,
+                api:
+                  typeof window !== 'undefined'
+                    ? (window.teachingSystem as import('../../study-space/planning-client').StudyPlanningApi | undefined) ?? null
+                    : null
+              }}
+              canonicalCategories={canonicalCategories}
             />
           </div>
         ) : null}

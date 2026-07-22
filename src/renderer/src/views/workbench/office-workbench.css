@@ -193,6 +193,73 @@
   --pomodoro-accent: #ff9f0a;
   --pomodoro-accent-rgb: 255, 159, 10;
 }
+.workbench-pomodoro-card.is-wrap_up {
+  --pomodoro-accent: #af52de;
+  --pomodoro-accent-rgb: 175, 82, 222;
+}
+
+.workbench-pomodoro-time__task--wrap-up {
+  color: rgba(95, 52, 130, 0.82);
+  font-weight: 700;
+}
+
+
+/* STC-604: non-color state chip (text + data attrs; not color-only). */
+.workbench-pomodoro-state-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  color: var(--text);
+  font-size: 0.6875rem;
+  font-weight: 720;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+.workbench-pomodoro-card.is-state-running .workbench-pomodoro-state-chip::before,
+.workbench-pomodoro-card.is-state-paused .workbench-pomodoro-state-chip::before,
+.workbench-pomodoro-card.is-state-needs_reconcile .workbench-pomodoro-state-chip::before,
+.workbench-pomodoro-card.is-state-idle .workbench-pomodoro-state-chip::before {
+  content: '';
+  display: inline-block;
+  width: 0.45em;
+  height: 0.45em;
+  margin-right: 0.4em;
+  border-radius: 50%;
+  background: currentColor;
+  /* Shape/opacity differ by state — not hue-only. */
+  opacity: 0.55;
+}
+.workbench-pomodoro-card.is-state-running .workbench-pomodoro-state-chip::before {
+  opacity: 1;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent);
+}
+.workbench-pomodoro-card.is-state-paused .workbench-pomodoro-state-chip::before {
+  border-radius: 2px;
+  opacity: 0.85;
+}
+.workbench-pomodoro-card.is-state-needs_reconcile .workbench-pomodoro-state-chip::before {
+  border-radius: 0;
+  transform: rotate(45deg);
+  opacity: 0.9;
+}
+.workbench-pomodoro-card.is-overtime .workbench-pomodoro-state-chip {
+  border-style: dashed;
+  font-weight: 780;
+}
+/* STC-604: snap transitions when reduced-motion class is set on card. */
+.workbench-pomodoro-card.is-reduced-motion .workbench-pomodoro-progress span,
+.workbench-pomodoro-card.is-reduced-motion .workbench-timer-ring,
+.workbench-pomodoro-card.is-reduced-motion .workbench-timer-ring__progress {
+  transition: none !important;
+  animation: none !important;
+}
+
+
 
 .workbench-pomodoro-card::before,
 .workbench-task-card::before {
@@ -403,6 +470,28 @@
 .workbench-leaderboard-row.is-me > span,
 .workbench-leaderboard-row.is-me em {
   color: #007aff;
+}
+
+/* STC-603: non-ticking status for screen readers (not visual chrome). */
+.workbench-pomodoro-status-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.workbench-pomodoro-panel {
+  position: relative;
+  outline: none;
+}
+
+.workbench-pomodoro-panel:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(0, 122, 255, 0.35);
 }
 
 .workbench-pomodoro-mode {
@@ -3010,6 +3099,162 @@
   color: var(--accent);
 }
 
+
+/* STC-707 week-plan schedule conflict banner */
+.study-schedule-conflicts-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, #f0b429 42%, var(--line) 58%);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff8e8 72%, transparent), transparent 70%),
+    color-mix(in srgb, var(--surface-solid) 58%, #fff4d6 42%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 55%, transparent),
+    0 10px 28px color-mix(in srgb, #8a5a19 10%, transparent);
+  color: var(--text);
+}
+
+.study-schedule-conflicts-banner__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.study-schedule-conflicts-banner__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.study-schedule-conflicts-banner__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #8a5a19;
+  font-size: 0.72rem;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.study-schedule-conflicts-banner__title {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 780;
+  line-height: 1.25;
+}
+
+.study-schedule-conflicts-banner__description,
+.study-schedule-conflicts-banner__locked-hint,
+.study-schedule-conflicts-banner__more {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  font-weight: 560;
+}
+
+.study-schedule-conflicts-banner__locked-hint {
+  color: #8a5a19;
+}
+
+.study-schedule-conflicts-banner__dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.study-schedule-conflicts-banner__dismiss:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.study-schedule-conflicts-banner__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.study-schedule-conflicts-banner__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+}
+
+.study-schedule-conflicts-banner__side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.study-schedule-conflicts-banner__side:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.study-schedule-conflicts-banner__side:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.study-schedule-conflicts-banner__side-title {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 720;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-schedule-conflicts-banner__side-time {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-schedule-conflicts-banner__vs {
+  align-self: center;
+  color: #8a5a19;
+  font-size: 0.68rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
 .study-schedule-stats {
   display: grid;
   grid-template-columns: 42px repeat(3, minmax(74px, 1fr));
@@ -4298,6 +4543,115 @@
   color: var(--danger, #ff3b30);
   font-size: 0.6875rem;
   font-weight: 680;
+}
+
+/* STC-307 multi-block editor list */
+.study-schedule-editor-blocks {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #ffffff 40%, var(--line) 60%);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel, #fff) 86%, transparent);
+}
+
+.study-schedule-editor-blocks-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.study-schedule-editor-blocks-head > span {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+}
+
+.study-schedule-editor-add-block {
+  min-height: 30px !important;
+  padding: 0 10px !important;
+  font-size: 0.75rem !important;
+  gap: 5px;
+}
+
+.study-schedule-editor-blocks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.study-schedule-editor-block-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.study-schedule-editor-block-select {
+  flex: 1;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
+  border-radius: 10px;
+  background: color-mix(in srgb, #ffffff 55%, transparent);
+  font: inherit;
+  font-size: 0.78125rem;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.study-schedule-editor-block-select strong {
+  font-weight: 700;
+}
+
+.study-schedule-editor-block-select em {
+  font-style: normal;
+  font-size: 0.6875rem;
+  font-weight: 680;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #4a7) 12%, transparent);
+}
+
+.study-schedule-editor-block-row.is-selected .study-schedule-editor-block-select {
+  border-color: color-mix(in srgb, var(--accent, #4a7) 45%, var(--line));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #4a7) 14%, transparent);
+}
+
+.study-schedule-editor-block-row.is-locked .study-schedule-editor-block-select {
+  opacity: 0.78;
+}
+
+.study-schedule-editor-block-delete {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
+  border-radius: 10px;
+  background: color-mix(in srgb, #ffffff 50%, transparent);
+  color: var(--danger, #ff3b30);
+  cursor: pointer;
+}
+
+.study-schedule-editor-block-delete:hover {
+  background: color-mix(in srgb, var(--danger, #ff3b30) 10%, #ffffff);
+}
+
+.study-schedule-editor-blocks-hint {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--ink) 52%, transparent);
 }
 
 .study-schedule-editor-actions {
@@ -6864,7 +7218,8 @@
   gap: 6px;
 }
 
-.workbench-pomodoro-settings-fields input {
+.workbench-pomodoro-settings-fields input,
+.workbench-pomodoro-settings-fields select {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -6881,7 +7236,8 @@
   font-weight: 650;
 }
 
-.workbench-pomodoro-settings-fields input:focus {
+.workbench-pomodoro-settings-fields input:focus,
+.workbench-pomodoro-settings-fields select:focus {
   border-color: color-mix(in srgb, var(--accent, #007aff) 56%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #007aff) 14%, transparent);
 }
@@ -7021,6 +7377,94 @@
 .workbench-pomodoro-settings-heading > button:hover {
   color: #c34f53;
   border-color: color-mix(in srgb, #c34f53 36%, transparent);
+}
+
+
+/* Plans catalog depth (STC-501/502): multi-action rows + badges */
+.workbench-pomodoro-plan-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+}
+
+.workbench-pomodoro-plan-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workbench-pomodoro-plan-action,
+.workbench-pomodoro-copy-plan {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted, #667085);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 76%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 46%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 58%, transparent);
+}
+
+.workbench-pomodoro-plan-action:hover,
+.workbench-pomodoro-copy-plan:hover {
+  color: #007aff;
+  border-color: color-mix(in srgb, #007aff 36%, transparent);
+}
+
+.workbench-pomodoro-plan-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  color: var(--text-muted, #667085);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 55%, transparent);
+  font-size: 0.55rem;
+  font-style: normal;
+  font-weight: 720;
+  vertical-align: middle;
+}
+
+.workbench-pomodoro-plan-badge.is-default {
+  color: #007aff;
+  border-color: color-mix(in srgb, #007aff 36%, transparent);
+}
+
+.workbench-pomodoro-plan-row.is-builtin .workbench-pomodoro-saved-plan {
+  background: color-mix(in srgb, var(--surface-muted, #eaf2ff) 40%, transparent);
+}
+
+.workbench-pomodoro-rename-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 6px;
+  align-items: center;
+}
+
+.workbench-pomodoro-rename-row input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  color: var(--text, #17202b);
+  border: 1px solid color-mix(in srgb, var(--accent, #007aff) 46%, transparent);
+  border-radius: 10px;
+  outline: none;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 70%, transparent);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+/* Override legacy single-delete column for multi-action rows */
+.workbench-pomodoro-saved-plans li.workbench-pomodoro-plan-row {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .workbench-pomodoro-settings.is-active {
@@ -7271,4 +7715,706 @@
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+
+/* STC-404 Study planning prefs (pomodoro settings strip) */
+.workbench-study-planning-prefs {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 4px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-solid) 68%, transparent);
+}
+
+.workbench-study-planning-prefs__header strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.workbench-study-planning-prefs__header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workbench-study-planning-prefs__field {
+  display: grid;
+  gap: 8px;
+}
+
+.workbench-study-planning-prefs__label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.workbench-study-planning-prefs__options {
+  display: grid;
+  gap: 8px;
+}
+
+.workbench-study-planning-prefs__option {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 58%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.workbench-study-planning-prefs__option strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workbench-study-planning-prefs__option small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.workbench-study-planning-prefs__option.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.workbench-study-planning-prefs__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.workbench-study-planning-prefs__toggle input {
+  margin-top: 3px;
+}
+
+.workbench-study-planning-prefs__toggle strong {
+  display: block;
+  font-size: 13px;
+}
+
+.workbench-study-planning-prefs__toggle small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* STC-406/407 Classification prompt (extends empty-start sheet chrome) */
+.workbench-classification-prompt-sheet {
+  width: min(440px, 100%);
+}
+
+.workbench-classification-prompt-pick {
+  display: grid;
+  gap: 10px;
+}
+
+.workbench-classification-prompt-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #ffffff 50%, transparent);
+  vertical-align: middle;
+}
+
+.workbench-empty-start-sheet__task .workbench-classification-prompt-swatch {
+  margin-top: -1px;
+}
+
+
+/* STC-308 Allocation proposal preview (extends empty-start sheet chrome) */
+.workbench-allocation-preview-meta {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workbench-allocation-preview-empty {
+  margin: 0;
+  padding: 12px 4px 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.workbench-allocation-preview-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(42vh, 360px);
+  overflow: auto;
+}
+
+.workbench-allocation-preview-row {
+  display: grid;
+  grid-template-columns: minmax(52px, auto) minmax(92px, auto) 1fr auto;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  font-size: 13px;
+}
+
+.workbench-allocation-preview-row.is-added {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
+    color-mix(in srgb, var(--surface-solid) 78%, transparent);
+}
+
+.workbench-allocation-preview-row.is-blank {
+  opacity: 0.78;
+  border-style: dashed;
+}
+
+.workbench-allocation-preview-kind {
+  font-weight: 650;
+  color: var(--text);
+}
+
+.workbench-allocation-preview-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.workbench-allocation-preview-task {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.workbench-allocation-preview-badge {
+  justify-self: end;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  color: color-mix(in srgb, var(--accent) 88%, #fff);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.workbench-allocation-preview-row.is-blank .workbench-allocation-preview-badge {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface-solid) 40%, transparent);
+  border-color: color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.workbench-allocation-preview-warnings {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #d4a017 28%, var(--line));
+  background: color-mix(in srgb, #d4a017 10%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workbench-allocation-preview-warnings strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.workbench-allocation-preview-warnings ul {
+  margin: 0;
+  padding-left: 1.15em;
+}
+
+.study-schedule-allocation-button {
+  /* sibling of add button; same footprint, slightly cooler accent */
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 42%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, #4f7cff 78%, #ffffff), #3f6cf0);
+  border-color: color-mix(in srgb, #4f7cff 50%, transparent);
+  box-shadow:
+    0 8px 18px color-mix(in srgb, #4f7cff 22%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+}
+
+
+/* Slice B migration banner (extends empty-start sheet chrome) */
+.workbench-migration-banner-meta {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workbench-migration-banner-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workbench-migration-banner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  font-size: 13px;
+}
+
+.workbench-migration-banner-row.is-hint {
+  opacity: 0.86;
+  border-style: dashed;
+}
+
+.workbench-migration-banner-label {
+  color: var(--text-muted);
+}
+
+.workbench-migration-banner-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.workbench-migration-banner-error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #c0392b 32%, var(--line));
+  background: color-mix(in srgb, #c0392b 10%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workbench-migration-banner-busy {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* STC-304 task detail stats (estimate / planned / actual + block buckets) */
+.study-schedule-detail-stats {
+  display: grid;
+  gap: 10px;
+  margin: 2px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #ffffff 40%, var(--line) 60%);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel, #fff) 88%, transparent);
+}
+
+.study-schedule-detail-stats__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.study-schedule-detail-stat {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.study-schedule-detail-stat > span {
+  font-size: 0.6875rem;
+  font-weight: 680;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+
+.study-schedule-detail-stat > strong {
+  font-size: 0.9375rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.study-schedule-detail-stat input[type='number'] {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
+  border-radius: 10px;
+  background: color-mix(in srgb, #ffffff 58%, transparent);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.study-schedule-detail-block-group {
+  display: grid;
+  gap: 6px;
+}
+
+.study-schedule-detail-block-group__head {
+  font-size: 0.75rem;
+  font-weight: 720;
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+}
+
+.study-schedule-detail-block-empty {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
+}
+
+.study-schedule-detail-block-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+  max-height: min(22vh, 160px);
+  overflow: auto;
+}
+
+.study-schedule-detail-block-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #ffffff 40%, var(--line) 60%);
+  background: color-mix(in srgb, #ffffff 52%, transparent);
+  font-size: 0.75rem;
+}
+
+.study-schedule-detail-block-row.is-current {
+  border-color: color-mix(in srgb, var(--accent, #4a7) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent, #4a7) 10%, #ffffff);
+}
+
+.study-schedule-detail-block-row.is-cancelled {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.study-schedule-detail-block-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 680;
+  color: var(--ink);
+}
+
+.study-schedule-detail-block-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.study-schedule-detail-block-meta em {
+  font-style: normal;
+  font-size: 0.6875rem;
+  font-weight: 680;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #4a7) 12%, transparent);
+}
+
+.study-schedule-detail-block-meta strong {
+  font-weight: 720;
+  color: var(--ink);
+}
+
+
+
+/* STC-408 remainder: multi-select complete entry + toolbar */
+.workbench-task-multi-select-enter-button,
+.workbench-task-multi-select-exit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.workbench-task-multi-select-enter-button:hover,
+.workbench-task-multi-select-exit-button:hover {
+  border-color: color-mix(in srgb, var(--accent, #8197aa) 45%, var(--line));
+}
+
+.workbench-task-multi-select-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 60%, transparent);
+}
+
+.workbench-task-multi-select-count {
+  color: var(--text-soft, rgba(47, 57, 69, 0.62));
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.workbench-task-multi-select-toolbar-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.workbench-task-multi-select-all-button,
+.workbench-task-multi-select-clear-button,
+.workbench-task-multi-select-complete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.workbench-task-multi-select-complete-button {
+  border-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent, #007aff)) 42%, var(--line));
+  background: color-mix(in srgb, var(--pomodoro-accent, var(--accent, #007aff)) 16%, transparent);
+  color: var(--text);
+  font-weight: 740;
+}
+
+.workbench-task-multi-select-all-button:disabled,
+.workbench-task-multi-select-clear-button:disabled,
+.workbench-task-multi-select-complete-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.workbench-task-row.is-multi-selected {
+  border-color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 46%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 22%, transparent);
+}
+
+.workbench-task-row.is-selection-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workbench-task-multi-select-check {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: #ffffff;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-solid) 44%, transparent);
+}
+
+.workbench-task-multi-select-check.is-checked {
+  border-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent, #007aff)) 42%, var(--line));
+  background: var(--pomodoro-accent, var(--accent, #007aff));
+}
+
+/* STC-408 batch classify entry + sheet preview */
+.workbench-task-batch-classify-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.workbench-task-batch-classify-button:hover {
+  border-color: color-mix(in srgb, var(--accent, #8197aa) 45%, var(--line));
+}
+
+.workbench-batch-classify-task-preview {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  list-style: none;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 60%, transparent);
+  max-height: 140px;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.workbench-batch-classify-task-preview__more {
+  font-style: italic;
+}
+
+/* STC-503 Active vs next timer plan snapshot (pomodoro settings strip) */
+.workbench-active-vs-next-plan {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-solid) 68%, transparent);
+}
+
+.workbench-active-vs-next-plan.is-diverged {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.workbench-active-vs-next-plan__header strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.workbench-active-vs-next-plan__hint {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workbench-active-vs-next-plan__hint.is-diverged {
+  color: color-mix(in srgb, var(--accent) 78%, var(--text));
+  font-weight: 600;
+}
+
+.workbench-active-vs-next-plan__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.workbench-active-vs-next-plan__side {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 58%, transparent);
+  min-width: 0;
+}
+
+.workbench-active-vs-next-plan__side.is-diverged {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
+.workbench-active-vs-next-plan__side.is-empty {
+  opacity: 0.78;
+}
+
+.workbench-active-vs-next-plan__side-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.workbench-active-vs-next-plan__name {
+  font-size: 13px;
+  font-weight: 720;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-active-vs-next-plan__summary {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.workbench-active-vs-next-plan__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .workbench-active-vs-next-plan__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* STC-205: phase-prompt extend presets */
+.workbench-phase-prompt-extend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.workbench-phase-prompt-extend__hint {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0 0.15rem;
+}
+
+.workbench-phase-prompt-extend__hint strong {
+  font-size: 0.9rem;
+}
+
+.workbench-phase-prompt-extend__hint small {
+  opacity: 0.75;
+  font-size: 0.8rem;
+}
+
+.workbench-phase-prompt-extend__buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.workbench-phase-prompt-extend__btn {
+  min-height: 0;
+}
+
+/* STC-205: mid-break +1 min control shares action chrome */
+.workbench-pomodoro-actions .workbench-pomodoro-extend {
+  /* inherit button chrome from .workbench-pomodoro-actions button */
 }

@@ -43,6 +43,8 @@ export function isStudyPlanningSnapshotV1(value: unknown): value is StudyPlannin
   if (!Array.isArray(value.timerSessions)) return false
   if (!isObject(value.preferences)) return false
   if (!isObject(value.localAnalyticsHints)) return false
+  // categories optional; when present must be an array
+  if (value.categories !== undefined && !Array.isArray(value.categories)) return false
   return true
 }
 

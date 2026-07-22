@@ -415,11 +415,14 @@ type TeachingWorkspaceServiceOptions = {
   durableFileOperations?: DurableFileOperations
   /** Receives only the shared primitive's generic directory-fsync warning. */
   durableWarn?: (message: string) => void
+  /** Optional user MCP session manager for agent-run inject (ADR-0128). */
+  mcpSessionManager?: import('./mcp/session-manager').McpSessionManager | null
 }
 
 export class TeachingWorkspaceService {
   private readonly registryPath: string
   private readonly appDataRoot: string
+  private readonly mcpSessionManager: import('./mcp/session-manager').McpSessionManager | null
   private readonly defaultRoot: string
   private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
   private readonly skillLibraryService?: SkillLibraryService
@@ -450,6 +453,7 @@ export class TeachingWorkspaceService {
   constructor(options: TeachingWorkspaceServiceOptions) {
     this.registryPath = options.registryPath
     this.appDataRoot = dirname(this.registryPath)
+    this.mcpSessionManager = options.mcpSessionManager ?? null
     this.defaultRoot = options.defaultRoot
     this.settingsProvider = options.settingsProvider
     this.skillLibraryService = options.skillLibraryService
@@ -1107,6 +1111,7 @@ export class TeachingWorkspaceService {
     this.pendingAgentRunArchiveScopes.delete(stream.streamId)
     const result = await runTeachingConversationTurn(payload, stream, runtimeWorkspace, {
       appDataRoot: this.appDataRoot,
+      mcpSessionManager: this.mcpSessionManager,
       runStore: new AgentRunStore(runStorageRoot),
       loadSettings: () => this.loadSettings(),
       listMemories: (workspaceRoot, includeDeleted) => this.memoryStore.list(workspaceRoot, includeDeleted === true),

@@ -50,7 +50,7 @@ import {
 import type { LearningAnalyticsService } from './teaching/services/learning-analytics'
 import type { TeachingTurnCoordinatorHost } from './teaching-turn-coordinator-host'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
-import { createTeachingDoctorCatalogDriftFactsCollector, createTeachingDoctorConfigFactsCollector, createTeachingDoctorSessionOutcomeScanFactsCollector, createTeachingDoctorSourceGapFactsCollector, runProductTeachingDoctor, type ProductTeachingDoctorCrashMarkerStore } from './observability'
+import { createTeachingDoctorCatalogDriftFactsCollector, createTeachingDoctorConfigFactsCollector, createTeachingDoctorMcpFactsCollector, createTeachingDoctorSessionOutcomeScanFactsCollector, createTeachingDoctorSourceGapFactsCollector, runProductTeachingDoctor, type ProductTeachingDoctorCrashMarkerStore } from './observability'
 import { createLearningSessionLedger } from './learning-session-ledger'
 import { planLessonIndexReconciliation } from './teaching-workspace/catalog-reconciliation'
 import {
@@ -89,7 +89,16 @@ export interface TeachingIpcRegistration {
    * Read-only for this channel; clear is a separate deliberate effect.
    */
   crashMarkerStore?: ProductTeachingDoctorCrashMarkerStore | null
+  /**
+   * Optional user MCP status source for TeachingDoctor (ADR-0128 Phase E).
+   * Secret-free only; collector redacts command labels further.
+   */
+  mcpFactsSource?: {
+    loadConfig(): Promise<import('../shared/mcp/types').UserMcpConfigV1 | null>
+    listRuntime(): readonly import('../shared/mcp/types').McpRuntimeServerView[]
+  } | null
 }
+
 
 type GatewayContext = TeachingIpcRegistration & {
   activeAgentChatStreams: Map<string, AbortController>
@@ -724,7 +733,15 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
                 assetsReady: ws.assetsReady === true
               }
             }
-          })
+          }),
+          ...(context.mcpFactsSource
+            ? [
+                createTeachingDoctorMcpFactsCollector({
+                  loadConfig: () => context.mcpFactsSource!.loadConfig(),
+                  listRuntime: () => context.mcpFactsSource!.listRuntime()
+                })
+              ]
+            : [])
         ]
       }),
       reply: identityReply, streamCleanup: noStreamCleanup

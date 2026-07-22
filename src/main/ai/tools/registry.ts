@@ -373,9 +373,14 @@ async function resolveToolPermission(
 
   // Synthetic teaching memory mutations always require human approval
   // (Slice F / ADR-0050). Prior run grants still apply after an explicit allow.
+  // After the workspace_write gate above, non-read MCP tools always arrive here
+  // with kind=workspace_write (permissionKindForMcpEffect). Read MCP tools
+  // early-return allow and never need this flag.
+  const requiresMcpInteractive = request.toolName.startsWith('mcp__')
+
   const requiresHumanMemoryApproval = isForcedHumanMemoryApprovalTool(request.toolName)
 
-  if (!requiresHumanMemoryApproval && !forceInteractive) {
+  if (!requiresHumanMemoryApproval && !requiresMcpInteractive && !forceInteractive) {
     switch (ctx.settings.tools.approvalMode) {
       case 'full_access': {
         const decision: ToolPermissionDecision = { decision: 'allow_for_run' }

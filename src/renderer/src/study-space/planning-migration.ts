@@ -62,6 +62,8 @@ export type CommitV1MigrationInput = {
    */
   timerSessions?: unknown[]
   preferences?: Record<string, unknown>
+  /** Optional category catalog seed from V1 localStorage. */
+  categories?: unknown[]
   source?: string
 }
 
@@ -131,6 +133,7 @@ export function buildImportMigrationCommitCommand(
     clientIssuedAtMs?: number
     timerSessions?: unknown[]
     preferences?: Record<string, unknown>
+    categories?: unknown[]
     source?: string
   }
 ): StudyPlanningCommandEnvelope {
@@ -148,6 +151,9 @@ export function buildImportMigrationCommitCommand(
   }
   if (options?.preferences) {
     payload.preferences = options.preferences
+  }
+  if (options?.categories && options.categories.length > 0) {
+    payload.categories = options.categories
   }
   return {
     actionId,
@@ -215,6 +221,9 @@ export async function commitV1Migration(
     clientIssuedAtMs: nowMs(),
     ...(input.timerSessions ? { timerSessions: input.timerSessions } : {}),
     ...(input.preferences ? { preferences: input.preferences } : {}),
+    ...(input.categories && input.categories.length > 0
+      ? { categories: input.categories }
+      : {}),
     ...(input.source ? { source: input.source } : {})
   }
 

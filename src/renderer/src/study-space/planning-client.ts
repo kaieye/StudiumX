@@ -263,6 +263,52 @@ export function buildUpdateTaskCommand(
   }
 }
 
+
+export type DeletePlanningTaskInput = {
+  id: string
+  futureBlocksDecision?: 'cancel' | 'keep_review' | 'reassign'
+  reassignTaskId?: string | null
+}
+
+/**
+ * Build delete_task envelope (soft-cancel). Optional future-block decision (§7.3).
+ */
+export function buildDeleteTaskCommand(
+  input: DeletePlanningTaskInput,
+  actionId: string,
+  clientIssuedAtMs?: number
+): StudyPlanningCommandEnvelope {
+  const payload: Record<string, unknown> = { id: input.id }
+  if (input.futureBlocksDecision) payload.futureBlocksDecision = input.futureBlocksDecision
+  if (input.reassignTaskId !== undefined) payload.reassignTaskId = input.reassignTaskId
+  return {
+    actionId,
+    type: 'delete_task' as StudyPlanningCommandType,
+    payload,
+    ...(clientIssuedAtMs !== undefined ? { clientIssuedAtMs } : {})
+  }
+}
+
+export type ReopenPlanningTaskInput = {
+  id: string
+}
+
+/**
+ * Build reopen_task envelope (done|cancelled → open).
+ */
+export function buildReopenTaskCommand(
+  input: ReopenPlanningTaskInput,
+  actionId: string,
+  clientIssuedAtMs?: number
+): StudyPlanningCommandEnvelope {
+  return {
+    actionId,
+    type: 'reopen_task' as StudyPlanningCommandType,
+    payload: { id: input.id },
+    ...(clientIssuedAtMs !== undefined ? { clientIssuedAtMs } : {})
+  }
+}
+
 async function resolveExpectedRevision(
   api: StudyPlanningApi | null | undefined,
   workspaceRoot: string | null | undefined,
@@ -381,6 +427,102 @@ export async function completePlanningTask(
  * Update task fields on canonical store (title/category/estimate).
  * On revision_conflict, re-read and retry once with a new actionId.
  */
+
+/**
+ * Soft-delete task on canonical store (status → cancelled). Optional future-block decision.
+ */
+export async function deletePlanningTask(
+  api: StudyPlanningApi | null | undefined,
+  workspaceRoot: string | null | undefined,
+  input: DeletePlanningTaskInput,
+  options?: {
+    expectedRevision?: number
+    actionId?: string
+    nowMs?: () => number
+  }
+): Promise<PlanningClientApplyResult> {
+  const nowMs = options?.nowMs ?? (() => Date.now())
+  const makeActionId = (suffix: string): string =>
+    options?.actionId && suffix === '0'
+      ? options.actionId
+      : `delete_task:${input.id}:${nowMs()}:${suffix}`
+
+  const resolvedRevision = await resolveExpectedRevision(api, workspaceRoot, options?.expectedRevision)
+  if (!resolvedRevision.ok) return resolvedRevision
+
+  const first = await applyStudyPlanningCommand(
+    api,
+    workspaceRoot,
+    resolvedRevision.revision,
+    buildDeleteTaskCommand(input, makeActionId('0'), nowMs())
+  )
+  if (first.ok) return first
+  if (first.error.code !== 'revision_conflict') return first
+
+  const refreshed = await readStudyPlanningSnapshot(api, workspaceRoot)
+  if (!refreshed.ok) {
+    return {
+      ok: false,
+      revision: first.revision,
+      error: { code: refreshed.code, message: refreshed.message }
+    }
+  }
+  return applyStudyPlanningCommand(
+    api,
+    workspaceRoot,
+    refreshed.snapshot.revision,
+    buildDeleteTaskCommand(input, makeActionId('retry'), nowMs())
+  )
+}
+
+/**
+ * Reopen task on canonical store (done|cancelled → open).
+ * On revision_conflict, re-read and retry once with a new actionId.
+ */
+export async function reopenPlanningTask(
+  api: StudyPlanningApi | null | undefined,
+  workspaceRoot: string | null | undefined,
+  input: ReopenPlanningTaskInput,
+  options?: {
+    expectedRevision?: number
+    actionId?: string
+    nowMs?: () => number
+  }
+): Promise<PlanningClientApplyResult> {
+  const nowMs = options?.nowMs ?? (() => Date.now())
+  const makeActionId = (suffix: string): string =>
+    options?.actionId && suffix === '0'
+      ? options.actionId
+      : `reopen_task:${input.id}:${nowMs()}:${suffix}`
+
+  const resolvedRevision = await resolveExpectedRevision(api, workspaceRoot, options?.expectedRevision)
+  if (!resolvedRevision.ok) return resolvedRevision
+
+  const first = await applyStudyPlanningCommand(
+    api,
+    workspaceRoot,
+    resolvedRevision.revision,
+    buildReopenTaskCommand(input, makeActionId('0'), nowMs())
+  )
+  if (first.ok) return first
+  if (first.error.code !== 'revision_conflict') return first
+
+  const refreshed = await readStudyPlanningSnapshot(api, workspaceRoot)
+  if (!refreshed.ok) {
+    return {
+      ok: false,
+      revision: first.revision,
+      error: { code: refreshed.code, message: refreshed.message }
+    }
+  }
+  return applyStudyPlanningCommand(
+    api,
+    workspaceRoot,
+    refreshed.snapshot.revision,
+    buildReopenTaskCommand(input, makeActionId('retry'), nowMs())
+  )
+}
+
 export async function updatePlanningTask(
   api: StudyPlanningApi | null | undefined,
   workspaceRoot: string | null | undefined,
@@ -435,12 +577,23 @@ export function projectPlanningTasksToStudyTasks(
     title: string
     status: string
     categoryId: string | null
+    estimateMinutes?: number | null
   }[]
-): { id: string; title: string; done: boolean; categoryId?: string }[] {
-  return tasks.map((task) => ({
-    id: task.id,
-    title: task.title,
-    done: task.status === 'done',
-    ...(task.categoryId ? { categoryId: task.categoryId } : {})
-  }))
+): {
+  id: string
+  title: string
+  done: boolean
+  categoryId?: string
+  estimateMinutes?: number | null
+}[] {
+  // Cancelled tasks are soft-deleted from UI lists (keep canonical history for TimerSession refs).
+  return tasks
+    .filter((task) => task.status !== 'cancelled')
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      done: task.status === 'done',
+      ...(task.categoryId ? { categoryId: task.categoryId } : {}),
+      ...(task.estimateMinutes !== undefined ? { estimateMinutes: task.estimateMinutes } : {})
+    }))
 }

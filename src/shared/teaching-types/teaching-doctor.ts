@@ -11,6 +11,7 @@ export type TeachingDoctorCheckId =
   | 'catalog_drift'
   | 'local_process_crash_marker'
   | 'local_data_index'
+  | 'mcp_status'
 
 /**
  * Check result ladder. `error` means the check itself failed to execute; that
@@ -159,6 +160,32 @@ export type TeachingDoctorLocalDataIndexFacts = {
   } | null
 }
 
+
+/** Aggregate-only MCP diagnostics — no command/args secrets or secret values. */
+export type TeachingDoctorMcpServerFacts = {
+  id: string
+  enabled: boolean
+  transport: string
+  state: string
+  toolCount?: number | null
+  errorCode?: string | null
+  /** Redacted command label only (never secret env). */
+  commandLabel?: string | null
+}
+
+export type TeachingDoctorMcpFacts = {
+  /** Feature / implementation present in this build. */
+  implementationPresent: boolean
+  rootEnabled: boolean
+  serverCount: number
+  enabledServerCount: number
+  connectedServerCount: number
+  errorServerCount: number
+  servers: readonly TeachingDoctorMcpServerFacts[]
+  /** Logical locator only. */
+  configPathLabel?: string | null
+}
+
 export type TeachingDoctorProcessCrashMarkerFacts = {
   /** True when a valid crash marker was found under appData observability. */
   present: boolean
@@ -179,6 +206,8 @@ export type TeachingDoctorFacts = {
   localDataIndex?: TeachingDoctorLocalDataIndexFacts | null
   /** Local process crash marker from prior abnormal exit (collector I/O). */
   processCrashMarker?: TeachingDoctorProcessCrashMarkerFacts | null
+  /** User MCP status (default-off; redacted). */
+  mcp?: TeachingDoctorMcpFacts | null
 }
 
 /**

@@ -35,6 +35,10 @@ export type StudyTimerPlanV1 = {
   breakMinutes: number
   simulationStartTime?: string
   simulationEndTime?: string
+  /** Optional STC-502 advanced fields when present on V1 cache. */
+  longBreakMinutes?: number
+  longBreakEvery?: number
+  breakPolicy?: 'automatic' | 'ask' | 'reminder_only' | 'none'
 }
 
 export type StudySnapshotV1Slice = {
@@ -292,7 +296,20 @@ function migratePlanV1(raw: unknown, index: number, report: MigrationReportEntry
   const focusMinutes = asInt(raw.focusMinutes) ?? TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes
   const breakMinutes = asInt(raw.breakMinutes) ?? TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes
 
-  // Roadmap §14.4: V1 has no long break — fill compatible defaults and report.
+  // Roadmap §14.4 / STC-502: prefer V1 advanced fields when present; else seed defaults.
+  const longBreakMinutes =
+    asInt(raw.longBreakMinutes) ?? TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes
+  const longBreakEvery =
+    asInt(raw.longBreakEvery) ?? TIMER_PLAN_SEED_DEFAULTS.classicLongBreakEvery
+  const breakPolicyRaw =
+    typeof raw.breakPolicy === 'string' ? raw.breakPolicy.trim() : ''
+  const breakPolicy =
+    breakPolicyRaw === 'automatic' || breakPolicyRaw === 'ask'
+      ? breakPolicyRaw
+      : TIMER_PLAN_SEED_DEFAULTS.pomodoroBreakPolicy
+  const usedSeedLongBreak =
+    asInt(raw.longBreakMinutes) === undefined || asInt(raw.longBreakEvery) === undefined
+
   const result = normalizeTimerPlanV2({
     id,
     name,
@@ -300,9 +317,9 @@ function migratePlanV1(raw: unknown, index: number, report: MigrationReportEntry
     clockMode: 'countdown',
     focusMinutes,
     shortBreakMinutes: breakMinutes,
-    longBreakMinutes: TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes,
-    longBreakEvery: TIMER_PLAN_SEED_DEFAULTS.classicLongBreakEvery,
-    breakPolicy: TIMER_PLAN_SEED_DEFAULTS.pomodoroBreakPolicy,
+    longBreakMinutes,
+    longBreakEvery,
+    breakPolicy,
     windowFillPolicy: TIMER_PLAN_SEED_DEFAULTS.windowFillPolicy,
     minimumFinalFocusMinutes: TIMER_PLAN_SEED_DEFAULTS.minimumFinalFocusMinutes,
     wrapUpMinutes: TIMER_PLAN_SEED_DEFAULTS.wrapUpMinutes,
@@ -318,11 +335,13 @@ function migratePlanV1(raw: unknown, index: number, report: MigrationReportEntry
     return { plan: null }
   }
 
-  report.push({
-    code: 'plan_long_break_defaulted',
-    message: `Plan ${id}: V1 had no long break; defaulted longBreak ${TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes}m every ${TIMER_PLAN_SEED_DEFAULTS.classicLongBreakEvery}`,
-    entityId: id
-  })
+  if (usedSeedLongBreak) {
+    report.push({
+      code: 'plan_long_break_defaulted',
+      message: `Plan ${id}: V1 missing long break fields; defaulted longBreak ${TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes}m every ${TIMER_PLAN_SEED_DEFAULTS.classicLongBreakEvery}`,
+      entityId: id
+    })
+  }
 
   const startLabel = parseHmLabel(raw.simulationStartTime)
   const endLabel = parseHmLabel(raw.simulationEndTime)

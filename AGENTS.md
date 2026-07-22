@@ -12,7 +12,7 @@
 | --- | --- |
 | 文件是教学真相源 | 投影可重建；canonical 在工作区文件，不把 SQLite / agent run 当 teaching authority |
 | 无默认 shell | 不暴露通用 shell / 任意代码执行产品路径 |
-| 无 MCP marketplace | 不默认任意 MCP 加载；扩展面走 TeachingCommand 闭集 + skill-pack verifier |
+| 用户可配置 MCP（opt-in） | **允许**用户自行添加 MCP server（[ADR-0127](docs/adr/0127-user-configurable-mcp-design-gate.md) + [ADR-0128](docs/adr/0128-user-configurable-mcp-implementation.md)）；**默认 off / 无 auto-connect**；**仍无** MCP marketplace；扩展主路径仍走 TeachingCommand 闭集 + skill-pack verifier；实现合同见 ADR-0128（分 phase）；未完成 A–D 前不表示功能已上线 |
 | 无自动 remote telemetry | 本地优先；**不**默认 phone-home / Statsig / Mixpanel 式外发 |
 | effect lattice + TOOL_CONTRACT | `read` / `workspace_write` / `external_write` / `privileged` 三态审批；**禁止 YOLO / always-approve 标签** |
 | Settlement sole-writer | `TeachingTurnCoordinator` / host 为 outcome settlement 唯一写入路径；IPC 须 `expectedRevision`；fork 路径保持 `toolsReplayed: false` |
@@ -53,7 +53,7 @@ git config core.hooksPath .githooks
 
 1. **不要** 引入默认 ShellTool / OS sandbox 产品声明 / shell-escalation 策略语言。  
 2. **不要** 加 YOLO / DangerFullAccess / always-approve 默认或 UI 标签。  
-3. **不要** 加 MCP marketplace / 默认任意 MCP / jiti 全权限扩展 / code-mode 执行不可信代码。  
+3. **不要** 加 MCP marketplace / 未 opt-in 或未入 effect lattice 的 MCP / jiti 全权限扩展 / code-mode 执行不可信代码（用户可配置 MCP 见 ADR-0127/0128，未完成实现 phase 前不得当已交付）。  
 4. **不要** 默认远程 OTEL / phone-home；本地 doctor / support-bundle 须脱敏与同意。  
 5. **不要** 用 SQLite FTS 或向量库做产品搜索面。  
 6. **不要** 启动自动 memories / dream / 静默改 learner-profile 或自动 skill 创建。  

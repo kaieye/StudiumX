@@ -3,6 +3,8 @@ import { createAgentEventBus, type AgentEventBus } from './ai/agent-event-bus'
 import { attachAgentRunAuditMetadata } from './ai/agent-run-audit'
 import { resolveActiveProvider, type ChatMessage } from './ai/provider-adapter'
 import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
+import { injectMcpToolsIntoRegistry } from './mcp/registry-inject'
+import type { McpSessionManager } from './mcp/session-manager'
 import { loadAndMergeToolPolicyDocumentsFromWorkspace, toolPolicyDocumentOption } from './ai/tools/tool-policy-fs'
 import { createAskToolEntry } from './ai/tools/ask'
 import { createDelegationToolEntries } from './ai/tools/delegation'
@@ -13,6 +15,13 @@ import { recordTurnUsageObservation, type UsageApprovalStatus, type UsageLedgerS
 import type { ContextCompactionOptions } from './ai/context-compactor'
 import { deriveConversationTurnContext } from './teaching-conversation-turn-context'
 import { finalizeLearnerMemoryCapture, resolveDirectMemoryConsent } from './teaching-conversation-memory'
+import { isNativeContainedDurableReplaceUnavailable } from './persistence/contained-durable-directory'
+import {
+  isMemoryAuthorityWriteAvailable,
+  isMemoryChatHotPathAvailable,
+  resolvePlatformCapability,
+  PLATFORM_CAPABILITY_CONSUMERS
+} from './platform/platform-capability-registry'
 import {
   createLessonToolLifecycle,
   lessonGenerationBudgetFallback,
@@ -88,6 +97,11 @@ export type TeachingConversationRuntimeDeps = {
    * When omitted, usage observation is skipped. Failures never fail the turn.
    */
   appDataRoot?: string
+  /**
+   * Optional user-configured MCP session manager (ADR-0128).
+   * Null/omitted → no MCP tools on this turn (default-off path).
+   */
+  mcpSessionManager?: McpSessionManager | null
 }
 
 export async function runTeachingConversationTurn(
@@ -192,14 +206,22 @@ async function runTeachingConversationTurnActive(
     toolsEnabled: settings.tools.enabled,
     hasLessonGenerator: typeof deps.generateLessonFromBrief === 'function'
   })
-  const existingMemories = await deps.listMemories(conversation.memoryWorkspaceRoot)
+  // Memory catalog is POSIX descriptor-bound. On Windows (or when the native
+  // addon is missing) discovery throws unsupported_platform/native_unavailable.
+  // Chat must not fail closed for that platform boundary: degrade to empty
+  // memory context and skip durable capture for this turn.
+  const memoryCatalog = await loadTeachingMemoryCatalogForTurn(deps, conversation.memoryWorkspaceRoot)
+  const memoryCatalogAvailable = memoryCatalog.available
+  const existingMemories = memoryCatalog.records
 
-  const directMemoryConsent = await resolveDirectMemoryConsent({
-    userInput,
-    previousAssistantContent: latestAssistantContent(payload.messages ?? []),
-    workspaceRoot: conversation.memoryWorkspaceRoot,
-    createMemory: deps.createMemory
-  })
+  const directMemoryConsent = memoryCatalogAvailable
+    ? await resolveDirectMemoryConsent({
+        userInput,
+        previousAssistantContent: latestAssistantContent(payload.messages ?? []),
+        workspaceRoot: conversation.memoryWorkspaceRoot,
+        createMemory: deps.createMemory
+      })
+    : { handled: false as const, isBareConsentResponse: false }
   if (directMemoryConsent.handled) {
     return {
       turns: directAgentTurns(payload.messages ?? [], userInput, directMemoryConsent.finalText),
@@ -325,12 +347,18 @@ async function runTeachingConversationTurnActive(
   const skillResourceTool = settings.tools.enabled ? createReadSkillResourceTool(skillReferences) : null
   if (skillResourceTool) baseRegistry.register(skillResourceTool)
   // Slice F: memory search + human-approved synthetic teaching memory (no FTS).
+  // Skip registration when the durable catalog cannot open on this host so the
+  // model never receives a tool that can only fail at execution time.
+  // Memory tools: write tools require durable_authority_write profile (ADR-0126).
+  const memoryWriteAvailable = memoryCatalogAvailable && isMemoryAuthorityWriteAvailable()
   if (
     settings.tools.enabled &&
     settings.memory.enabled &&
+    memoryCatalogAvailable &&
     conversation.capabilityPolicy.workspaceToolsEnabled
   ) {
     for (const tool of createMemoryTools({
+      writeAvailable: memoryWriteAvailable,
       memoryStore: {
         list: (workspaceRoot, includeDeleted) => deps.listMemories(workspaceRoot, includeDeleted),
         create: (payload) => deps.createMemory(payload),
@@ -345,8 +373,25 @@ async function runTeachingConversationTurnActive(
       baseRegistry.register(tool)
     }
   }
-  const registry = baseRegistry.project({
+  // Project static tools through capability policy, then attach run-scoped MCP
+  // tools (ADR-0128). MCP names are dynamic and survive via allowsTool.
+  const projected = baseRegistry.project({
     allow: conversation.capabilityPolicy.allowedToolNames,
+    deny: conversation.capabilityPolicy.deniedToolNames
+  })
+  if (settings.tools.enabled && deps.mcpSessionManager) {
+    await injectMcpToolsIntoRegistry({
+      registry: projected,
+      sessionManager: deps.mcpSessionManager,
+      signal: stream.signal
+    })
+  }
+  // Drop any unexpected non-policy tools while keeping mcp__* that allowsTool accepts.
+  const registry = projected.project({
+    allow: [
+      ...conversation.capabilityPolicy.allowedToolNames,
+      ...projected.names().filter((name) => conversation.capabilityPolicy.allowsTool(name))
+    ],
     deny: conversation.capabilityPolicy.deniedToolNames
   })
   const availableTools = registry.definitions()
@@ -361,7 +406,7 @@ async function runTeachingConversationTurnActive(
       return executeWebSearch(args, callCtx)
     }
   }
-  const capturePlan = settings.memory.enabled && conversation.memoryWorkspaceRoot && !directConsentOnly
+  const capturePlan = settings.memory.enabled && conversation.memoryWorkspaceRoot && memoryCatalogAvailable && !directConsentOnly
     ? planLearnerMemoryCapture(buildLearnerMemoryCandidate(userInput), existingMemories)
     : ({ action: 'none', reason: 'no_candidate' } as const)
   const temporaryContext = conversation.mode === 'temporary' && workspace
@@ -511,6 +556,33 @@ async function runTeachingConversationTurnActive(
     memoryCapture: memoryOutcome.memoryCapture,
     usage: result.usage,
     stopReason: result.stopReason
+  }
+}
+
+/**
+ * Loads the durable memory catalog for one chat turn via the platform capability
+ * registry (ADR-0126). Chat hot-path class degrades to empty when the profile
+ * is unavailable; NativeContainedDurableReplaceUnavailableError never escapes
+ * the turn boundary. Non-capability errors still surface.
+ */
+async function loadTeachingMemoryCatalogForTurn(
+  deps: TeachingConversationRuntimeDeps,
+  workspaceRoot: string | undefined
+): Promise<{ available: true; records: TeachingMemoryRecord[] } | { available: false; records: [] }> {
+  const capability = resolvePlatformCapability(PLATFORM_CAPABILITY_CONSUMERS.memoryChatHotPath)
+  if (capability.profile === 'unavailable' || capability.code === 'degraded_empty') {
+    return { available: false, records: [] }
+  }
+  if (!isMemoryChatHotPathAvailable()) {
+    return { available: false, records: [] }
+  }
+  try {
+    return { available: true, records: await deps.listMemories(workspaceRoot) }
+  } catch (error) {
+    if (isNativeContainedDurableReplaceUnavailable(error)) {
+      return { available: false, records: [] }
+    }
+    throw error
   }
 }
 

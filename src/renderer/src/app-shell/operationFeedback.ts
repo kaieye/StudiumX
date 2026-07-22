@@ -256,6 +256,34 @@ function classifyVisibleError(error: unknown, translate: OperationFeedbackTransl
     }
   }
 
+  // ADR-0126: platform capability degrade is not a provider / empty-stream error.
+  if (
+    raw.includes('Descriptor-relative contained directory access is unavailable') ||
+    raw.includes('direct-path memory write') ||
+    raw.includes('Teaching-memory direct-path') ||
+    raw.includes('platform capability') ||
+    raw.includes('windows_direct_path_non_cas') ||
+    raw.includes('write_unavailable')
+  ) {
+    return {
+      message: translate('errors.platformCapabilityDegraded.message'),
+      severity: 'warning',
+      detail: translate('errors.platformCapabilityDegraded.detail')
+    }
+  }
+
+  if (
+    raw.toLowerCase().includes('empty stream') ||
+    raw.toLowerCase().includes('empty_stream') ||
+    raw.includes('EmptyStream')
+  ) {
+    return {
+      message: translate('errors.emptyStream.message'),
+      severity: 'warning',
+      detail: translate('errors.emptyStream.detail')
+    }
+  }
+
   if (raw.includes('ENOENT') || raw.includes('no such file')) {
     return {
       message: translate('errors.fileNotFound.message'),

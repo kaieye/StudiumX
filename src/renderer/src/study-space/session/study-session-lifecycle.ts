@@ -197,6 +197,16 @@ export class StudySessionLifecycle {
     return facts.length > 0 ? [this.analytics(before.clientId, facts)] : []
   }
 
+  /**
+   * Drop the parallel V1 ActiveStudySession without emitting study_session analytics.
+   * Used when a canonical TimerSession is the segment authority and already projected
+   * its own fact (sole-authority demotion). Presence/notification intents are owned
+   * by the product-path handoff handlers, not re-emitted here.
+   */
+  discardActiveSessionWithoutAnalytics(): void {
+    this.activeSession = null
+  }
+
   private applyAdvance(
     current: StudySnapshot,
     session: ActiveStudySessionV1,

@@ -8,6 +8,7 @@ import {
   type TeachingDoctorFacts,
   type TeachingDoctorFixSuggestion,
   type TeachingDoctorLocalDataIndexFacts,
+  type TeachingDoctorMcpFacts,
   type TeachingDoctorOutcomeCrashWindowFacts,
   type TeachingDoctorProcessCrashMarkerFacts,
   type TeachingDoctorReport,
@@ -52,7 +53,8 @@ export function runTeachingDoctor(facts: TeachingDoctorFacts, generatedAt: strin
     checkSourceGap(facts.sourceGap),
     checkCatalogDrift(facts.catalogDrift),
     checkLocalDataIndex(facts.localDataIndex),
-    checkLocalProcessCrashMarker(facts.processCrashMarker)
+    checkLocalProcessCrashMarker(facts.processCrashMarker),
+    checkMcpStatus(facts.mcp)
   ]
 
   return {
@@ -620,6 +622,123 @@ function checkLocalDataIndex(
     repair('manual_review', 'Inspect LocalDataIndex diagnostics and rebuild if needed.'),
     'Review local data index diagnostics. Projection remains disposable.',
     { configPath: pathLabel, fixSuggestion }
+  )
+}
+
+
+function checkMcpStatus(
+  facts: TeachingDoctorMcpFacts | null | undefined
+): TeachingDoctorCheckItem {
+  const checkId: TeachingDoctorCheckId = 'mcp_status'
+  const configPath = facts?.configPathLabel?.trim() || 'userData/mcp/config.v1.json'
+
+  if (facts == null) {
+    return item(checkId, 'skipped', 'MCP status facts were not supplied.', emptyEvidence(), {
+      kind: 'none',
+      description: 'No repair; supply redacted user MCP status for a full diagnosis.',
+      autoRepairAllowed: false
+    }, 'Provide MCP host/config facts and re-run TeachingDoctor.', {
+      configPath,
+      fixSuggestion: {
+        code: 'supply_mcp_status_facts',
+        title: 'Collect user MCP status',
+        steps: [
+          'Load userData/mcp/config.v1.json (secret-free view).',
+          'Include runtime connection state without command secrets.',
+          'Re-run TeachingDoctor.'
+        ],
+        configPath,
+        docsRef: 'adr-0128-user-configurable-mcp'
+      }
+    })
+  }
+
+  const rootEnabled = facts.rootEnabled === true
+  const serverCount = Math.max(0, Math.floor(Number(facts.serverCount) || 0))
+  const enabledServerCount = Math.max(0, Math.floor(Number(facts.enabledServerCount) || 0))
+  const connectedServerCount = Math.max(0, Math.floor(Number(facts.connectedServerCount) || 0))
+  const errorServerCount = Math.max(0, Math.floor(Number(facts.errorServerCount) || 0))
+  const implementationPresent = facts.implementationPresent === true
+
+  const serverIds = (facts.servers ?? [])
+    .map((s) => (typeof s.id === 'string' ? s.id.trim().slice(0, 64) : ''))
+    .filter(Boolean)
+    .slice(0, 16)
+
+  const evidence = safeEvidence(
+    {
+      implementationPresent,
+      rootEnabled,
+      serverCount,
+      enabledServerCount,
+      connectedServerCount,
+      errorServerCount,
+      configPathLabel: configPath
+    },
+    serverIds.map((id) => `server=${id}`)
+  )
+
+  if (!implementationPresent) {
+    return item(
+      checkId,
+      'ok',
+      'User MCP implementation is not present in this build (or not wired).',
+      evidence,
+      repair('none', 'No repair required.'),
+      'No action required.',
+      { configPath }
+    )
+  }
+
+  if (!rootEnabled) {
+    return item(
+      checkId,
+      'ok',
+      'User MCP root switch is off (default). No MCP connections expected.',
+      evidence,
+      repair('none', 'No repair required.'),
+      'Leave MCP disabled unless you intentionally need external tools. Enable only under Settings · MCP.',
+      { configPath }
+    )
+  }
+
+  if (errorServerCount > 0) {
+    return item(
+      checkId,
+      'warning',
+      `User MCP is enabled with ${errorServerCount} server(s) in error state.`,
+      evidence,
+      repair(
+        'manual_review',
+        'Review MCP server command/config under Settings · MCP; fix spawn/handshake failures. Secrets stay out of doctor evidence.'
+      ),
+      'Open Settings · MCP, test the failing server, and inspect logs (redacted). Do not enable marketplace or YOLO.',
+      {
+        configPath,
+        fixSuggestion: {
+          code: 'review_mcp_server_errors',
+          title: 'Review MCP server errors',
+          steps: [
+            'Open Settings · MCP.',
+            'Confirm root switch and per-server enable flags are intentional.',
+            'Use Test connection on the failing server.',
+            'Fix command/args/cwd; never paste secrets into support bundles.'
+          ],
+          configPath,
+          docsRef: 'adr-0128-user-configurable-mcp'
+        }
+      }
+    )
+  }
+
+  return item(
+    checkId,
+    'ok',
+    `User MCP is enabled (${enabledServerCount}/${serverCount} server(s) enabled, ${connectedServerCount} connected).`,
+    evidence,
+    repair('none', 'No repair required.'),
+    'MCP tools still require the existing approval lattice; enabling a server is not tool auto-approval.',
+    { configPath }
   )
 }
 

@@ -16,6 +16,10 @@ import type {
   StudyPlanningPreferencesV1,
   StudyPlanningSnapshotV1
 } from './study-planning-store'
+import {
+  normalizeStudyPlanningCategories,
+  type StudyPlanningCategoryV1
+} from './study-planning-categories'
 import type { MigrationReportEntry, SuggestedTimeWindow } from './migrate-v1'
 
 export type ImportMigrationCommitPayload = {
@@ -30,6 +34,8 @@ export type ImportMigrationCommitPayload = {
    */
   timerSessions?: readonly TimerSessionRecord[]
   preferences?: Partial<StudyPlanningPreferencesV1>
+  /** Optional category catalog seed (dedupe keep color/id). */
+  categories?: readonly StudyPlanningCategoryV1[]
   /** Report codes from dry-run (stored as rebuildable hints only). */
   migrationReport?: readonly MigrationReportEntry[]
   /** Suggested windows only — never written as ScheduleBlock history. */
@@ -351,6 +357,33 @@ export function applyImportMigrationCommit(input: {
         defaultTimerPlanId: pref.defaultTimerPlanId as string | null
       }
     }
+    if (typeof pref.simulationStartTime === 'string' && /^\d{1,2}:\d{2}$/.test(pref.simulationStartTime.trim())) {
+      const m = pref.simulationStartTime.trim().match(/^(\d{1,2}):(\d{2})$/)
+      if (m) {
+        const h = Math.min(23, Math.max(0, Number(m[1])))
+        const min = Math.min(59, Math.max(0, Number(m[2])))
+        preferences = {
+          ...preferences,
+          simulationStartTime: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+        }
+      }
+    }
+    if (typeof pref.simulationEndTime === 'string' && /^\d{1,2}:\d{2}$/.test(pref.simulationEndTime.trim())) {
+      const m = pref.simulationEndTime.trim().match(/^(\d{1,2}):(\d{2})$/)
+      if (m) {
+        const h = Math.min(23, Math.max(0, Number(m[1])))
+        const min = Math.min(59, Math.max(0, Number(m[2])))
+        preferences = {
+          ...preferences,
+          simulationEndTime: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+        }
+      }
+    }
+  }
+
+  let categories: StudyPlanningCategoryV1[] | undefined = base.categories
+  if (Array.isArray(input.payload.categories)) {
+    categories = normalizeStudyPlanningCategories(input.payload.categories)
   }
 
   const report = Array.isArray(input.payload.migrationReport)
@@ -399,6 +432,7 @@ export function applyImportMigrationCommit(input: {
     timerPlans: nextPlans,
     timerSessions: nextSessions,
     preferences,
+    ...(categories ? { categories } : {}),
     localAnalyticsHints: {
       ...base.localAnalyticsHints,
       lastMigration: {

@@ -6,7 +6,7 @@
 
 - 想快速了解现状：阅读下方的“已实施决定”表。
 - 想知道某项做法的原因、边界和测试入口：打开对应 ADR。
-- 想知道接下来还准备做什么：以本目录 ADR 的「明确不包含 / non-claims / 延期」段落为准。当前**无开放 local-data / destructive writer 实现切片**；唯一延期项为 C-6 destructive Memory migration（见 [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md) 第 3 节），不可分派为实现。[ADR-0094](0094-study-task-timer-planning-design-gate.md) 为 study-planning Phase 0 产品冻结；路径 / wire / Store 合同见 [ADR-0117](0117-study-planning-store-paths-and-wire.md)（gate 已开，**store 实现仍须独立 PR**）。
+- 想知道接下来还准备做什么：以本目录 ADR 的「明确不包含 / non-claims / 延期」段落为准。当前**无开放 local-data / destructive writer 实现切片**；唯一延期项为 C-6 destructive Memory migration（见 [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md) 第 3 节），不可分派为实现。[ADR-0094](0094-study-task-timer-planning-design-gate.md) 为 study-planning Phase 0 产品冻结；路径 / wire / Store 合同见 [ADR-0117](0117-study-planning-store-paths-and-wire.md)；renderer cutover 权威切分见 [ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md)（已实施沉淀；§18 仍以路线图为准）；Phase 7 高级排程与 §18 residual 政策见 [ADR-0130](0130-study-planning-phase7-and-completion-residual.md)。
 - 下一步工作必须遵循：独立 ADR + design gate 获得 scope / owner / API 批准 → 单独立项实施；design gate / dry-run / preflight 本身不授权直接修改 writer 或 destructive path。
 - 想研究已关闭工作的历史决定：以本目录 ADR 为准（C-4P6 运维步骤见 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)）；延期前提见 [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md)。
 
@@ -20,6 +20,8 @@
 | 哪些 writer 已使用 durable publish，以及受控 `write_workspace_file` 的 P8 S1–S4 closure 到哪里 | ADR-0004、ADR-0035 |
 | 已覆盖持久化链如何关联 trace，同时保持日志安全 | ADR-0005 |
 | Memory 数据如何按范围隔离，以及能否迁移旧数据 | ADR-0006、ADR-0038 |
+| 用户是否可自行配置 MCP server；与 marketplace / P2-6 旧禁令关系 | [ADR-0127](0127-user-configurable-mcp-design-gate.md)（政策 design gate）+ [ADR-0128](0128-user-configurable-mcp-implementation.md)（实现合同 / 分 phase；默认 off；仍无 marketplace） |
+| Windows / 跨平台 I/O 如何按 Codex 式 profile 分层，memory 与聊天热路径如何迁移 | [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)（**已实施 / 分 phase 结项**；Windows memory direct-path non-CAS + registry；outcome/audit Windows 仍 unavailable） |
 | 新持久化 conversation/history 如何先经脱敏 | ADR-0007 |
 | 哪些本地数据能力仍未完成 / 延期 | 当前无开放实现切片；C-6 destructive 延期见 ADR-0038 |
 | P0 教学 Session 如何成为 canonical 事实，而非 Agent run 或 Lesson 目录 | ADR-0008 |
@@ -52,6 +54,8 @@
 | 校/团 managed 配置如何从 userData 根 fail-closed 加载并在 CAS 重解析保真 | ADR-0092 |
 | 学习任务 / 计时器 / 学习规划的 Phase 0 design gate | ADR-0094 |
 | Study planning canonical 路径 / wire v1 / Store 命令信封 / V1 迁移 | ADR-0117 |
+| Study planning renderer cutover / dual-write + sole-read / TimerSession analytics authority | [ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md) |
+| 学习规划 Phase 7 高级排程与 §18 是否算完成 | [ADR-0130](0130-study-planning-phase7-and-completion-residual.md)（决策 + residual；非产品全量交付声明）；cutover 事实见 [ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md) |
 | Course 如何持久化 Session 顺序而不以 SQLite 为真相 | ADR-0026 |
 | Doctor / Inspector 如何只读诊断且不自动修复 | ADR-0027 |
 | 教学审计如何用 ID correlation 与安全元数据 | ADR-0028 |
@@ -103,9 +107,10 @@
 | TeachingDoctor session/outcome crash-window scan collectors（product gateway 注入） | ADR-0104 |
 | TeachingDoctor source-gap facts collector（workspace summary projection + gateway 注入） | ADR-0105 |
 | Provider finish/stop 透传与 length 截断拒 tool | ADR-0051 |
-| GitHub Actions SHA pin / Dependabot(actions) / OSV fail-open | ADR-0054 |
+| GitHub Actions SHA pin / Dependabot(actions) / OSV fail-open / critical npm exact pin | ADR-0054 |
 | Provider 有界 jittered retry 与共享 run budget | ADR-0057 |
 | Provider 错误 UX 与 recovery taxonomy（quota ≠ rate_limit） | ADR-0052 |
+| Provider overflow 模式库与静默 overflow 启发式 | ADR-0125 |
 | 根 AGENTS.md、security suite 闭环与测试教条分层 | ADR-0053 |
 | Node engines / .nvmrc 与本地 SOURCE_REV 构建身份 | ADR-0072 |
 | 教学产品 FeatureRegistry（stage 元数据，非第二套授权） | ADR-0073 |
@@ -189,7 +194,7 @@
 | [ADR-0036](0036-mission-update-action-receipt-correlation.md) | C-5H mission_update action/receipt | renderer opaque actionId、workspace-private receipt、main-keyed requestTag、typed disposition 与 final-only exact retry；不含 style/agent/CAS UI。 |
 | [ADR-0037](0037-direct-ui-lesson-generation-action-correlation.md) | C-5I direct-UI lesson generation correlation | 仅 direct-UI `generateLesson` / `generateLessonStream`：caller UUID v4 `actionId`、private receipt、HMAC requestTag、status poll 与 fail-closed dispositions；agent path 隔离；不覆盖 mission、C-5H、全局 projection recovery 或 content dedupe。 |
 | [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md) | C-6 readonly dry-run + destructive deferral | 采纳 main-only readonly dry-run intent/receipt preview；readonly preflight/dry-run 不构成 destructive authorization；真实 copy/hold/publish/delete 延期且当前不可分派为实现。 |
-| [ADR-0039](0039-teaching-adoption-closeout-and-signal-triggered-p2.md) | Codex Rust 教学化借鉴结项 | 教学闭环优先、不扩张通用 coding agent；P0/P1/已实施 P2 不得重开；P2-6 MCP 与 P2-7 Helper Isolation 仅信号触发且默认不排期。 |
+| [ADR-0039](0039-teaching-adoption-closeout-and-signal-triggered-p2.md) | Codex Rust 教学化借鉴结项 | 教学闭环优先、不扩张通用 coding agent；P0/P1/已实施 P2 不得重开；P2-6 通用 MCP 默认禁令由 [ADR-0127](0127-user-configurable-mcp-design-gate.md) 收窄为用户 opt-in 可配置（design gate）；P2-7 Helper Isolation 仍信号触发且默认不排期。 |
 | [ADR-0121](0121-improvements-adoption-closeout.md) | 四源改进借鉴 ADOPTION 结项 | Phase0–2 可实现项已落地；`docs/improvements/` 清空；defer/residual 仅信号触发；命名冻结 + 假升级清单。 |
 | [ADR-0040](0040-teaching-session-protocol-facade.md) | TeachingSessionProtocol 进程内会话门面 | 稳定 create/resume/send/cancel/compact/fork/steer/checkpoint/usage 内部协议 + runtime facade。 |
 | [ADR-0041](0041-tool-annotations-and-result-budget.md) | 工具 annotations 与 result budget | risk annotations + 默认 32KiB 硬字节预算；dispatcher/registry 成功路径强制截断。 |
@@ -197,7 +202,7 @@
 | [ADR-0043](0043-doctor-config-locator-and-fix-suggestion.md) | Doctor 配置定位与 fix suggestion | configPath + 结构化 fixSuggestion；autoRepair 仍禁用。 |
 | [ADR-0044](0044-teaching-prompt-cache-contract.md) | Teaching prompt cache contract | 会话稳定 system prefix 与按轮次注入 user turn-tail；动态页面、记忆、画像和技能正文不进入稳定前缀。 |
 | [ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md) | Context hygiene ladder + quality gates | 默认 provider 投影阶梯（hygiene → compact）与可选 durable boundary；SECURITY.md、PR impact 门、workflow concurrency、check:prepush。 |
-| [ADR-0046](0046-teaching-footprint-ladder.md) | Teaching Capability Footprint Ladder | 能力优先走 skill/host/受 gating tool，MCP 远期，core tool 最后；临时 chat schema 严格小于 teaching chat；TeachingCommand 由单一 registry 派生；用户 Markdown slash 不在范围内。 |
+| [ADR-0046](0046-teaching-footprint-ladder.md) | Teaching Capability Footprint Ladder | 能力优先走 skill/host/受 gating tool，MCP 远期，core tool 最后；临时与教学工具面差距仅限教学文件生成（可共享 MCP；见 ADR-0128）；TeachingCommand 由单一 registry 派生；用户 Markdown slash 不在范围内。 |
 | [ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md) | Agent runtime wire + teaching-turn orchestrator | Closed runtime event wire, pure status aggregation, and injectable build→loop→finalize skeleton; no ledger settlement authority. |
 | [ADR-0048](0048-tool-contract-and-write-policy.md) | Tool contract + pure write policy | Registered tool inventory is checked against the effect lattice; workspace write decisions are pure and advisory. |
 | [ADR-0049](0049-write-rewind-journal.md) | Write rewind journal | `write_workspace_file` first-touch pre-image under `.studiumx/checkpoints/<runId>/`；IPC/UI「撤销本轮写入」与 conversation checkpoint 分离；不削弱 durable publish。 |
@@ -228,9 +233,13 @@
 | [ADR-0096](0096-agent-session-autodrain-product-evaluation.md) | Product autoDrain evaluation (keep false) | B-02 residual：**决策 product 继续 `autoDrain: false`**；记录 wiring / 只读队列 IPC / 翻转前置条件；无生产行为变更；可选只读 renderer consumer residual。 |
 | [ADR-0070](0070-agent-runtime-wire-shared-protocol.md) | Agent runtime wire → shared/protocol | S-01：canonical wire types/serializers 在 src/shared/protocol；main 兼容 re-export；settlement / TeachingEvent 大迁移不在本切片。 |
 | [ADR-0051](0051-provider-finish-reason-and-length-tool-rejection.md) | Provider finish reason + length tool rejection | `ChatAdapterResult.finishReason` 透传；ledger 不再伪造 stop；`length`+toolCalls 零 handler。 |
-| [ADR-0054](0054-actions-sha-pin-dependabot-osv-fail-open.md) | Actions SHA pin + dependabot(actions) + OSV fail-open | 外部 Actions 全 commit SHA；Dependabot 仅 github-actions；OSV 扫描 fail-open，不替换 teaching blocking 门。 |
+| [ADR-0054](0054-actions-sha-pin-dependabot-osv-fail-open.md) | Actions SHA pin + dependabot(actions) + OSV fail-open + critical npm exact pin | 外部 Actions 全 commit SHA；Dependabot 仅 github-actions；OSV 扫描 fail-open；allowlist critical npm exact pin（`check:pinned-critical-deps`，不进 Blocking CI / 不替换 teaching 门）。 |
 | [ADR-0057](0057-provider-bounded-retry-and-shared-budget.md) | Provider bounded retry + shared budget | A-05：`provider-retry.ts` full-jitter；loop 对 retryable 错误有界重试；计入 maxProviderCalls；`auto_retry_*` 诊断；billing/auth/length/overflow 永不重试。 |
 | [ADR-0052](0052-provider-error-and-recovery-taxonomy.md) | Provider error UX + recovery taxonomy | UX 四类保留；`quota exceeded`/billing → `insufficient_balance` 不再进 `rate_limit`；`classifyProviderRecovery` 纯函数导出 retryable/shouldCompress/shouldFallback（未接线 retry）。 |
+| [ADR-0125](0125-provider-overflow-patterns-and-silent-heuristics.md) | Provider overflow patterns + silent heuristics | 见上表 ADAPT-P1；扩展 0052 的 context_overflow 文本/静默检测，不改变 flags。 |
+| [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md) | Codex 式平台能力分层与 consumer 迁移 | **已实施（分 phase）**：PlatformIoProfile registry + chat hot-path degrade + Windows memory `windows_direct_path_non_cas` 读写；doctor/Settings 诚实投影；outcome/audit Windows 保持 unavailable。不重开 Windows strict；不引入 danger-full-access / 默认 shell。 |
+| [ADR-0127](0127-user-configurable-mcp-design-gate.md) | 用户可配置 MCP design gate | **决策冻结 / 未实施**：允许用户 opt-in 配置用户指定 MCP server；默认 off；无 marketplace；effect lattice + settlement 不变量；实现须另立 ADR。 |
+| [ADR-0128](0128-user-configurable-mcp-implementation.md) | 用户可配置 MCP 实现合同 | **实现合同 / 分 phase**：UserMcpConfigV1 路径与 schema；stdio 先；`mcp__server__tool`；默认 privileged；IPC `teach:mcp-*`；A–D 门槛；无 marketplace。 |
 | [ADR-0053](0053-agents-md-security-suite-and-testing-doctrine.md) | 根 AGENTS.md + security suite + 测试教条 | SECURITY_CHECKS 纳入 external-content boundary；根 AGENTS 命令图/红线/改哪测哪；testing.md L0/L1/L2/L4；不替代 ADR、不扩 Blocking CI。 |
 | [ADR-0072](0072-node-engines-and-source-rev-build-identity.md) | Node engines / .nvmrc + SOURCE_REV 构建身份 | `.nvmrc`=22；`engines.node` `>=22 <25`；`readBuildIdentity` fail-closed；doctor 非阻塞展示；非 SBOM / 非签名 / 无 phone-home。 |
 | [ADR-0073](0073-teaching-feature-registry.md) | Teaching FeatureRegistry（薄元数据） | 纯 `features.ts` stage 生命周期；非 CapabilityCatalog/Ladder 替换；禁止 shell/code_mode/YOLO bypass。 |
@@ -247,6 +256,8 @@
 | [ADR-0115](0115-tool-policy-multi-path-load-merge.md) | Tool-policy multi-path load+merge | `loadAndMergeToolPolicyDocumentsFromWorkspace`：primary + optional course overlay；fail-soft per file；merge via 0112；仅 conversation inject；无 Granular UI。 |
 | [ADR-0118](0118-tool-policy-secondary-multi-path-inject.md) | Tool-policy secondary multi-path inject | 次级 inject（delegation / lesson-plan / capability·connector catalog）改用 multi-path helper；grant/omit 门禁不变；primary-only ≡ 单文件；无 Granular UI。 |
 | [ADR-0117](0117-study-planning-store-paths-and-wire.md) | Study planning store paths / wire v1 | 冻结 `.studiumx/study-planning/` 布局、`schemaVersion: 1`、Store 命令信封与错误码、V1→V2 dry-run/fail-closed 迁移；**本 ADR 无生产写路径**；实现须另 PR。 |
+| [ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md) | Study planning renderer cutover + sole-authority | **已实施沉淀**：dual-write 写 canonical + sole-read hydrate；TimerSession 为 segment-close analytics / live focus 秒权威；迁移 fail-closed 且不自动擦除 localStorage；sleep 用 renderer visibility/pagehide，main powerMonitor 延期；**不**宣称 §18 完成；**不**超出 ADR-0117 再冻路径。 |
+| [ADR-0130](0130-study-planning-phase7-and-completion-residual.md) | Study planning Phase 7 高级排程 + §18 residual 政策 | **决策冻结**（2026-07-22）：STC-702 pure-sequence-first / UI 延期；STC-703 pure expand；STC-704 pure TZ/DST helpers；**路线图完成 ≠ §18 产品完成**；V1 并存 / powerMonitor / 深度 conflict resolve 等 residual 带触发条件 |
 | [ADR-0078](0078-workspace-host-port.md) | WorkspaceHost 薄端口 + 轻量 import 门 | S-02：src/main/workspace-host/* 委托 path-access/paths/access；依赖方向 tools→port→path；check:workspace-host-imports 可选、**不**进 Blocking CI；**不** peel teaching-workspace。 |
 | [ADR-0080](0080-teaching-turn-review-finalize-wire.md) | Teaching-turn review finalize wire | Orchestrator 可选 post-finalize review hook；candidates only；hook 错误 fail-soft 保 settlement；无 coordinator/UI/auto-apply。 |
 | [ADR-0081](0081-memory-sanitize-non-recall-paths.md) | Memory sanitize non-recall paths | ADR-0076 residual：lesson prompts + memory-tools 注入边界消毒；storage raw；无 FTS5 / 无自动 memory。 |
@@ -263,6 +274,7 @@
 | [ADR-0122](0122-usage-ledger-as-canonical-observability.md) | Usage ledger as canonical observability | 设计权威 + **DB-P0-3 最小实现已落地**（JSONL + optional SQLite projection）；与 LearningSession 正交、诊断级 retention、redaction；非「仅设计未实现」。 |
 | [ADR-0123](0123-runtime-session-store.md) | Runtime session store (design only) | **Proposed / 未实施**：可选 disposable runtime 缓存形状 + 硬门槛；export/resume 仍文件权威；不 override DB-P2-3；无生产 schema/writer。 |
 | [ADR-0124](0124-database-layered-authority-and-pr-gates.md) | Database 分层权威 + PR 验收闸 + P2 边界 | 写/读分层；六大 Gate；DB-P2-1…4 触发/won't-do；P0/P1/OPT 诚实状态；替代已删除的 `docs/improvements/database-*` 活草稿。 |
+| [ADR-0125](0125-provider-overflow-patterns-and-silent-heuristics.md) | Provider overflow 模式库 + 静默启发式 | ADAPT-P1：provider-overflow-patterns pure 匹配；NON_OVERFLOW 排除 throttling；silent stop/length usage；overflow 仍 retryable:false shouldCompress:true。 |
 ## C-4P6 历史 evidence 与受限结项边界
 
 > 本节保存 ADR-0004 的历史 evidence 范围；**当前工作线 close-out** 以 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 为准，不再作为开放实现 todo。
@@ -322,6 +334,6 @@ Database 子系统：event density / backup-export / multi-workspace rebuild 默
 - 已实施且会长期影响架构的决定，新增一份编号递增的 ADR；不要为了记录小进度而新建 ADR。
 - 已实施决定的范围、边界或验证入口变化时，更新对应 ADR；新的开放/延期工作必须新增独立 ADR（含 design gate 前提），不得把 ADR 的受限切片扩大为完整 closure。已结项 plan 应删除，不保留无用指针 stub。
 - ADR 中的 Git 提交 hash 是验证线索。若合并主线时使用 rebase 或 squash 导致 hash 改变，应将其更新为主线中可追溯的提交或合并记录。
-- ADR 记录的是已获采纳的决定；尚未批准的建议不得记为已实施事实。当前无独立 local-data 待办页：开放实现须先有新 ADR 批准，延期项以各 ADR 的 non-claims / 延期段落为准（C-6 destructive 见 ADR-0038）。Study-planning：Phase 0 见 [ADR-0094](0094-study-task-timer-planning-design-gate.md)；路径/wire/store 合同见 [ADR-0117](0117-study-planning-store-paths-and-wire.md)。
+- ADR 记录的是已获采纳的决定；尚未批准的建议不得记为已实施事实。当前无独立 local-data 待办页：开放实现须先有新 ADR 批准，延期项以各 ADR 的 non-claims / 延期段落为准（C-6 destructive 见 ADR-0038）。Study-planning：Phase 0 见 [ADR-0094](0094-study-task-timer-planning-design-gate.md)；路径/wire/store 合同见 [ADR-0117](0117-study-planning-store-paths-and-wire.md)；renderer cutover 见 [ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md)；Phase 7 / §18 residual 见 [ADR-0130](0130-study-planning-phase7-and-completion-residual.md)。
 
 

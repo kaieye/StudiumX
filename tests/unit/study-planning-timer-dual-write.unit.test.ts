@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  buildAdvanceTimerSessionCommand,
   buildFinishTimerSessionCommand,
   buildPauseTimerSessionCommand,
+  buildReconcileStaleSessionCommand,
   buildResumeTimerSessionCommand,
   buildStartTimerSessionCommand,
   createCanonicalTimerSessionId,
   dualWriteFinishTimerSession,
   dualWritePauseTimerSession,
+  dualWriteReconcileStaleSession,
   dualWriteResumeTimerSession,
   dualWriteStartTimerSession,
   resolveTimerAttribution
@@ -123,12 +126,49 @@ describe('timer dual-write builders', () => {
     })
   })
 
+  it('buildStartTimerSessionCommand includes phase for break segments', () => {
+    const cmd = buildStartTimerSessionCommand(
+      {
+        sessionId: 'ts:break:1',
+        taskId: null,
+        planId: 'classic_25_5',
+        targetSeconds: 300,
+        attributionReason: 'unattributed',
+        phase: 'short_break'
+      },
+      'aid-break',
+      42
+    )
+    expect(cmd.type).toBe('start_timer_session')
+    expect(cmd.payload).toMatchObject({
+      id: 'ts:break:1',
+      planId: 'classic_25_5',
+      taskId: null,
+      targetSeconds: 300,
+      attributionReason: 'unattributed',
+      phase: 'short_break'
+    })
+  })
+
   it('builds pause/resume/finish with sessionId', () => {
     expect(buildPauseTimerSessionCommand('ts-1', 'a').type).toBe('pause_timer_session')
     expect(buildResumeTimerSessionCommand('ts-1', 'a').payload).toEqual({ sessionId: 'ts-1' })
     expect(buildFinishTimerSessionCommand('ts-1', 'cancelled', 'a').payload).toEqual({
       sessionId: 'ts-1',
       reason: 'cancelled'
+    })
+  })
+
+  it('builds advance + reconcile_stale_session (STC-206)', () => {
+    expect(buildAdvanceTimerSessionCommand('ts-1', 'a', 9, 100).payload).toEqual({
+      sessionId: 'ts-1',
+      nowMs: 100
+    })
+    expect(buildReconcileStaleSessionCommand('ts-1', 'discard_gap', 'a', 9)).toEqual({
+      actionId: 'a',
+      type: 'reconcile_stale_session',
+      payload: { sessionId: 'ts-1', decision: 'discard_gap' },
+      clientIssuedAtMs: 9
     })
   })
 
@@ -302,5 +342,30 @@ describe('dualWrite pause/resume/finish', () => {
     await dualWriteResumeTimerSession({ api, workspaceRoot: '/ws', nowMs: () => 1 }, 'ts-1')
     await dualWriteFinishTimerSession({ api, workspaceRoot: '/ws', nowMs: () => 2 }, 'ts-1', 'cancelled')
     expect(types).toEqual(['resume_timer_session', 'finish_timer_session'])
+  })
+})
+
+describe('dualWriteReconcileStaleSession (STC-206)', () => {
+  it('skips without workspace', async () => {
+    const result = await dualWriteReconcileStaleSession(
+      { api: mockApi(), workspaceRoot: '' },
+      'ts-1',
+      'discard_gap'
+    )
+    expect(result.kind).toBe('canonical_skipped')
+  })
+
+  it('applies reconcile_stale_session command', async () => {
+    const seen: unknown[] = []
+    const api = mockApi({ onApply: (p) => seen.push(p) })
+    const result = await dualWriteReconcileStaleSession(
+      { api, workspaceRoot: 'D:/ws', nowMs: () => 50 },
+      'ts-1',
+      'confirm_all'
+    )
+    expect(result.kind).toBe('canonical_ok')
+    const first = seen[0] as { command: { type: string; payload: { decision: string } } }
+    expect(first.command.type).toBe('reconcile_stale_session')
+    expect(first.command.payload.decision).toBe('confirm_all')
   })
 })

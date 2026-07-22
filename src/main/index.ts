@@ -10,6 +10,7 @@ import { TeachingMemoryCatalog } from './teaching-memory-catalog'
 import { registerTeachingIpcGateway } from './teaching-ipc-gateway'
 import { createTeachingTurnCoordinatorHost } from './teaching-turn-coordinator-host'
 import { registerMusicIpcGateway } from './music/music-ipc-gateway'
+import { McpHost, registerMcpIpcGateway } from './mcp'
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { openExternalHttpUrl } from './external-links'
@@ -205,6 +206,7 @@ if (!hasSingleInstanceLock) {
   app.quit()
 } else {
   let runtime: ApplicationRuntime | undefined
+  let mcpHost: McpHost | undefined
   let uninstallCrashMarkerHooks: (() => void) | undefined
 
   app.whenReady().then(async () => {
@@ -212,6 +214,8 @@ if (!hasSingleInstanceLock) {
     app.setAppUserModelId('com.local.studiumx')
 
     const userDataPath = app.getPath('userData')
+    mcpHost = new McpHost({ userDataPath, secretStorage: safeStorage })
+    await mcpHost.start()
     // Local crash marker (ADR-0066 / B-11): next-start doctor visibility only.
     // No upload, OTEL, or remote telemetry.
     const crashMarkers = createCrashMarkerStore({ appDataRoot: userDataPath })
@@ -250,7 +254,8 @@ if (!hasSingleInstanceLock) {
           defaultRoot,
           settingsProvider: () => settingsService.load(),
           skillLibraryService,
-          logger
+          logger,
+          mcpSessionManager: mcpHost?.getSessionManager() ?? null
         })
         return {
           settingsService,
@@ -327,10 +332,18 @@ if (!hasSingleInstanceLock) {
           applyAppBehavior: (settings) => applyAppBehavior(settings, tray, logger),
           turnCoordinatorHost,
           // B-11 / ADR-0084: product TeachingDoctor IPC reads process crash marker.
-          crashMarkerStore: crashMarkers
+          crashMarkerStore: crashMarkers,
+          // ADR-0128 Phase E: redacted user MCP status for doctor.
+          mcpFactsSource: mcpHost
+            ? {
+                loadConfig: () => mcpHost!.configStore.load(),
+                listRuntime: () => mcpHost!.listRuntime()
+              }
+            : null
         })
 
         registerMusicIpcGateway()
+        if (mcpHost) registerMcpIpcGateway({ host: mcpHost })
 },
       open: ({ settingsService, initialSettings, tray, logger }) => {
         const startHidden = initialSettings.appBehavior.startMinimized || process.argv.includes('--hidden')
@@ -346,6 +359,7 @@ if (!hasSingleInstanceLock) {
       },
       drain: ({ localDataIndex, logger }) => {
         localDataIndex.close()
+        void mcpHost?.dispose()
         return logger.shutdown()
       }
     })

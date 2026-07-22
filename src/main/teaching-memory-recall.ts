@@ -6,6 +6,10 @@ import type {
 } from '../shared/teaching-types'
 import { sanitizeMemoryInjectionText } from '../shared/memory-sanitize'
 import { TeachingMemoryCatalog } from './teaching-memory-catalog'
+import {
+  PLATFORM_CAPABILITY_CONSUMERS,
+  resolvePlatformCapability
+} from './platform/platform-capability-registry'
 
 export type TeachingMemoryRecallInput = {
   query: string
@@ -64,12 +68,16 @@ export class TeachingMemoryRecall {
   async diagnostics(): Promise<TeachingMemoryDiagnostics> {
     const settings = await this.options.settingsProvider()
     const snapshot = await this.options.catalog.diagnosticsSnapshot()
+    const capability = resolvePlatformCapability(PLATFORM_CAPABILITY_CONSUMERS.memoryCatalog)
     return {
       enabled: settings.memory.enabled,
       activeCount: snapshot.activeCount,
       tombstoneCount: snapshot.tombstoneCount,
       lastInjectedCount: this.lastInjectedCount,
-      legacyMigrationPreflight: snapshot.legacyMigrationPreflight
+      legacyMigrationPreflight: snapshot.legacyMigrationPreflight,
+      platformIoProfile: capability.profile,
+      platformCapabilityCode: capability.code,
+      platformCapabilityMessageKey: capability.messageKey
     }
   }
 

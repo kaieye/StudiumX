@@ -679,6 +679,14 @@ export function isNativeContainedDurableReplaceUnavailable(
   return error instanceof NativeContainedDurableReplaceUnavailableError
 }
 
+/** Test/host helper: construct the platform-capability fail-closed error. */
+export function createNativeContainedDurableReplaceUnavailableError(
+  reason: NativeContainedDurableReplaceUnavailableReason,
+  cause?: unknown
+): Error {
+  return new NativeContainedDurableReplaceUnavailableError(reason, cause)
+}
+
 function canonicalizeConfiguredRoot(rootPath: string): { physicalParentPath: string; rootName: string } {
   if (!isSafeRootPath(rootPath)) throw new Error('Contained root directory path is invalid.')
   const logicalRootPath = resolve(rootPath)

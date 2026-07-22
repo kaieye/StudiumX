@@ -9,6 +9,9 @@
 
 新的 Memory 写入按稳定 scope hash 分区，读取同时兼容 scoped 与 legacy flat 文件，并以 descriptor-relative、no-follow I/O 处理冲突与恢复边界。为评估 legacy flat Memory，只暴露来自同一次 descriptor-bound discovery snapshot 的 aggregate-only readonly preflight：eligible、already partitioned、duplicate/recovery blockers 和 `migrationReady`。
 
+
+**平台 I/O profile 扩展（不改写本决定的分区/preflight 语义）：** Windows 上 memory catalog 的 descriptor-relative 路径由 [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md) 以 `windows_direct_path_non_cas` 分层接替；POSIX 仍为 descriptor-relative。聊天热路径按 chat_hot_path_read 降级，权威写 fail-closed。
+
 ## 已落地范围与验证入口
 
 - `26eca18` 实现 scope 分区写入、mixed scoped/flat tolerant read、重复冲突处理和受限 I/O。

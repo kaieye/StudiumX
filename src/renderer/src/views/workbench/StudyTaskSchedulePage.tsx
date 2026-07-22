@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarDays, Check, ChevronDown, Clock3, PencilLine, Plus, Target, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CalendarClock, CalendarDays, Check, ChevronDown, Clock3, PencilLine, Plus, Target, Trash2, X } from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -19,6 +19,30 @@ import type {
   StudyTaskScheduleInput,
   StudyTaskUpdateInput
 } from '../../study-space/types'
+import { createClassicPomodoroPlan, type ScheduleBlock } from '../../../../shared/study-planning'
+import { projectWeekScheduleEntriesFromHost } from '../../study-space/planning-schedule-block-adapter'
+import {
+  resolveLocalDayBounds,
+  resolveLocalWeekAnchorMidnightMs
+} from '../../study-space/planning-task-timeline-adapter'
+import {
+  buildAllocationProposalPreview,
+  buildTimeWindowFromSimulation,
+  type AllocationProposalPreviewModel
+} from '../../study-space/planning-allocation-proposal-ui'
+import type { AllocationApplyBlock } from '../../study-space/planning-allocation-dual-write'
+import {
+  AllocationProposalPreviewSheet,
+  type AllocationProposalSheetResult
+} from './AllocationProposalPreviewSheet'
+import { StudyTaskMultiBlockSection } from './StudyTaskMultiBlockSection'
+import { StudyTaskDetailStatsSection } from './StudyTaskDetailStatsSection'
+import { StudyScheduleConflictsBanner } from './StudyScheduleConflictsBanner'
+import {
+  projectScheduleConflictsBanner,
+  shouldShowScheduleConflictsBanner
+} from '../../study-space/planning-schedule-conflicts-ui'
+import { normalizeEstimateMinutesInput } from '../../study-space/planning-task-detail-stats'
 import {
   addStudyTaskCategory,
   getReadableCategoryInk,
@@ -28,6 +52,8 @@ import {
   resolveStudyTaskCategory,
   updateStudyTaskCategory
 } from '../../study-space/taskCategories'
+import { dualWriteSetCategories } from '../../study-space/planning-categories-dual-write'
+import type { CanonicalPlanningContext } from '../../study-space/planning-dual-write'
 import {
   MINUTES_PER_DAY,
   canUseScheduleTime,
@@ -50,6 +76,9 @@ import {
 } from './study-task-schedule-interaction'
 import { layoutDayTasks, type ScheduledStudyTask } from './study-task-schedule-layout'
 
+/** Week chip may carry the real ScheduleBlock id (STC-307 multi-block). */
+type WeekChipTask = ScheduledStudyTask & { scheduleBlockId?: string }
+
 type StudyTaskSchedulePageProps = {
   tasks: StudyTask[]
   openTasks: number
@@ -57,18 +86,80 @@ type StudyTaskSchedulePageProps = {
   selectedTaskId?: string | null
   onSelectTask?: (taskId: string | null) => void
   onAddScheduledTask: (title: string, schedule: StudyTaskScheduleInput, categoryId?: StudyTaskCategoryId | null) => boolean
-  onUpdateTask: (taskId: string, update: StudyTaskUpdateInput) => boolean
+  /**
+   * V1 update; optional options.blockId targets a real ScheduleBlock (STC-307).
+   */
+  onUpdateTask: (
+    taskId: string,
+    update: StudyTaskUpdateInput,
+    options?: { blockId?: string; weekAnchorMidnightMs?: number }
+  ) => boolean
   onToggleTask: (taskId: string) => void
   onRemoveTask: (taskId: string) => void
   onBack: () => void
   openAddEditorOnMount?: boolean
   showAddEditorOnly?: boolean
   onEditorDismiss?: () => void
+  /** Canonical ScheduleBlock rows for multi-block week chips (STC-307). */
+  scheduleBlocks?: readonly ScheduleBlock[] | null
+  /** Optional canonical planning context for categories dual-write. */
+  planningContext?: CanonicalPlanningContext | null
+  /**
+   * Sole-read categories from hydrate (when present).
+   * When provided, replaces initial localStorage catalog on mount/update.
+   */
+  canonicalCategories?: readonly StudyTaskCategory[] | null
+  /**
+   * STC-307: add another focus ScheduleBlock for a task (no Task clone).
+   * When omitted, multi-block create UI is hidden.
+   */
+  onCreateFocusBlock?: (
+    taskId: string,
+    schedule: StudyTaskScheduleInput,
+    options?: { weekAnchorMidnightMs?: number; blockId?: string }
+  ) => string | null
+  /**
+   * STC-307: delete one ScheduleBlock by id.
+   * When omitted, multi-block delete UI is hidden.
+   */
+  onDeleteScheduleBlock?: (taskId: string, blockId: string) => boolean
+  /**
+   * STC-308: V1 simulation window + active plan seeds for allocation preview.
+   * When onApplyAllocationProposal is omitted, the auto-schedule button is hidden.
+   */
+  simulationStartTime?: string
+  simulationEndTime?: string
+  focusMinutes?: number
+  breakMinutes?: number
+  activeTimerPlanId?: string | null
+  activeTimerPlanName?: string | null
+  onApplyAllocationProposal?: (input: {
+    blocks: readonly AllocationApplyBlock[]
+    planId?: string | null
+    planRevision?: number
+    idPrefix?: string
+  }) => Promise<boolean>
+  /**
+   * STC-304: optional TimerSession history for actual-focus projection.
+   * Missing → actual shows 0 (fail-closed; no invent).
+   */
+  timerSessions?: readonly import('../../../../shared/study-planning').TimerSessionRecord[] | null
 }
 
 type TaskEditorState =
   | { mode: 'add'; title: string; categoryId: StudyTaskCategoryId; schedule: StudyTaskScheduleInput }
-  | { mode: 'edit'; taskId: string; title: string; done: boolean; categoryId: StudyTaskCategoryId; schedule: StudyTaskScheduleInput }
+  | {
+      mode: 'edit'
+      taskId: string
+      title: string
+      done: boolean
+      categoryId: StudyTaskCategoryId
+      schedule: StudyTaskScheduleInput
+      /** Real ScheduleBlock id when editing a multi-block chip / list row. */
+      scheduleBlockId?: string
+      /** STC-304 estimate draft (minutes string; empty = unset). */
+      estimateDraft?: string
+    }
 
 type DraftTaskState = {
   title: string
@@ -109,7 +200,7 @@ type CategoryContextMenuState = {
 type CategorySwatchVarStyle = CSSProperties & Record<'--category-swatch-color' | '--category-swatch-ink', string>
 
 type PendingTaskDragState = {
-  task: ScheduledStudyTask
+  task: WeekChipTask
   element: HTMLDivElement
   pointerId: number
   clientX: number
@@ -124,6 +215,8 @@ type TaskDragState = {
   title: string
   done: boolean
   categoryId: StudyTaskCategoryId
+  /** Real ScheduleBlock id when chip came from multi-block projection. */
+  scheduleBlockId?: string
   pointerId: number
   originSchedule: StudyTaskSchedule
   previewSchedule: StudyTaskScheduleInput
@@ -490,10 +583,28 @@ export function StudyTaskSchedulePage({
   onBack,
   openAddEditorOnMount = false,
   showAddEditorOnly = false,
-  onEditorDismiss
+  onEditorDismiss,
+  scheduleBlocks = null,
+  planningContext = null,
+  canonicalCategories = null,
+  onCreateFocusBlock,
+  onDeleteScheduleBlock,
+  simulationStartTime = '09:00',
+  simulationEndTime = '11:00',
+  focusMinutes = 25,
+  breakMinutes = 5,
+  activeTimerPlanId = null,
+  activeTimerPlanName = null,
+  onApplyAllocationProposal,
+  timerSessions = null
 }: StudyTaskSchedulePageProps) {
   const titleId = useId()
   const editorTitleId = useId()
+  const [allocationPreviewOpen, setAllocationPreviewOpen] = useState(false)
+  const [allocationPreviewModel, setAllocationPreviewModel] = useState<AllocationProposalPreviewModel | null>(null)
+  const [allocationPreviewBusy, setAllocationPreviewBusy] = useState(false)
+  /** STC-707: dismiss fingerprint for current conflict set (null = not dismissed). */
+  const [conflictsDismissedKey, setConflictsDismissedKey] = useState<string | null>(null)
   const [editor, setEditor] = useState<TaskEditorState | null>(null)
   const [editorError, setEditorError] = useState('')
   const [draftTask, setDraftTask] = useState<DraftTaskState | null>(null)
@@ -504,6 +615,13 @@ export function StudyTaskSchedulePage({
   const [contextMenu, setContextMenu] = useState<TaskContextMenuState | null>(null)
   const [taskDrag, setTaskDrag] = useState<TaskDragState | null>(null)
   const [taskCategories, setTaskCategories] = useState<StudyTaskCategory[]>(() => listStudyTaskCategories())
+
+  useEffect(() => {
+    if (!canonicalCategories || canonicalCategories.length === 0) return
+    setTaskCategories([...canonicalCategories])
+    // Rebuildable V1 cache only — no dual-write on sole-read apply.
+    persistStudyTaskCategories([...canonicalCategories])
+  }, [canonicalCategories])
   const [categoryContextMenu, setCategoryContextMenu] = useState<CategoryContextMenuState | null>(null)
   const [customCategoryName, setCustomCategoryName] = useState('')
   const [customCategoryColor, setCustomCategoryColor] = useState<`#${string}`>(defaultCategoryDraftColor)
@@ -512,7 +630,47 @@ export function StudyTaskSchedulePage({
   const hasOpenedInitialAddEditorRef = useRef(false)
   const taskDragRef = useRef<TaskDragState | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
-  const scheduledTasks = useMemo(() => tasks.filter(hasSchedule), [tasks])
+  const weekAnchorMidnightMs = useMemo(() => resolveLocalWeekAnchorMidnightMs(), [])
+  const scheduledTasks = useMemo((): WeekChipTask[] => {
+    const entries = projectWeekScheduleEntriesFromHost({
+      tasks,
+      scheduleBlocks,
+      weekAnchorMidnightMs
+    })
+    if (entries.length > 0) {
+      // Multi-block path: one chip per projectable focus ScheduleBlock (or V1 fallback).
+      return entries.map((entry) => ({
+        id: entry.taskId,
+        title: entry.title,
+        done: entry.done,
+        ...(entry.categoryId ? { categoryId: entry.categoryId } : {}),
+        schedule: entry.schedule,
+        scheduleBlockId: entry.blockId
+      }))
+    }
+    return tasks.filter(hasSchedule).map((task) => ({
+      ...task,
+      schedule: task.schedule
+    }))
+  }, [tasks, scheduleBlocks, weekAnchorMidnightMs])
+
+  const conflictsBannerModel = useMemo(
+    () =>
+      projectScheduleConflictsBanner({
+        scheduleBlocks,
+        tasks: tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          done: task.done
+        }))
+      }),
+    [scheduleBlocks, tasks]
+  )
+  const showConflictsBanner = shouldShowScheduleConflictsBanner({
+    model: conflictsBannerModel,
+    dismissedKey: conflictsDismissedKey
+  })
+
   const layoutsByDay = useMemo(() => {
     return weekDays.map((_, dayIndex) => layoutDayTasks(scheduledTasks.filter((task) => task.schedule.weekday === dayIndex)))
   }, [scheduledTasks])
@@ -572,6 +730,7 @@ export function StudyTaskSchedulePage({
       title: pending.task.title,
       done: pending.task.done,
       categoryId: pending.task.categoryId ?? 'study',
+      ...(pending.task.scheduleBlockId ? { scheduleBlockId: pending.task.scheduleBlockId } : {}),
       pointerId: pending.pointerId,
       originSchedule: pending.task.schedule,
       previewSchedule,
@@ -640,20 +799,54 @@ export function StudyTaskSchedulePage({
     openAddEditor()
   }, [openAddEditorOnMount])
 
-  const openEditEditor = (task: ScheduledStudyTask): void => {
+  const openEditEditor = (task: WeekChipTask): void => {
     setDraftTask(null)
     setInlineTitle(null)
     setCategoryContextMenu(null)
     setEditorError('')
     setCustomCategoryError('')
+    const sourceTask = tasks.find((row) => row.id === task.id)
+    const est = sourceTask?.estimateMinutes
     setEditor({
       mode: 'edit',
       taskId: task.id,
       title: task.title,
       done: task.done,
       categoryId: task.categoryId ?? 'study',
-      schedule: task.schedule
+      schedule: task.schedule,
+      ...(task.scheduleBlockId ? { scheduleBlockId: task.scheduleBlockId } : {}),
+      estimateDraft:
+        est === null || est === undefined ? '' : String(Math.max(0, Math.floor(est)))
     })
+  }
+
+  const openConflictBlock = (input: { taskId: string | null; blockId: string }): void => {
+    const taskId = typeof input.taskId === 'string' ? input.taskId.trim() : ''
+    if (!taskId) return
+    const source = tasks.find((row) => row.id === taskId)
+    if (!source) return
+    // Prefer week chip projection (has reverse schedule + block id) when available.
+    const chip = scheduledTasks.find(
+      (row) => row.id === taskId && row.scheduleBlockId === input.blockId
+    )
+    if (chip) {
+      openEditEditor(chip)
+      return
+    }
+    const primary = scheduledTasks.find((row) => row.id === taskId)
+    if (primary) {
+      openEditEditor({
+        ...primary,
+        scheduleBlockId: input.blockId
+      })
+      return
+    }
+    // Unscheduled / non-projectable block: open bare edit with default schedule + block id.
+    openEditEditor({
+      ...source,
+      schedule: source.schedule ?? createDefaultSchedule(),
+      scheduleBlockId: input.blockId
+    } as WeekChipTask)
   }
 
   const closeEditor = (): void => {
@@ -676,10 +869,17 @@ export function StudyTaskSchedulePage({
     setCustomCategoryError('')
   }
 
-  const updateCategoryColor = (categoryId: StudyTaskCategoryId, color: `#${string}`): void => {
-    const next = updateStudyTaskCategory(taskCategories, categoryId, { color })
+
+  const commitCategories = (next: StudyTaskCategory[]): void => {
     setTaskCategories(next)
     persistStudyTaskCategories(next)
+    if (planningContext) {
+      void dualWriteSetCategories(planningContext, next)
+    }
+  }
+  const updateCategoryColor = (categoryId: StudyTaskCategoryId, color: `#${string}`): void => {
+    const next = updateStudyTaskCategory(taskCategories, categoryId, { color })
+    commitCategories(next)
   }
 
   const addCustomCategory = (): void => {
@@ -698,8 +898,7 @@ export function StudyTaskSchedulePage({
         : '无法添加该类别')
       return
     }
-    setTaskCategories(result.categories)
-    persistStudyTaskCategories(result.categories)
+    commitCategories(result.categories)
     updateEditorCategory(result.category.id)
     setCustomCategoryName('')
     setCustomCategoryError('')
@@ -721,8 +920,7 @@ export function StudyTaskSchedulePage({
 
   const deleteCustomCategory = (categoryId: StudyTaskCategoryId): void => {
     const next = removeStudyTaskCategory(taskCategories, categoryId)
-    setTaskCategories(next)
-    persistStudyTaskCategories(next)
+    commitCategories(next)
     tasks.forEach((task) => {
       if (task.categoryId === categoryId) onUpdateTask(task.id, { categoryId: 'study' })
     })
@@ -744,12 +942,20 @@ export function StudyTaskSchedulePage({
     }
     const saved = editor.mode === 'add'
       ? onAddScheduledTask(title, editor.schedule, editor.categoryId)
-      : onUpdateTask(editor.taskId, {
-          title,
-          done: editor.done,
-          categoryId: editor.categoryId,
-          schedule: editor.schedule
-        })
+      : onUpdateTask(
+          editor.taskId,
+          {
+            title,
+            done: editor.done,
+            categoryId: editor.categoryId,
+            schedule: editor.schedule,
+            estimateMinutes: normalizeEstimateMinutesInput(editor.estimateDraft ?? '')
+          },
+          {
+            weekAnchorMidnightMs: weekAnchorMidnightMs,
+            ...(editor.scheduleBlockId ? { blockId: editor.scheduleBlockId } : {})
+          }
+        )
     if (saved) closeEditor()
   }
 
@@ -767,7 +973,7 @@ export function StudyTaskSchedulePage({
     }
   }
 
-  const beginInlineTitleEdit = (task: ScheduledStudyTask): void => {
+  const beginInlineTitleEdit = (task: WeekChipTask): void => {
     setEditor(null)
     setDraftTask(null)
     setInlineTitle({ taskId: task.id, title: task.title })
@@ -780,7 +986,7 @@ export function StudyTaskSchedulePage({
     if (nextTitle) onUpdateTask(taskId, { title: nextTitle })
   }
 
-  const handleTaskKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>, task: ScheduledStudyTask): void => {
+  const handleTaskKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>, task: WeekChipTask): void => {
     if (inlineTitle?.taskId === task.id) return
     if (event.key === 'Enter') {
       event.preventDefault()
@@ -797,7 +1003,7 @@ export function StudyTaskSchedulePage({
     setHover((current) => current?.dayIndex === dayIndex ? null : current)
   }
 
-  const openTaskContextMenu = (event: ReactMouseEvent<HTMLDivElement>, task: ScheduledStudyTask): void => {
+  const openTaskContextMenu = (event: ReactMouseEvent<HTMLDivElement>, task: WeekChipTask): void => {
     event.preventDefault()
     event.stopPropagation()
     clearLongPressTimer()
@@ -812,12 +1018,12 @@ export function StudyTaskSchedulePage({
     })
   }
 
-  const editTaskFromContextMenu = (task: ScheduledStudyTask): void => {
+  const editTaskFromContextMenu = (task: WeekChipTask): void => {
     setContextMenu(null)
     openEditEditor(task)
   }
 
-  const selectFocusFromContextMenu = (task: ScheduledStudyTask): void => {
+  const selectFocusFromContextMenu = (task: WeekChipTask): void => {
     if (!onSelectTask || task.done) return
     setContextMenu(null)
     onSelectTask(selectedTaskId === task.id ? null : task.id)
@@ -835,7 +1041,7 @@ export function StudyTaskSchedulePage({
 
   const handleTaskPointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
-    task: ScheduledStudyTask,
+    task: WeekChipTask,
     dayIndex: number
   ): void => {
     if (event.button !== 0 || inlineTitle?.taskId === task.id) {
@@ -872,7 +1078,7 @@ export function StudyTaskSchedulePage({
 
   const handleTaskPointerMove = (
     event: ReactPointerEvent<HTMLDivElement>,
-    task: ScheduledStudyTask,
+    task: WeekChipTask,
     dayIndex: number
   ): void => {
     event.stopPropagation()
@@ -898,7 +1104,15 @@ export function StudyTaskSchedulePage({
     if (activeDrag?.taskId === taskId && activeDrag.pointerId === event.pointerId) {
       event.preventDefault()
       const finalDrag = updateActiveTaskDrag(event.clientX, event.clientY) ?? activeDrag
-      onUpdateTask(taskId, { schedule: finalDrag.previewSchedule })
+      // STC-307: write the moved ScheduleBlock id, not a Task clone / default :v1 id.
+      onUpdateTask(
+        taskId,
+        { schedule: finalDrag.previewSchedule },
+        {
+          weekAnchorMidnightMs,
+          ...(finalDrag.scheduleBlockId ? { blockId: finalDrag.scheduleBlockId } : {})
+        }
+      )
       setActiveTaskDrag(null)
     }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
@@ -1049,6 +1263,68 @@ export function StudyTaskSchedulePage({
                 />
               </div>
             </div>
+            {editor.mode === 'edit' ? (
+              <StudyTaskDetailStatsSection
+                taskId={editor.taskId}
+                scheduleBlocks={scheduleBlocks}
+                timerSessions={timerSessions}
+                estimateMinutes={normalizeEstimateMinutesInput(editor.estimateDraft ?? '')}
+                estimateDraft={editor.estimateDraft ?? ''}
+                onEstimateDraftChange={(value) => {
+                  setEditor((current) =>
+                    current && current.mode === 'edit'
+                      ? { ...current, estimateDraft: value }
+                      : current
+                  )
+                }}
+              />
+            ) : null}
+            {editor.mode === 'edit' ? (
+              <StudyTaskMultiBlockSection
+                taskId={editor.taskId}
+                scheduleBlocks={scheduleBlocks}
+                selectedBlockId={editor.scheduleBlockId}
+                currentSchedule={editor.schedule}
+                weekAnchorMidnightMs={weekAnchorMidnightMs}
+                onSelectBlock={(row) => {
+                  setEditor((current) =>
+                    current && current.mode === 'edit'
+                      ? {
+                          ...current,
+                          schedule: row.schedule,
+                          scheduleBlockId: row.blockId
+                        }
+                      : current
+                  )
+                  setEditorError('')
+                }}
+                onCreateBlock={onCreateFocusBlock}
+                onDeleteBlock={onDeleteScheduleBlock}
+                onError={setEditorError}
+                onCreated={(nextSchedule, blockId) => {
+                  setEditorError('')
+                  setEditor((current) =>
+                    current && current.mode === 'edit'
+                      ? {
+                          ...current,
+                          schedule: nextSchedule,
+                          ...(blockId ? { scheduleBlockId: blockId } : { scheduleBlockId: undefined })
+                        }
+                      : current
+                  )
+                }}
+                onDeleted={(blockId) => {
+                  setEditorError('')
+                  setEditor((current) => {
+                    if (!current || current.mode !== 'edit') return current
+                    if (current.scheduleBlockId === blockId) {
+                      return { ...current, scheduleBlockId: undefined }
+                    }
+                    return current
+                  })
+                }}
+              />
+            ) : null}
             <div className="study-schedule-editor-categories">
               <span>类别</span>
               <div className="study-schedule-category-swatches" aria-label="任务类别">
@@ -1147,6 +1423,71 @@ export function StudyTaskSchedulePage({
         </div>
   ) : null
 
+  const openAllocationProposalPreview = (): void => {
+    if (!onApplyAllocationProposal) return
+    const nowMs = Date.now()
+    const { dayStartMs } = resolveLocalDayBounds(nowMs)
+    const window = buildTimeWindowFromSimulation({
+      dayStartMs,
+      simulationStartTime,
+      simulationEndTime,
+      label: `${simulationStartTime}–${simulationEndTime}`
+    })
+    if (!window) {
+      setAllocationPreviewModel(null)
+      setAllocationPreviewOpen(false)
+      return
+    }
+    const planId = (typeof activeTimerPlanId === 'string' && activeTimerPlanId.trim())
+      ? activeTimerPlanId.trim()
+      : 'classic_25_5'
+    const planName = (typeof activeTimerPlanName === 'string' && activeTimerPlanName.trim())
+      ? activeTimerPlanName.trim()
+      : '当前时钟方案'
+    const focus = Number.isFinite(focusMinutes) && focusMinutes > 0 ? Math.floor(focusMinutes) : 25
+    const shortBreak = Number.isFinite(breakMinutes) && breakMinutes > 0 ? Math.floor(breakMinutes) : 5
+    const plan = createClassicPomodoroPlan({
+      id: planId,
+      name: planName,
+      focusMinutes: focus,
+      shortBreakMinutes: shortBreak
+    })
+    const model = buildAllocationProposalPreview({
+      window,
+      plan,
+      tasks,
+      currentBlocks: scheduleBlocks ?? [],
+      nowMs
+    })
+    setAllocationPreviewModel(model)
+    setAllocationPreviewOpen(true)
+  }
+
+  const handleAllocationProposalResolve = (result: AllocationProposalSheetResult): void => {
+    if (result.choice === 'cancel') {
+      if (allocationPreviewBusy) return
+      setAllocationPreviewOpen(false)
+      setAllocationPreviewModel(null)
+      return
+    }
+    if (!onApplyAllocationProposal || !allocationPreviewModel?.canConfirm) return
+    setAllocationPreviewBusy(true)
+    void onApplyAllocationProposal({
+      blocks: allocationPreviewModel.applyBlocks,
+      planId: allocationPreviewModel.planId,
+      planRevision: allocationPreviewModel.planRevision,
+      idPrefix: `alloc-${Date.now()}`
+    }).then((ok) => {
+      setAllocationPreviewBusy(false)
+      if (ok) {
+        setAllocationPreviewOpen(false)
+        setAllocationPreviewModel(null)
+      }
+    }).catch(() => {
+      setAllocationPreviewBusy(false)
+    })
+  }
+
   if (showAddEditorOnly) return editorDialog
 
   return (
@@ -1159,6 +1500,17 @@ export function StudyTaskSchedulePage({
           <h1 id={titleId}><CalendarDays size={17} /> 任务详情</h1>
         </div>
         <div className="study-schedule-stats" aria-label="任务统计">
+          {onApplyAllocationProposal ? (
+            <button
+              type="button"
+              className="study-schedule-stat-add-button study-schedule-allocation-button"
+              onClick={openAllocationProposalPreview}
+              aria-label="排程提案"
+              title="按当前时钟方案生成今日排程提案"
+            >
+              <CalendarClock size={18} />
+            </button>
+          ) : null}
           <button
             type="button"
             className="study-schedule-stat-add-button"
@@ -1175,6 +1527,14 @@ export function StudyTaskSchedulePage({
           <div className="study-schedule-stat-card"><span><strong>{scheduledTasks.length}</strong>已排期</span></div>
         </div>
       </header>
+
+      {showConflictsBanner ? (
+        <StudyScheduleConflictsBanner
+          model={conflictsBannerModel}
+          onDismiss={() => setConflictsDismissedKey(conflictsBannerModel.dismissKey)}
+          onOpenBlock={openConflictBlock}
+        />
+      ) : null}
 
       <div className="study-schedule-board" role="grid" aria-label="一周 0 点到 24 点任务表">
         <div className="study-schedule-corner" aria-hidden="true">
@@ -1283,11 +1643,19 @@ export function StudyTaskSchedulePage({
                 const widthPercent = 100 / lanes
                 const leftPercent = lane * widthPercent
                 const editingTitle = inlineTitle?.taskId === task.id
-                const draggingThisTask = taskDrag?.taskId === task.id
+                const draggingThisTask = Boolean(
+                  taskDrag
+                  && taskDrag.taskId === task.id
+                  && (
+                    !task.scheduleBlockId
+                    || !taskDrag.scheduleBlockId
+                    || taskDrag.scheduleBlockId === task.scheduleBlockId
+                  )
+                )
                 const isFocusTask = selectedTaskId === task.id
                 return (
                   <div
-                    key={task.id}
+                    key={task.scheduleBlockId ?? task.id}
                     className={`study-schedule-event${task.done ? ' is-done' : ''}${editingTitle ? ' is-editing-title' : ''}${draggingThisTask ? ' is-drag-source' : ''}${isFocusTask ? ' is-focus-task' : ''}`}
                     role="button"
                     tabIndex={0}
@@ -1470,6 +1838,13 @@ export function StudyTaskSchedulePage({
       ) : null}
 
       {editorDialog}
+
+      <AllocationProposalPreviewSheet
+        open={allocationPreviewOpen}
+        model={allocationPreviewModel}
+        busy={allocationPreviewBusy}
+        onResolve={handleAllocationProposalResolve}
+      />
     </div>
   )
 }

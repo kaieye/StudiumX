@@ -2,7 +2,7 @@
  * User-previewable, consent-gated support bundle export (P2-8).
  *
  * Assembles optional diagnostics (doctor, inspector, config fingerprint,
- * capability counts, audit correlation, environment) into a redacted preview.
+ * capability counts, audit correlation, environment, MCP status) into a redacted preview.
  * Export requires explicit consent and only includes sections that appear in
  * both the preview and the consent allowlist. Never auto-uploads.
  */
@@ -57,7 +57,8 @@ const SECTION_TITLES: Readonly<Record<SupportBundleSectionId, string>> = {
   capability: 'Capability Snapshot',
   audit_correlation: 'Audit Correlation',
   environment: 'Environment',
-  local_data_index: 'Local Data Index'
+  local_data_index: 'Local Data Index',
+  mcp_status: 'User MCP Status'
 }
 
 const ALL_SECTION_IDS: readonly SupportBundleSectionId[] = [
@@ -67,7 +68,8 @@ const ALL_SECTION_IDS: readonly SupportBundleSectionId[] = [
   'capability',
   'audit_correlation',
   'environment',
-  'local_data_index'
+  'local_data_index',
+  'mcp_status'
 ]
 
 /** Optional inputs assembled by callers; missing sections are simply omitted. */
@@ -88,6 +90,12 @@ export type SupportBundleInput = {
   environment?: SupportBundleEnvironmentInput | null
   /** Aggregate-only LocalDataIndex diagnostics — never projection row bodies. */
   localDataIndex?: SupportBundleLocalDataIndexInput | null
+  /**
+   * Aggregate-only user MCP status (ADR-0128 Phase E).
+   * Command/args must already be redacted or will be scrubbed again here.
+   * Never includes env secrets, headers, or secret storage refs.
+   */
+  mcp?: SupportBundleMcpStatusInput | null
 }
 
 /**
@@ -116,6 +124,47 @@ export type SupportBundleLocalDataIndexInput = {
   issueCount?: number
   /** Optional row counts only — never full projection payloads. */
   projectionRowCounts?: Readonly<Record<string, number>>
+}
+
+
+/**
+ * Aggregate-only user MCP status for support bundles (ADR-0128 §11.4 / Phase E).
+ * Callers must not supply secret env values, secret refs, or raw unredacted command lines
+ * with embedded credentials. This builder re-redacts command/args/cwd labels fail-closed.
+ */
+export type SupportBundleMcpStatusInput = {
+  implementationPresent: boolean
+  rootEnabled: boolean
+  serverCount: number
+  enabledServerCount: number
+  connectedServerCount: number
+  errorServerCount: number
+  /** Logical label only (e.g. userData/mcp/config.v1.json). Absolute paths are redacted. */
+  configPathLabel?: string | null
+  servers?: readonly {
+    id: string
+    enabled: boolean
+    transport: string
+    state: string
+    toolCount?: number | null
+    errorCode?: string | null
+    /** Redacted command label only. */
+    commandLabel?: string | null
+    /** Optional redacted args (prefer commandLabel-only when unsure). */
+    args?: readonly string[] | null
+    /** Optional redacted cwd. */
+    cwd?: string | null
+  }[]
+  /**
+   * Forbidden: if present on the object at runtime, must never appear in payload.
+   * Kept only so tests can prove smuggling is stripped.
+   */
+  envSecrets?: unknown
+  headers?: unknown
+  envSecretRefs?: unknown
+  headersSecretRefs?: unknown
+  rawCommand?: unknown
+  rawArgs?: unknown
 }
 
 export type WorkspaceInspectionFindingsSummary = {
@@ -203,6 +252,9 @@ export function previewSupportBundle(input: SupportBundleInput = {}): SupportBun
   }
   if (input.localDataIndex != null) {
     sections.push(buildLocalDataIndexSection(input.localDataIndex, workspaceRoot))
+  }
+  if (input.mcp != null) {
+    sections.push(buildMcpStatusSection(input.mcp, workspaceRoot))
   }
 
   if (sections.length === 0) {
@@ -542,6 +594,113 @@ function buildLocalDataIndexSection(
   return section('local_data_index', deepRedactJson(payload, workspaceRoot), warnings)
 }
 
+function buildMcpStatusSection(
+  input: SupportBundleMcpStatusInput,
+  workspaceRoot: string | null
+): SupportBundleSectionPreview {
+  const configPathLabel = redactPath(
+    String(input.configPathLabel?.trim() || 'userData/mcp/config.v1.json'),
+    workspaceRoot
+  )
+  const warnings: string[] = [
+    'MCP section is aggregate-only: secrets, secret refs, headers, and unredacted command lines are never exported.',
+    'Enabling MCP is not tool auto-approval; tools still pass the existing effect lattice.'
+  ]
+  if (input.rootEnabled === true) {
+    warnings.push('User MCP root switch is on; review server error counts and command labels carefully.')
+  }
+
+  const servers = (input.servers ?? []).slice(0, 32).map((server) => {
+    const id = redactText(String(server.id ?? '')).slice(0, 64)
+    const argsRaw = Array.isArray(server.args) ? server.args.map(String).slice(0, 24) : []
+    // Prefer commandLabel when provided; otherwise rebuild from raw pieces with redaction.
+    let commandLabel =
+      server.commandLabel != null && String(server.commandLabel).trim()
+        ? redactText(String(server.commandLabel)).slice(0, 120)
+        : null
+    if (!commandLabel && argsRaw.length > 0) {
+      const scrubbedArgs = argsRaw.map((arg) => {
+        const secretSafe = redactSecretsLocal(arg)
+        return looksLikeAbsolutePathLocal(secretSafe)
+          ? redactPath(secretSafe, workspaceRoot)
+          : secretSafe
+      })
+      commandLabel = scrubbedArgs.join(' ').slice(0, 120) || null
+    } else if (commandLabel) {
+      // Re-scrub labels in case a caller passed an unredacted token.
+      commandLabel = scrubMcpCommandLabel(commandLabel, workspaceRoot)
+    }
+
+    const cwd =
+      server.cwd != null && String(server.cwd).trim()
+        ? redactPath(String(server.cwd), workspaceRoot)
+        : null
+
+    return {
+      id,
+      enabled: server.enabled === true,
+      transport: redactText(String(server.transport ?? 'stdio')).slice(0, 32),
+      state: redactText(String(server.state ?? 'unknown')).slice(0, 32),
+      toolCount:
+        typeof server.toolCount === 'number' && Number.isFinite(server.toolCount)
+          ? Math.max(0, Math.floor(server.toolCount))
+          : null,
+      errorCode:
+        server.errorCode != null ? redactText(String(server.errorCode)).slice(0, 64) : null,
+      commandLabel,
+      cwd
+    }
+  })
+
+  const payload = {
+    aggregateOnly: true as const,
+    secretsNeverExported: true as const,
+    implementationPresent: input.implementationPresent === true,
+    rootEnabled: input.rootEnabled === true,
+    serverCount: Math.max(0, Math.floor(Number(input.serverCount) || 0)),
+    enabledServerCount: Math.max(0, Math.floor(Number(input.enabledServerCount) || 0)),
+    connectedServerCount: Math.max(0, Math.floor(Number(input.connectedServerCount) || 0)),
+    errorServerCount: Math.max(0, Math.floor(Number(input.errorServerCount) || 0)),
+    configPathLabel,
+    servers
+    // Intentionally omit envSecrets / headers / envSecretRefs / rawCommand / rawArgs
+  }
+
+  return section('mcp_status', deepRedactJson(payload, workspaceRoot), warnings)
+}
+
+function scrubMcpCommandLabel(label: string, workspaceRoot: string | null): string {
+  // Split lightly and re-apply secret + path redaction per token.
+  return label
+    .split(/(\s+)/)
+    .map((part) => {
+      if (!part || /^\s+$/.test(part)) return part
+      const secretSafe = redactSecretsLocal(part)
+      return looksLikeAbsolutePathLocal(secretSafe)
+        ? redactPath(secretSafe, workspaceRoot)
+        : secretSafe
+    })
+    .join('')
+    .slice(0, 120)
+}
+
+function redactSecretsLocal(value: string): string {
+  try {
+    return redactAgentSecretText(value)
+  } catch {
+    return '[redacted]'
+  }
+}
+
+function looksLikeAbsolutePathLocal(value: string): boolean {
+  return (
+    value.startsWith('/') ||
+    value.startsWith('\\\\') ||
+    /^[A-Za-z]:[\\/]/.test(value)
+  )
+}
+
+
 function buildEnvironmentSection(
   input: SupportBundleEnvironmentInput,
   workspaceRoot: string | null
@@ -716,7 +875,16 @@ const DENIED_FIELD_NAMES = new Set(
     'projectionrowbodies',
     'recordbodies',
     'conversationbodies',
-    'memorybodies'
+    'memorybodies',
+    // MCP secret material must never ship in support bundles (ADR-0128 §11.4).
+    'envsecrets',
+    'envsecretrefs',
+    'headerssecretrefs',
+    'headers',
+    'rawcommand',
+    'rawargs',
+    'secretrefs',
+    'envplain'
   ].map((name) => name.toLowerCase())
 )
 

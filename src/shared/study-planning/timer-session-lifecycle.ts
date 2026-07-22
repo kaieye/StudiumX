@@ -79,7 +79,10 @@ function clonePlan(plan: TimerPlanV2 | null | undefined): TimerPlanV2 | null {
   if (!plan) return null
   return {
     ...plan,
-    notificationPolicy: { ...plan.notificationPolicy }
+    notificationPolicy: { ...plan.notificationPolicy },
+    ...(plan.rhythmSequence
+      ? { rhythmSequence: plan.rhythmSequence.map((s) => ({ ...s })) }
+      : {})
   }
 }
 
@@ -102,6 +105,28 @@ function phaseDurationSeconds(plan: TimerPlanV2 | null, phase: TimerSessionPhase
 
 function nextBreakPhase(plan: TimerPlanV2 | null, focusRoundInPlan: number): TimerSessionPhase {
   if (!plan || plan.kind === 'continuous') return 'short_break'
+  // STC-702: prefer next non-focus step after N focus completions in sequence.
+  if (plan.kind === 'custom_rhythm' && Array.isArray(plan.rhythmSequence) && plan.rhythmSequence.length > 0) {
+    const seq = plan.rhythmSequence
+    let focusSeen = 0
+    for (let i = 0; i < seq.length * 2; i += 1) {
+      const step = seq[i % seq.length]
+      if (step.kind === 'focus') {
+        focusSeen += 1
+        if (focusSeen === focusRoundInPlan) {
+          // Look ahead for next break-ish step
+          for (let j = 1; j <= seq.length; j += 1) {
+            const next = seq[(i + j) % seq.length]
+            if (next.kind === 'long_break') return 'long_break'
+            if (next.kind === 'short_break') return 'short_break'
+            if (next.kind === 'wrap_up') return 'wrap_up'
+          }
+          break
+        }
+      }
+    }
+    return 'short_break'
+  }
   const every = plan.longBreakEvery ?? TIMER_PLAN_SEED_DEFAULTS.classicLongBreakEvery
   if (focusRoundInPlan > 0 && focusRoundInPlan % every === 0) return 'long_break'
   return 'short_break'
@@ -510,6 +535,11 @@ export function startNextPhaseFromCompleted(input: {
   /** When breakPolicy is ask, caller must only invoke after user confirms. */
   userConfirmed: boolean
   startActionId?: string
+  /**
+   * Optional focus taskId when starting focus after a break (break taskId is null).
+   * Ignored for non-focus phases. When omitted, uses completed.taskId (may be null).
+   */
+  taskId?: string | null
 }): TimerSessionReduceResult {
   const plan = input.completed.planSnapshot
   if (!plan) {
@@ -544,14 +574,27 @@ export function startNextPhaseFromCompleted(input: {
   const focusRound =
     input.phase === 'focus' ? input.completed.focusRoundInPlan + 1 : input.completed.focusRoundInPlan
 
+  const taskId =
+    input.phase === 'focus'
+      ? input.taskId !== undefined
+        ? input.taskId
+        : input.completed.taskId
+      : null
+  const attributionReason =
+    input.phase === 'focus' && taskId
+      ? 'explicit'
+      : input.phase === 'focus'
+        ? 'unattributed'
+        : 'unattributed'
+
   return startTimerSession({
     id: input.newSessionId,
     nowMs: input.nowMs,
     plan,
     phase: input.phase,
     clockMode: plan.clockMode === 'countup' && input.phase === 'focus' ? 'countup' : 'countdown',
-    taskId: input.phase === 'focus' ? input.completed.taskId : null,
-    attributionReason: input.completed.attributionReason,
+    taskId,
+    attributionReason,
     focusRoundInPlan: focusRound,
     startActionId: input.startActionId
   })

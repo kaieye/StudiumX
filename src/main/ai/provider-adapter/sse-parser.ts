@@ -19,6 +19,24 @@ function safeJsonParse(data: string): unknown {
   }
 }
 
+function normalizeStreamText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    const joined = value
+      .map((part) => {
+        if (typeof part === 'string') return part
+        if (!part || typeof part !== 'object') return ''
+        const record = part as { text?: unknown; content?: unknown }
+        if (typeof record.text === 'string') return record.text
+        if (typeof record.content === 'string') return record.content
+        return ''
+      })
+      .join('')
+    return joined
+  }
+  return undefined
+}
+
 function extractStreamDelta(format: ModelEndpointFormat, event: unknown): { content?: string; reasoning?: string } {
   if (!event || typeof event !== 'object') return {}
   if (format === 'messages') {
@@ -48,10 +66,14 @@ function extractStreamDelta(format: ModelEndpointFormat, event: unknown): { cont
   }
   const choices = (event as { choices?: unknown }).choices
   if (Array.isArray(choices) && choices.length > 0) {
-    const delta = (choices[0] as { delta?: { content?: string; reasoning_content?: string; reasoning?: string } })?.delta
-    const reasoning = delta?.reasoning_content ?? delta?.reasoning
+    const delta = (choices[0] as {
+      delta?: { content?: unknown; text?: unknown; reasoning_content?: unknown; reasoning?: unknown }
+    })?.delta
+    if (!delta) return {}
+    const content = normalizeStreamText(delta.content) ?? normalizeStreamText(delta.text)
+    const reasoning = normalizeStreamText(delta.reasoning_content) ?? normalizeStreamText(delta.reasoning)
     return {
-      ...(delta?.content ? { content: delta.content } : {}),
+      ...(content ? { content } : {}),
       ...(reasoning ? { reasoning } : {})
     }
   }
@@ -106,7 +128,7 @@ function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
   if (!Array.isArray(choices) || choices.length === 0) return {}
   const choice = choices[0] as {
     finish_reason?: unknown
-    delta?: { content?: string; reasoning_content?: string; reasoning?: string; tool_calls?: unknown }
+    delta?: { content?: unknown; text?: unknown; reasoning_content?: unknown; reasoning?: unknown; tool_calls?: unknown }
   }
   const delta = choice?.delta
   if (!delta && (typeof choice?.finish_reason !== 'string' || !choice.finish_reason.trim())) return {}
@@ -120,9 +142,10 @@ function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
     out.finishReason = normalizeStopReason(choice.finish_reason)
   }
   if (!delta) return out
-  if (typeof delta.content === 'string') out.content = delta.content
-  const reasoning = delta.reasoning_content ?? delta.reasoning
-  if (typeof reasoning === 'string') out.reasoning = reasoning
+  const content = normalizeStreamText(delta.content) ?? normalizeStreamText(delta.text)
+  if (content) out.content = content
+  const reasoning = normalizeStreamText(delta.reasoning_content) ?? normalizeStreamText(delta.reasoning)
+  if (reasoning) out.reasoning = reasoning
   if (Array.isArray(delta.tool_calls)) {
     out.toolCalls = delta.tool_calls.map((f) => {
       const fn = (f as { function?: { name?: string; arguments?: string } }).function ?? {}
@@ -144,9 +167,11 @@ function assembleStream(
 ): { text: string; toolCalls: ToolCall[]; finishReason?: ProviderStopReason } {
   const nativeToolCalls: ToolCall[] = []
   for (const slot of toolAcc.values()) {
-    if (!slot.id || !slot.name) continue
+    // Some OpenAI-compatible hosts stream name/args without a durable id.
+    // Dropping those fragments previously produced false "empty stream" failures.
+    if (!slot.name) continue
     nativeToolCalls.push({
-      id: slot.id,
+      id: slot.id || `call_${slot.index}`,
       type: 'function',
       function: { name: slot.name, arguments: slot.arguments || '{}' }
     })

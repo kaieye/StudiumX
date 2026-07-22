@@ -657,6 +657,10 @@
     "about": {
       "label": "关于",
       "detail": "版本、日志、数据目录"
+    },
+    "mcp": {
+      "label": "MCP",
+      "detail": "用户配置的外部工具（默认关闭）"
     }
   },
   "general": {
@@ -903,6 +907,12 @@
       "save": "保存",
       "contentPlaceholder": "记录一个未来生成课程时应该记得的事实、偏好或约束。",
       "tagsPlaceholder": "标签，使用逗号分隔"
+    },
+    "platformProfile": {
+      "label": "平台 I/O profile",
+      "posix": "POSIX 描述符（严格）",
+      "windowsLimited": "Windows 有限持久化（direct-path，非 CAS）",
+      "unavailable": "此主机不可用"
     }
   },
   "notifications": {
@@ -951,7 +961,7 @@
   },
   "connectors": {
     "title": "连接器状态",
-    "subtitle": "只检查 StudiumX 已有的教学相关连接器，不启用通用 MCP 执行。",
+    "subtitle": "只检查 StudiumX 已有的教学相关连接器。用户 MCP 服务器请在「设置 → MCP」中配置（默认关闭）。",
     "refresh": "刷新",
     "loading": "正在读取连接器状态...",
     "empty": "暂无连接器状态。",
@@ -1152,6 +1162,18 @@
     "directLessonActionRejected": {
       "message": "课程生成被拒绝",
       "detail": "请求被拒绝（{{code}}）。请检查工作区后重新提交（将视为新的用户动作）。"
+    },
+    "platformCapabilityDegraded": {
+      "message": "平台能力受限",
+      "detail": "当前主机使用较弱的 I/O profile。对话可继续；持久写可能不可用或受限。这不是模型或网络错误。"
+    },
+    "emptyStream": {
+      "message": "模型返回为空",
+      "detail": "Provider 未返回内容。可能触发有界重试或回退。这与平台能力降级不是同一类问题。"
+    },
+    "memoryWriteUnavailable": {
+      "message": "记忆未能保存",
+      "detail": "此主机 profile 上持久记忆写入不可用或失败。系统不会静默显示“已保存”。"
     }
   },
   "errorBoundary": {
@@ -1249,5 +1271,71 @@
     "entries": "条目",
     "entriesEmpty": "队列无投影条目。",
     "enqueuedAt": "入队时间"
+  },
+  "platformCapability": {
+    "posixDescriptorStrict": "POSIX 描述符相对 I/O（严格 containment profile）。",
+    "windowsDirectPathNonCas": "Windows 根约束直接路径 I/O（非 CAS；不等同于 descriptor）。",
+    "windowsMemoryLimitedPersistence": "Windows 记忆使用有限直接路径持久化（非 CAS，非 descriptor 等价）。",
+    "memoryChatDegradedEmpty": "此主机上记忆目录不可用；对话继续，不注入记忆。",
+    "writeUnavailable": "此主机上持久写能力不可用。",
+    "unavailable": "没有可用的安全平台 I/O profile。",
+    "outcomeWindowsNotStrict": "Windows 不宣称 learning-outcome 严格 settlement profile（ADR-0035）。",
+    "sessionAuditWindowsLimited": "Windows 上 session audit 持久 profile 仍受限（ADR-0019/0035）。"
+  },
+  "mcp": {
+    "title": "用户 MCP 服务器",
+    "subtitle": "可选启用的 Model Context Protocol 服务器。默认关闭：在打开总开关并启用至少一个服务器之前，不会建立连接，也不会注入 MCP 工具。工具仍走既有审批流程，不会自动放行。",
+    "rootEnabled": {
+      "label": "启用 MCP",
+      "detail": "总开关。关闭时 StudiumX 不会启动任何 MCP 进程，也不会向教学或临时对话注入 MCP 工具。"
+    },
+    "riskNote": "MCP 工具默认 privileged（需批准）。MCP 自身不会写工作区或教学 ledger。无 marketplace，无 YOLO。",
+    "servers": {
+      "heading": "服务器列表",
+      "empty": "尚未配置服务器。添加一个 stdio MCP 服务器即可开始。",
+      "add": "添加服务器",
+      "remove": "删除",
+      "enabled": "启用",
+      "label": "显示名称",
+      "id": "服务器 id",
+      "idHint": "小写字母开头，可含数字、_ 与 -。",
+      "command": "命令",
+      "args": "参数",
+      "argsHint": "空格分隔（此编辑器暂不支持引号）。",
+      "cwd": "工作目录",
+      "cwdHint": "可选绝对路径。禁止工作区相对路径。",
+      "transport": "传输",
+      "transportStdio": "stdio（Phase A）",
+      "test": "试连",
+      "testing": "试连中…",
+      "save": "保存更改",
+      "saving": "保存中…",
+      "reload": "重新加载",
+      "runtime": "运行态"
+    },
+    "status": {
+      "loading": "正在加载 MCP 配置…",
+      "unavailable": "当前运行时不可用 MCP 设置 API。",
+      "saved": "MCP 配置已保存。",
+      "casConflict": "配置已被其他写入更新。已重新加载最新配置，请复核后再保存。",
+      "invalid": "MCP 配置无效。",
+      "testOk": "已连接，列出 {{count}} 个工具。",
+      "testFail": "试连失败：{{message}}",
+      "disabledRoot": "总开关已关闭 — 服务器保持断开。",
+      "experimental": "实验特性（user_mcp_servers）。产品仍本地优先；无 marketplace。"
+    },
+    "runtimeState": {
+      "disabled": "已禁用",
+      "idle": "空闲",
+      "connecting": "连接中",
+      "connected": "已连接",
+      "error": "错误"
+    },
+    "toolsSummary": {
+      "heading": "上次试连工具",
+      "registered": "已注册",
+      "skipped": "未注册",
+      "effect": "Effect"
+    }
   }
 }

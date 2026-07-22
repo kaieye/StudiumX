@@ -18,11 +18,14 @@ const COMMAND_TYPES = new Set<StudyPlanningCommandType>([
   'create_task',
   'update_task',
   'complete_task',
+  'delete_task',
+  'reopen_task',
   'save_timer_plan',
   'delete_timer_plan',
   'copy_timer_plan',
   'apply_allocation_proposal',
   'upsert_schedule_block',
+  'delete_schedule_block',
   'quick_start',
   'batch_classify_tasks',
   'start_timer_session',
@@ -33,6 +36,7 @@ const COMMAND_TYPES = new Set<StudyPlanningCommandType>([
   'reconcile_stale_session',
   'advance_timer_session',
   'set_preferences',
+  'set_categories',
   'import_migration_commit'
 ])
 

@@ -190,8 +190,8 @@ describe('Teaching IPC gateway', () => {
     expect(serialized).not.toContain(sensitiveHash)
   })
 
-  it.runIf(process.platform === 'win32')('fails closed through the memory IPC boundary when the POSIX descriptor capability is unavailable', async () => {
-    const runtime = await runtimeScope.create('gateway-windows-memory-unavailable')
+  it.runIf(process.platform === 'win32')('uses the Windows direct-path non-CAS memory profile through the memory IPC boundary', async () => {
+    const runtime = await runtimeScope.create('gateway-windows-memory-direct-path')
     const managedRoot = join(runtime.paths.workspace, 'managed')
     const service = new TeachingWorkspaceService({
       registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
@@ -200,12 +200,20 @@ describe('Teaching IPC gateway', () => {
     })
     registerTeachingIpcGateway(registration({ workspaceService: service }))
 
-    await expect(handler(teachingInvokeChannels.getMemoryDiagnostics)(event))
-      .rejects.toThrow('Descriptor-relative contained directory access is unavailable on this platform.')
-    await expect(handler(teachingInvokeChannels.createMemory)(event, {
-      content: 'Must not fall back to unsafe pathname traversal.',
+    const diagnostics = await handler(teachingInvokeChannels.getMemoryDiagnostics)(event)
+    expect(diagnostics).toMatchObject({
+      platformIoProfile: 'windows_direct_path_non_cas',
+      platformCapabilityCode: 'ok'
+    })
+    const created = await handler(teachingInvokeChannels.createMemory)(event, {
+      content: 'Windows direct-path memory write under root-constrained profile.',
       scope: 'user'
-    })).rejects.toThrow('Descriptor-relative contained directory access is unavailable on this platform.')
+    })
+    expect(created).toMatchObject({
+      content: 'Windows direct-path memory write under root-constrained profile.',
+      scope: 'user'
+    })
+    expect(created.id).toEqual(expect.any(String))
   })
 
   it('accepts memory scope roots only after registered-workspace resolution and strips renderer destination fields', async () => {

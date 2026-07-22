@@ -1,4 +1,5 @@
 import type { AgentChatMode } from '../../shared/teaching-types'
+import { isMcpToolName } from '../../shared/mcp/tool-name'
 
 export type TeachingCapabilityPolicyId =
   | 'temporary_chat'
@@ -7,13 +8,17 @@ export type TeachingCapabilityPolicyId =
 
 export type TeachingCapabilityPolicy = Readonly<{
   id: TeachingCapabilityPolicyId
-  /** The complete, explicit tool allow-list for this turn. Unknown tools are denied by projection. */
+  /** The complete, explicit tool allow-list for static/built-in tools. */
   allowedToolNames: readonly string[]
   /** Named built-in tools intentionally unavailable to this policy. */
   deniedToolNames: readonly string[]
   workspaceToolsEnabled: boolean
   delegationEnabled: boolean
   lessonToolEnabled: boolean
+  /**
+   * Allow predicate for static tools + dynamic MCP (`mcp__…`).
+   * MCP tools share temporary/teaching injection (ADR-0128 §5.4).
+   */
   allowsTool: (toolName: string) => boolean
 }>
 
@@ -42,6 +47,7 @@ const WORKSPACE_WRITE_TOOL_NAMES = [
   'forget_teaching_memory'
 ] as const
 const DELEGATION_TOOL_NAMES = ['delegate_task', 'read_only_task', 'parallel_tasks'] as const
+/** Teaching-product write tools — temporary chat excludes only this set (ADR-0128 §5.4). */
 const LESSON_TOOL_NAMES = ['generate_lesson'] as const
 
 const ALL_KNOWN_TOOL_NAMES = [
@@ -56,12 +62,10 @@ const ALL_KNOWN_TOOL_NAMES = [
 /**
  * Resolves the fixed capability boundary for one teaching conversation turn.
  *
- * The policy is deliberately an explicit allow-list. Runtime registration may
- * add a new tool later, but it is unavailable until this module deliberately
- * assigns it to a policy. This keeps temporary chats fail-closed for workspace,
- * lesson, delegation, and future tool capabilities. A valid teaching workspace
- * and its file-tool grant stay distinct so trust can fail closed without
- * removing workspace-scoped teaching capabilities such as lesson generation.
+ * Built-in tools use an explicit allow-list. Dynamic MCP tools (`mcp__…`) are
+ * allowed whenever tools are enabled (same for temporary and teaching);
+ * temporary chat differs only by excluding teaching-product write tools such as
+ * `generate_lesson` (ADR-0128 §5.4).
  */
 export function resolveTeachingCapabilityPolicy(
   input: TeachingCapabilityPolicyInput
@@ -75,11 +79,14 @@ export function resolveTeachingCapabilityPolicy(
 
   if (!input.toolsEnabled) return createPolicy(id, [])
 
+  const workspaceGranted = input.workspaceToolAccessGranted === true
+
+  // Temporary and teaching share agent tool surface except lesson/product writers.
   const allowedToolNames = [
     ...EXTERNAL_TOOL_NAMES,
     ...CONVERSATION_TOOL_NAMES,
-    ...(isTeachingConversation ? DELEGATION_TOOL_NAMES : []),
-    ...(isTeachingConversation && input.workspaceToolAccessGranted === true
+    ...DELEGATION_TOOL_NAMES,
+    ...(workspaceGranted
       ? [...WORKSPACE_READ_TOOL_NAMES, ...WORKSPACE_WRITE_TOOL_NAMES]
       : []),
     ...(isTeachingConversation && input.hasTeachingWorkspace && input.hasLessonGenerator
@@ -102,6 +109,11 @@ function createPolicy(
     workspaceToolsEnabled: allowed.has('read_workspace_file'),
     delegationEnabled: allowed.has('delegate_task'),
     lessonToolEnabled: allowed.has('generate_lesson'),
-    allowsTool: (toolName) => allowed.has(toolName)
+    allowsTool: (toolName) => {
+      if (allowed.has(toolName)) return true
+      // Dynamic MCP tools: allowed whenever any tools are enabled for this policy.
+      if (allowed.size > 0 && isMcpToolName(toolName)) return true
+      return false
+    }
   }
 }

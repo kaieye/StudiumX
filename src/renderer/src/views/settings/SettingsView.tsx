@@ -60,6 +60,7 @@ import { useTeachingWorkspaceConfiguration } from '../../workflows/teaching-work
 import { ModelProviderSettingsSection } from './sections/ModelProviderSettingsSection'
 import { TeachingDoctorSettingsSection } from './sections/TeachingDoctorSettingsSection'
 import { TeachingTurnReviewSettingsSection } from './sections/TeachingTurnReviewSettingsSection'
+import { UserMcpSettingsSection } from './sections/UserMcpSettingsSection'
 
 export function SettingsView({
   section,
@@ -515,6 +516,8 @@ export function SettingsView({
           </SettingsPanel>
         )}
 
+        {section === 'mcp' && <UserMcpSettingsSection />}
+
         {section === 'connectors' && (
           <SettingsPanel
             title={t('connectors.title')}
@@ -695,17 +698,27 @@ export function SettingsView({
                 </button>
               </SettingsRow>
               {memoryDiagnostics && (
-                <SettingsRow
-                  label={t('memory.diagnostics.migrationPreflightLabel')}
-                  detail={t('memory.diagnostics.migrationPreflight', {
-                    eligible: memoryDiagnostics.legacyMigrationPreflight.legacyFlatEligibleCount,
-                    partitioned: memoryDiagnostics.legacyMigrationPreflight.alreadyPartitionedCount,
-                    duplicates: memoryDiagnostics.legacyMigrationPreflight.blockedDuplicateCount,
-                    recovery: memoryDiagnostics.legacyMigrationPreflight.blockedRecoveryIssueCount
-                  })}
-                >
-                  <span className="settings-status-badge">{memoryDiagnostics.legacyMigrationPreflight.migrationReady ? t('memory.diagnostics.migrationReady') : t('memory.diagnostics.migrationBlocked')}</span>
-                </SettingsRow>
+                <>
+                  <SettingsRow
+                    label={t('memory.platformProfile.label')}
+                    detail={platformIoProfileDetail(memoryDiagnostics.platformIoProfile, t)}
+                  >
+                    <span className="settings-status-badge">
+                      {platformIoProfileBadge(memoryDiagnostics.platformIoProfile, t)}
+                    </span>
+                  </SettingsRow>
+                  <SettingsRow
+                    label={t('memory.diagnostics.migrationPreflightLabel')}
+                    detail={t('memory.diagnostics.migrationPreflight', {
+                      eligible: memoryDiagnostics.legacyMigrationPreflight.legacyFlatEligibleCount,
+                      partitioned: memoryDiagnostics.legacyMigrationPreflight.alreadyPartitionedCount,
+                      duplicates: memoryDiagnostics.legacyMigrationPreflight.blockedDuplicateCount,
+                      recovery: memoryDiagnostics.legacyMigrationPreflight.blockedRecoveryIssueCount
+                    })}
+                  >
+                    <span className="settings-status-badge">{memoryDiagnostics.legacyMigrationPreflight.migrationReady ? t('memory.diagnostics.migrationReady') : t('memory.diagnostics.migrationBlocked')}</span>
+                  </SettingsRow>
+                </>
               )}
             </SettingsCard>
 
@@ -1009,4 +1022,35 @@ function MemoryDialog({
       </section>
     </div>
   )
+}
+
+
+function platformIoProfileBadge(
+  profile: TeachingMemoryDiagnostics['platformIoProfile'],
+  t: (key: string) => string
+): string {
+  switch (profile) {
+    case 'posix_descriptor_strict':
+      return t('memory.platformProfile.posix')
+    case 'windows_direct_path_non_cas':
+      return t('memory.platformProfile.windowsLimited')
+    case 'unavailable':
+    default:
+      return t('memory.platformProfile.unavailable')
+  }
+}
+
+function platformIoProfileDetail(
+  profile: TeachingMemoryDiagnostics['platformIoProfile'],
+  t: (key: string) => string
+): string {
+  switch (profile) {
+    case 'posix_descriptor_strict':
+      return t('platformCapability.posixDescriptorStrict')
+    case 'windows_direct_path_non_cas':
+      return t('platformCapability.windowsMemoryLimitedPersistence')
+    case 'unavailable':
+    default:
+      return t('platformCapability.unavailable')
+  }
 }

@@ -36,4 +36,21 @@ describe('operationFeedback', () => {
     })
     expect(feedback.visibleError?.message).toBe('errors.providerRateLimit.message')
   })
+
+  it('separates platform capability degrade from empty-stream UX', () => {
+    const platform = operationFeedback({
+      outcome: 'failure',
+      error: new Error('platform capability unavailable on this host'),
+      translate
+    })
+    expect(platform.visibleError?.message).toBe('errors.platformCapabilityDegraded.message')
+
+    const empty = operationFeedback({
+      outcome: 'failure',
+      error: new Error('empty stream: no chunks received'),
+      translate
+    })
+    expect(empty.visibleError?.message).toBe('errors.emptyStream.message')
+  })
+
 })

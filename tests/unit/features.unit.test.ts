@@ -35,7 +35,7 @@ describe('FeatureStage', () => {
 describe('FEATURES table integrity', () => {
   it('seeds a small honest teaching-only set', () => {
     expect(FEATURES.length).toBeGreaterThanOrEqual(6)
-    expect(FEATURES.length).toBeLessThanOrEqual(12)
+    expect(FEATURES.length).toBeLessThanOrEqual(14)
     expect(featureCount()).toBe(FEATURES.length)
   })
 
@@ -43,7 +43,7 @@ describe('FEATURES table integrity', () => {
     const ids = FEATURES.map((f) => f.id)
     expect(new Set(ids).size).toBe(ids.length)
     for (const feature of FEATURES) {
-      expect(feature.id).toMatch(/^[a-z][a-z0-9-]*$/)
+      expect(feature.id).toMatch(/^[a-z][a-z0-9_-]*$/)
       expect(feature.title.length).toBeGreaterThan(0)
       expect(FEATURE_STAGES).toContain(feature.stage)
       if (feature.footprintHint !== undefined) {

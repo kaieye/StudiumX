@@ -20,18 +20,28 @@ Teaching capability 按以下 **1→5** 顺序评估和实施；只有前一阶�
 | 1 | 渐进 skill 资源 | `read_skill_resource` | 优先通过已加载 skill 的声明资源提供只读知识；不得借资源读取绕过路径、manifest 或 capability 校验。 |
 | 2 | Host/IPC 命令（不是 model tool） | 导入课程、打开 inspector | 由宿主/UI 处理确定性产品动作；不把命令伪装成模型可调用工具，也不因此开放 shell 或诊断控制。 |
 | 3 | capability-gated tool + readiness | 仅在配置了 web provider 且 readiness 通过时暴露 search | 只有就绪能力进入该轮 schema；仍受 typed effect policy、参数校验和 fail-closed 约束。 |
-| 4 | 可选 MCP（远期） | 外部教材库 | 默认不开放市场；必须有独立 capability、信任/隐私、成本和失败边界审查，不能把 MCP 当作默认扩张路径。 |
+| 4 | 可选 MCP（用户 opt-in） | 用户配置的外部 MCP tools | 见 [ADR-0127](0127-user-configurable-mcp-design-gate.md)/[0128](0128-user-configurable-mcp-implementation.md)：默认 off、无 marketplace；临时与教学 **同样**可注入；不能把 MCP 当无门禁扩张路径。 |
 | 5 | core model tool | `generate_lesson`、`ask`、workspace read/write | 仅在 1–4 无法满足且另有明确 design gate/ADR 批准时新增；逐工具评估 provider 成本、权限、审计和 schema footprint。 |
 
-### 临时对话的严格子集
+### 临时对话与教学对话的差距（仅限教学文件生成）
 
-临时 chat 的 tool schema **严格小于** teaching chat：
+**修订（2026-07-22，与 [ADR-0127](0127-user-configurable-mcp-design-gate.md) / [ADR-0128](0128-user-configurable-mcp-implementation.md) 对齐）：**
+
+产品要求临时 chat 与 teaching chat **不要**维持「大面积 schema 严格子集」。两者的 **tool 表面差距仅限教学文件生成 / 教学产物落盘**，其余用户已启用的能力（含 **用户配置 MCP**、web 工具、workspace 读写审批路径等）应对齐。
 
 ```
-temporary-chat schema ⊂ teaching-chat schema
+temporary-chat tools ≈ teaching-chat tools \ { 教学产物写工具 }
 ```
 
-临时对话可以复用更窄的安全基础能力，但不能因为临时场景而获得教学对话没有的 tool、写权限、诊断面或通用 agent 控制。临时对话的 schema、prompt 和 host policy 仍须分别做最小化；“复用实现”不等于“扩大可用集合”。
+| 对齐 | 说明 |
+| --- | --- |
+| **应对齐** | 用户 opt-in MCP、已有 readiness 的 external 工具、workspace 工具门禁、effect lattice、审批 UX |
+| **应排除（临时）** | `generate_lesson` 及专用于 Lesson/Course/正式 learning record 产物生成的 model tools；临时对话 **不是** LearningSession settlement 写口 |
+| **仍禁止** | shell / marketplace / YOLO / 诊断控制面；临时 **不得**获得 teaching 也没有的超集能力 |
+
+历史表述「temporary-chat schema ⊂ teaching-chat schema」**废止为产品主约束**；若实现仍对临时做额外收窄，须有独立产品理由并开 ADR，不得默认裁 MCP。
+
+“复用实现”仍不等于“无门禁”：对齐的是 **可用集合**，不是绕过 effect / path containment / 同意门。
 
 ### Plan-mode 是未来 overlay，不是平行阶梯
 
@@ -66,7 +76,7 @@ temporary-chat schema ⊂ teaching-chat schema
 
 - 不新增 shell、terminal、diagnostics、debug、generic agent-control 或任意代码执行能力。
 - 不扩充现有 TeachingCommand catalog；本 ADR 只规定其单源消费方式。
-- 不把临时 chat 变成 teaching chat 的超集。
+- 不把临时 chat 变成 teaching chat 的**超集**（不得比 teaching 多 tool / 多写权威）；**允许**与 teaching 对齐，仅排除教学产物写工具（见上节；ADR-0128）。
 - 不批准当前实现 plan-mode；它只是未来可能的 overlay。
 - 不改变 ADR-0032 的并行只读实现或任何现有 tool effect policy。
 - 不允许用户 Markdown、skill 文案或模型自由文本动态注册 slash 命令或工具。

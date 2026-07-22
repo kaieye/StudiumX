@@ -194,6 +194,18 @@ export async function streamChatInvocation(opts: InvocationBase & {
     (delta) => opts.callbacks.onReasoning?.(delta)
   )
   if (!text && toolCalls.length === 0) {
+    // Successful HTTP + empty SSE is a common OpenAI-compatible host quirk
+    // (reasoning-only chunks, partial tool fragments, content part arrays).
+    // One non-stream retry recovers usable output without masking hard HTTP errors.
+    if (!opts.signal?.aborted) {
+      try {
+        const fallback = await requestChatJson(opts)
+        emitStreamingChat(opts.callbacks, fallback.result)
+        return fallback.result
+      } catch {
+        // Keep the original empty-stream diagnosis when the retry also fails.
+      }
+    }
     throw new ProviderAdapterError('parse', '流式响应未产生任何内容或工具调用。')
   }
   const result: ChatAdapterResult = {

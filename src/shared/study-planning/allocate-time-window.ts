@@ -364,6 +364,99 @@ export function allocateTimeWindow(input: AllocateTimeWindowInput): AllocationPr
       const remaining = minutesBetween(cursor, gapEnd)
       if (remaining <= 0) break
 
+      // STC-702: custom_rhythm — play ordered sequence (kind+minutes), cycle until gap ends.
+      if (plan.kind === 'custom_rhythm' && Array.isArray(plan.rhythmSequence) && plan.rhythmSequence.length > 0) {
+        const sequence = plan.rhythmSequence
+        let stepIndex = 0
+        // Safety cap: max 48 steps per gap (state explosion guard).
+        let safety = 0
+        while (cursor < gapEnd && safety < 48) {
+          safety += 1
+          const remaining = minutesBetween(cursor, gapEnd)
+          if (remaining <= 0) break
+          const step = sequence[stepIndex % sequence.length]
+          const want = step.minutes
+          const kind = step.kind
+
+          if (kind === 'focus') {
+            if (remaining < want) {
+              // Tail policy on incomplete focus step.
+              if (policy === 'adaptive_final_focus' && remaining >= minFinal) {
+                advanceTask()
+                const curTask = taskIndex < taskCursors.length ? taskCursors[taskIndex] : undefined
+                const assignment = takeTaskMinutes(curTask, remaining, minFinal)
+                pushBlock(blocks, 'focus', cursor, gapEnd, assignment.taskId)
+                if (assignment.exhausted) {
+                  taskIndex += 1
+                  advanceTask()
+                }
+                cursor = gapEnd
+                break
+              }
+              if (wrapUp > 0 && remaining >= wrapUp) {
+                pushBlock(blocks, 'wrap_up', cursor, addMinutes(cursor, Math.min(wrapUp, remaining)), null)
+                cursor = addMinutes(cursor, Math.min(wrapUp, remaining))
+              }
+              if (cursor < gapEnd) {
+                pushBlock(blocks, 'blank', cursor, gapEnd, null)
+                warnings.push('custom_rhythm_remainder_below_step')
+              }
+              cursor = gapEnd
+              break
+            }
+            advanceTask()
+            let assignment = { taskId: null as string | null, used: want, exhausted: false }
+            let skipped = 0
+            while (taskIndex < taskCursors.length) {
+              const curTask = taskCursors[taskIndex]
+              assignment = takeTaskMinutes(curTask, want, Math.min(minFinal, want))
+              if (assignment.taskId) break
+              if (assignment.exhausted) {
+                taskIndex += 1
+                advanceTask()
+                continue
+              }
+              taskIndex += 1
+              skipped += 1
+              advanceTask()
+              if (skipped > taskCursors.length) break
+            }
+            const used = assignment.taskId ? assignment.used : want
+            pushBlock(blocks, 'focus', cursor, addMinutes(cursor, used), assignment.taskId)
+            cursor = addMinutes(cursor, used)
+            if (assignment.exhausted) {
+              taskIndex += 1
+              advanceTask()
+            }
+            stepIndex += 1
+            continue
+          }
+
+          // Break / wrap_up steps
+          if (remaining < want) {
+            if (kind === 'wrap_up' && remaining > 0) {
+              pushBlock(blocks, 'wrap_up', cursor, addMinutes(cursor, remaining), null)
+              cursor = gapEnd
+              break
+            }
+            // Cannot fit break — leave remainder blank / adaptive skip
+            pushBlock(blocks, 'blank', cursor, gapEnd, null)
+            warnings.push(`custom_rhythm_step_truncated:${kind}`)
+            cursor = gapEnd
+            break
+          }
+          pushBlock(blocks, kind, cursor, addMinutes(cursor, want), null)
+          cursor = addMinutes(cursor, want)
+          stepIndex += 1
+        }
+        if (cursor < gapEnd && safety >= 48) {
+          pushBlock(blocks, 'blank', cursor, gapEnd, null)
+          warnings.push('custom_rhythm_safety_cap')
+          cursor = gapEnd
+        }
+        continue
+      }
+
       // Continuous / non-pomodoro: single focus fill of free gaps.
       if (plan.kind === 'continuous') {
         advanceTask()

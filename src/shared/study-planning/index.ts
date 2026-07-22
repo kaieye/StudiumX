@@ -9,6 +9,7 @@ export {
   BUILTIN_TIMER_PLAN_CATALOG,
   TIMER_PLAN_SEED_DEFAULTS,
   createClassicPomodoroPlan,
+  createContinuousCountupPlan,
   normalizeTimerPlanV2,
   validateTimerPlanV2,
   type BreakPolicy,
@@ -20,6 +21,25 @@ export {
   type TimerPlanValidationResult,
   type WindowFillPolicy
 } from './timer-plan'
+
+export {
+  CUSTOM_RHYTHM_SEED_LIMITS,
+  createCustomRhythmPlan,
+  customRhythmMinutesForPhase,
+  expandCustomRhythmSequence,
+  isCustomRhythmPlan,
+  nextCustomRhythmStep,
+  normalizeCustomRhythmSequence,
+  projectCustomRhythmPrimaryMinutes,
+  resolveCustomRhythmStep,
+  sumCustomRhythmMinutes,
+  validateCustomRhythmSequence,
+  type CustomRhythmStep,
+  type CustomRhythmStepKind,
+  type CustomRhythmValidationIssue,
+  type CustomRhythmValidationResult
+} from './custom-rhythm-sequence'
+
 
 export {
   ALLOCATOR_TEST_DAY_UTC,
@@ -93,6 +113,18 @@ export {
   type TimerSessionState
 } from './timer-session-lifecycle'
 
+
+export {
+  computeExtendedBreakTargetSeconds,
+  defaultMaxTargetSecondsForPhase,
+  extendTimerSessionTarget,
+  resolveExtendAddSeconds,
+  type ExtendTimerSessionErr,
+  type ExtendTimerSessionInput,
+  type ExtendTimerSessionOk,
+  type ExtendTimerSessionResult
+} from './timer-session-extend'
+
 export {
   STUDY_PLANNING_SCHEMA,
   STUDY_PLANNING_SCHEMA_VERSION,
@@ -108,12 +140,29 @@ export {
 } from './study-planning-store'
 
 export {
+  BUILTIN_STUDY_PLANNING_CATEGORIES,
+  STUDY_PLANNING_CATEGORY_NAME_MAX,
+  STUDY_PLANNING_CUSTOM_CATEGORY_LIMIT,
+  normalizeStudyPlanningCategories,
+  normalizeStudyPlanningCategory,
+  normalizeStudyPlanningCategoryId,
+  projectCategoriesFromSnapshot,
+  type StudyPlanningBuiltinCategoryId,
+  type StudyPlanningCategoryId,
+  type StudyPlanningCategoryV1
+} from './study-planning-categories'
+
+export {
   applyCompleteTaskFutureBlocks,
+  applyDeleteTaskFutureBlocks,
+  applyReopenTask,
   diffScheduleBlocks,
   projectTaskTimeline,
   type CompleteTaskWithFutureBlocksResult,
+  type DeleteTaskWithFutureBlocksResult,
   type FutureBlocksDecision,
   type ProjectTaskTimelineInput,
+  type ReopenTaskResult,
   type TaskTimelineItem,
   type TaskTimelineViewId
 } from './task-timeline-projection'
@@ -182,6 +231,21 @@ export {
 } from './advanced-scheduling'
 
 export {
+  expandRecurrenceToScheduleBlocks,
+  mergeExpandedScheduleBlocks,
+  validateRecurrenceRule,
+  validateRecurrenceRules,
+  type ExpandRecurrenceInput,
+  type ExpandRecurrenceResult,
+  type ExpandRecurrenceWarning,
+  type ExpandRecurrenceWindow,
+  type JsWeekday,
+  type RecurrenceFrequency,
+  type RecurrenceRule,
+  type RecurrenceValidationIssue
+} from './recurrence'
+
+export {
   STUDY_PLANNING_BACKUP_DIR,
   STUDY_PLANNING_DIR_SEGMENTS,
   STUDY_PLANNING_MIGRATION_REPORT_FILE,
@@ -201,3 +265,82 @@ export {
   type FutureBlocksDecisionWire
 } from './future-blocks-decision-sheet'
 
+export {
+  buildClassificationPromptSheetModel,
+  normalizeClassificationPromptAction,
+  resolveClassificationCategoryId,
+  type ClassificationPromptCategory,
+  type ClassificationPromptSheetModel
+} from './classification-prompt-sheet'
+
+export {
+  buildBatchClassifySheetModel,
+  collectInboxTaskIdsForBatchClassify,
+  resolveClassificationCategoryId as resolveBatchClassifyCategoryId,
+  shouldSuppressClassificationPromptStorm,
+  type BatchClassifySheetModel,
+  type BatchClassifySheetTask
+} from './batch-classify-sheet'
+
+export {
+  buildPhasePromptSheetModel,
+  breakMinutesForPhase,
+  computeNextBreakPhase,
+  isBreakPhase,
+  normalizePhasePromptAction,
+  normalizePhasePromptExtendMinutes,
+  PHASE_PROMPT_EXTEND_MINUTE_OPTIONS,
+  projectPhaseHandoffPlan,
+  resolvePhasePromptDisposition,
+  shouldOfferPhaseHandoff,
+  type PhaseHandoffPlan,
+  type PhasePromptAction,
+  type PhasePromptSheetModel
+} from './phase-prompt-sheet'
+
+export {
+  buildBreakEndPromptSheetModel,
+  focusTargetSecondsForPlan,
+  isWrapUpPhase,
+  normalizeBreakEndPromptAction,
+  projectBreakEndHandoffPlan,
+  shouldOfferBreakEndHandoff,
+  wrapUpMinutesForPlan,
+  type BreakEndHandoffPlan,
+  type BreakEndPromptAction,
+  type BreakEndPromptSheetModel
+} from './break-end-prompt-sheet'
+
+export {
+  buildReconcileSheetModel,
+  formatReconcileGapLabel,
+  gapMinutesRounded,
+  normalizeReconcileSheetAction,
+  reconcileDecisionFromAction,
+  shouldOfferReconcileSheet,
+  type ReconcileSheetAction,
+  type ReconcileSheetModel
+} from './reconcile-sheet'
+
+export {
+  absoluteDurationMs,
+  EDITABLE_RANGE_MIN_MINUTES_DEFAULT,
+  formatZonedRangeDisplay,
+  getUtcOffsetMinutes,
+  nextLocalMidnightMs,
+  projectWallClock,
+  reprojectWallClockLabels,
+  resolveLocalDateTime,
+  splitIntervalAtLocalMidnights,
+  splitScheduleRangeAcrossMidnight,
+  validateEditableTimeRange,
+  type DateBlockSlice,
+  type EditableRangeIssue,
+  type EditableRangeValidation,
+  type LocalDateTimeInput,
+  type LocalTimeResolution,
+  type ReprojectWallClockResult,
+  type SplitIntervalResult,
+  type TimeZoneId,
+  type WallClockParts
+} from './timezone-dst-editing'

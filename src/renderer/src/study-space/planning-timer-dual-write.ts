@@ -1,13 +1,19 @@
 /**
  * TimerSession dual-write (Slice D partial cutover).
  *
- * V1 StudySessionLifecycle remains the UI/analytics timer host.
+ * Dual-write transitions only. Local TimerSession (planning-timer-display)
+ * is the focus UI clock authority; V1 StudySessionLifecycle still hosts
+ * analytics + break segments.
  * When workspace + IPC are available, publish start/pause/resume/finish
- * to durable StudyPlanningStore so planSnapshot freezes and single-running
- * is enforced across windows at the store layer.
+ * (and on-demand advance + reconcile_stale_session) to durable StudyPlanningStore
+ * so planSnapshot freezes and single-running is enforced across windows.
  *
  * Intentionally does NOT dual-write every tick advance (disk thrash).
  * Elapsed is applied by durable pause/finish reducers from lastSampleWallMs.
+ * STC-206: advance once to pin needs_reconcile, then reconcile_stale_session after user decide.
+ *
+ * Break segments: start with phase short_break|long_break (store accepts phase);
+ * pause/resume/finish reuse the same session commands. Still no per-tick advance.
  */
 
 import {
@@ -24,6 +30,8 @@ export type TimerSessionAttributionReason =
   | 'quick_start'
   | 'unattributed'
 
+export type DualWriteTimerPhase = 'focus' | 'short_break' | 'long_break' | 'wrap_up'
+
 export type DualWriteStartTimerInput = {
   sessionId: string
   taskId?: string | null
@@ -31,6 +39,8 @@ export type DualWriteStartTimerInput = {
   /** Prefer V1 remainingSeconds so duration matches UI even when plan is classic seed. */
   targetSeconds?: number | null
   attributionReason?: TimerSessionAttributionReason
+  /** Defaults to focus in store when omitted. Use short_break/long_break for rest segments. */
+  phase?: DualWriteTimerPhase
 }
 
 function hasCanonicalContext(ctx: CanonicalPlanningContext): boolean {
@@ -65,6 +75,7 @@ export function buildStartTimerSessionCommand(
   if (input.taskId !== undefined) payload.taskId = input.taskId
   if (input.attributionReason) payload.attributionReason = input.attributionReason
   if (input.targetSeconds !== undefined) payload.targetSeconds = input.targetSeconds
+  if (input.phase) payload.phase = input.phase
 
   return {
     actionId,
@@ -110,6 +121,65 @@ export function buildFinishTimerSessionCommand(
     actionId,
     type: 'finish_timer_session',
     payload: { sessionId, reason },
+    ...(clientIssuedAtMs !== undefined ? { clientIssuedAtMs } : {})
+  }
+}
+
+export type DualWriteReconcileDecision = 'confirm_all' | 'truncate_to_target' | 'discard_gap'
+
+export function buildAdvanceTimerSessionCommand(
+  sessionId: string,
+  actionId: string,
+  clientIssuedAtMs?: number,
+  nowMs?: number
+): StudyPlanningCommandEnvelope {
+  const payload: Record<string, unknown> = { sessionId }
+  if (nowMs !== undefined) payload.nowMs = nowMs
+  return {
+    actionId,
+    type: 'advance_timer_session',
+    payload,
+    ...(clientIssuedAtMs !== undefined ? { clientIssuedAtMs } : {})
+  }
+}
+
+export function buildReconcileStaleSessionCommand(
+  sessionId: string,
+  decision: DualWriteReconcileDecision,
+  actionId: string,
+  clientIssuedAtMs?: number
+): StudyPlanningCommandEnvelope {
+  return {
+    actionId,
+    type: 'reconcile_stale_session',
+    payload: { sessionId, decision },
+    ...(clientIssuedAtMs !== undefined ? { clientIssuedAtMs } : {})
+  }
+}
+
+export type DualWriteSwitchSessionTaskInput = {
+  sessionId: string
+  newSessionId: string
+  newTaskId: string | null
+}
+
+/**
+ * Build switch_session_task envelope (STC-204 mid-run task switch).
+ * Ends current segment and starts a new session with frozen planSnapshot.
+ */
+export function buildSwitchSessionTaskCommand(
+  input: DualWriteSwitchSessionTaskInput,
+  actionId: string,
+  clientIssuedAtMs?: number
+): StudyPlanningCommandEnvelope {
+  return {
+    actionId,
+    type: 'switch_session_task',
+    payload: {
+      sessionId: input.sessionId,
+      newSessionId: input.newSessionId,
+      newTaskId: input.newTaskId
+    },
     ...(clientIssuedAtMs !== undefined ? { clientIssuedAtMs } : {})
   }
 }
@@ -262,10 +332,112 @@ export async function dualWriteFinishTimerSession(
 }
 
 /**
- * Map V1 timerMode + optional task into store attribution.
- * Break segments are still TimerSessions with phase short_break (store defaults phase focus on start).
- * Partial cutover: focus starts only dual-write start; break auto-segment stays V1-only until full cutover.
+ * Dual-write durable advance (e.g. pin needs_reconcile gap on disk).
+ * Not used on every tick — only when product path must publish wall sample.
  */
+export async function dualWriteAdvanceTimerSession(
+  ctx: CanonicalPlanningContext,
+  sessionId: string,
+  nowMsSample?: number
+): Promise<DualWriteResult> {
+  if (!hasCanonicalContext(ctx)) return skipped(ctx)
+  if (!sessionId) {
+    return {
+      kind: 'canonical_failed',
+      result: {
+        ok: false,
+        revision: 0,
+        error: { code: 'invalid_command', message: 'sessionId required for advance' }
+      }
+    }
+  }
+  const nowMs = () => nowOf(ctx)
+  const result = await applyWithRevisionRetry(
+    ctx.api,
+    ctx.workspaceRoot,
+    (actionId, issued) =>
+      buildAdvanceTimerSessionCommand(sessionId, actionId, issued, nowMsSample ?? issued),
+    nowMs,
+    `advance_timer:${sessionId}`
+  )
+  return toDualWrite(result)
+}
+
+/**
+ * Dual-write reconcile_stale_session after user decides (freeze #5).
+ * Store requires session.state === needs_reconcile; caller should advance first if only local.
+ */
+export async function dualWriteReconcileStaleSession(
+  ctx: CanonicalPlanningContext,
+  sessionId: string,
+  decision: DualWriteReconcileDecision
+): Promise<DualWriteResult> {
+  if (!hasCanonicalContext(ctx)) return skipped(ctx)
+  if (!sessionId) {
+    return {
+      kind: 'canonical_failed',
+      result: {
+        ok: false,
+        revision: 0,
+        error: { code: 'invalid_command', message: 'sessionId required for reconcile' }
+      }
+    }
+  }
+  const nowMs = () => nowOf(ctx)
+  const result = await applyWithRevisionRetry(
+    ctx.api,
+    ctx.workspaceRoot,
+    (actionId, issued) => buildReconcileStaleSessionCommand(sessionId, decision, actionId, issued),
+    nowMs,
+    `reconcile_timer:${sessionId}`
+  )
+  return toDualWrite(result)
+}
+
+/**
+ * Map V1 timerMode + optional task into store attribution.
+ * Break segments dual-write as TimerSessions with phase short_break|long_break (taskId null).
+ */
+/**
+ * Dual-write switch_session_task (STC-204). Fail-closed without workspace.
+ * Caller supplies newSessionId (createCanonicalTimerSessionId).
+ */
+export async function dualWriteSwitchSessionTask(
+  ctx: CanonicalPlanningContext,
+  input: DualWriteSwitchSessionTaskInput
+): Promise<DualWriteResult> {
+  if (!hasCanonicalContext(ctx)) return skipped(ctx)
+  if (!input.sessionId) {
+    return {
+      kind: 'canonical_failed',
+      result: {
+        ok: false,
+        revision: 0,
+        error: { code: 'invalid_command', message: 'sessionId required for switch_session_task' }
+      }
+    }
+  }
+  if (!input.newSessionId) {
+    return {
+      kind: 'canonical_failed',
+      result: {
+        ok: false,
+        revision: 0,
+        error: { code: 'invalid_command', message: 'newSessionId required for switch_session_task' }
+      }
+    }
+  }
+  const nowMs = () => nowOf(ctx)
+  const result = await applyWithRevisionRetry(
+    ctx.api,
+    ctx.workspaceRoot,
+    (actionId, issued) => buildSwitchSessionTaskCommand(input, actionId, issued),
+    nowMs,
+    `switch_session:${input.sessionId}->${input.newSessionId}`
+  )
+  return toDualWrite(result)
+}
+
 export function resolveTimerAttribution(
   taskId: string | null | undefined
 ): { taskId: string | null; attributionReason: TimerSessionAttributionReason } {

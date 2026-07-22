@@ -2,7 +2,7 @@
 
 - **状态：** 已实施
 - **日期：** 2026-07-21
-- **范围：** GitHub Actions 外部 `uses:` 的 commit SHA 钉死、Dependabot 仅 `github-actions` 生态、OSV 依赖扫描 **fail-open** 可见报告
+- **范围：** GitHub Actions 外部 `uses:` 的 commit SHA 钉死、Dependabot 仅 `github-actions` 生态、OSV 依赖扫描 **fail-open** 可见报告；以及 **allowlist 式 critical npm exact pin**（`better-sqlite3` 等，可选 `check:pinned-critical-deps`，不进 Blocking CI）
 - **相关：** [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[ADR-0121](0121-improvements-adoption-closeout.md) **A-09**
 
 ## 背景
@@ -84,7 +84,62 @@ Select-String -Path .github/workflows/*.yml -Pattern 'uses:'
 - **不** 开启 npm Dependabot 或自动合并。
 - **不** 默认上传 SARIF 到 GitHub Code Scanning（避免 security-events 权限与私有仓库摩擦；JSON artifact 足够 fail-open 可见）。
 - **不** 保证 OSV 覆盖所有传递依赖或零误报；结果是供应链信号，不是发布 blocker。
-- **不** 改变 release-audit、Linux host-native、或任何领域 check 脚本语义。
+
+- **不** 用 critical npm exact-pin check 替换 check:security / teaching gates；**不** 全仓 exact-pin UI 依赖。
+
+## 4. Critical npm exact pin (allowlist) — ADAPT-P2
+
+**Status:** implemented (optional check; not Blocking CI).
+
+Selective supply-chain hardening for **native / security-sensitive** direct dependencies only. Inspired by Pi-style exact pins + `check-pinned-deps`, **without** full-repo exact pin, npm-shrinkwrap dual SoT, or npm Dependabot flood.
+
+### Decision
+
+1. **Allowlist** (not all UI deps):
+   - `better-sqlite3` — native binding; Electron/Node ABI rebuild sensitive
+   - `@types/better-sqlite3` — types paired with the native package
+
+2. **Exact versions in `package.json`** for allowlisted names only:
+   - `"better-sqlite3": "12.11.1"` (not `^12.11.1`)
+   - `"@types/better-sqlite3": "7.6.13"` (not `^7.6.13`)
+   - Bumps require intentional PR text (why this native version / rebuild notes)
+
+3. **Optional checker** (same class as `check:module-size`):
+   - Script: `scripts/check-pinned-critical-deps.mjs`
+   - Script entry: `pnpm run check:pinned-critical-deps`
+   - Requires exact pin (no `^` / `~` / ranges)
+   - When `pnpm-lock.yaml` exists: importers `specifier` must match the exact pin and `packages` must contain `name@version`
+   - Exit non-zero on violation; print fix message
+   - **Not** added to Blocking CI / teaching gates / required jobs
+
+4. **Install culture boundary** (document only; not enforced by this check):
+   - Prefer `pnpm install --ignore-scripts` for pure JS supply-chain hygiene when scripts are unnecessary
+   - **Exception:** `better-sqlite3` needs native rebuild / lifecycle scripts (`rebuild:better-sqlite3:node`, `rebuild:better-sqlite3:electron`, pretest rebuild). Do not treat `--ignore-scripts` as universal for this native dep.
+
+### Verification
+
+```bash
+pnpm run check:pinned-critical-deps
+# or
+node scripts/check-pinned-critical-deps.mjs
+node scripts/check-pinned-critical-deps.mjs --help
+```
+
+Expect exit 0 after exact pins. Intentionally setting `"better-sqlite3": "^12.11.1"` must exit 1.
+
+### Non-claims / does not replace
+
+- **Does not** replace `check:security`, path/tool/provider-privacy gates, or teaching-evidence Blocking CI (ADR-0023).
+- **Does not** replace Actions SHA pin, Dependabot(actions), or OSV fail-open (§1–3 of this ADR).
+- **Does not** exact-pin electron / all UI deps.
+- **Does not** introduce npm-shrinkwrap as a second lockfile SoT (pnpm-lock remains sole lock).
+- **Does not** open npm Dependabot by default.
+
+### Related
+
+- 历史 Pi 对照审查 ADAPT-P2（对照文档已删除；以本 ADR §4 与 `check:pinned-critical-deps` 为准）
+- `scripts/check-module-size.mjs` — style template for optional non-Blocking checks
+
 
 ## 后果
 

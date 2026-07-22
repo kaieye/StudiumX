@@ -96,7 +96,11 @@ export const teachingInvokeChannels = {
   saveTeachingTurnReviewLastBundle: 'teach:save-teaching-turn-review-last-bundle',
   projectAgentSessionQueue: 'teach:project-agent-session-queue',
   readStudyPlanning: 'teach:read-study-planning',
-  applyStudyPlanning: 'teach:apply-study-planning'
+  applyStudyPlanning: 'teach:apply-study-planning',
+  mcpGetConfig: 'teach:mcp-get-config',
+  mcpUpdateConfig: 'teach:mcp-update-config',
+  mcpTestServer: 'teach:mcp-test-server',
+  mcpListRuntime: 'teach:mcp-list-runtime'
 } satisfies Record<TeachingInvokeCapability, string>
 
 export const teachingEventChannels = {

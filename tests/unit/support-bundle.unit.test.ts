@@ -181,6 +181,16 @@ function fullInput(overrides: Partial<SupportBundleInput> = {}): SupportBundleIn
         memory_projection: 1
       }
     },
+    mcp: {
+      implementationPresent: true,
+      rootEnabled: false,
+      serverCount: 0,
+      enabledServerCount: 0,
+      connectedServerCount: 0,
+      errorServerCount: 0,
+      configPathLabel: 'userData/mcp/config.v1.json',
+      servers: []
+    },
     ...overrides
   }
 }
@@ -200,7 +210,8 @@ describe('support bundle', () => {
       'capability',
       'audit_correlation',
       'environment',
-      'local_data_index'
+      'local_data_index',
+      'mcp_status'
     ])
 
     expect(json).not.toMatch(/sk-live-should-not-leak/)
@@ -454,6 +465,134 @@ describe('support bundle', () => {
     expect(json).not.toContain('memoryBodies')
     expect((section?.payload as Record<string, unknown>)?.includesProjectionRowBodies).toBe(false)
     expect((section?.payload as Record<string, unknown>)?.aggregateOnly).toBe(true)
+  })
+
+
+  it('packs redacted MCP status and strips secrets, secret refs, and absolute command paths', () => {
+    const secretToken = 'sk-live-mcp-must-not-export-abcdef0123456789'
+    const absCommand = `${WORKSPACE_ROOT}/tools/mcp-server.js`
+    const absCwd = `${WORKSPACE_ROOT}/tools`
+    const preview = previewSupportBundle(
+      fullInput({
+        mcp: {
+          implementationPresent: true,
+          rootEnabled: true,
+          serverCount: 1,
+          enabledServerCount: 1,
+          connectedServerCount: 0,
+          errorServerCount: 1,
+          configPathLabel: `${WORKSPACE_ROOT}/../AppData/Roaming/StudiumX/mcp/config.v1.json`,
+          servers: [
+            {
+              id: 'demo-server',
+              enabled: true,
+              transport: 'stdio',
+              state: 'error',
+              toolCount: 0,
+              errorCode: 'mcp_spawn_failed',
+              commandLabel: `node ${absCommand} --token=${secretToken}`,
+              args: [absCommand, `--api-key=${secretToken}`],
+              cwd: absCwd
+            }
+          ],
+          // Smuggled secret-bearing fields must never appear in payload.
+          envSecrets: { TOKEN: secretToken },
+          headers: { Authorization: `Bearer ${secretToken}` },
+          envSecretRefs: { TOKEN: 'secret-ref-should-not-export' },
+          headersSecretRefs: { Authorization: 'hdr-ref' },
+          rawCommand: absCommand,
+          rawArgs: [secretToken]
+        } as SupportBundleInput['mcp'] & Record<string, unknown>
+      })
+    )
+
+    const section = preview.sections.find((item) => item.id === 'mcp_status')
+    expect(section).toBeTruthy()
+    expect(section?.title).toBe('User MCP Status')
+
+    const json = JSON.stringify(section?.payload)
+    expect(json).not.toContain(secretToken)
+    expect(json).not.toMatch(/sk-live-mcp/)
+    expect(json).not.toContain('secret-ref-should-not-export')
+    expect(json).not.toContain('hdr-ref')
+    expect(json).not.toContain('Bearer ')
+    expect(json).not.toContain('C:/Users/alice')
+    expect(json).not.toContain(WORKSPACE_ROOT)
+    expect(json).not.toMatch(/envSecrets|envSecretRefs|headersSecretRefs|rawCommand|rawArgs/)
+    expect(json).toContain('demo-server')
+    expect(json).toContain('mcp_spawn_failed')
+    expect(json).toMatch(/\[redacted\]|redacted-absolute-path|tools\/mcp-server/)
+    expect(json).toContain('secretsNeverExported')
+    expect(json).toContain('aggregateOnly')
+
+    // Doctor path with MCP facts also remains secret-free in the doctor section.
+    const doctorPreview = previewSupportBundle(
+      fullInput({
+        doctor: runTeachingDoctor(
+          doctorFacts({
+            mcp: {
+              implementationPresent: true,
+              rootEnabled: true,
+              serverCount: 1,
+              enabledServerCount: 1,
+              connectedServerCount: 0,
+              errorServerCount: 1,
+              configPathLabel: 'userData/mcp/config.v1.json',
+              servers: [
+                {
+                  id: 'demo',
+                  enabled: true,
+                  transport: 'stdio',
+                  state: 'error',
+                  toolCount: 0,
+                  errorCode: 'mcp_spawn_failed',
+                  commandLabel: `npx --token=${secretToken}`
+                }
+              ]
+            }
+          }),
+          NOW
+        )
+      })
+    )
+    const doctorJson = JSON.stringify(
+      doctorPreview.sections.find((item) => item.id === 'doctor')?.payload
+    )
+    expect(doctorJson).not.toContain(secretToken)
+    expect(doctorJson).toContain('mcp_status')
+  })
+
+  it('never packs smuggled MCP secret maps even if nested under servers', () => {
+    const secretToken = 'sk-proj-mcp-bundle-leak-XYZ0123456789ABCDEF'
+    const preview = previewSupportBundle(
+      fullInput({
+        mcp: {
+          implementationPresent: true,
+          rootEnabled: false,
+          serverCount: 1,
+          enabledServerCount: 0,
+          connectedServerCount: 0,
+          errorServerCount: 0,
+          servers: [
+            {
+              id: 's1',
+              enabled: false,
+              transport: 'stdio',
+              state: 'disabled',
+              commandLabel: 'npx',
+              // @ts-expect-error intentional smuggle for redaction proof
+              envSecrets: { API_KEY: secretToken },
+              // @ts-expect-error intentional smuggle
+              headers: { Authorization: `Bearer ${secretToken}` }
+            }
+          ]
+        }
+      })
+    )
+    const json = JSON.stringify(preview.sections.find((s) => s.id === 'mcp_status')?.payload)
+    expect(json).not.toContain(secretToken)
+    expect(json).not.toContain('API_KEY')
+    expect(json).not.toMatch(/Bearer sk-proj/)
   })
 
 })

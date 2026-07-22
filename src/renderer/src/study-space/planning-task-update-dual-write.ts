@@ -35,12 +35,13 @@ export type DualWriteUpdateTaskResult = {
 function hasTaskFieldUpdates(update: StudyTaskUpdateInput): boolean {
   if (typeof update.title === 'string' && update.title.trim()) return true
   if (update.categoryId !== undefined) return true
+  if (update.estimateMinutes !== undefined) return true
   return false
 }
 
 /**
  * Build update_task payload from V1 StudyTaskUpdateInput (fields the store accepts).
- * `done` / reopen are not update_task (complete is separate dual-write).
+ * `done` / reopen are not update_task (complete / reopen dual-writes).
  */
 export function buildUpdateTaskPayloadFromV1(
   taskId: string,
@@ -55,8 +56,17 @@ export function buildUpdateTaskPayloadFromV1(
   if (update.categoryId !== undefined) {
     payload.categoryId = update.categoryId
   }
+  if (update.estimateMinutes !== undefined) {
+    payload.estimateMinutes = update.estimateMinutes
+  }
   // No fields besides id → skip (e.g. title was whitespace-only)
-  if (payload.title === undefined && payload.categoryId === undefined) return null
+  if (
+    payload.title === undefined &&
+    payload.categoryId === undefined &&
+    payload.estimateMinutes === undefined
+  ) {
+    return null
+  }
   return payload
 }
 
@@ -102,6 +112,7 @@ export async function dualWriteUpdateTask(
   }
 
   if (input.update.schedule) {
+    // null means clear V1 primary cache only — no upsert (use delete_schedule_block).
     const schedule: StudyTaskSchedule = input.update.schedule
     const weekAnchor =
       input.weekAnchorMidnightMs ?? resolveDefaultWeekAnchorMidnightMs(ctx.nowMs?.() ?? Date.now())

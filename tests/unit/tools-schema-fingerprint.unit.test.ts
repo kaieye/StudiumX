@@ -111,6 +111,31 @@ describe('fingerprintToolDefinitions', () => {
     ]
     expect(fingerprintToolDefinitions(changed)).not.toBe(fingerprintToolDefinitions(base))
   })
+
+  it('includes MCP-style tool names in the surface fingerprint (ADR-0128 Phase C)', () => {
+    const staticOnly = [tool('read_workspace_file', { ...READ_PARAMS })]
+    const withMcp = [
+      tool('read_workspace_file', { ...READ_PARAMS }),
+      tool('mcp__demo__list_files', {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path']
+      })
+    ]
+    const a = fingerprintToolDefinitions(staticOnly)
+    const b = fingerprintToolDefinitions(withMcp)
+    expect(a).not.toBe(b)
+    // Same MCP surface stays stable
+    expect(fingerprintToolDefinitions(withMcp)).toBe(b)
+    // Mid-run expansion to add MCP tools fails closed as expanded
+    const decision = evaluateToolsSchemaTransition(a, withMcp, staticOnly)
+    expect(decision.ok).toBe(false)
+    if (!decision.ok) {
+      expect(decision.change).toBe('expanded')
+      expect(decision.auditCode).toBe(TOOLS_SCHEMA_AUDIT.expanded)
+    }
+  })
+
 })
 
 describe('evaluateToolsSchemaTransition', () => {

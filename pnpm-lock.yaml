@@ -30,7 +30,7 @@ importers:
         specifier: ^1.2.3
         version: 1.2.3
       better-sqlite3:
-        specifier: ^12.11.1
+        specifier: 12.11.1
         version: 12.11.1
       i18next:
         specifier: ^26.3.3
@@ -106,7 +106,7 @@ importers:
         specifier: ^14.6.1
         version: 14.6.1(@testing-library/dom@10.4.1)
       '@types/better-sqlite3':
-        specifier: ^7.6.13
+        specifier: 7.6.13
         version: 7.6.13
       '@types/markdown-it':
         specifier: ^14.1.2

@@ -4,6 +4,8 @@ import {
   mergeCanonicalTasksIntoStudySnapshot,
   pickPrimaryScheduleBlockForTask,
   projectCanonicalTasksForUi,
+  projectCanonicalTimerPlansForUi,
+  projectDefaultTimerPlanIdFromPreferences,
   scheduleBlockToV1Schedule,
   studyTasksEqual
 } from '../../src/renderer/src/study-space/planning-hydrate'
@@ -12,7 +14,8 @@ import type { StudySnapshot, StudyTask } from '../../src/renderer/src/study-spac
 import type { PlanningTask, ScheduleBlock, StudyPlanningSnapshotV1 } from '../../src/shared/study-planning'
 import {
   STUDY_PLANNING_SCHEMA,
-  STUDY_PLANNING_SCHEMA_VERSION
+  STUDY_PLANNING_SCHEMA_VERSION,
+  createClassicPomodoroPlan
 } from '../../src/shared/study-planning'
 
 const FIXED_NOW = Date.UTC(2026, 6, 21, 12, 0, 0) // Tue 2026-07-21 12:00 UTC
@@ -333,6 +336,8 @@ describe('hydrateStudyTasksFromCanonical', () => {
     expect(result.revision).toBe(9)
     expect(result.taskCount).toBe(2)
     expect(result.source).toBe('canonical')
+    expect(result.defaultTimerPlanId).toBeNull()
+    expect(result.timerPlansProjected).toBe(0)
     expect(result.snapshot.tasks).toEqual([
       { id: 'canon-1', title: 'Canonical A', done: false, categoryId: 'study' },
       { id: 'canon-2', title: 'Canonical B', done: true }
@@ -413,5 +418,326 @@ describe('hydrateStudyTasksFromCanonical', () => {
     if (result.kind !== 'kept_v1') return
     expect(result.reason).toBe('io_failed')
     expect(result.migrationSuggested).toBe(true)
+  })
+})
+
+describe('projectCanonicalTimerPlansForUi', () => {
+  it('maps TimerPlanV2 catalog to V1 and preserves host simulation windows by id', () => {
+    const plan = createClassicPomodoroPlan({
+      id: 'plan-user-1',
+      name: 'Custom',
+      focusMinutes: 30,
+      shortBreakMinutes: 8
+    })
+    const projected = projectCanonicalTimerPlansForUi(
+      { timerPlans: [plan] },
+      [
+        {
+          id: 'plan-user-1',
+          name: 'old',
+          focusMinutes: 25,
+          breakMinutes: 5,
+          simulationStartTime: '10:30',
+          simulationEndTime: '14:00'
+        }
+      ]
+    )
+    expect(projected).toEqual([
+      {
+        id: 'plan-user-1',
+        name: 'Custom',
+        focusMinutes: 30,
+        breakMinutes: 8,
+        simulationStartTime: '10:30',
+        simulationEndTime: '14:00',
+        longBreakMinutes: 15,
+        longBreakEvery: 4,
+        breakPolicy: 'ask',
+        kind: 'pomodoro',
+        clockMode: 'countdown'
+      }
+    ])
+  })
+
+  it('merge overlays timerPlans when canonical has catalog rows', () => {
+    const planning: StudyPlanningSnapshotV1 = {
+      ...emptyPlanning(5),
+      tasks: [planningTask({ id: 'a', title: 'T' })],
+      timerPlans: [
+        createClassicPomodoroPlan({
+          id: 'p1',
+          name: 'Deep',
+          focusMinutes: 50,
+          shortBreakMinutes: 10
+        })
+      ]
+    }
+    const host = hostSnapshot([{ id: 'a', title: 'T', done: false }])
+    host.timerPlans = [
+      {
+        id: 'v1-only',
+        name: 'local',
+        focusMinutes: 25,
+        breakMinutes: 5,
+        simulationStartTime: '09:00',
+        simulationEndTime: '12:00'
+      }
+    ]
+    const merged = mergeCanonicalTasksIntoStudySnapshot(host, planning)
+    expect(merged.timerPlansProjected).toBe(1)
+    expect(merged.snapshot.timerPlans).toEqual([
+      {
+        id: 'p1',
+        name: 'Deep',
+        focusMinutes: 50,
+        breakMinutes: 10,
+        simulationStartTime: '09:00',
+        simulationEndTime: '12:00',
+        longBreakMinutes: 15,
+        longBreakEvery: 4,
+        breakPolicy: 'ask',
+        kind: 'pomodoro',
+        clockMode: 'countdown'
+      }
+    ])
+  })
+})
+
+describe('projectDefaultTimerPlanIdFromPreferences', () => {
+  it('returns null when unset / empty / non-string', () => {
+    expect(projectDefaultTimerPlanIdFromPreferences(undefined)).toBeNull()
+    expect(projectDefaultTimerPlanIdFromPreferences(null as never)).toBeNull()
+    expect(projectDefaultTimerPlanIdFromPreferences({})).toBeNull()
+    expect(projectDefaultTimerPlanIdFromPreferences({ defaultTimerPlanId: null })).toBeNull()
+    expect(projectDefaultTimerPlanIdFromPreferences({ defaultTimerPlanId: '' })).toBeNull()
+    expect(projectDefaultTimerPlanIdFromPreferences({ defaultTimerPlanId: '   ' })).toBeNull()
+  })
+
+  it('trims and returns non-empty plan id', () => {
+    expect(
+      projectDefaultTimerPlanIdFromPreferences({ defaultTimerPlanId: '  deep_50_10  ' })
+    ).toBe('deep_50_10')
+    expect(
+      projectDefaultTimerPlanIdFromPreferences({ defaultTimerPlanId: 'classic_25_5' })
+    ).toBe('classic_25_5')
+  })
+})
+
+describe('hydrateStudyTasksFromCanonical preferences + timerPlans sole-read', () => {
+  it('applied surfaces defaultTimerPlanId and projected timerPlans', async () => {
+    const planning: StudyPlanningSnapshotV1 = {
+      ...emptyPlanning(12),
+      tasks: [planningTask({ id: 't1', title: 'Canon task', categoryId: 'study', inbox: false })],
+      timerPlans: [
+        createClassicPomodoroPlan({
+          id: 'deep_50_10',
+          name: 'Deep',
+          focusMinutes: 50,
+          shortBreakMinutes: 10
+        })
+      ],
+      preferences: { defaultTimerPlanId: 'deep_50_10' }
+    }
+    const host = hostSnapshot([{ id: 'stale', title: 'old', done: false }])
+    host.timerPlans = [
+      {
+        id: 'v1-local',
+        name: 'Local only',
+        focusMinutes: 25,
+        breakMinutes: 5,
+        simulationStartTime: '08:00',
+        simulationEndTime: '11:00'
+      }
+    ]
+
+    const api = mockApi(planning)
+    const result = await hydrateStudyTasksFromCanonical(
+      { api, workspaceRoot: 'D:/ws', nowMs: () => FIXED_NOW },
+      host
+    )
+    expect(result.kind).toBe('applied')
+    if (result.kind !== 'applied') return
+    expect(result.defaultTimerPlanId).toBe('deep_50_10')
+    expect(result.timerPlansProjected).toBe(1)
+    expect(result.snapshot.timerPlans).toEqual([
+      {
+        id: 'deep_50_10',
+        name: 'Deep',
+        focusMinutes: 50,
+        breakMinutes: 10,
+        simulationStartTime: '09:00',
+        simulationEndTime: '12:00',
+        longBreakMinutes: 15,
+        longBreakEvery: 4,
+        breakPolicy: 'ask',
+        kind: 'pomodoro',
+        clockMode: 'countdown'
+      }
+    ])
+    expect(result.snapshot.tasks.map((t) => t.id)).toEqual(['t1'])
+  })
+
+  it('applied yields null defaultTimerPlanId when preferences omit it', async () => {
+    const planning: StudyPlanningSnapshotV1 = {
+      ...emptyPlanning(4),
+      tasks: [planningTask({ id: 'only', title: 'One' })],
+      preferences: {}
+    }
+    const api = mockApi(planning)
+    const result = await hydrateStudyTasksFromCanonical(
+      { api, workspaceRoot: 'D:/ws' },
+      hostSnapshot([{ id: 'v1', title: 'x', done: false }])
+    )
+    expect(result.kind).toBe('applied')
+    if (result.kind !== 'applied') return
+    expect(result.defaultTimerPlanId).toBeNull()
+    expect(result.timerPlansProjected).toBe(0)
+    // STC-404 fail-closed defaults when prefs omit empty-start / classification opt-out
+    expect(result.emptyStartPolicy).toBe('ask_every_time')
+    expect(result.classificationPromptOptOut).toBe(false)
+  })
+
+  it('applied surfaces emptyStartPolicy + classificationPromptOptOut sole-read (STC-404)', async () => {
+    const planning: StudyPlanningSnapshotV1 = {
+      ...emptyPlanning(8),
+      tasks: [planningTask({ id: 't1', title: 'Canon task' })],
+      preferences: {
+        emptyStartPolicy: 'remember_quick_start',
+        classificationPromptOptOut: true
+      }
+    }
+    const api = mockApi(planning)
+    const result = await hydrateStudyTasksFromCanonical(
+      { api, workspaceRoot: 'D:/ws', nowMs: () => FIXED_NOW },
+      hostSnapshot([{ id: 'stale', title: 'old', done: false }])
+    )
+    expect(result.kind).toBe('applied')
+    if (result.kind !== 'applied') return
+    expect(result.emptyStartPolicy).toBe('remember_quick_start')
+    expect(result.classificationPromptOptOut).toBe(true)
+  })
+
+  it('applied surfaces timerSessions sole-read for task-detail actual (STC-304 remainder)', async () => {
+    const session = {
+      id: 'sess-1',
+      taskId: 't1',
+      scheduleBlockId: null,
+      phase: 'focus' as const,
+      clockMode: 'countdown' as const,
+      state: 'completed' as const,
+      targetSeconds: 1500,
+      startedAtMs: FIXED_NOW - 1800_000,
+      endedAtMs: FIXED_NOW - 300_000,
+      lastSampleWallMs: FIXED_NOW - 300_000,
+      accumulatedActiveSeconds: 1500,
+      accumulatedFocusSeconds: 1500,
+      planSnapshot: null,
+      attributionReason: 'explicit' as const,
+      focusRoundInPlan: 1
+    }
+    const planning: StudyPlanningSnapshotV1 = {
+      ...emptyPlanning(9),
+      tasks: [planningTask({ id: 't1', title: 'Canon task' })],
+      timerSessions: [session]
+    }
+    const api = mockApi(planning)
+    const result = await hydrateStudyTasksFromCanonical(
+      { api, workspaceRoot: 'D:/ws', nowMs: () => FIXED_NOW },
+      hostSnapshot([{ id: 'stale', title: 'old', done: false }])
+    )
+    expect(result.kind).toBe('applied')
+    if (result.kind !== 'applied') return
+    expect(result.timerSessions).toHaveLength(1)
+    expect(result.timerSessions[0]?.id).toBe('sess-1')
+    expect(result.timerSessions[0]?.accumulatedFocusSeconds).toBe(1500)
+  })
+})
+
+describe('hydrate simulation window sole-read', () => {
+  it('applied surfaces simulation labels from preferences and merges host snapshot', async () => {
+    const planning: StudyPlanningSnapshotV1 = {
+      ...emptyPlanning(21),
+      tasks: [planningTask({ id: 't1', title: 'Task' })],
+      preferences: {
+        simulationStartTime: '08:00',
+        simulationEndTime: '11:30'
+      }
+    }
+    const host = hostSnapshot()
+    host.simulationStartTime = '09:00'
+    host.simulationEndTime = '12:00'
+    const result = await hydrateStudyTasksFromCanonical(
+      { api: mockApi(planning), workspaceRoot: '/ws', nowMs: () => FIXED_NOW },
+      host
+    )
+    expect(result.kind).toBe('applied')
+    if (result.kind !== 'applied') return
+    expect(result.simulationStartTime).toBe('08:00')
+    expect(result.simulationEndTime).toBe('11:30')
+    expect(result.snapshot.simulationStartTime).toBe('08:00')
+    expect(result.snapshot.simulationEndTime).toBe('11:30')
+  })
+
+  it('applied yields null simulation when preferences omit window', async () => {
+    const planning: StudyPlanningSnapshotV1 = {
+      ...emptyPlanning(22),
+      tasks: [planningTask({ id: 't1', title: 'Task' })],
+      preferences: { defaultTimerPlanId: 'classic_25_5' }
+    }
+    const host = hostSnapshot()
+    host.simulationStartTime = '09:00'
+    host.simulationEndTime = '12:00'
+    const result = await hydrateStudyTasksFromCanonical(
+      { api: mockApi(planning), workspaceRoot: '/ws', nowMs: () => FIXED_NOW },
+      host
+    )
+    expect(result.kind).toBe('applied')
+    if (result.kind !== 'applied') return
+    expect(result.simulationStartTime).toBeNull()
+    expect(result.simulationEndTime).toBeNull()
+    // host labels preserved when prefs omit
+    expect(result.snapshot.simulationStartTime).toBe('09:00')
+    expect(result.snapshot.simulationEndTime).toBe('12:00')
+  })
+})
+
+
+
+describe('hydrate categories sole-read', () => {
+  it('applied surfaces categories from snapshot when present', async () => {
+    const planning: StudyPlanningSnapshotV1 = {
+      ...emptyPlanning(31),
+      tasks: [planningTask({ id: 't1', title: 'A', categoryId: 'custom-x', inbox: false })],
+      categories: [
+        { id: 'study', name: '学习', color: '#8197aa', builtin: true },
+        { id: 'entertainment', name: '娱乐', color: '#9c8aa5', builtin: true },
+        { id: 'exercise', name: '锻炼', color: '#829d91', builtin: true },
+        { id: 'custom-x', name: '阅读', color: '#abcdef', builtin: false }
+      ]
+    }
+    const host = hostSnapshot()
+    const result = await hydrateStudyTasksFromCanonical(
+      { api: mockApi(planning), workspaceRoot: '/ws', nowMs: () => FIXED_NOW },
+      host
+    )
+    expect(result.kind).toBe('applied')
+    if (result.kind !== 'applied') return
+    expect(result.categories).not.toBeNull()
+    expect(result.categories!.some((c) => c.id === 'custom-x')).toBe(true)
+  })
+
+  it('applied yields null categories when snapshot omits catalog', async () => {
+    const planning: StudyPlanningSnapshotV1 = {
+      ...emptyPlanning(32),
+      tasks: [planningTask({ id: 't1', title: 'A', categoryId: 'study', inbox: false })]
+    }
+    const host = hostSnapshot()
+    const result = await hydrateStudyTasksFromCanonical(
+      { api: mockApi(planning), workspaceRoot: '/ws', nowMs: () => FIXED_NOW },
+      host
+    )
+    expect(result.kind).toBe('applied')
+    if (result.kind !== 'applied') return
+    expect(result.categories).toBeNull()
   })
 })

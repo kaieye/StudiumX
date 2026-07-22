@@ -33,6 +33,11 @@ describe('effect policy classification', () => {
     expect(classifyToolEffect('ask')).toBe('privileged')
     expect(classifyToolEffect('generate_lesson')).toBe('privileged')
     expect(classifyToolEffect('future_shell_tool')).toBe('privileged')
+    // Dynamic MCP tools are not in the static inventory; default privileged (ADR-0128).
+    expect(classifyToolEffect('mcp__demo__ping')).toBe('privileged')
+    expect(
+      classifyToolEffect('mcp__demo__ping', new Map([['mcp__demo__ping', 'read']]))
+    ).toBe('read')
   })
 
   it('authorizes by tool allow-list and effect allow-list before any handler work', () => {
@@ -288,3 +293,5 @@ describe('legacy executeToolCall adapter', () => {
     expect(result.toolCallId).toBe('c1')
   })
 })
+
+

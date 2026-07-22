@@ -47,12 +47,39 @@ const PRIVILEGED_TOOLS = new Set([
 ])
 
 /**
+ * Optional runtime MCP effect lookup (ADR-0128 §6.1).
+ * Installed by main/mcp/tool-bridge; never workspace-authoritative.
+ */
+let mcpEffectLookup: ((toolName: string) => ToolEffectClass | undefined) | null = null
+
+/** Register (or clear) the MCP runtime effect lookup used by classifyToolEffect. */
+export function setMcpEffectLookup(
+  lookup: ((toolName: string) => ToolEffectClass | undefined) | null
+): void {
+  mcpEffectLookup = lookup
+}
+
+/**
  * Classify the side-effect class of a registered teaching tool.
  * Unknown tools fail closed as privileged so new capabilities need an explicit mapping.
+ *
+ * MCP tools (`mcp__…`) consult optional runtime map first (ADR-0128 §6.1).
  */
-export function classifyToolEffect(toolName: string): ToolEffectClass {
+export function classifyToolEffect(
+  toolName: string,
+  runtimeMcpEffectMap?: ReadonlyMap<string, ToolEffectClass> | null
+): ToolEffectClass {
   const name = toolName.trim()
   if (!name) return 'privileged'
+
+  if (name.startsWith('mcp__')) {
+    const fromArg = runtimeMcpEffectMap?.get(name)
+    if (fromArg) return fromArg
+    const fromLookup = mcpEffectLookup?.(name)
+    if (fromLookup) return fromLookup
+    return 'privileged'
+  }
+
   if (WORKSPACE_WRITE_TOOLS.has(name)) return 'workspace_write'
   if (EXTERNAL_WRITE_TOOLS.has(name)) return 'external_write'
   if (WORKSPACE_READ_TOOLS.has(name)) return 'read'

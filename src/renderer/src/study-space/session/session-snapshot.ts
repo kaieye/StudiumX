@@ -11,6 +11,8 @@ import {
   studySignals
 } from '../constants'
 import { normalizeStudyTaskCategoryId } from '../taskCategories'
+import { pickOptionalAdvancedFields } from '../planning-timer-plan-advanced-fields'
+import { pickOptionalKindFields } from '../planning-timer-plan-kind'
 import type {
   StudyModeId,
   StudyRoomId,
@@ -118,12 +120,20 @@ export function normalizeStudyTasks(input: unknown): StudyTask[] {
     .map((item, index) => {
       const schedule = normalizeStudyTaskSchedule(item.schedule)
       const categoryId = normalizeStudyTaskCategoryId(item.categoryId) ?? 'study'
+      const rawEstimate = (item as { estimateMinutes?: unknown }).estimateMinutes
+      const estimateMinutes =
+        rawEstimate === null
+          ? null
+          : typeof rawEstimate === 'number' && Number.isFinite(rawEstimate)
+            ? Math.max(0, Math.min(24 * 60, Math.floor(rawEstimate)))
+            : undefined
       return {
         id: typeof item.id === 'string' && item.id ? item.id : `task-${index}`,
         title: typeof item.title === 'string' ? item.title.trim().slice(0, 80) : '',
         done: Boolean(item.done),
         categoryId,
-        ...(schedule ? { schedule } : {})
+        ...(schedule ? { schedule } : {}),
+        ...(estimateMinutes !== undefined ? { estimateMinutes } : {})
       }
     })
     .filter((item) => item.title)
@@ -142,14 +152,36 @@ export function normalizeStudyTimerPlans(input: unknown): StudyTimerPlan[] {
   if (!Array.isArray(input)) return []
   return input
     .filter((item): item is Partial<StudyTimerPlan> => Boolean(item) && typeof item === 'object')
-    .map((item, index) => ({
-      id: typeof item.id === 'string' && item.id.trim() ? item.id.trim().slice(0, 80) : `timer-plan-${index}`,
-      name: typeof item.name === 'string' ? item.name.trim().slice(0, 24) : '',
-      focusMinutes: Math.floor(clampNumber(item.focusMinutes, 5, 120, defaultStudySnapshot.focusMinutes)),
-      breakMinutes: Math.floor(clampNumber(item.breakMinutes, 1, 45, defaultStudySnapshot.breakMinutes)),
-      simulationStartTime: normalizeStudyTime(item.simulationStartTime, defaultStudySnapshot.simulationStartTime),
-      simulationEndTime: normalizeStudyTime(item.simulationEndTime, defaultStudySnapshot.simulationEndTime)
-    }))
+    .map((item, index) => {
+      // STC-502: preserve optional long break / breakPolicy when present in cache.
+      // STC-504: preserve kind / clockMode / continuousTarget when present.
+      const advanced = pickOptionalAdvancedFields(item as Record<string, unknown>)
+      const kindFields = pickOptionalKindFields(item as Record<string, unknown>)
+      const continuousTarget =
+        (item as { continuousTarget?: unknown }).continuousTarget === true
+      // Continuous open plans may store breakMinutes 0; widen clamp for continuous.
+      const isContinuous = kindFields.kind === 'continuous'
+      const focusMax = isContinuous ? 240 : 120
+      const breakMin = isContinuous ? 0 : 1
+      return {
+        id: typeof item.id === 'string' && item.id.trim() ? item.id.trim().slice(0, 80) : `timer-plan-${index}`,
+        name: typeof item.name === 'string' ? item.name.trim().slice(0, 24) : '',
+        focusMinutes: Math.floor(clampNumber(item.focusMinutes, 5, focusMax, defaultStudySnapshot.focusMinutes)),
+        breakMinutes: Math.floor(clampNumber(item.breakMinutes, breakMin, 45, defaultStudySnapshot.breakMinutes)),
+        simulationStartTime: normalizeStudyTime(item.simulationStartTime, defaultStudySnapshot.simulationStartTime),
+        simulationEndTime: normalizeStudyTime(item.simulationEndTime, defaultStudySnapshot.simulationEndTime),
+        ...(advanced.longBreakMinutes !== undefined
+          ? { longBreakMinutes: advanced.longBreakMinutes }
+          : {}),
+        ...(advanced.longBreakEvery !== undefined
+          ? { longBreakEvery: advanced.longBreakEvery }
+          : {}),
+        ...(advanced.breakPolicy !== undefined ? { breakPolicy: advanced.breakPolicy } : {}),
+        ...(kindFields.kind !== undefined ? { kind: kindFields.kind } : {}),
+        ...(kindFields.clockMode !== undefined ? { clockMode: kindFields.clockMode } : {}),
+        ...(continuousTarget ? { continuousTarget: true } : {})
+      }
+    })
     .filter((plan) => plan.name)
     .slice(0, studyTimerPlanLimit)
 }

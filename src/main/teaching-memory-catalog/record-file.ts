@@ -21,17 +21,33 @@ const PARTITION_PATTERN = /^(workspace|project)-[A-Za-z0-9_-]{43}\.v1$/
 export type TeachingMemoryRecordLayout = 'flat' | 'scoped'
 
 /**
- * An accepted source remains bound to the no-follow descriptor that listed its
- * parent directory. `filePath` is display/index metadata only; catalog reads
- * and writes use `directory` + `entryName`, never that pathname.
+ * An accepted source remains bound either to a no-follow descriptor parent
+ * (POSIX) or to a root-constrained absolute parent path (Windows direct-path
+ * non-CAS, ADR-0126). `filePath` is display/index metadata only.
  */
+export type TeachingMemoryRecordFileBackend =
+  | {
+      kind: 'posix_descriptor'
+      directory: ContainedDurableDirectory
+    }
+  | {
+      kind: 'windows_direct_path'
+      parentAbsolutePath: string
+      rootAbsolutePath: string
+    }
+
 export type TeachingMemoryRecordFileSource = {
   fileName: string
   filePath: string
   layout: TeachingMemoryRecordLayout
   partition?: string
-  directory: ContainedDurableDirectory
   entryName: string
+  backend: TeachingMemoryRecordFileBackend
+  /**
+   * Descriptor parent when backend is posix_descriptor. Optional convenience
+   * for descriptor-only call sites; prefer `backend`.
+   */
+  directory?: ContainedDurableDirectory
 }
 
 export type TeachingMemoryRecordFileDiscoveryIssue = {
@@ -45,6 +61,8 @@ export type TeachingMemoryRecordFileDiscovery = {
   issues: TeachingMemoryRecordFileDiscoveryIssue[]
   rootDirectory?: ContainedDurableDirectory
   partitionDirectories: ContainedDurableDirectory[]
+  /** Present when discovery used the Windows direct-path profile. */
+  windowsDirectPathRoot?: string
 }
 
 /**
@@ -205,11 +223,17 @@ export function openTeachingMemoryScopedRecordDirectory(
 
 /** Writes only through an already-bound no-follow source parent descriptor. */
 export async function replaceTeachingMemoryRecordFileAtSource(
-  source: Pick<TeachingMemoryRecordFileSource, 'directory' | 'entryName'>,
+  source: Pick<TeachingMemoryRecordFileSource, 'directory' | 'entryName' | 'backend'>,
   record: unknown
 ): Promise<void> {
+  const directory =
+    source.directory ??
+    (source.backend?.kind === 'posix_descriptor' ? source.backend.directory : undefined)
+  if (!directory) {
+    throw new Error('Descriptor-relative memory publish requires a bound parent directory.')
+  }
   await replaceDurablyInContainedDirectory({
-    directory: source.directory,
+    directory,
     filename: source.entryName,
     content: `${JSON.stringify(record, null, 2)}\n`
   })
@@ -262,8 +286,9 @@ function source(
     filePath: join(rootPath, fileName),
     layout,
     ...(partition ? { partition } : {}),
+    entryName,
     directory,
-    entryName
+    backend: { kind: 'posix_descriptor', directory }
   }
 }
 
@@ -281,3 +306,4 @@ function normalizeRecordId(id: string): string {
   if (!normalized) throw new Error('Teaching-memory record IDs must not be empty')
   return normalized
 }
+

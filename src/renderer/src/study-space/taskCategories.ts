@@ -6,6 +6,7 @@ import type {
 } from './types'
 
 export const STUDY_TASK_CATEGORIES_STORAGE_KEY = 'studiumx:study-task-categories:v1'
+export const STUDY_TASK_CATEGORIES_CHANGED_EVENT = 'studiumx:study-task-categories-changed'
 export const STUDY_TASK_CATEGORY_NAME_MAX = 16
 export const STUDY_TASK_CUSTOM_CATEGORY_LIMIT = 24
 
@@ -109,14 +110,22 @@ export function readStudyTaskCategories(): StudyTaskCategory[] {
 }
 
 export function persistStudyTaskCategories(categories: StudyTaskCategory[]): void {
+  const normalized = normalizeStudyTaskCategories(categories)
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(
       STUDY_TASK_CATEGORIES_STORAGE_KEY,
-      JSON.stringify(normalizeStudyTaskCategories(categories))
+      JSON.stringify(normalized)
     )
   } catch {
     // Categories remain usable for the current session even if storage is unavailable.
+  }
+  try {
+    window.dispatchEvent(
+      new CustomEvent(STUDY_TASK_CATEGORIES_CHANGED_EVENT, { detail: normalized })
+    )
+  } catch {
+    // Event is best-effort for cross-surface UI refresh.
   }
 }
 

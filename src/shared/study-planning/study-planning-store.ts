@@ -29,10 +29,16 @@ import {
 import { batchClassifyTasks } from './empty-start-and-classification'
 import {
   applyCompleteTaskFutureBlocks,
+  applyDeleteTaskFutureBlocks,
+  applyReopenTask,
   type FutureBlocksDecision
 } from './task-timeline-projection'
 import { applyImportMigrationCommit } from './import-migration-commit'
 import { normalizeFutureBlocksDecision } from './future-blocks-decision-sheet'
+import {
+  normalizeStudyPlanningCategories,
+  type StudyPlanningCategoryV1
+} from './study-planning-categories'
 
 export const STUDY_PLANNING_SCHEMA = 'studiumx.study-planning' as const
 export const STUDY_PLANNING_SCHEMA_VERSION = 1 as const
@@ -41,6 +47,12 @@ export type StudyPlanningPreferencesV1 = {
   emptyStartPolicy?: 'ask_every_time' | 'remember_quick_start' | 'remember_unattributed'
   classificationPromptOptOut?: boolean
   defaultTimerPlanId?: string | null
+  /**
+   * Active simulation / allocation window labels (HH:MM), rebuildable UI preference.
+   * Not schedule history — same semantics as V1 snapshot simulationStart/EndTime.
+   */
+  simulationStartTime?: string
+  simulationEndTime?: string
 }
 
 export type StudyPlanningSnapshotV1 = {
@@ -53,7 +65,11 @@ export type StudyPlanningSnapshotV1 = {
   timerPlans: TimerPlanV2[]
   timerSessions: TimerSessionRecord[]
   preferences: StudyPlanningPreferencesV1
-  /** Rebuildable local hints only — never remote telemetry. */
+  /**
+   * Optional task category catalog (ADR-0117 section 4.5).
+   * When present, sole-read authority for UI categories; omit keeps V1 localStorage cache.
+   */
+  categories?: StudyPlanningCategoryV1[]
   localAnalyticsHints: Record<string, unknown>
 }
 
@@ -61,11 +77,14 @@ export type StudyPlanningCommandType =
   | 'create_task'
   | 'update_task'
   | 'complete_task'
+  | 'delete_task'
+  | 'reopen_task'
   | 'save_timer_plan'
   | 'delete_timer_plan'
   | 'copy_timer_plan'
   | 'apply_allocation_proposal'
   | 'upsert_schedule_block'
+  | 'delete_schedule_block'
   | 'quick_start'
   | 'batch_classify_tasks'
   | 'start_timer_session'
@@ -76,6 +95,7 @@ export type StudyPlanningCommandType =
   | 'reconcile_stale_session'
   | 'advance_timer_session'
   | 'set_preferences'
+  | 'set_categories'
   | 'import_migration_commit'
 
 export type StudyPlanningCommandEnvelope = {
@@ -107,9 +127,11 @@ export type StudyPlanningEffect =
   | { type: 'reconcile_required'; sessionId: string; gapSeconds: number }
   | { type: 'task_created'; taskId: string }
   | { type: 'task_updated'; taskId: string }
+  | { type: 'task_deleted'; taskId: string }
   | { type: 'classification_prompt_suggested'; taskId: string }
   | { type: 'future_blocks_need_decision'; taskId: string; blockIds: string[] }
   | { type: 'schedule_blocks_applied'; count: number }
+  | { type: 'schedule_block_deleted'; blockId: string; taskId: string | null }
   | { type: 'quick_start_partial_failure'; stage: string; message: string }
   | {
       type: 'migration_committed'
@@ -160,6 +182,20 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+/**
+ * HH:MM pad for preferences simulation window.
+ * Returns null when format invalid or hour/minute out of range (no silent clamp).
+ */
+function normalizeHmLabel(raw: string): string | null {
+  const m = raw.trim().match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return null
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
 }
 
 /** Local analytics: plan vs actual focus minutes for a task (STC-208 pure projection). */
@@ -368,13 +404,62 @@ export class StudyPlanningStore {
           effects.push({ type: 'task_updated', taskId: id })
           break
         }
+        case 'delete_task': {
+          const p = command.payload
+          if (!isObject(p)) throw fail('invalid_command', 'delete_task payload required')
+          const id = asString(p.id)
+          if (!id) throw fail('invalid_command', 'delete_task requires id')
+          const idx = next.tasks.findIndex((t) => t.id === id)
+          if (idx < 0) throw fail('not_found', `task ${id}`)
+          const task = next.tasks[idx]
+          // Already cancelled: allow second call only to apply future-blocks decision (idempotent task).
+          const decisionRaw = asString(p.futureBlocksDecision)
+          const decision = normalizeFutureBlocksDecision(decisionRaw) as FutureBlocksDecision | null
+          const handled = applyDeleteTaskFutureBlocks({
+            task,
+            scheduleBlocks: next.scheduleBlocks,
+            nowMs: now,
+            ...(decision ? { decision } : {}),
+            reassignTaskId: p.reassignTaskId === null ? null : asString(p.reassignTaskId) ?? null
+          })
+          next.tasks = next.tasks.map((t, i) => (i === idx ? handled.task : t))
+          next.scheduleBlocks = handled.scheduleBlocks
+          effects.push({ type: 'task_deleted', taskId: id })
+          if (handled.requiresDecision) {
+            effects.push({
+              type: 'future_blocks_need_decision',
+              taskId: id,
+              blockIds: handled.futureBlockIds
+            })
+          }
+          break
+        }
+        case 'reopen_task': {
+          const p = command.payload
+          if (!isObject(p)) throw fail('invalid_command', 'reopen_task payload required')
+          const id = asString(p.id)
+          if (!id) throw fail('invalid_command', 'reopen_task requires id')
+          const idx = next.tasks.findIndex((t) => t.id === id)
+          if (idx < 0) throw fail('not_found', `task ${id}`)
+          const task = next.tasks[idx]
+          const handled = applyReopenTask({ task })
+          if (handled.changed) {
+            next.tasks = next.tasks.map((t, i) => (i === idx ? handled.task : t))
+          }
+          effects.push({ type: 'task_updated', taskId: id })
+          break
+        }
         case 'save_timer_plan': {
           const p = command.payload
           if (!isObject(p) || !isObject(p.plan)) throw fail('invalid_command', 'save_timer_plan.plan required')
           const plan = p.plan as TimerPlanV2
           if (!plan.id?.trim()) throw fail('invalid_command', 'plan.id required')
-          if (isBuiltinTimerPlanId(plan.id) && !next.timerPlans.some((x) => x.id === plan.id)) {
-            // Allow saving a user override only if already in list; else force copy path
+          // STC-501: system builtin identity is read-only; force copy path for edits.
+          if (isBuiltinTimerPlanId(plan.id)) {
+            throw fail(
+              'invariant_violation',
+              'System builtin plans are read-only; copy then edit the custom copy'
+            )
           }
           const others = next.timerPlans.filter((x) => x.id !== plan.id)
           if (others.length + 1 > 12) {
@@ -529,6 +614,24 @@ export class StudyPlanningStore {
           effects.push({ type: 'schedule_blocks_applied', count: 1 })
           break
         }
+        case 'delete_schedule_block': {
+          const p = command.payload
+          if (!isObject(p)) throw fail('invalid_command', 'delete_schedule_block payload required')
+          const blockId = asString(p.blockId)
+          if (!blockId) throw fail('invalid_command', 'delete_schedule_block.blockId required')
+          const existing = next.scheduleBlocks.find((b) => b.id === blockId)
+          if (!existing) throw fail('not_found', `schedule block ${blockId}`)
+          if (existing.locked) {
+            throw fail('invariant_violation', `schedule block ${blockId} is locked`)
+          }
+          next.scheduleBlocks = next.scheduleBlocks.filter((b) => b.id !== blockId)
+          effects.push({
+            type: 'schedule_block_deleted',
+            blockId,
+            taskId: existing.taskId
+          })
+          break
+        }
         case 'quick_start': {
           // Coordinated create task + optional block + start session; partial failure is explicit.
           const p = command.payload
@@ -627,10 +730,19 @@ export class StudyPlanningStore {
           }
           const plan = next.timerPlans.find((x) => x.id === planId)
           if (!plan) throw fail('not_found', `timer plan ${planId}`)
+          const phaseRaw = asString(p.phase)
+          const phase =
+            phaseRaw === 'focus' ||
+            phaseRaw === 'short_break' ||
+            phaseRaw === 'long_break' ||
+            phaseRaw === 'wrap_up'
+              ? phaseRaw
+              : undefined
           const started = startTimerSession({
             id,
             nowMs: now,
             plan,
+            ...(phase ? { phase } : {}),
             taskId: p.taskId === undefined ? null : (asString(p.taskId) ?? null),
             scheduleBlockId: asString(p.scheduleBlockId) ?? null,
             attributionReason:
@@ -671,8 +783,29 @@ export class StudyPlanningStore {
               : {}),
             ...(p.defaultTimerPlanId === null || typeof p.defaultTimerPlanId === 'string'
               ? { defaultTimerPlanId: p.defaultTimerPlanId as string | null }
-              : {})
+              : {}),
+            // Active simulation window (HH:MM labels only — not schedule history).
+            ...(() => {
+              if (typeof p.simulationStartTime !== 'string') return {}
+              const start = normalizeHmLabel(p.simulationStartTime)
+              return start ? { simulationStartTime: start } : {}
+            })(),
+            ...(() => {
+              if (typeof p.simulationEndTime !== 'string') return {}
+              const end = normalizeHmLabel(p.simulationEndTime)
+              return end ? { simulationEndTime: end } : {}
+            })()
           }
+          break
+        }
+        case 'set_categories': {
+          const p = command.payload
+          if (!isObject(p)) throw fail('invalid_command', 'set_categories payload required')
+          if (!Array.isArray(p.categories)) {
+            throw fail('invalid_command', 'set_categories requires categories array')
+          }
+          // Full replace with normalize (builtins always present; custom deduped/capped).
+          next.categories = normalizeStudyPlanningCategories(p.categories)
           break
         }
         case 'import_migration_commit': {

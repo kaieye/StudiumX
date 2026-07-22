@@ -298,5 +298,21 @@ export type TeachingSystemApi = {
     expectedRevision: number
     command: import('../study-planning').StudyPlanningCommandEnvelope
   }) => Promise<import('../study-planning').ApplyResult & { path?: string }>
+  /** Secret-free user MCP config (ADR-0128). */
+  mcpGetConfig: () => Promise<import('../mcp/types').McpGetConfigResult>
+  /** CAS update of user MCP config (secret refs only). */
+  mcpUpdateConfig: (payload: {
+    expectedFingerprint: string
+    config: unknown
+  }) => Promise<import('../mcp/types').McpConfigUpdateResult>
+  /** Temporary test-connect + tools/list for one server. */
+  mcpTestServer: (payload: {
+    serverId: string
+  }) => Promise<import('../mcp/types').McpTestServerResult>
+  /** Current process MCP connection view (no secrets). */
+  mcpListRuntime: () => Promise<{
+    ok: true
+    servers: readonly import('../mcp/types').McpRuntimeServerView[]
+  }>
 }
 

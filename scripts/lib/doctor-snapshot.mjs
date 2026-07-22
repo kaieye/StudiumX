@@ -40,6 +40,102 @@ function readDoctorBuildIdentity(env = process.env, pkg = null) {
  * The caller supplies the check catalog; this module owns how that catalog is
  * executed, classified, summarized, redacted, and rendered.
  */
+
+/**
+ * ADR-0126 platform capability projection for doctor (path-free, honest names).
+ * Mirrors src/main/platform/platform-capability-registry.ts without importing TS.
+ */
+export function resolveDoctorPlatformCapabilities(platformName = platform()) {
+  const isWin = platformName === 'win32'
+  const isPosix = platformName === 'darwin' || platformName === 'linux'
+  const posixProfile = isPosix ? 'posix_descriptor_strict' : 'unavailable'
+  const windowsProfile = isWin ? 'windows_direct_path_non_cas' : 'unavailable'
+  const memoryProfile = isWin ? windowsProfile : isPosix ? posixProfile : 'unavailable'
+  const memoryAvailable = memoryProfile !== 'unavailable'
+  const workspaceProfile = isWin ? windowsProfile : isPosix ? posixProfile : 'unavailable'
+  const workspaceAvailable = workspaceProfile !== 'unavailable'
+  const memoryMessageKey = memoryAvailable
+    ? (isWin
+        ? 'platformCapability.windowsMemoryLimitedPersistence'
+        : 'platformCapability.posixDescriptorStrict')
+    : 'platformCapability.writeUnavailable'
+  const memoryOkCode = memoryAvailable ? 'ok' : 'write_unavailable'
+  const posixStrictKey = 'platformCapability.posixDescriptorStrict'
+  return {
+    platform: platformName,
+    // Keep in sync with src/main/platform/platform-capability-registry.ts
+    // PLATFORM_CAPABILITY_CONSUMERS (path-free, honest names only).
+    consumers: [
+      {
+        consumer: 'write_workspace_file',
+        class: 'workspace_tool_write',
+        profile: workspaceProfile,
+        available: workspaceAvailable,
+        code: workspaceAvailable ? 'ok' : 'unsupported_platform',
+        messageKey: workspaceAvailable
+          ? (isWin ? 'platformCapability.windowsDirectPathNonCas' : posixStrictKey)
+          : 'platformCapability.writeUnavailable'
+      },
+      {
+        consumer: 'teaching_memory_chat_hot_path',
+        class: 'chat_hot_path_read',
+        profile: memoryProfile === 'unavailable' ? 'unavailable' : memoryProfile,
+        available: true,
+        code: memoryAvailable ? 'ok' : 'degraded_empty',
+        messageKey: memoryAvailable
+          ? (isWin
+              ? 'platformCapability.windowsMemoryLimitedPersistence'
+              : posixStrictKey)
+          : 'platformCapability.memoryChatDegradedEmpty'
+      },
+      {
+        consumer: 'teaching_memory_authority_read',
+        class: 'durable_authority_read',
+        profile: memoryProfile,
+        available: memoryAvailable,
+        code: memoryAvailable ? 'ok' : 'write_unavailable',
+        messageKey: memoryMessageKey
+      },
+      {
+        consumer: 'teaching_memory_authority_write',
+        class: 'durable_authority_write',
+        profile: memoryProfile,
+        available: memoryAvailable,
+        code: memoryOkCode,
+        messageKey: memoryMessageKey
+      },
+      {
+        consumer: 'teaching_memory_catalog',
+        class: 'durable_authority_write',
+        profile: memoryProfile,
+        available: memoryAvailable,
+        code: memoryOkCode,
+        messageKey: memoryMessageKey
+      },
+      {
+        consumer: 'learning_outcome_committer',
+        class: 'durable_authority_write',
+        profile: isWin ? 'unavailable' : posixProfile,
+        available: !isWin && isPosix,
+        code: isWin ? 'unsupported_platform' : (isPosix ? 'ok' : 'unsupported_platform'),
+        messageKey: isWin
+          ? 'platformCapability.outcomeWindowsNotStrict'
+          : posixStrictKey
+      },
+      {
+        consumer: 'session_audit_jsonl',
+        class: 'durable_authority_write',
+        profile: isWin ? 'unavailable' : posixProfile,
+        available: !isWin && isPosix,
+        code: isWin ? 'unsupported_platform' : (isPosix ? 'ok' : 'unsupported_platform'),
+        messageKey: isWin
+          ? 'platformCapability.sessionAuditWindowsLimited'
+          : posixStrictKey
+      }
+    ]
+  }
+}
+
 export async function collectDoctorSnapshot(options = {}) {
   const normalized = normalizeCollectionOptions(options)
   const startedAt = Date.now()
@@ -113,6 +209,7 @@ export async function collectDoctorSnapshot(options = {}) {
     },
     settings: summarizeSettings(settings, settingsInfo),
     runtimePosture: summarizeRuntimePosture(settings, settingsInfo),
+    platformCapabilities: resolveDoctorPlatformCapabilities(platform()),
     diagnostics: {
       mode: 'local_snapshot',
       redaction: 'home paths, secret-shaped keys, bearer tokens, URL userinfo, and sensitive query parameters',
@@ -170,6 +267,14 @@ export function formatDoctorReport(snapshot, format = 'text') {
     `settings: ${snapshot.settings.exists ? 'found' : 'missing'} (${snapshot.settings.storage})`,
     `runtime posture: approval=${snapshot.runtimePosture?.approvalMode ?? 'n/a'}; tools=${snapshot.runtimePosture?.toolsEnabled ? 'on' : 'off'}; proxy=${snapshot.runtimePosture?.proxyEnabled ? 'on' : 'off'}; keys=${snapshot.runtimePosture?.keyStorage ?? 'n/a'}; shell=${snapshot.runtimePosture?.shellExecution ?? 'n/a'}`
   ]
+  if (snapshot.platformCapabilities?.consumers?.length) {
+    lines.push('platform capabilities (ADR-0126):')
+    for (const consumer of snapshot.platformCapabilities.consumers) {
+      lines.push(
+        `  - ${consumer.consumer}: profile=${consumer.profile}; available=${consumer.available}; code=${consumer.code ?? 'n/a'}`
+      )
+    }
+  }
   if (snapshot.securityChecks.length === 0) {
     lines.push('security checks: skipped')
   } else {
@@ -299,7 +404,7 @@ function summarizeRuntimePosture(settings, info) {
     keyStorage: secret.keyStorage,
     safeStorage: secret.keyStorage === 'electron_safe_storage' ? 'available_or_in_use' : secret.keyStorage === 'no_stored_secrets' ? 'not_required' : 'see_keyStorage',
     settingsFilePresent: Boolean(info),
-    nativeAddonNote: 'contained-durable-replace is platform-gated; availability is checked at write registration time (not claimed ready by doctor)',
+    nativeAddonNote: 'contained-durable-replace is platform-gated; see platformCapabilities for per-consumer profiles (ADR-0126)',
     shellExecution: 'not_productized',
     mcpMarketplace: 'not_productized'
   }

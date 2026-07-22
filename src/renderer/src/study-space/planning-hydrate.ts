@@ -2,26 +2,41 @@
  * Sole-read hydrate: project workspace-canonical StudyPlanning into V1 UI cache.
  *
  * ADR-0117: snapshot.json is authority for tasks/blocks when present.
- * localStorage remains rebuildable cache / presence+timer host until Slice D.
+ * localStorage remains rebuildable cache / presence host; focus clock sole-reads local TimerSession (Slice D).
  *
  * Policy:
  * - missing workspace / API → keep V1 (`v1_cache`), fail-closed (no silent invent)
  * - canonical empty + V1 has tasks → keep V1, set `migrationSuggested`
  * - canonical has tasks → replace UI tasks with projected PlanningTask rows (sole-read)
- * - timer/presence fields always stay from V1 host until timer durable cutover
+ * - presence fields stay V1; focus remainingSeconds can be projected from local TimerSession
+ * - canonical timerPlans (if any) replace V1 timerPlans list (simulation windows preserved by id)
+ * - preferences.defaultTimerPlanId projects as sole-read default catalog selection
+* - preferences.simulationStart/EndTime project as sole-read active allocation window
+ * - snapshot.categories project as sole-read category catalog (omit keeps V1 cache)
+ * - canonical timerSessions project as sole-read actual-focus source (STC-304 remainder)
  */
 
 import {
   jsWeekdayToMonFirst,
   type ScheduleBlock,
-  type StudyPlanningSnapshotV1
+  type StudyPlanningPreferencesV1,
+  type StudyPlanningSnapshotV1,
+  type TimerSessionRecord
 } from '../../../shared/study-planning'
-import type { StudySnapshot, StudyTask, StudyTaskCategoryId, StudyTaskSchedule } from './types'
+import type { StudySnapshot, StudyTask, StudyTaskCategory, StudyTaskCategoryId, StudyTaskSchedule } from './types'
 import {
   projectPlanningTasksToStudyTasks,
   readStudyPlanningSnapshot,
   type StudyPlanningApi
 } from './planning-client'
+import { v2TimerPlanToV1 } from './planning-timer-plan-dual-write'
+import {
+  projectClassificationPromptOptOutFromPreferences,
+  projectEmptyStartPolicyFromPreferences
+} from './planning-study-prefs-ui'
+import { projectSimulationWindowFromPreferences } from './planning-simulation-window-ui'
+import { projectTaskCategoriesFromSnapshot } from './planning-categories-ui'
+import type { EmptyStartPolicy } from '../../../shared/study-planning'
 
 export type HydrateStudyPlanningResult =
   | {
@@ -32,6 +47,35 @@ export type HydrateStudyPlanningResult =
       source: 'canonical' | 'backup'
       taskCount: number
       scheduleProjected: number
+      /** How many TimerPlanV2 rows projected into V1 catalog (0 keeps host list). */
+      timerPlansProjected: number
+      /**
+       * Sole-read preferences.defaultTimerPlanId.
+       * null when unset / empty — catalog UI falls back to classic_25_5.
+       */
+      defaultTimerPlanId: string | null
+      /** Sole-read preferences.emptyStartPolicy (STC-404). Default ask_every_time. */
+      emptyStartPolicy: EmptyStartPolicy
+      /** Sole-read preferences.classificationPromptOptOut (STC-406/407 restore). */
+      classificationPromptOptOut: boolean
+      /**
+       * Sole-read preferences simulation window (HH:MM).
+       * null when unset/invalid — host keeps V1 cache labels.
+       */
+      simulationStartTime: string | null
+      simulationEndTime: string | null
+      /**
+       * Sole-read snapshot.categories (ADR-0117).
+       * null when unset/invalid — host keeps V1 localStorage categories cache.
+       */
+      categories: StudyTaskCategory[] | null
+      /** Canonical ScheduleBlock rows for multi-block week projection (STC-307). */
+      scheduleBlocks: ScheduleBlock[]
+      /**
+       * Canonical TimerSession rows for task-detail actual focus (STC-304 remainder).
+       * Sole-read cache; not teaching authority for open/running clock (local TimerSession).
+       */
+      timerSessions: TimerSessionRecord[]
     }
   | {
       kind: 'kept_v1'
@@ -52,6 +96,21 @@ export type CanonicalHydrateContext = {
   workspaceRoot: string | null | undefined
   /** Local midnight used only for multi-block → V1 single-schedule pick (display). */
   nowMs?: () => number
+}
+
+/**
+ * Project preferences.defaultTimerPlanId for UI sole-read.
+ * Trims whitespace; empty string becomes null (unset → catalog fallback).
+ */
+export function projectDefaultTimerPlanIdFromPreferences(
+  preferences: StudyPlanningPreferencesV1 | null | undefined
+): string | null {
+  if (!preferences) return null
+  const raw = preferences.defaultTimerPlanId
+  if (raw === null || raw === undefined) return null
+  if (typeof raw !== 'string') return null
+  const id = raw.trim()
+  return id.length > 0 ? id : null
 }
 
 /**
@@ -132,7 +191,8 @@ export function projectCanonicalTasksForUi(
       title: row.title,
       done: row.done,
       ...(categoryId ? { categoryId } : {}),
-      ...(schedule ? { schedule } : {})
+      ...(schedule ? { schedule } : {}),
+      ...(row.estimateMinutes !== undefined ? { estimateMinutes: row.estimateMinutes } : {})
     }
     return task
   })
@@ -140,21 +200,49 @@ export function projectCanonicalTasksForUi(
 }
 
 /**
- * Merge projected canonical tasks into a V1 StudySnapshot host shell.
- * Timer / presence / room fields stay from host (not yet sole-read).
+ * Project canonical TimerPlanV2 catalog into V1 StudyTimerPlan list (UI cache).
+ * Preserves host simulation window defaults when matching id exists.
+ */
+export function projectCanonicalTimerPlansForUi(
+  planning: Pick<StudyPlanningSnapshotV1, 'timerPlans'>,
+  hostPlans: readonly import('./types').StudyTimerPlan[] = []
+): import('./types').StudyTimerPlan[] {
+  if (!planning.timerPlans || planning.timerPlans.length === 0) return []
+  const hostById = new Map(hostPlans.map((p) => [p.id, p]))
+  return planning.timerPlans.map((p) => {
+    const host = hostById.get(p.id)
+    return v2TimerPlanToV1(p, {
+      simulationStartTime: host?.simulationStartTime,
+      simulationEndTime: host?.simulationEndTime
+    })
+  })
+}
+
+/**
+ * Merge projected canonical tasks (+ optional timerPlans) into a V1 StudySnapshot host shell.
+ * Presence / room fields stay from host.
  */
 export function mergeCanonicalTasksIntoStudySnapshot(
   host: StudySnapshot,
   planning: StudyPlanningSnapshotV1,
   options?: { nowMs?: number }
-): { snapshot: StudySnapshot; scheduleProjected: number } {
+): { snapshot: StudySnapshot; scheduleProjected: number; timerPlansProjected: number } {
   const { tasks, scheduleProjected } = projectCanonicalTasksForUi(planning, options)
+  const projectedPlans = projectCanonicalTimerPlansForUi(planning, host.timerPlans)
+  const timerPlans =
+    projectedPlans.length > 0 ? projectedPlans : host.timerPlans
+  const sim = projectSimulationWindowFromPreferences(planning.preferences)
   return {
     snapshot: {
       ...host,
-      tasks
+      tasks,
+      timerPlans,
+      ...(sim
+        ? { simulationStartTime: sim.start, simulationEndTime: sim.end }
+        : {})
     },
-    scheduleProjected
+    scheduleProjected,
+    timerPlansProjected: projectedPlans.length
   }
 }
 
@@ -165,7 +253,8 @@ function tasksFingerprint(tasks: readonly StudyTask[]): string {
       title: t.title,
       done: t.done,
       categoryId: t.categoryId ?? null,
-      schedule: t.schedule ?? null
+      schedule: t.schedule ?? null,
+      estimateMinutes: t.estimateMinutes ?? null
     }))
   )
 }
@@ -272,6 +361,17 @@ export async function hydrateStudyTasksFromCanonical(
     path: read.path,
     source: read.source === 'backup' ? 'backup' : 'canonical',
     taskCount: merged.snapshot.tasks.length,
-    scheduleProjected: merged.scheduleProjected
+    scheduleProjected: merged.scheduleProjected,
+    timerPlansProjected: merged.timerPlansProjected,
+    defaultTimerPlanId: projectDefaultTimerPlanIdFromPreferences(planning.preferences),
+    emptyStartPolicy: projectEmptyStartPolicyFromPreferences(planning.preferences),
+    classificationPromptOptOut: projectClassificationPromptOptOutFromPreferences(
+      planning.preferences
+    ),
+    simulationStartTime: projectSimulationWindowFromPreferences(planning.preferences)?.start ?? null,
+    simulationEndTime: projectSimulationWindowFromPreferences(planning.preferences)?.end ?? null,
+    categories: projectTaskCategoriesFromSnapshot(planning.categories),
+    scheduleBlocks: planning.scheduleBlocks.slice(),
+    timerSessions: Array.isArray(planning.timerSessions) ? planning.timerSessions.slice() : []
   }
 }

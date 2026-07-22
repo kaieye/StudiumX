@@ -3,6 +3,11 @@ import {
   type ProviderErrorInfo,
   type ProviderErrorKind
 } from './provider-error'
+import {
+  isSilentContextOverflow,
+  matchOverflowErrorText,
+  type OverflowUsageSnapshot
+} from './provider-overflow-patterns'
 
 /**
  * Recovery taxonomy for provider failures (A-04).
@@ -56,6 +61,27 @@ export function classifyProviderRecovery(error: unknown): ProviderRecoveryDecisi
   const providerMessage = ux?.providerMessage ?? extractProviderMessage(raw)
   const haystack = `${raw}\n${providerMessage ?? ''}`.toLowerCase()
 
+  // Platform capability gaps (ADR-0126) are not provider transport errors.
+  // Keep them off the empty_stream / retry axes.
+  if (
+    haystack.includes('unsupported_platform') ||
+    haystack.includes('descriptor-relative contained directory') ||
+    haystack.includes('windows_direct_path') ||
+    haystack.includes('platform capability') ||
+    (haystack.includes('native_unavailable') && haystack.includes('contained directory'))
+  ) {
+    return decision({
+      class: 'unknown',
+      retryable: false,
+      shouldCompress: false,
+      shouldFallback: false,
+      reasonCode: 'platform_capability',
+      uxKind: ux?.kind,
+      status,
+      providerMessage
+    })
+  }
+
   // --- Permanent / never-retryable classes first ---
 
   if (ux?.kind === 'insufficient_balance' || isBillingOrQuotaText(haystack, raw, status)) {
@@ -84,7 +110,7 @@ export function classifyProviderRecovery(error: unknown): ProviderRecoveryDecisi
     })
   }
 
-  if (isContextOverflow(haystack)) {
+  if (isContextOverflow(haystack, error)) {
     return decision({
       class: 'context_overflow',
       retryable: false,
@@ -291,12 +317,42 @@ function isPermanentAuth(haystack: string, raw: string, status: number | undefin
   return false
 }
 
-function isContextOverflow(haystack: string): boolean {
-  return (
-    /context[_\s-]*(length|window)?[_\s-]*(exceeded|overflow|too large|too long)/.test(haystack) ||
-    /maximum context|prompt is too long|request too large.*context|tokens? exceed.*(context|limit)/.test(haystack) ||
-    /input is too long|context_length_exceeded/.test(haystack)
-  )
+function isContextOverflow(haystack: string, error: unknown): boolean {
+  // Text patterns (provider-specific library + NON_OVERFLOW exclusion)
+  if (matchOverflowErrorText(haystack) || matchOverflowErrorText(stringifyError(error))) {
+    return true
+  }
+
+  // Silent / length-stop heuristics when the error object carries usage + stop + window
+  if (error && typeof error === 'object') {
+    const record = error as {
+      usage?: Partial<OverflowUsageSnapshot> | null
+      stopReason?: unknown
+      finish_reason?: unknown
+      contextWindow?: unknown
+      context_window?: unknown
+    }
+    const usageRaw = record.usage
+    const contextWindowRaw = record.contextWindow ?? record.context_window
+    const stopRaw = record.stopReason ?? record.finish_reason
+    if (usageRaw && typeof usageRaw === 'object' && contextWindowRaw != null) {
+      const usage: OverflowUsageSnapshot = {
+        input: Number(usageRaw.input ?? 0),
+        output: Number(usageRaw.output ?? 0),
+        cacheRead:
+          usageRaw.cacheRead != null && Number.isFinite(Number(usageRaw.cacheRead))
+            ? Number(usageRaw.cacheRead)
+            : undefined
+      }
+      const contextWindow = Number(contextWindowRaw)
+      const stopReason = stopRaw != null ? String(stopRaw) : undefined
+      if (isSilentContextOverflow(usage, stopReason, contextWindow)) {
+        return true
+      }
+    }
+  }
+
+  return false
 }
 
 function isMaxTokensOrLength(haystack: string, error: unknown): boolean {
@@ -405,3 +461,9 @@ function extractProviderMessage(raw: string): string | undefined {
 
 // Re-export for tests that want the UX kind alongside recovery.
 export type { ProviderErrorInfo, ProviderErrorKind }
+// Pure overflow helpers (ADAPT-P1 / ADR-0125)
+export {
+  isSilentContextOverflow,
+  matchOverflowErrorText,
+  type OverflowUsageSnapshot
+} from './provider-overflow-patterns'

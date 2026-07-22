@@ -112,7 +112,7 @@ export const FEATURES: readonly FeatureDefinition[] = [
     stage: 'stable',
     title: '临时对话（严格 schema 子集）',
     summary:
-      'temporary-chat tool schema 严格小于 teaching-chat；不得因临时场景扩大写权限或诊断面。',
+      'temporary-chat 与 teaching-chat 对齐工具面，差距仅限教学文件生成（如 generate_lesson）；可共享用户 MCP；不得变成 teaching 超集，不得因临时扩大诊断面/shell。',
     since: '2026-07',
     footprintHint: 5
   },
@@ -192,6 +192,15 @@ export const FEATURES: readonly FeatureDefinition[] = [
     summary: 'secret-free managed overlay 规划中；须与 CAS / denylist 仔细设计。',
     since: '2026-07',
     footprintHint: 2
+  },
+  {
+    id: 'user_mcp_servers',
+    stage: 'experimental',
+    title: '用户可配置 MCP',
+    summary:
+      'userData opt-in MCP servers（默认 off）；stdio 传输；tools 经 registry/effect/审批；无 marketplace、无 YOLO。',
+    since: '2026-07',
+    footprintHint: 4
   }
 ] as const
 

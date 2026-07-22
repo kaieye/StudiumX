@@ -6,7 +6,7 @@
  * Numeric defaults are Phase1 seeds from the planning roadmap (§4.2), not a new durable ADR freeze.
  */
 
-export type TimerPlanKind = 'pomodoro' | 'continuous'
+export type TimerPlanKind = 'pomodoro' | 'continuous' | 'custom_rhythm'
 export type TimerClockMode = 'countdown' | 'countup'
 export type BreakPolicy = 'automatic' | 'ask' | 'reminder_only' | 'none'
 export type WindowFillPolicy = 'complete_cycles' | 'adaptive_final_focus' | 'allow_overrun'
@@ -33,6 +33,11 @@ export type TimerPlanV2 = {
   minimumFinalFocusMinutes: number
   wrapUpMinutes: number
   notificationPolicy: TimerPlanNotificationPolicy
+  /**
+   * STC-702: ordered custom rhythm steps (kind + minutes only).
+   * Present when kind === 'custom_rhythm'. Not a freeform drag editor.
+   */
+  rhythmSequence?: Array<{ kind: 'focus' | 'short_break' | 'long_break' | 'wrap_up'; minutes: number }>
   revision: number
 }
 
@@ -135,7 +140,7 @@ export const BUILTIN_TIMER_PLAN_CATALOG: readonly TimerPlanV2[] = [
   }
 ] as const
 
-const KIND_SET = new Set<TimerPlanKind>(['pomodoro', 'continuous'])
+const KIND_SET = new Set<TimerPlanKind>(['pomodoro', 'continuous', 'custom_rhythm'])
 const CLOCK_SET = new Set<TimerClockMode>(['countdown', 'countup'])
 const BREAK_POLICY_SET = new Set<BreakPolicy>(['automatic', 'ask', 'reminder_only', 'none'])
 const FILL_POLICY_SET = new Set<WindowFillPolicy>([
@@ -209,7 +214,7 @@ export function normalizeTimerPlanV2(input: unknown): TimerPlanValidationResult 
 
   const kindRaw = asTrimmedString(input.kind)
   const kind = kindRaw && KIND_SET.has(kindRaw as TimerPlanKind) ? (kindRaw as TimerPlanKind) : undefined
-  if (!kind) hard.push(issue('plan_kind_invalid', 'kind must be pomodoro or continuous', 'kind'))
+  if (!kind) hard.push(issue('plan_kind_invalid', 'kind must be pomodoro, continuous, or custom_rhythm', 'kind'))
 
   const clockRaw = asTrimmedString(input.clockMode)
   const clockMode =
@@ -231,14 +236,20 @@ export function normalizeTimerPlanV2(input: unknown): TimerPlanValidationResult 
     warnings.push(issue('break_policy_fallback', `Unknown breakPolicy "${breakRaw}"; using default`, 'breakPolicy'))
   } else if (kind === 'continuous') {
     breakPolicy = TIMER_PLAN_SEED_DEFAULTS.continuousBreakPolicy
+  } else if (kind === 'custom_rhythm') {
+    // Custom rhythm defaults to ask (same product freeze #3 spirit as pomodoro).
+    breakPolicy = TIMER_PLAN_SEED_DEFAULTS.pomodoroBreakPolicy
   }
 
-  if (kind === 'pomodoro' && (breakPolicy === 'none' || breakPolicy === 'reminder_only')) {
-    // Allowed only as explicit continuous policy per freeze #6; soft-coerce pomodoro.
+  if (
+    (kind === 'pomodoro' || kind === 'custom_rhythm') &&
+    (breakPolicy === 'none' || breakPolicy === 'reminder_only')
+  ) {
+    // Allowed only as explicit continuous policy per freeze #6; soft-coerce pomodoro/custom_rhythm.
     warnings.push(
       issue(
         'pomodoro_break_policy_coerced',
-        'pomodoro plans must not silently default to none/reminder_only; coerced to ask',
+        'pomodoro/custom_rhythm plans must not silently default to none/reminder_only; coerced to ask',
         'breakPolicy'
       )
     )
@@ -337,6 +348,92 @@ export function normalizeTimerPlanV2(input: unknown): TimerPlanValidationResult 
   const revisionRaw = asInt(input.revision)
   const revision = revisionRaw !== undefined && revisionRaw >= 1 ? revisionRaw : 1
 
+  // STC-702: optional ordered rhythm sequence (custom_rhythm only; fail-closed).
+  let rhythmSequence: TimerPlanV2['rhythmSequence']
+  const rawSequence = input.rhythmSequence
+  if (kind === 'custom_rhythm') {
+    if (!Array.isArray(rawSequence)) {
+      hard.push(
+        issue(
+          'rhythm_sequence_required',
+          'custom_rhythm plans require rhythmSequence array',
+          'rhythmSequence'
+        )
+      )
+    } else {
+      // Inline lightweight validate to avoid circular import with custom-rhythm-sequence.
+      const STEP_KINDS = new Set(['focus', 'short_break', 'long_break', 'wrap_up'])
+      const steps: NonNullable<TimerPlanV2['rhythmSequence']> = []
+      if (rawSequence.length < 1 || rawSequence.length > 24) {
+        hard.push(
+          issue(
+            'rhythm_sequence_length',
+            'rhythmSequence length must be 1-24',
+            'rhythmSequence'
+          )
+        )
+      }
+      let hasFocus = false
+      for (let i = 0; i < rawSequence.length; i += 1) {
+        const step = rawSequence[i]
+        if (!isObject(step)) {
+          hard.push(issue('rhythm_step_invalid', 'step[' + i + '] must be object', 'rhythmSequence'))
+          continue
+        }
+        const sk = asTrimmedString(step.kind)
+        const mins = asInt(step.minutes)
+        if (!sk || !STEP_KINDS.has(sk) || mins === undefined || mins < 1) {
+          hard.push(
+            issue(
+              'rhythm_step_invalid',
+              'step[' + i + '] needs kind+positive minutes',
+              'rhythmSequence'
+            )
+          )
+          continue
+        }
+        if (sk === 'focus') hasFocus = true
+        steps.push({ kind: sk as NonNullable<TimerPlanV2['rhythmSequence']>[number]['kind'], minutes: mins })
+      }
+      if (steps.length > 0 && !hasFocus) {
+        hard.push(
+          issue(
+            'rhythm_sequence_requires_focus',
+            'rhythmSequence must include at least one focus step',
+            'rhythmSequence'
+          )
+        )
+      }
+      if (hard.length === 0 && steps.length > 0) {
+        rhythmSequence = steps
+        // Project primary minutes when missing so lifecycle phaseDurationSeconds still works.
+        if (focusMinutes === undefined) {
+          const firstFocus = steps.find((s) => s.kind === 'focus')
+          if (firstFocus) focusMinutes = firstFocus.minutes
+        }
+        if (shortBreakMinutes === undefined) {
+          const firstShort = steps.find((s) => s.kind === 'short_break')
+          if (firstShort) shortBreakMinutes = firstShort.minutes
+        }
+        if (longBreakMinutes === undefined) {
+          const firstLong = steps.find((s) => s.kind === 'long_break')
+          if (firstLong) longBreakMinutes = firstLong.minutes
+        }
+      }
+    }
+    if (hard.length > 0) {
+      return { ok: false, issues: hard }
+    }
+  } else if (Array.isArray(rawSequence) && rawSequence.length > 0) {
+    warnings.push(
+      issue(
+        'rhythm_sequence_ignored',
+        'rhythmSequence is only used when kind is custom_rhythm; ignored',
+        'rhythmSequence'
+      )
+    )
+  }
+
   const plan: TimerPlanV2 = {
     id,
     name,
@@ -351,6 +448,7 @@ export function normalizeTimerPlanV2(input: unknown): TimerPlanValidationResult 
     minimumFinalFocusMinutes,
     wrapUpMinutes,
     notificationPolicy: normalizeNotificationPolicy(input.notificationPolicy),
+    ...(rhythmSequence !== undefined ? { rhythmSequence } : {}),
     revision
   }
 
@@ -383,3 +481,14 @@ export function createClassicPomodoroPlan(overrides?: Partial<TimerPlanV2>): Tim
   }
   return result.plan
 }
+
+/** Create continuous open countup seed plan (readonly catalog entry clone). */
+export function createContinuousCountupPlan(overrides?: Partial<TimerPlanV2>): TimerPlanV2 {
+  const base = BUILTIN_TIMER_PLAN_CATALOG.find((p) => p.id === 'continuous_countup') ?? BUILTIN_TIMER_PLAN_CATALOG[2]
+  const result = normalizeTimerPlanV2({ ...base, ...overrides, id: overrides?.id ?? base.id })
+  if (!result.ok) {
+    return { ...base }
+  }
+  return result.plan
+}
+

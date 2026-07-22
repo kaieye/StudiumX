@@ -489,3 +489,144 @@ describe('StudyPlanningStore (ADR-0117 skeleton / STC-207/208)', () => {
     expect(over.error.code).toBe('invariant_violation')
   })
 })
+
+
+describe('start_timer_session phase', () => {
+  it('starts short_break TimerSession when phase is set', () => {
+    const store = new StudyPlanningStore({ nowMs: () => 5000 })
+    const base = store.readSnapshot()
+    const result = store.applyCommand(
+      {
+        actionId: 'start-break-1',
+        type: 'start_timer_session',
+        payload: {
+          id: 'ts-break-1',
+          planId: 'classic_25_5',
+          phase: 'short_break',
+          taskId: null,
+          targetSeconds: 300
+        }
+      },
+      base.revision
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const session = result.snapshot.timerSessions.find((s) => s.id === 'ts-break-1')
+    expect(session?.phase).toBe('short_break')
+    expect(session?.taskId).toBeNull()
+    expect(session?.state).toBe('running')
+    expect(session?.targetSeconds).toBe(300)
+  })
+})
+
+
+describe('delete_schedule_block (STC-307)', () => {
+  it('removes a focus block by id and emits schedule_block_deleted', () => {
+    const now = 3_000_000
+    const store = new StudyPlanningStore({ nowMs: () => now })
+    const created = store.applyCommand(
+      { actionId: 'c1', type: 'create_task', payload: { id: 't1', title: '多块', categoryId: 'study' } },
+      1
+    )
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    let rev = created.revision
+    for (const [id, start] of [
+      ['b1', now + 60_000],
+      ['b2', now + 3_600_000]
+    ] as const) {
+      const r = store.applyCommand(
+        {
+          actionId: `up:${id}`,
+          type: 'upsert_schedule_block',
+          payload: {
+            block: {
+              id,
+              taskId: 't1',
+              kind: 'focus',
+              startAtMs: start,
+              endAtMs: start + 1_800_000,
+              locked: false,
+              source: 'manual',
+              status: 'planned',
+              revision: 1
+            }
+          }
+        },
+        rev
+      )
+      expect(r.ok).toBe(true)
+      if (!r.ok) return
+      rev = r.revision
+    }
+    expect(rev).toBeGreaterThan(1)
+
+    const deleted = store.applyCommand(
+      {
+        actionId: 'del1',
+        type: 'delete_schedule_block',
+        payload: { blockId: 'b1' }
+      },
+      rev
+    )
+    expect(deleted.ok).toBe(true)
+    if (!deleted.ok) return
+    expect(deleted.snapshot.scheduleBlocks.map((b) => b.id)).toEqual(['b2'])
+    expect(deleted.effects).toContainEqual({
+      type: 'schedule_block_deleted',
+      blockId: 'b1',
+      taskId: 't1'
+    })
+  })
+
+  it('returns not_found for missing block id', () => {
+    const store = new StudyPlanningStore({ nowMs: () => 1 })
+    const r = store.applyCommand(
+      { actionId: 'd', type: 'delete_schedule_block', payload: { blockId: 'missing' } },
+      1
+    )
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.error.code).toBe('not_found')
+  })
+
+  it('refuses locked blocks', () => {
+    const now = 4_000_000
+    const store = new StudyPlanningStore({ nowMs: () => now })
+    const created = store.applyCommand(
+      { actionId: 'c1', type: 'create_task', payload: { id: 't1', title: '锁', categoryId: 'study' } },
+      1
+    )
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const up = store.applyCommand(
+      {
+        actionId: 'up',
+        type: 'upsert_schedule_block',
+        payload: {
+          block: {
+            id: 'locked-b',
+            taskId: 't1',
+            kind: 'focus',
+            startAtMs: now,
+            endAtMs: now + 60_000,
+            locked: true,
+            source: 'manual',
+            status: 'planned',
+            revision: 1
+          }
+        }
+      },
+      created.revision
+    )
+    expect(up.ok).toBe(true)
+    if (!up.ok) return
+    const del = store.applyCommand(
+      { actionId: 'del', type: 'delete_schedule_block', payload: { blockId: 'locked-b' } },
+      up.revision
+    )
+    expect(del.ok).toBe(false)
+    if (del.ok) return
+    expect(del.error.code).toBe('invariant_violation')
+  })
+})

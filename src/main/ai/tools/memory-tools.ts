@@ -28,6 +28,11 @@ export type MemoryToolStore = Readonly<{
 export type CreateMemoryToolsOptions = Readonly<{
   memoryStore: MemoryToolStore
   /**
+   * When false, only memory_search is registered. Write tools stay unregistered
+   * under an unavailable durable_authority_write profile (ADR-0126).
+   */
+  writeAvailable?: boolean
+  /**
    * Optional authorized local files (NOTES, learning-records, redacted archives).
    * Caller supplies already-bounded, workspace-trusted documents only.
    */
@@ -270,6 +275,9 @@ export function createMemoryTools(options: CreateMemoryToolsOptions): ToolEntry[
     }
   }
 
+  if (options.writeAvailable === false) {
+    return [memorySearchTool]
+  }
   return [memorySearchTool, rememberTeachingMemoryTool, forgetTeachingMemoryTool]
 }
 

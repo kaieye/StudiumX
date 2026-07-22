@@ -18,6 +18,7 @@
 
 - 新 consumer 必须逐项审查并单独迁移；共享原语、既有测试或某一 consumer 的 close-out 都不授权扩大到其它 writer。
 - 每个 consumer 继续拥有自身的 canonical authority、路径约束、错误结果与恢复顺序；失败、可能已发布或无法证明的状态不得被通用地自动 retry、rollback、delete 或报为成功。
+- 跨 consumer 的 **平台能力分层 / Windows memory 扩展** 见 [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)：registry + `windows_direct_path_non_cas` memory profile；**不**改写本 ADR 的 P8 历史 evidence，也**不**重开 Windows strict。
 - 本 ADR 的 production 范围、tests-only historical evidence 与 **out-of-scope / future-gated non-claims** 必须分开阅读。P6 受限 profile、P8 Windows strict no-go 与 P9 fixed-file 不扩张，已由 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 结项；这些不再是当前可分派的 local-data 实现切片。任何更强 durability、transaction、generic JSONL、Windows strict、IPC/UI 或 public-result 扩张，都必须由**新的 ADR** 重新定义 profile 与证据门槛，而不是把本文件或历史 design gate 当作开放待办。
 
 ## 已迁移 consumer、实现范围与验证入口

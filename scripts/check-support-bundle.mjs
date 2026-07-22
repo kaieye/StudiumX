@@ -14,8 +14,8 @@ const pkg = await readFile(resolve(root, 'package.json'), 'utf8')
 assert.match(shared, /export const SUPPORT_BUNDLE_SCHEMA_VERSION = 1/, 'Shared schemaVersion must be 1.')
 assert.match(
   shared,
-  /export type SupportBundleSectionId[\s\S]*'doctor'[\s\S]*'inspector'[\s\S]*'config_fingerprint'[\s\S]*'capability'[\s\S]*'audit_correlation'[\s\S]*'environment'/,
-  'Shared section IDs must include doctor|inspector|config_fingerprint|capability|audit_correlation|environment.'
+  /export type SupportBundleSectionId[\s\S]*'doctor'[\s\S]*'inspector'[\s\S]*'config_fingerprint'[\s\S]*'capability'[\s\S]*'audit_correlation'[\s\S]*'environment'[\s\S]*'local_data_index'[\s\S]*'mcp_status'/,
+  'Shared section IDs must include doctor|inspector|config_fingerprint|capability|audit_correlation|environment|local_data_index|mcp_status.'
 )
 assert.match(shared, /export type SupportBundlePreview/, 'SupportBundlePreview type is required.')
 assert.match(shared, /export type SupportBundleConsent/, 'SupportBundleConsent type is required.')
@@ -32,6 +32,10 @@ assert.match(source, /export function exportSupportBundle\(/, 'exportSupportBund
 assert.match(source, /consent_required/, 'Export must fail closed with consent_required.')
 assert.match(source, /section_not_previewed/, 'Export must reject sections not present in preview.')
 assert.match(source, /exportTeachingDoctorReport/, 'Doctor section must reuse exportTeachingDoctorReport.')
+assert.match(source, /function buildMcpStatusSection/, 'MCP status section builder is required (ADR-0128 Phase E).')
+assert.match(source, /mcp_status/, 'Support bundle must include mcp_status section id.')
+assert.match(unit, /packs redacted MCP status/, 'Unit must cover MCP support-bundle redaction.')
+assert.match(unit, /never packs smuggled MCP secret/, 'Unit must cover MCP secret smuggling denial.')
 assert.match(source, /redactAgentSecretText/, 'Must wrap existing secret redaction.')
 assert.match(source, /redactTeachingAuditForExport|projectSafeTeachingAuditMetadata/, 'Audit section must reuse audit export helpers.')
 assert.match(source, /<redacted-absolute-path>/, 'Absolute paths must collapse to redacted-absolute-path stub.')

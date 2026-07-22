@@ -147,7 +147,11 @@ const api: TeachingSystemApi = {
   saveTeachingTurnReviewLastBundle: (payload) => ipcRenderer.invoke(teachingInvokeChannels.saveTeachingTurnReviewLastBundle, payload),
   projectAgentSessionQueue: (payload) => ipcRenderer.invoke(teachingInvokeChannels.projectAgentSessionQueue, payload),
   readStudyPlanning: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readStudyPlanning, payload),
-  applyStudyPlanning: (payload) => ipcRenderer.invoke(teachingInvokeChannels.applyStudyPlanning, payload)
+  applyStudyPlanning: (payload) => ipcRenderer.invoke(teachingInvokeChannels.applyStudyPlanning, payload),
+  mcpGetConfig: () => ipcRenderer.invoke(teachingInvokeChannels.mcpGetConfig),
+  mcpUpdateConfig: (payload) => ipcRenderer.invoke(teachingInvokeChannels.mcpUpdateConfig, payload),
+  mcpTestServer: (payload) => ipcRenderer.invoke(teachingInvokeChannels.mcpTestServer, payload),
+  mcpListRuntime: () => ipcRenderer.invoke(teachingInvokeChannels.mcpListRuntime)
 }
 
 const musicApi: StudiumxMusicApi = {

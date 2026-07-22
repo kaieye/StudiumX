@@ -117,6 +117,13 @@ export type TeachingMemoryDiagnostics = {
   tombstoneCount: number
   lastInjectedCount: number
   legacyMigrationPreflight: TeachingMemoryLegacyMigrationPreflight
+  /**
+   * Honest I/O profile for this host (ADR-0126). Never renamed to strict/CAS
+   * on Windows; `windows_direct_path_non_cas` means limited non-CAS persistence.
+   */
+  platformIoProfile?: 'posix_descriptor_strict' | 'windows_direct_path_non_cas' | 'unavailable'
+  platformCapabilityCode?: string
+  platformCapabilityMessageKey?: string
 }
 
 export type CreateTeachingMemoryPayload = {

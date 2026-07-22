@@ -48,3 +48,24 @@ Registry discovery: optional `ToolEntry.capabilities` overrides defaults; `resol
 ## Permission and UI guidance
 
 The contract does not authorize execution by itself. The effect lattice remains the pre-execution gate, and the registry permission descriptor remains the interactive gate. UI copy should describe the three states as **需批准** (approval required), **按风险** (risk-based), and **本课放行** (this lesson/run allows it). Do not expose or label a mode as “YOLO”.
+
+
+## Dynamic MCP bridge rules (ADR-0128)
+
+User-configured MCP tools are **not** listed in the static inventory above. `scripts/check-tool-contract.mjs` continues to enforce only the closed static set.
+
+Bridge rules (product invariants):
+
+| Rule | Contract |
+| --- | --- |
+| Naming | Registered tool names are `mcp__{serverId}__{rawToolName}` only. |
+| Default effect | `privileged` unless an explicit per-tool override maps to `read` / `workspace_write` / `external_write` / `privileged`. |
+| Permission | Non-`read` MCP tools require interactive approval; enabling a server is **not** tool-call authorization. |
+| Handler stance | MCP handlers must not write workspace files, LearningSession ledger, or teaching outcomes. Results are data only. |
+| Budget | Per-server / global tool and schema budgets apply at list/register time (see ADR-0128 §5.3). |
+| Settlement | MCP is orthogonal to settlement sole-writer; fork paths keep `toolsReplayed: false`. |
+| Defaults | Root MCP switch default **off**; no auto-connect; no marketplace; no YOLO / always-approve labels. |
+| Fingerprint | MCP tools that are registered for a run **are** included in tools-schema fingerprint (ADR-0060). |
+
+Static teaching tools remain the authoritative closed set in this document. Dynamic MCP audit snapshots may record registered names and effects without expanding this table.
+

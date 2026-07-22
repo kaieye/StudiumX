@@ -115,4 +115,70 @@ describe('classifyProviderRecovery (A-04)', () => {
       retryable: false
     })
   })
+  it('classifies provider-specific overflow patterns without retry', () => {
+    const samples = [
+      'prompt is too long: 213462 tokens > 200000 maximum',
+      'Your input exceeds the context window of this model',
+      'The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)',
+      'model_context_window_exceeded',
+      'invalid params, context window exceeds limit',
+      '400 status code (no body)',
+      '请求失败：上下文超限'
+    ]
+    for (const sample of samples) {
+      const d = classifyProviderRecovery(sample)
+      expect(d.class, sample).toBe('context_overflow')
+      expect(d.retryable, sample).toBe(false)
+      expect(d.shouldCompress, sample).toBe(true)
+    }
+  })
+
+  it('does not treat Bedrock throttling "Too many tokens" as context_overflow', () => {
+    const d = classifyProviderRecovery(
+      'ThrottlingException: Too many tokens, please wait before trying again.'
+    )
+    expect(d.class).not.toBe('context_overflow')
+    expect(d.shouldCompress).toBe(false)
+  })
+
+  it('classifies silent overflow when error object carries usage + stop + contextWindow', () => {
+    const dStop = classifyProviderRecovery({
+      message: 'ok',
+      stopReason: 'stop',
+      usage: { input: 90_000, output: 10, cacheRead: 20_000 },
+      contextWindow: 100_000
+    })
+    expect(dStop.class).toBe('context_overflow')
+    expect(dStop.retryable).toBe(false)
+    expect(dStop.shouldCompress).toBe(true)
+
+    const dLength = classifyProviderRecovery({
+      finish_reason: 'length',
+      usage: { input: 99_500, output: 0 },
+      contextWindow: 100_000
+    })
+    expect(dLength.class).toBe('context_overflow')
+    expect(dLength.retryable).toBe(false)
+    expect(dLength.shouldCompress).toBe(true)
+  })
+
+  it('still treats bare finish_reason length without usage as max_tokens', () => {
+    const d = classifyProviderRecovery({ finish_reason: 'length' })
+    expect(d.class).toBe('max_tokens')
+    expect(d.retryable).toBe(false)
+  })
+
+  it('classifies platform capability gaps separately from empty_stream and never retries them', () => {
+    const d1 = classifyProviderRecovery(
+      'NativeContainedDurableReplaceUnavailableError: descriptor-relative contained directory is unsupported_platform'
+    )
+    expect(d1.reasonCode).toBe('platform_capability')
+    expect(d1.retryable).toBe(false)
+    expect(d1.class).not.toBe('empty_stream')
+
+    const d2 = classifyProviderRecovery('platform capability: windows_direct_path unavailable')
+    expect(d2.reasonCode).toBe('platform_capability')
+    expect(d2.retryable).toBe(false)
+  })
+
 })

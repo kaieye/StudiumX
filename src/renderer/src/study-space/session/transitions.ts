@@ -347,7 +347,12 @@ export function updateStudyTask(
       nextTask.done = updateInput.done
       taskUpdated = true
     }
-    if (updateInput.schedule) {
+    if (updateInput.schedule === null) {
+      if (nextTask.schedule !== undefined) {
+        delete nextTask.schedule
+        taskUpdated = true
+      }
+    } else if (updateInput.schedule) {
       const schedule = normalizeStudyTaskSchedule(updateInput.schedule)
       if (schedule) {
         nextTask.schedule = schedule
@@ -359,6 +364,26 @@ export function updateStudyTask(
       if (categoryId !== nextTask.categoryId) {
         nextTask.categoryId = categoryId
         taskUpdated = true
+      }
+    }
+    if (updateInput.estimateMinutes !== undefined) {
+      if (updateInput.estimateMinutes === null) {
+        if (nextTask.estimateMinutes !== null && nextTask.estimateMinutes !== undefined) {
+          nextTask.estimateMinutes = null
+          taskUpdated = true
+        } else if (nextTask.estimateMinutes === undefined) {
+          nextTask.estimateMinutes = null
+          taskUpdated = true
+        }
+      } else if (
+        typeof updateInput.estimateMinutes === 'number' &&
+        Number.isFinite(updateInput.estimateMinutes)
+      ) {
+        const est = Math.max(0, Math.min(24 * 60, Math.floor(updateInput.estimateMinutes)))
+        if (nextTask.estimateMinutes !== est) {
+          nextTask.estimateMinutes = est
+          taskUpdated = true
+        }
       }
     }
     updated = updated || taskUpdated

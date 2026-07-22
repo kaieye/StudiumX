@@ -10,6 +10,7 @@ export type SettingsSection =
   | 'tools'
   | 'search'
   | 'connectors'
+  | 'mcp'
   | 'workspace'
   | 'worktree'
   | 'memory'

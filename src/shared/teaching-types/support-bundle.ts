@@ -19,6 +19,7 @@ export type SupportBundleSectionId =
   | 'audit_correlation'
   | 'environment'
   | 'local_data_index'
+  | 'mcp_status'
 
 /**
  * Documented redaction policy carried on every export so support recipients
@@ -42,7 +43,7 @@ export const DEFAULT_SUPPORT_BUNDLE_REDACTION_POLICY: RedactionPolicy = {
   noAbsoluteHomePaths: true,
   noLearnerAnswers: true,
   description:
-    'Support bundle is redacted by default: no raw prompts, no API keys/secrets, no absolute home paths, no learner answers, no full conversation/memory projection row bodies.'
+    'Support bundle is redacted by default: no raw prompts, no API keys/secrets, no absolute home paths, no learner answers, no full conversation/memory projection row bodies, no MCP secret env/headers, and MCP command/args labels are path+secret scrubbed.'
 }
 
 /** JSON-safe payload tree after redaction (no functions, no bigint, no circular refs). */

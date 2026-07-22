@@ -8,6 +8,21 @@ export type StudyTimerPlan = {
   breakMinutes: number
   simulationStartTime: string
   simulationEndTime: string
+  /** STC-502: optional long break minutes (canonical TimerPlanV2). */
+  longBreakMinutes?: number
+  /** STC-502: optional long-break interval (focus cycles). */
+  longBreakEvery?: number
+  /** STC-502: rest transition policy (pomodoro product: automatic|ask). */
+  breakPolicy?: 'automatic' | 'ask' | 'reminder_only' | 'none'
+  /** STC-504: plan kind (default pomodoro when absent). */
+  kind?: 'pomodoro' | 'continuous'
+  /** STC-504: clock mode (continuous default countup). */
+  clockMode?: 'countdown' | 'countup'
+  /**
+   * STC-504: when kind=continuous + countup, true means focusMinutes is a target;
+   * false/absent means open-ended countup (focusMinutes is display-only cache).
+   */
+  continuousTarget?: boolean
 }
 
 export type StudyTimerPlanInput = Omit<StudyTimerPlan, 'id'>
@@ -55,7 +70,13 @@ export type StudyTaskUpdateInput = {
   title?: string
   done?: boolean
   categoryId?: StudyTaskCategoryId | null
-  schedule?: StudyTaskScheduleInput
+  /** Pass null to clear the rebuildable V1 primary schedule cache (STC-307 multi-block). */
+  schedule?: StudyTaskScheduleInput | null
+  /**
+   * STC-304 / freeze #8: null clears estimate; undefined leaves unchanged.
+   * Never invent from timer plan focus minutes.
+   */
+  estimateMinutes?: number | null
 }
 
 export type StudyTask = {
@@ -64,6 +85,8 @@ export type StudyTask = {
   done: boolean
   categoryId?: StudyTaskCategoryId
   schedule?: StudyTaskSchedule
+  /** Optional sole-read cache of PlanningTask.estimateMinutes (null = unset). */
+  estimateMinutes?: number | null
 }
 
 export type StudyPresencePeer = {

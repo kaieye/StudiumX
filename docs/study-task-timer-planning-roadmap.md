@@ -1,11 +1,11 @@
 # StudiumX 任务清单、时间排程与专注时钟一体化规划
 
-> 状态：Phase 0 design gate **已关闭**；**Phase 1–7 共享纯领域 / 内存 Store 大部分已落地并单测**；**ADR-0117 durable host + product IPC 已落地**；**renderer cutover**：dual-write create/complete/update + schedule upsert + migration + empty-start + sole-read hydrate + **focus TimerSession dual-write** + **STC-306 future-blocks decision sheet** + **task list timeline views (STC-302 adapter)**；localStorage 仍为 V1 UI clock/presence + 可重建缓存/未自动擦除；**§18 未满足**；缺口：full timer sole-read / advance thrash 策略 / multi-block 周 UI (STC-307) / Plans UI / STC-702..704  
-> 日期：2026-07-21  
-> 权威冻结：[`docs/adr/0094-study-task-timer-planning-design-gate.md`](adr/0094-study-task-timer-planning-design-gate.md)；路径/wire：[`docs/adr/0117-study-planning-store-paths-and-wire.md`](adr/0117-study-planning-store-paths-and-wire.md)  
+> 状态：Phase 0 design gate **已关闭**；**Phase 1–7 共享纯领域 / 内存 Store 已落地并单测**（含 **STC-702/703/704 pure+tests**）；**ADR-0117 durable host + product IPC 已落地**；**renderer cutover partial**（dual-write + sole-read hydrate + TimerSession authority demotion；事实沉淀 [ADR-0129](adr/0129-study-planning-renderer-cutover-and-sole-authority.md)）；localStorage 仍为 presence + 可重建缓存/未自动擦除；**§18 产品未全满足**（residual 政策 [ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md)）；**路线图规划轨可关闭 ≠ §18 产品完成**  
+> 日期：2026-07-22  
+> 权威冻结：[`docs/adr/0094-study-task-timer-planning-design-gate.md`](adr/0094-study-task-timer-planning-design-gate.md)；路径/wire：[`docs/adr/0117-study-planning-store-paths-and-wire.md`](adr/0117-study-planning-store-paths-and-wire.md)；cutover：[ADR-0129](adr/0129-study-planning-renderer-cutover-and-sole-authority.md)；Phase7/§18 residual：[ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md)  
 > 范围：任务清单、任务详情、周/日时间排布、番茄时钟、连续专注、正计时/倒计时、时钟方案、休息、无任务启动、分类、提醒、恢复与本地分析  
 > 产品地板：文件是真相源；无默认远程 telemetry；不引入通用 shell、任意 MCP 或自动外发；持久化写入保持单一 writer、revision/CAS 与可恢复语义  
-> 规划文档状态：shared 纯层 + main durable + IPC 已测；renderer dual-write (create/complete/update+schedule)/hydrate/timer-session + future-blocks sheet 已测；break 段与每 tick advance 仍 V1；周拖拽仍写 V1 再 dual-write 单 block（非 multi-block UI）；**§18 未完成**
+> 规划文档状态：shared 纯层 + main durable + IPC 已测；renderer dual-write/hydrate/timer-session cutover **partial**（V1 dual-authority 仍并存）；**STC-702** pure `custom_rhythm` + sequence + allocator + 单测；**STC-703** pure recurrence expand + 单测；**STC-704** pure timezone/DST helpers + 单测；三者 **UI / 旅行 UX / 规则持久化 wire 仍 residual**；**§18 未完成**（见 §18 审计表）
 
 ---
 
@@ -54,7 +54,7 @@
 
 ## 1. 当前实现基线
 
-截至 2026-07-21，仓库中已经存在任务、周排程、倒计时和时钟方案的初始能力，但它们的关系仍较松散。
+截至 2026-07-22，仓库中已有 V1 任务/周排程/倒计时/时钟方案基线，并叠加 Phase 1–7 pure + durable + partial renderer cutover；关系已部分统一，但 **V1 dual-authority 与高级 UI residual 仍在**（见 §1.2 / §18.1）。
 
 ### 1.1 已经具备
 
@@ -72,17 +72,28 @@
 
 ### 1.2 当前关键缺口
 
-- 方案中的 09:00–12:00 目前只是标签，不会自动生成 25/5 时间块。
-- 时钟方案与周计划没有真正的排程关系。
-- 一个任务只能附带一个 schedule，难以表达“同一任务上午两段、下午一段”。
-- 清单默认按现有数组顺序呈现，不是“今日按时间”视图。
-- 没有正计时、目标正计时或开放式连续专注。
-- 没有短休息/长休息的区分，也没有“每 N 轮长休息”。
-- 没有时间窗口填充策略，不能决定末尾剩余 10–20 分钟怎么处理。
-- 无任务启动不会自动建任务，也没有让用户选择策略的入口。
-- 完成任务后没有归类提示，也没有“永不再提示”偏好。
-- 修改正在使用的方案时，没有完整表达“当前会话不变、下一段生效”。
-- 应用休眠、系统睡眠、跨午夜、长时间遗忘计时等恢复规则不完整。
+> **审计基线（2026-07-22）：** 下列为 **仍真实的产品 / 权威 residual**。历史上纯层缺口（自适应窗口填充、多块 1:N、正计时/连续、长短休息、empty-start 策略、完成后归类 prompt、active-vs-next 方案快照、timeline 视图等）已由 Phase 1–7 pure + partial renderer cutover 关闭或降级为 partial，**不再**当作“完全未做”的纯领域缺口。
+
+**仍开 / 产品 residual（诚实）：**
+
+- **V1 dual-authority：** renderer 仍保留 `localStorage` StudySnapshot 作 UI shell / rebuildable cache；migration **不**自动擦除；canonical sole-authority **终态未达**（[ADR-0129](adr/0129-study-planning-renderer-cutover-and-sole-authority.md) / [ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md)）。
+- **STC-702 UI residual：** pure `custom_rhythm` + `rhythmSequence` + allocator 已落地；**Plans 自定义节奏编辑器 / 序列 UI / V1 dual-write map / session step-index** 未接。
+- **STC-703 UI residual：** pure `RecurrenceRule` expand 已落地；**日历规则编辑 UI / 规则持久化 wire / 周视图自动 expand+confirm** 未接。
+- **STC-704 product residual：** pure timezone/DST helpers（跨午夜拆分、DST 歧义/空洞）已落地；**旅行时区 UX / 块级 timeZone wire / 周视图接线** 未接。
+- **main `powerMonitor`：** renderer visibility/pagehide + hydrate reattach 已接；main OS sleep 通道仍 deferred。
+- **STC-707 depth residual：** 冲突 banner/list UI 已接；**自动错开 / conflict resolve 写回** 未做。
+- **每 tick advance 写盘：** 仍不做（sole-read 本地投影；转换 dual-write only）。
+- **睡眠/崩溃/并发恢复：** 部分产品路径已接（ReconcileSheet + dual-write）；完整 §18「不重复记时、不丢任务」矩阵仍 open。
+
+**已降级（纯层 / partial 产品，勿再当全量缺口）：**
+
+- 09:00–12:00 自适应 25/5 填充、锁定块、尾段策略 → pure `allocateTimeWindow` + STC-308 proposal preview **partial**。
+- 任务 1:N ScheduleBlock / 周 multi-block chips / task-detail multi-block editor → STC-307 **partial**。
+- 清单「今日按时间」等视图 → STC-302 timeline adapter **partial**。
+- 正计时 / 连续专注 / 长短休息 / breakPolicy → pure + STC-502/504 product path **partial**。
+- 无任务启动策略入口 → EmptyStartSheet + prefs **partial**。
+- 完成后归类 / 永不再提示 → STC-406/407/408 + prefs **partial**。
+- 当前会话 vs 下一段方案 → STC-503 active-vs-next strip **partial**。
 
 ### 1.3 现有代码锚点（V1 生产 / localStorage 基线）
 
@@ -829,23 +840,23 @@ interface StudyPlanningStore {
 - [x] **STC-202** 支持目标正计时和开放式正计时。 → 规则：§6.2 → **已测**（open countup + target countup）
 - [x] **STC-203** 方案快照冻结，编辑只影响下一段。 → 规则：§4.3 + ADR-0094 planSnapshot / 冻结项 STC-006 → **已测**（start 时 clone planSnapshot）
 - [x] **STC-204** 支持任务切换时事实分段。 → 规则：§3.2 #7 + §6.3 → **已测**（`switchTimerSessionTask`）
-- [x] **STC-205** 支持短休息、长休息、跳过、延长和收尾。 → 规则：§10 + 冻结 #3/#6 → **部分**：到点 `phase_prompt` + `startNextPhaseFromCompleted`（ask 确认）；跳过/延长 UI 未做
-- [x] **STC-206** 支持系统睡眠、应用退出和 stale session reconcile。 → 规则：§6.3 + §12 + 冻结 #5（120 min）+ §14.2 `reconcile_stale_session` → **纯路径已测**（confirm/truncate/discard）；无 OS 集成
+- [x] **STC-205** 支持短休息、长休息、跳过、延长和收尾。 → 规则：§10 + 冻结 #3/#6 → **部分++**：到点 `phase_prompt` + `startNextPhaseFromCompleted`（ask 确认）+ **renderer PhasePromptSheet**（start/skip/later/**extend_and_start +1/+5**）+ **mid-break +1 分钟** + **break-end prompt**（`BreakEndPromptSheet` start_focus/wrap_up/later；§10.3 不静默开下一专注；automatic 可 auto 下一 focus；wrap_up 用冻结 `wrapUpMinutes`）+ **taskId reattach** after break；**wrap_up mid-run chrome 已接**（`planning-timer-phase-chrome-ui` + WorkbenchPomodoro `is-wrap_up`/收尾徽章；tabs 锁定）
+- [x] **STC-206** 支持系统睡眠、应用退出和 stale session reconcile。 → 规则：§6.3 + §12 + 冻结 #5（120 min）+ §14.2 `reconcile_stale_session` → **部分+**：纯路径 + ReconcileSheet + dual-write；**renderer 睡眠/退出钩子**（`visibilitychange` resume + `pagehide` pin advance + hydrate cold-start reattach open session）；**main `powerMonitor` / 新 IPC push 通道仍未做**（renderer-only 故意避免扩 IPC 事件面）
 - [x] **STC-207** 保持一个 active session；重复命令幂等。 → 规则：§3.2 #1 + §14.2–§14.3 → **已测**（lifecycle assert + `StudyPlanningStore` actionId retry）
 - [x] **STC-208** 保持现有本地 analytics 兼容并明确计划/实际口径。 → 规则：§14.1（SQLite 可重建投影）+ 产品地板 → **纯投影** `projectTaskPlanVsActual` 已测；**未**接现有 analytics ledger
 
-**验收：** 正/倒计时均能暂停、恢复（纯函数层）；无重复会话；可疑长间隔不静默计入。**Renderer / durable file / OS sleep 钩子尚未 wire。**
+**验收：** 正/倒计时均能暂停、恢复（纯函数层）；无重复会话；可疑长间隔不静默计入；**renderer tick 路径可弹 ReconcileSheet 并 dual-write**。**OS 睡眠/退出钩子尚未 wire。**
 
 ### Phase 3 — 任务、清单详情与时间线（P1）
 
-- [x] **STC-301** 统一 task store，清单/详情/周计划只传 ID。 → 规则：§7.4 + §14.2 sole-writer → **内存 `StudyPlanningStore` 统一 tasks/blocks**；**IPC + durable 已 wire**；renderer **partial**：planning-client dual-write create/complete/**update**（同 ID）+ schedule upsert + **migration commit 可用**；清单仍投影 V1 localStorage 缓存（hydrate sole-read 当 canonical 有任务）
+- [x] **STC-301** 统一 task store，清单/详情/周计划只传 ID。 → 规则：§7.4 + §14.2 sole-writer → **内存 `StudyPlanningStore` 统一 tasks/blocks**；**IPC + durable 已 wire**；renderer **partial**：planning-client dual-write create/complete/**update**/delete/**reopen**（同 ID）+ schedule upsert + **migration commit 可用**；清单仍投影 V1 localStorage 缓存（hydrate sole-read 当 canonical 有任务）
 - [x] **STC-302** 新增“现在、今日、待归类、全部、已完成”视图。 → 规则：§7.1 → **纯投影** `projectTaskTimeline` 已测；renderer **WorkbenchTasks** tabs via `planning-task-timeline-adapter`（V1 tasks → projection → 有序列表；默认今日）
 - [x] **STC-303** 今日列表按时间排序且不破坏手动顺序。 → 规则：§7.2 + §3.2 #13 → **已测**（`manualOrder` 保留）
-- [x] **STC-304** 任务详情显示估时、实际时间、未来/历史时间块。 → 规则：§7.3 + 冻结 #8 → **投影字段** planned/actual/blocks；UI 未做
+- [x] **STC-304** 任务详情显示估时、实际时间、未来/历史时间块。 → 规则：§7.3 + 冻结 #8 → **投影字段** planned/actual/blocks；renderer **`planning-task-detail-stats` + `StudyTaskDetailStatsSection`**（估时可编辑 dual-write `estimateMinutes`；**actual sole-read canonical `timerSessions` via hydrate + finish dual-write refresh**）
 - [x] **STC-305** 支持一个任务多个时间块。 → 规则：§7.3 + §13.1 → **模型+投影已测**
-- [x] **STC-306** 完成任务时处理未来时间块。 → 规则：§7.3 + §12 + 冻结 #7 → **`applyCompleteTaskFutureBlocks` + store effect** 已测；renderer **FutureBlocksDecisionSheet** + complete dual-write decision follow-up（wire aliases）已测
-- [ ] **STC-307** 周计划拖拽改为操作 `ScheduleBlock`，不是复制任务。 → 规则：§7.3 + §3.2 #8 → **仅** `upsert_schedule_block` 命令；renderer **partial**：week-drag → V1 update + dual-write `upsert_schedule_block`（`block:${taskId}:v1` 单块）；**multi-block 周 UI / 不经 V1 直写 block 未做**
-- [x] **STC-308** 提供排程提案预览、差异和确认。 → 规则：§0 #8 + §5 + §13 `AllocationProposal` + §14.2 apply → **`diffScheduleBlocks` + `apply_allocation_proposal`** 已测；预览 UI 未做
+- [x] **STC-306** 完成任务时处理未来时间块。 → 规则：§7.3 + §12 + 冻结 #7 → **`applyCompleteTaskFutureBlocks` + store effect** 已测；renderer **FutureBlocksDecisionSheet** + complete dual-write decision follow-up（wire aliases）已测；**delete twin** `applyDeleteTaskFutureBlocks` + store/IPC `delete_task` + `dualWriteDeleteTask` / `removeTask` soft-cancel 已测（history TimerSession 保留 taskId）
+- [x] **STC-307** 周计划拖拽改为操作 `ScheduleBlock`，不是复制任务。 → 规则：§7.3 + §3.2 #8 → **`upsert_schedule_block` + `delete_schedule_block`**；renderer：**`planning-schedule-block-adapter`** + hydrate `scheduleBlocks` + week chips multi-block 投影（`WeekChipTask.scheduleBlockId`）+ drag finish 传 `blockId`/weekAnchor；dual-write 解析真实 focus block id（preferred → primary → legacy `:v1` → default）；V1 `task.schedule` 仅 primary 写回；**task-detail multi-block editor**（`StudyTaskMultiBlockSection` + `planning-multi-block-editor` / `planning-multi-block-dual-write` create/delete + `useStudySession.createFocusBlock`/`deleteScheduleBlock`）；纯 block 写路径仍经 dual-write（非 V1 shell 唯一路径）
+- [x] **STC-308** 提供排程提案预览、差异和确认。 → 规则：§0 #8 + §5 + §13 `AllocationProposal` + §14.2 apply → **`diffScheduleBlocks` + `apply_allocation_proposal`** 已测；renderer **`planning-allocation-proposal-ui` + `AllocationProposalPreviewSheet` + dual-write apply + schedule-page 入口** 已测
 
 **验收（纯层）：** 单 store 修订；时间线投影；完成+未来块决策 effect。**页面未共享 revision。**
 
@@ -854,33 +865,33 @@ interface StudyPlanningStore {
 - [x] **STC-401** 替换“静默第一条开放任务”为显式 empty-start policy。 → 规则：§8 + 冻结 #1 / §19.1 → **`resolveFocusStartAttribution` + EmptyStartSheet**（pick/quick/unattributed；废除 `window.confirm` 二选一）
 - [x] **STC-402** 实现快速创建临时任务并启动。 → 规则：§8.1 + §14.2 `quick_start` + §14.3 → **store `quick_start` 已测**；UI 弹层可创建临时任务并 dual-write `source:quick_start`（TimerSession durable 仍属 Slice D）
 - [x] **STC-403** 实现“无任务计时”并在分析中单列。 → 规则：§8.1 + §12 末行 → **unattributed session + planVsActual.unattributed**；启动路径已可无任务
-- [x] **STC-404** 实现可恢复的记忆偏好。 → 规则：§8.2 → **`set_preferences.emptyStartPolicy`**；设置页未接
+- [x] **STC-404** 实现可恢复的记忆偏好。 → 规则：§8.2 → **`set_preferences.emptyStartPolicy`**；**renderer：`StudyPlanningPrefsSection` + hydrate sole-read + dual-write restore（含 classificationPromptOptOut 可恢复）**
 - [x] **STC-405** 新增待归类/收件箱。 → 规则：§9 + 冻结 #2 / §19.2 → **inbox 字段 + 投影**
-- [x] **STC-406** 完成后非阻塞归类提示。 → 规则：§9.2 + §3.2 #12 → **effect `classification_prompt_suggested`；不阻塞 complete**
-- [x] **STC-407** 支持“保持待归类、稍后、不再提示”。 → 规则：§9.2 → **`applyClassificationAction`**
-- [x] **STC-408** 支持批量归类，批量完成不弹窗风暴。 → 规则：§9.2 + §12 批量完成 → **`batchClassifyTasks` + store `batch_classify_tasks`**；UI 未做
+- [x] **STC-406** 完成后非阻塞归类提示。 → 规则：§9.2 + §3.2 #12 → **effect `classification_prompt_suggested`；不阻塞 complete**；**renderer：`ClassificationPromptSheet` + complete 后 host ask（关 sheet 不回滚）**
+- [x] **STC-407** 支持“保持待归类、稍后、不再提示”。 → 规则：§9.2 → **`applyClassificationAction`**；**renderer：sheet 选项 + `set_preferences.classificationPromptOptOut` / `update_task` dual-write**
+- [x] **STC-408** 支持批量归类，批量完成不弹窗风暴。 → 规则：§9.2 + §12 批量完成 → **atchClassifyTasks + store atch_classify_tasks**；**renderer：BatchClassifySheet + inbox「归类」入口 + dual-write；completeTasksBatch storm suppress + **多选完成 UI**（planning-multi-select-complete-ui + WorkbenchTasks 勾选/工具栏 + OfficeWorkbench host）**
 
-**验收（纯层）：** quick_start 最多一个任务；关归类不回滚完成。**产品 UI 仍走 V1 静默路径直至 wire。**
+**验收（纯层）：** quick_start 最多一个任务；关归类不回滚完成。**产品 UI：complete 后 classification prompt 已 wire（STC-406/407）；emptyStartPolicy + classification opt-out 可恢复设置已接（STC-404）；批量归类 sheet + inbox 入口 + dual-write 已接（STC-408）；批量完成 session API 有 storm suppress；**多选完成 UI 入口已接**（WorkbenchTasks「多选」→ completeTasksBatch）。**
 
 ### Phase 5 — 时钟方案管理与长时间专注（P1）
 
 - [x] **STC-501** 系统方案只读 + 复制为自定义。 → 规则：§4.1 内置目录 + §4.3 → **`listBuiltinTimerPlans` / `copyTimerPlanAsCustom` / store `copy_timer_plan`**
-- [x] **STC-502** 方案重命名、复制、设默认、编辑和删除。 → 规则：§4.3 → **catalog helpers + save/delete/copy 命令**；UI 未做
-- [x] **STC-503** 显示“当前会话使用的方案快照”和“下一段方案”。 → 规则：§4.3 + STC-203 / planSnapshot → **`projectActiveVsNextTimerPlan`**；UI 未做
-- [x] **STC-504** 连续专注正计时。 → 规则：§4.1 B + §6.2 + 冻结 #6 → **lifecycle continuous countup（Phase 2）**
+- [x] **STC-502** 方案重命名、复制、设默认、编辑和删除。 → 规则：§4.3 → **catalog helpers + save/delete/copy/set_preferences 命令**；renderer **partial**：`planning-timer-plan-catalog-ui` + `StudyTimerPlanCatalogSection`（builtin 只读 + 复制/重命名/设默认/删除）+ dual-write rename/set-default + **hydrate sole-read `preferences.defaultTimerPlanId` / timerPlans**；**高级字段编辑（长休息/longBreakEvery/breakPolicy）已接**：`planning-timer-plan-advanced-fields` + dual-write map + Pomodoro settings + normalize/hydrate sole-read + rename preserve
+- [x] **STC-503** 显示“当前会话使用的方案快照”和“下一段方案”。 → 规则：§4.3 + STC-203 / planSnapshot → **`projectActiveVsNextTimerPlan`**；**renderer UI 已接**：`planning-active-vs-next-plan-ui` + `ActiveVsNextPlanSection`（当前会话快照 vs 下一段 + diverges 提示）+ `useStudySession.activeTimerSession` 结构切换镜像 + Pomodoro settings strip
+- [x] **STC-504** 连续专注正计时。 → 规则：§4.1 B + §6.2 + 冻结 #6 → **lifecycle continuous countup（Phase 2）**；**product path**：`planning-timer-plan-kind` 投影 open/target + freeze #6 continuous breakPolicy；`createContinuousCountupPlan`；V1 kind/clockMode/continuousTarget dual-write；start freeze planSnapshot + open `targetSeconds: null`；catalog summary；WorkbenchPomodoro kind 编辑器
 - [x] **STC-505** 30–240 分钟连续倒计时。 → 规则：§4.1 B → **`validateContinuousCountdownMinutes`**
 - [x] **STC-506** 休息策略：自动、询问、仅提醒、无。 → 规则：§10.2 + 冻结 #3/#6 → **TimerPlanV2 breakPolicy + phase_prompt ask 门控**
 - [x] **STC-507** 达到方案上限时返回错误，不静默丢弃方案。 → 规则：§4.3（>12 明确错误） → **store 拒绝 >12**
 - [x] **STC-508** 增加 09:00–12:00 等常用窗口模板，但与 TimerPlan 分开保存。 → 规则：§4.2 + §5 + §13 `TimeWindow` → **`BUILTIN_TIME_WINDOW_TEMPLATES`**
 
-**验收（纯层）：** 连续专注策略与方案上限/模板分离已测。**方案管理 UI 未 wire。**
+**验收（纯层）：** 连续专注策略与方案上限/模板分离已测。**方案管理 UI partial wire（STC-501/502 catalog + STC-503 active-vs-next 快照条 + **STC-504 continuous kind editor / dual-write / start freeze**）。**
 
 ### Phase 6 — 提醒、可访问性与体验抛光（P1/P2）
 
-- [x] **STC-601** 应用内提醒和系统通知 fallback。 → 规则：§11.1 + §22.1 → **`resolveNotificationChannels`**（host 仍须接 OS）
+- [x] **STC-601** 应用内提醒和系统通知 fallback。 → 规则：§11.1 + §22.1 → **`resolveNotificationChannels`**（renderer host live prefs 已接；OS Notification 仍经 App showNotification）
 - [x] **STC-602** 声音、系统通知、专注结束和休息结束独立开关。 → 规则：§11.1 + §4.2 notificationPolicy → **policy 字段驱动**
-- [x] **STC-603** 键盘操作与 screen reader 状态文案。 → 规则：§11.2 → **`timerStatusAriaLabel`**；键盘路径 UI 未做
-- [x] **STC-604** reduced-motion 与非颜色状态表达。 → 规则：§11.2 → **纯层无动画；UI 标记待做**
+- [x] **STC-603** 键盘操作与 screen reader 状态文案。 → 规则：§11.2 → **`timerStatusAriaLabel`** + **product path**：`planning-timer-a11y-ui`（`projectPlanningTimerA11yStatus` / `mapPlanningTimerKeyboardAction`；静态无 ticking）+ WorkbenchPomodoro `aria-live=polite` + Space/Enter/r/+/箭头 面板快捷键（settings/editable 抑制）
+- [x] **STC-604** reduced-motion 与非颜色状态表达。 → 规则：§11.2 → **纯层** `planning-timer-state-markers-ui`（`projectPlanningTimerStateMarkers`；非颜色 chip 文案 + overtime + `is-state-*` / `is-reduced-motion` class tokens；prefer live TimerSession；countup 不标 overtime）+ **product path** WorkbenchPomodoro matchMedia + state chip + CSS shape markers（非 hue-only）
 - [x] **STC-605** 勿扰/全屏尊重策略。 → 规则：§11.1 + §12 → **DND/fullscreen 分支已测**
 - [x] **STC-606** 计划偏差提示：提前、超时、跳过休息。 → 规则：§5.4 + §12 + §17.4 → **`detectPlanDeviations`**
 - [x] **STC-607** 本地复盘：计划时间、实际时间、未归属时间、休息完成率。 → 规则：§18 + 本地 analytics → **`projectLocalReviewStats`**
@@ -890,14 +901,14 @@ interface StudyPlanningStore {
 ### Phase 7 — 高级排程（P2，产品信号触发）
 
 - [x] **STC-701** 多窗口日计划。 → 规则：§5 + §13 TimeWindow → **`allocateMultiWindowDay`**
-- [ ] **STC-702** 自定义节奏序列。 → 规则：§4.1 C 后续 + §21 → **明确未做**（待番茄+连续产品稳定）
-- [ ] **STC-703** 重复任务/重复时间块。 → 规则：§7.3 → **未做**
-- [ ] **STC-704** 跨日、时区旅行与 DST 高级编辑。 → 规则：§12 → **未做**
+- [x] **STC-702** 自定义节奏序列。 → 规则：§4.1 C + §21 + [ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md) §2 → **pure+tests**：`custom-rhythm-sequence.ts` + `TimerPlanV2.kind: 'custom_rhythm'` + `rhythmSequence` + `allocate-time-window` custom_rhythm 分支 + `tests/unit/study-planning-custom-rhythm.unit.test.ts`（report `docs/_agent-work/reports/study-planning-stc-702-custom-rhythm.md`）；**UI residual**：Plans 序列编辑器 / freeform drag / V1 dual-write map / session `rhythmStepIndex` **未接**
+- [x] **STC-703** 重复任务/重复时间块。 → 规则：§7.3 + [ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md) §3 → **pure+tests**：`recurrence.ts`（`RecurrenceRule` + expand/merge；不克隆 Task；locked fail-closed；plans≠actuals）+ `tests/unit/study-planning-recurrence.unit.test.ts`（report `docs/_agent-work/reports/study-planning-stc-703-recurrence.md`）；**UI residual**：规则编辑 UI / 规则持久化 wire / 周视图自动 expand+confirm **未接**
+- [x] **STC-704** 跨日、时区旅行与 DST 高级编辑。 → 规则：§12 + [ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md) §4 → **pure+tests**：`timezone-dst-editing.ts`（epoch-ms 权威、跨午夜拆分、DST ambiguous/nonexistent、fail-closed min range）+ `tests/unit/study-planning-timezone-dst.unit.test.ts`（report `docs/_agent-work/reports/study-planning-stc-704-timezone-dst.md`）；**product residual**：旅行时区 UX / 块级 timeZone wire / 周视图接线 **未接**
 - [x] **STC-705** 提案比较：25/5、50/10、连续专注的利用率。 → 规则：§5 + meta.utilizationRatio → **`compareAllocationUtilization`**
 - [x] **STC-706** 基于用户确认的历史估时建议；不自动改任务。 → 规则：§5.3 + 冻结 #8 → **`suggestEstimateMinutesFromHistory`（只建议）**
-- [x] **STC-707** 冲突解决器和多任务拖拽重排。 → 规则：§5.3 + §7.3 → **`findScheduleConflicts` 冲突列表**；拖拽 UI 未做
+- [x] **STC-707** 冲突解决器和多任务拖拽重排。 → 规则：§5.3 + §7.3 → **`findScheduleConflicts` 冲突列表** + **周视图冲突 banner/list UI**（`planning-schedule-conflicts-ui` + `StudyScheduleConflictsBanner`；点击打开编辑；dismiss 指纹）；拖拽芯片重排已接（dual-write by blockId）；深度 conflict-resolve 写回（自动错开）未做
 
-**验收（纯层部分）：** 多窗口/比较/估时建议/冲突检测可用。**STC-702..704 与拖拽 UI 分期缺口见下。**
+**验收（纯层部分）：** 多窗口/比较/估时建议/冲突检测 + **STC-702/703/704 pure API 与单测** 可用。**STC-702..704 产品 UI / wire residual 与 STC-707 自动 resolve 仍开**（见 [ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md)）。
 
 ---
 
@@ -915,7 +926,7 @@ interface StudyPlanningStore {
 
 #### 场景 ↔ STC 映射（审计锚点）
 
-| 场景（保持上列用例） | 主要 STC / 冻结 | 实际覆盖（2026-07-21） |
+| 场景（保持上列用例） | 主要 STC / 冻结 | 实际覆盖（2026-07-22） |
 | --- | --- | --- |
 | 25/5 自适应尾段 | STC-102 / 103 / 104 | **已测**（`study-planning-allocator.unit.test.ts`） |
 | 50/10 / 连续专注 / 长休息 every 2–3 | STC-102 / 104 | **已测**（50/10、continuous、longEvery 2/3） |
@@ -923,9 +934,12 @@ interface StudyPlanningStore {
 | 任务拆分 / 最小块 / null 估时 | STC-106 + 冻结 #8 | **已测**（null 估时、non-splittable 跳过、minimumBlockMinutes） |
 | warnings（窗口不足、冲突、不可利用） | STC-107 | **已测**（window_too_short、remainder_below_minimum_final_focus、locked_overlap、unscheduled_tasks） |
 | Task 1:N ScheduleBlock adapter | STC-108 | **已测**（validate + migrate dry-run + proposal→blocks） |
-| 可疑正计时 120 分钟 | STC-206 + 冻结 #5 | 未实现 |
+| 可疑正计时 120 分钟 | STC-206 + 冻结 #5 | **产品路径 partial+**：ReconcileSheet + dual-write + visibility/pagehide + hydrate reattach；main powerMonitor 仍开 |
 | empty-start 每次询问 | STC-401 + 冻结 #1 | **弹层+纯模型已测**（EmptyStartSheet；非 e2e 全路径） |
-| inbox 归类 | STC-405 / 406 + 冻结 #2 | 未实现（migrate dry-run 投影有 inbox 字段） |
+| inbox 归类 | STC-405 / 406 / 408 + 冻结 #2 | **产品路径 partial**：inbox 投影 + complete 后非阻塞 prompt + 批量归类 sheet/dual-write + 多选批量完成 UI（STC-408）；§18 仍未关闭 |
+| 自定义节奏序列（pure） | STC-702 + ADR-0130 §2 | **纯层已测**（`study-planning-custom-rhythm.unit.test.ts`；`custom-rhythm-sequence` + allocator custom_rhythm + pomodoro/continuous regression）；**UI residual** |
+| 重复任务/时间块 expand（pure） | STC-703 + ADR-0130 §3 | **纯层已测**（`study-planning-recurrence.unit.test.ts`；daily/weekly、count/until、idempotent、locked fail-closed、plans≠actuals）；**UI/wire residual** |
+| 跨日 / TZ / DST 编辑 helpers（pure） | STC-704 + ADR-0130 §4 | **纯层已测**（`study-planning-timezone-dst.unit.test.ts`；midnight split、spring-forward/fall-back、absolute duration、min range）；**旅行 UX residual** |
 
 **§17.1 纯函数矩阵（Phase 1）：** 主路径已覆盖；可选加深：90/15、longEvery 8、1–240 分钟全扫描、性质 fuzz。
 
@@ -944,7 +958,13 @@ interface StudyPlanningStore {
 ### 17.3 持久化与 IPC
 
 - V1→V2 dry-run 与真实迁移。
-- categories 独立存储迁移。
+- categories 独立存储迁移：**partial** — snapshot.categories + set_categories dual-write/hydrate/migration seed landed；V1 key 仍为 rebuildable cache（不自动擦除）；§18 仍未关闭。
+- segment-close analytics：**partial** — TimerSession → StudySessionFact product path landed （`planning-timer-session-analytics`）；§18 仍未关闭。
+- live focus-second counters：**partial** — TimerSession delta credit landed （`planning-timer-session-focus-counters`）；V1 twin stripped on tick；§18 仍未关闭。
+- STC-707 conflict UI：**partial** — pure banner model + SchedulePage banner list landed；自动错开/resolve 写回未做；§18 仍未关闭。
+- delete_task remove path：**partial** — soft-cancel (status:cancelled) + future-blocks disposition dual-write landed（applyDeleteTaskFutureBlocks / store delete_task / dualWriteDeleteTask / useStudySession.removeTask）；hydrate 投影过滤 cancelled；V1 list 仍 optimistic remove 作 rebuildable cache；§18 仍未关闭。
+- reopen_task toggle path：**partial** — pure applyReopenTask (done|cancelled→open, idempotent open) + store/IPC reopen_task + dualWriteReopenTask + useStudySession.toggleTask reopen branch；V1 toggle still optimistic cache；§18 仍未关闭。
+- removeDoneTasks bulk path：**partial** — collectDoneTaskIds + dualWriteRemoveDoneTasks （per done id delete_task + futureBlocksDecision cancel，避免 sheet storm）；V1 removeDoneStudyTasks optimistic；§18 仍未关闭。
 - `expectedRevision` 冲突。
 - action ID exact retry。
 - quick start 原子/部分失败矩阵。
@@ -990,7 +1010,7 @@ pnpm run check:blocking-ci
 
 ## 18. 完成定义
 
-功能不能仅以“计时器能动”为完成。完整完成定义：
+功能不能仅以“计时器能动”为完成。完整完成定义（**产品证据状态**；与「规划文档可关闭」分离，见 [ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md)）：
 
 - 用户能明确理解任务、时间块、方案和实际计时的区别。
 - 09:00–12:00 可以生成可解释、可修改、可确认的专注/休息安排。
@@ -1003,6 +1023,26 @@ pnpm run check:blocking-ci
 - canonical 仍是受控本地文件；localStorage/SQLite 不是长期教学权威。
 - 不新增默认远程 telemetry，不绕过 revision/sole-writer/effect 产品地板。
 - 领域单元、生命周期、迁移、IPC 和关键 UI 测试全部通过。
+
+### 18.1 §18 完成审计表（2026-07-22）
+
+> **诚实裁定：** 只要 **V1 dual-authority 仍并存**、**STC-702/703/704 产品 UI residual 仍开**、或 **main powerMonitor / 深度 conflict resolve** 仍 deferred，则 **不得**宣称 §18 产品全完成。规划轨关闭仅表示决策/清单/residual 可审计（[ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md)）。
+
+| # | 完成定义 bullet | 状态 | 证据 / residual |
+| --- | --- | --- | --- |
+| 1 | 用户能明确理解任务、时间块、方案和实际计时的区别 | **partial** | 六层模型 + UI 已分面（清单/周计划/时钟/方案 catalog）；无统一教学 onboarding 文案闭环；V1 shell 仍混用标签 |
+| 2 | 09:00–12:00 可生成可解释、可修改、可确认的专注/休息安排 | **partial** | pure `allocateTimeWindow` + STC-308 proposal preview/confirm dual-write；自定义节奏 pure 可填（STC-702）；深度编辑 UX residual |
+| 3 | 正计时、倒计时和连续专注都能可靠恢复 | **partial** | countdown + continuous product path + ReconcileSheet + renderer sleep hooks；main `powerMonitor` 仍开；完整 crash/retry 矩阵未关 |
+| 4 | 无任务启动不会产生意外归属；快速创建能同步到清单与详情 | **partial** | EmptyStartSheet + emptyStartPolicy prefs + create dual-write；V1 cache 仍乐观并存 |
+| 5 | 一个任务可跨多个时间块，计划与实际分别保留 | **partial** | STC-307 multi-block + timerSessions actual sole-read + detail stats；delete/reopen soft-cancel dual-write；V1 schedule twin residual |
+| 6 | 完成后归类可用、可跳过、可永久关闭并可恢复设置 | **partial** | STC-406/407/408 + classificationPromptOptOut prefs dual-write；非 e2e 全路径 |
+| 7 | 方案修改不篡改当前会话和历史 | **partial** | planSnapshot freeze + STC-503 active-vs-next；STC-702 sequence 改 plan 仅下一段语义已 pure 约定；catalog UI 未覆盖 custom_rhythm |
+| 8 | 睡眠、崩溃、并发和 retry 不重复记时、不丢任务 | **open / partial** | ReconcileSheet + visibility/pagehide + CAS retry on dual-write；main powerMonitor deferred；完整不变量矩阵仍 open |
+| 9 | canonical 仍是受控本地文件；localStorage/SQLite 不是长期教学权威 | **partial** | durable host + sole-read hydrate（[ADR-0117](adr/0117-study-planning-store-paths-and-wire.md) / [ADR-0129](adr/0129-study-planning-renderer-cutover-and-sole-authority.md)）；**V1 localStorage 仍 dual-authority 并存且不自动擦除** |
+| 10 | 不新增默认远程 telemetry；不绕过 revision/sole-writer/effect 地板 | **satisfied**（纪律） | 本地 analytics only；`expectedRevision`/CAS dual-write；无 shell/YOLO/MCP marketplace；**纪律绿 ≠ 其他 bullet 关闭** |
+| 11 | 领域单元、生命周期、迁移、IPC 和关键 UI 测试全部通过 | **partial** | 大量 `study-planning-*` unit 绿（含 702/703/704 pure）；全量 e2e / release-audit / 全 UI 矩阵 **未**作为 §18 关闭条件宣称 |
+
+**§18 总裁定（2026-07-22）：`not satisfied`。** 开放触发条件：V1 auto-erase / sole-authority 终态、main powerMonitor、STC-702/703/704 产品 UI、STC-707 auto-resolve、bullet 8 完整恢复矩阵。
 
 ---
 
@@ -1027,20 +1067,22 @@ pnpm run check:blocking-ci
 
 ---
 
-## 20. 建议首个可交付切片
+## 20. 建议首个可交付切片（历史 + 当前下一步）
 
-**设计门已授权；Phase 1 纯函数切片（条目 2–4 与条目 6 的单测部分）已落地；条目 5 UI 预览与可访问预览交互尚未实现。** Phase 0（含 [ADR-0094](adr/0094-study-task-timer-planning-design-gate.md)）已关闭。截至本规划日期 **未实现任何生产 wiring（UI / store / IPC / canonical 路径）**；Phase 1 纯领域模块与 STC-101..107 单测已落地于 `src/shared/study-planning/`（见 §1.4）。**不得**据此宣称面向用户的功能已交付。
+**历史首切片（Phase 1）已完成并超越：** Phase 0（[ADR-0094](adr/0094-study-task-timer-planning-design-gate.md)）关闭；`TimerPlanV2` / `allocateTimeWindow` / STC-101..108 pure+tests 已落地；后续 durable host、product IPC、renderer dual-write/hydrate cutover、STC-308 proposal preview 等已 **partial** 交付（见 header / §22.4）。**首切片条目不得再被误读为“全仓库仍零 wiring”。**
 
-不要第一步就重写周计划或整个计时器。建议首个切片只完成：
+**当前（2026-07-22）规划轨状态：** Phase 1–7 pure 清单可勾选（含 STC-702/703/704 pure+tests）；**§18 仍 open**（见 §18.1）。
 
-1. ~~ADR/design gate~~ → **已完成（ADR-0094）**；
-2. `TimerPlanV2` 纯类型与验证 → **已落地**（`timer-plan.ts`）；
-3. `allocateTimeWindow` 纯函数 → **已落地**（`allocate-time-window.ts`）；
-4. 09:00–12:00 的 25/5 + 长休息 + 自适应尾段预览 → **纯函数结果已由单测验证**；**UI 预览未做**；
-5. 不写 canonical、不启动真实计时，只在 UI 展示“排程提案” → **未完成**（无 renderer wiring；仍禁止写盘）；
-6. 通过纯函数单测和可访问的预览交互验证产品规则 → **纯函数单测已完成**（STC-101..107）；**可访问预览交互未做**；STC-108 单测待补。
+**下一产品可交付小步（按 residual 触发，非自动排期）：**
 
-这能先回答最关键的问题——“一段可用时间怎样被专注、休息和任务合理填充”——同时不提前扰动现有生命周期、sole-writer 和数据迁移。**下一可交付小步：** 补 STC-108 单测；可选只读 UI 展示 `AllocationProposal`（仍不写 canonical）。
+1. **Sole-authority 终态 / V1 擦除 UX**（用户确认后 demote localStorage；[ADR-0129](adr/0129-study-planning-renderer-cutover-and-sole-authority.md) residual）——关闭 §18 bullet 9 的 dual-authority 主因；
+2. **main `powerMonitor` + 完整 sleep/crash 矩阵**（关闭 bullet 3/8 缺口）；
+3. **STC-702 Plans 序列编辑器（非 freeform drag）**——仅在番茄+连续产品稳定后（[ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md) §2 / §21）；
+4. **STC-703 规则 UI + 持久化 wire + 周视图 confirm expand**；
+5. **STC-704 旅行时区 UX 接线**（helpers 已就绪）；
+6. **STC-707 自动 conflict resolve 写回**（banner 已接）。
+
+**不得**仅因 pure STC-702/703/704 落地或本规划文档关闭而宣称面向用户的 §18 完成。
 
 ---
 
@@ -1055,10 +1097,14 @@ pnpm run check:blocking-ci
 | StudyPlanningStore 命令信封与错误码 | 实现 ADR | §14.2 草图；落地时沉淀 |
 | OS 通知权限 UX 细节 / 勿扰与全屏边界 | Phase 6 | §11 原则已写 |
 | SQLite analytics schema | 实现侧 / 本地投影 | 仅可重建；非任务权威；禁止 FTS 产品搜索 |
-| 自定义节奏序列编辑器 | Phase 7 / 产品信号 | §4.1 C |
+| 自定义节奏序列**编辑器**（UI） | Phase 7 / 产品信号 | §4.1 C；**pure 序列已落地（STC-702）**；UI 仍延后（[ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md)） |
+| 重复规则日历 UI / 规则 wire | Phase 7 / 产品信号 | STC-703 pure expand 已落地；UI+wire residual |
+| 旅行时区 UX / 块级 timeZone wire | Phase 7 / 产品信号 | STC-704 pure helpers 已落地；UX residual |
+| main `powerMonitor` sleep 通道 | Phase 2 residual | renderer visibility/pagehide 已接；main 事件通道 deferred |
+| V1 localStorage 自动擦除 / sole-authority 终态 | cutover residual | [ADR-0129](adr/0129-study-planning-renderer-cutover-and-sole-authority.md)；须用户确认；禁止静默 wipe |
 | 迁移 crash/restart 失败矩阵细表 | 实现 ADR | dry-run + fail-closed + ≥30d 备份原则已冻结 |
 | `allow_overrun` 高级默认与 UI 文案 | 后续产品调参 | 非默认策略 |
-| 精确 reconcile UX 文案与选项布局 | Phase 2 实现 | 120 min 阈值已冻结 #5 |
+| 精确 reconcile UX 文案与选项布局 | Phase 2 实现 | **ReconcileSheet 已接**（confirm_all / truncate_to_target / discard_gap / later）；120 min 阈值冻结 #5；renderer visibility/pagehide + hydrate reattach 已接；main powerMonitor 仍开 |
 
 ---
 
@@ -1091,6 +1137,9 @@ pnpm run check:blocking-ci
 | [ADR-0021](adr/0021-agent-run-state-machine-separate-from-session.md) | AgentRun 与 Session 状态机分离（防命名/生命周期混用） |
 | [ADR-0023](adr/0023-teaching-turn-coordinator-host-and-blocking-ci.md) | sole-writer / 窄而硬 Blocking CI 精神 |
 | [ADR-0075](adr/0075-module-size-policy-and-giant-peel.md) | 模块尺寸与 peel |
+| [ADR-0117](adr/0117-study-planning-store-paths-and-wire.md) | Canonical 路径 / wire v1 / Store 合同 |
+| [ADR-0129](adr/0129-study-planning-renderer-cutover-and-sole-authority.md) | Renderer cutover dual-write + sole-read / TimerSession 权威；§18 non-claim |
+| [ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md) | Phase 7 高级排程决策 + §18 residual 诚实政策 |
 | [`CONTEXT.md`](../CONTEXT.md) Study planning language | 六层核心术语 |
 | [`AGENTS.md`](../AGENTS.md) 产品地板 | 无 shell/YOLO/MCP/telemetry/FTS；文件真相；sole-writer |
 
@@ -1098,8 +1147,47 @@ pnpm run check:blocking-ci
 
 ### 22.4 规划文档状态与简短 changelog
 
-- **Status**：Phase 0 closed；Phase 1–7 pure + store + durable + IPC landed；**renderer cutover partial** (tasks dual-write create/complete/update+schedule + migration + empty-start + hydrate + focus TimerSession dual-write + STC-306 future-blocks + STC-302 timeline list views, 2026-07-21)；§18 **not** satisfied；gaps: timer sole-read UI / per-tick advance publish / STC-307 multi-block UI / Plans / notifications / STC-702/703/704。
+- **Status**：Phase 0 closed；Phase 1–7 pure + store + durable + IPC landed（**含 STC-702/703/704 pure+tests**）；**renderer cutover partial**（[ADR-0129](adr/0129-study-planning-renderer-cutover-and-sole-authority.md)）；Phase7/§18 residual 政策 [ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md)；§18 **not** satisfied（见 §18.1 审计表）；开放 residual：V1 dual-authority 并存、STC-702/703/704 **产品 UI**、main powerMonitor、STC-707 auto-resolve。
 - **Changelog**：
+  - 2026-07-22 — **Roadmap completion pass（规划文档诚实关闭）**：header/§1.2/§16/§17/§18.1/§20–22 对齐 2026-07-22 代码真相；STC-702/703/704 标 pure+tests [x] + UI residual；§18 审计表逐 bullet 裁定 **not satisfied**（V1 dual-authority）；沉淀 [ADR-0129](adr/0129-study-planning-renderer-cutover-and-sole-authority.md) / [ADR-0130](adr/0130-study-planning-phase7-and-completion-residual.md)；reports：`docs/_agent-work/reports/study-planning-stc-702-custom-rhythm.md`、`…-stc-703-recurrence.md`、`…-stc-704-timezone-dst.md`、`adr-0129-cutover-precipitate.md`、`adr-0130-phase7-residual.md`、`roadmap-completion-pass.md`。
+
+  - 2026-07-22 — Renderer cutover removeDoneTasks bulk dual-write：collectDoneTaskIds + dualWriteRemoveDoneTasks（delete_task + futureBlocksDecision cancel per done id）；useStudySession.removeDoneTasks optimistic V1 + local blocks filter + bulk dual-write；tests 4 green；family study-planning-* 59/516 green；report docs/_agent-work/reports/study-planning-cutover-remove-done-tasks.md；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+  - 2026-07-22 — Renderer cutover reopen_task sole-authority demotion (toggle done→open)：applyReopenTask pure（done|cancelled→open；already-open idempotent）；store/IPC reopen_task + effect task_updated；planning-client buildReopenTaskCommand/reopenPlanningTask；dualWriteReopenTask；useStudySession.toggleTask else-branch dual-write；tests 11 green；family study-planning-* 58/512 green；report docs/_agent-work/reports/study-planning-cutover-reopen-task.md；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+  - 2026-07-22 — Renderer cutover delete_task sole-authority demotion (remove path §7.3)：applyDeleteTaskFutureBlocks pure（soft-cancel task → cancelled；future blocks ask；cancel_blocks / keep_as_review / reassign）；store/IPC delete_task + effect task_deleted / future_blocks_need_decision；planning-client buildDeleteTaskCommand/deletePlanningTask + project filter cancelled；planning-task-delete-dual-write；useStudySession.removeTask optimistic V1 + dual-write + FutureBlocksDecisionSheet follow-up；tests 13 green；family study-planning-* 57/501 green；report docs/_agent-work/reports/study-planning-cutover-delete-task.md；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+  - 2026-07-22 — Renderer cutover STC-707 conflict banner/list UI：`planning-schedule-conflicts-ui` pure（selectFocusBlocksForConflictScan / projectScheduleConflictsBanner / shouldShowScheduleConflictsBanner / formatScheduleBlockTimeLabel；focus+non-cancelled；list cap + dismissKey）；`StudyScheduleConflictsBanner` + `StudyTaskSchedulePage` thin wire（点击打开 block 编辑；dismiss 按 fingerprint）；week drag 已有 dual-write by blockId；自动 resolve 写回未做；family **547** green；report `docs/_agent-work/reports/study-planning-cutover-schedule-conflicts-ui.md`；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+- 2026-07-22 — Renderer cutover TimerSession live focus-counter demotion：`planning-timer-session-focus-counters` pure（focusSecondsDeltaBetweenSessions / creditLiveFocusSeconds / stripV1LiveFocusCounterMutation）；tick path credits today/total focus from TimerSession accumulatedFocusSeconds delta；V1 twin focus counters stripped；family **539** green；report `docs/_agent-work/reports/study-planning-cutover-timer-session-focus-counters.md`；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+  - 2026-07-22 — Renderer cutover TimerSession analytics demotion：`planning-timer-session-analytics` pure （projectStudySessionFactFromTimerSession / filterV1SessionCompletionAnalyticsIntents / applyTimerSessionCompletionShellStats）；segment-close study_session facts from TimerSession id；useStudySession thin wire + lifecycle.discardActiveSessionWithoutAnalytics；suppress V1 twin study_session when TimerSession authority；live per-tick focus-second counters still V1；family **531** green；report `docs/_agent-work/reports/study-planning-cutover-timer-session-analytics.md`；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred；live focus-second counters still V1 tick）。
+  - 2026-07-22 — Renderer cutover categories sole-authority demotion：`StudyPlanningSnapshotV1.categories?` + `set_categories` command；`study-planning-categories` pure normalize/project；`planning-categories-dual-write` CAS；hydrate sole-read + SchedulePage thin dual-write；migration seed from `studiumx:study-task-categories:v1`（不自动擦除）；report `docs/_agent-work/reports/study-planning-cutover-categories.md`；§18 still open
+  - 2026-07-22 — Renderer cutover simulation window sole-authority demotion：`StudyPlanningPreferencesV1.simulationStartTime/EndTime` + `set_preferences` normalize HH:MM；`planning-simulation-window-ui` pure（normalize/project/build patch）；`dualWriteSetSimulationWindow` CAS；hydrate sole-read merge；`useStudySession` save/apply TimerPlan + migration commit seed 薄接线；per-plan V1 simulation fields remain rebuildable cache on TimerPlanV2 map；family **502** green；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred；mode handoff/analytics still V1）。
+  - 2026-07-22 — Renderer cutover STC-604 reduced-motion + 非颜色状态标记：`planning-timer-state-markers-ui` pure（`projectPlanningTimerStateMarkers`；visualState / stateChipText 中文；overtime 仅 countdown；countup continuous 不标；cardClassTokens `is-{phase}` + `is-state-*` + optional `is-overtime` / `is-reduced-motion`；window-free，host 传 reducedMotion）；WorkbenchPomodoro `matchMedia('(prefers-reduced-motion: reduce)')` + state chip under clock + `data-timer-state` / `data-reduced-motion`；CSS shape markers（circle/square/diamond）+ reduced-motion snap；family **491** green；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+  - 2026-07-22 — Renderer cutover assistant-import dual-write (sole-authority demotion)：`planning-assistant-import-dual-write` pure（collectAssistantImportAddedTasks / dualWriteAssistantImportTasks；added-id only + create_task shared id）；`useStudySession` STUDY_TASKS_CHANGED 薄接线 dual-write；无 localStorage 自动擦除；family **481** green；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+  - 2026-07-22 — Renderer cutover STC-205 wrap_up mid-run chrome：`planning-timer-phase-chrome-ui` pure（projectPlanningTimerPhaseChrome；wrap_up 不标休息；face badge + mode tabs 锁定）；WorkbenchPomodoro `is-wrap_up` / 收尾计时 / wrap-up badge；CSS accent；family **474** green；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+  - 2026-07-22 — Renderer cutover STC-603 a11y product path：`planning-timer-a11y-ui` pure（projectPlanningTimerA11yStatus 包装 timerStatusAriaLabel 静态文案；mapPlanningTimerKeyboardAction Space/Enter/r/+/箭头；editable/settings/closed 抑制）；WorkbenchPomodoro `aria-live=polite` 状态区 + panel tabIndex/onKeyDown；sr-only CSS；family **467** green；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+  - 2026-07-22 — Renderer cutover STC-205 remainder break-end / wrap_up prompt：`break-end-prompt-sheet` pure（projectBreakEndHandoffPlan / buildBreakEndPromptSheetModel；disposition ask/auto/remind/suppress；wrap_up 可选）；`BreakEndPromptSheet` + OfficeWorkbench host；`useStudySession` break complete intercept（冻结 V1 休息结束自动开 focus；start_focus/wrap_up via `start_from_completed` + selected task reattach）；`startNextPhaseFromCompleted` taskId override；family **454** green；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+  - 2026-07-22 — Renderer cutover STC-205 remainder extend rest UI：`timer-session-extend` pure（extendTimerSessionTarget / computeExtendedBreakTargetSeconds；countdown only；clamp seed max；fail-closed terminal/reconcile/countup）；PhasePromptSheet `extend_and_start` +1/+5；`useStudySession` startBreak extendMinutes + mid-run `extendActiveTimerTarget`（local only）；WorkbenchPomodoro +1 休息按钮；family **441** green；**§18 still open**（V1 localStorage 仍并存；STC-702/703/704；main powerMonitor deferred）。
+  - 2026-07-22 — Renderer cutover STC-206 remainder OS sleep/exit hooks：`planning-timer-sleep-hooks` pure wake/rehydrate（visibility_resume / pagehide / hydrate_reattach；freeze #5 长间隔 → needs_reconcile + pin）；`useStudySession` document.visibilitychange + window.pagehide + hydrate open-session reattach；**无**新 IPC event / powerMonitor；family **431** green；**§18 still open**（main powerMonitor deferred；extend rest UI deferred）。
+  - 2026-07-22 — Renderer cutover STC-504 continuous plan kind product path：`planning-timer-plan-kind` pure project/normalize/format/resolve；`createContinuousCountupPlan`；V1 `kind`/`clockMode`/`continuousTarget` types + snapshot normalize；dual-write kind-aware V1↔V2（freeze #6 continuous none/reminder_only 保留，pomodoro 仍 coerce）；start `resolvePlanV2ForStart` + open countup `targetSeconds: null`；catalog summary；WorkbenchPomodoro kind 编辑器（目标正计时可选 + continuous break policy）；family **419** green；**§18 still open**。
+  - 2026-07-22 — Renderer cutover STC-206 remainder reconcile UX：`reconcile-sheet` pure model（shouldOffer / format gap / decision map）；`ReconcileSheet` + OfficeWorkbench Promise host；`useStudySession` tick intercept pin `needs_reconcile` + toggle re-open；`applyLocalReconcileDecision` + dual-write `reconcile_stale_session`（confirm_all / truncate_to_target / discard_gap；later 不静默计入）；family **398** green；**§18 still open**（OS sleep/exit hooks deferred；extend rest UI deferred）。
+  - 2026-07-22 — Renderer cutover STC-205 remainder phase-prompt UI：`phase-prompt-sheet` pure model（disposition ask/auto/remind/suppress + next break phase）；`PhasePromptSheet` + OfficeWorkbench Promise host；`useStudySession` focus complete intercept（freeze V1 auto-break when ask/none/reminder_only；automatic 用 frozen planSnapshot start）；`startLocalNextPhaseFromCompleted` + bridge `start_from_completed`；family **386** green；**§18 still open**（extend rest UI deferred）。
+  - 2026-07-22 — Renderer cutover STC-503 active-vs-next plan snapshot UI：`planning-active-vs-next-plan-ui` pure model（projectActiveVsNextTimerPlan + labels/diverges）；`ActiveVsNextPlanSection` thin strip；`useStudySession.activeTimerSession` 仅结构切换镜像（非 per-tick）；WorkbenchPomodoro settings + OfficeWorkbench host；family **374** green；**§18 still open**。
+  - 2026-07-22 — Renderer cutover STC-408 remainder multi-select complete UI：planning-multi-select-complete-ui pure selection/payload/toolbar model（空选择 fail-closed）；WorkbenchTasks 多选模式勾选/工具栏；OfficeWorkbench → completeTasksBatch；storm suppress 既有 session API；family **365** green；**§18 still open**。
+  - 2026-07-22 — Renderer cutover STC-502 advanced plan fields：`planning-timer-plan-advanced-fields` pure normalize/validate（freeze #6 coerce）；`v1TimerPlanToV2`/`v2TimerPlanToV1` longBreak+breakPolicy；`normalizeStudyTimerPlans` sparse preserve；Pomodoro settings 长休息/每N轮/休息策略；rename dual-write preserve；family **353** green；**§18 still open**。
+  - 2026-07-22 — Renderer cutover STC-304 actual sole-read：`hydrate.timerSessions`；`useStudySession` cache + finish/room dual-write refresh；OfficeWorkbench → StudyTaskSchedulePage → `StudyTaskDetailStatsSection`；family **338** green；**§18 still open**。
+  - 2026-07-22 — Renderer cutover STC-408 batch classify：`batch-classify-sheet` pure collect/suppress/model；`planning-batch-classify-dual-write` batch_classify_tasks CAS+retry；`BatchClassifySheet` + WorkbenchTasks inbox「归类」；OfficeWorkbench open/resolve host；`useStudySession.batchClassifyTasks` + `completeTasksBatch` storm suppress（schedule-time capture）；family **336** green；**§18 still open**。
+  - 2026-07-22 — Renderer cutover STC-404 empty-start prefs restore：`planning-study-prefs-ui` pure normalize/project/model；`planning-preferences-dual-write` set_preferences CAS（emptyStartPolicy / classificationPromptOptOut / defaultTimerPlanId）；`StudyPlanningPrefsSection` + WorkbenchPomodoro；hydrate sole-read emptyStartPolicy + classificationPromptOptOut；`useStudySession` setters + complete path local opt-out gate；classification dual-write opt-out re-exports prefs path；family **324** green；**§18 still open**。
+  - 2026-07-22 — Renderer cutover STC-406/407 classification prompt：`classification-prompt-sheet` pure model；`ClassificationPromptSheet`；`planning-classification-dual-write`（classify→update_task / never_prompt→set_preferences）；`useStudySession` complete 后 future-blocks 再 classification ask；OfficeWorkbench Promise host；关闭/later/keep_inbox 不回滚完成；family **310** green；**§18 still open**。
+  - 2026-07-22 — Renderer cutover STC-304 task detail stats：`planning-task-detail-stats` pure model（estimate null 不发明；planned/actual minutes；future/current/history 分桶）；`StudyTaskDetailStatsSection`；schedule editor 接入；`estimateMinutes` V1 cache + dual-write + hydrate sole-read；family **298** green；**§18 still open**。
+  - 2026-07-22 — Renderer cutover migration banner UX：`planning-migration-banner` pure model（normalize/build/shouldOffer）；`MigrationBannerSheet`；`useStudySession` hydrate kept_v1 → offer + confirmMigrationOffer(skipConfirm)/dismiss；OfficeWorkbench host glue；family **291** green；**§18 still open**。
+  - 2026-07-21 — Renderer cutover hydrate prefs sole-read：`projectDefaultTimerPlanIdFromPreferences`；`HydrateStudyPlanningResult.applied` 增加 `defaultTimerPlanId` + `timerPlansProjected`；`useStudySession` hydrate 应用 prefs 与 projected timerPlans（task race 仍可刷新 blocks+default）；family **282** green；**§18 still open**。
+  - 2026-07-21 — Renderer cutover STC-308 proposal preview：`planning-allocation-proposal-ui` pure model（window/plan/tasks→rows/diff/canConfirm；blank 不写入）；`planning-allocation-dual-write` apply_allocation_proposal CAS+retry；`AllocationProposalPreviewSheet`；`StudyTaskSchedulePage` 排程提案按钮 + 今日 simulation 窗口；`useStudySession.applyAllocationProposal`；family **278** green；**§18 still open**。
+  - 2026-07-21 — Renderer cutover Plans UI depth (STC-501/502)：`planning-timer-plan-catalog-ui` pure rows（builtin readonly + default）；`StudyTimerPlanCatalogSection` + Pomodoro catalog；`delete/save` refuse builtin；`dualWriteRenameTimerPlan` / `dualWriteSetDefaultTimerPlan`（set_preferences）；`useStudySession` rename/setDefault/copy builtin shells；family **267** green；**§18 still open**。
+  - 2026-07-21 — Renderer cutover STC-307 multi-block editor + delete：`delete_schedule_block` store/IPC effect；`planning-multi-block-dual-write` create/delete；`planning-multi-block-editor` pure list/suggest；`StudyTaskMultiBlockSection` + editor select/create/delete；`useStudySession.createFocusBlock`/`deleteScheduleBlock` + V1 schedule null clear；family **255** green；**§18 still open**。
+  - 2026-07-21 — Renderer cutover notif host prefs + Plans copy partial：`planning-notification-host` resolveNotificationHostPolicyInput / decideAndApplyLifecycleNotification；OfficeWorkbench live fullscreen + pet quietUntil + notifications.enabled + Notification.permission；`useStudySession.copyTimerPlan` dual-write + WorkbenchPomodoro 复制按钮；family **244** green；**§18 still open**。
+  - 2026-07-21 — Renderer cutover D room-cycle partial：`planning-timer-session-bridge` buildRoomCycleTimerStartTransition / applyRoomCycleTimerSession；`useStudySession.followRoomCycle` empty-start gate + finish prior + start TimerSession with room remainingSeconds/phase （focus attribution / break short_break|long_break）；sole-read remainingSeconds；analytics/mode handoff 仍 V1；family **236** green；**§18 still open**。
+  - 2026-07-21 — Renderer cutover F partial (TimerPlan catalog dual-write)：`planning-timer-plan-dual-write` v1↔v2 map + save/delete/copy command builders；`useStudySession.saveTimerPlan/removeTimerPlan` dual-write；simulation window 仍 V1-only cache；family **230** green（含 hydrate timerPlans sole-read）；**§18 still open**。
+  - 2026-07-21 — Renderer cutover D break partial：store `start_timer_session` 接受 `phase`；`planning-timer-dual-write` start 可写 short_break|long_break；`planning-timer-display` startLocalBreakTimerSession / resolveBreakPhaseFromPlan / pickActiveTimerSession；`useStudySession` break 路径 dual-write + sole-read remainingSeconds（analytics/mode handoff 仍 V1）；family **222** green；**§18 still open**。
+  - 2026-07-21 — Renderer cutover STC-307 multi-block week path partial：`planning-schedule-block-adapter` pure helpers（resolve focus block id / week projection / build from V1）；`dualWriteUpsertScheduleFromV1` 按真实 block id upsert 并保留 migrated id/locked/source/plan/revision；hydrate `applied.scheduleBlocks`；`useStudySession` scheduleBlocks cache + updateTask `{blockId?, weekAnchorMidnightMs?}`；StudyTaskSchedulePage multi-block chips + drag 传 blockId；family **213** green；**§18 still open**。
+  - 2026-07-21 — Renderer cutover D remainder (timer sole-read UI)：`planning-timer-display.ts` pure project/advance local TimerSession into remainingSeconds；`useStudySession` focus tick sole-read + transition dual-write only (no per-tick advance thrash)；break still V1；family 203 green；**§18 still open**。
   - 2026-07-21 — Renderer cutover STC-302 timeline UI：`planning-task-timeline-adapter` maps V1 tasks → `projectTaskTimeline` views；WorkbenchTasks 五视图 tabs + empty labels；OfficeWorkbench activeTimer for 现在；family 193 green；**§18 still open**。
   - 2026-07-21 — Renderer cutover updateTask dual-write：`planning-task-update-dual-write.ts` + `buildUpdateTaskCommand`/`updatePlanningTask`；`useStudySession.updateTask` → update_task + schedule upsert；Mon-first weekday boundary (`monFirstScheduleToIntervalMs`) + hydrate reverse；fix `v1ScheduleToIntervalMs` day delta (was 24 minutes)；family 185 green；**§18 still open**。
   - 2026-07-21 — Renderer cutover STC-306 future-blocks：`future-blocks-decision-sheet` pure normalize/model；`FutureBlocksDecisionSheet`；OfficeWorkbench Promise host；`useStudySession` complete → effect → ask → second `dualWriteCompleteTask` with decision；wire map cancel_blocks/keep_as_review→cancel/keep_review；store second-complete-with-decision 已测；family 172 green；**§18 still open**。
@@ -1116,4 +1204,3 @@ pnpm run check:blocking-ci
   - 2026-07-21 — 规划补全：seed 默认值、`TimeWindow`/`AllocationProposal` 草图、STC 规则锚点、测试映射、延后清单、non-goals/风险/依赖、文档状态。
   - 2026-07-21 — Phase 6–7 STC 规则锚点补全：STC-601..607 / STC-701..707 → 规则：…（与 Phase 1–5 风格一致）。
   - 2026-07-21 — 独立复核 polish：§9.1 内置类别中文与代码一致（锻炼 / exercise）；STC-203 冻结锚点措辞；无新 durable freeze，不新开 ADR。
-

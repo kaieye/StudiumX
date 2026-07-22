@@ -12,13 +12,17 @@ import {
   buildCreateTaskCommand,
   createPlanningTask,
   completePlanningTask,
+  reopenPlanningTask,
   readStudyPlanningSnapshot,
   type PlanningClientApplyResult,
   type StudyPlanningApi
 } from './planning-client'
-import { monFirstScheduleToIntervalMs } from '../../../shared/study-planning'
 import type { ScheduleBlock } from '../../../shared/study-planning'
 import type { StudyTaskSchedule } from './types'
+import {
+  buildFocusScheduleBlockFromV1,
+  resolveFocusBlockIdForScheduleUpsert
+} from './planning-schedule-block-adapter'
 
 export type CanonicalPlanningContext = {
   api: StudyPlanningApi | null | undefined
@@ -70,7 +74,7 @@ export async function dualWriteCreateTask(
 
 /**
  * Publish complete_task when V1 marks done=true.
- * reopen (done→open) is not yet a store command; skip canonical for that direction.
+ * reopen (done→open) uses dualWriteReopenTask / reopen_task.
  */
 export async function dualWriteCompleteTask(
   ctx: CanonicalPlanningContext,
@@ -112,17 +116,17 @@ export async function dualWriteCompleteTask(
 }
 
 /**
- * Optional: upsert a focus ScheduleBlock from V1 weekday+minutes schedule.
- * Uses caller's week anchor (local midnight of any day in target week).
+ * Upsert a focus ScheduleBlock from V1 weekday+minutes schedule.
+ * Resolves real block id from canonical (primary / preferred / default :v1)
+ * so week-drag does not orphan multi-block / migrated ids (STC-307).
  */
-export async function dualWriteUpsertScheduleFromV1(
+/**
+ * Publish reopen_task when V1 marks done=false (done|cancelled → open).
+ * Idempotent on already-open tasks via store applyReopenTask.
+ */
+export async function dualWriteReopenTask(
   ctx: CanonicalPlanningContext,
-  input: {
-    taskId: string
-    schedule: StudyTaskSchedule
-    weekAnchorMidnightMs: number
-    blockId?: string
-  }
+  taskId: string
 ): Promise<DualWriteResult> {
   if (!hasCanonicalContext(ctx)) {
     return {
@@ -130,21 +134,41 @@ export async function dualWriteUpsertScheduleFromV1(
       reason: !ctx.workspaceRoot?.trim() ? 'missing_workspace' : 'api_unavailable'
     }
   }
-  // Product V1 schedule is Mon-first (week plan UI); convert at dual-write boundary.
-  const interval = monFirstScheduleToIntervalMs({
-    weekday: input.schedule.weekday,
-    startMinutes: input.schedule.startMinutes,
-    endMinutes: input.schedule.endMinutes,
-    weekAnchorMidnightMs: input.weekAnchorMidnightMs
-  })
-  if (!interval) {
+  const id = typeof taskId === 'string' ? taskId.trim() : ''
+  if (!id) {
     return {
       kind: 'canonical_failed',
       result: {
         ok: false,
         revision: 0,
-        error: { code: 'invalid_command', message: 'invalid V1 schedule for block upsert' }
+        error: { code: 'invalid_command', message: 'reopen_task requires id' }
       }
+    }
+  }
+  const result = await reopenPlanningTask(ctx.api, ctx.workspaceRoot, { id }, { nowMs: ctx.nowMs })
+  if (result.ok) return { kind: 'canonical_ok', result }
+  return { kind: 'canonical_failed', result }
+}
+
+export async function dualWriteUpsertScheduleFromV1(
+  ctx: CanonicalPlanningContext,
+  input: {
+    taskId: string
+    schedule: StudyTaskSchedule
+    weekAnchorMidnightMs: number
+    /** Explicit ScheduleBlock id; when omitted, resolve from canonical snapshot. */
+    blockId?: string
+    /**
+     * When true (default), move primary block only — never invent a second
+     * block for the same task on a plain V1 schedule write / week-drag.
+     */
+    preferExistingPrimary?: boolean
+  }
+): Promise<DualWriteResult> {
+  if (!hasCanonicalContext(ctx)) {
+    return {
+      kind: 'canonical_skipped',
+      reason: !ctx.workspaceRoot?.trim() ? 'missing_workspace' : 'api_unavailable'
     }
   }
 
@@ -157,19 +181,39 @@ export async function dualWriteUpsertScheduleFromV1(
     }
   }
 
-  const blockId = input.blockId ?? `block:${input.taskId}:v1`
-  const block: ScheduleBlock = {
-    id: blockId,
+  const preferExisting = input.preferExistingPrimary !== false
+  const explicitId =
+    typeof input.blockId === 'string' && input.blockId.trim() ? input.blockId.trim() : undefined
+  const blockId =
+    explicitId && !preferExisting
+      ? explicitId
+      : resolveFocusBlockIdForScheduleUpsert(
+          read.snapshot.scheduleBlocks,
+          input.taskId,
+          nowMs(),
+          explicitId
+        )
+
+  const existing = read.snapshot.scheduleBlocks.find((b) => b.id === blockId) ?? null
+  const built = buildFocusScheduleBlockFromV1({
     taskId: input.taskId,
-    kind: 'focus',
-    startAtMs: interval.startAtMs,
-    endAtMs: interval.endAtMs,
-    locked: false,
-    source: 'manual',
-    status: 'planned',
-    revision: 1
+    schedule: input.schedule,
+    weekAnchorMidnightMs: input.weekAnchorMidnightMs,
+    blockId,
+    existing
+  })
+  if (!built.ok) {
+    return {
+      kind: 'canonical_failed',
+      result: {
+        ok: false,
+        revision: read.snapshot.revision,
+        error: { code: 'invalid_command', message: 'invalid V1 schedule for block upsert' }
+      }
+    }
   }
 
+  const block: ScheduleBlock = built.block
   const result = await applyStudyPlanningCommand(
     ctx.api,
     ctx.workspaceRoot,

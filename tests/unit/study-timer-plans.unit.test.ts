@@ -79,4 +79,28 @@ describe('study timer plans', () => {
     expect(running.focusMinutes).toBe(45)
     expect(running.breakMinutes).toBe(10)
   })
+
+  it('preserves optional advanced fields on normalize', () => {
+    const snapshot = normalizeStudySnapshot({
+      ...defaultStudySnapshot,
+      timerPlans: [{
+        id: 'deep-custom',
+        name: '深度自定义',
+        focusMinutes: 50,
+        breakMinutes: 10,
+        simulationStartTime: '09:00',
+        simulationEndTime: '12:00',
+        longBreakMinutes: 20,
+        longBreakEvery: 3,
+        breakPolicy: 'automatic'
+      }]
+    })
+    expect(snapshot.timerPlans[0]).toMatchObject({
+      id: 'deep-custom',
+      longBreakMinutes: 20,
+      longBreakEvery: 3,
+      breakPolicy: 'automatic'
+    })
+  })
+
 })

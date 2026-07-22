@@ -49,3 +49,35 @@ describe('provider SSE reasoning', () => {
     expect(text).toBe('回答')
   })
 })
+
+  it('accepts OpenAI-compatible array content parts and missing tool call ids', async () => {
+    const answer: string[] = []
+    const result = await readChatSseStream(
+      sseBody([
+        { choices: [{ delta: { content: [{ type: 'text', text: '分段' }, { type: 'text', text: '内容' }] } }] },
+        {
+          choices: [{
+            delta: {
+              tool_calls: [{
+                index: 0,
+                function: { name: 'web_search', arguments: '{"query":"ai"}' }
+              }]
+            }
+          }]
+        }
+      ]),
+      'chat_completions',
+      (delta) => answer.push(delta)
+    )
+
+    expect(answer).toEqual(['分段内容'])
+    expect(result.text).toBe('分段内容')
+    expect(result.toolCalls).toEqual([
+      {
+        id: 'call_0',
+        type: 'function',
+        function: { name: 'web_search', arguments: '{"query":"ai"}' }
+      }
+    ])
+  })
+

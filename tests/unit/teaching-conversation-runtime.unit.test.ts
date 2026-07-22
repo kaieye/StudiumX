@@ -7,6 +7,7 @@ import { AgentRunStore } from '../../src/main/ai/agent-run-store'
 import { ToolRegistry, type ToolContext } from '../../src/main/ai/tools/registry'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { runTeachingConversationTurn } from '../../src/main/teaching-conversation-runtime'
+import { createNativeContainedDurableReplaceUnavailableError } from '../../src/main/persistence/contained-durable-directory'
 import type { LessonSummary, TeachingSettingsV1 } from '../../src/shared/teaching-types'
 
 const originalFetch = globalThis.fetch
@@ -477,3 +478,63 @@ describe('teaching workspace trust runtime boundary', () => {
     ]))
   })
 })
+
+describe('teaching conversation memory catalog platform degradation', () => {
+  it('continues chat when durable memory catalog is unavailable on this platform', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-memory-unavailable-chat-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = true
+    const requests: Array<Record<string, unknown>> = []
+    const listMemories = vi.fn(async () => {
+      throw createNativeContainedDurableReplaceUnavailableError('unsupported_platform')
+    })
+    const createMemory = vi.fn(async () => {
+      throw new Error('memory must not be created when catalog is unavailable')
+    })
+    globalThis.fetch = (async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return jsonResponse({ choices: [{ message: { content: '平台记忆不可用时仍可正常对话。' } }] })
+    }) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'memory-unavailable-chat-run',
+        workspaceId: 'workspace-1',
+        conversationId: 'teaching-conversation-memory-unavailable',
+        mode: 'teaching',
+        messages: [],
+        userInput: '请继续教学，不要因为记忆目录失败而中断。'
+      },
+      {
+        streamId: 'memory-unavailable-chat-run',
+        onChunk: vi.fn(),
+        onStatus: vi.fn(),
+        onTool: vi.fn()
+      },
+      fixtureWorkspace(root, true),
+      {
+        loadSettings: async () => settings,
+        listMemories,
+        createMemory,
+        loadSkillReferences: async () => [],
+        generateLessonFromBrief: async () => fixtureLesson(root),
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(result).toMatchObject({
+      finalText: '平台记忆不可用时仍可正常对话。',
+      toolsSupported: true
+    })
+    expect(listMemories).toHaveBeenCalledTimes(1)
+    expect(createMemory).not.toHaveBeenCalled()
+    const toolNames = ((requests[0]?.tools as Array<{ function: { name: string } }> | undefined) ?? [])
+      .map((tool) => tool.function.name)
+    expect(toolNames).not.toContain('memory_search')
+    expect(toolNames).not.toContain('remember_teaching_memory')
+    expect(toolNames).not.toContain('forget_teaching_memory')
+  })
+})
+
