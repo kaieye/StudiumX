@@ -6,6 +6,7 @@ import {
   projectCanonicalTasksForUi,
   projectCanonicalTimerPlansForUi,
   projectDefaultTimerPlanIdFromPreferences,
+  projectRecurrenceRulesFromPreferences,
   scheduleBlockToV1Schedule,
   studyTasksEqual
 } from '../../src/renderer/src/study-space/planning-hydrate'
@@ -523,6 +524,47 @@ describe('projectDefaultTimerPlanIdFromPreferences', () => {
   })
 })
 
+describe('projectRecurrenceRulesFromPreferences', () => {
+  it('returns empty when unset / non-array / invalid', () => {
+    expect(projectRecurrenceRulesFromPreferences(undefined)).toEqual([])
+    expect(projectRecurrenceRulesFromPreferences(null as never)).toEqual([])
+    expect(projectRecurrenceRulesFromPreferences({})).toEqual([])
+    expect(projectRecurrenceRulesFromPreferences({ recurrenceRules: null as never })).toEqual([])
+    expect(projectRecurrenceRulesFromPreferences({ recurrenceRules: { id: 'x' } as never })).toEqual([])
+  })
+
+  it('normalizes valid durable rules (STC-703 sole-read)', () => {
+    const out = projectRecurrenceRulesFromPreferences({
+      recurrenceRules: [
+        {
+          id: 'recurrence:task-a',
+          taskId: 'task-a',
+          kind: 'focus',
+          frequency: 'weekly',
+          byWeekday: [1, 3],
+          dtStartMs: Date.UTC(2026, 0, 5),
+          startMinutes: 9 * 60,
+          endMinutes: 10 * 60,
+          expandAsLocked: true
+        },
+        {
+          id: 'bad-minutes',
+          taskId: 'task-b',
+          kind: 'focus',
+          frequency: 'daily',
+          dtStartMs: Date.UTC(2026, 0, 5),
+          startMinutes: 100,
+          endMinutes: 50
+        }
+      ]
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0]?.id).toBe('recurrence:task-a')
+    expect(out[0]?.taskId).toBe('task-a')
+    expect(out[0]?.byWeekday).toEqual([1, 3])
+  })
+})
+
 describe('hydrateStudyTasksFromCanonical preferences + timerPlans sole-read', () => {
   it('applied surfaces defaultTimerPlanId and projected timerPlans', async () => {
     const planning: StudyPlanningSnapshotV1 = {
@@ -595,6 +637,8 @@ describe('hydrateStudyTasksFromCanonical preferences + timerPlans sole-read', ()
     // STC-404 fail-closed defaults when prefs omit empty-start / classification opt-out
     expect(result.emptyStartPolicy).toBe('ask_every_time')
     expect(result.classificationPromptOptOut).toBe(false)
+    // STC-703 host: empty sole-read list when prefs omit recurrenceRules
+    expect(result.recurrenceRules).toEqual([])
   })
 
   it('applied surfaces emptyStartPolicy + classificationPromptOptOut sole-read (STC-404)', async () => {
@@ -615,6 +659,39 @@ describe('hydrateStudyTasksFromCanonical preferences + timerPlans sole-read', ()
     if (result.kind !== 'applied') return
     expect(result.emptyStartPolicy).toBe('remember_quick_start')
     expect(result.classificationPromptOptOut).toBe(true)
+    expect(result.recurrenceRules).toEqual([])
+  })
+
+  it('applied surfaces preferences.recurrenceRules sole-read (STC-703 host)', async () => {
+    const rule = {
+      id: 'recurrence:t1',
+      taskId: 't1',
+      kind: 'focus' as const,
+      frequency: 'weekly' as const,
+      byWeekday: [1, 3] as (0 | 1 | 2 | 3 | 4 | 5 | 6)[],
+      dtStartMs: Date.UTC(2026, 0, 5),
+      startMinutes: 9 * 60,
+      endMinutes: 10 * 60,
+      expandAsLocked: true
+    }
+    const planning: StudyPlanningSnapshotV1 = {
+      ...emptyPlanning(13),
+      tasks: [planningTask({ id: 't1', title: 'Canon task' })],
+      preferences: {
+        recurrenceRules: [rule]
+      }
+    }
+    const api = mockApi(planning)
+    const result = await hydrateStudyTasksFromCanonical(
+      { api, workspaceRoot: 'D:/ws', nowMs: () => FIXED_NOW },
+      hostSnapshot([{ id: 'stale', title: 'old', done: false }])
+    )
+    expect(result.kind).toBe('applied')
+    if (result.kind !== 'applied') return
+    expect(result.recurrenceRules).toHaveLength(1)
+    expect(result.recurrenceRules[0]?.id).toBe('recurrence:t1')
+    expect(result.recurrenceRules[0]?.taskId).toBe('t1')
+    expect(result.recurrenceRules[0]?.startMinutes).toBe(9 * 60)
   })
 
   it('applied surfaces timerSessions sole-read for task-detail actual (STC-304 remainder)', async () => {

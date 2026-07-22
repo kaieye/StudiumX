@@ -1,13 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
-import {
-  closeContainedDurableDirectory,
-  getContainedDurableDirectoryCapability,
-  openContainedDurableDirectory,
-  replaceDurablyInContainedDirectory,
-  type ContainedDurableDirectory
-} from './contained-durable-directory'
 import { syncSettlementDirectory } from './settlement-directory-sync'
 
 export type DurableFileValidator<T> = (value: unknown) => value is T
@@ -43,19 +36,15 @@ export type DurablePathReplaceOptions = {
   mode?: number
   operations?: DurableFileOperations
   warn?: (message: string) => void
-}
-
-export type DurableContainedReplaceOptions = {
-  /** A capability-bound C-2C output directory, never a re-traversed path. */
-  directory: ContainedDurableDirectory
-  filename: string
-  content: string | Uint8Array
-  mode?: number
+  /**
+   * Optional seam after parent mkdir and before temporary creation.
+   * Used by C-2C projection instrumentation; not a CAS boundary.
+   */
   onDirectoryBound?: () => void | Promise<void>
-  warn?: (message: string) => void
 }
 
-export type DurableReplaceOptions = DurablePathReplaceOptions | DurableContainedReplaceOptions
+/** Pathname-only replace options (ADR-0131). Contained/directory variant removed. */
+export type DurableReplaceOptions = DurablePathReplaceOptions
 
 export type ReplaceWithBackupOptions<T> = DurablePathReplaceOptions & {
   validate: DurableFileValidator<T>
@@ -80,16 +69,19 @@ export type ReadValidatedWithBackupOptions<T> = {
  * contents are synced before publication and the containing directory is
  * synced after the rename. It intentionally has no backup behavior.
  */
+/**
+ * Pathname-default durable replace (ADR-0131): temp → write → optional fsync → rename.
+ * On Windows, rename cannot overwrite an existing leaf; unlink-then-rename once.
+ * Deliberately non-CAS; no native contained_durable_replace dependency.
+ */
 export async function replaceDurably(options: DurableReplaceOptions): Promise<void> {
-  if ('directory' in options) {
-    return replaceDurablyInContainedDirectory(options)
-  }
   const operations = options.operations ?? defaultOperations
   await operations.mkdir(dirname(options.path), { recursive: true })
+  if (options.onDirectoryBound) await options.onDirectoryBound()
   const temporaryPath = temporaryPathFor(options.path)
   try {
     await writeSyncedFile(temporaryPath, options.content, operations, options.mode ?? PRIVATE_FILE_MODE)
-    await operations.rename(temporaryPath, options.path)
+    await renameIntoPlace(temporaryPath, options.path, operations)
     await syncDirectory(dirname(options.path), operations, options.warn)
   } catch (error) {
     await cleanupUnpublishedTemporary(temporaryPath, operations)
@@ -138,7 +130,7 @@ async function replaceWithBackupUnserialized<T>(options: ReplaceWithBackupOption
       }
     }
 
-    await operations.rename(canonicalTemporaryPath, options.path)
+    await renameIntoPlace(canonicalTemporaryPath, options.path, operations)
     await syncDirectory(dirname(options.path), operations, options.warn)
   } catch (error) {
     await cleanupUnpublishedTemporary(canonicalTemporaryPath, operations)
@@ -299,6 +291,26 @@ async function syncDirectory(
   })
 }
 
+/**
+ * Rename temporary → canonical. On Windows, rename cannot replace an existing
+ * file; unlink the target once and retry. Intentionally non-CAS.
+ */
+async function renameIntoPlace(
+  temporaryPath: string,
+  path: string,
+  operations: DurableFileOperations
+): Promise<void> {
+  try {
+    await operations.rename(temporaryPath, path)
+  } catch (error) {
+    if (process.platform !== 'win32') throw error
+    const code = isErrno(error) ? error.code : undefined
+    if (code !== 'EPERM' && code !== 'EEXIST' && code !== 'EACCES') throw error
+    await operations.rm(path, { force: true })
+    await operations.rename(temporaryPath, path)
+  }
+}
+
 function temporaryPathFor(path: string): string {
   return join(dirname(path), `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`)
 }
@@ -315,18 +327,22 @@ function isErrno(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error
 }
 
-/** Opens the fixed C-2C output directory as a native descriptor capability. */
-export function openC2CProjectionOutputDirectory(rootPath: string): ContainedDurableDirectory {
-  return openContainedDurableDirectory(rootPath)
+/**
+ * C-2C projection capability under pathname-default durable I/O (ADR-0131).
+ * Always available; there is no native-addon gate.
+ */
+export function getC2CProjectionOutputDirectoryCapability(): { available: true } {
+  return { available: true }
 }
 
-/** Releases a C-2C output directory capability after publication. */
-export function closeC2CProjectionOutputDirectory(directory: ContainedDurableDirectory): void {
-  closeContainedDurableDirectory(directory)
+/** Historical no-op: pathname publication does not retain open directory handles. */
+export function closeC2CProjectionOutputDirectory(_directory?: unknown): void {
+  // no-op
 }
 
-
-/** Returns the optional native C-2C publication capability without opening a directory. */
-export function getC2CProjectionOutputDirectoryCapability(): ReturnType<typeof getContainedDurableDirectoryCapability> {
-  return getContainedDurableDirectoryCapability()
+/**
+ * Historical compatibility export. Prefer path-based `replaceDurably({ path })`.
+ */
+export function openC2CProjectionOutputDirectory(rootPath: string): { rootPath: string } {
+  return { rootPath }
 }

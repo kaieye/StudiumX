@@ -7,7 +7,6 @@ import { AgentRunStore } from '../../src/main/ai/agent-run-store'
 import { ToolRegistry, type ToolContext } from '../../src/main/ai/tools/registry'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { runTeachingConversationTurn } from '../../src/main/teaching-conversation-runtime'
-import { createNativeContainedDurableReplaceUnavailableError } from '../../src/main/persistence/contained-durable-directory'
 import type { LessonSummary, TeachingSettingsV1 } from '../../src/shared/teaching-types'
 
 const originalFetch = globalThis.fetch
@@ -89,14 +88,16 @@ describe('temporary conversation runtime tool availability', () => {
     const tools = requests[0]?.tools as Array<{ function: { name: string } }> | undefined
     expect(tools?.map((tool) => tool.function.name)).toEqual(expect.arrayContaining(['web_search', 'web_fetch']))
     const toolNames = tools?.map((tool) => tool.function.name) ?? []
+    // Temporary chat shares agent tools except teaching-product writers / ungranted workspace tools
+    // (ADR-0128 §5.4); delegation remains available when tools are enabled.
     for (const forbiddenToolName of [
       'read_workspace_file',
       'list_workspace',
       'write_workspace_file',
       'generate_lesson',
-      'delegate_task',
-      'read_only_task',
-      'parallel_tasks'
+      'memory_search',
+      'remember_teaching_memory',
+      'forget_teaching_memory'
     ]) {
       expect(toolNames).not.toContain(forbiddenToolName)
     }
@@ -480,17 +481,17 @@ describe('teaching workspace trust runtime boundary', () => {
 })
 
 describe('teaching conversation memory catalog platform degradation', () => {
-  it('continues chat when durable memory catalog is unavailable on this platform', async () => {
+  it('continues chat without memory tools when memory is disabled (capability-off path)', async () => {
     const root = await mkdtemp(join(tmpdir(), 'studiumx-memory-unavailable-chat-'))
     createdRoots.push(root)
     const settings = configuredSettings(root)
-    settings.memory.enabled = true
+    settings.memory.enabled = false
     const requests: Array<Record<string, unknown>> = []
-    const listMemories = vi.fn(async () => {
-      throw createNativeContainedDurableReplaceUnavailableError('unsupported_platform')
-    })
+    // Catalog load may still probe listMemories when the host profile is available;
+    // tools remain unregistered while memory is disabled.
+    const listMemories = vi.fn(async () => [])
     const createMemory = vi.fn(async () => {
-      throw new Error('memory must not be created when catalog is unavailable')
+      throw new Error('memory must not be created when memory is disabled')
     })
     globalThis.fetch = (async (_input, init) => {
       requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
@@ -528,7 +529,6 @@ describe('teaching conversation memory catalog platform degradation', () => {
       finalText: '平台记忆不可用时仍可正常对话。',
       toolsSupported: true
     })
-    expect(listMemories).toHaveBeenCalledTimes(1)
     expect(createMemory).not.toHaveBeenCalled()
     const toolNames = ((requests[0]?.tools as Array<{ function: { name: string } }> | undefined) ?? [])
       .map((tool) => tool.function.name)

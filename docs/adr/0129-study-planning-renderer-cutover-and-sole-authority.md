@@ -2,7 +2,7 @@
 
 - **状态：** 已实施（架构沉淀；记录 **已落地** 的 renderer dual-write / sole-read 与 TimerSession 权威切分；**不**宣称路线图 §18 产品完成）
 - **日期：** 2026-07-22
-- **范围：** 学习规划 / 任务 / ScheduleBlock / TimerPlan / TimerSession / categories 在 **renderer cutover** 阶段的读写权威、dual-write 模式、sole-read hydrate、迁移 fail-closed、localStorage 降级为可重建缓存、segment-close analytics 与 live focus counters 的 TimerSession 权威，以及 OS sleep 钩子的 **renderer 边界**（visibility / pagehide）与 **main powerMonitor 延期**。
+- **范围：** 学习规划 / 任务 / ScheduleBlock / TimerPlan / TimerSession / categories 在 **renderer cutover** 阶段的读写权威、dual-write 模式、sole-read hydrate、迁移 fail-closed、localStorage 降级为可重建缓存、segment-close analytics 与 live focus counters 的 TimerSession 权威，以及 OS sleep 钩子的 **renderer 边界**（visibility / pagehide）与 **main powerMonitor OS 信号桥**（channel 已落地；unit recovery matrix 已补；完整 sleep/crash **e2e** 矩阵 residual 仍开）。
 - **相关：**
   - Phase 0 产品与架构冻结：[ADR-0094](0094-study-task-timer-planning-design-gate.md)
   - Canonical 路径 / wire / Store 合同：[ADR-0117](0117-study-planning-store-paths-and-wire.md)
@@ -34,7 +34,7 @@
 | 迁移 | `planning-migration.ts` + `import-migration-commit.ts` | dry-run → 用户确认 → commit；**不**自动擦除 localStorage |
 | TimerSession 时钟 | `planning-timer-dual-write.ts`、`planning-timer-display.ts` | 转换 dual-write；本地 TimerSession 为 focus UI 时钟 |
 | Analytics / counters | `planning-timer-session-analytics.ts`、`planning-timer-session-focus-counters.ts` | segment-close fact + live focus 秒以 TimerSession 为权威 |
-| Sleep / wake | `planning-timer-sleep-hooks.ts` + `useStudySession` visibility/pagehide | renderer 钩子；main `powerMonitor` **延期** |
+| Sleep / wake | `planning-timer-sleep-hooks.ts` + `planning-timer-os-power.ts` + `useStudySession` visibility/pagehide + OS bridge | renderer 钩子 + main `powerMonitor` **信号 fan-out**（`teach:system-power`）；pin 仍 renderer dual-write |
 | V1 缓存 key | `constants.ts` `studiumx:study-space:v1`；`taskCategories.ts` `studiumx:study-task-categories:v1` | 可重建 co-cache，非长期任务权威 |
 
 ## 决定
@@ -96,7 +96,7 @@
 4. **无自动擦除：** commit 成功后 **不得** 自动 `localStorage.removeItem` 权威 key（`studiumx:study-space:v1`、`studiumx:study-task-categories:v1`）。擦除仅允许：用户显式确认，或产品策略 **≥30 天** 备份窗口后的后续 UX（本 ADR 不实现擦除 UI）。
 5. **Banner UX：** hydrate `kept_v1` + `migrationSuggested` 经 MigrationBannerSheet 确认；禁止静默 migrate。
 
-### 4. OS sleep / exit：renderer visibility / pagehide 为有意边界；main powerMonitor 延期
+### 4. OS sleep / exit：renderer visibility / pagehide + main powerMonitor 信号桥
 
 STC-206 产品路径 **已** 在 renderer 落地：
 
@@ -104,7 +104,14 @@ STC-206 产品路径 **已** 在 renderer 落地：
 - `pagehide` → best-effort durable pin（advance dual-write），**永不** 静默 finish / 计入专注；
 - 冷启动 reattach 打开中的 `running` / `paused` / `needs_reconcile`；长间隙（默认 120 min，冻结 #5）→ `needs_reconcile` + ReconcileSheet。
 
-**有意延期：** main 进程 `powerMonitor` suspend/resume 与 before-quit pin。原因：规划产品 IPC 当前为 **invoke-only**；OS 级 push 需要新的 event channel（`teachingEventChannels` 面），超出本 cutover 范围。Renderer 钩子覆盖常见 Electron 睡眠/唤醒，**不** 扩展 surface。未来若产品要求无 visibility 的 OS 级 suspend，须 **独立 PR + 可选新 ADR 切片**，不得静默绕过 pin / reconcile 规则。
+**已落地（OS 信号桥，非第二时钟权威）：**
+
+- main `powerMonitor` `suspend` / `resume` → `teachingEventChannels.systemPower`（`teach:system-power`）广播到所有存活窗口；
+- 载荷 `{ kind: 'suspend' | 'resume', atMs }`；preload `onSystemPower`；renderer `planning-timer-os-power` 映射为既有 wake（suspend→pagehide-like pin，resume→visibility_resume-like）；
+- **禁止** main 写 `DurableStudyPlanningStore` / 成为 TimerSession sole-writer；pin 仍走 renderer dual-write + `expectedRevision` CAS（ADR-0117）；
+- 长间隙仍 `needs_reconcile` + ReconcileSheet，**禁止**静默 focus credit（ADR-0094 #5）。
+
+**仍延期 / residual：** before-quit 强制 durable pin；完整 sleep/**crash**/多窗并发 **e2e** 矩阵证据；kill -9 仍依赖冷启动 reattach + reconcile。**Unit recovery matrix** 已补（`tests/unit/study-planning-timer-recovery-matrix.unit.test.ts`：power map、double-resume 幂等、≥120min needs_reconcile、cold reattach fail-closed、CAS dual-pin `revision_conflict`）——improved partial，**不得**因 unit 矩阵宣称 §18 bullet 8 全关。
 
 ### 5. 仍为 V1 rebuildable cache 的内容（诚实边界）
 
@@ -135,7 +142,7 @@ STC-206 产品路径 **已** 在 renderer 落地：
 
 - 在 dual-write 窗口内，V1 与 canonical 短暂分歧可能出现（revision conflict、skip）；产品须 CAS retry / 乐观 UI 诚实，**不得** 静默以 V1 覆盖 canonical。
 - Presence 仍读 shell counters：须保证 TimerSession 增量 credit 已接，否则徽章偏差。
-- main `powerMonitor` 未接：无 renderer 的极端挂起路径仍依赖冷启动 reattach + reconcile，而非 OS 事件即时 pin。
+- main `powerMonitor` 已接信号桥，但仍是 best-effort：renderer 冻结 / 无窗口时仍依赖冷启动 reattach + reconcile；**不**保证 crash-proof pin。Unit recovery matrix 覆盖 pure 路径与 store CAS 双写 thrash，**不**替代 e2e kill-9。
 - 未完成自动擦除 UX：磁盘上可能长期并存 V1 key 与 snapshot（有意，非泄漏教学权威）。
 
 ## 明确不包含 / non-claims
@@ -146,7 +153,7 @@ STC-206 产品路径 **已** 在 renderer 落地：
 2. **冻结或修改** ADR-0117 已定路径、`schemaVersion`、命令信封或错误码以外的 **新** canonical 路径 / wire 字段（schema bump 须新 ADR 或修订 0117）；
 3. 授权 YOLO / 默认 shell / MCP marketplace / 默认远程 telemetry / 产品 FTS·向量搜索；
 4. 改写 `TeachingTurnCoordinator`、LearningSession ledger、outcome settlement 或 `toolsReplayed:false`；
-5. 实现 main `powerMonitor`、localStorage 自动擦除 UI、或把 V1 完全删除；
+5. 实现 localStorage 自动擦除 UI、或把 V1 完全删除；（main `powerMonitor` **信号桥** 已落地，见 §4；unit recovery matrix 已补；e2e 完整矩阵仍开）
 6. 把 SQLite / agent run 提升为规划或教学权威；
 7. 把 ephemeral `docs/_agent-work/*` 当作长期 sole authority（长期权威为本 ADR + ADR-0094 + ADR-0117 + 路线图产品节）。
 
@@ -155,9 +162,9 @@ STC-206 产品路径 **已** 在 renderer 落地：
 1. 新的 renderer 写路径必须 dual-write（或在确认 cutover 完成后改为 pure canonical 写 + sole-read），**禁止** 仅写 localStorage 后靠 hydrate 偶然覆盖的「假 sole-authority」。
 2. 新的 analytics 关闭路径必须以 **TimerSession** 为 segment-close 源；不得重新启用 V1 twin 为并行 fact 权威。
 3. 触及 durable / IPC / 迁移时叠加 `check:security`、`check:teaching-ipc-contract`、相关 unit（`tests/unit/study-planning-*.unit.test.*`）。
-4. 若落地 main powerMonitor 或 localStorage 擦除：独立 PR，更新本 ADR 后果节或另立短 ADR；不得静默放宽 fail-closed / 120 min reconcile。
+4. 若落地 localStorage 擦除或扩展 power 面（lock-screen / before-quit durable 保证）：独立 PR，更新本 ADR 后果节或另立短 ADR；不得静默放宽 fail-closed / 120 min reconcile。
 5. 模块继续 peel；禁止为「一次对齐」同时胀大 `useStudySession` / `WorkbenchPomodoro` / `StudyTaskSchedulePage`。
 
 ---
 
-**一句话：** Renderer cutover 以 **dual-write 写 canonical、sole-read hydrate 读** 收敛权威；**TimerSession** 独占 segment-close analytics 与 live focus 秒；迁移 fail-closed 且 **永不自动擦除** localStorage；sleep 钩子停在 **visibility/pagehide**，main `powerMonitor` 有意延期——且 **不** 宣称 §18 完成，**不** 超出 ADR-0117 再冻新路径。
+**一句话：** Renderer cutover 以 **dual-write 写 canonical、sole-read hydrate 读** 收敛权威；**TimerSession** 独占 segment-close analytics 与 live focus 秒；迁移 fail-closed 且 **永不自动擦除** localStorage；sleep 钩子含 **visibility/pagehide + main powerMonitor 信号桥**（pin 仍 renderer）+ **unit recovery matrix**（pure + CAS）；完整 sleep/crash **e2e** 矩阵 residual 仍开——且 **不** 宣称 §18 完成，**不** 超出 ADR-0117 再冻新路径。

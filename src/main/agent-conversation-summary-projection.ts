@@ -12,12 +12,7 @@ import type {
   AgentConversationSummaryProjectionOutcome
 } from '../shared/teaching-types'
 import { readContainedRegularFileBounded } from './path-access'
-import {
-  closeC2CProjectionOutputDirectory,
-  getC2CProjectionOutputDirectoryCapability,
-  openC2CProjectionOutputDirectory,
-  replaceDurably
-} from './persistence/durable-file'
+import { replaceDurably } from './persistence/durable-file'
 import {
   findExplicitAgentConversationJsonRelativePath,
   parseAgentConversationRecordSource,
@@ -53,7 +48,7 @@ export function agentConversationSummaryProjectionRelativePath(conversationId: s
  * accept renderer paths, touch audits/ledgers, or change canonical files.
  */
 export type AgentConversationSummaryProjectionPublicationInstrumentation = {
-  /** Test-only deterministic seam after the native output directory is bound and before temp creation. */
+  /** Test-only deterministic seam after parent mkdir and before temp creation. */
   onOutputDirectoryBound?: () => void | Promise<void>
 }
 
@@ -145,11 +140,6 @@ async function projectOne(
     return { conversationId: requestedId, status: 'rejected', reason: 'invalid_source' }
   }
 
-  const nativeCapability = getC2CProjectionOutputDirectoryCapability()
-  if (!nativeCapability.available) {
-    return { conversationId: id, status: 'rejected', reason: nativeCapability.reason }
-  }
-
   try {
     // Resolve once, then use the same validated path for both source snapshots.
     const jsonRelativePath = await findExplicitAgentConversationJsonRelativePath(rootPath, id)
@@ -166,18 +156,13 @@ async function projectOne(
     ) return { conversationId: id, status: 'rejected', reason: 'source_drift' }
 
     try {
-      const outputDirectory = openC2CProjectionOutputDirectory(rootPath)
-      try {
-        await replaceDurably({
-          directory: outputDirectory,
-          filename: `${id}.summary.json`,
-          content: canonicalProjectionBytes(buildProjection(sources)),
-          mode: 0o600,
-          onDirectoryBound: instrumentation.onOutputDirectoryBound
-        })
-      } finally {
-        closeC2CProjectionOutputDirectory(outputDirectory)
-      }
+      // Pathname-default publication (ADR-0131): temp → write → optional fsync → rename.
+      await replaceDurably({
+        path: join(rootPath, agentConversationSummaryProjectionRelativePath(id)),
+        content: canonicalProjectionBytes(buildProjection(sources)),
+        mode: 0o600,
+        onDirectoryBound: instrumentation.onOutputDirectoryBound
+      })
     } catch {
       return { conversationId: id, status: 'rejected', reason: 'write_failed' }
     }

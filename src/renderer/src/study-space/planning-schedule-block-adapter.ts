@@ -6,14 +6,21 @@
  *
  * V1 StudyTask.schedule remains a rebuildable primary-block cache (not authority).
  * Canonical ScheduleBlock rows are 1:N per task.
+ *
+ * STC-704: week chips project via splitIntervalAtLocalMidnights (overnight → multi chips).
  */
 
-import type { ScheduleBlock } from '../../../shared/study-planning'
+import type { ScheduleBlock, TimeZoneId } from '../../../shared/study-planning'
 import { monFirstScheduleToIntervalMs } from '../../../shared/study-planning'
 import {
   pickPrimaryScheduleBlockForTask,
   scheduleBlockToV1Schedule
 } from './planning-hydrate'
+import {
+  formatWeekChipZoneTooltip,
+  projectWeekZoneChips,
+  weekZoneChipToV1Schedule
+} from './planning-week-zone-projection'
 import type { StudyTask, StudyTaskCategoryId, StudyTaskSchedule } from './types'
 
 /** Stable dual-write id used when a task has no canonical focus blocks yet. */
@@ -71,6 +78,7 @@ export function resolveFocusBlockIdForScheduleUpsert(
 /**
  * One week-grid chip projected from a real ScheduleBlock (not a Task clone).
  * V1 cache can still collapse to primary; this list is multi-block ready.
+ * Overnight blocks may produce multiple entries sharing the same blockId (STC-704).
  */
 export type WeekScheduleEntry = {
   blockId: string
@@ -84,6 +92,16 @@ export type WeekScheduleEntry = {
   locked: boolean
   source: ScheduleBlock['source']
   status: ScheduleBlock['status']
+  /** Local date key of this chip slice (STC-704). */
+  dateKey?: string
+  /** Slice index when parent crossed midnight (0-based). */
+  sliceIndex?: number
+  /** Total slices for parent block. */
+  sliceCount?: number
+  /** Optional zone mismatch tooltip (labels only; no rewrite). */
+  zoneTooltip?: string
+  /** Projection zone used for wall minutes. */
+  timeZone?: string
 }
 
 export type WeekScheduleTaskInput = {
@@ -93,16 +111,30 @@ export type WeekScheduleTaskInput = {
   categoryId?: StudyTaskCategoryId | null
 }
 
+function resolveHostTimeZone(explicit?: string | null): TimeZoneId {
+  const raw = typeof explicit === 'string' ? explicit.trim() : ''
+  if (raw) return raw
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
+
 /**
  * Project all projectable focus ScheduleBlocks into week entries.
- * Blocks that cannot reverse to V1 weekday+minutes (overnight etc.) are skipped.
+ * Overnight / cross-midnight blocks split into multi chips via pure STC-704 helpers
+ * (no longer dropped by scheduleBlockToV1Schedule null-on-overnight).
  */
 export function projectWeekScheduleEntries(input: {
   tasks: readonly WeekScheduleTaskInput[]
   scheduleBlocks: readonly ScheduleBlock[]
   nowMs?: number
+  /** Host IANA zone; default = Intl resolved. */
+  hostTimeZone?: string | null
 }): WeekScheduleEntry[] {
   const nowMs = input.nowMs ?? Date.now()
+  const hostTimeZone = resolveHostTimeZone(input.hostTimeZone)
   const taskById = new Map(input.tasks.map((t) => [t.id, t]))
   const entries: WeekScheduleEntry[] = []
 
@@ -120,6 +152,44 @@ export function projectWeekScheduleEntries(input: {
     if (focus.length === 0) continue
     const primary = pickPrimaryScheduleBlockForTask(input.scheduleBlocks, taskId, nowMs)
     const primaryId = primary?.id ?? null
+
+    const projected = projectWeekZoneChips({
+      blocks: focus,
+      hostTimeZone,
+      focusOnly: true
+    })
+
+    if (projected.ok && projected.chips.length > 0) {
+      const categoryId =
+        typeof task.categoryId === 'string' && task.categoryId.trim()
+          ? (task.categoryId as StudyTaskCategoryId)
+          : undefined
+      for (const chip of projected.chips) {
+        if (chip.taskId !== taskId) continue
+        const schedule = weekZoneChipToV1Schedule(chip)
+        const tooltip = formatWeekChipZoneTooltip(chip)
+        entries.push({
+          blockId: chip.blockId,
+          taskId,
+          title: task.title,
+          done: task.done,
+          ...(categoryId ? { categoryId } : {}),
+          schedule,
+          isPrimary: chip.blockId === primaryId && chip.sliceIndex === 0,
+          locked: focus.find((b) => b.id === chip.blockId)?.locked ?? false,
+          source: focus.find((b) => b.id === chip.blockId)?.source ?? 'manual',
+          status: focus.find((b) => b.id === chip.blockId)?.status ?? 'planned',
+          dateKey: chip.dateKey,
+          sliceIndex: chip.sliceIndex,
+          sliceCount: chip.sliceCount,
+          ...(tooltip ? { zoneTooltip: tooltip } : {}),
+          timeZone: chip.timeZone
+        })
+      }
+      continue
+    }
+
+    // Fallback: same-day reverse only (legacy path if pure split fails).
     for (const block of focus) {
       const schedule = scheduleBlockToV1Schedule(block)
       if (!schedule) continue
@@ -137,7 +207,8 @@ export function projectWeekScheduleEntries(input: {
         isPrimary: block.id === primaryId,
         locked: block.locked,
         source: block.source,
-        status: block.status
+        status: block.status,
+        ...(block.timeZone ? { timeZone: block.timeZone } : {})
       })
     }
   }
@@ -146,13 +217,15 @@ export function projectWeekScheduleEntries(input: {
     (a, b) =>
       a.schedule.weekday - b.schedule.weekday ||
       a.schedule.startMinutes - b.schedule.startMinutes ||
-      a.blockId.localeCompare(b.blockId)
+      a.blockId.localeCompare(b.blockId) ||
+      (a.sliceIndex ?? 0) - (b.sliceIndex ?? 0)
   )
 }
 
 /**
  * Pure builder for a focus ScheduleBlock upsert from product Mon-first V1 schedule.
  * Preserves identity / locked / source / plan from an existing block when present.
+ * Stamps host zone on new/updated blocks (STC-704 optional wire; epoch remains authority).
  */
 export function buildFocusScheduleBlockFromV1(input: {
   taskId: string
@@ -160,6 +233,8 @@ export function buildFocusScheduleBlockFromV1(input: {
   weekAnchorMidnightMs: number
   blockId: string
   existing?: ScheduleBlock | null
+  /** Host IANA zone stamped when creating/updating; omit to keep existing or leave unset. */
+  hostTimeZone?: string | null
 }): { ok: true; block: ScheduleBlock } | { ok: false; reason: 'invalid_schedule' } {
   const interval = monFirstScheduleToIntervalMs({
     weekday: input.schedule.weekday,
@@ -175,6 +250,15 @@ export function buildFocusScheduleBlockFromV1(input: {
       ? existing.status
       : 'planned'
 
+  const hostRaw = typeof input.hostTimeZone === 'string' ? input.hostTimeZone.trim() : ''
+  const hostZone = hostRaw || resolveHostTimeZone(null)
+  const existingZone =
+    typeof existing?.timeZone === 'string' && existing.timeZone.trim()
+      ? existing.timeZone.trim()
+      : undefined
+  // Prefer existing zone (preserve intent); stamp host on create or when existing had none.
+  const timeZone = existingZone ?? hostZone
+
   const block: ScheduleBlock = {
     id: input.blockId,
     taskId: input.taskId,
@@ -186,7 +270,8 @@ export function buildFocusScheduleBlockFromV1(input: {
     status,
     revision: (existing?.revision ?? 0) + 1,
     ...(existing?.planId ? { planId: existing.planId } : {}),
-    ...(existing?.planRevision !== undefined ? { planRevision: existing.planRevision } : {})
+    ...(existing?.planRevision !== undefined ? { planRevision: existing.planRevision } : {}),
+    ...(timeZone ? { timeZone } : {})
   }
   // Week-drag always moves a focus task block — force focus kind for task-owned upsert.
   block.kind = 'focus'
@@ -205,14 +290,17 @@ export function projectWeekScheduleEntriesFromHost(input: {
   scheduleBlocks?: readonly ScheduleBlock[] | null
   weekAnchorMidnightMs: number
   nowMs?: number
+  hostTimeZone?: string | null
 }): WeekScheduleEntry[] {
   const nowMs = input.nowMs ?? Date.now()
+  const hostTimeZone = resolveHostTimeZone(input.hostTimeZone)
   const canonical = input.scheduleBlocks ?? []
   if (canonical.length > 0) {
     const fromCanonical = projectWeekScheduleEntries({
       tasks: input.tasks,
       scheduleBlocks: canonical,
-      nowMs
+      nowMs,
+      hostTimeZone
     })
     // Tasks with V1.schedule but no canonical focus blocks still need a chip.
     const covered = new Set(fromCanonical.map((e) => e.taskId))
@@ -224,7 +312,8 @@ export function projectWeekScheduleEntriesFromHost(input: {
         schedule: task.schedule,
         weekAnchorMidnightMs: input.weekAnchorMidnightMs,
         blockId: defaultV1ScheduleBlockId(task.id),
-        existing: null
+        existing: null,
+        hostTimeZone
       })
       if (!built.ok) continue
       extras.push({
@@ -237,14 +326,16 @@ export function projectWeekScheduleEntriesFromHost(input: {
         isPrimary: true,
         locked: false,
         source: 'manual',
-        status: 'planned'
+        status: 'planned',
+        ...(built.block.timeZone ? { timeZone: built.block.timeZone } : {})
       })
     }
     return [...fromCanonical, ...extras].sort(
       (a, b) =>
         a.schedule.weekday - b.schedule.weekday ||
         a.schedule.startMinutes - b.schedule.startMinutes ||
-        a.blockId.localeCompare(b.blockId)
+        a.blockId.localeCompare(b.blockId) ||
+        (a.sliceIndex ?? 0) - (b.sliceIndex ?? 0)
     )
   }
 

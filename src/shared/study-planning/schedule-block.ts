@@ -5,6 +5,8 @@
  * No I/O, no path freeze, no store write.
  */
 
+import type { TimeZoneId } from './timezone-dst-editing'
+
 export type PlanningTaskStatus = 'open' | 'done' | 'cancelled'
 export type PlanningTaskPriority = 'low' | 'normal' | 'high'
 
@@ -34,12 +36,15 @@ export type ScheduleBlockStatus = 'planned' | 'running' | 'completed' | 'skipped
 /**
  * Confirmed plan block (after user accepts AllocationProposal, or migrated V1 schedule).
  * Task 1:N ScheduleBlock — a task may own many blocks; breaks/wrap-ups have taskId null.
+ *
+ * Authority is epoch ms (ADR-0117). Optional `timeZone` is projection metadata for wall
+ * clock / week chips (STC-704); omit = project with caller/host zone. Never sole authority.
  */
 export type ScheduleBlock = {
   id: string
   taskId: string | null
   kind: ScheduleBlockKind
-  /** Epoch ms (caller-local). */
+  /** Absolute epoch ms (UTC instant). Wall display uses timeZone or host. */
   startAtMs: number
   endAtMs: number
   locked: boolean
@@ -48,12 +53,58 @@ export type ScheduleBlock = {
   planRevision?: number
   status: ScheduleBlockStatus
   revision: number
+  /**
+   * Optional IANA zone id used when this block was intended / written (STC-704).
+   * Omitted blocks project with host zone. Invalid ids fail validation.
+   */
+  timeZone?: TimeZoneId
 }
 
 export type ScheduleBlockValidationIssue = {
   code: string
   message: string
   blockId?: string
+}
+
+/** Fail-closed IANA zone check (no silent accept of garbage ids). */
+export function isValidScheduleBlockTimeZone(timeZone: string): boolean {
+  if (typeof timeZone !== 'string' || !timeZone.trim()) return false
+  try {
+    // Throws RangeError for unknown IANA ids in modern engines.
+    new Intl.DateTimeFormat('en-US', { timeZone: timeZone.trim() })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Normalize optional host/intended zone for stamping NEW blocks only (STC-704).
+ * Invalid / empty → undefined (fail soft at stamp; store validates on upsert).
+ */
+export function normalizeScheduleBlockTimeZoneStamp(
+  timeZone: string | null | undefined
+): TimeZoneId | undefined {
+  const raw = typeof timeZone === 'string' ? timeZone.trim() : ''
+  if (!raw) return undefined
+  return isValidScheduleBlockTimeZone(raw) ? raw : undefined
+}
+
+/**
+ * Preserve existing block zone on update (no silent rezone). Stamp host only when
+ * the stored block has no zone yet and a valid stamp is provided.
+ */
+export function resolveScheduleBlockTimeZoneOnWrite(input: {
+  existingTimeZone?: string | null
+  incomingTimeZone?: string | null
+  /** Host stamp used only when existing has no zone (create / unstamped update). */
+  hostTimeZone?: string | null
+}): TimeZoneId | undefined {
+  const existing = normalizeScheduleBlockTimeZoneStamp(input.existingTimeZone)
+  if (existing) return existing
+  const incoming = normalizeScheduleBlockTimeZoneStamp(input.incomingTimeZone)
+  if (incoming) return incoming
+  return normalizeScheduleBlockTimeZoneStamp(input.hostTimeZone)
 }
 
 export function isValidScheduleBlockInterval(block: Pick<ScheduleBlock, 'startAtMs' | 'endAtMs'>): boolean {
@@ -64,7 +115,7 @@ export function isValidScheduleBlockInterval(block: Pick<ScheduleBlock, 'startAt
   )
 }
 
-/** Fail-closed interval + kind checks. Does not write. */
+/** Fail-closed interval + kind + optional timeZone checks. Does not write. */
 export function validateScheduleBlocks(
   blocks: readonly ScheduleBlock[]
 ): { ok: boolean; issues: ScheduleBlockValidationIssue[] } {
@@ -88,6 +139,15 @@ export function validateScheduleBlocks(
         message: 'endAtMs must be after startAtMs',
         blockId: block.id
       })
+    }
+    if (block.timeZone !== undefined && block.timeZone !== null) {
+      if (typeof block.timeZone !== 'string' || !isValidScheduleBlockTimeZone(block.timeZone)) {
+        issues.push({
+          code: 'block_timezone_invalid',
+          message: `Invalid timeZone ${String(block.timeZone)}`,
+          blockId: block.id
+        })
+      }
     }
   }
 
@@ -120,8 +180,17 @@ export function proposalBlocksToScheduleBlocks(input: {
   planId?: string
   planRevision?: number
   idPrefix?: string
+  /**
+   * Optional host/intended zone stamped on each draft (STC-704).
+   * Invalid zone is omitted (fail soft at stamp; store validates on upsert).
+   * Alias: `hostTimeZone` (same semantics).
+   */
+  timeZone?: TimeZoneId
+  /** Alias for `timeZone` — host zone at create (allocation apply path). */
+  hostTimeZone?: TimeZoneId
 }): ScheduleBlock[] {
   const prefix = input.idPrefix?.trim() || 'sb'
+  const timeZone = normalizeScheduleBlockTimeZoneStamp(input.timeZone ?? input.hostTimeZone)
   const out: ScheduleBlock[] = []
   let n = 0
   for (const block of input.blocks) {
@@ -141,7 +210,8 @@ export function proposalBlocksToScheduleBlocks(input: {
       ...(input.planId ? { planId: input.planId } : {}),
       ...(input.planRevision !== undefined ? { planRevision: input.planRevision } : {}),
       status: 'planned',
-      revision: 1
+      revision: 1,
+      ...(timeZone ? { timeZone } : {})
     })
   }
   return out

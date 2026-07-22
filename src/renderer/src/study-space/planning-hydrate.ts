@@ -11,13 +11,16 @@
  * - presence fields stay V1; focus remainingSeconds can be projected from local TimerSession
  * - canonical timerPlans (if any) replace V1 timerPlans list (simulation windows preserved by id)
  * - preferences.defaultTimerPlanId projects as sole-read default catalog selection
-* - preferences.simulationStart/EndTime project as sole-read active allocation window
+ * - preferences.simulationStart/EndTime project as sole-read active allocation window
+ * - preferences.recurrenceRules project as sole-read durable recurrence list (STC-703 host)
  * - snapshot.categories project as sole-read category catalog (omit keeps V1 cache)
  * - canonical timerSessions project as sole-read actual-focus source (STC-304 remainder)
  */
 
 import {
   jsWeekdayToMonFirst,
+  normalizePreferencesRecurrenceRules,
+  type RecurrenceRule,
   type ScheduleBlock,
   type StudyPlanningPreferencesV1,
   type StudyPlanningSnapshotV1,
@@ -76,6 +79,11 @@ export type HydrateStudyPlanningResult =
        * Sole-read cache; not teaching authority for open/running clock (local TimerSession).
        */
       timerSessions: TimerSessionRecord[]
+      /**
+       * Sole-read preferences.recurrenceRules (STC-703 host wire).
+       * Empty array when unset / invalid; never invents rules.
+       */
+      recurrenceRules: RecurrenceRule[]
     }
   | {
       kind: 'kept_v1'
@@ -111,6 +119,16 @@ export function projectDefaultTimerPlanIdFromPreferences(
   if (typeof raw !== 'string') return null
   const id = raw.trim()
   return id.length > 0 ? id : null
+}
+
+/**
+ * Project preferences.recurrenceRules for UI sole-read (STC-703).
+ * Fail-closed normalize: cap, dedupe, drop invalid; empty when unset.
+ */
+export function projectRecurrenceRulesFromPreferences(
+  preferences: StudyPlanningPreferencesV1 | null | undefined
+): RecurrenceRule[] {
+  return normalizePreferencesRecurrenceRules(preferences?.recurrenceRules)
 }
 
 /**
@@ -372,6 +390,7 @@ export async function hydrateStudyTasksFromCanonical(
     simulationEndTime: projectSimulationWindowFromPreferences(planning.preferences)?.end ?? null,
     categories: projectTaskCategoriesFromSnapshot(planning.categories),
     scheduleBlocks: planning.scheduleBlocks.slice(),
-    timerSessions: Array.isArray(planning.timerSessions) ? planning.timerSessions.slice() : []
+    timerSessions: Array.isArray(planning.timerSessions) ? planning.timerSessions.slice() : [],
+    recurrenceRules: projectRecurrenceRulesFromPreferences(planning.preferences)
   }
 }

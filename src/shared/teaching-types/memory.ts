@@ -118,10 +118,11 @@ export type TeachingMemoryDiagnostics = {
   lastInjectedCount: number
   legacyMigrationPreflight: TeachingMemoryLegacyMigrationPreflight
   /**
-   * Honest I/O profile for this host (ADR-0126). Never renamed to strict/CAS
-   * on Windows; `windows_direct_path_non_cas` means limited non-CAS persistence.
+   * Honest I/O profile for this host (ADR-0131 default pathname_default).
+   * Historical dual-profile ids may still appear during backend migration.
+   * Never renamed to strict/CAS.
    */
-  platformIoProfile?: 'posix_descriptor_strict' | 'windows_direct_path_non_cas' | 'unavailable'
+  platformIoProfile?: 'pathname_default' | 'posix_descriptor_strict' | 'windows_direct_path_non_cas' | 'unavailable'
   platformCapabilityCode?: string
   platformCapabilityMessageKey?: string
 }

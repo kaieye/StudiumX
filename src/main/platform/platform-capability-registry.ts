@@ -1,13 +1,14 @@
 /**
- * Platform capability registry (ADR-0126).
+ * Platform capability registry (ADR-0131 / migration Phase D).
  *
- * Pure resolution of per-consumer I/O profiles. Call sites must not scatter
- * `process.platform` branches; they consult this registry (or factory helpers
- * that wrap it). Windows memory uses an explicit weaker non-CAS profile — never
- * described as descriptor-equivalent.
+ * Shrinks the ADR-0126 dual-profile matrix to simple host booleans +
+ * pathname_default. Call sites consult this registry instead of scattering
+ * process.platform branches. Doctor must not imply descriptor-strict is the
+ * full-platform default.
+ *
+ * Dual backends are deleted; this registry no longer encodes native vs
+ * windows_direct_path as the product story.
  */
-import { getContainedDurableDirectoryCapability } from '../persistence/contained-durable-directory'
-import { getWindowsDirectPathWorkspaceWriteCapability } from '../ai/tools/windows-direct-path-workspace-write'
 import type {
   ConsumerCapabilityClass,
   ConsumerPlatformCapability,
@@ -15,6 +16,7 @@ import type {
   PlatformCapabilitySnapshot,
   PlatformIoProfileId
 } from '../../shared/platform-capability'
+import { isPathnameDefaultHost } from '../../shared/platform-capability'
 
 export type {
   ConsumerCapabilityClass,
@@ -26,9 +28,18 @@ export type {
 
 export type ResolvePlatformCapabilitiesInput = {
   platform?: NodeJS.Platform
-  /** Injected for unit tests; defaults to live native probe. */
+  /**
+   * Optional override for unit tests. When omitted, supported hosts
+   * (win32/darwin/linux) are available under pathname_default.
+   * Injected dual-profile probes (posixDescriptor / windowsDirectPath) are
+   * ignored — they are no longer part of the product matrix.
+   */
+  pathnameAvailable?: boolean
+  /** @deprecated Ignored; dual-profile probes removed (ADR-0131 Phase D). */
   posixDescriptorAvailable?: boolean
+  /** @deprecated Ignored; dual-profile probes removed (ADR-0131 Phase D). */
   posixDescriptorReason?: 'unsupported_platform' | 'native_unavailable'
+  /** @deprecated Ignored; dual-profile probes removed (ADR-0131 Phase D). */
   windowsDirectPathAvailable?: boolean
 }
 
@@ -58,20 +69,20 @@ export function resolvePlatformCapabilities(
   input: ResolvePlatformCapabilitiesInput = {}
 ): PlatformCapabilitySnapshot {
   const platform = input.platform ?? process.platform
-  const posix = resolvePosixDescriptor(input)
-  const windowsDirect =
-    input.windowsDirectPathAvailable ??
-    getWindowsDirectPathWorkspaceWriteCapability({ platform }).available
+  const pathnameOk =
+    typeof input.pathnameAvailable === 'boolean'
+      ? input.pathnameAvailable
+      : isPathnameDefaultHost(platform)
 
   const consumers: ConsumerPlatformCapability[] = [
-    resolveWorkspaceWriteCapability(platform, posix, windowsDirect),
-    resolveMemoryCapability(MEMORY_CHAT_CONSUMER, 'chat_hot_path_read', platform, posix, windowsDirect),
-    resolveMemoryCapability(MEMORY_AUTHORITY_READ_CONSUMER, 'durable_authority_read', platform, posix, windowsDirect),
-    resolveMemoryCapability(MEMORY_AUTHORITY_WRITE_CONSUMER, 'durable_authority_write', platform, posix, windowsDirect),
+    resolveWorkspaceWriteCapability(pathnameOk),
+    resolveMemoryCapability(MEMORY_CHAT_CONSUMER, 'chat_hot_path_read', pathnameOk),
+    resolveMemoryCapability(MEMORY_AUTHORITY_READ_CONSUMER, 'durable_authority_read', pathnameOk),
+    resolveMemoryCapability(MEMORY_AUTHORITY_WRITE_CONSUMER, 'durable_authority_write', pathnameOk),
     // Aggregate alias used by doctor / settings badges.
-    resolveMemoryCapability(MEMORY_CONSUMER, 'durable_authority_write', platform, posix, windowsDirect),
-    resolveOutcomeCommitterCapability(platform, posix),
-    resolveSessionAuditCapability(platform, posix)
+    resolveMemoryCapability(MEMORY_CONSUMER, 'durable_authority_write', pathnameOk),
+    resolveOutcomeCommitterCapability(platform, pathnameOk),
+    resolveSessionAuditCapability(platform, pathnameOk)
   ]
 
   return { platform, consumers }
@@ -109,48 +120,33 @@ export function isMemoryAuthorityReadAvailable(input: ResolvePlatformCapabilitie
   return resolvePlatformCapability(MEMORY_AUTHORITY_READ_CONSUMER, input).available
 }
 
+/**
+ * Catalog / diagnostics I/O profile. Product path is pathname_default
+ * (ADR-0131). Never returns posix_descriptor_strict as the default.
+ */
 export function memoryIoProfile(input: ResolvePlatformCapabilitiesInput = {}): PlatformIoProfileId {
-  return resolvePlatformCapability(MEMORY_CONSUMER, input).profile
+  const capability = resolvePlatformCapability(MEMORY_CONSUMER, input)
+  if (capability.profile === 'unavailable' || !capability.available) return 'unavailable'
+  return 'pathname_default'
 }
 
-type PosixProbe = {
-  available: boolean
-  reason?: 'unsupported_platform' | 'native_unavailable'
-}
-
-function resolvePosixDescriptor(input: ResolvePlatformCapabilitiesInput): PosixProbe {
-  if (typeof input.posixDescriptorAvailable === 'boolean') {
-    return {
-      available: input.posixDescriptorAvailable,
-      reason: input.posixDescriptorAvailable
-        ? undefined
-        : (input.posixDescriptorReason ?? 'unsupported_platform')
-    }
-  }
-  const capability = getContainedDurableDirectoryCapability({
-    platform: input.platform ?? process.platform
-  })
-  if (capability.available) return { available: true }
-  return { available: false, reason: capability.reason }
-}
-
-function resolveWorkspaceWriteCapability(
-  platform: NodeJS.Platform,
-  posix: PosixProbe,
-  windowsDirect: boolean
-): ConsumerPlatformCapability {
-  if (platform === 'win32' && windowsDirect) {
-    return cap(WORKSPACE_WRITE_CONSUMER, 'workspace_tool_write', 'windows_direct_path_non_cas', true, 'ok', 'platformCapability.windowsDirectPathNonCas')
-  }
-  if (posix.available) {
-    return cap(WORKSPACE_WRITE_CONSUMER, 'workspace_tool_write', 'posix_descriptor_strict', true, 'ok', 'platformCapability.posixDescriptorStrict')
+function resolveWorkspaceWriteCapability(pathnameOk: boolean): ConsumerPlatformCapability {
+  if (pathnameOk) {
+    return cap(
+      WORKSPACE_WRITE_CONSUMER,
+      'workspace_tool_write',
+      'pathname_default',
+      true,
+      'ok',
+      'platformCapability.pathnameDefault'
+    )
   }
   return cap(
     WORKSPACE_WRITE_CONSUMER,
     'workspace_tool_write',
     'unavailable',
     false,
-    posix.reason === 'native_unavailable' ? 'native_unavailable' : 'unsupported_platform',
+    'unsupported_platform',
     'platformCapability.writeUnavailable'
   )
 }
@@ -158,28 +154,21 @@ function resolveWorkspaceWriteCapability(
 function resolveMemoryCapability(
   consumer: string,
   capabilityClass: ConsumerCapabilityClass,
-  platform: NodeJS.Platform,
-  posix: PosixProbe,
-  windowsDirect: boolean
+  pathnameOk: boolean
 ): ConsumerPlatformCapability {
-  if (platform === 'win32' && windowsDirect) {
-    // Windows memory is honest non-CAS direct-path (Phase 2). Chat and authority
-    // share the same profile; class only changes fail policy at the call site.
+  if (pathnameOk) {
     return cap(
       consumer,
       capabilityClass,
-      'windows_direct_path_non_cas',
+      'pathname_default',
       true,
       'ok',
-      'platformCapability.windowsMemoryLimitedPersistence'
+      'platformCapability.pathnameDefault'
     )
-  }
-  if (posix.available) {
-    return cap(consumer, capabilityClass, 'posix_descriptor_strict', true, 'ok', 'platformCapability.posixDescriptorStrict')
   }
 
   if (capabilityClass === 'chat_hot_path_read') {
-    // Must degrade empty — never throw descriptor unavailability into a turn.
+    // Must degrade empty — never throw I/O unavailability into a turn.
     return cap(
       consumer,
       capabilityClass,
@@ -195,14 +184,14 @@ function resolveMemoryCapability(
     capabilityClass,
     'unavailable',
     false,
-    posix.reason === 'native_unavailable' ? 'native_unavailable' : 'write_unavailable',
+    'write_unavailable',
     'platformCapability.writeUnavailable'
   )
 }
 
 function resolveOutcomeCommitterCapability(
   platform: NodeJS.Platform,
-  posix: PosixProbe
+  pathnameOk: boolean
 ): ConsumerPlatformCapability {
   // ADR-0035: Windows does not claim P6 strict settlement profile.
   if (platform === 'win32') {
@@ -215,14 +204,14 @@ function resolveOutcomeCommitterCapability(
       'platformCapability.outcomeWindowsNotStrict'
     )
   }
-  if (posix.available) {
+  if (pathnameOk) {
     return cap(
       OUTCOME_COMMITTER_CONSUMER,
       'durable_authority_write',
-      'posix_descriptor_strict',
+      'pathname_default',
       true,
       'ok',
-      'platformCapability.posixDescriptorStrict'
+      'platformCapability.pathnameDefault'
     )
   }
   return cap(
@@ -230,16 +219,16 @@ function resolveOutcomeCommitterCapability(
     'durable_authority_write',
     'unavailable',
     false,
-    posix.reason === 'native_unavailable' ? 'native_unavailable' : 'unsupported_platform',
+    'unsupported_platform',
     'platformCapability.writeUnavailable'
   )
 }
 
 function resolveSessionAuditCapability(
   platform: NodeJS.Platform,
-  posix: PosixProbe
+  pathnameOk: boolean
 ): ConsumerPlatformCapability {
-  // Session audit keeps its existing ADR-0019/0035 boundaries; registry only
+  // Session audit keeps existing ADR-0019/0035 boundaries; registry only
   // projects readiness for doctor. Do not auto-migrate audit writers.
   if (platform === 'win32') {
     return cap(
@@ -251,14 +240,14 @@ function resolveSessionAuditCapability(
       'platformCapability.sessionAuditWindowsLimited'
     )
   }
-  if (posix.available) {
+  if (pathnameOk) {
     return cap(
       SESSION_AUDIT_CONSUMER,
       'durable_authority_write',
-      'posix_descriptor_strict',
+      'pathname_default',
       true,
       'ok',
-      'platformCapability.posixDescriptorStrict'
+      'platformCapability.pathnameDefault'
     )
   }
   return cap(
@@ -266,7 +255,7 @@ function resolveSessionAuditCapability(
     'durable_authority_write',
     'unavailable',
     false,
-    posix.reason === 'native_unavailable' ? 'native_unavailable' : 'unsupported_platform',
+    'unsupported_platform',
     'platformCapability.writeUnavailable'
   )
 }
@@ -281,3 +270,4 @@ function cap(
 ): ConsumerPlatformCapability {
   return { consumer, class: capabilityClass, profile, available, code, messageKey }
 }
+

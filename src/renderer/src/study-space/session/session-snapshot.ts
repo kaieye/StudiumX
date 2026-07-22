@@ -13,6 +13,12 @@ import {
 import { normalizeStudyTaskCategoryId } from '../taskCategories'
 import { pickOptionalAdvancedFields } from '../planning-timer-plan-advanced-fields'
 import { pickOptionalKindFields } from '../planning-timer-plan-kind'
+import {
+  isV1LocalAuthorityDemoted,
+  shouldPersistV1TaskAuthority,
+  shouldReseedV1TasksFromDefaults,
+  stripTaskAuthorityFromSnapshot
+} from '../planning-v1-authority-demote'
 import type {
   StudyModeId,
   StudyRoomId,
@@ -113,8 +119,22 @@ export function normalizeStudyTaskSchedule(input: unknown): StudyTaskSchedule | 
   return { weekday, startMinutes, endMinutes, ...(colorId ? { colorId } : {}) }
 }
 
-export function normalizeStudyTasks(input: unknown): StudyTask[] {
-  if (!Array.isArray(input)) return defaultStudySnapshot.tasks
+export type NormalizeStudyTasksOptions = {
+  /**
+   * When true, empty/missing arrays stay empty (no defaultStudySnapshot.tasks refill).
+   * Used after V1 authority demote so cold-start cannot resurrect invented defaults.
+   */
+  allowEmpty?: boolean
+}
+
+export function normalizeStudyTasks(
+  input: unknown,
+  options?: NormalizeStudyTasksOptions
+): StudyTask[] {
+  const allowEmpty = options?.allowEmpty === true
+  if (!Array.isArray(input)) {
+    return allowEmpty ? [] : defaultStudySnapshot.tasks
+  }
   const tasks = input
     .filter((item): item is Partial<StudyTask> => Boolean(item) && typeof item === 'object')
     .map((item, index) => {
@@ -138,7 +158,8 @@ export function normalizeStudyTasks(input: unknown): StudyTask[] {
     })
     .filter((item) => item.title)
     .slice(0, STUDY_TASK_LIMIT)
-  return tasks.length > 0 ? tasks : defaultStudySnapshot.tasks
+  if (tasks.length > 0) return tasks
+  return allowEmpty ? [] : defaultStudySnapshot.tasks
 }
 
 const studyTimerPlanLimit = 12
@@ -194,8 +215,16 @@ function localTodayKey(date = new Date()): string {
   ].join('-')
 }
 
+export type NormalizeStudySnapshotOptions = {
+  /** Forwarded to normalizeStudyTasks — demoted cold-start must not refill defaults. */
+  allowEmptyTasks?: boolean
+}
+
 /** Coerces an unknown persisted payload to the complete, current durable schema. */
-export function normalizeStudySnapshot(input: unknown): StudySnapshot {
+export function normalizeStudySnapshot(
+  input: unknown,
+  options?: NormalizeStudySnapshotOptions
+): StudySnapshot {
   const raw = input && typeof input === 'object' ? input as Partial<StudySnapshot> : {}
   const clientId = typeof raw.clientId === 'string' && raw.clientId.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)
     ? raw.clientId
@@ -243,7 +272,9 @@ export function normalizeStudySnapshot(input: unknown): StudySnapshot {
     streakDays: clampNumber(raw.streakDays, 0, 10_000, 0),
     xp: clampNumber(raw.xp, 0, 1_000_000, 0),
     lastStudyDate,
-    tasks: normalizeStudyTasks(raw.tasks)
+    tasks: normalizeStudyTasks(raw.tasks, {
+      allowEmpty: options?.allowEmptyTasks === true
+    })
   }
 }
 
@@ -333,24 +364,98 @@ function parseStoredSnapshot(serialized: string | null): unknown {
   }
 }
 
+export type ReadStudySnapshotOptions = {
+  /**
+   * Host workspace root available — gates presence-only persist when demoted.
+   * Task default reseed is suppressed by demote marker alone (fail-closed).
+   */
+  workspaceAvailable?: boolean
+  /**
+   * Force demoted gate (tests). When omitted, reads local demote marker.
+   */
+  demoted?: boolean
+}
+
 /**
  * Reads one durable Session snapshot, migrating legacy storage and applying the
  * current tab identity and URL invite before rewriting canonical storage.
+ *
+ * After V1 authority demote: empty task arrays stay empty (no default-task
+ * resurrection). When demoted + workspaceAvailable, persist writes presence shell only.
  */
-export function readStudySnapshot(): StudySnapshot {
+export function readStudySnapshot(options?: ReadStudySnapshotOptions): StudySnapshot {
+  const demoted =
+    typeof options?.demoted === 'boolean'
+      ? options.demoted
+      : isV1LocalAuthorityDemoted()
+  const workspaceAvailable = options?.workspaceAvailable === true
+  const allowEmptyTasks = !shouldReseedV1TasksFromDefaults({ demoted, workspaceAvailable })
   try {
     const stored = window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY)
-    const snapshot = applyStudyInviteParams(applyStudySessionIdentity(normalizeStudySnapshot(parseStoredSnapshot(stored))))
-    persistStudySnapshot(snapshot)
+    const snapshot = applyStudyInviteParams(
+      applyStudySessionIdentity(
+        normalizeStudySnapshot(parseStoredSnapshot(stored), { allowEmptyTasks })
+      )
+    )
+    persistStudySnapshot(snapshot, { demoted, workspaceAvailable })
     return snapshot
   } catch {
-    return applyStudyInviteParams(applyStudySessionIdentity(normalizeStudySnapshot(null)))
+    return applyStudyInviteParams(
+      applyStudySessionIdentity(normalizeStudySnapshot(null, { allowEmptyTasks }))
+    )
   }
 }
 
-/** Persists only normalized durable snapshot data; unavailable storage remains non-fatal. */
-export function persistStudySnapshot(snapshot: StudySnapshot): void {
+export type PersistStudySnapshotOptions = {
+  /**
+   * When true (workspace + demote marker), skip writing task/timerPlans authority arrays.
+   * Presence shell still persists. Fail-closed: omit / false keeps prior dual-write behavior.
+   */
+  workspaceAvailable?: boolean
+  /**
+   * Force demoted gate (tests / host). When omitted, reads local demote marker.
+   */
+  demoted?: boolean
+}
+
+/**
+ * Persists only normalized durable snapshot data; unavailable storage remains non-fatal.
+ * When V1 authority is demoted and workspace is active, write presence shell only
+ * (tasks/timerPlans stripped) so localStorage is not a live task-authority co-cache.
+ */
+export function persistStudySnapshot(
+  snapshot: StudySnapshot,
+  options?: PersistStudySnapshotOptions
+): void {
   try {
+    const demoted =
+      typeof options?.demoted === 'boolean'
+        ? options.demoted
+        : isV1LocalAuthorityDemoted()
+    const workspaceAvailable = options?.workspaceAvailable === true
+    const writeTaskAuthority = shouldPersistV1TaskAuthority({ demoted, workspaceAvailable })
+    if (!writeTaskAuthority) {
+      // Do not pass through normalizeStudyTasks default refill — demoted shell stays empty.
+      const shell = stripTaskAuthorityFromSnapshot(
+        normalizeStudySnapshot(
+          {
+            ...snapshot,
+            tasks: snapshot.tasks,
+            timerPlans: snapshot.timerPlans
+          },
+          { allowEmptyTasks: true }
+        )
+      )
+      window.localStorage.setItem(
+        STUDY_SPACE_STORAGE_KEY,
+        JSON.stringify({
+          ...shell,
+          tasks: [],
+          timerPlans: []
+        })
+      )
+      return
+    }
     window.localStorage.setItem(STUDY_SPACE_STORAGE_KEY, JSON.stringify(normalizeStudySnapshot(snapshot)))
   } catch {
     // Study progress should stay usable even when storage is unavailable.

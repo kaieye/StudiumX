@@ -910,6 +910,7 @@
     },
     "platformProfile": {
       "label": "平台 I/O profile",
+      "pathnameDefault": "Pathname 默认（可信 root，非 CAS）",
       "posix": "POSIX 描述符（严格）",
       "windowsLimited": "Windows 有限持久化（direct-path，非 CAS）",
       "unavailable": "此主机不可用"
@@ -1273,6 +1274,7 @@
     "enqueuedAt": "入队时间"
   },
   "platformCapability": {
+    "pathnameDefault": "\u53ef\u4fe1 root \u5185 pathname I/O\uff08temp \u2192 write \u2192 \u53ef\u9009 fsync \u2192 rename\uff09\u3002\u4e0d\u5ba3\u79f0 CAS\uff1bnative descriptor \u975e\u9ed8\u8ba4\uff08ADR-0131\uff09\u3002",
     "posixDescriptorStrict": "POSIX 描述符相对 I/O（严格 containment profile）。",
     "windowsDirectPathNonCas": "Windows 根约束直接路径 I/O（非 CAS；不等同于 descriptor）。",
     "windowsMemoryLimitedPersistence": "Windows 记忆使用有限直接路径持久化（非 CAS，非 descriptor 等价）。",

@@ -20,11 +20,6 @@ import {
   runWorkspaceWriteWithDurableDependenciesForTesting,
   type WorkspaceWriteDurableDependencies
 } from '../../src/main/ai/tools/workspace'
-import type {
-  ContainedDurableDirectory,
-  WorkspaceContainedPathBinding
-} from '../../src/main/persistence/contained-durable-directory'
-
 const roots: string[] = []
 
 async function workspaceRoot(): Promise<string> {
@@ -38,24 +33,10 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
-function binding(): WorkspaceContainedPathBinding {
-  return {
-    relativePath: 'notes/entry.md',
-    parentComponents: ['notes'],
-    basename: 'entry.md',
-    parentDirectory: { nativeDirectory: {} } as ContainedDurableDirectory,
-    inspectLeaf: () => ({ type: 'regular', mode: 0o600, linkCount: 1 }),
-    syncParentDirectory: () => undefined,
-    close: () => undefined
-  }
-}
-
 function noopDeps(): WorkspaceWriteDurableDependencies {
   return {
     createNoOverwrite: async () => undefined,
-    overwriteExistingRestricted: async () => undefined,
-    bindForCanonicalRead: () => binding(),
-    readRegularFile: () => Buffer.alloc(0)
+    overwriteExistingRestricted: async () => undefined
   }
 }
 

@@ -23,6 +23,7 @@ assert.equal(teachingInvokeChannels.followUpAgentChatStream, 'teach:agent-chat-f
 assert.equal(teachingEventChannels.lessonStreamChunk, 'teach:generate-lesson-chunk')
 assert.equal(teachingEventChannels.agentChatTool, 'teach:agent-chat-tool')
 assert.equal(teachingEventChannels.agentChatEvent, 'teach:agent-chat-event')
+assert.equal(teachingEventChannels.systemPower, 'teach:system-power')
 
 const requiredInvokeCapabilities: TeachingInvokeCapability[] = [
   'getState',

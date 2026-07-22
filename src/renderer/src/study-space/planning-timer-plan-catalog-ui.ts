@@ -24,8 +24,8 @@ export type TimerPlanCatalogRow = {
   simulationStartTime: string
   simulationEndTime: string
   kind: TimerPlanCatalogRowKind
-  /** Plan kind for product label (pomodoro | continuous). */
-  planKind: 'pomodoro' | 'continuous'
+  /** Plan kind for product label (pomodoro | continuous | custom_rhythm). */
+  planKind: 'pomodoro' | 'continuous' | 'custom_rhythm'
   /** Human summary (focus/break or continuous countup). */
   summary: string
   readonly: boolean
@@ -106,7 +106,12 @@ export function listTimerPlanCatalogRows(
     const isDefault =
       (input.defaultTimerPlanId ?? null) === plan.id ||
       (!input.defaultTimerPlanId && plan.id === 'classic_25_5')
-    const planKind = plan.kind === 'continuous' ? 'continuous' : 'pomodoro'
+    const planKind =
+      plan.kind === 'continuous'
+        ? 'continuous'
+        : plan.kind === 'custom_rhythm'
+          ? 'custom_rhythm'
+          : 'pomodoro'
     rows.push({
       id: plan.id,
       name: plan.name,

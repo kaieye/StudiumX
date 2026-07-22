@@ -910,6 +910,7 @@
     },
     "platformProfile": {
       "label": "Platform I/O profile",
+      "pathnameDefault": "Pathname default (trusted-root, non-CAS)",
       "posix": "POSIX descriptor (strict)",
       "windowsLimited": "Windows limited persistence (direct-path, non-CAS)",
       "unavailable": "Unavailable on this host"
@@ -1273,6 +1274,7 @@
     "enqueuedAt": "Enqueued at"
   },
   "platformCapability": {
+    "pathnameDefault": "Trusted-root pathname I/O (temp \u2192 write \u2192 optional fsync \u2192 rename). Not CAS; native descriptor is not the default (ADR-0131).",
     "posixDescriptorStrict": "POSIX descriptor-relative I/O (strict containment profile).",
     "windowsDirectPathNonCas": "Windows root-constrained direct-path I/O (non-CAS; not descriptor-equivalent).",
     "windowsMemoryLimitedPersistence": "Windows memory uses limited direct-path persistence (non-CAS, not descriptor-equivalent).",

@@ -4,11 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type {
-  ContainedDurableDirectory,
-  WorkspaceContainedLeaf,
-  WorkspaceContainedPathBinding
-} from '../../src/main/persistence/contained-durable-directory'
 import {
   getWorkspaceWriteToolAvailability,
   runWorkspaceWriteWithDurableDependenciesForTesting,
@@ -41,29 +36,12 @@ function protocolError(kind: string, phase?: string): Error & { kind: string; ph
   )
 }
 
-function binding(input: {
-  leaf?: WorkspaceContainedLeaf
-  onClose?: () => void
-} = {}): WorkspaceContainedPathBinding {
-  return {
-    relativePath: 'notes/entry.md',
-    parentComponents: ['notes'],
-    basename: 'entry.md',
-    parentDirectory: { nativeDirectory: {} } as ContainedDurableDirectory,
-    inspectLeaf: () => input.leaf ?? { type: 'regular', mode: 0o600, linkCount: 1 },
-    syncParentDirectory: () => undefined,
-    close: () => input.onClose?.()
-  }
-}
-
 function dependencies(
   overrides: Partial<WorkspaceWriteDurableDependencies> = {}
 ): WorkspaceWriteDurableDependencies {
   return {
     createNoOverwrite: async () => undefined,
     overwriteExistingRestricted: async () => undefined,
-    bindForCanonicalRead: () => binding(),
-    readRegularFile: () => Buffer.alloc(0),
     ...overrides
   }
 }
@@ -112,10 +90,10 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
     await expect(stat(join(root, 'notes', 'entry.md'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it.runIf(process.platform === 'win32')('uses the documented Windows direct-path profile for S2 create and non-CAS S3 overwrite', async () => {
+  it('uses pathname-default create and non-CAS overwrite on every host', async () => {
     const { root, ctx } = await workspace()
     const createdPath = join(root, 'notes', 'direct-created.md')
-    const createdContent = 'Windows direct S2 content 🧪'
+    const createdContent = 'Pathname create content 🧪'
 
     expect(getWorkspaceWriteToolAvailability()).toEqual({ available: true })
     expect(JSON.parse(await runWorkspaceWriteWithDurableDependenciesForTesting({
@@ -129,8 +107,8 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
     await expect(readFile(createdPath, 'utf8')).resolves.toBe(createdContent)
 
     const overwritePath = join(root, 'notes', 'direct-overwrite.md')
-    await writeFile(overwritePath, 'old direct-path bytes', 'utf8')
-    const replacement = 'Windows direct S3 replacement 🧪'
+    await writeFile(overwritePath, 'old pathname bytes', 'utf8')
+    const replacement = 'Pathname overwrite replacement 🧪'
     expect(JSON.parse(await runWorkspaceWriteWithDurableDependenciesForTesting({
       path: 'notes/direct-overwrite.md',
       content: replacement,
@@ -356,18 +334,15 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
     await expect(stat(join(root, 'notes', 'entry.md'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('confirms a possibly-published result only with a full exact descriptor-bound UTF-8 read, and closes once', async () => {
+  it('confirms a possibly-published result only with a full exact pathname UTF-8 read', async () => {
     const { root } = await workspace()
     const content = `首尾必须都在\n${'多字节🧪'.repeat(9_000)}\n完整结束`
     const expectedBytes = Buffer.from(content, 'utf8')
-    const close = vi.fn()
-    const bindForCanonicalRead = vi.fn(() => binding({ onClose: close }))
-    const readRegularFile = vi.fn(() => Buffer.from(expectedBytes))
+    const readExact = vi.fn(async () => true)
 
     const result = await invoke(root, { path: 'notes/entry.md', content }, dependencies({
       createNoOverwrite: async () => { throw protocolError('possibly_published') },
-      bindForCanonicalRead,
-      readRegularFile
+      readExact
     }))
 
     expect(result).toMatchObject({
@@ -379,30 +354,26 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
       canonicalRead: 'exact',
       retryable: false
     })
-    expect(readRegularFile).toHaveBeenCalledTimes(1)
-    expect(readRegularFile.mock.results[0]?.value).toEqual(expectedBytes)
-    expect(bindForCanonicalRead).toHaveBeenCalledWith({
+    expect(readExact).toHaveBeenCalledTimes(1)
+    expect(readExact).toHaveBeenCalledWith({
       workspaceRootPath: root,
       relativePath: 'notes/entry.md',
-      createParentDirectories: false
+      expectedBytes
     })
-    expect(close).toHaveBeenCalledTimes(1)
     expect(JSON.stringify(result)).not.toMatch(/durab|持久|耐久/i)
     await expect(stat(join(root, 'notes', 'entry.md'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it.each([
-    ['canonical mismatch', { type: 'regular', mode: 0o600, linkCount: 1 } as WorkspaceContainedLeaf, () => Buffer.from('different bytes')],
-    ['canonical missing', { type: 'absent' } as WorkspaceContainedLeaf, () => Buffer.alloc(0)],
-    ['canonical read failure', { type: 'regular', mode: 0o600, linkCount: 1 } as WorkspaceContainedLeaf, () => { throw protocolError('read_failure') }]
-  ])('leaves possibly-published unconfirmed after %s', async (_name, leaf, read) => {
+    ['canonical mismatch', async () => false],
+    ['canonical missing', async () => false],
+    ['canonical read failure', async () => { throw protocolError('read_failure') }]
+  ])('leaves possibly-published unconfirmed after %s', async (_name, readExact) => {
     const { root } = await workspace()
-    const close = vi.fn()
 
     const result = await invoke(root, { path: 'notes/entry.md', content: 'requested bytes' }, dependencies({
       createNoOverwrite: async () => { throw protocolError('possibly_published') },
-      bindForCanonicalRead: () => binding({ leaf, onClose: close }),
-      readRegularFile: () => read()
+      readExact
     }))
 
     expect(result).toMatchObject({
@@ -411,7 +382,6 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
       retryable: false
     })
     expect(result).not.toHaveProperty('canonicalRead')
-    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it.skipIf(!getWorkspaceWriteToolAvailability().available)('keeps pathname I/O detail private when an available writer cannot bind the target', async () => {
@@ -459,7 +429,7 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
     ['prepublication_failed', async (root: string) => invoke(root, { path: 'notes/entry.md', content: sensitivePayload }, dependencies({ createNoOverwrite: async () => { throw protocolError('prepublication_failure') } }))],
     ['possibly_published', async (root: string) => invoke(root, { path: 'notes/entry.md', content: sensitivePayload }, dependencies({
       createNoOverwrite: async () => { throw protocolError('possibly_published') },
-      bindForCanonicalRead: () => { throw protocolError('bind_failure') }
+      readExact: async () => false
     }))]
   ])('keeps stable %s errors private', async (code, action) => {
     const { root } = await workspace()

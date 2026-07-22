@@ -125,10 +125,7 @@
     "test:a11y": "pnpm run build && playwright test --project electron-e2e --grep @a11y --pass-with-no-tests",
     "check:analytics": "node scripts/check-study-analytics-test-foundation.mjs",
     "dist:dir": "node scripts/package-host-native.mjs --dir",
-    "build:contained-durable-replace": "node scripts/build-contained-durable-replace.mjs",
-    "prebuild": "pnpm run build:contained-durable-replace",
-    "predev": "pnpm run build:contained-durable-replace",
-    "pretest:unit": "pnpm run rebuild:better-sqlite3:node && pnpm run build:contained-durable-replace",
+    "pretest:unit": "pnpm run rebuild:better-sqlite3:node",
     "audit:release": "node scripts/release-audit.mjs",
     "check:teaching-capability-catalog": "node scripts/check-teaching-capability-catalog.mjs",
     "check:blocking-ci": "node scripts/check-blocking-ci.mjs",
@@ -212,10 +209,6 @@
       {
         "from": "resources/builtin-skills",
         "to": "builtin-skills"
-      },
-      {
-        "from": "native/contained-durable-replace/build/Release/contained_durable_replace.node",
-        "to": "native/contained_durable_replace.node"
       }
     ],
     "asarUnpack": [

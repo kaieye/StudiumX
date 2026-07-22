@@ -104,6 +104,7 @@ const api: TeachingSystemApi = {
   onAgentChatStatus: (handler) => registerIpcListener<AgentChatStreamStatus>(teachingEventChannels.agentChatStatus, handler),
   onAgentChatTool: (handler) => registerIpcListener<AgentChatStreamToolEvent>(teachingEventChannels.agentChatTool, handler),
   onAgentChatEvent: (handler) => registerIpcListener<AgentRealtimeEvent>(teachingEventChannels.agentChatEvent, handler),
+  onSystemPower: (handler) => registerIpcListener(teachingEventChannels.systemPower, handler),
   saveAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.saveAgentConversation, payload),
   renameAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.renameAgentConversation, payload),
   readAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readAgentConversation, payload),

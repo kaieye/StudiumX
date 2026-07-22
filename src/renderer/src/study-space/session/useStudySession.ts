@@ -67,9 +67,11 @@ import { dualWriteClassificationPromptAnswer } from '../planning-classification-
 import { dualWriteBatchClassifyTasks } from '../planning-batch-classify-dual-write'
 import {
   dualWriteSetClassificationPromptOptOut,
+  dualWriteSetPreferences,
   dualWriteSetEmptyStartPolicy,
   dualWriteSetSimulationWindow
 } from '../planning-preferences-dual-write'
+import type { RecurrenceRule } from '../../../../shared/study-planning'
 import { shouldSuppressClassificationPromptStorm } from '../../../../shared/study-planning'
 import {
   normalizeEmptyStartPolicy
@@ -98,6 +100,17 @@ import {
   shouldOfferMigrationBanner,
   type MigrationBannerSummary
 } from '../planning-migration-banner'
+import {
+  buildV1AuthorityArchivePayload,
+  canExecuteV1Demote,
+  canOfferV1Demote,
+  demoteV1LocalStorageKeys,
+  exportV1AuthorityArchiveDownload,
+  isV1LocalAuthorityDemoted,
+  readV1LocalAuthorityDemotedAtMs,
+  writeV1LocalAuthorityDemotedMarker,
+  type V1DemoteOfferSummary
+} from '../planning-v1-authority-demote'
 import { resolveBreakPhaseFromPlan } from '../planning-timer-display'
 import {
   applyRoomCycleTimerSession,
@@ -111,6 +124,7 @@ import {
   type TimerWakeAction,
   type TimerWakeSignal
 } from '../planning-timer-sleep-hooks'
+import { subscribePlanningTimerOsPower, type SystemPowerSubscribeApi } from '../planning-timer-os-power'
 import {
   dualWriteCopyTimerPlan,
   dualWriteDeleteTimerPlan,
@@ -293,6 +307,51 @@ function timerSample() {
   return { wallMs: Date.now(), ...(monotonicMs === undefined ? {} : { monotonicMs }) }
 }
 
+/**
+ * STC-704 host glue: optional IANA zone for allocation create-stamp only.
+ * Fail soft — omit when Intl is unavailable or returns empty (never invent UTC).
+ * Does not rezone existing blocks (store append / preserve-on-update).
+ */
+export function resolveOptionalHostTimeZoneForAllocationStamp(): string | undefined {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (typeof tz === 'string') {
+      const trimmed = tz.trim()
+      if (trimmed) return trimmed
+    }
+  } catch {
+    // omit field
+  }
+  return undefined
+}
+
+export type AllocationProposalApplyInput = {
+  blocks: readonly AllocationApplyBlock[]
+  planId?: string | null
+  planRevision?: number
+  idPrefix?: string
+}
+
+/**
+ * Build dual-write args for confirmed allocation apply.
+ * Stamps host zone only when resolvable; never invents a zone.
+ */
+export function buildAllocationProposalDualWriteInput(
+  input: AllocationProposalApplyInput,
+  resolveHostTimeZone: () => string | undefined = resolveOptionalHostTimeZoneForAllocationStamp
+): AllocationProposalApplyInput & { hostTimeZone?: string } {
+  const raw = resolveHostTimeZone()
+  const hostTimeZone =
+    typeof raw === 'string' && raw.trim() ? raw.trim() : undefined
+  return {
+    blocks: input.blocks,
+    ...(input.planId !== undefined ? { planId: input.planId } : {}),
+    ...(typeof input.planRevision === 'number' ? { planRevision: input.planRevision } : {}),
+    ...(input.idPrefix !== undefined ? { idPrefix: input.idPrefix } : {}),
+    ...(hostTimeZone ? { hostTimeZone } : {})
+  }
+}
+
 export function useStudySession({
   showNotification,
   openFocusTheater,
@@ -368,6 +427,11 @@ export function useStudySession({
     () => normalizeEmptyStartPolicy(emptyStartPolicyProp)
   )
   const [classificationPromptOptOut, setClassificationPromptOptOut] = useState(false)
+  /**
+   * STC-703: sole-read preferences.recurrenceRules for schedule page host wire.
+   * Hydrate + set_preferences dual-write refresh only; no auto-expand.
+   */
+  const [recurrenceRules, setRecurrenceRules] = useState<RecurrenceRule[]>([])
   const emptyStartPolicyRef = useRef(emptyStartPolicy)
   emptyStartPolicyRef.current = emptyStartPolicy
   const classificationPromptOptOutRef = useRef(classificationPromptOptOut)
@@ -385,6 +449,16 @@ export function useStudySession({
   const [migrationBusy, setMigrationBusy] = useState(false)
   const [migrationError, setMigrationError] = useState<string | null>(null)
   const migrationDismissedRef = useRef(false)
+  /**
+   * Sole-authority demote offer (separate from migration confirm).
+   * Surfaced after successful migrate or hydrate applied — never auto-erases.
+   */
+  const [v1DemoteOffer, setV1DemoteOffer] = useState<V1DemoteOfferSummary | null>(null)
+  const [v1DemoteBusy, setV1DemoteBusy] = useState(false)
+  const [v1DemoteError, setV1DemoteError] = useState<string | null>(null)
+  const [v1AuthorityDemoted, setV1AuthorityDemoted] = useState(() => isV1LocalAuthorityDemoted())
+  const v1DemoteDismissedRef = useRef(false)
+  const migrationCommittedThisSessionRef = useRef(false)
   const scheduleBlocksRef = useRef(scheduleBlocks)
   scheduleBlocksRef.current = scheduleBlocks
 
@@ -1135,9 +1209,12 @@ export function useStudySession({
         setDefaultTimerPlanId(hydrate.defaultTimerPlanId)
         setEmptyStartPolicy(hydrate.emptyStartPolicy)
         setClassificationPromptOptOut(hydrate.classificationPromptOptOut)
+        setRecurrenceRules(hydrate.recurrenceRules.slice())
         if (hydrate.categories) {
           setCanonicalCategories(hydrate.categories)
-          persistStudyTaskCategories(hydrate.categories)
+          if (!(v1AuthorityDemoted || isV1LocalAuthorityDemoted())) {
+            persistStudyTaskCategories(hydrate.categories)
+          }
         }
         const live = snapshotRef.current
         const merged: StudySnapshot = {
@@ -1159,6 +1236,29 @@ export function useStudySession({
 
       setMigrationOffer(null)
       migrationDismissedRef.current = true
+      migrationCommittedThisSessionRef.current = true
+      // Offer demote separately — migration never erases localStorage.
+      if (
+        !v1DemoteDismissedRef.current &&
+        !isV1LocalAuthorityDemoted() &&
+        canOfferV1Demote({
+          migrationCommitted: true,
+          hydrateApplied: false,
+          canonicalTaskCount: dry.summary.taskCount,
+          hostTaskCount: snapshotRef.current.tasks.length,
+          workspaceAvailable: Boolean(resolvePlanningContext().workspaceRoot?.trim()),
+          alreadyDemoted: false
+        })
+      ) {
+        const cats = readStudyTaskCategories()
+        setV1DemoteOffer({
+          taskCount: dry.summary.taskCount,
+          timerPlanCount: dry.summary.timerPlanCount,
+          categoryCount: cats.length,
+          reason: 'post_migrate'
+        })
+        setV1DemoteError(null)
+      }
       return {
         ok: true,
         revision: result.revision,
@@ -1189,6 +1289,93 @@ export function useStudySession({
   }
 
 
+
+  const dismissV1DemoteOffer = (mode: 'dismiss' | 'later' = 'later'): void => {
+    setV1DemoteOffer(null)
+    setV1DemoteError(null)
+    if (mode === 'dismiss') {
+      v1DemoteDismissedRef.current = true
+    }
+  }
+
+  /**
+   * Explicit user confirm: backup/export first, then strip V1 task authority.
+   * Fail-closed — never erase without confirm + successful export.
+   */
+  const confirmV1DemoteOffer = async (): Promise<
+    | { ok: true; demotedAtMs: number }
+    | { ok: false; code: string; message: string }
+  > => {
+    if (isV1LocalAuthorityDemoted()) {
+      setV1AuthorityDemoted(true)
+      setV1DemoteOffer(null)
+      return { ok: true, demotedAtMs: readV1LocalAuthorityDemotedAtMs() ?? Date.now() }
+    }
+    const current = snapshotRef.current
+    const categories = readStudyTaskCategories()
+    let rawStudy: string | null = null
+    let rawCats: string | null = null
+    try {
+      rawStudy = window.localStorage.getItem('studiumx:study-space:v1')
+      rawCats = window.localStorage.getItem('studiumx:study-task-categories:v1')
+    } catch {
+      // best-effort raw capture
+    }
+    const archive = buildV1AuthorityArchivePayload({
+      snapshot: current,
+      categories,
+      rawStudySpaceJson: rawStudy,
+      rawCategoriesJson: rawCats
+    })
+    setV1DemoteBusy(true)
+    setV1DemoteError(null)
+    try {
+      const exported = exportV1AuthorityArchiveDownload(archive)
+      if (!exported.ok) {
+        setV1DemoteError(exported.message)
+        return { ok: false, code: exported.code, message: exported.message }
+      }
+      if (
+        !canExecuteV1Demote({
+          userConfirmed: true,
+          lastBackupExportOk: true,
+          workspaceAvailable: Boolean(resolvePlanningContext().workspaceRoot?.trim()),
+          alreadyDemoted: false
+        })
+      ) {
+        const message = 'Demote gate refused (confirm/backup/workspace).'
+        setV1DemoteError(message)
+        return { ok: false, code: 'gate_refused', message }
+      }
+      const demote = demoteV1LocalStorageKeys({
+        userConfirmed: true,
+        backupExportOk: true,
+        eraseTasks: true,
+        eraseCategories: categories.length > 0,
+        keepPresenceKeys: true,
+        rewritePresenceShell: true,
+        presenceSource: current
+      })
+      if (!demote.ok) {
+        setV1DemoteError(demote.message)
+        return { ok: false, code: demote.code, message: demote.message }
+      }
+      // Dual-write durable marker when workspace/API available (optional).
+      const ctx = resolvePlanningContext()
+      void dualWriteSetPreferences(ctx, {
+        v1LocalAuthorityDemotedAtMs: demote.demotedAtMs
+      }).then(reportPlanningWrite)
+      setV1AuthorityDemoted(true)
+      writeV1LocalAuthorityDemotedMarker(demote.demotedAtMs)
+      // Keep live UI tasks (canonical sole-read already applied); strip only storage shell.
+      // Do not wipe in-memory task list — authority is workspace, UI still shows sole-read tasks.
+      setV1DemoteOffer(null)
+      v1DemoteDismissedRef.current = true
+      return { ok: true, demotedAtMs: demote.demotedAtMs }
+    } finally {
+      setV1DemoteBusy(false)
+    }
+  }
   const commitSnapshot = (next: StudySnapshot): StudySnapshot => {
     snapshotRef.current = next
     setSnapshot(next)
@@ -1254,8 +1441,12 @@ export function useStudySession({
   }, [lifecycle, selectedTaskId, workspaceId])
 
   useEffect(() => {
-    persistStudySnapshot(snapshot)
-  }, [snapshot])
+    const root = typeof workspaceRoot === 'string' ? workspaceRoot.trim() : ''
+    persistStudySnapshot(snapshot, {
+      workspaceAvailable: root.length > 0,
+      demoted: v1AuthorityDemoted || isV1LocalAuthorityDemoted()
+    })
+  }, [snapshot, workspaceRoot, v1AuthorityDemoted])
 
   useEffect(() => {
     /**
@@ -1352,15 +1543,40 @@ export function useStudySession({
       // Canonical applied — clear any migration prompt.
       setMigrationOffer(null)
       setMigrationError(null)
+      // Offer demote when sole-read applied + V1 still co-caches (never auto-erase).
+      if (
+        !v1DemoteDismissedRef.current &&
+        !isV1LocalAuthorityDemoted() &&
+        canOfferV1Demote({
+          migrationCommitted: migrationCommittedThisSessionRef.current,
+          hydrateApplied: true,
+          canonicalTaskCount: result.snapshot.tasks.length,
+          hostTaskCount: snapshotRef.current.tasks.length,
+          workspaceAvailable: true,
+          alreadyDemoted: false
+        })
+      ) {
+        const cats = readStudyTaskCategories()
+        setV1DemoteOffer({
+          taskCount: Math.max(result.snapshot.tasks.length, snapshotRef.current.tasks.length),
+          timerPlanCount: snapshotRef.current.timerPlans.length,
+          categoryCount: cats.length,
+          reason: migrationCommittedThisSessionRef.current ? 'post_migrate' : 'post_hydrate'
+        })
+        setV1DemoteError(null)
+      }
       // Always refresh blocks + timerSessions + prefs on successful read (even if task list race-skips).
       setScheduleBlocks(result.scheduleBlocks.slice())
       setTimerSessions(result.timerSessions.slice())
       setDefaultTimerPlanId(result.defaultTimerPlanId)
       setEmptyStartPolicy(result.emptyStartPolicy)
       setClassificationPromptOptOut(result.classificationPromptOptOut)
+      setRecurrenceRules(result.recurrenceRules.slice())
       if (result.categories) {
         setCanonicalCategories(result.categories)
-        persistStudyTaskCategories(result.categories)
+        if (!(v1AuthorityDemoted || isV1LocalAuthorityDemoted())) {
+          persistStudyTaskCategories(result.categories)
+        }
       }
       // STC-206: cold-start reattach of durable open TimerSession (running/paused/needs_reconcile).
       // Fail-closed if local UI already owns a live session (no clobber mid-run).
@@ -1524,6 +1740,23 @@ export function useStudySession({
     }
     // handleTimerWakeSignal closes over stable refs; re-bind only on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional mount-only wake listeners
+  }, [])
+
+  /**
+   * ADR-0129 OS bridge: main powerMonitor suspend/resume -> existing wake path.
+   * Thin subscribe only; pin stays renderer dual-write (no main sole-writer).
+   */
+  useEffect(() => {
+    const api =
+      typeof window !== 'undefined'
+        ? (window.teachingSystem as SystemPowerSubscribeApi | undefined)
+        : undefined
+    return subscribePlanningTimerOsPower({
+      api,
+      onWake: handleTimerWakeSignal
+    })
+    // handleTimerWakeSignal closes over stable refs; re-bind only on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional mount-only OS power subscribe
   }, [])
 
   useEffect(() => {
@@ -1767,7 +2000,34 @@ export function useStudySession({
     ).then(reportPlanningWrite)
   }
 
-
+  /**
+   * STC-703: full-replace durable recurrenceRules (sole-read mirror + set_preferences).
+   * Prefer re-read mirror from dual-write snapshot when present (same pattern as other prefs).
+   * Explicit host/page save only — never auto-expand / silent invent.
+   * Returns true only on canonical_ok (or skipped with optimistic local mirror when no workspace).
+   */
+  const setRecurrenceRulesPreference = async (
+    rules: readonly RecurrenceRule[]
+  ): Promise<boolean> => {
+    const next = Array.isArray(rules) ? rules.slice() : []
+    setRecurrenceRules(next)
+    const result = await dualWriteSetPreferences(resolvePlanningContext(), {
+      recurrenceRules: next
+    })
+    reportPlanningWrite(result)
+    if (result.kind === 'canonical_ok') {
+      const fromSnap = result.result.snapshot?.preferences?.recurrenceRules
+      if (Array.isArray(fromSnap)) {
+        setRecurrenceRules(fromSnap.slice())
+      }
+      return true
+    }
+    if (result.kind === 'canonical_skipped') {
+      // No workspace/API — local mirror only; page may still show fail for durable save.
+      return false
+    }
+    return false
+  }
 
   const toggleContract = (): void => {
     const current = snapshotRef.current
@@ -2767,19 +3027,13 @@ export function useStudySession({
    * STC-308: confirm AllocationProposal apply (append-only blocks via dual-write).
    * Host builds preview with pure planning-allocation-proposal-ui; this only writes.
    */
-  const applyAllocationProposal = async (input: {
-    blocks: readonly AllocationApplyBlock[]
-    planId?: string | null
-    planRevision?: number
-    idPrefix?: string
-  }): Promise<boolean> => {
+  const applyAllocationProposal = async (input: AllocationProposalApplyInput): Promise<boolean> => {
     if (!Array.isArray(input.blocks) || input.blocks.length === 0) return false
-    const dw = await dualWriteApplyAllocationProposal(resolvePlanningContext(), {
-      blocks: input.blocks,
-      planId: input.planId,
-      planRevision: input.planRevision,
-      idPrefix: input.idPrefix
-    })
+    // STC-704: stamp host IANA on NEW blocks only via dual-write optional field.
+    const dw = await dualWriteApplyAllocationProposal(
+      resolvePlanningContext(),
+      buildAllocationProposalDualWriteInput(input)
+    )
     reportPlanningWrite(dw)
     if (dw.kind === 'canonical_ok' && dw.result.snapshot?.scheduleBlocks) {
       const next = dw.result.snapshot.scheduleBlocks.slice()
@@ -2867,6 +3121,9 @@ export function useStudySession({
     setEmptyStartPolicyPreference,
     classificationPromptOptOut,
     setClassificationPromptOptOutPreference,
+    /** STC-703: sole-read preferences.recurrenceRules for schedule host wire. */
+    recurrenceRules,
+    setRecurrenceRulesPreference,
     addTask,
     addScheduledTask,
     updateTask,
@@ -2899,6 +3156,13 @@ export function useStudySession({
     migrationBusy,
     migrationError,
     confirmMigrationOffer,
-    dismissMigrationOffer
+    dismissMigrationOffer,
+    /** Sole-authority demote sheet offer (null when none). */
+    v1DemoteOffer,
+    v1DemoteBusy,
+    v1DemoteError,
+    v1AuthorityDemoted,
+    confirmV1DemoteOffer,
+    dismissV1DemoteOffer
   }
 }

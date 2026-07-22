@@ -1,14 +1,9 @@
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { findExplicitAgentConversationJsonRelativePath, readRawAgentConversationRecord } from '../../src/main/teaching-agent-conversations'
-import {
-  getContainedDurableDirectoryCapability,
-  resolveContainedDurableReplaceAddonPath
-} from '../../src/main/persistence/contained-durable-directory'
 import {
   agentConversationSummaryProjectionRelativePath,
   projectAgentConversationSummaries,
@@ -27,43 +22,18 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
-describe('C-2C native capability and descriptor-relative security proof', () => {
-  it('resolves packaged resources explicitly, resolves unpackaged builds from their app root, and reports Windows capability without loading', async () => {
-    const root = await temporaryRoot()
-    const moduleDirectory = join(root, 'out', 'main', 'persistence')
-    await mkdir(moduleDirectory, { recursive: true })
-    await writeFile(join(root, 'package.json'), '{\"name\":\"fixture\"}\n')
-
-    expect(resolveContainedDurableReplaceAddonPath({
-      resourcesPath: '/Applications/StudiumX.app/Contents/Resources',
-      defaultApp: false,
-      projectRoot: '/ignored-for-packaged-runtime'
-    })).toBe(join('/Applications/StudiumX.app/Contents/Resources', 'native', 'contained_durable_replace.node'))
-    expect(resolveContainedDurableReplaceAddonPath({
-      resourcesPath: '/electron-dev/resources',
-      defaultApp: true,
-      projectRoot: root
-    })).toBe(join(root, 'native', 'contained-durable-replace', 'build', 'Release', 'contained_durable_replace.node'))
-    expect(resolveContainedDurableReplaceAddonPath({
-      moduleUrl: pathToFileURL(join(moduleDirectory, 'contained-durable-directory.js')).href
-    })).toBe(join(root, 'native', 'contained-durable-replace', 'build', 'Release', 'contained_durable_replace.node'))
-    expect(getContainedDurableDirectoryCapability({
-      platform: 'win32',
-      resolver: { projectRoot: '/this-must-not-be-loaded-on-windows' }
-    })).toEqual({ available: false, reason: 'unsupported_platform' })
-  })
-
-  it('retains descriptor-relative publication proof without adding a rename-boundary test hook', async () => {
-    const source = await readFile(join(process.cwd(), 'native', 'contained-durable-replace', 'contained_durable_replace.cc'), 'utf8')
-    expect(source).toContain('openat(')
-    expect(source).toContain('renameat(')
-    expect(source).toContain('O_NOFOLLOW')
-    expect(source).toContain('fsync(parent_fd)')
-    expect(source).not.toContain('onRenameBoundary')
-    const loader = await readFile(join(process.cwd(), 'src', 'main', 'persistence', 'contained-durable-directory.ts'), 'utf8')
-    expect(loader).not.toContain('const native = loadNativeContainedDurableReplace()')
+describe('pathname-default durable I/O (ADR-0131)', () => {
+  it('does not ship a native contained_durable_replace stack on the default path', async () => {
+    // Native addon directory was removed (Phase E). Default writes use durable-file pathname temp+rename.
+    await expect(stat(join(process.cwd(), 'native', 'contained-durable-replace'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+    await expect(
+      stat(join(process.cwd(), 'src', 'main', 'persistence', 'contained-durable-directory.ts'))
+    ).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })
+
 
 describe.runIf(process.platform !== 'win32')('agent conversation summary projections', () => {
   it('writes a private deterministic projection without changing canonical JSON, Markdown, audit, or ledger bytes/mtimes', async () => {
@@ -241,8 +211,8 @@ describe.runIf(process.platform !== 'win32')('agent conversation summary project
       { rootPath: root, conversationIds: [archivedId] },
       {
         onOutputDirectoryBound: async () => {
-          // This runs after the publisher has opened and retained the output
-          // directory descriptor, but before it creates its private temp file.
+          // Pathname publisher: after parent mkdir, before private temp creation.
+          // Swapping the parent to a symlink must not publish outside the root.
           await rename(originalStudiumx, heldStudiumx)
           await symlink(outside, originalStudiumx)
         }

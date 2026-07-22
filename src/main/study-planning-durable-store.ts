@@ -28,6 +28,7 @@ import {
 } from '../shared/study-planning/snapshot-wire'
 import {
   readValidatedWithBackup,
+  replaceDurably,
   replaceWithBackup,
   type DurableFileOperations
 } from './persistence/durable-file'
@@ -210,7 +211,6 @@ export class DurableStudyPlanningStore {
         parsed = null
       }
       if (isStudyPlanningSnapshotV1(parsed)) {
-        const { replaceDurably } = await import('./persistence/durable-file')
         await replaceDurably({
           path: migrationBackupPath(this.workspaceRoot, this.nowMs()),
           content: existingContent,
@@ -228,7 +228,6 @@ export class DurableStudyPlanningStore {
       effects: result.effects,
       lastMigration: result.snapshot.localAnalyticsHints?.lastMigration ?? null
     }
-    const { replaceDurably } = await import('./persistence/durable-file')
     await replaceDurably({
       path: migrationReportPath(this.workspaceRoot),
       content: `${JSON.stringify(reportPayload, null, 2)}\n`,

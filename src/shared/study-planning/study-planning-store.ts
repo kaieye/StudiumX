@@ -6,8 +6,15 @@
  */
 
 import type { PlanningTask, ScheduleBlock } from './schedule-block'
-import { proposalBlocksToScheduleBlocks, validateScheduleBlocks } from './schedule-block'
+import {
+  proposalBlocksToScheduleBlocks,
+  resolveScheduleBlockTimeZoneOnWrite,
+  validateScheduleBlocks
+} from './schedule-block'
+import type { RecurrenceRule } from './recurrence'
+import { validateRecurrenceRule } from './recurrence'
 import type { TimerPlanV2 } from './timer-plan'
+import { normalizeTimerPlanV2 } from './timer-plan'
 import type { TimerSessionRecord } from './timer-session-lifecycle'
 import {
   advanceTimerSession,
@@ -53,6 +60,18 @@ export type StudyPlanningPreferencesV1 = {
    */
   simulationStartTime?: string
   simulationEndTime?: string
+  /**
+   * Optional sole-authority demote marker (ms since epoch).
+   * When set, renderer stops treating V1 localStorage as task authority under workspace.
+   * Not a teaching field; optional wire ok (ADR-0117 optional preferences fields).
+   */
+  v1LocalAuthorityDemotedAtMs?: number
+  /**
+   * Optional durable recurrence rule list (STC-703).
+   * Cap + fail-closed normalize on set_preferences; default empty when unset.
+   * Optional wire ok without schemaVersion bump (ADR-0117).
+   */
+  recurrenceRules?: RecurrenceRule[]
 }
 
 export type StudyPlanningSnapshotV1 = {
@@ -226,6 +245,110 @@ export function projectTaskPlanVsActual(input: {
     }
   }
   return { plannedFocusSeconds, actualFocusSeconds, breakSeconds, unattributedFocusSeconds }
+}
+
+/** Max durable recurrence rules kept in preferences (STC-703). */
+export const STUDY_PLANNING_RECURRENCE_RULES_CAP = 32
+
+const RECURRENCE_KIND_SET = new Set(['focus', 'short_break', 'long_break', 'wrap_up'] as const)
+
+/**
+ * Normalize optional preferences.recurrenceRules: cap, dedupe by id, drop invalid.
+ * Fail-closed items are skipped; never invents Task ids.
+ * When input is undefined/null/non-array → empty array.
+ */
+export function normalizePreferencesRecurrenceRules(input: unknown): RecurrenceRule[] {
+  if (!Array.isArray(input)) return []
+  const out: RecurrenceRule[] = []
+  const seen = new Set<string>()
+  for (const raw of input) {
+    if (out.length >= STUDY_PLANNING_RECURRENCE_RULES_CAP) break
+    const rule = coerceRecurrenceRule(raw)
+    if (!rule) continue
+    if (seen.has(rule.id)) continue
+    const validation = validateRecurrenceRule(rule)
+    if (!validation.ok) continue
+    seen.add(rule.id)
+    out.push(rule)
+  }
+  return out
+}
+
+function coerceRecurrenceRule(raw: unknown): RecurrenceRule | null {
+  if (!isObject(raw)) return null
+  const id = asString(raw.id)
+  if (!id) return null
+  const kind = asString(raw.kind)
+  if (!kind || !(RECURRENCE_KIND_SET as Set<string>).has(kind)) return null
+  const frequency = asString(raw.frequency)
+  if (frequency !== 'daily' && frequency !== 'weekly') return null
+  const dtStartMs =
+    typeof raw.dtStartMs === 'number' && Number.isFinite(raw.dtStartMs)
+      ? Math.trunc(raw.dtStartMs)
+      : null
+  const startMinutes =
+    typeof raw.startMinutes === 'number' && Number.isFinite(raw.startMinutes)
+      ? Math.trunc(raw.startMinutes)
+      : null
+  const endMinutes =
+    typeof raw.endMinutes === 'number' && Number.isFinite(raw.endMinutes)
+      ? Math.trunc(raw.endMinutes)
+      : null
+  if (dtStartMs == null || startMinutes == null || endMinutes == null) return null
+
+  let taskId: string | null = null
+  if (raw.taskId === null) {
+    taskId = null
+  } else if (typeof raw.taskId === 'string') {
+    const t = raw.taskId.trim()
+    taskId = t || null
+  } else if (raw.taskId !== undefined) {
+    return null
+  }
+
+  const rule: RecurrenceRule = {
+    id,
+    taskId,
+    kind: kind as RecurrenceRule['kind'],
+    frequency,
+    dtStartMs,
+    startMinutes,
+    endMinutes
+  }
+
+  if (Array.isArray(raw.byWeekday)) {
+    const dayOut: number[] = []
+    for (const d of raw.byWeekday) {
+      if (typeof d !== 'number' || !Number.isFinite(d)) continue
+      const w = Math.trunc(d)
+      if (w < 0 || w > 6) continue
+      if (!dayOut.includes(w)) dayOut.push(w)
+    }
+    if (dayOut.length > 0) {
+      rule.byWeekday = dayOut as RecurrenceRule['byWeekday']
+    }
+  }
+
+  if (raw.untilMs === null) {
+    rule.untilMs = null
+  } else if (typeof raw.untilMs === 'number' && Number.isFinite(raw.untilMs)) {
+    rule.untilMs = Math.trunc(raw.untilMs)
+  }
+
+  if (raw.count === null) {
+    rule.count = null
+  } else if (typeof raw.count === 'number' && Number.isFinite(raw.count)) {
+    rule.count = Math.trunc(raw.count)
+  }
+
+  if (typeof raw.locked === 'boolean') rule.locked = raw.locked
+  if (typeof raw.expandAsLocked === 'boolean') rule.expandAsLocked = raw.expandAsLocked
+  if (typeof raw.planId === 'string' && raw.planId.trim()) rule.planId = raw.planId.trim()
+  if (typeof raw.planRevision === 'number' && Number.isFinite(raw.planRevision)) {
+    rule.planRevision = Math.trunc(raw.planRevision)
+  }
+
+  return rule
 }
 
 export type StudyPlanningStoreOptions = {
@@ -452,15 +575,25 @@ export class StudyPlanningStore {
         case 'save_timer_plan': {
           const p = command.payload
           if (!isObject(p) || !isObject(p.plan)) throw fail('invalid_command', 'save_timer_plan.plan required')
-          const plan = p.plan as TimerPlanV2
-          if (!plan.id?.trim()) throw fail('invalid_command', 'plan.id required')
+          const rawPlan = p.plan as TimerPlanV2
+          if (!rawPlan.id?.trim()) throw fail('invalid_command', 'plan.id required')
           // STC-501: system builtin identity is read-only; force copy path for edits.
-          if (isBuiltinTimerPlanId(plan.id)) {
+          if (isBuiltinTimerPlanId(rawPlan.id)) {
             throw fail(
               'invariant_violation',
               'System builtin plans are read-only; copy then edit the custom copy'
             )
           }
+          // STC-702: fail-closed normalize (custom_rhythm sequence + primary fields).
+          const normalized = normalizeTimerPlanV2(rawPlan)
+          if (!normalized.ok) {
+            throw fail(
+              'invalid_command',
+              `save_timer_plan.plan invalid: ${normalized.issues.map((i) => i.message).join('; ')}`,
+              { issues: normalized.issues }
+            )
+          }
+          const plan = normalized.plan
           const others = next.timerPlans.filter((x) => x.id !== plan.id)
           if (others.length + 1 > 12) {
             throw fail('invariant_violation', 'timer plan limit 12; refuse silent truncate')
@@ -570,11 +703,14 @@ export class StudyPlanningStore {
           if (!isObject(p) || !Array.isArray(p.blocks)) {
             throw fail('invalid_command', 'apply_allocation_proposal.blocks required')
           }
+          const hostStamp =
+            asString(p.timeZone) ?? asString(p.hostTimeZone) ?? undefined
           const drafts = proposalBlocksToScheduleBlocks({
             blocks: p.blocks as Parameters<typeof proposalBlocksToScheduleBlocks>[0]['blocks'],
             planId: asString(p.planId),
             planRevision: typeof p.planRevision === 'number' ? p.planRevision : undefined,
-            idPrefix: asString(p.idPrefix) ?? 'alloc'
+            idPrefix: asString(p.idPrefix) ?? 'alloc',
+            ...(hostStamp ? { hostTimeZone: hostStamp } : {})
           })
           // Never move locked existing blocks: drop proposal pieces that overlap locked.
           const locked = next.scheduleBlocks.filter((b) => b.locked)
@@ -602,8 +738,23 @@ export class StudyPlanningStore {
           if (!isObject(p) || !isObject(p.block)) throw fail('invalid_command', 'upsert_schedule_block.block required')
           const block = p.block as ScheduleBlock
           if (!block.id?.trim()) throw fail('invalid_command', 'block.id required')
-          const without = next.scheduleBlocks.filter((b) => b.id !== block.id)
-          const merged = [...without, block]
+          const existingBlock = next.scheduleBlocks.find((b) => b.id === block.id)
+          // STC-704: never overwrite existing timeZone (no silent rezone). Stamp host only when
+          // existing had none and payload/host provides a valid zone.
+          const hostStamp = asString(p.hostTimeZone) ?? asString(p.timeZone)
+          const resolvedZone = resolveScheduleBlockTimeZoneOnWrite({
+            existingTimeZone: existingBlock?.timeZone,
+            incomingTimeZone: block.timeZone,
+            hostTimeZone: hostStamp
+          })
+          const finalBlock: ScheduleBlock = resolvedZone
+            ? { ...block, timeZone: resolvedZone }
+            : (() => {
+                const { timeZone: _omit, ...rest } = block
+                return rest as ScheduleBlock
+              })()
+          const without = next.scheduleBlocks.filter((b) => b.id !== finalBlock.id)
+          const merged = [...without, finalBlock]
           const validation = validateScheduleBlocks(merged)
           if (!validation.ok) {
             throw fail('invariant_violation', 'schedule validation failed', {
@@ -794,6 +945,29 @@ export class StudyPlanningStore {
               if (typeof p.simulationEndTime !== 'string') return {}
               const end = normalizeHmLabel(p.simulationEndTime)
               return end ? { simulationEndTime: end } : {}
+            })(),
+            // Optional demote marker — number > 0 only; never invent erase of V1 from store.
+            ...(typeof p.v1LocalAuthorityDemotedAtMs === 'number' &&
+            Number.isFinite(p.v1LocalAuthorityDemotedAtMs) &&
+            p.v1LocalAuthorityDemotedAtMs > 0
+              ? { v1LocalAuthorityDemotedAtMs: Math.floor(p.v1LocalAuthorityDemotedAtMs) }
+              : {}),
+            // Optional durable recurrence rules (STC-703). Full replace when provided.
+            // Fail-closed: non-array → invalid_command; invalid items dropped via normalize.
+            ...(() => {
+              if (!('recurrenceRules' in p)) return {}
+              if (p.recurrenceRules == null) {
+                return { recurrenceRules: [] as RecurrenceRule[] }
+              }
+              if (!Array.isArray(p.recurrenceRules)) {
+                throw fail(
+                  'invalid_command',
+                  'set_preferences.recurrenceRules must be an array when provided'
+                )
+              }
+              return {
+                recurrenceRules: normalizePreferencesRecurrenceRules(p.recurrenceRules)
+              }
             })()
           }
           break
@@ -959,3 +1133,5 @@ function fail(
 ): StudyPlanningError {
   return details ? { code, message, details } : { code, message }
 }
+
+

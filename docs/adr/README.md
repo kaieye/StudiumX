@@ -21,7 +21,8 @@
 | 已覆盖持久化链如何关联 trace，同时保持日志安全 | ADR-0005 |
 | Memory 数据如何按范围隔离，以及能否迁移旧数据 | ADR-0006、ADR-0038 |
 | 用户是否可自行配置 MCP server；与 marketplace / P2-6 旧禁令关系 | [ADR-0127](0127-user-configurable-mcp-design-gate.md)（政策 design gate）+ [ADR-0128](0128-user-configurable-mcp-implementation.md)（实现合同 / 分 phase；默认 off；仍无 marketplace） |
-| Windows / 跨平台 I/O 如何按 Codex 式 profile 分层，memory 与聊天热路径如何迁移 | [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)（**已实施 / 分 phase 结项**；Windows memory direct-path non-CAS + registry；outcome/audit Windows 仍 unavailable） |
+| Windows / 跨平台 I/O 如何按 Codex 式 profile 分层，memory 与聊天热路径如何迁移 | [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)（**已实施 / 分 phase 结项**；历史 dual-profile；**默认写模型**见 [ADR-0131](0131-pathname-default-durable-io.md)） |
+| 默认 durable 写盘模型（pathname temp+rename；native 非默认） | [ADR-0131](0131-pathname-default-durable-io.md)（**已实施** 2026-07-22；迁移见 `docs/migrations/simplify-durable-io-toward-codex.md`） |
 | 新持久化 conversation/history 如何先经脱敏 | ADR-0007 |
 | 哪些本地数据能力仍未完成 / 延期 | 当前无开放实现切片；C-6 destructive 延期见 ADR-0038 |
 | P0 教学 Session 如何成为 canonical 事实，而非 Agent run 或 Lesson 目录 | ADR-0008 |
@@ -237,7 +238,7 @@
 | [ADR-0057](0057-provider-bounded-retry-and-shared-budget.md) | Provider bounded retry + shared budget | A-05：`provider-retry.ts` full-jitter；loop 对 retryable 错误有界重试；计入 maxProviderCalls；`auto_retry_*` 诊断；billing/auth/length/overflow 永不重试。 |
 | [ADR-0052](0052-provider-error-and-recovery-taxonomy.md) | Provider error UX + recovery taxonomy | UX 四类保留；`quota exceeded`/billing → `insufficient_balance` 不再进 `rate_limit`；`classifyProviderRecovery` 纯函数导出 retryable/shouldCompress/shouldFallback（未接线 retry）。 |
 | [ADR-0125](0125-provider-overflow-patterns-and-silent-heuristics.md) | Provider overflow patterns + silent heuristics | 见上表 ADAPT-P1；扩展 0052 的 context_overflow 文本/静默检测，不改变 flags。 |
-| [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md) | Codex 式平台能力分层与 consumer 迁移 | **已实施（分 phase）**：PlatformIoProfile registry + chat hot-path degrade + Windows memory `windows_direct_path_non_cas` 读写；doctor/Settings 诚实投影；outcome/audit Windows 保持 unavailable。不重开 Windows strict；不引入 danger-full-access / 默认 shell。 |
+| [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md) | Codex 式平台能力分层与 consumer 迁移 | **已实施（分 phase）**：PlatformIoProfile registry + chat hot-path degrade + Windows memory `windows_direct_path_non_cas` 读写；doctor/Settings 诚实投影；outcome/audit Windows 保持 unavailable。不重开 Windows strict；不引入 danger-full-access / 默认 shell。**默认写模型**由 [ADR-0131](0131-pathname-default-durable-io.md) supersede。 |
 | [ADR-0127](0127-user-configurable-mcp-design-gate.md) | 用户可配置 MCP design gate | **决策冻结 / 未实施**：允许用户 opt-in 配置用户指定 MCP server；默认 off；无 marketplace；effect lattice + settlement 不变量；实现须另立 ADR。 |
 | [ADR-0128](0128-user-configurable-mcp-implementation.md) | 用户可配置 MCP 实现合同 | **实现合同 / 分 phase**：UserMcpConfigV1 路径与 schema；stdio 先；`mcp__server__tool`；默认 privileged；IPC `teach:mcp-*`；A–D 门槛；无 marketplace。 |
 | [ADR-0053](0053-agents-md-security-suite-and-testing-doctrine.md) | 根 AGENTS.md + security suite + 测试教条 | SECURITY_CHECKS 纳入 external-content boundary；根 AGENTS 命令图/红线/改哪测哪；testing.md L0/L1/L2/L4；不替代 ADR、不扩 Blocking CI。 |
@@ -258,6 +259,7 @@
 | [ADR-0117](0117-study-planning-store-paths-and-wire.md) | Study planning store paths / wire v1 | 冻结 `.studiumx/study-planning/` 布局、`schemaVersion: 1`、Store 命令信封与错误码、V1→V2 dry-run/fail-closed 迁移；**本 ADR 无生产写路径**；实现须另 PR。 |
 | [ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md) | Study planning renderer cutover + sole-authority | **已实施沉淀**：dual-write 写 canonical + sole-read hydrate；TimerSession 为 segment-close analytics / live focus 秒权威；迁移 fail-closed 且不自动擦除 localStorage；sleep 用 renderer visibility/pagehide，main powerMonitor 延期；**不**宣称 §18 完成；**不**超出 ADR-0117 再冻路径。 |
 | [ADR-0130](0130-study-planning-phase7-and-completion-residual.md) | Study planning Phase 7 高级排程 + §18 residual 政策 | **决策冻结**（2026-07-22）：STC-702 pure-sequence-first / UI 延期；STC-703 pure expand；STC-704 pure TZ/DST helpers；**路线图完成 ≠ §18 产品完成**；V1 并存 / powerMonitor / 深度 conflict resolve 等 residual 带触发条件 |
+| [ADR-0131](0131-pathname-default-durable-io.md) | 默认 durable I/O = 可信 root pathname 写 | **已实施**（2026-07-22）：temp→write→可选 fsync→rename；native `contained_durable_replace` 已删且非默认；**不**宣称 CAS/power-loss；supersede ADR-0126 **默认** dual-profile 权威；workspace/memory/projection 统一 pathname。 |
 | [ADR-0078](0078-workspace-host-port.md) | WorkspaceHost 薄端口 + 轻量 import 门 | S-02：src/main/workspace-host/* 委托 path-access/paths/access；依赖方向 tools→port→path；check:workspace-host-imports 可选、**不**进 Blocking CI；**不** peel teaching-workspace。 |
 | [ADR-0080](0080-teaching-turn-review-finalize-wire.md) | Teaching-turn review finalize wire | Orchestrator 可选 post-finalize review hook；candidates only；hook 错误 fail-soft 保 settlement；无 coordinator/UI/auto-apply。 |
 | [ADR-0081](0081-memory-sanitize-non-recall-paths.md) | Memory sanitize non-recall paths | ADR-0076 residual：lesson prompts + memory-tools 注入边界消毒；storage raw；无 FTS5 / 无自动 memory。 |

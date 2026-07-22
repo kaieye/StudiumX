@@ -12,8 +12,11 @@
 import {
   createClassicPomodoroPlan,
   createContinuousCountupPlan,
+  createCustomRhythmPlan,
+  sumCustomRhythmMinutes,
   TIMER_PLAN_SEED_DEFAULTS,
   type BreakPolicy,
+  type CustomRhythmStep,
   type TimerClockMode,
   type TimerPlanKind,
   type TimerPlanV2
@@ -36,7 +39,7 @@ export type NormalizeTimerPlanKindResult = {
   warnings: Array<{ code: string; message: string; field?: string }>
 }
 
-const KIND_SET = new Set<StudyTimerPlanKind>(['pomodoro', 'continuous'])
+const KIND_SET = new Set<StudyTimerPlanKind>(['pomodoro', 'continuous', 'custom_rhythm'])
 const CLOCK_SET = new Set<StudyTimerClockMode>(['countdown', 'countup'])
 const CONTINUOUS_BREAK_SET = new Set<ContinuousBreakPolicy>([
   'automatic',
@@ -80,10 +83,10 @@ export function normalizeTimerPlanKindFields(
     clockMode = 'countdown'
   }
 
-  if (kind === 'pomodoro' && clockMode === 'countup') {
+  if ((kind === 'pomodoro' || kind === 'custom_rhythm') && clockMode === 'countup') {
     warnings.push({
       code: 'pomodoro_clock_mode_coerced',
-      message: 'pomodoro plans use countdown; clockMode coerced',
+      message: 'pomodoro/custom_rhythm plans use countdown; clockMode coerced',
       field: 'clockMode'
     })
     clockMode = 'countdown'
@@ -124,7 +127,8 @@ export const TIMER_PLAN_KIND_OPTIONS: readonly {
   label: string
 }[] = [
   { value: 'pomodoro', label: '番茄循环' },
-  { value: 'continuous', label: '连续专注' }
+  { value: 'continuous', label: '连续专注' },
+  { value: 'custom_rhythm', label: '自定义节奏' }
 ] as const
 
 export function defaultContinuousBreakPolicy(): ContinuousBreakPolicy {
@@ -209,6 +213,37 @@ export function projectV1TimerPlanToV2(plan: StudyTimerPlan): TimerPlanV2 {
     })
   }
 
+  if (kind === 'custom_rhythm') {
+    const sequence = Array.isArray(plan.rhythmSequence)
+      ? (plan.rhythmSequence as CustomRhythmStep[])
+      : []
+    const advanced = normalizeTimerPlanAdvancedFields({
+      longBreakMinutes: plan.longBreakMinutes,
+      longBreakEvery: plan.longBreakEvery,
+      breakPolicy: plan.breakPolicy
+    }).fields
+    const created = createCustomRhythmPlan({
+      id: plan.id,
+      name: plan.name,
+      sequence,
+      overrides: {
+        breakPolicy: advanced.breakPolicy,
+        ...(plan.focusMinutes > 0 ? { focusMinutes: plan.focusMinutes } : {}),
+        ...(plan.breakMinutes > 0 ? { shortBreakMinutes: plan.breakMinutes } : {}),
+        ...(advanced.longBreakMinutes !== undefined
+          ? { longBreakMinutes: advanced.longBreakMinutes }
+          : {})
+      }
+    })
+    if (!created.ok) {
+      // Fail-closed: refuse silent demote to pomodoro; throw for dual-write callers.
+      throw new Error(
+        `custom_rhythm sequence invalid: ${created.issues.map((i) => i.message).join('; ')}`
+      )
+    }
+    return created.plan
+  }
+
   const advanced = normalizeTimerPlanAdvancedFields({
     longBreakMinutes: plan.longBreakMinutes,
     longBreakEvery: plan.longBreakEvery,
@@ -257,6 +292,29 @@ export function projectV2TimerPlanToV1(
     }
   }
 
+  if (plan.kind === 'custom_rhythm') {
+    const sequence = Array.isArray(plan.rhythmSequence)
+      ? plan.rhythmSequence.map((s) => ({ kind: s.kind, minutes: s.minutes }))
+      : []
+    return {
+      id: plan.id,
+      name: plan.name,
+      focusMinutes: plan.focusMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes,
+      breakMinutes:
+        plan.shortBreakMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes,
+      simulationStartTime: window?.simulationStartTime ?? '09:00',
+      simulationEndTime: window?.simulationEndTime ?? '12:00',
+      kind: 'custom_rhythm',
+      clockMode: 'countdown',
+      longBreakMinutes: plan.longBreakMinutes ?? advanced.longBreakMinutes,
+      longBreakEvery: advanced.longBreakEvery,
+      breakPolicy: plan.breakPolicy === 'automatic' || plan.breakPolicy === 'ask'
+        ? plan.breakPolicy
+        : advanced.breakPolicy,
+      ...(sequence.length > 0 ? { rhythmSequence: sequence } : {})
+    }
+  }
+
   return {
     id: plan.id,
     name: plan.name,
@@ -283,6 +341,7 @@ export function formatTimerPlanKindSummary(
     | 'breakMinutes'
     | 'continuousTarget'
     | 'breakPolicy'
+    | 'rhythmSequence'
   >
 ): string {
   if (isOpenContinuous(plan)) return '连续专注 · 正计时'
@@ -293,6 +352,14 @@ export function formatTimerPlanKindSummary(
   if (kind === 'continuous') {
     if (clockMode === 'countup') return `连续专注 · 目标 ${plan.focusMinutes} 分钟`
     return `连续专注 · 倒计时 ${plan.focusMinutes} 分钟`
+  }
+  if (kind === 'custom_rhythm') {
+    const seq = Array.isArray(plan.rhythmSequence) ? plan.rhythmSequence : []
+    if (seq.length > 0) {
+      const total = sumCustomRhythmMinutes(seq).totalMinutes
+      return `自定义 · ${seq.length} 步 · ${total} 分`
+    }
+    return '自定义节奏'
   }
   return `${plan.focusMinutes} / ${plan.breakMinutes} 分钟`
 }
@@ -346,4 +413,28 @@ export function isOpenContinuousPlanV2(plan: TimerPlanV2): boolean {
     plan.clockMode === 'countup' &&
     plan.focusMinutes == null
   )
+}
+
+
+/** Validate custom_rhythm draft for save (ordered sequence, fail-closed). */
+export function isValidCustomRhythmPlanDraft(draft: {
+  name?: string
+  rhythmSequence?: readonly CustomRhythmStep[] | null
+  simulationStartTime?: string
+  simulationEndTime?: string
+}): boolean {
+  const name = typeof draft.name === 'string' ? draft.name.trim() : ''
+  if (!name) return false
+  const start = draft.simulationStartTime ?? ''
+  const end = draft.simulationEndTime ?? ''
+  if (start && end && start >= end) return false
+  // Lazy import-free: use createCustomRhythmPlan for fail-closed sequence check.
+  const seq = draft.rhythmSequence
+  if (!Array.isArray(seq) || seq.length === 0) return false
+  const created = createCustomRhythmPlan({
+    id: 'draft-validate',
+    name,
+    sequence: seq
+  })
+  return created.ok
 }

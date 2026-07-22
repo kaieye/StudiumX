@@ -19,7 +19,7 @@ import type {
   StudyTaskScheduleInput,
   StudyTaskUpdateInput
 } from '../../study-space/types'
-import { createClassicPomodoroPlan, type ScheduleBlock } from '../../../../shared/study-planning'
+import { createClassicPomodoroPlan, type RecurrenceRule, type ScheduleBlock } from '../../../../shared/study-planning'
 import { projectWeekScheduleEntriesFromHost } from '../../study-space/planning-schedule-block-adapter'
 import {
   resolveLocalDayBounds,
@@ -36,12 +36,25 @@ import {
   type AllocationProposalSheetResult
 } from './AllocationProposalPreviewSheet'
 import { StudyTaskMultiBlockSection } from './StudyTaskMultiBlockSection'
+import { RecurrenceRuleEditor } from './RecurrenceRuleEditor'
+import {
+  defaultWeekExpandWindow,
+  dualWriteApplyExpandedRecurrenceBlocks
+} from '../../study-space/planning-recurrence-expand'
 import { StudyTaskDetailStatsSection } from './StudyTaskDetailStatsSection'
 import { StudyScheduleConflictsBanner } from './StudyScheduleConflictsBanner'
 import {
   projectScheduleConflictsBanner,
   shouldShowScheduleConflictsBanner
 } from '../../study-space/planning-schedule-conflicts-ui'
+import {
+  applyConflictResolveMovesAndRefresh,
+  applyMovesToLocalBlocks,
+  buildConflictResolvePreviewModel,
+  shouldClearScheduleBlocksOverride,
+  shouldWireConflictResolveCta
+} from '../../study-space/planning-schedule-conflict-resolve-host'
+import type { ProposedBlockMove } from '../../../../shared/study-planning'
 import { normalizeEstimateMinutesInput } from '../../study-space/planning-task-detail-stats'
 import {
   addStudyTaskCategory,
@@ -77,7 +90,13 @@ import {
 import { layoutDayTasks, type ScheduledStudyTask } from './study-task-schedule-layout'
 
 /** Week chip may carry the real ScheduleBlock id (STC-307 multi-block). */
-type WeekChipTask = ScheduledStudyTask & { scheduleBlockId?: string }
+type WeekChipTask = ScheduledStudyTask & {
+  scheduleBlockId?: string
+  /** Overnight slice index when parent crosses midnight (STC-704). */
+  sliceIndex?: number
+  /** Labels-only zone mismatch tooltip (STC-704). */
+  zoneTooltip?: string
+}
 
 type StudyTaskSchedulePageProps = {
   tasks: StudyTask[]
@@ -104,6 +123,16 @@ type StudyTaskSchedulePageProps = {
   scheduleBlocks?: readonly ScheduleBlock[] | null
   /** Optional canonical planning context for categories dual-write. */
   planningContext?: CanonicalPlanningContext | null
+  /**
+   * Durable preferences.recurrenceRules from canonical snapshot (STC-703).
+   * Passed into RecurrenceRuleEditor for load + dual-write save.
+   */
+  recurrenceRules?: readonly RecurrenceRule[] | null
+  /**
+   * Host-owned set_preferences dual-write + sole-read re-read (STC-703 host wire).
+   * When provided, preferred over page-local dualWriteSetPreferences so session mirror stays current.
+   */
+  onSaveRecurrenceRules?: (rules: readonly RecurrenceRule[]) => Promise<boolean> | boolean
   /**
    * Sole-read categories from hydrate (when present).
    * When provided, replaces initial localStorage catalog on mount/update.
@@ -586,6 +615,8 @@ export function StudyTaskSchedulePage({
   onEditorDismiss,
   scheduleBlocks = null,
   planningContext = null,
+  recurrenceRules = null,
+  onSaveRecurrenceRules,
   canonicalCategories = null,
   onCreateFocusBlock,
   onDeleteScheduleBlock,
@@ -605,6 +636,10 @@ export function StudyTaskSchedulePage({
   const [allocationPreviewBusy, setAllocationPreviewBusy] = useState(false)
   /** STC-707: dismiss fingerprint for current conflict set (null = not dismissed). */
   const [conflictsDismissedKey, setConflictsDismissedKey] = useState<string | null>(null)
+  /** STC-707: local scheduleBlocks override after opt-in resolve apply (until parent prop catches up). */
+  const [scheduleBlocksOverride, setScheduleBlocksOverride] = useState<ScheduleBlock[] | null>(null)
+  const [resolveApplying, setResolveApplying] = useState(false)
+  const [resolveApplyError, setResolveApplyError] = useState('')
   const [editor, setEditor] = useState<TaskEditorState | null>(null)
   const [editorError, setEditorError] = useState('')
   const [draftTask, setDraftTask] = useState<DraftTaskState | null>(null)
@@ -631,10 +666,26 @@ export function StudyTaskSchedulePage({
   const taskDragRef = useRef<TaskDragState | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
   const weekAnchorMidnightMs = useMemo(() => resolveLocalWeekAnchorMidnightMs(), [])
+
+  // STC-707: prefer local override after opt-in resolve so week chips refresh before parent re-hydrate.
+  const effectiveScheduleBlocks = scheduleBlocksOverride ?? scheduleBlocks
+
+  useEffect(() => {
+    if (!scheduleBlocksOverride) return
+    if (
+      shouldClearScheduleBlocksOverride({
+        override: scheduleBlocksOverride,
+        parent: scheduleBlocks
+      })
+    ) {
+      setScheduleBlocksOverride(null)
+    }
+  }, [scheduleBlocks, scheduleBlocksOverride])
+
   const scheduledTasks = useMemo((): WeekChipTask[] => {
     const entries = projectWeekScheduleEntriesFromHost({
       tasks,
-      scheduleBlocks,
+      scheduleBlocks: effectiveScheduleBlocks,
       weekAnchorMidnightMs
     })
     if (entries.length > 0) {
@@ -645,31 +696,84 @@ export function StudyTaskSchedulePage({
         done: entry.done,
         ...(entry.categoryId ? { categoryId: entry.categoryId } : {}),
         schedule: entry.schedule,
-        scheduleBlockId: entry.blockId
+        scheduleBlockId: entry.blockId,
+        ...(entry.sliceIndex !== undefined ? { sliceIndex: entry.sliceIndex } : {}),
+        ...(entry.zoneTooltip ? { zoneTooltip: entry.zoneTooltip } : {})
       }))
     }
     return tasks.filter(hasSchedule).map((task) => ({
       ...task,
       schedule: task.schedule
     }))
-  }, [tasks, scheduleBlocks, weekAnchorMidnightMs])
+  }, [tasks, effectiveScheduleBlocks, weekAnchorMidnightMs])
 
   const conflictsBannerModel = useMemo(
     () =>
       projectScheduleConflictsBanner({
-        scheduleBlocks,
+        scheduleBlocks: effectiveScheduleBlocks,
         tasks: tasks.map((task) => ({
           id: task.id,
           title: task.title,
           done: task.done
         }))
       }),
-    [scheduleBlocks, tasks]
+    [effectiveScheduleBlocks, tasks]
   )
   const showConflictsBanner = shouldShowScheduleConflictsBanner({
     model: conflictsBannerModel,
     dismissedKey: conflictsDismissedKey
   })
+
+  /** Opt-in resolve preview; null when list-only (no conflicts / no CTA wire). */
+  const resolvePreview = useMemo(() => {
+    if (
+      !shouldWireConflictResolveCta({
+        hasPlanningContext: Boolean(planningContext),
+        hasConflicts:
+          conflictsBannerModel.kind === 'conflicts' && conflictsBannerModel.conflictCount > 0
+      })
+    ) {
+      return null
+    }
+    return buildConflictResolvePreviewModel({
+      scheduleBlocks: effectiveScheduleBlocks,
+      hasConflicts: true
+    })
+  }, [
+    planningContext,
+    conflictsBannerModel.kind,
+    conflictsBannerModel.conflictCount,
+    effectiveScheduleBlocks
+  ])
+
+  const handleApplyConflictResolve = async (
+    moves: readonly ProposedBlockMove[]
+  ): Promise<void> => {
+    if (!planningContext || resolveApplying) return
+    if (!moves.length) return
+    setResolveApplying(true)
+    setResolveApplyError('')
+    try {
+      const result = await applyConflictResolveMovesAndRefresh(planningContext, { moves })
+      if (result.ok) {
+        setScheduleBlocksOverride(result.scheduleBlocks)
+        setConflictsDismissedKey(null)
+        setResolveApplyError('')
+        return
+      }
+      if (result.kind === 'refresh_failed' && result.applied > 0) {
+        // Write landed; fail-soft local patch so UI is not stuck on stale conflicts.
+        const base = effectiveScheduleBlocks ?? []
+        setScheduleBlocksOverride(applyMovesToLocalBlocks(base, moves))
+        setConflictsDismissedKey(null)
+      }
+      setResolveApplyError(result.message)
+    } catch (error) {
+      setResolveApplyError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setResolveApplying(false)
+    }
+  }
 
   const layoutsByDay = useMemo(() => {
     return weekDays.map((_, dayIndex) => layoutDayTasks(scheduledTasks.filter((task) => task.schedule.weekday === dayIndex)))
@@ -1266,7 +1370,7 @@ export function StudyTaskSchedulePage({
             {editor.mode === 'edit' ? (
               <StudyTaskDetailStatsSection
                 taskId={editor.taskId}
-                scheduleBlocks={scheduleBlocks}
+                scheduleBlocks={effectiveScheduleBlocks}
                 timerSessions={timerSessions}
                 estimateMinutes={normalizeEstimateMinutesInput(editor.estimateDraft ?? '')}
                 estimateDraft={editor.estimateDraft ?? ''}
@@ -1282,7 +1386,7 @@ export function StudyTaskSchedulePage({
             {editor.mode === 'edit' ? (
               <StudyTaskMultiBlockSection
                 taskId={editor.taskId}
-                scheduleBlocks={scheduleBlocks}
+                scheduleBlocks={effectiveScheduleBlocks}
                 selectedBlockId={editor.scheduleBlockId}
                 currentSchedule={editor.schedule}
                 weekAnchorMidnightMs={weekAnchorMidnightMs}
@@ -1323,6 +1427,59 @@ export function StudyTaskSchedulePage({
                     return current
                   })
                 }}
+              />
+            ) : null}
+            {editor.mode === 'edit' && planningContext ? (
+              <RecurrenceRuleEditor
+                taskId={editor.taskId}
+                schedule={editor.schedule}
+                dtStartMs={weekAnchorMidnightMs}
+                expandWindow={defaultWeekExpandWindow(weekAnchorMidnightMs)}
+                existingBlocks={effectiveScheduleBlocks}
+                recurrenceRules={recurrenceRules}
+                onSaveRules={async (rules) => {
+                  if (onSaveRecurrenceRules) {
+                    const ok = await Promise.resolve(onSaveRecurrenceRules(rules))
+                    if (ok) {
+                      setEditorError('')
+                      return true
+                    }
+                    setEditorError('无法保存规则：缺少工作区或规划 API')
+                    return false
+                  }
+                  const result = await dualWriteSetPreferences(planningContext, {
+                    recurrenceRules: [...rules]
+                  })
+                  if (result.kind === 'canonical_ok') {
+                    setEditorError('')
+                    return true
+                  }
+                  if (result.kind === 'canonical_skipped') {
+                    setEditorError('无法保存规则：缺少工作区或规划 API')
+                    return false
+                  }
+                  setEditorError(result.result.error.message ?? '规则保存失败')
+                  return false
+                }}
+                onConfirmExpand={async (blocks) => {
+                  const result = await dualWriteApplyExpandedRecurrenceBlocks(
+                    planningContext,
+                    blocks
+                  )
+                  if (result.kind === 'canonical_ok' || result.kind === 'partial') {
+                    if (result.applied > 0) {
+                      setEditorError('')
+                      return true
+                    }
+                  }
+                  if (result.kind === 'canonical_skipped') {
+                    setEditorError('无法写入：缺少工作区或规划 API')
+                    return false
+                  }
+                  setEditorError(result.error?.message ?? '展开写入失败')
+                  return false
+                }}
+                onError={setEditorError}
               />
             ) : null}
             <div className="study-schedule-editor-categories">
@@ -1456,7 +1613,7 @@ export function StudyTaskSchedulePage({
       window,
       plan,
       tasks,
-      currentBlocks: scheduleBlocks ?? [],
+      currentBlocks: effectiveScheduleBlocks ?? [],
       nowMs
     })
     setAllocationPreviewModel(model)
@@ -1533,7 +1690,17 @@ export function StudyTaskSchedulePage({
           model={conflictsBannerModel}
           onDismiss={() => setConflictsDismissedKey(conflictsBannerModel.dismissKey)}
           onOpenBlock={openConflictBlock}
+          resolvePreview={resolvePreview}
+          onApplyResolve={
+            resolvePreview && planningContext ? handleApplyConflictResolve : undefined
+          }
+          resolveApplying={resolveApplying}
         />
+      ) : null}
+      {resolveApplyError ? (
+        <p className="study-schedule-conflicts-resolve-error" role="alert">
+          {resolveApplyError}
+        </p>
       ) : null}
 
       <div className="study-schedule-board" role="grid" aria-label="一周 0 点到 24 点任务表">
@@ -1655,7 +1822,7 @@ export function StudyTaskSchedulePage({
                 const isFocusTask = selectedTaskId === task.id
                 return (
                   <div
-                    key={task.scheduleBlockId ?? task.id}
+                    key={`${task.scheduleBlockId ?? task.id}:${task.sliceIndex ?? 0}`}
                     className={`study-schedule-event${task.done ? ' is-done' : ''}${editingTitle ? ' is-editing-title' : ''}${draggingThisTask ? ' is-drag-source' : ''}${isFocusTask ? ' is-focus-task' : ''}`}
                     role="button"
                     tabIndex={0}
@@ -1667,6 +1834,7 @@ export function StudyTaskSchedulePage({
                     onPointerMove={(event) => handleTaskPointerMove(event, task, dayIndex)}
                     onPointerUp={(event) => finishTaskPointerDrag(event, task.id)}
                     onPointerCancel={(event) => cancelTaskPointerDrag(event, task.id)}
+                    title={task.zoneTooltip}
                     aria-label={`${day} ${formatScheduleMinutes(task.schedule.startMinutes)} 到 ${formatScheduleMinutes(task.schedule.endMinutes)}，${task.title}${isFocusTask ? '，当前专注' : ''}`}
                     style={{
                       '--event-start-ratio': task.schedule.startMinutes / MINUTES_PER_DAY,

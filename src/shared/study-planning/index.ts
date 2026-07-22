@@ -56,6 +56,7 @@ export {
 
 export {
   isValidScheduleBlockInterval,
+  isValidScheduleBlockTimeZone,
   proposalBlocksToScheduleBlocks,
   validateScheduleBlocks,
   type PlanningTask,
@@ -128,7 +129,9 @@ export {
 export {
   STUDY_PLANNING_SCHEMA,
   STUDY_PLANNING_SCHEMA_VERSION,
+  STUDY_PLANNING_RECURRENCE_RULES_CAP,
   StudyPlanningStore,
+  normalizePreferencesRecurrenceRules,
   projectTaskPlanVsActual,
   type ApplyResult,
   type StudyPlanningCommandEnvelope,
@@ -229,6 +232,19 @@ export {
   suggestEstimateMinutesFromHistory,
   type UtilizationCompareRow
 } from './advanced-scheduling'
+
+export {
+  SCHEDULE_CONFLICT_RESOLVE_MAX_STEPS,
+  proposeScheduleConflictResolve,
+  type ProposeScheduleConflictResolveCode,
+  type ProposeScheduleConflictResolveErr,
+  type ProposeScheduleConflictResolveInput,
+  type ProposeScheduleConflictResolveOk,
+  type ProposeScheduleConflictResolvePolicy,
+  type ProposeScheduleConflictResolveResult,
+  type ProposeScheduleConflictResolveWindow,
+  type ProposedBlockMove
+} from './schedule-conflict-resolve'
 
 export {
   expandRecurrenceToScheduleBlocks,

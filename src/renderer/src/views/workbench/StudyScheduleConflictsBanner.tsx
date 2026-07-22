@@ -1,10 +1,18 @@
 /**
  * Thin STC-707 week-plan conflict list banner.
  * Pure model lives in planning-schedule-conflicts-ui; host owns dismiss state.
+ *
+ * Opt-in resolve: "预览错开" → confirm → host applies sequential unlocked upserts.
+ * Default remains list/banner only; never auto-applies on mount or detect.
  */
 
+import { useState } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
-import type { ScheduleConflictsBannerModel } from '../../study-space/planning-schedule-conflicts-ui'
+import type {
+  ScheduleConflictResolvePreview,
+  ScheduleConflictsBannerModel
+} from '../../study-space/planning-schedule-conflicts-ui'
+import type { ProposedBlockMove } from '../../../../shared/study-planning'
 
 export type StudyScheduleConflictsBannerProps = {
   model: ScheduleConflictsBannerModel
@@ -14,16 +22,52 @@ export type StudyScheduleConflictsBannerProps = {
    * Prefer blockId so multi-block tasks target the overlapping row.
    */
   onOpenBlock?: (input: { taskId: string | null; blockId: string }) => void
+  /**
+   * Opt-in pure preview (ready/unavailable). When absent, resolve CTA is hidden
+   * (list/banner-only path — default product behavior).
+   */
+  resolvePreview?: ScheduleConflictResolvePreview | null
+  /**
+   * Explicit user confirm → host applies unlocked moves with expectedRevision CAS.
+   * Never called unless user clicked 确认应用 after preview.
+   */
+  onApplyResolve?: (moves: readonly ProposedBlockMove[]) => void | Promise<void>
+  /** Optional busy flag while sequential upserts run. */
+  resolveApplying?: boolean
 }
 
 export function StudyScheduleConflictsBanner({
   model,
   onDismiss,
-  onOpenBlock
+  onOpenBlock,
+  resolvePreview,
+  onApplyResolve,
+  resolveApplying = false
 }: StudyScheduleConflictsBannerProps) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+
   if (model.kind !== 'conflicts' || model.conflictCount <= 0) return null
 
   const hasLocked = model.pairs.some((p) => p.aLocked || p.bLocked)
+  const canPreview = Boolean(resolvePreview && onApplyResolve)
+  const previewReady = resolvePreview?.kind === 'ready' && (resolvePreview.moves?.length ?? 0) > 0
+  const summaries = resolvePreview?.moveSummaries ?? []
+
+  const handlePreviewClick = (): void => {
+    if (!canPreview) return
+    setPreviewOpen(true)
+  }
+
+  const handleCancelPreview = (): void => {
+    setPreviewOpen(false)
+  }
+
+  const handleConfirmApply = (): void => {
+    if (!previewReady || !onApplyResolve || !resolvePreview?.moves?.length) return
+    void Promise.resolve(onApplyResolve(resolvePreview.moves)).finally(() => {
+      setPreviewOpen(false)
+    })
+  }
 
   return (
     <section
@@ -31,6 +75,7 @@ export function StudyScheduleConflictsBanner({
       role="region"
       aria-label={model.copy.eyebrow}
       data-conflict-count={model.conflictCount}
+      data-resolve-preview={previewOpen ? 'open' : 'closed'}
     >
       <header className="study-schedule-conflicts-banner__header">
         <div className="study-schedule-conflicts-banner__title-row">
@@ -101,6 +146,68 @@ export function StudyScheduleConflictsBanner({
 
       {model.copy.moreLabel ? (
         <p className="study-schedule-conflicts-banner__more">{model.copy.moreLabel}</p>
+      ) : null}
+
+      {canPreview ? (
+        <div className="study-schedule-conflicts-banner__resolve">
+          {!previewOpen ? (
+            <button
+              type="button"
+              className="study-schedule-conflicts-banner__resolve-cta"
+              onClick={handlePreviewClick}
+              disabled={resolveApplying}
+              data-testid="schedule-conflicts-preview-resolve"
+            >
+              {model.copy.previewResolveLabel || resolvePreview?.previewLabel || '预览错开'}
+            </button>
+          ) : (
+            <div
+              className="study-schedule-conflicts-banner__resolve-panel"
+              role="group"
+              aria-label="错开预览"
+              data-testid="schedule-conflicts-resolve-panel"
+            >
+              <p className="study-schedule-conflicts-banner__resolve-summary">
+                {previewReady
+                  ? resolvePreview?.reasonMessage
+                  : resolvePreview?.reasonMessage || model.copy.resolveUnavailableHint}
+              </p>
+              {previewReady && summaries.length > 0 ? (
+                <ul className="study-schedule-conflicts-banner__resolve-moves">
+                  {summaries.map((line, index) => (
+                    <li key={`${index}:${line}`}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="study-schedule-conflicts-banner__resolve-actions">
+                <button
+                  type="button"
+                  className="study-schedule-conflicts-banner__resolve-cancel"
+                  onClick={handleCancelPreview}
+                  disabled={resolveApplying}
+                >
+                  {model.copy.cancelResolveLabel || resolvePreview?.cancelLabel || '取消'}
+                </button>
+                <button
+                  type="button"
+                  className="study-schedule-conflicts-banner__resolve-apply"
+                  onClick={handleConfirmApply}
+                  disabled={!previewReady || resolveApplying}
+                  data-testid="schedule-conflicts-apply-resolve"
+                >
+                  {resolveApplying
+                    ? '应用中…'
+                    : model.copy.applyResolveLabel || resolvePreview?.applyLabel || '确认应用'}
+                </button>
+              </div>
+              {!previewReady ? (
+                <p className="study-schedule-conflicts-banner__resolve-unavailable">
+                  {model.copy.resolveUnavailableHint}
+                </p>
+              ) : null}
+            </div>
+          )}
+        </div>
       ) : null}
     </section>
   )

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { ScheduleBlock } from '../../src/shared/study-planning'
 import {
   SCHEDULE_CONFLICTS_LIST_CAP,
+  buildConflictResolveUpsertBlocks,
   buildScheduleConflictsDismissKey,
   formatScheduleBlockTimeLabel,
+  projectScheduleConflictResolvePreview,
   projectScheduleConflictsBanner,
   selectFocusBlocksForConflictScan,
   shouldShowScheduleConflictsBanner
@@ -196,5 +198,62 @@ describe('planning-schedule-conflicts-ui (STC-707)', () => {
 
   it('default list cap constant is positive', () => {
     expect(SCHEDULE_CONFLICTS_LIST_CAP).toBeGreaterThan(0)
+  })
+
+  it('projectScheduleConflictResolvePreview ready for unlocked overlap', () => {
+    const blocks = [
+      focusBlock({ id: 'a', startAtMs: localMs(2026, 7, 20, 9, 0), endAtMs: localMs(2026, 7, 20, 10, 0), taskId: 't1' }),
+      focusBlock({ id: 'b', startAtMs: localMs(2026, 7, 20, 9, 30), endAtMs: localMs(2026, 7, 20, 10, 30), taskId: 't2' })
+    ]
+    const preview = projectScheduleConflictResolvePreview({ scheduleBlocks: blocks })
+    expect(preview.kind).toBe('ready')
+    expect(preview.moves.length).toBeGreaterThan(0)
+  })
+
+  it('projectScheduleConflictResolvePreview unavailable for both locked', () => {
+    const blocks = [
+      focusBlock({ id: 'a', startAtMs: 0, endAtMs: 100, locked: true }),
+      focusBlock({ id: 'b', startAtMs: 50, endAtMs: 150, locked: true })
+    ]
+    const preview = projectScheduleConflictResolvePreview({ scheduleBlocks: blocks })
+    expect(preview.kind).toBe('unavailable')
+    expect(preview.reasonCode).toBe('both_locked')
+  })
+
+  it('buildConflictResolveUpsertBlocks refuses locked and builds revision+1', () => {
+    const blocks = [
+      focusBlock({ id: 'a', startAtMs: 0, endAtMs: 100, revision: 3 }),
+      focusBlock({ id: 'b', startAtMs: 50, endAtMs: 150, revision: 2, locked: true })
+    ]
+    const ok = buildConflictResolveUpsertBlocks({
+      blocks,
+      moves: [
+        {
+          blockId: 'a',
+          from: { startAtMs: 0, endAtMs: 100 },
+          to: { startAtMs: 200, endAtMs: 300 },
+          reason: 'test'
+        }
+      ]
+    })
+    expect(ok.ok).toBe(true)
+    if (!ok.ok) return
+    expect(ok.blocks[0].startAtMs).toBe(200)
+    expect(ok.blocks[0].revision).toBe(4)
+
+    const locked = buildConflictResolveUpsertBlocks({
+      blocks,
+      moves: [
+        {
+          blockId: 'b',
+          from: { startAtMs: 50, endAtMs: 150 },
+          to: { startAtMs: 200, endAtMs: 300 },
+          reason: 'test'
+        }
+      ]
+    })
+    expect(locked.ok).toBe(false)
+    if (locked.ok) return
+    expect(locked.code).toBe('locked_would_move')
   })
 })

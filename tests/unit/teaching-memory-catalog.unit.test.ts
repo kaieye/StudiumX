@@ -55,7 +55,7 @@ afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((rootDir) => rm(rootDir, { recursive: true, force: true })))
 })
 
-describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog scope partitions', () => {
+describe('TeachingMemoryCatalog scope partitions', () => {
   it('derives stable full SHA-256 base64url partitions only from normalized main-process records', async () => {
     const workspace = record('workspace', { scope: 'workspace', workspace: 'C:\\Courses\\Alpha\\lessons\\..' })
     const project = record('project', { scope: 'project', workspace: 'C:\\Courses\\Alpha', project: 'D:\\Projects\\Alpha\\chapter\\..' })
@@ -86,7 +86,13 @@ describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog scope partit
     }))
     await expect(Promise.all(expected.map((path) => readFile(path, 'utf8')))).resolves.toHaveLength(3)
     await expect(readFile(teachingMemoryRecordFilePath(catalog.rootDir, 'user'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    expect((await stat(expected[0]!)).mode & 0o777).toBe(0o600)
+    // POSIX file mode is meaningful; Windows NTFS does not preserve 0600 the same way.
+    if (process.platform !== 'win32') {
+      expect((await stat(expected[0]!)).mode & 0o777).toBe(0o600)
+    } else {
+      await expect(stat(expected[0]!)).resolves.toMatchObject({ isFile: expect.any(Function) })
+      expect((await stat(expected[0]!)).isFile()).toBe(true)
+    }
   })
 
   it('retains content-based workspace/project authorization regardless of partition location', async () => {
@@ -237,7 +243,7 @@ describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog scope partit
     ])
   })
 
-  it('does not follow root, partition, or record symlinks; ignores arbitrary/deep directories', async () => {
+  it.skipIf(process.platform === 'win32')('does not follow root, partition, or record symlinks; ignores arbitrary/deep directories', async () => {
     const rootCatalog = await createCatalog()
     const external = await mkdtemp(join(tmpdir(), 'studiumx-teaching-memory-external-'))
     temporaryRoots.push(external)
@@ -287,7 +293,7 @@ describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog scope partit
     expect(tombstone).toMatchObject({
       id: created.id,
       scope: 'workspace',
-      workspace: '/courses/trace',
+      workspace: normalizeTeachingMemoryScopePath('/courses/trace'),
       createdAt: created.createdAt,
       deletedAt: '2026-07-18T00:01:00.000Z',
       traceId: deleteTrace
@@ -330,7 +336,7 @@ async function snapshotMemoryTree(rootDir: string): Promise<Array<{ path: string
   })))
 }
 
-describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog legacy migration preflight', () => {
+describe('TeachingMemoryCatalog legacy migration preflight', () => {
   it('returns an empty preflight without creating a missing Memory root or changing its parent', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'studiumx-teaching-memory-missing-root-parent-'))
     temporaryRoots.push(parent)
@@ -429,7 +435,7 @@ describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog legacy migra
     })
   })
 
-  it('aggregates recovery and unsafe inputs without exposing them or treating a blocked flat record as eligible', async () => {
+  it.skipIf(process.platform === 'win32')('aggregates recovery and unsafe inputs without exposing them or treating a blocked flat record as eligible', async () => {
     const catalog = await createCatalog()
     const legacy = record('blocked-by-recovery', { scope: 'workspace', workspace: '/courses/alpha' })
     await writeRawFlat(catalog.rootDir, legacy)
@@ -454,7 +460,7 @@ describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog legacy migra
   })
 })
 
-describe.runIf(process.platform !== 'win32')('TeachingMemoryCatalog kind metadata (DB-P1-2)', () => {
+describe('TeachingMemoryCatalog kind metadata (DB-P1-2)', () => {
   it('persists optional memoryKind and resolves kind from stable tags on normalize/list', async () => {
     const catalog = await createCatalog()
     await catalog.commit(record('explicit-kind', {

@@ -1,16 +1,9 @@
 import { createHash } from 'node:crypto'
+import { lstat, mkdir, readdir, readFile, realpath } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { TeachingMemoryRecord } from '../../shared/teaching-types'
-import {
-  closeContainedDurableDirectory,
-  isNativeContainedDurableReplaceUnavailable,
-  listContainedDirectory,
-  openContainedDirectoryChild,
-  openContainedRootDirectory,
-  replaceDurablyInContainedDirectory,
-  type ContainedDurableDirectory,
-  type ContainedDirectoryEntry
-} from '../persistence/contained-durable-directory'
+import { ensureContainedDirectory, isPathInsideRoot } from '../path-access'
+import { replaceDurably } from '../persistence/durable-file'
 
 const RECORD_FILE_PREFIX = 'memory-'
 const RECORD_FILE_SUFFIX = '.json'
@@ -21,33 +14,18 @@ const PARTITION_PATTERN = /^(workspace|project)-[A-Za-z0-9_-]{43}\.v1$/
 export type TeachingMemoryRecordLayout = 'flat' | 'scoped'
 
 /**
- * An accepted source remains bound either to a no-follow descriptor parent
- * (POSIX) or to a root-constrained absolute parent path (Windows direct-path
- * non-CAS, ADR-0126). `filePath` is display/index metadata only.
+ * An accepted memory source under a trusted memory root.
+ * Paths are root-constrained pathname metadata; publication uses replaceDurably.
+ * Not descriptor/CAS-equivalent (ADR-0131 / migration Phase C).
  */
-export type TeachingMemoryRecordFileBackend =
-  | {
-      kind: 'posix_descriptor'
-      directory: ContainedDurableDirectory
-    }
-  | {
-      kind: 'windows_direct_path'
-      parentAbsolutePath: string
-      rootAbsolutePath: string
-    }
-
 export type TeachingMemoryRecordFileSource = {
   fileName: string
   filePath: string
   layout: TeachingMemoryRecordLayout
   partition?: string
   entryName: string
-  backend: TeachingMemoryRecordFileBackend
-  /**
-   * Descriptor parent when backend is posix_descriptor. Optional convenience
-   * for descriptor-only call sites; prefer `backend`.
-   */
-  directory?: ContainedDurableDirectory
+  parentAbsolutePath: string
+  rootAbsolutePath: string
 }
 
 export type TeachingMemoryRecordFileDiscoveryIssue = {
@@ -59,10 +37,8 @@ export type TeachingMemoryRecordFileDiscoveryIssue = {
 export type TeachingMemoryRecordFileDiscovery = {
   sources: TeachingMemoryRecordFileSource[]
   issues: TeachingMemoryRecordFileDiscoveryIssue[]
-  rootDirectory?: ContainedDurableDirectory
-  partitionDirectories: ContainedDurableDirectory[]
-  /** Present when discovery used the Windows direct-path profile. */
-  windowsDirectPathRoot?: string
+  /** Absolute resolved memory root when the root is available. */
+  rootAbsolutePath?: string
 }
 
 /**
@@ -121,9 +97,8 @@ export type TeachingMemoryRecordFileDiscoveryOptions = {
 
 /**
  * Discovers only root-flat JSON files plus canonical files one level below an
- * explicitly recognized partition. Native directory descriptors bind every
- * listing/read/write parent; no C-6 operation performs a post-check pathname
- * traversal or follows a symlink.
+ * explicitly recognized partition. Symlinks and deep trees become recovery issues.
+ * Single pathname backend for every platform (no native descriptor dependency).
  */
 export async function discoverTeachingMemoryRecordFiles(
   rootDir: string,
@@ -132,154 +107,188 @@ export async function discoverTeachingMemoryRecordFiles(
   const rootPath = resolve(rootDir)
   const createRoot = options.createRoot ?? true
   const issues: TeachingMemoryRecordFileDiscoveryIssue[] = []
-  let rootDirectory: ContainedDurableDirectory
+
   try {
-    rootDirectory = openContainedRootDirectory(rootPath, createRoot)
+    await ensureMemoryRoot(rootPath, createRoot)
   } catch (error) {
-    if (isNativeContainedDurableReplaceUnavailable(error)) throw error
-    // `openContainedRootDirectory(..., false)` reaches the configured final
-    // root via native openat(O_NOFOLLOW). A missing root is an empty,
-    // descriptor-bound discovery result, not an unsafe recovery condition.
-    if (!createRoot && isMissingContainedRootDirectoryError(error)) {
-      return { sources: [], issues, partitionDirectories: [] }
+    if (!createRoot && isNotFoundError(error)) {
+      return { sources: [], issues }
     }
     issues.push({ fileName: '', filePath: rootPath, reason: 'unsafe_path' })
-    return { sources: [], issues, partitionDirectories: [] }
+    return { sources: [], issues }
   }
 
-  const partitionDirectories: ContainedDurableDirectory[] = []
+  let rootEntries: string[]
   try {
-    const rootEntries = listContainedDirectory(rootDirectory)
-    const sources: TeachingMemoryRecordFileSource[] = []
-    for (const entry of sortedEntries(rootEntries)) {
-      const entryPath = join(rootPath, entry.name)
-      if (entry.type === 'symlink') {
-        issues.push({ fileName: entry.name, filePath: entryPath, reason: 'unsafe_path' })
-        continue
-      }
-      if (entry.type === 'file') {
-        if (entry.name.endsWith(RECORD_FILE_SUFFIX)) {
-          sources.push(source(rootPath, entry.name, 'flat', rootDirectory))
-        }
-        continue
-      }
-      if (entry.type !== 'directory') continue
-      if (!isRecognizedTeachingMemoryScopeDirectory(entry.name)) {
-        issues.push({ fileName: entry.name, filePath: entryPath, reason: 'unrecognized_partition' })
-        continue
-      }
-
-      let partitionDirectory: ContainedDurableDirectory
-      try {
-        partitionDirectory = openContainedDirectoryChild(rootDirectory, entry.name, false)
-      } catch (error) {
-        if (isNativeContainedDurableReplaceUnavailable(error)) throw error
-        issues.push({ fileName: entry.name, filePath: entryPath, reason: 'unsafe_path' })
-        continue
-      }
-      partitionDirectories.push(partitionDirectory)
-      discoverPartitionFiles(rootPath, entry.name, partitionDirectory, sources, issues)
-    }
-    return { sources, issues, rootDirectory, partitionDirectories }
-  } catch (error) {
-    closeTeachingMemoryRecordFileDiscovery({ sources: [], issues, rootDirectory, partitionDirectories })
-    if (isNativeContainedDurableReplaceUnavailable(error)) throw error
+    rootEntries = await readdir(rootPath)
+  } catch {
     issues.push({ fileName: '', filePath: rootPath, reason: 'unsafe_path' })
-    return { sources: [], issues, partitionDirectories: [] }
+    return { sources: [], issues }
+  }
+
+  const sources: TeachingMemoryRecordFileSource[] = []
+  for (const name of rootEntries.sort((a, b) => a.localeCompare(b))) {
+    const entryPath = join(rootPath, name)
+    let info: Awaited<ReturnType<typeof lstat>>
+    try {
+      info = await lstat(entryPath)
+    } catch {
+      issues.push({ fileName: name, filePath: entryPath, reason: 'unsafe_path' })
+      continue
+    }
+    if (info.isSymbolicLink()) {
+      issues.push({ fileName: name, filePath: entryPath, reason: 'unsafe_path' })
+      continue
+    }
+    if (info.isFile()) {
+      if (name.endsWith(RECORD_FILE_SUFFIX)) {
+        sources.push(pathnameSource(rootPath, name, 'flat', rootPath, name))
+      }
+      continue
+    }
+    if (!info.isDirectory()) continue
+    if (!isRecognizedTeachingMemoryScopeDirectory(name)) {
+      issues.push({ fileName: name, filePath: entryPath, reason: 'unrecognized_partition' })
+      continue
+    }
+    await discoverPartition(rootPath, name, entryPath, sources, issues)
+  }
+
+  return { sources, issues, rootAbsolutePath: rootPath }
+}
+
+/** Opens (creates) a scoped partition directory under the memory root. */
+export async function openTeachingMemoryScopedRecordDirectory(
+  rootDir: string,
+  record: Pick<TeachingMemoryRecord, 'scope' | 'workspace' | 'project'>
+): Promise<{ parentAbsolutePath: string; partition: string; rootAbsolutePath: string }> {
+  const rootAbsolutePath = resolve(rootDir)
+  const partition = teachingMemoryScopeDirectory(record)
+  const parentAbsolutePath = join(rootAbsolutePath, partition)
+  await ensureMemoryRoot(rootAbsolutePath, true)
+  await ensureContainedDirectory(rootAbsolutePath, parentAbsolutePath)
+  return { parentAbsolutePath, partition, rootAbsolutePath }
+}
+
+export function teachingMemorySourceForNewRecord(
+  rootDir: string,
+  record: Pick<TeachingMemoryRecord, 'id' | 'scope' | 'workspace' | 'project'>,
+  opened: { parentAbsolutePath: string; partition: string; rootAbsolutePath: string }
+): TeachingMemoryRecordFileSource {
+  const entryName = teachingMemoryRecordFileName(record.id)
+  const fileName = join(opened.partition, entryName)
+  return {
+    fileName,
+    filePath: join(resolve(rootDir), fileName),
+    layout: 'scoped',
+    partition: opened.partition,
+    entryName,
+    parentAbsolutePath: opened.parentAbsolutePath,
+    rootAbsolutePath: opened.rootAbsolutePath
+  }
+}
+
+/** Reads one accepted source through root-constrained pathname I/O. */
+export async function readTeachingMemoryRecordFileAtSource(
+  source: Pick<TeachingMemoryRecordFileSource, 'parentAbsolutePath' | 'rootAbsolutePath' | 'entryName'>
+): Promise<Buffer> {
+  const absolute = absoluteEntryPath(source)
+  try {
+    const info = await lstat(absolute)
+    if (info.isSymbolicLink() || !info.isFile()) {
+      throw new Error('Memory source is not an eligible regular file.')
+    }
+    await assertRealPathInsideRoot(source.rootAbsolutePath, absolute)
+    return await readFile(absolute)
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Memory source is not an eligible regular file.') throw error
+    throw new Error('Memory source path is outside the configured root or unsafe.', { cause: error })
   }
 }
 
 /**
- * The current native binding maps open failures to EIO except symlink loops.
- * Keep this narrow to the native missing-final-root diagnostic so any other
- * root-open failure stays fail-closed as an unsafe-path recovery issue.
+ * Writes only through replaceDurably under an already-resolved parent path.
+ * Same-directory temp -> write -> optional fsync -> rename (durable-file).
  */
-function isMissingContainedRootDirectoryError(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false
-  if ('code' in error && error.code === 'ENOENT') return true
-  return error instanceof Error
-    && error.message === 'Unable to open contained root directory without following a link: No such file or directory'
-}
-
-/** Closes every directory descriptor retained by one discovery result. */
-export function closeTeachingMemoryRecordFileDiscovery(discovery: TeachingMemoryRecordFileDiscovery): void {
-  for (const directory of discovery.partitionDirectories) closeContainedDurableDirectory(directory)
-  if (discovery.rootDirectory) closeContainedDurableDirectory(discovery.rootDirectory)
-}
-
-/** Opens a newly derived scoped output parent below an already-bound memory root. */
-export function openTeachingMemoryScopedRecordDirectory(
-  rootDir: string,
-  rootDirectory: ContainedDurableDirectory,
-  record: Pick<TeachingMemoryRecord, 'scope' | 'workspace' | 'project'>
-): { directory: ContainedDurableDirectory; partition: string; directoryPath: string } {
-  const partition = teachingMemoryScopeDirectory(record)
-  return {
-    directory: openContainedDirectoryChild(rootDirectory, partition, true),
-    partition,
-    directoryPath: join(resolve(rootDir), partition)
-  }
-}
-
-/** Writes only through an already-bound no-follow source parent descriptor. */
 export async function replaceTeachingMemoryRecordFileAtSource(
-  source: Pick<TeachingMemoryRecordFileSource, 'directory' | 'entryName' | 'backend'>,
+  source: Pick<TeachingMemoryRecordFileSource, 'parentAbsolutePath' | 'rootAbsolutePath' | 'entryName'>,
   record: unknown
 ): Promise<void> {
-  const directory =
-    source.directory ??
-    (source.backend?.kind === 'posix_descriptor' ? source.backend.directory : undefined)
-  if (!directory) {
-    throw new Error('Descriptor-relative memory publish requires a bound parent directory.')
+  if (!isSafeBasename(source.entryName)) {
+    throw new Error('Memory entry name is invalid.')
   }
-  await replaceDurablyInContainedDirectory({
-    directory,
-    filename: source.entryName,
+  await ensureContainedDirectory(source.rootAbsolutePath, source.parentAbsolutePath)
+  const absolute = absoluteEntryPath(source)
+  await assertRealPathInsideRoot(source.rootAbsolutePath, source.parentAbsolutePath)
+  await replaceDurably({
+    path: absolute,
     content: `${JSON.stringify(record, null, 2)}\n`
   })
+  await assertRealPathInsideRoot(source.rootAbsolutePath, absolute)
 }
 
-function discoverPartitionFiles(
+/** Pathname discovery does not retain open directory descriptors. */
+export function closeTeachingMemoryRecordFileDiscovery(_discovery: TeachingMemoryRecordFileDiscovery): void {
+  // no-op
+}
+
+// --- internals ---
+
+async function discoverPartition(
   rootPath: string,
   partition: string,
-  partitionDirectory: ContainedDurableDirectory,
+  partitionPath: string,
   sources: TeachingMemoryRecordFileSource[],
   issues: TeachingMemoryRecordFileDiscoveryIssue[]
-): void {
-  let entries: readonly ContainedDirectoryEntry[]
+): Promise<void> {
+  let names: string[]
   try {
-    entries = listContainedDirectory(partitionDirectory)
+    const info = await lstat(partitionPath)
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      issues.push({ fileName: partition, filePath: partitionPath, reason: 'unsafe_path' })
+      return
+    }
+    await assertRealPathInsideRoot(rootPath, partitionPath)
+    names = await readdir(partitionPath)
   } catch {
-    issues.push({ fileName: partition, filePath: join(rootPath, partition), reason: 'unsafe_path' })
+    issues.push({ fileName: partition, filePath: partitionPath, reason: 'unsafe_path' })
     return
   }
-  for (const entry of sortedEntries(entries)) {
-    const filePath = join(rootPath, partition, entry.name)
-    const fileName = join(partition, entry.name)
-    if (entry.type === 'symlink') {
+
+  for (const name of names.sort((a, b) => a.localeCompare(b))) {
+    const filePath = join(partitionPath, name)
+    const fileName = join(partition, name)
+    let info: Awaited<ReturnType<typeof lstat>>
+    try {
+      info = await lstat(filePath)
+    } catch {
       issues.push({ fileName, filePath, reason: 'unsafe_path' })
       continue
     }
-    if (entry.type === 'directory') {
+    if (info.isSymbolicLink()) {
+      issues.push({ fileName, filePath, reason: 'unsafe_path' })
+      continue
+    }
+    if (info.isDirectory()) {
       issues.push({ fileName, filePath, reason: 'deep_directory' })
       continue
     }
-    if (entry.type !== 'file') continue
-    if (!isCanonicalTeachingMemoryRecordFileName(entry.name)) {
-      if (entry.name.endsWith(RECORD_FILE_SUFFIX)) issues.push({ fileName, filePath, reason: 'file_name_mismatch' })
+    if (!info.isFile()) continue
+    if (!isCanonicalTeachingMemoryRecordFileName(name)) {
+      if (name.endsWith(RECORD_FILE_SUFFIX)) issues.push({ fileName, filePath, reason: 'file_name_mismatch' })
       continue
     }
-    sources.push(source(rootPath, fileName, 'scoped', partitionDirectory, partition, entry.name))
+    sources.push(pathnameSource(rootPath, fileName, 'scoped', partitionPath, name, partition))
   }
 }
 
-function source(
+function pathnameSource(
   rootPath: string,
   fileName: string,
   layout: TeachingMemoryRecordLayout,
-  directory: ContainedDurableDirectory,
-  partition?: string,
-  entryName = fileName
+  parentAbsolutePath: string,
+  entryName: string,
+  partition?: string
 ): TeachingMemoryRecordFileSource {
   return {
     fileName,
@@ -287,13 +296,59 @@ function source(
     layout,
     ...(partition ? { partition } : {}),
     entryName,
-    directory,
-    backend: { kind: 'posix_descriptor', directory }
+    parentAbsolutePath,
+    rootAbsolutePath: rootPath
   }
 }
 
-function sortedEntries(entries: readonly ContainedDirectoryEntry[]): ContainedDirectoryEntry[] {
-  return [...entries].sort((left, right) => left.name.localeCompare(right.name))
+function absoluteEntryPath(
+  source: Pick<TeachingMemoryRecordFileSource, 'parentAbsolutePath' | 'entryName'>
+): string {
+  if (!isSafeBasename(source.entryName)) {
+    throw new Error('Memory entry name is invalid.')
+  }
+  return join(source.parentAbsolutePath, source.entryName)
+}
+
+async function ensureMemoryRoot(rootPath: string, createIfMissing: boolean): Promise<void> {
+  let info: Awaited<ReturnType<typeof lstat>> | null = null
+  try {
+    info = await lstat(rootPath)
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error
+    if (!createIfMissing) throw error
+    await mkdir(rootPath, { recursive: true })
+    info = await lstat(rootPath)
+  }
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw new Error('Teaching-memory catalog root is unavailable.')
+  }
+}
+
+async function assertRealPathInsideRoot(rootPath: string, targetPath: string): Promise<void> {
+  try {
+    const [realRoot, realTarget] = await Promise.all([realpath(rootPath), realpath(targetPath)])
+    if (!isPathInsideRoot(realRoot, realTarget)) {
+      throw new Error('Path escapes the configured memory root after resolving symlinks.')
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Path escapes')) throw error
+    // Parent may not exist yet during create; lexical check is the fallback.
+    if (!isPathInsideRoot(resolve(rootPath), resolve(targetPath))) {
+      throw new Error('Path is outside the configured memory root.', { cause: error })
+    }
+  }
+}
+
+function isSafeBasename(value: string): boolean {
+  return (
+    value.length > 0 &&
+    !value.includes('\0') &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.includes('/') &&
+    !value.includes('\\')
+  )
 }
 
 function legacyTeachingMemoryRecordFileName(id: string): string | null {
@@ -307,3 +362,6 @@ function normalizeRecordId(id: string): string {
   return normalized
 }
 
+function isNotFoundError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
+}

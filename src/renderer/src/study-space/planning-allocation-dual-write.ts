@@ -50,10 +50,23 @@ export function buildApplyAllocationProposalCommand(
     planId?: string | null
     planRevision?: number
     idPrefix?: string
+    /**
+     * Optional host IANA zone stamped onto NEW blocks only (STC-704).
+     * Never rewrites existing block zones (store append-only for this command).
+     */
+    hostTimeZone?: string | null
+    /** Alias for hostTimeZone. */
+    timeZone?: string | null
   },
   actionId: string,
   clientIssuedAtMs?: number
 ): StudyPlanningCommandEnvelope {
+  const zoneRaw =
+    typeof input.hostTimeZone === 'string'
+      ? input.hostTimeZone.trim()
+      : typeof input.timeZone === 'string'
+        ? input.timeZone.trim()
+        : ''
   return {
     actionId,
     type: 'apply_allocation_proposal',
@@ -67,7 +80,8 @@ export function buildApplyAllocationProposalCommand(
       })),
       ...(input.planId ? { planId: input.planId } : {}),
       ...(typeof input.planRevision === 'number' ? { planRevision: input.planRevision } : {}),
-      ...(input.idPrefix ? { idPrefix: input.idPrefix } : {})
+      ...(input.idPrefix ? { idPrefix: input.idPrefix } : {}),
+      ...(zoneRaw ? { hostTimeZone: zoneRaw } : {})
     },
     ...(clientIssuedAtMs !== undefined ? { clientIssuedAtMs } : {})
   }
@@ -119,6 +133,7 @@ function toDualWrite(result: PlanningClientApplyResult): DualWriteResult {
 /**
  * Apply confirmed allocation blocks via apply_allocation_proposal (CAS + one retry).
  * Fail-closed without workspace/api. Empty blocks → invalid_command.
+ * Optional hostTimeZone stamps NEW drafts only (STC-704; no silent rezone).
  */
 export async function dualWriteApplyAllocationProposal(
   ctx: CanonicalPlanningContext,
@@ -127,6 +142,8 @@ export async function dualWriteApplyAllocationProposal(
     planId?: string | null
     planRevision?: number
     idPrefix?: string
+    hostTimeZone?: string | null
+    timeZone?: string | null
   }
 ): Promise<DualWriteResult> {
   if (!hasCanonicalContext(ctx)) return skipped(ctx)
@@ -152,7 +169,9 @@ export async function dualWriteApplyAllocationProposal(
           blocks: input.blocks,
           planId: input.planId,
           planRevision: input.planRevision,
-          idPrefix: prefix
+          idPrefix: prefix,
+          hostTimeZone: input.hostTimeZone,
+          timeZone: input.timeZone
         },
         actionId,
         issued

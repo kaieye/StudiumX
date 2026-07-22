@@ -1,14 +1,22 @@
 /**
- * Platform capability profiles (ADR-0126).
+ * Platform capability profiles (ADR-0131 default; ADR-0126 historical inventory).
  *
- * Stable, path-free, marketing-free names for host I/O contracts. Renderers and
- * doctor may project these fields; they must never invent a stronger name
- * (e.g. calling Windows direct-path "strict" or "CAS").
+ * Default product I/O model is **pathname_default** (trusted-root pathname
+ * temp → write → optional fsync → rename). Dual-profile matrix
+ * (posix_descriptor_strict vs windows_direct_path_non_cas) is **not** the
+ * default product story. Historical profile ids remain only as transitional
+ * aliases until Phase B/C delete dual backends.
+ *
+ * Renderers and doctor may project these fields; they must never invent a
+ * stronger name (e.g. calling pathname write "strict" or "CAS").
  */
 export type PlatformIoProfileId =
-  | 'posix_descriptor_strict'
-  | 'windows_direct_path_non_cas'
+  | 'pathname_default'
   | 'unavailable'
+  /** @deprecated ADR-0126 historical dual-profile; not default (ADR-0131). */
+  | 'posix_descriptor_strict'
+  /** @deprecated ADR-0126 historical dual-profile; not default (ADR-0131). */
+  | 'windows_direct_path_non_cas'
 
 /**
  * How a consumer must react when its profile is unavailable or weaker.
@@ -46,4 +54,9 @@ export type ConsumerPlatformCapability = {
 export type PlatformCapabilitySnapshot = {
   platform: NodeJS.Platform | string
   consumers: readonly ConsumerPlatformCapability[]
+}
+
+/** Supported product hosts for pathname-default durable I/O (ADR-0131). */
+export function isPathnameDefaultHost(platform: NodeJS.Platform | string): boolean {
+  return platform === 'win32' || platform === 'darwin' || platform === 'linux'
 }

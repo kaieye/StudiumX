@@ -1,6 +1,6 @@
 # ADR-0126：Codex 式平台能力分层（Platform Capability Profiles）与 consumer 迁移
 
-- **状态：** **已实施（分 phase 结项）** — 2026-07-22 本地落地；outcome/audit Windows 仍 unavailable（诚实边界）
+- **状态：** **已实施（分 phase 结项）** — 2026-07-22 本地落地；outcome/audit Windows 仍 unavailable（诚实边界）。**默认写模型**由 [ADR-0131](0131-pathname-default-durable-io.md) supersede（pathname-default；native descriptor **非**默认）；本文件历史 dual-profile 结项与 inventory **保留**，不重写。
 - **日期：** 2026-07-22
 - **作者动机：** Windows 上 descriptor-relative catalog 把聊天热路径 fail-closed；产品要求改为 **Codex 式分层**：不同平台显式命名不同合同，热路径可降级，教学权威写路径仍 fail-closed，且 **禁止** 把较弱 profile 伪装成 POSIX CAS / strict。
 - **相关已实施决定：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)（C-4 durable publish / P8 Windows direct-path）、[ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)（Memory 分区与 descriptor I/O）、[ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)（Windows strict no-go）、[ADR-0052](0052-provider-error-and-recovery-taxonomy.md) / [ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)（空流与有界 retry）、[SECURITY.md](../../SECURITY.md)、`AGENTS.md` 产品地板。

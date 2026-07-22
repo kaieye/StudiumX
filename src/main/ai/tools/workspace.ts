@@ -1,23 +1,6 @@
 import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { extname, join, relative } from 'node:path'
 import type { Dirent } from 'node:fs'
-import {
-  bindTrustedWorkspaceContainedPath,
-  getContainedDurableDirectoryCapability,
-  readRegularFileAtContainedDirectory,
-  type ContainedDurableDirectory,
-  type WorkspaceContainedPathBinding
-} from '../../persistence/contained-durable-directory'
-import {
-  createNoOverwriteAtWorkspaceContainedPath,
-  WorkspaceContainedCreateNoOverwriteError,
-  type CreateWorkspaceContainedNoOverwriteInput
-} from '../../persistence/workspace-contained-create-no-overwrite'
-import {
-  overwriteExistingRestrictedAtWorkspaceContainedPath,
-  WorkspaceContainedRestrictedOverwriteError,
-  type RestrictedOverwriteWorkspaceContainedPathInput
-} from '../../persistence/workspace-contained-restricted-overwrite'
 import type { ToolEntry, ToolContext } from './registry'
 import {
   resolveWorkspacePathTarget,
@@ -25,11 +8,11 @@ import {
   verifyExistingWorkspaceTarget,
 } from './workspace-path-target'
 import {
-  createNoOverwriteAtWindowsDirectWorkspacePath,
-  directPathWorkspaceReadIsExact,
-  getWindowsDirectPathWorkspaceWriteCapability,
-  overwriteExistingRestrictedAtWindowsDirectWorkspacePath
-} from './windows-direct-path-workspace-write'
+  createNoOverwriteAtWorkspacePath,
+  overwriteExistingRestrictedAtWorkspacePath,
+  pathnameWorkspaceReadIsExact,
+  type PathnameWorkspaceWriteInput
+} from './workspace-pathname-write'
 import { captureAndAppendWritePreImage } from './write-rewind-journal'
 
 const MAX_FILE_BYTES = 512 * 1024
@@ -425,49 +408,25 @@ type WorkspaceWriteDurableProtocolError = {
 }
 
 /**
- * Internal handler seam for deterministic S4 tests. It deliberately exposes
- * only the approved publishers and recovery readers. POSIX uses the
- * descriptor-bound S2/S3 publisher; Windows has an explicitly separate,
- * root-constrained direct-path profile because it cannot offer the descriptor
- * protocol's HANDLE-bound containment or identity-CAS guarantees.
+ * Internal handler seam for deterministic tests. Default production path is
+ * the pathname temp+rename publisher (ADR-0131). No dual-profile branch and
+ * no CAS claims.
  */
 export type WorkspaceWriteDurableDependencies = {
-  /** Omitted by deterministic descriptor tests; defaults select the host profile. */
-  profile?: 'descriptor_bound' | 'windows_direct_path'
-  createNoOverwrite: (input: CreateWorkspaceContainedNoOverwriteInput) => Promise<void>
-  overwriteExistingRestricted: (input: RestrictedOverwriteWorkspaceContainedPathInput) => Promise<void>
-  bindForCanonicalRead: (input: {
-    workspaceRootPath: string
-    relativePath: string
-    createParentDirectories: false
-  }) => WorkspaceContainedPathBinding
-  readRegularFile: (directory: ContainedDurableDirectory, filename: string) => Buffer
-  readDirectPathExact?: (input: {
+  createNoOverwrite: (input: PathnameWorkspaceWriteInput) => Promise<void>
+  overwriteExistingRestricted: (input: PathnameWorkspaceWriteInput) => Promise<void>
+  readExact?: (input: {
     workspaceRootPath: string
     relativePath: string
     expectedBytes: Buffer
   }) => Promise<boolean>
 }
 
-const defaultWorkspaceWriteDurableDependencies: WorkspaceWriteDurableDependencies =
-  getWindowsDirectPathWorkspaceWriteCapability().available
-    ? {
-        profile: 'windows_direct_path',
-        createNoOverwrite: createNoOverwriteAtWindowsDirectWorkspacePath,
-        overwriteExistingRestricted: overwriteExistingRestrictedAtWindowsDirectWorkspacePath,
-        // Kept only to retain one shape for the deterministic descriptor seam.
-        // The direct-path profile never calls these native operations.
-        bindForCanonicalRead: bindTrustedWorkspaceContainedPath,
-        readRegularFile: readRegularFileAtContainedDirectory,
-        readDirectPathExact: directPathWorkspaceReadIsExact
-      }
-    : {
-        profile: 'descriptor_bound',
-        createNoOverwrite: createNoOverwriteAtWorkspaceContainedPath,
-        overwriteExistingRestricted: overwriteExistingRestrictedAtWorkspaceContainedPath,
-        bindForCanonicalRead: bindTrustedWorkspaceContainedPath,
-        readRegularFile: readRegularFileAtContainedDirectory
-      }
+const defaultWorkspaceWriteDurableDependencies: WorkspaceWriteDurableDependencies = {
+  createNoOverwrite: createNoOverwriteAtWorkspacePath,
+  overwriteExistingRestricted: overwriteExistingRestrictedAtWorkspacePath,
+  readExact: pathnameWorkspaceReadIsExact
+}
 
 const workspaceWriteErrorMessages: Record<WorkspaceWriteStableError, string> = {
   request_rejected: '写入请求不符合工作区文件写入策略。',
@@ -488,7 +447,7 @@ function stableWorkspaceWriteError(
     tool: 'write_workspace_file',
     ...(path ? { path } : {}),
     // `error` remains a safe, human-readable compatibility field; `code` is
-    // the stable durable-operation classification. Neither exposes S1/S2/S3 detail.
+    // the stable durable-operation classification. Neither exposes I/O detail.
     error: message,
     code,
     ...(code === 'possibly_published' ? { retryable: false } : {})
@@ -500,11 +459,7 @@ function isWorkspaceWriteDurableProtocolError(error: unknown): error is Workspac
 }
 
 function isPossiblyPublishedWorkspaceWriteError(error: unknown): boolean {
-  return (
-    error instanceof WorkspaceContainedCreateNoOverwriteError ||
-    error instanceof WorkspaceContainedRestrictedOverwriteError ||
-    isWorkspaceWriteDurableProtocolError(error)
-  ) && isWorkspaceWriteDurableProtocolError(error) && error.kind === 'possibly_published'
+  return isWorkspaceWriteDurableProtocolError(error) && error.kind === 'possibly_published'
 }
 
 function stableErrorForDurablePublicationFailure(
@@ -541,9 +496,7 @@ function stableErrorForDurablePublicationFailure(
 
 /**
  * Resolve the pathname used solely for lstat preflight from the same normalized
- * logical target passed to S1/S2/S3. `absolutePath` reflects the original
- * platform parsing of user input, which differs from the provider-visible
- * normalized relative path for POSIX backslash input.
+ * logical target passed to the pathname publisher.
  */
 function workspaceWriteLogicalTargetPath(input: { root: string; relativePath: string }): string {
   return join(input.root, input.relativePath)
@@ -553,8 +506,8 @@ function selectOverwritePublicationTarget(input: {
   root: string
   relativePath: string
 }): Promise<WorkspaceWritePublication | WorkspaceWriteStableError> {
-  // This preflight chooses S2 versus S3 only. The durable publisher remains
-  // authoritative for all final target validation and publication checks.
+  // This preflight chooses create versus overwrite only. The pathname publisher
+  // remains authoritative for final target validation and publication checks.
   return lstatIfExists(workspaceWriteLogicalTargetPath(input))
     .then((existing) => {
       if (existing === null) return 'created'
@@ -570,26 +523,18 @@ function selectOverwritePublicationTarget(input: {
 const workspaceWritePermissionDescriptionError = '无法安全确定工作区文件写入目标。'
 
 /**
- * Product-facing availability for the controlled workspace writer. This is
- * intentionally narrower than `workspaceRead`: POSIX requires the
- * descriptor-relative native capability, while Windows exposes the separately
- * documented root-constrained direct-path profile. The unavailable state is
- * stable and deliberately omits native loader, filesystem, and local-path detail.
+ * Product-facing availability for the controlled workspace writer. Pathname
+ * temp+rename is available on every host that can open a trusted workspace
+ * root; there is no native-addon gate.
  */
 export type WorkspaceWriteToolAvailability =
   | { readonly available: true }
   | { readonly available: false; readonly code: 'containment_unavailable'; readonly message: string }
 
-const workspaceWriteToolUnavailableMessage = '当前平台无法安全发布工作区文件。'
-
 export function getWorkspaceWriteToolAvailability(): WorkspaceWriteToolAvailability {
-  if (getContainedDurableDirectoryCapability().available) return { available: true }
-  if (getWindowsDirectPathWorkspaceWriteCapability().available) return { available: true }
-  return {
-    available: false,
-    code: 'containment_unavailable',
-    message: workspaceWriteToolUnavailableMessage
-  }
+  // Pathname-default model (ADR-0131): always available; containment is enforced
+  // per write via workspace-path-target, not a platform dual-profile matrix.
+  return { available: true }
 }
 
 async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext): Promise<{
@@ -607,7 +552,7 @@ async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext)
     try {
       existing = await lstatIfExists(workspaceWriteLogicalTargetPath(target))
     } catch {
-      // Permission description is only a non-authoritative S1 preflight. A
+      // Permission description is only a non-authoritative preflight. A
       // pathname I/O failure here must not escape through the registry's
       // generic permission-error shape: pass the normalized target to the
       // durable writer as a conservative create. The writer's trusted bind is
@@ -632,8 +577,8 @@ async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext)
 
 /**
  * Post-publication recovery never retries publication, rolls back, or deletes.
- * POSIX uses one descriptor-bound read; the documented Windows direct-path
- * profile uses its bounded-path exact-read counterpart.
+ * One bounded-path exact read confirms requested bytes when publication may
+ * already have been visible.
  */
 async function canonicalWorkspaceWriteReadIsExact(input: {
   workspaceRootPath: string
@@ -641,41 +586,16 @@ async function canonicalWorkspaceWriteReadIsExact(input: {
   expectedBytes: Buffer
   dependencies: WorkspaceWriteDurableDependencies
 }): Promise<boolean> {
-  if (input.dependencies.profile === 'windows_direct_path') {
-    try {
-      return await input.dependencies.readDirectPathExact?.({
-        workspaceRootPath: input.workspaceRootPath,
-        relativePath: input.relativePath,
-        expectedBytes: input.expectedBytes
-      }) === true
-    } catch {
-      return false
-    }
-  }
-
-  let binding: WorkspaceContainedPathBinding | undefined
-  let exact = false
+  const reader = input.dependencies.readExact ?? pathnameWorkspaceReadIsExact
   try {
-    binding = input.dependencies.bindForCanonicalRead({
+    return await reader({
       workspaceRootPath: input.workspaceRootPath,
       relativePath: input.relativePath,
-      createParentDirectories: false
-    })
-    const leaf = binding.inspectLeaf()
-    if (leaf.type !== 'regular') return false
-    exact = input.dependencies.readRegularFile(binding.parentDirectory, binding.basename).equals(input.expectedBytes)
+      expectedBytes: input.expectedBytes
+    }) === true
   } catch {
-    exact = false
-  } finally {
-    if (binding) {
-      try {
-        binding.close()
-      } catch {
-        exact = false
-      }
-    }
+    return false
   }
-  return exact
 }
 
 function workspaceWriteSuccess(input: {
@@ -734,8 +654,7 @@ export async function runWorkspaceWriteWithDurableDependenciesForTesting(
     if (Buffer.byteLength(input.content, 'utf8') > MAX_WRITE_BYTES) {
       return stableWorkspaceWriteError('request_rejected', target.relativePath)
     }
-    // Validate the same normalized relative path the S1 binder will receive.
-    // The durable publishers remain the authority for every final check.
+    // Validate the same normalized relative path the publisher will receive.
     if (target.relativePath === '.') return stableWorkspaceWriteError('path_rejected', target.relativePath)
   } catch {
     return stableWorkspaceWriteError('request_rejected', target.relativePath)
@@ -751,7 +670,7 @@ export async function runWorkspaceWriteWithDurableDependenciesForTesting(
     return stableWorkspaceWriteError(publication, target.relativePath)
   }
 
-  // Slice D: capture first-touch pre-image after grant/validation, before publish.
+  // Capture first-touch pre-image after grant/validation, before publish.
   if (ctx.runId && ctx.workspaceRoot) {
     try {
       await captureAndAppendWritePreImage({

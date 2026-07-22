@@ -25,34 +25,34 @@ afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((rootDir) => rm(rootDir, { recursive: true, force: true })))
 })
 
-describe('TeachingMemoryCatalog windows_direct_path_non_cas profile', () => {
-  it('lists and commits through the explicit Windows direct-path profile', async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), 'studiumx-memory-win-direct-'))
+describe('TeachingMemoryCatalog pathname_default (ADR-0131)', () => {
+  it('lists and commits through trusted-root pathname persistence (non-CAS)', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'studiumx-memory-pathname-'))
     temporaryRoots.push(rootDir)
-    const catalog = new TeachingMemoryCatalog(rootDir, { profile: 'windows_direct_path_non_cas' })
-    expect(catalog.ioProfile).toBe('windows_direct_path_non_cas')
+    const catalog = new TeachingMemoryCatalog(rootDir, { profile: 'pathname_default' })
+    expect(catalog.ioProfile).toBe('pathname_default')
 
-    const user = record('user-1', { content: 'Windows limited persistence memory' })
+    const user = record('user-1', { content: 'Pathname non-CAS memory' })
     await catalog.commit(user)
 
     const listed = await catalog.list()
     expect(listed).toHaveLength(1)
     expect(listed[0]).toMatchObject({
       id: 'user-1',
-      content: 'Windows limited persistence memory',
+      content: 'Pathname non-CAS memory',
       scope: 'user'
     })
 
     const partition = teachingMemoryScopeDirectory(user)
     const fileName = teachingMemoryRecordFileName(user.id)
     const onDisk = await readFile(join(rootDir, partition, fileName), 'utf8')
-    expect(onDisk).toContain('Windows limited persistence memory')
+    expect(onDisk).toContain('Pathname non-CAS memory')
   })
 
   it('updates an existing record without claiming CAS semantics', async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), 'studiumx-memory-win-overwrite-'))
+    const rootDir = await mkdtemp(join(tmpdir(), 'studiumx-memory-pathname-overwrite-'))
     temporaryRoots.push(rootDir)
-    const catalog = new TeachingMemoryCatalog(rootDir, { profile: 'windows_direct_path_non_cas' })
+    const catalog = new TeachingMemoryCatalog(rootDir, { profile: 'pathname_default' })
     const first = record('upd-1', { content: 'v1' })
     await catalog.commit(first)
     await catalog.commit({ ...first, content: 'v2', updatedAt: '2026-07-14T01:00:00.000Z' })
@@ -61,11 +61,11 @@ describe('TeachingMemoryCatalog windows_direct_path_non_cas profile', () => {
   })
 
   it('reads legacy flat JSON files already under the root', async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), 'studiumx-memory-win-flat-'))
+    const rootDir = await mkdtemp(join(tmpdir(), 'studiumx-memory-pathname-flat-'))
     temporaryRoots.push(rootDir)
     const flat = record('flat-1', { content: 'legacy flat' })
     await writeFile(join(rootDir, `${flat.id}.json`), `${JSON.stringify(flat, null, 2)}\n`, 'utf8')
-    const catalog = new TeachingMemoryCatalog(rootDir, { profile: 'windows_direct_path_non_cas' })
+    const catalog = new TeachingMemoryCatalog(rootDir, { profile: 'pathname_default' })
     const listed = await catalog.list()
     expect(listed.map((entry) => entry.id)).toContain('flat-1')
   })

@@ -13,6 +13,13 @@ export type TeachingEventChannel =
   | 'agentChatStatus'
   | 'agentChatTool'
   | 'agentChatEvent'
+  | 'systemPower'
+
+/** OS power fan-out payload (ADR-0129 §4 OS bridge). Signal only — not timer authority. */
+export type SystemPowerEvent = {
+  kind: 'suspend' | 'resume'
+  atMs: number
+}
 
 export const teachingInvokeChannels = {
   getState: 'teach:get-state',
@@ -109,6 +116,6 @@ export const teachingEventChannels = {
   agentChatChunk: 'teach:agent-chat-chunk',
   agentChatStatus: 'teach:agent-chat-status',
   agentChatTool: 'teach:agent-chat-tool',
-  agentChatEvent: 'teach:agent-chat-event'
+  agentChatEvent: 'teach:agent-chat-event',
+  systemPower: 'teach:system-power'
 } satisfies Record<TeachingEventChannel, string>
-

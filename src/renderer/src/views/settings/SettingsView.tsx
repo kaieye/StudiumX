@@ -1030,6 +1030,8 @@ function platformIoProfileBadge(
   t: (key: string) => string
 ): string {
   switch (profile) {
+    case 'pathname_default':
+      return t('memory.platformProfile.pathnameDefault')
     case 'posix_descriptor_strict':
       return t('memory.platformProfile.posix')
     case 'windows_direct_path_non_cas':
@@ -1045,6 +1047,8 @@ function platformIoProfileDetail(
   t: (key: string) => string
 ): string {
   switch (profile) {
+    case 'pathname_default':
+      return t('platformCapability.pathnameDefault')
     case 'posix_descriptor_strict':
       return t('platformCapability.posixDescriptorStrict')
     case 'windows_direct_path_non_cas':

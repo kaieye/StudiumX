@@ -157,7 +157,20 @@ export async function dualWriteSaveTimerPlan(
   plan: StudyTimerPlan
 ): Promise<DualWriteResult> {
   if (!hasCanonicalContext(ctx)) return skipped(ctx)
-  const v2 = v1TimerPlanToV2(plan)
+  let v2: TimerPlanV2
+  try {
+    v2 = v1TimerPlanToV2(plan)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'invalid timer plan projection'
+    return {
+      kind: 'canonical_failed',
+      result: {
+        ok: false,
+        revision: 0,
+        error: { code: 'invalid_command', message }
+      }
+    }
+  }
   const nowMs = () => nowOf(ctx)
   const result = await applyWithRevisionRetry(
     ctx.api,
@@ -242,6 +255,7 @@ export async function dualWriteRenameTimerPlan(
     kind?: StudyTimerPlan['kind']
     clockMode?: StudyTimerPlan['clockMode']
     continuousTarget?: boolean
+    rhythmSequence?: StudyTimerPlan['rhythmSequence']
     simulationStartTime?: string
     simulationEndTime?: string
   }
@@ -259,27 +273,43 @@ export async function dualWriteRenameTimerPlan(
       }
     }
   }
-  // Use full V1→V2 map so rename does not wipe long break / breakPolicy.
-  const v2 = v1TimerPlanToV2({
-    id: planId,
-    name,
-    focusMinutes: input.focusMinutes,
-    breakMinutes: input.breakMinutes,
-    simulationStartTime: input.simulationStartTime ?? '09:00',
-    simulationEndTime: input.simulationEndTime ?? '12:00',
-    ...(input.longBreakMinutes !== undefined
-      ? { longBreakMinutes: input.longBreakMinutes }
-      : {}),
-    ...(input.longBreakEvery !== undefined
-      ? { longBreakEvery: input.longBreakEvery }
-      : {}),
-    ...(input.breakPolicy !== undefined ? { breakPolicy: input.breakPolicy } : {}),
-    ...(input.kind !== undefined ? { kind: input.kind } : {}),
-    ...(input.clockMode !== undefined ? { clockMode: input.clockMode } : {}),
-    ...(input.continuousTarget !== undefined
-      ? { continuousTarget: input.continuousTarget }
-      : {})
-  })
+  // Use full V1→V2 map so rename does not wipe long break / breakPolicy / sequence.
+  let v2: TimerPlanV2
+  try {
+    v2 = v1TimerPlanToV2({
+      id: planId,
+      name,
+      focusMinutes: input.focusMinutes,
+      breakMinutes: input.breakMinutes,
+      simulationStartTime: input.simulationStartTime ?? '09:00',
+      simulationEndTime: input.simulationEndTime ?? '12:00',
+      ...(input.longBreakMinutes !== undefined
+        ? { longBreakMinutes: input.longBreakMinutes }
+        : {}),
+      ...(input.longBreakEvery !== undefined
+        ? { longBreakEvery: input.longBreakEvery }
+        : {}),
+      ...(input.breakPolicy !== undefined ? { breakPolicy: input.breakPolicy } : {}),
+      ...(input.kind !== undefined ? { kind: input.kind } : {}),
+      ...(input.clockMode !== undefined ? { clockMode: input.clockMode } : {}),
+      ...(input.continuousTarget !== undefined
+        ? { continuousTarget: input.continuousTarget }
+        : {}),
+      ...(input.rhythmSequence !== undefined
+        ? { rhythmSequence: input.rhythmSequence }
+        : {})
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'invalid timer plan projection'
+    return {
+      kind: 'canonical_failed',
+      result: {
+        ok: false,
+        revision: 0,
+        error: { code: 'invalid_command', message }
+      }
+    }
+  }
   const nowMs = () => nowOf(ctx)
   const result = await applyWithRevisionRetry(
     ctx.api,

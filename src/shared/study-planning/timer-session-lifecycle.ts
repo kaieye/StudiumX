@@ -9,6 +9,10 @@
 
 import type { TimerPlanV2 } from './timer-plan'
 import { TIMER_PLAN_SEED_DEFAULTS } from './timer-plan'
+import {
+  customRhythmMinutesForPhase,
+  isCustomRhythmPlan
+} from './custom-rhythm-sequence'
 
 export type TimerSessionPhase = 'focus' | 'short_break' | 'long_break' | 'wrap_up'
 export type TimerSessionState =
@@ -46,6 +50,11 @@ export type TimerSessionRecord = {
   planSnapshot: TimerPlanV2 | null
   attributionReason: TimerSessionAttribution
   focusRoundInPlan: number
+  /**
+   * STC-702: 0-based index into planSnapshot.rhythmSequence when kind is custom_rhythm.
+   * Frozen with the segment; plan catalog edits never rewrite this or planSnapshot.
+   */
+  rhythmStepIndex?: number
   /** Action id that created this segment (exact-retry key at store layer). */
   startActionId?: string
   /** Pending gap seconds awaiting user reconcile (not auto-added to focus). */
@@ -86,8 +95,17 @@ function clonePlan(plan: TimerPlanV2 | null | undefined): TimerPlanV2 | null {
   }
 }
 
-function phaseDurationSeconds(plan: TimerPlanV2 | null, phase: TimerSessionPhase): number | null {
+function phaseDurationSeconds(
+  plan: TimerPlanV2 | null,
+  phase: TimerSessionPhase,
+  rhythmStepIndex?: number
+): number | null {
   if (!plan) return null
+  // STC-702: prefer per-step minutes when custom_rhythm sequence is present.
+  if (isCustomRhythmPlan(plan)) {
+    const mins = customRhythmMinutesForPhase(plan.rhythmSequence, phase, rhythmStepIndex)
+    if (mins !== undefined) return mins * 60
+  }
   if (phase === 'focus') {
     if (plan.clockMode === 'countup' && plan.kind === 'continuous' && plan.focusMinutes == null) {
       return null
@@ -103,18 +121,40 @@ function phaseDurationSeconds(plan: TimerPlanV2 | null, phase: TimerSessionPhase
   return (plan.wrapUpMinutes ?? TIMER_PLAN_SEED_DEFAULTS.wrapUpMinutes) * 60
 }
 
-function nextBreakPhase(plan: TimerPlanV2 | null, focusRoundInPlan: number): TimerSessionPhase {
+/** Default rhythmStepIndex for a phase (first matching step, else 0). */
+function defaultRhythmStepIndex(plan: TimerPlanV2, phase: TimerSessionPhase): number | undefined {
+  if (!isCustomRhythmPlan(plan)) return undefined
+  const seq = plan.rhythmSequence
+  const idx = seq.findIndex((s) => s.kind === phase)
+  return idx >= 0 ? idx : 0
+}
+
+function nextBreakPhase(
+  plan: TimerPlanV2 | null,
+  focusRoundInPlan: number,
+  rhythmStepIndex?: number
+): TimerSessionPhase {
   if (!plan || plan.kind === 'continuous') return 'short_break'
-  // STC-702: prefer next non-focus step after N focus completions in sequence.
+  // STC-702: prefer walk from stored rhythmStepIndex when available.
   if (plan.kind === 'custom_rhythm' && Array.isArray(plan.rhythmSequence) && plan.rhythmSequence.length > 0) {
     const seq = plan.rhythmSequence
+    if (rhythmStepIndex !== undefined && Number.isFinite(rhythmStepIndex)) {
+      const base = Math.trunc(rhythmStepIndex)
+      for (let j = 1; j <= seq.length; j += 1) {
+        const next = seq[(base + j) % seq.length]
+        if (next.kind === 'long_break') return 'long_break'
+        if (next.kind === 'short_break') return 'short_break'
+        if (next.kind === 'wrap_up') return 'wrap_up'
+      }
+      return 'short_break'
+    }
+    // Fallback: count focus completions vs focusRoundInPlan.
     let focusSeen = 0
     for (let i = 0; i < seq.length * 2; i += 1) {
       const step = seq[i % seq.length]
       if (step.kind === 'focus') {
         focusSeen += 1
         if (focusSeen === focusRoundInPlan) {
-          // Look ahead for next break-ish step
           for (let j = 1; j <= seq.length; j += 1) {
             const next = seq[(i + j) % seq.length]
             if (next.kind === 'long_break') return 'long_break'
@@ -144,6 +184,8 @@ export type StartTimerSessionInput = {
   /** Override target; null = open countup. */
   targetSeconds?: number | null
   focusRoundInPlan?: number
+  /** STC-702: optional sequence index for custom_rhythm step minutes. */
+  rhythmStepIndex?: number
   startActionId?: string
 }
 
@@ -159,13 +201,17 @@ export function startTimerSession(input: StartTimerSessionInput): TimerSessionRe
   }
   const phase = input.phase ?? 'focus'
   const clockMode = input.clockMode ?? plan.clockMode
+  const rhythmStepIndex =
+    input.rhythmStepIndex !== undefined
+      ? input.rhythmStepIndex
+      : defaultRhythmStepIndex(plan, phase)
   let targetSeconds: number | null
   if (input.targetSeconds !== undefined) {
     targetSeconds = input.targetSeconds
   } else if (clockMode === 'countup' && plan.kind === 'continuous' && plan.focusMinutes == null) {
     targetSeconds = null
   } else {
-    targetSeconds = phaseDurationSeconds(plan, phase)
+    targetSeconds = phaseDurationSeconds(plan, phase, rhythmStepIndex)
   }
 
   const session: TimerSessionRecord = {
@@ -183,6 +229,7 @@ export function startTimerSession(input: StartTimerSessionInput): TimerSessionRe
     planSnapshot: plan,
     attributionReason: input.attributionReason ?? (input.taskId ? 'explicit' : 'unattributed'),
     focusRoundInPlan: input.focusRoundInPlan ?? (phase === 'focus' ? 1 : 0),
+    ...(rhythmStepIndex !== undefined ? { rhythmStepIndex } : {}),
     ...(input.startActionId ? { startActionId: input.startActionId } : {})
   }
 
@@ -335,7 +382,11 @@ function applyElapsed(
       events.push({ type: 'segment_completed', session: next, reason: 'target_reached' })
       if (next.phase === 'focus' && next.planSnapshot) {
         const breakPolicy = next.planSnapshot.breakPolicy
-        const nextPhase = nextBreakPhase(next.planSnapshot, next.focusRoundInPlan)
+        const nextPhase = nextBreakPhase(
+          next.planSnapshot,
+          next.focusRoundInPlan,
+          next.rhythmStepIndex
+        )
         events.push({
           type: 'phase_prompt',
           session: next,
@@ -504,9 +555,14 @@ export function switchTimerSessionTask(input: {
     attributionReason: 'switched',
     targetSeconds:
       session.clockMode === 'countdown'
-        ? phaseDurationSeconds(session.planSnapshot, session.phase === 'focus' ? 'focus' : session.phase)
+        ? phaseDurationSeconds(
+            session.planSnapshot,
+            session.phase === 'focus' ? 'focus' : session.phase,
+            session.rhythmStepIndex
+          )
         : session.targetSeconds,
     focusRoundInPlan: session.phase === 'focus' ? session.focusRoundInPlan : session.focusRoundInPlan,
+    rhythmStepIndex: session.rhythmStepIndex,
     startActionId: input.startActionId
   })
 
@@ -574,6 +630,26 @@ export function startNextPhaseFromCompleted(input: {
   const focusRound =
     input.phase === 'focus' ? input.completed.focusRoundInPlan + 1 : input.completed.focusRoundInPlan
 
+  // STC-702: advance rhythmStepIndex to the next matching phase step (wrap).
+  let rhythmStepIndex: number | undefined
+  if (isCustomRhythmPlan(plan)) {
+    const seq = plan.rhythmSequence
+    const completedIdx =
+      input.completed.rhythmStepIndex !== undefined
+        ? input.completed.rhythmStepIndex
+        : defaultRhythmStepIndex(plan, input.completed.phase) ?? 0
+    for (let j = 1; j <= seq.length; j += 1) {
+      const idx = (Math.trunc(completedIdx) + j) % seq.length
+      if (seq[idx].kind === input.phase) {
+        rhythmStepIndex = idx
+        break
+      }
+    }
+    if (rhythmStepIndex === undefined) {
+      rhythmStepIndex = defaultRhythmStepIndex(plan, input.phase)
+    }
+  }
+
   const taskId =
     input.phase === 'focus'
       ? input.taskId !== undefined
@@ -596,6 +672,7 @@ export function startNextPhaseFromCompleted(input: {
     taskId,
     attributionReason,
     focusRoundInPlan: focusRound,
+    ...(rhythmStepIndex !== undefined ? { rhythmStepIndex } : {}),
     startActionId: input.startActionId
   })
 }

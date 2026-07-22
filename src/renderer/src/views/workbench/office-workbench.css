@@ -7286,6 +7286,100 @@
   font-style: normal;
 }
 
+
+.workbench-custom-rhythm-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 80%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel, #fff) 92%, #eef4ff);
+}
+
+.workbench-custom-rhythm-editor__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.72rem;
+  font-weight: 720;
+  color: var(--text, #1f2937);
+}
+
+.workbench-custom-rhythm-editor__head em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-muted, #667085);
+  font-size: 0.66rem;
+}
+
+.workbench-custom-rhythm-editor__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workbench-custom-rhythm-editor__row {
+  display: grid;
+  grid-template-columns: 18px minmax(72px, 1fr) minmax(88px, 0.9fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.workbench-custom-rhythm-editor__index {
+  font-size: 0.66rem;
+  color: var(--text-muted, #667085);
+  text-align: center;
+}
+
+.workbench-custom-rhythm-editor__moves {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.workbench-custom-rhythm-editor__moves button,
+.workbench-custom-rhythm-editor__actions button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 88%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel, #fff) 96%, #f5f7fb);
+  color: var(--text, #1f2937);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.workbench-custom-rhythm-editor__moves button:disabled,
+.workbench-custom-rhythm-editor__actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.workbench-custom-rhythm-editor__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workbench-custom-rhythm-editor__actions span,
+.workbench-custom-rhythm-editor__issues {
+  margin: 0;
+  padding: 0;
+  color: #b45c34;
+  font-size: 0.64rem;
+  line-height: 1.4;
+  list-style: none;
+}
+
+.workbench-custom-rhythm-editor__issues {
+  display: grid;
+  gap: 2px;
+}
+
 .workbench-pomodoro-save-plan {
   display: inline-flex;
   align-items: center;

@@ -18,6 +18,7 @@ import { createApplicationRuntime, type ApplicationRuntime } from './application
 import { PREVIEW_PROTOCOL } from '../shared/preview-markdown-bridge'
 import type { TeachingSettingsV1 } from '../shared/teaching-types'
 import { createCrashMarkerStore, installLocalCrashMarkerHooks } from './observability'
+import { installSystemPowerBridge } from './system-power-bridge'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
@@ -365,6 +366,9 @@ if (!hasSingleInstanceLock) {
     })
 
     await runtime.start()
+
+    // ADR-0129 §4: OS suspend/resume fan-out only (no main-side TimerSession pin).
+    installSystemPowerBridge()
 
     app.on('activate', () => {
       runtime?.activate()

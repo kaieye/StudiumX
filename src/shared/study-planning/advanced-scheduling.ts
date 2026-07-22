@@ -77,8 +77,9 @@ export function allocateMultiWindowDay(input: {
 }
 
 /**
- * STC-707 simplified: detect overlapping unlocked blocks (conflict list).
- * Full drag-reorder remains UI.
+ * STC-707 simplified: detect overlapping schedule blocks (conflict list).
+ * Locked blocks are included (UI lists them; resolve pure refuses to move them).
+ * Full drag-reorder remains UI; auto-stagger is opt-in via proposeScheduleConflictResolve.
  */
 export function findScheduleConflicts(blocks: readonly ScheduleBlock[]): Array<{
   aId: string

@@ -15,7 +15,6 @@ import { recordTurnUsageObservation, type UsageApprovalStatus, type UsageLedgerS
 import type { ContextCompactionOptions } from './ai/context-compactor'
 import { deriveConversationTurnContext } from './teaching-conversation-turn-context'
 import { finalizeLearnerMemoryCapture, resolveDirectMemoryConsent } from './teaching-conversation-memory'
-import { isNativeContainedDurableReplaceUnavailable } from './persistence/contained-durable-directory'
 import {
   isMemoryAuthorityWriteAvailable,
   isMemoryChatHotPathAvailable,
@@ -561,9 +560,8 @@ async function runTeachingConversationTurnActive(
 
 /**
  * Loads the durable memory catalog for one chat turn via the platform capability
- * registry (ADR-0126). Chat hot-path class degrades to empty when the profile
- * is unavailable; NativeContainedDurableReplaceUnavailableError never escapes
- * the turn boundary. Non-capability errors still surface.
+ * registry (ADR-0131 pathname_default). Chat hot-path class degrades to empty
+ * when the profile is unavailable. Non-capability I/O errors still surface.
  */
 async function loadTeachingMemoryCatalogForTurn(
   deps: TeachingConversationRuntimeDeps,
@@ -576,14 +574,7 @@ async function loadTeachingMemoryCatalogForTurn(
   if (!isMemoryChatHotPathAvailable()) {
     return { available: false, records: [] }
   }
-  try {
-    return { available: true, records: await deps.listMemories(workspaceRoot) }
-  } catch (error) {
-    if (isNativeContainedDurableReplaceUnavailable(error)) {
-      return { available: false, records: [] }
-    }
-    throw error
-  }
+  return { available: true, records: await deps.listMemories(workspaceRoot) }
 }
 
 function toChatMessage(message: AgentChatMessage): ChatMessage {

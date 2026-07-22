@@ -28,7 +28,7 @@ Bypassing a heuristic **does not automatically** constitute a CVE unless it cros
 - StudiumX currently **does not** expose a general shell / arbitrary code execution product path.
 - **MCP marketplace** and **default auto-connect** remain non-goals. User-configured MCP is **policy-approved** under ADR-0127 but **not** claimed as implemented until ADR-0128 phases A–D land; when implemented, default remains off and YOLO / always-approve remain forbidden.
 - We **do not** claim Docker-class OS sandbox isolation for model actions.
-- Windows memory and workspace I/O use an explicit **layered non-CAS** profile (`windows_direct_path_non_cas`: root-constrained direct-path persistence). This is **not** an OS sandbox claim and is **not** descriptor/CAS-equivalent (ADR-0126, ADR-0004 / ADR-0035).
+- Memory and workspace durable I/O default to **trusted-root pathname** persistence (`temp → write → optional fsync → rename`; ADR-0131). This is **non-CAS**, **not** descriptor-strict, and **not** an OS sandbox claim. Historical dual-profile inventory (ADR-0126) remains documentation only; descriptor-strict is **not** the full-platform default (see also ADR-0004 / ADR-0035).
 - LearningSession ledger / outcome settlement authority is **not** owned by the agent controller (ADR-0008, ADR-0021, ADR-0023).
 
 ## Reporting a vulnerability

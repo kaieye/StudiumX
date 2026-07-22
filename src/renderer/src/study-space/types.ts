@@ -23,6 +23,14 @@ export type StudyTimerPlan = {
    * false/absent means open-ended countup (focusMinutes is display-only cache).
    */
   continuousTarget?: boolean
+  /**
+   * STC-702: ordered custom rhythm steps (kind + minutes). V1 dual-write cache only;
+   * durable authority is TimerPlanV2.rhythmSequence. Not a freeform drag editor.
+   */
+  rhythmSequence?: Array<{
+    kind: 'focus' | 'short_break' | 'long_break' | 'wrap_up'
+    minutes: number
+  }>
 }
 
 export type StudyTimerPlanInput = Omit<StudyTimerPlan, 'id'>

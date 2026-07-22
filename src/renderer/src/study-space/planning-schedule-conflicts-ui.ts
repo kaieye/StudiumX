@@ -13,6 +13,9 @@
 
 import {
   findScheduleConflicts,
+  proposeScheduleConflictResolve,
+  type ProposeScheduleConflictResolveResult,
+  type ProposedBlockMove,
   type ScheduleBlock
 } from '../../../shared/study-planning'
 import { scheduleBlockToV1Schedule } from './planning-hydrate'
@@ -51,6 +54,11 @@ export type ScheduleConflictsBannerCopy = {
   dismissLabel: string
   moreLabel: string
   lockedHint: string
+  /** Opt-in CTA labels (STC-707); never auto-applied. */
+  previewResolveLabel: string
+  applyResolveLabel: string
+  cancelResolveLabel: string
+  resolveUnavailableHint: string
 }
 
 export type ScheduleConflictsBannerModel = {
@@ -239,7 +247,11 @@ export function projectScheduleConflictsBanner(input: {
         emptyHint: '拖拽或编辑日程后会自动检测重叠。',
         dismissLabel: '知道了',
         moreLabel: '',
-        lockedHint: '锁定块也会计入冲突；请解锁后再移动。'
+        lockedHint: '锁定块也会计入冲突；请解锁后再移动。',
+        previewResolveLabel: '预览错开',
+        applyResolveLabel: '确认应用',
+        cancelResolveLabel: '取消',
+        resolveUnavailableHint: '当前无法自动错开（例如双方均锁定）。'
       }
     }
   }
@@ -264,7 +276,149 @@ export function projectScheduleConflictsBanner(input: {
       emptyHint: '',
       dismissLabel: '暂时隐藏',
       moreLabel,
-      lockedHint: '含锁定标记的块需先解锁才能移动。'
+      lockedHint: '含锁定标记的块需先解锁才能移动。',
+      previewResolveLabel: '预览错开',
+      applyResolveLabel: '确认应用',
+      cancelResolveLabel: '取消',
+      resolveUnavailableHint: '当前无法自动错开（例如双方均锁定）。'
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// STC-707 opt-in auto-resolve propose (pure glue; no write)
+// ---------------------------------------------------------------------------
+
+export type ScheduleConflictResolvePreview = {
+  kind: 'ready' | 'unavailable'
+  /** When ready, pure proposal that clears conflicts by shifting unlocked blocks. */
+  proposal: ProposeScheduleConflictResolveResult | null
+  moves: ProposedBlockMove[]
+  /** Human summary lines for confirm UI. */
+  moveSummaries: string[]
+  reasonCode: string | null
+  reasonMessage: string
+  previewLabel: string
+  applyLabel: string
+  cancelLabel: string
+}
+
+function formatMsClock(ms: number): string {
+  if (!Number.isFinite(ms)) return '--:--'
+  const d = new Date(ms)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/**
+ * Build opt-in resolve preview for the week conflict banner.
+ * Pure: never writes. Host must require explicit confirm before upserts.
+ * Default product path remains list-only when unavailable / no CTA used.
+ */
+export function projectScheduleConflictResolvePreview(input: {
+  scheduleBlocks?: readonly ScheduleBlock[] | null
+  /** Optional hard window; omit for unrestricted stagger within pure rules. */
+  window?: { startAtMs: number; endAtMs: number; hardEnd: boolean }
+}): ScheduleConflictResolvePreview {
+  const focusBlocks = selectFocusBlocksForConflictScan(input.scheduleBlocks)
+  const proposal = proposeScheduleConflictResolve({
+    blocks: focusBlocks,
+    window: input.window
+  })
+
+  if (!proposal.ok) {
+    const messageByCode: Record<string, string> = {
+      no_conflicts: '当前没有可错开的冲突。',
+      both_locked: '冲突双方均为锁定块，请先解锁后再错开。',
+      locked_would_move: '提案会移动锁定块，已拒绝。',
+      hard_end_violation: '错开会超出硬结束窗口，已拒绝。',
+      no_gap: '无法为当前冲突找到可写回的错开位置。',
+      duration_invalid: '块时长无效，无法错开。',
+      step_cap: '冲突过多，自动错开步数超限，请手动调整。'
+    }
+    return {
+      kind: 'unavailable',
+      proposal,
+      moves: [],
+      moveSummaries: [],
+      reasonCode: proposal.code,
+      reasonMessage: messageByCode[proposal.code] ?? proposal.message,
+      previewLabel: '预览错开',
+      applyLabel: '应用错开',
+      cancelLabel: '取消'
+    }
+  }
+
+  const blockById = new Map(focusBlocks.map((b) => [b.id, b]))
+  const moveSummaries = proposal.moves.map((move) => {
+    const block = blockById.get(move.blockId)
+    const title =
+      block?.taskId && block.taskId.trim()
+        ? `块 ${move.blockId.slice(0, 8)}`
+        : `块 ${move.blockId.slice(0, 8)}`
+    return `${title}: ${formatMsClock(move.from.startAtMs)}–${formatMsClock(move.from.endAtMs)} → ${formatMsClock(move.to.startAtMs)}–${formatMsClock(move.to.endAtMs)}`
+  })
+
+  return {
+    kind: 'ready',
+    proposal,
+    moves: proposal.moves,
+    moveSummaries,
+    reasonCode: null,
+    reasonMessage:
+      proposal.remainingConflicts.length > 0
+        ? `可错开 ${proposal.moves.length} 个未锁定块；仍可能残留 ${proposal.remainingConflicts.length} 组重叠。`
+        : `可错开 ${proposal.moves.length} 个未锁定块以清除重叠。`,
+    previewLabel: '预览错开',
+    applyLabel: '确认应用',
+    cancelLabel: '取消'
+  }
+}
+
+/**
+ * Build sequential upsert payloads for confirmed unlocked moves.
+ * Caller supplies current revision and applies via existing CAS path.
+ * Never includes locked blocks (defensive filter).
+ */
+export function buildConflictResolveUpsertBlocks(input: {
+  /** Full schedule block set (or at least the focus set used for proposal). */
+  blocks: readonly ScheduleBlock[]
+  moves: readonly ProposedBlockMove[]
+}): { ok: true; blocks: ScheduleBlock[] } | { ok: false; code: string; message: string } {
+  if (!input.moves.length) {
+    return { ok: false, code: 'no_moves', message: 'No moves to apply.' }
+  }
+  const byId = new Map(input.blocks.map((b) => [b.id, b]))
+  const out: ScheduleBlock[] = []
+  for (const move of input.moves) {
+    const existing = byId.get(move.blockId)
+    if (!existing) {
+      return {
+        ok: false,
+        code: 'block_missing',
+        message: `Block ${move.blockId} not found for upsert.`
+      }
+    }
+    if (existing.locked) {
+      return {
+        ok: false,
+        code: 'locked_would_move',
+        message: `Refusing upsert of locked block ${move.blockId}.`
+      }
+    }
+    if (!Number.isFinite(move.to.startAtMs) || !Number.isFinite(move.to.endAtMs) || move.to.endAtMs <= move.to.startAtMs) {
+      return {
+        ok: false,
+        code: 'duration_invalid',
+        message: `Invalid target interval for ${move.blockId}.`
+      }
+    }
+    out.push({
+      ...existing,
+      startAtMs: move.to.startAtMs,
+      endAtMs: move.to.endAtMs,
+      revision: existing.revision + 1
+    })
+  }
+  return { ok: true, blocks: out }
 }

@@ -49,6 +49,8 @@ import {
   type BatchClassifySheetResult
 } from './BatchClassifySheet'
 import { MigrationBannerSheet, type MigrationBannerSheetResult } from './MigrationBannerSheet'
+import { V1AuthorityDemoteSheet, type V1AuthorityDemoteSheetResult } from './V1AuthorityDemoteSheet'
+import { buildV1DemoteBannerModel } from '../../study-space/planning-v1-authority-demote'
 import { buildMigrationBannerModel } from '../../study-space/planning-migration-banner'
 import { listStudyTaskCategories } from '../../study-space/taskCategories'
 import { WorkbenchTasks } from './WorkbenchTasks'
@@ -377,6 +379,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     setEmptyStartPolicyPreference,
     classificationPromptOptOut,
     setClassificationPromptOptOutPreference,
+    recurrenceRules,
+    setRecurrenceRulesPreference,
     addScheduledTask,
     updateTask,
     toggleTask,
@@ -395,7 +399,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     migrationBusy,
     migrationError,
     confirmMigrationOffer,
-    dismissMigrationOffer
+    dismissMigrationOffer,
+    v1DemoteOffer,
+    v1DemoteBusy,
+    v1DemoteError,
+    confirmV1DemoteOffer,
+    dismissV1DemoteOffer
   } = useStudySession({
     showNotification,
     openFocusTheater: () => {},
@@ -435,6 +444,17 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       dismissMigrationOffer(result.choice === 'dismiss' ? 'dismiss' : 'later')
     },
     [confirmMigrationOffer, dismissMigrationOffer]
+  )
+
+  const handleV1DemoteSheetResolve = useCallback(
+    (result: V1AuthorityDemoteSheetResult) => {
+      if (result.choice === 'confirm') {
+        void confirmV1DemoteOffer()
+        return
+      }
+      dismissV1DemoteOffer(result.choice === 'dismiss' ? 'dismiss' : 'later')
+    },
+    [confirmV1DemoteOffer, dismissV1DemoteOffer]
   )
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -916,6 +936,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           }
           onApplyAllocationProposal={applyAllocationProposal}
           timerSessions={timerSessions}
+          recurrenceRules={recurrenceRules}
+          onSaveRecurrenceRules={setRecurrenceRulesPreference}
         />
       </section>
     )
@@ -1075,6 +1097,21 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         onResolve={handleMigrationBannerResolve}
       />
 
+      <V1AuthorityDemoteSheet
+        open={Boolean(v1DemoteOffer)}
+        model={
+          v1DemoteOffer
+            ? buildV1DemoteBannerModel({
+                summary: v1DemoteOffer,
+                busy: v1DemoteBusy
+              })
+            : null
+        }
+        busy={v1DemoteBusy}
+        errorMessage={v1DemoteError}
+        onResolve={handleV1DemoteSheetResolve}
+      />
+
         {isTaskAddEditorOpen ? (
           <div className="office-workbench-task-add-overlay">
             <StudyTaskSchedulePage
@@ -1098,6 +1135,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                     : null
               }}
               canonicalCategories={canonicalCategories}
+              recurrenceRules={recurrenceRules}
+              onSaveRecurrenceRules={setRecurrenceRulesPreference}
             />
           </div>
         ) : null}

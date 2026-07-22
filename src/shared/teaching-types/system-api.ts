@@ -202,6 +202,8 @@ export type TeachingSystemApi = {
   onAgentChatStatus: (handler: (status: AgentChatStreamStatus) => void) => () => void
   onAgentChatTool: (handler: (event: AgentChatStreamToolEvent) => void) => () => void
   onAgentChatEvent: (handler: (event: AgentRealtimeEvent) => void) => () => void
+  /** OS suspend/resume fan-out (ADR-0129 §4). Signal only — pin stays renderer dual-write. */
+  onSystemPower: (handler: (event: import('../teaching-ipc-contract').SystemPowerEvent) => void) => () => void
   saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>
   renameAgentConversation: (payload: RenameAgentConversationPayload) => Promise<RenameAgentConversationResult>
   readAgentConversation: (payload: ReadAgentConversationPayload) => Promise<AgentConversationRecord>

@@ -190,7 +190,7 @@ describe('Teaching IPC gateway', () => {
     expect(serialized).not.toContain(sensitiveHash)
   })
 
-  it.runIf(process.platform === 'win32')('uses the Windows direct-path non-CAS memory profile through the memory IPC boundary', async () => {
+  it('uses the pathname_default memory profile through the memory IPC boundary', async () => {
     const runtime = await runtimeScope.create('gateway-windows-memory-direct-path')
     const managedRoot = join(runtime.paths.workspace, 'managed')
     const service = new TeachingWorkspaceService({
@@ -202,15 +202,15 @@ describe('Teaching IPC gateway', () => {
 
     const diagnostics = await handler(teachingInvokeChannels.getMemoryDiagnostics)(event)
     expect(diagnostics).toMatchObject({
-      platformIoProfile: 'windows_direct_path_non_cas',
+      platformIoProfile: 'pathname_default',
       platformCapabilityCode: 'ok'
     })
     const created = await handler(teachingInvokeChannels.createMemory)(event, {
-      content: 'Windows direct-path memory write under root-constrained profile.',
+      content: 'Pathname-default memory write under trusted-root profile.',
       scope: 'user'
     })
     expect(created).toMatchObject({
-      content: 'Windows direct-path memory write under root-constrained profile.',
+      content: 'Pathname-default memory write under trusted-root profile.',
       scope: 'user'
     })
     expect(created.id).toEqual(expect.any(String))

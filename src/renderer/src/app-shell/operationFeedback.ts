@@ -263,6 +263,7 @@ function classifyVisibleError(error: unknown, translate: OperationFeedbackTransl
     raw.includes('Teaching-memory direct-path') ||
     raw.includes('platform capability') ||
     raw.includes('windows_direct_path_non_cas') ||
+    raw.includes('pathname_default') ||
     raw.includes('write_unavailable')
   ) {
     return {

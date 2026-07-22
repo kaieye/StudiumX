@@ -11,6 +11,7 @@ import {
 } from './planning-client'
 import type {
   EmptyStartPolicy,
+  RecurrenceRule,
   StudyPlanningCommandEnvelope
 } from '../../../shared/study-planning'
 import type { DualWriteResult, CanonicalPlanningContext } from './planning-dual-write'
@@ -26,6 +27,10 @@ export type StudyPlanningPrefsPatch = {
   /** Active simulation window labels (HH:MM). */
   simulationStartTime?: string
   simulationEndTime?: string
+  /** Optional V1 dual-authority demote marker (ms). */
+  v1LocalAuthorityDemotedAtMs?: number
+  /** Optional durable recurrence rules (STC-703); full replace when set. */
+  recurrenceRules?: RecurrenceRule[]
 }
 
 function hasCanonicalContext(ctx: CanonicalPlanningContext): boolean {
@@ -73,6 +78,16 @@ export function buildSetPreferencesCommand(
   }
   if (typeof patch.simulationEndTime === 'string') {
     payload.simulationEndTime = patch.simulationEndTime
+  }
+  if (
+    typeof patch.v1LocalAuthorityDemotedAtMs === 'number' &&
+    Number.isFinite(patch.v1LocalAuthorityDemotedAtMs) &&
+    patch.v1LocalAuthorityDemotedAtMs > 0
+  ) {
+    payload.v1LocalAuthorityDemotedAtMs = Math.floor(patch.v1LocalAuthorityDemotedAtMs)
+  }
+  if (patch.recurrenceRules !== undefined) {
+    payload.recurrenceRules = patch.recurrenceRules
   }
   return {
     actionId,
@@ -130,7 +145,9 @@ export async function dualWriteSetPreferences(
     patch.classificationPromptOptOut === undefined &&
     patch.defaultTimerPlanId === undefined &&
     patch.simulationStartTime === undefined &&
-    patch.simulationEndTime === undefined
+    patch.simulationEndTime === undefined &&
+    patch.v1LocalAuthorityDemotedAtMs === undefined &&
+    patch.recurrenceRules === undefined
   ) {
     return {
       kind: 'canonical_failed',

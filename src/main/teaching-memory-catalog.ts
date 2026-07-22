@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { resolve, win32 } from 'node:path'
 import { normalizeTraceId } from '../shared/trace-context'
-import { closeContainedDurableDirectory, readRegularFileAtContainedDirectory, type ContainedDurableDirectory } from './persistence/contained-durable-directory'
 import type {
   TeachingMemoryKind,
   TeachingMemoryLegacyMigrationPreflight,
@@ -24,20 +23,15 @@ import {
   isCanonicalTeachingMemoryRecordFileName,
   isTeachingMemoryRecordFileName,
   openTeachingMemoryScopedRecordDirectory,
+  readTeachingMemoryRecordFileAtSource,
   replaceTeachingMemoryRecordFileAtSource,
   teachingMemoryRecordFileName,
   teachingMemoryRecordFilePath,
   teachingMemoryScopeDirectory,
   teachingMemoryScopedRecordFilePath,
+  teachingMemorySourceForNewRecord,
   type TeachingMemoryRecordFileSource
 } from './teaching-memory-catalog/record-file'
-import {
-  discoverWindowsDirectPathMemoryRecordFiles,
-  openWindowsDirectPathMemoryScopedPartition,
-  readWindowsDirectPathMemoryRecordFile,
-  replaceWindowsDirectPathMemoryRecordFile,
-  windowsDirectPathSourceForNewRecord
-} from './teaching-memory-catalog/windows-direct-path-memory-catalog'
 
 export type TeachingMemoryAccess = {
   workspaceRoot?: string
@@ -88,10 +82,8 @@ type Discovery = {
   acceptedSourceCounts: Map<string, number>
   mutationBlockingRecordIds: Set<string>
   close: () => void
-  rootDirectory?: ContainedDurableDirectory
-  /** Active I/O profile for this discovery snapshot. */
+  rootAbsolutePath?: string
   profile: PlatformIoProfileId
-  windowsDirectPathRoot?: string
 }
 
 /**
@@ -99,6 +91,9 @@ type Discovery = {
  * the internal partition key, restricted filesystem traversal, record
  * normalization, content-based scope authorization, and source-preserving
  * updates for legacy layouts. SQLite remains only a disposable projection.
+ *
+ * Single pathname backend (list/read/replaceDurably + root containment).
+ * No Windows dual-track factory; no hard dependency on native contained_durable_replace.
  */
 export class TeachingMemoryCatalog {
   private recoveryIssues: TeachingMemoryCatalogRecoveryIssue[] = []
@@ -117,11 +112,13 @@ export class TeachingMemoryCatalog {
   }
 
   async commit(record: TeachingMemoryRecord): Promise<void> {
+    if (this.ioProfile === 'unavailable') {
+      throw new Error('Teaching-memory catalog I/O is unavailable on this host.')
+    }
     const normalized = normalizeTeachingMemoryRecord(record)
     assertTeachingMemoryRecordIntegrity(normalized)
     this.resetRecoveryIssues()
     const discovered = await this.discover()
-    let createdDirectory: ContainedDurableDirectory | undefined
     try {
       const acceptedSourceCount = discovered.acceptedSourceCounts.get(normalized.id) ?? 0
       // Identical-byte duplicates are readable by deterministic precedence, but
@@ -139,42 +136,19 @@ export class TeachingMemoryCatalog {
         if (existing.layout === 'scoped' && existing.partition !== teachingMemoryScopeDirectory(normalized)) {
           throw new Error(`Memory record scope change requires unsafe partition relocation and was refused: ${normalized.id}`)
         }
-        await this.replaceAtSource(existing, normalized)
+        await replaceTeachingMemoryRecordFileAtSource(existing, normalized)
         return
       }
 
-      if (discovered.profile === 'windows_direct_path_non_cas') {
-        const opened = await openWindowsDirectPathMemoryScopedPartition(this.rootDir, normalized)
-        const source = windowsDirectPathSourceForNewRecord(this.rootDir, normalized, opened)
-        await replaceWindowsDirectPathMemoryRecordFile(source, normalized)
-        return
+      if (!discovered.rootAbsolutePath) {
+        throw new Error('Teaching-memory catalog root is unavailable for pathname publication.')
       }
-
-      if (!discovered.rootDirectory) {
-        throw new Error('Teaching-memory catalog root is unavailable for descriptor-relative publication.')
-      }
-      const scoped = openTeachingMemoryScopedRecordDirectory(this.rootDir, discovered.rootDirectory, normalized)
-      createdDirectory = scoped.directory
-      await replaceTeachingMemoryRecordFileAtSource({
-        directory: scoped.directory,
-        entryName: teachingMemoryRecordFileName(normalized.id),
-        backend: { kind: 'posix_descriptor', directory: scoped.directory }
-      }, normalized)
+      const scoped = await openTeachingMemoryScopedRecordDirectory(this.rootDir, normalized)
+      const source = teachingMemorySourceForNewRecord(this.rootDir, normalized, scoped)
+      await replaceTeachingMemoryRecordFileAtSource(source, normalized)
     } finally {
-      if (createdDirectory) closeContainedDurableDirectory(createdDirectory)
       discovered.close()
     }
-  }
-
-  private async replaceAtSource(
-    source: TeachingMemoryRecordFileSource,
-    record: TeachingMemoryRecord
-  ): Promise<void> {
-    if (source.backend.kind === 'windows_direct_path') {
-      await replaceWindowsDirectPathMemoryRecordFile(source, record)
-      return
-    }
-    await replaceTeachingMemoryRecordFileAtSource(source, record)
   }
 
   /** @deprecated Use commit. */
@@ -227,9 +201,9 @@ export class TeachingMemoryCatalog {
   }
 
   /**
-   * Returns renderer-safe diagnostics assembled from one descriptor-bound
-   * discovery snapshot. This method only reads existing sources; it never
-   * creates, repairs, relocates, or rewrites Memory files.
+   * Returns renderer-safe diagnostics assembled from one pathname discovery
+   * snapshot. This method only reads existing sources; it never creates,
+   * repairs, relocates, or rewrites Memory files.
    *
    * When `access` is provided, eligible/partitioned aggregates are restricted
    * to that trusted scope. Catalog-wide recovery and duplicate blockers still
@@ -276,12 +250,19 @@ export class TeachingMemoryCatalog {
 
   private async discover(options: { createRoot?: boolean } = {}): Promise<Discovery> {
     const profile = this.ioProfile
-    const listed =
-      profile === 'windows_direct_path_non_cas'
-        ? await discoverWindowsDirectPathMemoryRecordFiles(this.rootDir, options)
-        : profile === 'posix_descriptor_strict'
-          ? await discoverTeachingMemoryRecordFiles(this.rootDir, options)
-          : { sources: [], issues: [], partitionDirectories: [] as ContainedDurableDirectory[] }
+    if (profile === 'unavailable') {
+      return {
+        sources: [],
+        selected: new Map(),
+        conflictedIds: new Set(),
+        acceptedSourceCounts: new Map(),
+        mutationBlockingRecordIds: new Set(),
+        close: () => undefined,
+        profile
+      }
+    }
+
+    const listed = await discoverTeachingMemoryRecordFiles(this.rootDir, options)
     try {
       for (const issue of listed.issues) this.report(issue.fileName, issue.filePath, issue.reason)
 
@@ -290,7 +271,7 @@ export class TeachingMemoryCatalog {
       const mutationBlockingRecordIds = new Set<string>()
       for (const source of listed.sources) {
         try {
-          const bytes = await this.readSourceBytes(source)
+          const bytes = await readTeachingMemoryRecordFileAtSource(source)
           const fingerprint = createHash('sha256').update(bytes).digest('hex')
           sources.push({ ...source, bytes, fingerprint })
           const parsedRecord = this.parseRecordFile(source, bytes.toString('utf8'))
@@ -321,28 +302,16 @@ export class TeachingMemoryCatalog {
         conflictedIds,
         acceptedSourceCounts,
         mutationBlockingRecordIds,
-        rootDirectory: listed.rootDirectory,
+        rootAbsolutePath: listed.rootAbsolutePath,
         profile,
-        windowsDirectPathRoot: listed.windowsDirectPathRoot,
         close: () => {
-          if (profile === 'posix_descriptor_strict') closeTeachingMemoryRecordFileDiscovery(listed)
+          closeTeachingMemoryRecordFileDiscovery(listed)
         }
       }
     } catch (error) {
       closeTeachingMemoryRecordFileDiscovery(listed)
       throw error
     }
-  }
-
-  private async readSourceBytes(source: TeachingMemoryRecordFileSource): Promise<Buffer> {
-    if (source.backend.kind === 'windows_direct_path') {
-      return readWindowsDirectPathMemoryRecordFile(source)
-    }
-    const directory =
-      source.directory ??
-      (source.backend.kind === 'posix_descriptor' ? source.backend.directory : undefined)
-    if (!directory) throw new Error('Memory source is missing a bound parent directory.')
-    return readRegularFileAtContainedDirectory(directory, source.entryName)
   }
 
   private parseRecordFile(source: TeachingMemoryRecordFileSource, content: string): ParsedRecordFileResult {
@@ -365,7 +334,7 @@ export class TeachingMemoryCatalog {
     }
     if (source.layout === 'scoped') {
       const fileName = lastPathSegment(source.fileName)
-      if (!isCanonicalTeachingMemoryRecordFileName(fileName) || fileName !== teachingMemoryRecordFilePath('', record.id)) {
+      if (!isCanonicalTeachingMemoryRecordFileName(fileName) || fileName !== teachingMemoryRecordFileName(record.id)) {
         this.report(source.fileName, source.filePath, 'file_name_mismatch')
         return { record: null, mutationBlockingRecordId: record.id }
       }

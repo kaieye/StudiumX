@@ -13,9 +13,14 @@ import {
   TIMER_PLAN_KIND_OPTIONS,
   defaultContinuousBreakPolicy,
   isValidContinuousPlanDraft,
+  isValidCustomRhythmPlanDraft,
   type ContinuousBreakPolicy,
   type StudyTimerPlanKind
 } from '../../study-space/planning-timer-plan-kind'
+import {
+  CustomRhythmSequenceEditor,
+  DEFAULT_CUSTOM_RHYTHM_SEQUENCE
+} from './CustomRhythmSequenceEditor'
 import { useWorkbenchDisclosureReveal } from './useWorkbenchDisclosureReveal'
 import { StudyTimerPlanCatalogSection } from './StudyTimerPlanCatalogSection'
 import { StudyPlanningPrefsSection } from './StudyPlanningPrefsSection'
@@ -72,7 +77,12 @@ function createTimerPlanDraft(snapshot: StudySnapshot): TimerPlanDraft {
   const advanced = defaultTimerPlanAdvancedFields()
   // Prefer last saved plan advanced fields when present (sole-read cache).
   const last = snapshot.timerPlans[0]
-  const kind: StudyTimerPlanKind = last?.kind === 'continuous' ? 'continuous' : 'pomodoro'
+  const kind: StudyTimerPlanKind =
+    last?.kind === 'continuous'
+      ? 'continuous'
+      : last?.kind === 'custom_rhythm'
+        ? 'custom_rhythm'
+        : 'pomodoro'
   return {
     name: '',
     focusMinutes: snapshot.focusMinutes,
@@ -84,6 +94,12 @@ function createTimerPlanDraft(snapshot: StudySnapshot): TimerPlanDraft {
     kind,
     clockMode: kind === 'continuous' ? 'countup' : 'countdown',
     continuousTarget: last?.continuousTarget === true,
+    rhythmSequence:
+      kind === 'custom_rhythm' && Array.isArray(last?.rhythmSequence) && last.rhythmSequence.length > 0
+        ? last.rhythmSequence.map((s) => ({ kind: s.kind, minutes: s.minutes }))
+        : kind === 'custom_rhythm'
+          ? DEFAULT_CUSTOM_RHYTHM_SEQUENCE.map((s) => ({ ...s }))
+          : undefined,
     breakPolicy: (
       kind === 'continuous'
         ? (last?.breakPolicy ?? defaultContinuousBreakPolicy())
@@ -173,7 +189,12 @@ export function WorkbenchPomodoro({
     ? '暂停'
     : isModePreview ? `开始${selectedMode === 'focus' ? '专注' : '休息'}`
       : snapshot.timerState === 'paused' ? '继续' : '开始'
-  const draftKind: StudyTimerPlanKind = draft.kind === 'continuous' ? 'continuous' : 'pomodoro'
+  const draftKind: StudyTimerPlanKind =
+    draft.kind === 'continuous'
+      ? 'continuous'
+      : draft.kind === 'custom_rhythm'
+        ? 'custom_rhythm'
+        : 'pomodoro'
   const hasValidDraft = draftKind === 'continuous'
     ? isValidContinuousPlanDraft({
       name: draft.name,
@@ -183,19 +204,26 @@ export function WorkbenchPomodoro({
       simulationStartTime: draft.simulationStartTime,
       simulationEndTime: draft.simulationEndTime
     })
-    : Boolean(draft.name.trim())
-      && Number.isInteger(draft.focusMinutes)
-      && Number.isInteger(draft.breakMinutes)
-      && draft.focusMinutes >= 5
-      && draft.focusMinutes <= 120
-      && draft.breakMinutes >= 1
-      && draft.breakMinutes <= 45
-      && draft.simulationStartTime < draft.simulationEndTime
-      && isValidTimerPlanAdvancedDraft({
-        longBreakMinutes: draft.longBreakMinutes,
-        longBreakEvery: draft.longBreakEvery,
-        breakPolicy: draft.breakPolicy
+    : draftKind === 'custom_rhythm'
+      ? isValidCustomRhythmPlanDraft({
+        name: draft.name,
+        rhythmSequence: draft.rhythmSequence,
+        simulationStartTime: draft.simulationStartTime,
+        simulationEndTime: draft.simulationEndTime
       })
+      : Boolean(draft.name.trim())
+        && Number.isInteger(draft.focusMinutes)
+        && Number.isInteger(draft.breakMinutes)
+        && draft.focusMinutes >= 5
+        && draft.focusMinutes <= 120
+        && draft.breakMinutes >= 1
+        && draft.breakMinutes <= 45
+        && draft.simulationStartTime < draft.simulationEndTime
+        && isValidTimerPlanAdvancedDraft({
+          longBreakMinutes: draft.longBreakMinutes,
+          longBreakEvery: draft.longBreakEvery,
+          breakPolicy: draft.breakPolicy
+        })
 
   // STC-205: mid-break extend (+1 min) when host provides callback and break is active countdown.
   const canExtendBreak = Boolean(
@@ -247,14 +275,24 @@ export function WorkbenchPomodoro({
 
   const handleSavePlan = (): void => {
     if (!hasValidDraft) return
-    const kind: StudyTimerPlanKind = draft.kind === 'continuous' ? 'continuous' : 'pomodoro'
+    const kind: StudyTimerPlanKind =
+      draft.kind === 'continuous'
+        ? 'continuous'
+        : draft.kind === 'custom_rhythm'
+          ? 'custom_rhythm'
+          : 'pomodoro'
+    // Catalog save only — never mutates live session planSnapshot (STC-503 / ADR-0094 freeze).
     onSaveTimerPlan({
       ...draft,
       name: draft.name.trim(),
       kind,
       clockMode: kind === 'continuous' ? 'countup' : 'countdown',
       continuousTarget: kind === 'continuous' ? draft.continuousTarget === true : undefined,
-      breakMinutes: kind === 'continuous' ? (draft.breakMinutes || 0) : draft.breakMinutes
+      breakMinutes: kind === 'continuous' ? (draft.breakMinutes || 0) : draft.breakMinutes,
+      rhythmSequence:
+        kind === 'custom_rhythm' && Array.isArray(draft.rhythmSequence)
+          ? draft.rhythmSequence.map((s) => ({ kind: s.kind, minutes: s.minutes }))
+          : undefined
     })
     setDraft(createTimerPlanDraft({
       ...snapshot,
@@ -358,7 +396,13 @@ export function WorkbenchPomodoro({
                       : (current.breakPolicy === 'automatic' || current.breakPolicy === 'ask'
                         ? current.breakPolicy
                         : 'ask'),
-                    breakMinutes: next === 'continuous' ? 0 : (current.breakMinutes || 5)
+                    breakMinutes: next === 'continuous' ? 0 : (current.breakMinutes || 5),
+                    rhythmSequence:
+                      next === 'custom_rhythm'
+                        ? (Array.isArray(current.rhythmSequence) && current.rhythmSequence.length > 0
+                          ? current.rhythmSequence
+                          : DEFAULT_CUSTOM_RHYTHM_SEQUENCE.map((s) => ({ ...s })))
+                        : undefined
                   }))
                 }}
               >
@@ -367,54 +411,65 @@ export function WorkbenchPomodoro({
                 ))}
               </select>
             </label>
-            <div className="workbench-pomodoro-settings-durations">
-              <label>
-                <span>{draftKind === 'continuous' ? '目标时长（可选）' : '专注时间'}</span>
-                <div className="workbench-pomodoro-number-input">
-                  <input
-                    type="number"
-                    aria-label="专注时间"
-                    value={draft.focusMinutes}
-                    min={5}
-                    max={draftKind === 'continuous' ? 240 : 120}
-                    step={1}
-                    disabled={draftKind === 'continuous' && draft.continuousTarget !== true}
-                    onChange={(event) => updateDraft('focusMinutes', Number(event.target.value))}
-                  />
-                  <em>分钟</em>
-                </div>
-              </label>
-              {draftKind === 'pomodoro' ? (
+            {draftKind === 'custom_rhythm' ? (
+              <CustomRhythmSequenceEditor
+                sequence={
+                  Array.isArray(draft.rhythmSequence) && draft.rhythmSequence.length > 0
+                    ? draft.rhythmSequence
+                    : DEFAULT_CUSTOM_RHYTHM_SEQUENCE
+                }
+                onChange={(next) => updateDraft('rhythmSequence', next)}
+              />
+            ) : (
+              <div className="workbench-pomodoro-settings-durations">
                 <label>
-                  <span>休息时间</span>
+                  <span>{draftKind === 'continuous' ? '目标时长（可选）' : '专注时间'}</span>
                   <div className="workbench-pomodoro-number-input">
                     <input
                       type="number"
-                      aria-label="休息时间"
-                      value={draft.breakMinutes}
-                      min={1}
-                      max={45}
+                      aria-label="专注时间"
+                      value={draft.focusMinutes}
+                      min={5}
+                      max={draftKind === 'continuous' ? 240 : 120}
                       step={1}
-                      onChange={(event) => updateDraft('breakMinutes', Number(event.target.value))}
+                      disabled={draftKind === 'continuous' && draft.continuousTarget !== true}
+                      onChange={(event) => updateDraft('focusMinutes', Number(event.target.value))}
                     />
                     <em>分钟</em>
                   </div>
                 </label>
-              ) : (
-                <label>
-                  <span>目标正计时</span>
-                  <div className="workbench-pomodoro-number-input">
-                    <input
-                      type="checkbox"
-                      aria-label="启用目标正计时"
-                      checked={draft.continuousTarget === true}
-                      onChange={(event) => updateDraft('continuousTarget', event.target.checked)}
-                    />
-                    <em>设定目标</em>
-                  </div>
-                </label>
-              )}
-            </div>
+                {draftKind === 'pomodoro' ? (
+                  <label>
+                    <span>休息时间</span>
+                    <div className="workbench-pomodoro-number-input">
+                      <input
+                        type="number"
+                        aria-label="休息时间"
+                        value={draft.breakMinutes}
+                        min={1}
+                        max={45}
+                        step={1}
+                        onChange={(event) => updateDraft('breakMinutes', Number(event.target.value))}
+                      />
+                      <em>分钟</em>
+                    </div>
+                  </label>
+                ) : (
+                  <label>
+                    <span>目标正计时</span>
+                    <div className="workbench-pomodoro-number-input">
+                      <input
+                        type="checkbox"
+                        aria-label="启用目标正计时"
+                        checked={draft.continuousTarget === true}
+                        onChange={(event) => updateDraft('continuousTarget', event.target.checked)}
+                      />
+                      <em>设定目标</em>
+                    </div>
+                  </label>
+                )}
+              </div>
+            )}
             {draftKind === 'pomodoro' ? (
               <>
                 <div className="workbench-pomodoro-settings-durations" aria-label="长休息设置">
@@ -462,6 +517,19 @@ export function WorkbenchPomodoro({
                   </select>
                 </label>
               </>
+            ) : draftKind === 'custom_rhythm' ? (
+              <label>
+                <span>休息策略</span>
+                <select
+                  aria-label="自定义节奏休息策略"
+                  value={draft.breakPolicy === 'automatic' || draft.breakPolicy === 'ask' ? draft.breakPolicy : 'ask'}
+                  onChange={(event) => updateDraft('breakPolicy', event.target.value as PomodoroBreakPolicy)}
+                >
+                  {POMODORO_BREAK_POLICY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </label>
             ) : (
               <label>
                 <span>休息策略</span>
