@@ -1826,7 +1826,7 @@ export function useStudySession({
       const next = dualWriteFocusTimerTransition({ kind: 'switch_task', newTaskId: nextId })
       const closed = next.closedSession
       if (closed) {
-        const hostWithAnalytics = emitTimerSessionCloseAnalytics(hostBefore, closed, {
+        const hostWithAnalytics = emitTimerSessionCloseAnalytics(closed, 'interrupted', hostBefore, {
           discardV1Twin: true
         })
         if (hostWithAnalytics !== hostBefore) {

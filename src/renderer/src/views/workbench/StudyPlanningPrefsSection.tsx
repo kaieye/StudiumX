@@ -4,7 +4,7 @@
  */
 
 import { useMemo } from 'react'
-import type { EmptyStartPolicy } from '../../../shared/study-planning'
+import type { EmptyStartPolicy } from '../../../../shared/study-planning'
 import { buildStudyPlanningPrefsModel } from '../../study-space/planning-study-prefs-ui'
 
 export type StudyPlanningPrefsSectionProps = {

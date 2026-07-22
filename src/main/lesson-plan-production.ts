@@ -81,7 +81,8 @@ export async function produce(prepared: PreparedLessonPlanRequest): Promise<Less
   // Grant false: no FS load and no toolPolicyDocument field.
   let toolContextOptions: {
     workspaceRoot?: string
-  } & ReturnType<typeof toolPolicyDocumentOption> = { ...workspaceToolOptions }
+    toolPolicyDocument?: import('./ai/tools/tool-policy').ToolPolicyDocument
+  } = { ...workspaceToolOptions }
   if (workspace.workspaceToolAccessGranted === true && workspace.rootPath) {
     const workspaceToolPolicy = await loadAndMergeToolPolicyDocumentsFromWorkspace({
       workspaceRoot: workspace.rootPath

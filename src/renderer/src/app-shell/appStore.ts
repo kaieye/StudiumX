@@ -97,8 +97,7 @@ import {
   type LessonGenerationNotificationIntent
 } from './lessonGenerationFlow'
 import type {
-  GenerateLessonPayload,
-  GenerateLessonResult
+  GenerateLessonPayload
 } from '../../../shared/teaching-types'
 
 export type UserError = OperationFeedbackError
@@ -1534,7 +1533,8 @@ export const useAppStore = create<StoreState>((set, get) => {
           return
         }
         clearDirectLessonActionId(workspace.id)
-        const userError = directLessonDispositionError(done.disposition, done.code)
+        const failureCode = 'code' in done ? done.code : undefined
+        const userError = directLessonDispositionError(done.disposition, failureCode)
         set({
           ...failStreamingLessonGeneration(userError),
           lessonGenerationRunId: null,

@@ -59,7 +59,7 @@ export function normalizeTimerPlanAdvancedFields(
   const raw = input ?? {}
 
   const longRaw = asInt(raw.longBreakMinutes)
-  let longBreakMinutes = TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes
+  let longBreakMinutes: number = TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes
   if (longRaw !== undefined) {
     longBreakMinutes = clampInt(
       longRaw,
@@ -76,7 +76,7 @@ export function normalizeTimerPlanAdvancedFields(
   }
 
   const everyRaw = asInt(raw.longBreakEvery)
-  let longBreakEvery = TIMER_PLAN_SEED_DEFAULTS.classicLongBreakEvery
+  let longBreakEvery: number = TIMER_PLAN_SEED_DEFAULTS.classicLongBreakEvery
   if (everyRaw !== undefined) {
     longBreakEvery = clampInt(
       everyRaw,

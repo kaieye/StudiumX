@@ -15,7 +15,7 @@ export type StudyTimerPlan = {
   /** STC-502: rest transition policy (pomodoro product: automatic|ask). */
   breakPolicy?: 'automatic' | 'ask' | 'reminder_only' | 'none'
   /** STC-504: plan kind (default pomodoro when absent). */
-  kind?: 'pomodoro' | 'continuous'
+  kind?: 'pomodoro' | 'continuous' | 'custom_rhythm'
   /** STC-504: clock mode (continuous default countup). */
   clockMode?: 'countdown' | 'countup'
   /**

@@ -1,6 +1,5 @@
 import type { ModelEndpointFormat } from './settings'
-import type { TeachingWorkspaceChangeSummary } from './changes'
-import type { GenerateLessonPayload, LessonSummary, TeachingAppState } from './workspace'
+import type { GenerateLessonPayload } from './workspace'
 
 export type QuizType = 'single' | 'multi' | 'truefalse' | 'fill'
 

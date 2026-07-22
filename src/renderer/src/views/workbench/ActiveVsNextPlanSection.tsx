@@ -9,7 +9,7 @@ import {
   type ActiveVsNextPlanSideModel
 } from '../../study-space/planning-active-vs-next-plan-ui'
 import type { StudyTimerPlan } from '../../study-space/types'
-import type { TimerSessionRecord } from '../../../shared/study-planning'
+import type { TimerSessionRecord } from '../../../../shared/study-planning'
 
 export type ActiveVsNextPlanSectionProps = {
   activeSession?: TimerSessionRecord | null

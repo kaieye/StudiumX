@@ -20,7 +20,7 @@ import { useWorkbenchDisclosureReveal } from './useWorkbenchDisclosureReveal'
 import { StudyTimerPlanCatalogSection } from './StudyTimerPlanCatalogSection'
 import { StudyPlanningPrefsSection } from './StudyPlanningPrefsSection'
 import { ActiveVsNextPlanSection } from './ActiveVsNextPlanSection'
-import type { EmptyStartPolicy, TimerSessionRecord } from '../../../shared/study-planning'
+import type { EmptyStartPolicy, TimerSessionRecord } from '../../../../shared/study-planning'
 import {
   isPlanningTimerKeyboardTargetEditable,
   mapPlanningTimerKeyboardAction,

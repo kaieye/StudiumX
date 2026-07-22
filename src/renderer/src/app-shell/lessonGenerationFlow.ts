@@ -225,7 +225,9 @@ export function streamedLessonDonePatch(input: {
   workspaceId: string
   nextPrompt: string
 }): LessonGenerationPatch | null {
-  if ('error' in input.done || input.done.kind !== 'lesson') return null
+  if ('error' in input.done) return null
+  if (!('disposition' in input.done)) return null
+  if (input.done.disposition !== 'succeeded' && input.done.disposition !== 'reused') return null
   return completeLessonGeneration({
     state: input.done.state,
     lesson: input.done.lesson,

@@ -140,7 +140,7 @@ function projectSession(
     }
   }
 
-  if (session.source === 'legacy_lesson' || session.status === 'legacy_read_only' || session.readOnly) {
+  if (session.source === 'legacy_lesson') {
     const eligibility: ResumeEligibility = 'legacy_read_only'
     return {
       sessionId: session.id,
