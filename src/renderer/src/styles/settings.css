@@ -377,11 +377,31 @@
     0 14px 34px rgba(20, 47, 95, 0.1);
 }
 
-.settings-select-trigger-copy {
+.settings-select-trigger-copy,
+.settings-select-option-copy {
   display: flex;
   min-width: 0;
-  flex: 1;
   align-items: center;
+  gap: 8px;
+}
+
+.settings-select-trigger-copy {
+  flex: 1;
+}
+
+.settings-select-option-copy {
+  overflow: hidden;
+}
+
+.settings-select-option-copy > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-select-option-icon {
+  flex: 0 0 auto;
 }
 
 .settings-select-trigger-value {
@@ -424,6 +444,135 @@
     0 22px 48px rgba(20, 47, 95, 0.14),
     0 4px 14px rgba(20, 47, 95, 0.06);
   backdrop-filter: blur(16px);
+}
+
+.settings-select-menu.is-item-aligned {
+  position: fixed;
+  z-index: 80;
+}
+
+/* ZCode-style settings selects. Their selected row is aligned with the closed
+ * trigger, so opening turns the trigger value into part of the list. */
+.settings-select.settings-select--item-aligned {
+  width: min(260px, 100%);
+}
+
+.settings-select--item-aligned .settings-select-trigger {
+  min-height: 32px;
+  height: 32px;
+  gap: 6px;
+  padding: 0 8px 0 12px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+  font-size: 13px;
+}
+
+.settings-select--item-aligned .settings-select-trigger:hover {
+  border-color: var(--line);
+  background: #fff;
+  box-shadow: none;
+}
+
+.settings-select--item-aligned .settings-select-trigger:focus-visible,
+.settings-select--item-aligned.is-open .settings-select-trigger {
+  border-color: var(--line);
+  background: #fff;
+  box-shadow: none;
+}
+
+.settings-select--item-aligned .settings-select-trigger-copy {
+  gap: 8px;
+}
+
+.settings-select--item-aligned .settings-select-trigger-value {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.settings-select--item-aligned .settings-select-trigger-icon,
+.settings-select--item-aligned.is-open .settings-select-trigger-icon {
+  color: var(--text-soft);
+  transform: none;
+  transition: none;
+}
+
+.settings-select-menu.is-item-aligned {
+  display: block;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 128px;
+  max-height: min(150px, calc(100vh - 16px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px;
+  border-color: var(--line);
+  border-radius: 12px;
+  background: var(--surface-solid);
+  box-shadow: 0 8px 16px rgba(20, 47, 95, 0.12);
+  animation: settings-select-menu-in 100ms ease-out;
+  will-change: opacity;
+  backdrop-filter: none;
+}
+
+@keyframes settings-select-menu-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-select-menu.is-item-aligned {
+    animation: none;
+  }
+}
+
+.settings-select-menu.is-item-aligned .settings-select-option {
+  position: relative;
+  width: 100%;
+  min-height: 28px;
+  gap: 8px;
+  padding: 4px 8px;
+  color: var(--text);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  transition: background-color 100ms ease, color 100ms ease;
+}
+
+.settings-select-menu.is-item-aligned .settings-select-option:hover,
+.settings-select-menu.is-item-aligned .settings-select-option.is-highlighted,
+.settings-select-menu.is-item-aligned .settings-select-option.is-selected.is-highlighted {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.settings-select-menu.is-item-aligned .settings-select-option.is-selected {
+  color: var(--text);
+  background: transparent;
+}
+
+.settings-select-menu.is-item-aligned .settings-select-check {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: block;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--text-soft);
+  pointer-events: none;
+}
+
+.settings-select-menu.is-item-aligned .settings-select-option.is-selected svg {
+  color: var(--text-soft);
 }
 
 .settings-select-option {
@@ -832,6 +981,31 @@
   color: var(--accent);
   border-color: rgba(138, 180, 255, 0.24);
   background: var(--accent-soft);
+}
+
+:root[data-resolved-theme="dark"] .settings-select--item-aligned .settings-select-trigger,
+:root[data-resolved-theme="dark"] .settings-select--item-aligned .settings-select-trigger:hover,
+:root[data-resolved-theme="dark"] .settings-select--item-aligned.is-open .settings-select-trigger {
+  background: var(--surface-solid);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme="dark"] .settings-select-menu.is-item-aligned {
+  background: var(--surface-solid);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.32);
+}
+
+:root[data-resolved-theme="dark"] .settings-select-menu.is-item-aligned .settings-select-option.is-selected {
+  color: var(--text);
+  border-color: transparent;
+  background: transparent;
+}
+
+:root[data-resolved-theme="dark"] .settings-select-menu.is-item-aligned .settings-select-option:hover,
+:root[data-resolved-theme="dark"] .settings-select-menu.is-item-aligned .settings-select-option.is-highlighted,
+:root[data-resolved-theme="dark"] .settings-select-menu.is-item-aligned .settings-select-option.is-selected.is-highlighted {
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 :root[data-resolved-theme="dark"] .settings-input::placeholder,
