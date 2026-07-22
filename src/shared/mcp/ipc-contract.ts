@@ -1,6 +1,6 @@
-/**
- * MCP IPC channels (ADR-0128 §8) — teach:mcp-* prefix, registered with teaching IPC.
- */
+/** MCP IPC channels (ADR-0128 §8) — registered with teaching IPC. */
+
+import type { McpSecretInputChanges } from './types'
 
 export const mcpInvokeChannels = {
   getConfig: 'teach:mcp-get-config',
@@ -13,10 +13,14 @@ export type McpInvokeChannel = (typeof mcpInvokeChannels)[keyof typeof mcpInvoke
 
 export type McpUpdateConfigPayload = Readonly<{
   expectedFingerprint: string
-  /** Full UserMcpConfigV1-shaped document (secret refs only; no secret plaintext). */
+  /** Full UserMcpConfigV1-shaped document. Secret fields contain transient markers only. */
   config: unknown
+  /** Plaintext travels renderer → main only and is never echoed back. */
+  secretChanges?: McpSecretInputChanges
 }>
 
 export type McpTestServerPayload = Readonly<{
   serverId: string
+  /** Active workspace used to enforce an explicit workspace-scoped server binding. */
+  workspaceRoot?: string | null
 }>

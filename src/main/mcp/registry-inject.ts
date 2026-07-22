@@ -23,6 +23,7 @@ export type AttachMcpToRegistryResult = Readonly<{
 export async function injectMcpToolsIntoRegistry(input: {
   registry: ToolRegistry
   sessionManager: McpSessionManager | null | undefined
+  workspaceRoot?: string
   signal?: AbortSignal
 }): Promise<AttachMcpToRegistryResult> {
   if (!input.sessionManager) {
@@ -39,7 +40,7 @@ export async function injectMcpToolsIntoRegistry(input: {
     }
   }
 
-  const snapshot = await input.sessionManager.buildSnapshot(input.signal)
+  const snapshot = await input.sessionManager.buildSnapshot(input.workspaceRoot, input.signal)
   if (snapshot.tools.length === 0) {
     setRuntimeMcpEffectMap(snapshot.effectByRegisteredName)
     return { attached: 0, skipped: [], snapshot }

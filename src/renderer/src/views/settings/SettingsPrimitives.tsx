@@ -1,5 +1,5 @@
 import { Check, ChevronDown, type LucideIcon } from 'lucide-react'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
+import type { HTMLAttributes, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -25,12 +25,14 @@ export function SettingsPanel({
 
 export function SettingsCard({
   children,
-  className = ''
-}: {
-  children: ReactNode
-  className?: string
-}) {
-  return <div className={`settings-card ${className}`}>{children}</div>
+  className = '',
+  ...props
+}: { children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div {...props} className={`settings-card ${className}`}>
+      {children}
+    </div>
+  )
 }
 
 export function SettingsRow({
@@ -55,9 +57,13 @@ export function SettingsRow({
 
 export function ToggleSwitch({
   checked,
+  disabled = false,
+  ariaLabel,
   onChange
 }: {
   checked: boolean
+  disabled?: boolean
+  ariaLabel?: string
   onChange: (checked: boolean) => void
 }) {
   return (
@@ -66,6 +72,8 @@ export function ToggleSwitch({
       data-state={checked ? 'checked' : 'unchecked'}
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
       type="button"
       onClick={() => onChange(!checked)}
     >

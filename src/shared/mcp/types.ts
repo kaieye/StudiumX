@@ -28,12 +28,33 @@ export type McpErrorCode = (typeof MCP_ERROR_CODES)[keyof typeof MCP_ERROR_CODES
 /** Effect lattice for MCP tool overrides (same as ToolEffectClass). */
 export type McpEffectClass = 'read' | 'workspace_write' | 'external_write' | 'privileged'
 
-export type McpTransportKind = 'stdio' // Phase C may add 'sse' | 'http'
+export type McpTransportKind = 'stdio' | 'http' | 'sse'
+export type McpServerScope = 'user' | 'workspace'
+
+/** Renderer-visible placeholder for a configured secret whose plaintext stays in main. */
+export const MCP_SECRET_CONFIGURED_PLACEHOLDER = '<configured>' as const
+/** Transient ref markers accepted only on renderer → main config updates. */
+export const MCP_SECRET_REF_KEEP = 'mcp-secret:keep' as const
+export const MCP_SECRET_REF_PENDING = 'mcp-secret:pending' as const
+
+/** Plaintext secret values travel renderer → main only and are never echoed back. */
+export type McpSecretInputChanges = Readonly<
+  Record<
+    string,
+    Readonly<{
+      env?: Readonly<Record<string, string>>
+      headers?: Readonly<Record<string, string>>
+    }>
+  >
+>
 
 export type UserMcpServerV1 = Readonly<{
   id: string
   label: string
   enabled: boolean
+  scope: McpServerScope
+  /** Explicit user-approved workspace binding; config remains stored in userData. */
+  workspaceRoot: string | null
   transport: McpTransportKind
   command: string | null
   args: readonly string[]
@@ -42,6 +63,8 @@ export type UserMcpServerV1 = Readonly<{
   envPlain: Readonly<Record<string, string>>
   url: string | null
   headersSecretRefs: Readonly<Record<string, string>>
+  headersPlain: Readonly<Record<string, string>>
+  timeoutMs: number | null
   toolEffectOverrides: Readonly<Record<string, McpEffectClass>>
   createdAt: string
   updatedAt: string
@@ -60,14 +83,19 @@ export type UserMcpServerPublicV1 = Readonly<{
   id: string
   label: string
   enabled: boolean
+  scope: McpServerScope
+  workspaceRoot: string | null
   transport: McpTransportKind
   command: string | null
   args: readonly string[]
   cwd: string | null
   envSecretConfigured: Readonly<Record<string, boolean>>
+  envPlain: Readonly<Record<string, string>>
   envPlainKeys: readonly string[]
   url: string | null
   headersSecretConfigured: Readonly<Record<string, boolean>>
+  headersPlain: Readonly<Record<string, string>>
+  timeoutMs: number | null
   toolEffectOverrides: Readonly<Record<string, McpEffectClass>>
   createdAt: string
   updatedAt: string

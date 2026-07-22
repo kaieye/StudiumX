@@ -382,6 +382,7 @@ async function runTeachingConversationTurnActive(
     await injectMcpToolsIntoRegistry({
       registry: projected,
       sessionManager: deps.mcpSessionManager,
+      workspaceRoot: conversation.workspaceRoot,
       signal: stream.signal
     })
   }

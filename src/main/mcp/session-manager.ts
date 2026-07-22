@@ -2,6 +2,8 @@
  * MCP session manager: connection lifecycle, tools/list cache, budgets (ADR-0128 §4–§5).
  */
 
+import { resolve } from 'node:path'
+
 import {
   MCP_BUDGETS,
   MCP_ERROR_CODES,
@@ -21,10 +23,11 @@ import {
 import { resolveMcpToolEffect } from '../../shared/mcp/effect-map'
 import { isServerConnectable } from '../../shared/mcp/config-schema'
 import {
+  buildResolvedMcpHeaders,
   buildSanitizedMcpEnv,
   type McpSecretEnvResolver
 } from './secret-env'
-import { createStdioMcpTransport } from './transports/stdio'
+import { createSdkMcpTransport } from './transports/sdk-client'
 import {
   createFakeMcpTransport,
   type McpToolListItem,
@@ -51,7 +54,11 @@ export type McpToolsSnapshot = Readonly<{
 export type McpSessionManagerOptions = {
   secrets: McpSecretEnvResolver
   /** Override transport factory (tests inject fakes). */
-  createTransport?: (server: UserMcpServerV1, env: Record<string, string>) => McpTransport
+  createTransport?: (
+    server: UserMcpServerV1,
+    env: Record<string, string>,
+    headers: Record<string, string>
+  ) => McpTransport
   /** Static tool names that MCP must not collide with. */
   staticToolNames?: ReadonlySet<string> | readonly string[]
   now?: () => number
@@ -66,11 +73,13 @@ type LiveSession = {
 
 export class McpSessionManager {
   private readonly sessions = new Map<string, LiveSession>()
+  private readonly transientRuntime = new Map<string, McpRuntimeServerView>()
   private config: UserMcpConfigV1 | null = null
   private readonly staticToolNames: Set<string>
   private readonly createTransport: (
     server: UserMcpServerV1,
-    env: Record<string, string>
+    env: Record<string, string>,
+    headers: Record<string, string>
   ) => McpTransport
 
   constructor(private readonly options: McpSessionManagerOptions) {
@@ -79,29 +88,31 @@ export class McpSessionManager {
     )
     this.createTransport =
       options.createTransport ??
-      ((server, env) =>
-        createStdioMcpTransport({
-          serverId: server.id,
-          command: server.command ?? 'false',
-          args: server.args,
-          cwd: server.cwd,
+      ((server, env, headers) =>
+        createSdkMcpTransport({
+          server,
           env,
-          initializeTimeoutMs: MCP_BUDGETS.initializeTimeoutMs,
-          listTimeoutMs: MCP_BUDGETS.listTimeoutMs,
-          callTimeoutMs: MCP_BUDGETS.callTimeoutMs
+          headers,
+          timeoutMs: server.timeoutMs
         }))
   }
 
-  /** Replace active config. Drops sessions for removed/disabled servers. */
+  /**
+   * Replace active config. Sessions are reusable only while their runtime-relevant
+   * definition is unchanged; edits must not keep an old process/tool snapshot alive.
+   */
   async applyConfig(config: UserMcpConfigV1): Promise<void> {
     this.config = config
-    const enabledIds = new Set(
-      config.enabled
-        ? config.servers.filter((s) => s.enabled).map((s) => s.id)
-        : []
-    )
-    for (const id of this.sessions.keys()) {
-      if (!enabledIds.has(id)) {
+    this.transientRuntime.clear()
+    const enabledById = new Map<string, UserMcpServerV1>()
+    if (config.enabled) {
+      for (const server of config.servers) {
+        if (server.enabled) enabledById.set(server.id, server)
+      }
+    }
+    for (const [id, session] of this.sessions) {
+      const nextServer = enabledById.get(id)
+      if (!nextServer || !hasSameSessionDefinition(session.server, nextServer)) {
         await this.dropSession(id)
       }
     }
@@ -115,7 +126,7 @@ export class McpSessionManager {
         return { id: server.id, state: 'disabled' as const }
       }
       if (live) return live.state
-      return { id: server.id, state: 'idle' as const }
+      return this.transientRuntime.get(server.id) ?? { id: server.id, state: 'idle' as const }
     })
   }
 
@@ -123,7 +134,10 @@ export class McpSessionManager {
    * Build a run-scoped snapshot: connect enabled servers, list tools, apply budgets.
    * Safe to call when root disabled → empty snapshot.
    */
-  async buildSnapshot(signal?: AbortSignal): Promise<McpToolsSnapshot> {
+  async buildSnapshot(
+    workspaceRoot?: string,
+    signal?: AbortSignal
+  ): Promise<McpToolsSnapshot> {
     const config = this.config
     if (!config || !config.enabled) {
       return emptySnapshot()
@@ -136,18 +150,21 @@ export class McpSessionManager {
     let globalSchemaBytes = 0
 
     for (const server of config.servers) {
-      if (!server.enabled) {
+      if (!server.enabled || !serverMatchesWorkspaceScope(server, workspaceRoot)) {
         serverHealth.push({ id: server.id, state: 'disabled' })
         continue
       }
 
       if (tools.length >= MCP_BUDGETS.maxGlobalTools) {
         warnings.push(`global MCP tool cap ${MCP_BUDGETS.maxGlobalTools} reached; skipped ${server.id}`)
-        serverHealth.push({
+        const budgetError: McpRuntimeServerView = {
           id: server.id,
           state: 'error',
-          errorCode: MCP_ERROR_CODES.mcp_budget_exceeded
-        })
+          errorCode: MCP_ERROR_CODES.mcp_budget_exceeded,
+          lastErrorMessage: mcpUserMessage(MCP_ERROR_CODES.mcp_budget_exceeded)
+        }
+        this.transientRuntime.set(server.id, budgetError)
+        serverHealth.push(budgetError)
         continue
       }
 
@@ -183,20 +200,26 @@ export class McpSessionManager {
         })
       } catch (error) {
         const code = classifySessionError(error)
-        serverHealth.push({
+        const errorState: McpRuntimeServerView = {
           id: server.id,
           state: 'error',
           errorCode: code,
           lastErrorMessage: mcpUserMessage(code)
-        })
+        }
         await this.dropSession(server.id)
+        this.transientRuntime.set(server.id, errorState)
+        serverHealth.push(errorState)
       }
     }
 
     return { tools, effectByRegisteredName, serverHealth, warnings }
   }
 
-  async testServer(serverId: string, signal?: AbortSignal): Promise<McpTestServerResult> {
+  async testServer(
+    serverId: string,
+    workspaceRoot?: string,
+    signal?: AbortSignal
+  ): Promise<McpTestServerResult> {
     const config = this.config
     if (!config) {
       return {
@@ -231,6 +254,14 @@ export class McpSessionManager {
         serverId
       }
     }
+    if (!serverMatchesWorkspaceScope(server, workspaceRoot)) {
+      return {
+        ok: false,
+        code: MCP_ERROR_CODES.mcp_server_disabled,
+        message: mcpUserMessage(MCP_ERROR_CODES.mcp_server_disabled),
+        serverId
+      }
+    }
 
     try {
       const session = await this.ensureSession(server, signal)
@@ -245,10 +276,18 @@ export class McpSessionManager {
       return { ok: true, tools, serverId }
     } catch (error) {
       const code = classifySessionError(error)
+      const message = mcpUserMessage(code)
+      await this.dropSession(serverId)
+      this.transientRuntime.set(serverId, {
+        id: serverId,
+        state: 'error',
+        errorCode: code,
+        lastErrorMessage: message
+      })
       return {
         ok: false,
         code,
-        message: mcpUserMessage(code),
+        message,
         serverId
       }
     }
@@ -296,7 +335,7 @@ export class McpSessionManager {
       const mcpName = findOriginalMcpName(session, tool) ?? tool.rawToolName
       const result = await withTimeout(
         session.transport.callTool(mcpName, args, signal),
-        MCP_BUDGETS.callTimeoutMs,
+        session.server.timeoutMs ?? MCP_BUDGETS.callTimeoutMs,
         signal
       )
       const content =
@@ -333,6 +372,7 @@ export class McpSessionManager {
     for (const id of [...this.sessions.keys()]) {
       await this.dropSession(id)
     }
+    this.transientRuntime.clear()
     this.config = null
   }
 
@@ -342,12 +382,6 @@ export class McpSessionManager {
   ): Promise<LiveSession> {
     const existing = this.sessions.get(server.id)
     if (existing) return existing
-
-    if (server.transport !== 'stdio') {
-      throw Object.assign(new Error('unsupported transport'), {
-        mcpCode: MCP_ERROR_CODES.mcp_transport_unsupported
-      })
-    }
 
     const envResult = buildSanitizedMcpEnv({
       envPlain: server.envPlain,
@@ -359,18 +393,37 @@ export class McpSessionManager {
         mcpCode: MCP_ERROR_CODES.mcp_secret_unresolved
       })
     }
-
-    let transport: McpTransport
-    try {
-      transport = this.createTransport(server, envResult.env)
-    } catch (error) {
-      throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
-        mcpCode: MCP_ERROR_CODES.mcp_spawn_failed
+    const headersResult = buildResolvedMcpHeaders({
+      headersPlain: server.headersPlain,
+      headersSecretRefs: server.headersSecretRefs,
+      secrets: this.options.secrets
+    })
+    if (!headersResult.ok) {
+      throw Object.assign(new Error('secret unresolved'), {
+        mcpCode: MCP_ERROR_CODES.mcp_secret_unresolved
       })
     }
 
+    let transport: McpTransport
     try {
-      await withTimeout(transport.initialize(signal), MCP_BUDGETS.initializeTimeoutMs, signal)
+      transport = this.createTransport(server, envResult.env, headersResult.headers)
+    } catch (error) {
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+        mcpCode:
+          server.transport === 'stdio'
+            ? MCP_ERROR_CODES.mcp_spawn_failed
+            : MCP_ERROR_CODES.mcp_server_unavailable
+      })
+    }
+
+    this.transientRuntime.set(server.id, { id: server.id, state: 'connecting' })
+
+    try {
+      await withTimeout(
+        transport.initialize(signal),
+        server.timeoutMs ?? MCP_BUDGETS.initializeTimeoutMs,
+        signal
+      )
     } catch (error) {
       await transport.close().catch(() => undefined)
       if (isTimeoutError(error)) {
@@ -387,7 +440,7 @@ export class McpSessionManager {
     try {
       listed = await withTimeout(
         transport.listTools(signal),
-        MCP_BUDGETS.listTimeoutMs,
+        server.timeoutMs ?? MCP_BUDGETS.listTimeoutMs,
         signal
       )
     } catch (error) {
@@ -409,6 +462,7 @@ export class McpSessionManager {
       }
     }
     this.sessions.set(server.id, session)
+    this.transientRuntime.delete(server.id)
     return session
   }
 
@@ -478,6 +532,40 @@ function findOriginalMcpName(
   return tool.rawToolName
 }
 
+function hasSameSessionDefinition(
+  current: UserMcpServerV1,
+  next: UserMcpServerV1
+): boolean {
+  return (
+    current.transport === next.transport &&
+    current.scope === next.scope &&
+    current.workspaceRoot === next.workspaceRoot &&
+    current.command === next.command &&
+    arraysEqual(current.args, next.args) &&
+    current.cwd === next.cwd &&
+    recordsEqual(current.envSecretRefs, next.envSecretRefs) &&
+    recordsEqual(current.envPlain, next.envPlain) &&
+    current.url === next.url &&
+    recordsEqual(current.headersSecretRefs, next.headersSecretRefs) &&
+    recordsEqual(current.headersPlain, next.headersPlain) &&
+    current.timeoutMs === next.timeoutMs &&
+    recordsEqual(current.toolEffectOverrides, next.toolEffectOverrides)
+  )
+}
+
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function recordsEqual<T extends string>(
+  left: Readonly<Record<string, T>>,
+  right: Readonly<Record<string, T>>
+): boolean {
+  const leftKeys = Object.keys(left)
+  if (leftKeys.length !== Object.keys(right).length) return false
+  return leftKeys.every((key) => left[key] === right[key])
+}
+
 function emptySnapshot(): McpToolsSnapshot {
   return {
     tools: [],
@@ -485,6 +573,19 @@ function emptySnapshot(): McpToolsSnapshot {
     serverHealth: [],
     warnings: []
   }
+}
+
+function serverMatchesWorkspaceScope(
+  server: UserMcpServerV1,
+  workspaceRoot: string | undefined
+): boolean {
+  if (server.scope === 'user') return true
+  if (!workspaceRoot || !server.workspaceRoot) return false
+  const normalize = (value: string): string => {
+    const normalized = resolve(value)
+    return process.platform === 'win32' ? normalized.toLocaleLowerCase() : normalized
+  }
+  return normalize(server.workspaceRoot) === normalize(workspaceRoot)
 }
 
 function classifySessionError(error: unknown): McpErrorCode {

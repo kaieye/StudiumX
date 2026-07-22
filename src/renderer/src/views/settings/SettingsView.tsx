@@ -516,7 +516,9 @@ export function SettingsView({
           </SettingsPanel>
         )}
 
-        {section === 'mcp' && <UserMcpSettingsSection />}
+        {section === 'mcp' && (
+          <UserMcpSettingsSection workspaceRoot={activeWorkspace?.rootPath ?? null} />
+        )}
 
         {section === 'connectors' && (
           <SettingsPanel

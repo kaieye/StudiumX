@@ -3,15 +3,22 @@ import { describe, expect, it } from 'vitest'
 import {
   defaultUserMcpConfig,
   fingerprintUserMcpConfig,
+  isUserMcpConfigDocument,
   parseUserMcpConfig,
   toPublicMcpConfig
 } from '../../src/shared/mcp/config-schema'
+import {
+  MCP_SECRET_REF_KEEP,
+  MCP_SECRET_REF_PENDING
+} from '../../src/shared/mcp/types'
 
 function sampleServer(overrides: Record<string, unknown> = {}) {
   return {
     id: 'demo',
     label: 'Demo Server',
     enabled: false,
+    scope: 'user',
+    workspaceRoot: null,
     transport: 'stdio',
     command: 'npx',
     args: ['-y', 'demo'],
@@ -20,11 +27,21 @@ function sampleServer(overrides: Record<string, unknown> = {}) {
     envPlain: {},
     url: null,
     headersSecretRefs: {},
+    headersPlain: {},
+    timeoutMs: null,
     toolEffectOverrides: {},
     createdAt: '2026-07-22T00:00:00.000Z',
     updatedAt: '2026-07-22T00:00:00.000Z',
     ...overrides
   }
+}
+
+function parseServer(overrides: Record<string, unknown> = {}) {
+  return parseUserMcpConfig({
+    schemaVersion: 1,
+    enabled: true,
+    servers: [sampleServer(overrides)]
+  })
 }
 
 describe('UserMcpConfig parse (ADR-0128)', () => {
@@ -45,62 +62,156 @@ describe('UserMcpConfig parse (ADR-0128)', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('rejects secret-looking envPlain keys', () => {
-    const result = parseUserMcpConfig({
-      schemaVersion: 1,
-      enabled: false,
-      servers: [sampleServer({ envPlain: { API_KEY: 'secret' } })]
+  it('rejects secret-looking plain env and header keys', () => {
+    const env = parseServer({ envPlain: { API_KEY: 'secret' } })
+    expect(env.ok).toBe(false)
+    if (!env.ok) expect(env.reason).toMatch(/envPlain|secret/i)
+
+    const headers = parseServer({
+      transport: 'http',
+      command: null,
+      args: [],
+      url: 'https://example.com/mcp',
+      headersPlain: { Authorization: 'Bearer secret' }
     })
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.reason).toMatch(/envPlain|secret/i)
+    expect(headers.ok).toBe(false)
+    if (!headers.ok) expect(headers.reason).toMatch(/headersPlain|secret/i)
   })
 
-  it('rejects non-stdio transport in Phase A', () => {
-    const result = parseUserMcpConfig({
-      schemaVersion: 1,
-      enabled: true,
-      servers: [sampleServer({ transport: 'sse' })]
+  it('accepts streamableHttp and normalizes it to http', () => {
+    const result = parseServer({
+      transport: 'streamableHttp',
+      command: null,
+      args: [],
+      url: 'https://example.com/mcp',
+      headersPlain: { 'X-Client': 'StudiumX' },
+      timeoutMs: 30_000
     })
-    expect(result.ok).toBe(false)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.config.servers[0]).toMatchObject({
+      transport: 'http',
+      command: null,
+      args: [],
+      url: 'https://example.com/mcp',
+      headersPlain: { 'X-Client': 'StudiumX' },
+      timeoutMs: 30_000
+    })
+  })
+
+  it('accepts SSE with URL, plain headers, and secret header refs', () => {
+    const result = parseServer({
+      transport: 'sse',
+      command: null,
+      args: [],
+      url: 'https://example.com/events',
+      headersPlain: { Accept: 'text/event-stream' },
+      headersSecretRefs: { Authorization: 'ref_auth' }
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.config.servers[0]).toMatchObject({
+      transport: 'sse',
+      headersPlain: { Accept: 'text/event-stream' },
+      headersSecretRefs: { Authorization: 'ref_auth' }
+    })
+  })
+
+  it('only accepts http and https URLs for HTTP transports', () => {
+    for (const url of ['file:///tmp/mcp', 'ftp://example.com/mcp', 'not-a-url']) {
+      const result = parseServer({
+        transport: 'http',
+        command: null,
+        args: [],
+        url
+      })
+      expect(result.ok).toBe(false)
+    }
+  })
+
+  it('requires an absolute root for workspace scope', () => {
+    const missing = parseServer({ scope: 'workspace', workspaceRoot: null })
+    expect(missing.ok).toBe(false)
+
+    const relative = parseServer({ scope: 'workspace', workspaceRoot: './workspace' })
+    expect(relative.ok).toBe(false)
+
+    const absolute = parseServer({ scope: 'workspace', workspaceRoot: '/tmp/studiumx-workspace' })
+    expect(absolute.ok).toBe(true)
+    if (absolute.ok) {
+      expect(absolute.config.servers[0]?.workspaceRoot).toBe('/tmp/studiumx-workspace')
+    }
+  })
+
+  it('normalizes workspaceRoot to null for user scope', () => {
+    const result = parseServer({ scope: 'user', workspaceRoot: '/tmp/ignored-workspace' })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.config.servers[0]?.workspaceRoot).toBeNull()
+  })
+
+  it('requires timeoutMs to be a positive integer', () => {
+    for (const timeoutMs of [0, -1, 1.5, '30000']) {
+      expect(parseServer({ timeoutMs }).ok).toBe(false)
+    }
+    expect(parseServer({ timeoutMs: 1 }).ok).toBe(true)
+    expect(parseServer({ timeoutMs: null }).ok).toBe(true)
   })
 
   it('rejects invalid effect overrides', () => {
-    const result = parseUserMcpConfig({
-      schemaVersion: 1,
-      enabled: true,
-      servers: [sampleServer({ toolEffectOverrides: { x: 'yolo' } })]
-    })
+    const result = parseServer({ toolEffectOverrides: { x: 'yolo' } })
     expect(result.ok).toBe(false)
   })
 
-  it('accepts a valid stdio server and public view never includes secret values', () => {
-    const result = parseUserMcpConfig({
-      schemaVersion: 1,
+  it('accepts a valid stdio server and public view never includes secret refs', () => {
+    const result = parseServer({
       enabled: true,
-      servers: [
-        sampleServer({
-          enabled: true,
-          envSecretRefs: { TOKEN: 'ref_1' },
-          envPlain: { NODE_ENV: 'production' }
-        })
-      ]
+      envSecretRefs: { TOKEN: 'ref_env' },
+      envPlain: { NODE_ENV: 'production' }
     })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const pub = toPublicMcpConfig(result.config)
     expect(pub.servers[0]?.envSecretConfigured).toEqual({ TOKEN: true })
     expect(pub.servers[0]?.envPlainKeys).toEqual(['NODE_ENV'])
-    expect(JSON.stringify(pub)).not.toContain('ref_1')
+    expect(pub.servers[0]?.envPlain).toEqual({ NODE_ENV: 'production' })
+    expect(JSON.stringify(pub)).not.toContain('ref_env')
     expect(fingerprintUserMcpConfig(result.config)).toMatch(/^[a-f0-9]{64}$/)
   })
 
-  it('keeps root enabled false by default so workspace files cannot open MCP authority (ADR-0128 §11.5)', () => {
+  it('does not expose HTTP header secret refs in the public DTO', () => {
+    const result = parseServer({
+      transport: 'http',
+      command: null,
+      args: [],
+      url: 'https://example.com/mcp',
+      headersSecretRefs: { Authorization: 'ref_header' },
+      headersPlain: { 'X-Client': 'StudiumX' }
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const pub = toPublicMcpConfig(result.config)
+    expect(pub.servers[0]?.headersSecretConfigured).toEqual({ Authorization: true })
+    expect(pub.servers[0]?.headersPlain).toEqual({ 'X-Client': 'StudiumX' })
+    expect(JSON.stringify(pub)).not.toContain('ref_header')
+  })
+
+  it('rejects transient renderer secret markers as durable documents', () => {
+    for (const refId of [MCP_SECRET_REF_KEEP, MCP_SECRET_REF_PENDING]) {
+      const document = {
+        schemaVersion: 1,
+        enabled: true,
+        servers: [sampleServer({ envSecretRefs: { TOKEN: refId } })]
+      }
+      expect(parseUserMcpConfig(document).ok).toBe(true)
+      expect(isUserMcpConfigDocument(document)).toBe(false)
+    }
+  })
+
+  it('keeps root enabled false by default so workspace files cannot open MCP authority', () => {
     const empty = defaultUserMcpConfig()
     expect(empty.enabled).toBe(false)
     expect(empty.servers).toEqual([])
-    // Config is userData-scoped; parse still fails closed if someone smuggles enabled without schema
     const bad = parseUserMcpConfig({ schemaVersion: 1, enabled: true, servers: 'not-array' })
     expect(bad.ok).toBe(false)
   })
-
 })

@@ -151,6 +151,7 @@
     "@codemirror/state": "^6.7.0",
     "@codemirror/view": "^6.43.5",
     "@lezer/highlight": "^1.2.3",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "better-sqlite3": "12.11.1",
     "i18next": "^26.3.3",
     "katex": "^0.17.0",
@@ -192,6 +193,7 @@
     "jsdom": "^29.1.1",
     "node-gyp": "12.4.0",
     "playwright": "1.61.1",
+    "tailwindcss": "^4.3.2",
     "typescript": "^6.0.3",
     "vite": "7.3.6",
     "vitest": "^4.1.10"

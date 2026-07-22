@@ -306,10 +306,12 @@ export type TeachingSystemApi = {
   mcpUpdateConfig: (payload: {
     expectedFingerprint: string
     config: unknown
+    secretChanges?: import('../mcp/types').McpSecretInputChanges
   }) => Promise<import('../mcp/types').McpConfigUpdateResult>
   /** Temporary test-connect + tools/list for one server. */
   mcpTestServer: (payload: {
     serverId: string
+    workspaceRoot?: string | null
   }) => Promise<import('../mcp/types').McpTestServerResult>
   /** Current process MCP connection view (no secrets). */
   mcpListRuntime: () => Promise<{
@@ -317,4 +319,3 @@ export type TeachingSystemApi = {
     servers: readonly import('../mcp/types').McpRuntimeServerView[]
   }>
 }
-

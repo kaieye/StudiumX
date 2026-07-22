@@ -1,6 +1,6 @@
 # ADR-0128：用户可配置 MCP — 实现合同（传输 / 配置 / effect / IPC / 分阶段落地）
 
-- **状态：** 已采纳（**实现合同**；工程已落地 A–E：stdio 核心、IPC、registry 注入、Settings UI、doctor `mcp_status` + support-bundle `mcp_status` 脱敏与 unit 锁定；**默认仍 off**；无 marketplace；产品文案可描述「设置中可 opt-in 配置 MCP」，但不得暗示默认连接或 YOLO）
+- **状态：** 已采纳（实现合同；工程已落地 A–F：官方 MCP SDK `1.29.0`、stdio / Streamable HTTP / SSE、user/workspace scope、IPC、registry 注入、Form/JSON Settings UI、doctor `mcp_status` 与 support-bundle 脱敏；**默认仍 off**；无 marketplace、无自动连接、无 YOLO）
 - **日期：** 2026-07-22
 - **范围：** 在 [ADR-0127](0127-user-configurable-mcp-design-gate.md) 决策冻结之上，锁定用户可配置 MCP 的 **wire schema、路径、传输子集、tool 命名、effect 映射、IPC、与 registry/dispatcher/fingerprint 接线、测试与分 phase 切片**。
 - **相关：**
@@ -17,7 +17,7 @@
 
 ### 1.1 目标
 
-1. 用户可在 **user-scoped** 配置中 **opt-in** 添加、启用、禁用、删除 MCP server。
+1. 用户可在持久化于 **userData** 的配置中 opt-in 添加、启用、禁用、删除 MCP server，并明确选择 `user` 或绑定当前目录的 `workspace` scope。
 2. 启用后的 server 经 **main 进程** 会话管理；其 tools 进入既有 **ToolRegistry → Dispatcher → effect lattice → permission gate → ToolOutcome** 路径。
 3. 默认 **MCP 总开关 off**；无启用条目时 **零连接、零 MCP tool schema**。
 4. 与 teaching settlement / ledger / `expectedRevision` / `toolsReplayed:false` **正交且不得旁路**。
@@ -48,8 +48,7 @@ src/main/mcp/
   secret-env.ts             # header/env secret 与 safeStorage 桥（无密钥进日志）
   session-manager.ts        # 连接生命周期、tools/list 缓存、预算
   transports/
-    stdio.ts                # Phase A
-    sse.ts                  # Phase C（可选）
+    sdk-client.ts           # 官方 SDK：stdio / Streamable HTTP / SSE
   tool-bridge.ts            # MCP callTool → ToolEntry.handler
   registry-inject.ts        # 将动态 ToolEntry 注入 buildDefaultRegistry 旁路
   redact.ts                 # doctor/support-bundle 脱敏
@@ -82,6 +81,8 @@ src/renderer/… Settings 段（Phase B/D）
       "id": "my-server",
       "label": "My Server",
       "enabled": false,
+      "scope": "user",
+      "workspaceRoot": null,
       "transport": "stdio",
       "command": "npx",
       "args": ["-y", "some-mcp-server"],
@@ -90,6 +91,8 @@ src/renderer/… Settings 段（Phase B/D）
       "envPlain": {},
       "url": null,
       "headersSecretRefs": {},
+      "headersPlain": {},
+      "timeoutMs": null,
       "toolEffectOverrides": {},
       "createdAt": "2026-07-22T00:00:00.000Z",
       "updatedAt": "2026-07-22T00:00:00.000Z"
@@ -104,36 +107,46 @@ src/renderer/… Settings 段（Phase B/D）
 1. `schemaVersion` 必须为 `1`；未知版本拒绝加载并保留文件（不静默迁移毁档）。
 2. `id`：`^[a-z][a-z0-9_-]{0,63}$`；配置内唯一。
 3. `enabled`（根）为总开关；server 级 `enabled` 为二次开关。连接条件：`root.enabled && server.enabled`。
-4. `transport`：Phase A **仅** `stdio`。Phase C 可增加 `sse` | `http`（实现时扩展 union，bump 文档，**不**静默接受未知 transport）。
+4. `transport`：接受 `stdio`、`http`（Streamable HTTP）与 `sse`；通用 JSON 中的 `streamableHttp` 在解析时规范化为内部 `http`；未知 transport fail-closed。
 5. `stdio`：`command` 非空字符串；`args` 为 string 数组（可空）；**禁止**通过 config 注入 shell 元字符解释层——使用 `spawn(command, args, { shell: false })`。
-6. `cwd`：若设置，必须解析后仍在用户显式选择的目录策略内（Phase A：允许 `null` 或绝对路径；**禁止** workspace-relative 静默扩权；若未来允许 workspace-relative，须用户确认且 path containment）。
-7. `envPlain`：**禁止**键名匹配 `/api[_-]?key|token|secret|password|authorization/i` 的明文值——此类必须走 `envSecretRefs`。
-8. `toolEffectOverrides`：值仅允许 `read` | `workspace_write` | `external_write` | `privileged`；未知键忽略或拒绝（实现选 **拒绝整个 server 启用** 更安全，Phase A 采用 **拒绝启用并返回错误码**）。
-9. 默认文档：根 `enabled: false`、`servers: []`。
+6. `cwd`：允许 `null` 或绝对路径；**禁止** workspace-relative 静默扩权。
+7. `envPlain` / `headersPlain`：**禁止**键名匹配 `/api[_-]?key|token|secret|password|authorization/i` 的明文值——此类必须走对应 secret refs。
+8. `scope`：`user` 在任意 workspace snapshot 可用；`workspace` 必须带用户明确选择的绝对 `workspaceRoot`，且仅在匹配 root 的 snapshot / test 中可连接。配置仍只写 userData。
+9. HTTP/SSE `url` 必须是有效的 `http:` 或 `https:` URL；`timeoutMs` 为 `null` 或正整数。
+10. `toolEffectOverrides`：值仅允许 `read` | `workspace_write` | `external_write` | `privileged`；非法值拒绝整个 server。
+11. 默认文档：根 `enabled: false`、`servers: []`。
 
-### 3.4 CAS / 并发
+### 3.4 Settings Form / JSON 兼容
+
+- 添加/编辑页提供 Form 与 JSON 两种模式，一次编辑一个 server。
+- JSON 接受直接 server config、单 server map，以及 `{ "mcpServers": { ... } }` wrapper。
+- `type: "streamableHttp"` 规范化为内部 `http`；`args` 为 string 数组，Form 中按空白拆分。
+- renderer 仅用 `<configured>` 表示已有 secret；secret plaintext 只允许 renderer → main 单向提交，main 不回显 ref id 或 plaintext。
+
+### 3.5 CAS / 并发
 
 - 写配置使用 fingerprint / 乐观并发（对齐 ADR-0033 精神）：`expectedFingerprint` 不匹配 → 冲突错误，不覆盖。
 - 读失败（JSON 损坏）：尝试 `.bak` 校验恢复（ADR-0003）；仍失败 → 空默认 + doctor fact，**不**半解析启用。
 
 ## 4. 传输与会话
 
-### 4.1 Phase A：stdio only
+### 4.1 已交付传输子集
 
 | 项 | 合同 |
 | --- | --- |
-| 启动 | `child_process.spawn(command, args, { shell: false, env: sanitizedEnv, cwd, stdio: pipe })` |
-| 协议 | MCP 标准 stdio framing（实现可选官方 SDK **或** 最小 JSON-RPC 子集；选定后在 PR 写明依赖与版本 pin） |
-| 生命周期 | 按 **app 会话** 懒连接：首次需要 tools/list 或 call 时启动；app quit / 用户 disable / 配置删除时 SIGTERM→超时 SIGKILL |
+| 实现 | 官方 `@modelcontextprotocol/sdk` `1.29.0`；`StdioClientTransport`、`StreamableHTTPClientTransport`、`SSEClientTransport` 统一由 `sdk-client.ts` 适配 |
+| stdio | SDK 使用 `command` + `args` + sanitized env + 可选绝对 `cwd`；不经过 shell 解释层 |
+| HTTP/SSE | URL 由用户输入；支持 plain + main 进程解析后的 encrypted secret headers |
+| 生命周期 | 仅在显式“测试连接”或 agent run snapshot 需要 tools/list 时懒连接；app quit、根/server disable、配置删除或运行定义变化时断开 |
 | 超时 | `initialize` / `tools/list` / `tools/call` 均有硬超时（建议默认 30s / 30s / 60s，可配置上界封顶） |
 | 崩溃 | fail-closed：该 server tools 从注册表移除；模型侧工具调用返回 `failed` + 稳定错误码 `mcp_server_unavailable` |
 | 日志 | 禁止记录 env 明文、header 明文、完整 tool arguments 中的疑似密钥；路径家目录脱敏 |
 
-### 4.2 Phase C（可选）：SSE / HTTP
+### 4.2 Remote transport 规则
 
-- 仅在 stdio 稳定后立项切片。
-- URL 必须 https（localhost 可 http 例外，写死 allowlist host：`127.0.0.1` / `localhost` / `::1`）。
-- 仍无 marketplace；URL 由用户粘贴。
+- Streamable HTTP 使用内部 `http`，通用 JSON 对外写作 `streamableHttp`；legacy SSE 保持 `sse`。
+- URL 必须使用 `http:` 或 `https:`；未知 scheme 拒绝。
+- 仍无 marketplace；URL 只来自用户填写或粘贴的配置。
 
 ### 4.3 环境变量消毒
 
@@ -320,7 +333,7 @@ footprintHint: 4
 3. Fork / replay：`toolsReplayed` 默认 false；不得因 MCP 改为 true。
 4. Support-bundle / doctor：command/args 脱敏；secret 永不导出。
 5. Workspace untrusted 文件不能打开根 `enabled`。
-6. 无 YOLO 文案；Settings 使用「需要批准的外部工具」类表述。
+6. 无 YOLO 文案；总开关和 server 开关单击立即提交，不进行二次确认，也不生成切换成功状态卡；仅错误与显式测试连接反馈使用页面状态。
 
 ## 12. 分阶段落地（可分派）
 
@@ -329,9 +342,9 @@ footprintHint: 4
 | **A — 纯核心** | `src/shared/mcp/*` + `src/main/mcp/*` stdio + config-store + session-manager + tool-bridge；**无** UI；可选 dev-only 主进程钩子或 unit 用 fake transport | 下表 unit；typecheck；**默认仍 off** |
 | **B — IPC** | `teach:mcp-*` channels + preload + secret-free DTO；无完整 Settings UI 可用最小 dev 调用 | IPC contract 测试；安全检查扩展 |
 | **C — Registry 注入** | `buildDefaultRegistry` / agent run 接线；fingerprint 含 MCP；**temporary 与 teaching 同 MCP 注入**；临时仅排除教学产物写工具 | tool-dispatcher unit + schema guard unit |
-| **D — Settings UI** | 添加/启用/试连/列表/风险文案；feature `user_mcp_servers` experimental | i18n；无 marketplace；默认 off 可见 |
+| **D — Settings UI** | 列表 + 详细添加/编辑页；Name/Scope；Form/JSON；stdio / Streamable HTTP / SSE；单击开关；显式试连 | i18n；无 marketplace；默认 off 可见；无二次确认/切换成功卡 |
 | **E — Doctor / bundle** | facts + redact | support-bundle 脱敏测试 |
-| **F —（可选）SSE/HTTP** | 新 transport + URL 规则 | 独立 PR；扩展 transport union |
+| **F — SSE/HTTP** | 官方 SDK remote transports + URL/header/timeout 规则 | 已完成；定向 config/session unit |
 
 **产品「已上线」声明** 至少要求 **A+B+C+D** 完成且默认 off 的验收通过。
 
@@ -368,7 +381,7 @@ pnpm run check:tool-contract
 
 ## 14. 明确不包含 / non-claims
 
-1. 本 ADR **正文合并本身**不包含生产 MCP 代码（代码在后续 PR）。
+1. 生产 MCP 代码按本 ADR 分布在 `src/shared/mcp/*`、`src/main/mcp/*`、IPC/preload 与 renderer Settings 模块；本 ADR 文档本身不改变运行时。
 2. 不开放 marketplace / 远程目录。
 3. 不把 stdio MCP 称为 OS sandbox。
 4. 不授权 MCP 直写 teaching ledger/outcome。
@@ -379,11 +392,11 @@ pnpm run check:tool-contract
 
 ## 15. 后果
 
-1. 工程可按 Phase A→D 分派实现，无需再争论「是否允许用户 MCP」。
-2. 未完成 C+D 前，文档与 UI **不得**宣称「可在设置中连接 MCP」为已交付事实。
+1. A–F 已交付；后续修改应保持通用 MCP 客户端配置习惯，不为同类能力增加产品差异化阻力。
+2. Settings 可描述“添加并启用 MCP”；必须同时保留默认 off、无 auto-connect 与 effect/approval 边界。
 3. 历史 ADR 中「不引入 MCP」复读句与 0127/0128 冲突时，以 **0127+0128 + AGENTS/SECURITY** 为准。
 4. 回滚：根 `enabled:false` 为运行时总闸；删除 `src/main/mcp` 为代码回滚单位。
 
 ---
 
-**一句话：** 用户 MCP = userData 配置 + 默认 off + stdio 先落地 + `mcp__server__tool` + 默认 `privileged` + 走既有 dispatcher；**临时 chat 与教学 chat 同注入 MCP**，差距仅限教学文件生成；分 A–D phase，marketplace 与 settlement 旁路仍禁止。
+**一句话：** 用户 MCP = userData 权威配置 + user/workspace scope + 默认 off + stdio / Streamable HTTP / SSE + Form/JSON + `mcp__server__tool` + 默认 `privileged` + 既有 dispatcher；开关单击即提交、无二次确认和切换成功卡，marketplace、自动连接与 settlement 旁路仍禁止。

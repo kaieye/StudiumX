@@ -1,6 +1,6 @@
 # ADR-0127：用户可配置 MCP 接入（推翻「默认禁止任意 MCP」产品地板）— Design gate
 
-- **状态：** 已采纳（**Phase 0 design gate / 产品决策冻结**；**无生产行为变更**；**不**授权在未完成实现 ADR 与门禁前合并 MCP client / 产品 UI）
+- **状态：** 已采纳（设计 gate；生产实现已由 [ADR-0128](0128-user-configurable-mcp-implementation.md) 完成 A–F，并保持本 ADR 的默认 off、无 marketplace、effect lattice 与 settlement 边界）
 - **日期：** 2026-07-22
 - **范围：** 正式记录产品方决策——允许**终端用户**在本地以 **opt-in** 方式配置并连接**其自行指定**的 MCP 服务器（「任意」= 服务器地址/启动命令由用户选择，而非平台预置闭集）；定义信任模型、effect 映射、settlement 不变量、与既有 ADR 的废止/收窄关系、以及实现门槛。
 - **相关：**
@@ -15,7 +15,7 @@
   - [ADR-0048](0048-tool-contract-and-write-policy.md) / [ADR-0063](0063-declarative-tool-policy.md)（policy / 禁 YOLO）
   - [ADR-0073](0073-teaching-feature-registry.md)（原禁止 `mcp_marketplace` feature id；本 ADR **不**开放 marketplace）
   - [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md) / [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)（settlement sole-writer）
-- **证据提交：** 本 ADR（决策记录）；运行时 client、IPC、UI、registry 接线须**另立实现 ADR + PR**
+- **证据提交：** 本 ADR（决策记录）+ [ADR-0128](0128-user-configurable-mcp-implementation.md)（运行时 client、IPC、UI、registry 与 transport 实现合同）
 
 ## 1. 背景与动机
 
@@ -27,7 +27,7 @@
 
 产品方（2026-07-22）明确要求：**允许用户自行接入 MCP**——即用户可配置其选择的 MCP server，而不是仅限平台预置的单一教学 Adapter。
 
-本 ADR **只做决策冻结与边界立法**，解决「政策层绝对禁止」与「产品要开放用户配置面」之间的冲突；**不**把「用户说接了也不适配」当作安全边界，也**不**授权「无审批、无 lattice 的 YOLO MCP」。
+本 ADR 负责决策冻结与边界立法，解决「政策层绝对禁止」与「产品要开放用户配置面」之间的冲突；生产实现由 ADR-0128 约束。它**不**把「用户说接了也不适配」当作安全边界，也**不**授权「无审批、无 lattice 的 YOLO MCP」。
 
 ### 1.1 术语（冻结）
 
@@ -69,8 +69,8 @@
 ### 2.3 默认与同意
 
 1. **出厂默认：MCP 总开关 = off**；无用户配置条目时运行时**零** MCP 连接。
-2. 添加 server = **显式同意**外连或拉起本地子进程；UI 必须展示：传输类型、命令/URL 摘要（脱敏）、工具列表首次发现时的确认。
-3. ExtensionManifest 中的 `mcpServers` **不得** auto-connect；最多作为「用户一键导入草稿」，仍须用户确认启用（收窄 ADR-0042：无确认则禁止连接，允许草稿导入）。
+2. 添加并启用 server = **显式同意**外连或拉起本地子进程；UI 必须展示传输类型与命令/URL 摘要（脱敏）。总开关和 server 开关的单击动作本身即为明确 opt-in，**立即提交，不再增加二次确认，也不显示切换成功提示卡**；保存/连接失败仍须显示错误，显式“测试连接”可显示进度与结果。
+3. ExtensionManifest 中的 `mcpServers` **不得** auto-connect；最多作为「用户一键导入草稿」，导入后仍由用户通过 server 开关明确启用（收窄 ADR-0042：未启用则禁止连接，允许草稿导入）。
 4. 工作区不可信配置（workspace 文件）**不得**静默注册 MCP server；若允许工作区建议列表，必须经用户确认并记入 user-scoped 配置（对齐 denylist / untrusted layer 精神，ADR-0071）。
 
 ## 3. 威胁模型（design gate 必附；实现不得删减）
@@ -86,7 +86,7 @@
 
 | 场景 | 风险 | 缓释（硬要求） |
 | --- | --- | --- |
-| 用户粘贴恶意 server 命令/URL | 数据外传、本地命令执行 | 添加时明文风险提示；stdio 命令展示完整 argv 摘要；无「静默更新」命令 |
+| 用户粘贴恶意 server 命令/URL | 数据外传、本地命令执行 | 添加页展示 transport 与命令/URL；保存和启用必须来自用户动作；stdio 使用 argv、无 shell 解释层；无「静默更新」命令 |
 | 恶意 tool 描述注入模型 | 诱导调用敏感 tool | tool schema 进模型前经预算与消毒；高危 effect 强制审批 |
 | MCP 伪造成绩/掌握结论 | 污染 teaching 真相 | **禁止** MCP 写 ledger/outcome；结果仅作 tool 证据投影 |
 | 供应链（依赖方 MCP 实现） | 非我方代码 | 文档声明：用户自担所连 server 信任；产品不做「已审计」背书 |
@@ -157,7 +157,7 @@
 下列任一项未完成，**不得**合并启用产品路径的 MCP client：
 
 1. **实现 ADR**：[ADR-0128](0128-user-configurable-mcp-implementation.md)（传输子集、配置 schema、IPC、effect 映射、失败码、分 phase 测试计划）
-2. **威胁模型**在实现 ADR 中可测试的检查表（至少：未确认不连接、密钥不注入、settlement 不写、unknown tool 不静默 read）
+2. **威胁模型**在实现 ADR 中可测试的检查表（至少：根/server 未启用不连接、密钥不注入、settlement 不写、unknown tool 不静默 read）
 3. **pnpm run check:security** 与 tool-contract 相关门禁扩展（未知 MCP tool 不得绕过 inventory 精神；动态工具须有可审计注册表快照）
 4. **定向 unit**：opt-in 默认 off；workspace 文件不能静默启用；审批 short-circuit；结果不进 outcome writer
 5. **文档**：SECURITY.md / AGENTS.md / TOOL_CONTRACT.md 同步（动态工具章节）
@@ -192,19 +192,19 @@
 
 1. 代理与贡献者**不得再**以「产品地板绝对禁止任意 MCP」拒绝**设计与实现 ADR 的起草**；但**仍必须**拒绝无本 ADR 门槛的「先接上再说」PR。
 2. 「任意 MCP」在产品语言中应表述为 **用户可配置 MCP（opt-in）**，避免与 marketplace 混淆。
-3. 实现落地前，运行时行为保持现状（无 MCP 连接）；文档上的「允许」指**政策允许立项**，不是功能已交付。
+3. 生产实现现已由 ADR-0128 交付；运行时仍以根 `enabled:false` 为出厂默认，且不会因工作区文件或导入草稿静默连接。
 4. 若产品方撤回本决策，须新 ADR 废止本文件并恢复地板措辞。
 
-## 9. 后续工作（建议切片，非本 ADR 授权实现）
+## 9. 落地状态
 
 | 顺序 | 切片 | 说明 |
 | --- | --- | --- |
-| 1 | 实现 ADR → **[ADR-0128](0128-user-configurable-mcp-implementation.md)** Phase A | schema + 传输 + effect 映射；无 UI 亦可先 main 纯模块 |
-| 2 | 配置持久化 + secret 分离 | userData；workspace 仅建议 |
-| 3 | Dispatcher / registry 动态工具 | 预算 + audit |
-| 4 | Settings UI opt-in | 风险文案 + 启用确认 |
-| 5 | Doctor / support-bundle 脱敏 | 连接状态 facts |
+| 1 | **[ADR-0128](0128-user-configurable-mcp-implementation.md)** 核心与传输 | 已完成：schema、官方 SDK、stdio / Streamable HTTP / SSE、effect 映射 |
+| 2 | 配置持久化 + secret 分离 | 已完成：userData 权威；env/header secret 仅在 main + safeStorage |
+| 3 | Dispatcher / registry 动态工具 | 已完成：预算、runtime effect map、既有审批链 |
+| 4 | Settings UI | 已完成：列表与详细添加/编辑页、Form/JSON、user/workspace scope；开关单击提交，无二次确认或切换成功卡 |
+| 5 | Doctor / support-bundle 脱敏 | 已完成：连接状态 facts 与脱敏 |
 
 ---
 
-**一句话：** 产品允许用户 **opt-in 自行配置 MCP server**（「任意」= 用户指定源）；**仍禁止** marketplace、YOLO、settlement 旁路与默认自动连接；**本文件只立法与门槛，不交付实现**。
+**一句话：** 产品允许用户 **opt-in 自行配置 MCP server**（「任意」= 用户指定源）；设置页采用通用 MCP 客户端交互，开关单击即提交且不加成功提示卡；**仍禁止** marketplace、YOLO、settlement 旁路与默认自动连接，生产实现以 ADR-0128 为准。

@@ -3,6 +3,9 @@
  * Default-off; no auto-connect until snapshot/test is requested.
  */
 
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+
 import { McpConfigStore } from './config-store'
 import {
   createMemoryMcpSecretEnv,
@@ -16,6 +19,7 @@ import type {
   McpConfigUpdateResult,
   McpGetConfigResult,
   McpRuntimeServerView,
+  McpSecretInputChanges,
   McpTestServerResult,
   UserMcpConfigV1
 } from '../../shared/mcp/types'
@@ -34,18 +38,26 @@ export class McpHost {
   readonly sessionManager: McpSessionManager
   private readonly secrets: McpSecretEnvResolver
   private readonly encryptedIndex = new Map<string, string>()
+  private readonly secretIndexPath: string
+  private readonly durableSecretIndex: boolean
   private disposed = false
 
   constructor(options: McpHostOptions) {
-    this.configStore = new McpConfigStore({ userDataPath: options.userDataPath })
+    this.secretIndexPath = join(options.userDataPath, 'mcp/secrets.v1.json')
+    this.durableSecretIndex = Boolean(!options.secrets && options.secretStorage)
     this.secrets =
       options.secrets ??
       (options.secretStorage
         ? createSafeStorageMcpSecretEnv({
             storage: options.secretStorage,
-            encryptedIndex: this.encryptedIndex
+            encryptedIndex: this.encryptedIndex,
+            flush: () => this.writeEncryptedSecretIndex()
           })
         : createMemoryMcpSecretEnv())
+    this.configStore = new McpConfigStore({
+      userDataPath: options.userDataPath,
+      secrets: this.secrets
+    })
     this.sessionManager =
       options.sessionManager ??
       new McpSessionManager({
@@ -55,6 +67,7 @@ export class McpHost {
   }
 
   async start(): Promise<void> {
+    await this.loadEncryptedSecretIndex()
     const config = await this.configStore.load()
     await this.sessionManager.applyConfig(config)
   }
@@ -65,9 +78,10 @@ export class McpHost {
 
   async updateConfig(
     nextDocument: unknown,
-    expectedFingerprint: string
+    expectedFingerprint: string,
+    secretChanges?: McpSecretInputChanges
   ): Promise<McpConfigUpdateResult> {
-    const result = await this.configStore.update(nextDocument, expectedFingerprint)
+    const result = await this.configStore.update(nextDocument, expectedFingerprint, secretChanges)
     if (result.ok) {
       const full = await this.configStore.load()
       await this.sessionManager.applyConfig(full)
@@ -75,11 +89,11 @@ export class McpHost {
     return result
   }
 
-  async testServer(serverId: string): Promise<McpTestServerResult> {
+  async testServer(serverId: string, workspaceRoot?: string | null): Promise<McpTestServerResult> {
     // Ensure latest config is applied before test.
     const config = await this.configStore.load()
     await this.sessionManager.applyConfig(config)
-    return this.sessionManager.testServer(serverId)
+    return this.sessionManager.testServer(serverId, workspaceRoot ?? undefined)
   }
 
   listRuntime(): readonly McpRuntimeServerView[] {
@@ -102,5 +116,38 @@ export class McpHost {
     if (this.disposed) return
     this.disposed = true
     await this.sessionManager.dispose()
+  }
+
+  private async loadEncryptedSecretIndex(): Promise<void> {
+    if (!this.durableSecretIndex) return
+    try {
+      const parsed = JSON.parse(await readFile(this.secretIndexPath, 'utf8')) as unknown
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
+      const secrets = (parsed as { secrets?: unknown }).secrets
+      if (!secrets || typeof secrets !== 'object' || Array.isArray(secrets)) return
+      this.encryptedIndex.clear()
+      for (const [refId, packed] of Object.entries(secrets)) {
+        if (typeof packed === 'string') this.encryptedIndex.set(refId, packed)
+      }
+    } catch {
+      // Missing/corrupt secret index fails closed: configured refs remain unresolved.
+      this.encryptedIndex.clear()
+    }
+  }
+
+  private async writeEncryptedSecretIndex(): Promise<void> {
+    if (!this.durableSecretIndex) return
+    await mkdir(dirname(this.secretIndexPath), { recursive: true, mode: 0o700 })
+    const tempPath = `${this.secretIndexPath}.tmp-${process.pid}-${Date.now()}`
+    const content = `${JSON.stringify({
+      schemaVersion: 1,
+      secrets: Object.fromEntries([...this.encryptedIndex.entries()].sort(([a], [b]) => a.localeCompare(b)))
+    }, null, 2)}\n`
+    try {
+      await writeFile(tempPath, content, { encoding: 'utf8', mode: 0o600 })
+      await rename(tempPath, this.secretIndexPath)
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => undefined)
+    }
   }
 }

@@ -17,6 +17,7 @@ import {
   mcpUserMessage,
   type McpConfigUpdateResult,
   type McpGetConfigResult,
+  type McpSecretInputChanges,
   type UserMcpConfigV1
 } from '../../shared/mcp/types'
 import {
@@ -24,7 +25,11 @@ import {
   replaceWithBackup,
   type DurableFileOperations
 } from '../persistence/durable-file'
-import { mergeMcpServerSecretsFromPrevious } from './secret-merge'
+import {
+  createMemoryMcpSecretEnv,
+  type McpSecretEnvResolver
+} from './secret-env'
+import { materializeMcpServerSecrets } from './secret-merge'
 
 export const MCP_CONFIG_RELATIVE_PATH = 'mcp/config.v1.json'
 
@@ -32,16 +37,19 @@ export type McpConfigStoreOptions = {
   userDataPath: string
   operations?: DurableFileOperations
   now?: () => string
+  secrets?: McpSecretEnvResolver
 }
 
 export class McpConfigStore {
   private readonly path: string
   private readonly operations?: DurableFileOperations
+  private readonly secrets: McpSecretEnvResolver
   private cache: UserMcpConfigV1 | null = null
 
   constructor(options: McpConfigStoreOptions) {
     this.path = join(options.userDataPath, MCP_CONFIG_RELATIVE_PATH)
     this.operations = options.operations
+    this.secrets = options.secrets ?? createMemoryMcpSecretEnv()
   }
 
   get configPath(): string {
@@ -90,7 +98,8 @@ export class McpConfigStore {
    */
   async update(
     nextDocument: unknown,
-    expectedFingerprint: string
+    expectedFingerprint: string,
+    secretChanges?: McpSecretInputChanges
   ): Promise<McpConfigUpdateResult> {
     const current = await this.load()
     const currentFp = current.fingerprint ?? fingerprintUserMcpConfig(current)
@@ -111,14 +120,38 @@ export class McpConfigStore {
       }
     }
 
-    const mergedServers = mergeMcpServerSecretsFromPrevious(
-      parsed.config.servers,
-      current.servers
-    )
+    let materialized: ReturnType<typeof materializeMcpServerSecrets> | null = null
+    try {
+      materialized = materializeMcpServerSecrets({
+        nextServers: parsed.config.servers,
+        previousServers: current.servers,
+        secretChanges,
+        secrets: this.secrets
+      })
+      // New encrypted refs must be durable before config starts referencing them.
+      await this.secrets.flush?.()
+    } catch (error) {
+      if (materialized) {
+        for (const refId of materialized.createdRefs) this.secrets.forget(refId)
+        await this.secrets.flush?.().catch(() => undefined)
+      }
+      return {
+        ok: false,
+        code: MCP_ERROR_CODES.mcp_invalid_config,
+        message: `${mcpUserMessage(MCP_ERROR_CODES.mcp_invalid_config)} ${error instanceof Error ? error.message : String(error)}`
+      }
+    }
+    if (!materialized) {
+      return {
+        ok: false,
+        code: MCP_ERROR_CODES.mcp_invalid_config,
+        message: mcpUserMessage(MCP_ERROR_CODES.mcp_invalid_config)
+      }
+    }
     const stamped = withFingerprint({
       schemaVersion: parsed.config.schemaVersion,
       enabled: parsed.config.enabled,
-      servers: mergedServers
+      servers: materialized.servers
     })
     try {
       await replaceWithBackup({
@@ -129,6 +162,8 @@ export class McpConfigStore {
         operations: this.operations
       })
     } catch {
+      for (const refId of materialized.createdRefs) this.secrets.forget(refId)
+      await this.secrets.flush?.().catch(() => undefined)
       return {
         ok: false,
         code: MCP_ERROR_CODES.mcp_invalid_config,
@@ -137,6 +172,8 @@ export class McpConfigStore {
     }
 
     this.cache = stamped
+    for (const refId of materialized.refsToForget) this.secrets.forget(refId)
+    await this.secrets.flush?.().catch(() => undefined)
     return { ok: true, config: toPublicMcpConfig(stamped) }
   }
 

@@ -18,6 +18,8 @@ export type McpSecretEnvResolver = {
   store(refId: string | null, plaintext: string): string
   /** Drop a ref (best-effort). */
   forget(refId: string): void
+  /** Persist resolver metadata when the backing implementation is durable. */
+  flush?(): Promise<void>
 }
 
 /**
@@ -52,6 +54,8 @@ export function createSafeStorageMcpSecretEnv(options: {
   storage: McpSecretStorage
   /** Mutable map refId → encrypted base64 (loaded/saved by config-store side). */
   encryptedIndex: Map<string, string>
+  /** Atomic durable writer for the encrypted index. */
+  flush?: () => Promise<void>
 }): McpSecretEnvResolver {
   let seq = 0
   return {
@@ -79,7 +83,8 @@ export function createSafeStorageMcpSecretEnv(options: {
     },
     forget(refId: string) {
       options.encryptedIndex.delete(refId)
-    }
+    },
+    flush: options.flush
   }
 }
 
@@ -142,4 +147,21 @@ export function buildSanitizedMcpEnv(input: {
   }
 
   return { ok: true, env }
+}
+
+/** Resolve HTTP/SSE headers without ever exposing secret plaintext to renderer. */
+export function buildResolvedMcpHeaders(input: {
+  headersPlain: Readonly<Record<string, string>>
+  headersSecretRefs: Readonly<Record<string, string>>
+  secrets: McpSecretEnvResolver
+}):
+  | { ok: true; headers: Record<string, string> }
+  | { ok: false; unresolvedKey: string } {
+  const headers: Record<string, string> = { ...input.headersPlain }
+  for (const [key, refId] of Object.entries(input.headersSecretRefs)) {
+    const resolved = input.secrets.resolve(refId)
+    if (resolved == null) return { ok: false, unresolvedKey: key }
+    headers[key] = resolved
+  }
+  return { ok: true, headers }
 }

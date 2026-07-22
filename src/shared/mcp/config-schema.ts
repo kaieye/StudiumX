@@ -9,6 +9,8 @@ import { validateToolEffectOverrides } from './effect-map'
 import { MCP_SERVER_ID_RE } from './tool-name'
 import {
   MCP_CONFIG_SCHEMA_VERSION,
+  MCP_SECRET_REF_KEEP,
+  MCP_SECRET_REF_PENDING,
   type McpTransportKind,
   type UserMcpConfigV1,
   type UserMcpServerPublicV1,
@@ -47,6 +49,8 @@ export function fingerprintUserMcpConfig(config: Omit<UserMcpConfigV1, 'fingerpr
       id: s.id,
       label: s.label,
       enabled: s.enabled,
+      scope: s.scope,
+      workspaceRoot: s.workspaceRoot,
       transport: s.transport,
       command: s.command,
       args: s.args,
@@ -55,6 +59,8 @@ export function fingerprintUserMcpConfig(config: Omit<UserMcpConfigV1, 'fingerpr
       envPlain: sortRecord(s.envPlain),
       url: s.url,
       headersSecretRefs: sortRecord(s.headersSecretRefs),
+      headersPlain: sortRecord(s.headersPlain),
+      timeoutMs: s.timeoutMs,
       toolEffectOverrides: sortRecord(s.toolEffectOverrides),
       createdAt: s.createdAt,
       updatedAt: s.updatedAt
@@ -120,7 +126,13 @@ export function parseUserMcpConfig(input: unknown): ParseMcpConfigResult {
  * Rejects unknown schemaVersion without migrating.
  */
 export function isUserMcpConfigDocument(value: unknown): value is UserMcpConfigV1 {
-  return parseUserMcpConfig(value).ok
+  const parsed = parseUserMcpConfig(value)
+  if (!parsed.ok) return false
+  return parsed.config.servers.every((server) =>
+    [...Object.values(server.envSecretRefs), ...Object.values(server.headersSecretRefs)].every(
+      (refId) => refId !== MCP_SECRET_REF_KEEP && refId !== MCP_SECRET_REF_PENDING
+    )
+  )
 }
 
 export function toPublicMcpConfig(config: UserMcpConfigV1): UserMcpConfigPublicV1 {
@@ -145,14 +157,19 @@ export function toPublicServer(server: UserMcpServerV1): UserMcpServerPublicV1 {
     id: server.id,
     label: server.label,
     enabled: server.enabled,
+    scope: server.scope,
+    workspaceRoot: server.workspaceRoot,
     transport: server.transport,
     command: server.command,
     args: server.args,
     cwd: server.cwd,
     envSecretConfigured,
+    envPlain: sortRecord(server.envPlain),
     envPlainKeys: Object.keys(server.envPlain).sort(),
     url: server.url,
     headersSecretConfigured,
+    headersPlain: sortRecord(server.headersPlain),
+    timeoutMs: server.timeoutMs,
     toolEffectOverrides: server.toolEffectOverrides,
     createdAt: server.createdAt,
     updatedAt: server.updatedAt
@@ -183,20 +200,45 @@ function parseServer(
     return { ok: false, reason: `servers[${index}].enabled must be boolean` }
   }
 
-  const transport = raw.transport
-  if (transport !== 'stdio') {
-    // Phase A: only stdio. Unknown transport is rejected (not silently accepted).
+  const scope = raw.scope == null ? 'user' : raw.scope
+  if (scope !== 'user' && scope !== 'workspace') {
     return {
       ok: false,
-      reason: `servers[${index}].transport unsupported (Phase A: stdio only)`
+      reason: `servers[${index}].scope must be user or workspace`
     }
   }
 
-  if (typeof raw.command !== 'string' || !raw.command.trim()) {
+  const workspaceRoot = parseOptionalAbsolutePath(
+    raw.workspaceRoot,
+    `servers[${index}].workspaceRoot`
+  )
+  if (!workspaceRoot.ok) return workspaceRoot
+  if (scope === 'workspace' && !workspaceRoot.value) {
     return {
       ok: false,
-      reason: `servers[${index}].command is required for stdio transport`
+      reason: `servers[${index}].workspaceRoot is required for workspace scope`
     }
+  }
+
+  const transport = raw.transport === 'streamableHttp' ? 'http' : raw.transport
+  if (transport !== 'stdio' && transport !== 'http' && transport !== 'sse') {
+    return {
+      ok: false,
+      reason: `servers[${index}].transport must be stdio, http, or sse`
+    }
+  }
+
+  let command: string | null = null
+  if (transport === 'stdio') {
+    if (typeof raw.command !== 'string' || !raw.command.trim()) {
+      return {
+        ok: false,
+        reason: `servers[${index}].command is required for stdio transport`
+      }
+    }
+    command = raw.command.trim()
+  } else if (raw.command != null && typeof raw.command !== 'string') {
+    return { ok: false, reason: `servers[${index}].command must be string or null` }
   }
 
   const args = parseStringArray(raw.args, `servers[${index}].args`)
@@ -228,12 +270,28 @@ function parseServer(
   )
   if (!headersSecretRefs.ok) return headersSecretRefs
 
-  if (raw.url != null && raw.url !== null) {
-    // stdio servers should not carry URL in Phase A.
-    if (typeof raw.url !== 'string' && raw.url !== null) {
-      return { ok: false, reason: `servers[${index}].url must be string or null` }
+  const headersPlain = parseStringRecord(raw.headersPlain, `servers[${index}].headersPlain`)
+  if (!headersPlain.ok) return headersPlain
+  for (const key of Object.keys(headersPlain.value)) {
+    if (SECRET_KEY_RE.test(key)) {
+      return {
+        ok: false,
+        reason: `servers[${index}].headersPlain key "${key}" looks secret; use headersSecretRefs`
+      }
     }
   }
+
+  let url: string | null = null
+  if (transport === 'http' || transport === 'sse') {
+    const parsedUrl = parseMcpUrl(raw.url, `servers[${index}].url`)
+    if (!parsedUrl.ok) return parsedUrl
+    url = parsedUrl.value
+  } else if (raw.url != null && typeof raw.url !== 'string') {
+    return { ok: false, reason: `servers[${index}].url must be string or null` }
+  }
+
+  const timeoutMs = parseOptionalTimeout(raw.timeoutMs, `servers[${index}].timeoutMs`)
+  if (!timeoutMs.ok) return timeoutMs
 
   const overrides = validateToolEffectOverrides(raw.toolEffectOverrides ?? {})
   if (!overrides.ok) {
@@ -249,14 +307,18 @@ function parseServer(
     id: raw.id,
     label: raw.label.trim(),
     enabled: raw.enabled,
+    scope,
+    workspaceRoot: scope === 'workspace' ? workspaceRoot.value : null,
     transport: transport as McpTransportKind,
-    command: raw.command.trim(),
-    args: args.value,
-    cwd: cwd.value,
-    envSecretRefs: envSecretRefs.value,
-    envPlain: envPlain.value,
-    url: typeof raw.url === 'string' ? raw.url : null,
-    headersSecretRefs: headersSecretRefs.value,
+    command,
+    args: transport === 'stdio' ? args.value : [],
+    cwd: transport === 'stdio' ? cwd.value : null,
+    envSecretRefs: transport === 'stdio' ? envSecretRefs.value : {},
+    envPlain: transport === 'stdio' ? envPlain.value : {},
+    url,
+    headersSecretRefs: transport === 'stdio' ? {} : headersSecretRefs.value,
+    headersPlain: transport === 'stdio' ? {} : headersPlain.value,
+    timeoutMs: timeoutMs.value,
     toolEffectOverrides: overrides.value,
     createdAt: createdAt.value,
     updatedAt: updatedAt.value
@@ -312,7 +374,7 @@ function parseOptionalAbsolutePath(
   }
   const trimmed = value.trim()
   if (!trimmed) return { ok: true, value: null }
-  // Phase A: absolute paths only (no workspace-relative silent expand).
+  // Absolute paths only: never silently expand workspace-relative cwd or scope roots.
   const isWinAbs = /^[A-Za-z]:[\\/]/.test(trimmed) || trimmed.startsWith('\\\\')
   const isPosixAbs = trimmed.startsWith('/')
   if (!isWinAbs && !isPosixAbs) {
@@ -322,6 +384,35 @@ function parseOptionalAbsolutePath(
     }
   }
   return { ok: true, value: trimmed }
+}
+
+function parseMcpUrl(
+  value: unknown,
+  path: string
+): { ok: true; value: string } | { ok: false; reason: string } {
+  if (typeof value !== 'string' || !value.trim()) {
+    return { ok: false, reason: `${path} is required for HTTP/SSE transport` }
+  }
+  try {
+    const parsed = new URL(value.trim())
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { ok: false, reason: `${path} must use http or https` }
+    }
+    return { ok: true, value: parsed.toString() }
+  } catch {
+    return { ok: false, reason: `${path} must be a valid URL` }
+  }
+}
+
+function parseOptionalTimeout(
+  value: unknown,
+  path: string
+): { ok: true; value: number | null } | { ok: false; reason: string } {
+  if (value == null || value === '') return { ok: true, value: null }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    return { ok: false, reason: `${path} must be a positive integer or null` }
+  }
+  return { ok: true, value }
 }
 
 function parseIso(
