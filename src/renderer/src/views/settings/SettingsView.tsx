@@ -1,7 +1,6 @@
 import {
   ArrowUpRight,
   Bell,
-  BrainCircuit,
   FileCheck2,
   FileText,
   FolderOpen,
@@ -39,13 +38,8 @@ import {
   type AgentApprovalMode
 } from '../../../../shared/teaching-types'
 import {
-  activeModelProvider,
   parallelSearchModeOptions,
-  reasoningEffortDescription,
-  reasoningEffortLabel,
-  reasoningEffortOptionsForSettings,
   runtimeProviderLabel,
-  selectedReasoningEffort,
   settingsNavItems,
   toolsSupportedForSettings,
   webSearchBackendLabel,
@@ -122,7 +116,6 @@ export function SettingsView({
 }) {
   const { t } = useTranslation()
   const worktreeRootPath = settings.worktree?.rootPath ?? ''
-  const activeProvider = activeModelProvider(settings)
   const configuration = useTeachingWorkspaceConfiguration({
     section,
     settings,
@@ -180,10 +173,6 @@ export function SettingsView({
     settings.webSearch.xaiApiKey
   ])
 
-  const selectProvider = (providerId: string): void => {
-    void configuration.selectGenerationProvider(providerId)
-  }
-
   return (
     <div className="settings-floating-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose()
@@ -220,48 +209,6 @@ export function SettingsView({
             subtitle={t('general.subtitle')}
           >
             <SettingsCard>
-              <SettingsRow label={t('general.theme.label')} detail={t('general.theme.detail')}>
-                <SegmentedControl
-                  value={settings.theme}
-                  options={[
-                    { value: 'system', label: t('general.theme.system'), icon: Monitor },
-                    { value: 'light', label: t('general.theme.light'), icon: Sun },
-                    { value: 'dark', label: t('general.theme.dark'), icon: Moon }
-                  ]}
-                  onChange={(theme) => void configuration.updateSetting('theme', theme)}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.language.label')} detail={t('general.language.detail')}>
-                <SegmentedControl
-                  value={settings.locale}
-                  options={[
-                    { value: 'zh-CN', label: t('general.language.zh') },
-                    { value: 'en-US', label: t('general.language.en') }
-                  ]}
-                  onChange={(locale) => void configuration.updateSetting('locale', locale)}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.density.label')} detail={t('general.density.detail')}>
-                <SegmentedControl
-                  value={settings.density}
-                  options={[
-                    { value: 'comfortable', label: t('general.density.comfortable') },
-                    { value: 'compact', label: t('general.density.compact') }
-                  ]}
-                  onChange={(density) => void configuration.updateSetting('density', density)}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.fontScale.label')} detail={`${Math.round(settings.uiFontScale * 100)}%`}>
-                <input
-                  className="settings-range"
-                  min="0.8"
-                  max="1.2"
-                  step="0.05"
-                  type="range"
-                  value={settings.uiFontScale}
-                  onChange={(event) => void configuration.updateSetting('uiFontScale', Number(event.target.value))}
-                />
-              </SettingsRow>
               <SettingsRow label={t('general.closeAction.label')} detail={settings.appBehavior.closeAction === 'tray' ? t('general.closeAction.detailTray') : t('general.closeAction.detailQuit')}>
                 <SegmentedControl
                   value={settings.appBehavior.closeAction}
@@ -310,8 +257,9 @@ export function SettingsView({
           >
             <SettingsCard>
               <SettingsRow label={t('general.theme.label')} detail={t('general.theme.detail')}>
-                <SegmentedControl
+                <SettingsSelect
                   value={settings.theme}
+                  position="item-aligned"
                   options={[
                     { value: 'system', label: t('general.theme.system'), icon: Monitor },
                     { value: 'light', label: t('general.theme.light'), icon: Sun },
@@ -359,52 +307,6 @@ export function SettingsView({
             subtitle={t('generation.subtitle')}
           >
             <SettingsCard>
-              <SettingsRow label={t('generation.provider')} detail={activeProvider.name}>
-                <SettingsSelect
-                  value={settings.generator.providerId}
-                  options={settings.provider.providers.map((provider) => ({
-                    value: provider.id,
-                    label: provider.name
-                  }))}
-                  onChange={selectProvider}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.model.label')} detail={settings.generator.model || t('generation.model.none')}>
-                <SettingsSelect
-                  value={settings.generator.model}
-                  options={activeProvider.models.map((model) => ({ value: model, label: model }))}
-                  onChange={(model) => void configuration.updateSetting('generator.model', model)}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('reasoning.title')} detail={reasoningEffortDescription(selectedReasoningEffort(settings))}>
-                <SegmentedControl
-                  value={selectedReasoningEffort(settings)}
-                  options={reasoningEffortOptionsForSettings(settings).map((effort) => ({
-                    value: effort,
-                    label: reasoningEffortLabel(effort),
-                    icon: BrainCircuit
-                  }))}
-                  onChange={(reasoningEffort) => void configuration.updateSetting('generator.reasoningEffort', reasoningEffort)}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.temperature')} detail={settings.generator.temperature.toFixed(2)}>
-                <NumberInput
-                  max={2}
-                  min={0}
-                  step={0.05}
-                  value={settings.generator.temperature}
-                  onChange={(temperature) => void configuration.updateSetting('generator.temperature', temperature)}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.maxTokens')} detail={`${settings.generator.maxOutputTokens}`}>
-                <NumberInput
-                  max={32768}
-                  min={512}
-                  step={256}
-                  value={settings.generator.maxOutputTokens}
-                  onChange={(maxOutputTokens) => void configuration.updateSetting('generator.maxOutputTokens', maxOutputTokens)}
-                />
-              </SettingsRow>
               <SettingsRow label={t('generation.duration.label')} detail={t('generation.duration.detail', { count: settings.generator.lessonDurationMinutes })}>
                 <NumberInput
                   max={60}
@@ -436,15 +338,6 @@ export function SettingsView({
                 <ToggleSwitch
                   checked={settings.generator.streaming}
                   onChange={(streaming) => void configuration.updateSetting('generator.streaming', streaming)}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('generation.timeout.label')} detail={t('generation.timeout.detail', { seconds: Math.round(settings.generator.requestTimeoutMs / 1000) })}>
-                <NumberInput
-                  max={300000}
-                  min={5000}
-                  step={5000}
-                  value={settings.generator.requestTimeoutMs}
-                  onChange={(requestTimeoutMs) => void configuration.updateSetting('generator.requestTimeoutMs', requestTimeoutMs)}
                 />
               </SettingsRow>
             </SettingsCard>

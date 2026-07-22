@@ -661,7 +661,7 @@
   },
   "general": {
     "title": "通用",
-    "subtitle": "本地偏好会保存到 StudiumX 的应用数据目录。",
+    "subtitle": "配置应用行为、启动选项和本地日志。",
     "theme": {
       "label": "主题",
       "detail": "跟随系统、浅色或深色。",
@@ -763,7 +763,7 @@
   },
   "generation": {
     "title": "生成",
-    "subtitle": "这些设置会直接影响后续 lesson 文件和伴随产物。",
+    "subtitle": "配置后续 lesson 文件及伴随产物的教学内容。",
     "provider": "生成 Provider",
     "model": {
       "label": "模型",

@@ -661,7 +661,7 @@
   },
   "general": {
     "title": "General",
-    "subtitle": "Local preferences are saved to StudiumX's app data folder.",
+    "subtitle": "Configure app behavior, launch options, and local logs.",
     "theme": {
       "label": "Theme",
       "detail": "Follow system, light, or dark.",
@@ -763,7 +763,7 @@
   },
   "generation": {
     "title": "Generation",
-    "subtitle": "These settings directly affect subsequent lesson files and accompanying artifacts.",
+    "subtitle": "Configure the learning content in subsequent lesson files and accompanying artifacts.",
     "provider": "Generation provider",
     "model": {
       "label": "Model",
