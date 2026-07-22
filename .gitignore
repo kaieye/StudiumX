@@ -25,3 +25,17 @@ conversations/
 /*.exit
 /*.out
 /*.pid
+
+# Local agent / index artifacts (never product source)
+.codegraph/
+_agent-logs/
+docs/_agent-work/
+_tmp_*.py
+_p_*.py
+_roadmap.py
+_extract_*.py
+_key_nonclaims*
+_adr_nonclaims*
+_theme_nonclaims*
+_new_task_block.txt
+/a.png
