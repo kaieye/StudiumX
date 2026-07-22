@@ -249,6 +249,8 @@ describe('personal Study analytics snapshot seam', () => {
         ]
       }
     }))
+    // Inventory-only is range-invariant and complete when the snapshot is valid.
+    expect(sections.tasks.state).toBe('available')
     const tasks = dataOf(sections.tasks)
     expect(tasks.topByCompletion).toEqual([
       expect.objectContaining({ taskId: 'task-a', completionCount: 1, categoryId: 'study' }),
@@ -259,6 +261,64 @@ describe('personal Study analytics snapshot seam', () => {
         expect.objectContaining({ categoryId: 'study', completionCount: 1 }),
         expect.objectContaining({ categoryId: 'exercise', completionCount: 1 })
       ])
+    )
+  })
+
+  it('keeps focus and tasks available when the requested range is clamped to tracking/retention', () => {
+    // Default week preset can extend before trackingStartedOn; clamping is expected,
+    // not a partial data source.
+    const requestQuery = query('2026-07-06', '2026-07-13')
+    requestQuery.range = { ...requestQuery.range, preset: 'week' }
+    const { sections } = calculate(
+      requestQuery,
+      snapshot({
+        trackingStartedOn: '2026-07-10',
+        facts: [sessionFact({
+          startedAt: '2026-07-13T01:00:00.000Z',
+          endedAt: '2026-07-13T01:25:00.000Z',
+          recordedAt: '2026-07-13T01:25:00.000Z',
+          daySegments: [{
+            localDate: '2026-07-13',
+            timezoneOffsetMinutes: -480,
+            startedAt: '2026-07-13T01:00:00.000Z',
+            endedAt: '2026-07-13T01:25:00.000Z',
+            activeSeconds: 1500,
+            pausedSeconds: 0,
+            hourBuckets: hours([9, 1500])
+          }]
+        })]
+      })
+    )
+    expect(sections.focus.state).toBe('available')
+    expect(sections.tasks.state).toBe('available')
+    expect(sections.hero.state).toBe('available')
+    expect(sections.focus.coverage.complete).toBe(true)
+    expect(sections.focus.coverage.effectiveRange).toMatchObject({ from: '2026-07-10', to: '2026-07-13' })
+    expect(sections.focus.warnings.map((item) => item.code)).toContain('range_before_tracking_started')
+  })
+
+  it('expands the all-time preset only over the retained tracking window', () => {
+    const requestQuery = query('0001-01-01', '2026-07-13')
+    requestQuery.range = { ...requestQuery.range, preset: 'all' }
+    const { sections } = calculate(
+      requestQuery,
+      snapshot({
+        trackingStartedOn: '2026-07-10',
+        facts: [sessionFact({
+          startedAt: '2026-07-12T01:00:00.000Z',
+          endedAt: '2026-07-12T01:25:00.000Z',
+          recordedAt: '2026-07-12T01:25:00.000Z'
+        })]
+      })
+    )
+    expect(sections.focus.state).toBe('available')
+    expect(sections.focus.coverage.complete).toBe(true)
+    const daily = dataOf(sections.focus).daily
+    expect(daily[0]?.date).toBe('2026-07-10')
+    expect(daily.at(-1)?.date).toBe('2026-07-13')
+    expect(daily).toHaveLength(4)
+    expect(sections.focus.warnings.map((item) => item.code)).toEqual(
+      expect.arrayContaining(['range_before_retention_window', 'range_before_tracking_started'])
     )
   })
 
@@ -292,6 +352,21 @@ describe('personal Study analytics snapshot seam', () => {
     const beforeTracking = calculate(query('2026-07-12'), empty).sections.focus
     expect(beforeTracking.state).toBe('unavailable')
     expect(beforeTracking.warnings.map((item) => item.code)).toContain('range_before_tracking_started')
+  })
+
+  it('keeps personal sections available when only historical invalidFactRows diagnostics remain', () => {
+    const { validation, sections } = calculate(query(), snapshot({
+      facts: [sessionFact(), taskCompletedFact()],
+      diagnostics: { invalidFactRows: 3, retentionPruned: true }
+    }))
+    expect(validation).toMatchObject({ state: 'valid', rejectedFacts: 0, retentionPruned: true })
+    expect(sections.focus.state).toBe('available')
+    expect(sections.tasks.state).toBe('available')
+    expect(sections.hero.state).toBe('available')
+    expect(sections.focus.coverage.complete).toBe(true)
+    expect(sections.focus.warnings.map((item) => item.code)).toEqual(
+      expect.arrayContaining(['facts_recovered_with_invalid_rows', 'retention_pruned'])
+    )
   })
 
   it('ignores malformed and foreign-client fact rows instead of allowing them to change analytics', () => {

@@ -394,7 +394,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     extendActiveTimerTarget,
     createFocusBlock,
     deleteScheduleBlock,
-    applyAllocationProposal,
     migrationOffer,
     migrationBusy,
     migrationError,
@@ -924,17 +923,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           canonicalCategories={canonicalCategories}
           onCreateFocusBlock={createFocusBlock}
           onDeleteScheduleBlock={deleteScheduleBlock}
-          simulationStartTime={snapshot.simulationStartTime}
-          simulationEndTime={snapshot.simulationEndTime}
-          focusMinutes={snapshot.focusMinutes}
-          breakMinutes={snapshot.breakMinutes}
-          activeTimerPlanId={defaultTimerPlanId ?? snapshot.timerPlans[0]?.id ?? 'classic_25_5'}
-          activeTimerPlanName={
-            snapshot.timerPlans.find((p) => p.id === (defaultTimerPlanId ?? snapshot.timerPlans[0]?.id))?.name
-            ?? snapshot.timerPlans[0]?.name
-            ?? null
-          }
-          onApplyAllocationProposal={applyAllocationProposal}
           timerSessions={timerSessions}
           recurrenceRules={recurrenceRules}
           onSaveRecurrenceRules={setRecurrenceRulesPreference}
@@ -1137,7 +1125,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               canonicalCategories={canonicalCategories}
               recurrenceRules={recurrenceRules}
               onSaveRecurrenceRules={setRecurrenceRulesPreference}
-            />
+                    />
           </div>
         ) : null}
         <div className="workbench-music-dock">

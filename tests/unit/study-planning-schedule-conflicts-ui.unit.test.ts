@@ -156,7 +156,15 @@ describe('planning-schedule-conflicts-ui (STC-707)', () => {
     }
     const model = projectScheduleConflictsBanner({
       scheduleBlocks: blocks,
-      tasks: [{ id: 't0', title: 'Base' }],
+      // Full UI catalog (product always passes all visible tasks; partial catalogs
+      // would incorrectly drop board-visible blocks from conflict scan).
+      tasks: [
+        { id: 't0', title: 'Base' },
+        ...Array.from({ length: 10 }, (_, i) => ({
+          id: `t${i + 1}`,
+          title: `T${i + 1}`
+        }))
+      ],
       listCap: 3
     })
     expect(model.conflictCount).toBeGreaterThan(3)
@@ -194,6 +202,96 @@ describe('planning-schedule-conflicts-ui (STC-707)', () => {
     expect(label).toContain('周一')
     expect(label).toContain('09:00')
     expect(label).toContain('10:30')
+  })
+
+
+  it('ignores focus blocks owned by tasks not in the UI task catalog (soft-deleted orphans)', () => {
+    // Visible task t1 has no real overlap with another visible task.
+    // Orphan block still attached to cancelled/deleted task t-gone overlaps t1 in absolute time.
+    const model = projectScheduleConflictsBanner({
+      scheduleBlocks: [
+        focusBlock({
+          id: 'live',
+          taskId: 't1',
+          startAtMs: localMs(2026, 7, 20, 9, 0),
+          endAtMs: localMs(2026, 7, 20, 10, 0)
+        }),
+        focusBlock({
+          id: 'orphan',
+          taskId: 't-gone',
+          startAtMs: localMs(2026, 7, 20, 9, 30),
+          endAtMs: localMs(2026, 7, 20, 10, 30)
+        }),
+        focusBlock({
+          id: 'unassigned',
+          taskId: null,
+          startAtMs: localMs(2026, 7, 20, 9, 15),
+          endAtMs: localMs(2026, 7, 20, 9, 45)
+        })
+      ],
+      tasks: [{ id: 't1', title: '阅读' }]
+    })
+    expect(model.kind).toBe('clear')
+    expect(model.conflictCount).toBe(0)
+  })
+
+  it('still reports conflicts when both owners are present in the task catalog', () => {
+    const model = projectScheduleConflictsBanner({
+      scheduleBlocks: [
+        focusBlock({
+          id: 'a',
+          taskId: 't1',
+          startAtMs: localMs(2026, 7, 20, 9, 0),
+          endAtMs: localMs(2026, 7, 20, 10, 0)
+        }),
+        focusBlock({
+          id: 'b',
+          taskId: 't2',
+          startAtMs: localMs(2026, 7, 20, 9, 30),
+          endAtMs: localMs(2026, 7, 20, 10, 30)
+        })
+      ],
+      tasks: [
+        { id: 't1', title: '阅读' },
+        { id: 't2', title: '写作' }
+      ]
+    })
+    expect(model.kind).toBe('conflicts')
+    expect(model.conflictCount).toBe(1)
+  })
+
+  it('selectFocusBlocksForConflictScan filters by activeTaskIds when provided', () => {
+    const blocks = [
+      focusBlock({ id: 'a', taskId: 't1', startAtMs: 0, endAtMs: 100 }),
+      focusBlock({ id: 'b', taskId: 't2', startAtMs: 50, endAtMs: 150 }),
+      focusBlock({ id: 'c', taskId: null, startAtMs: 0, endAtMs: 80 })
+    ]
+    const selected = selectFocusBlocksForConflictScan(blocks, {
+      activeTaskIds: ['t1']
+    })
+    expect(selected.map((b) => b.id)).toEqual(['a'])
+  })
+
+  it('projectScheduleConflictResolvePreview ignores orphan-task overlaps when tasks provided', () => {
+    const preview = projectScheduleConflictResolvePreview({
+      scheduleBlocks: [
+        focusBlock({
+          id: 'live',
+          taskId: 't1',
+          startAtMs: localMs(2026, 7, 20, 9, 0),
+          endAtMs: localMs(2026, 7, 20, 10, 0)
+        }),
+        focusBlock({
+          id: 'orphan',
+          taskId: 't-gone',
+          startAtMs: localMs(2026, 7, 20, 9, 30),
+          endAtMs: localMs(2026, 7, 20, 10, 30)
+        })
+      ],
+      tasks: [{ id: 't1', title: '阅读' }]
+    })
+    expect(preview.kind).toBe('unavailable')
+    expect(preview.reasonCode).toBe('no_conflicts')
   })
 
   it('default list cap constant is positive', () => {

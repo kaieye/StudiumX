@@ -80,7 +80,12 @@ export type AgentConversationTurnRunnerPatch<TError> = Partial<
 
 export type AgentConversationTurnRunnerApi = Pick<
   TeachingSystemApi,
-  'agentChatStream' | 'cancelAgentChatStream' | 'saveAgentConversation' | 'readAgentConversationSessionTree'
+  | 'agentChatStream'
+  | 'cancelAgentChatStream'
+  | 'saveAgentConversation'
+  | 'readAgentConversationSessionTree'
+  /** Rebuilds workspace catalog projections (courses/sessions/sidebar) from durable index. */
+  | 'getState'
 >
 
 export type AgentConversationTurnRunnerDependencies<TError> = {
@@ -526,6 +531,23 @@ export class AgentConversationTurnRunner<TError> {
     }
   }
 
+  /**
+   * Lesson files and `.studiumx/index.json` become durable as soon as
+   * `generate_lesson` succeeds. Conversation save can still fail (e.g. parent-turn
+   * digest mismatch). Rebuild appState from the main-process catalog so the
+   * course sidebar reflects new sessions without waiting on transcript save.
+   */
+  private async refreshAppStateAfterGeneratedLessons(
+    api: AgentConversationTurnRunnerApi
+  ): Promise<void> {
+    try {
+      const state = await api.getState()
+      this.dependencies.setState({ appState: state })
+    } catch {
+      // Best-effort only: lesson artifacts remain on disk and can appear after reload.
+    }
+  }
+
   private async saveCompletedTurn({
     api,
     workspaceId,
@@ -563,6 +585,12 @@ export class AgentConversationTurnRunner<TError> {
     this.dependencies.setState({
       taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : beforeSave.taskPrompt
     })
+
+    // Refresh catalog before durable conversation save so sidebar lessons appear
+    // even when save later rejects or the app exits mid-save.
+    if (done.generatedLessons?.length) {
+      await this.refreshAppStateAfterGeneratedLessons(api)
+    }
 
     try {
       const saved = await api.saveAgentConversation({
@@ -616,6 +644,14 @@ export class AgentConversationTurnRunner<TError> {
       if (treeError) this.dependencies.setState({ error: this.dependencies.toUserError(treeError) })
       if (done.generatedLessons?.length) this.dependencies.onGeneratedLessons(done.generatedLessons)
     } catch (error) {
+      // Lesson files may already be durable even when conversation save rejects.
+      // Keep surfacing the save error, re-attempt catalog refresh (in case the
+      // pre-save refresh raced a late index write), and still hand generated
+      // lessons to the UI for open/notification effects.
+      if (done.generatedLessons?.length) {
+        await this.refreshAppStateAfterGeneratedLessons(api)
+        this.dependencies.onGeneratedLessons(done.generatedLessons)
+      }
       this.dependencies.setState({ error: this.dependencies.toUserError(error) })
     } finally {
       const stateAfterSave = this.dependencies.getState()

@@ -131,6 +131,7 @@ export function projectRecurrenceRulesFromPreferences(
   return normalizePreferencesRecurrenceRules(preferences?.recurrenceRules)
 }
 
+
 /**
  * Reverse a ScheduleBlock interval into V1 weekday+minutes (local wall clock).
  * Returns null when interval spans midnight or is invalid (V1 cannot represent it cleanly).
@@ -391,6 +392,6 @@ export async function hydrateStudyTasksFromCanonical(
     categories: projectTaskCategoriesFromSnapshot(planning.categories),
     scheduleBlocks: planning.scheduleBlocks.slice(),
     timerSessions: Array.isArray(planning.timerSessions) ? planning.timerSessions.slice() : [],
-    recurrenceRules: projectRecurrenceRulesFromPreferences(planning.preferences)
+    recurrenceRules: projectRecurrenceRulesFromPreferences(planning.preferences),
   }
 }

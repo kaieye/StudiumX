@@ -381,7 +381,7 @@ export type ReadStudySnapshotOptions = {
  * current tab identity and URL invite before rewriting canonical storage.
  *
  * After V1 authority demote: empty task arrays stay empty (no default-task
- * resurrection). When demoted + workspaceAvailable, persist writes presence shell only.
+ * resurrection). When demoted, persist writes presence shell only (even offline).
  */
 export function readStudySnapshot(options?: ReadStudySnapshotOptions): StudySnapshot {
   const demoted =
@@ -420,8 +420,9 @@ export type PersistStudySnapshotOptions = {
 
 /**
  * Persists only normalized durable snapshot data; unavailable storage remains non-fatal.
- * When V1 authority is demoted and workspace is active, write presence shell only
- * (tasks/timerPlans stripped) so localStorage is not a live task-authority co-cache.
+ * When V1 authority is demoted, write presence shell only (tasks/timerPlans
+ * stripped) so localStorage is never a live task-authority co-cache — including
+ * offline/transient empty workspaceRoot (no sole-read mirror into V1).
  */
 export function persistStudySnapshot(
   snapshot: StudySnapshot,

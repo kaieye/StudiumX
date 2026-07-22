@@ -73,16 +73,6 @@ function fallbackStateFor(phase: ReturnType<typeof useStudyAnalytics>['phase']):
   return 'request-error'
 }
 
-function statusTone(
-  phase: ReturnType<typeof useStudyAnalytics>['phase'],
-  isRefreshing: boolean
-): 'ok' | 'warn' | 'alert' | 'idle' {
-  if (isRefreshing || phase === 'loading') return 'warn'
-  if (phase === 'ready') return 'ok'
-  if (phase === 'error' || phase === 'unavailable') return 'alert'
-  return 'idle'
-}
-
 export function StudyAnalyticsPage({
   onBack,
   client,
@@ -140,7 +130,6 @@ export function StudyAnalyticsPage({
     isStale: analytics.isStale
   }
   const ctx = { copy, fmt, localToday }
-  const ledTone = statusTone(analytics.phase, analytics.isRefreshing)
 
   return (
     <div className="study-analytics-page">
@@ -166,16 +155,6 @@ export function StudyAnalyticsPage({
               <RefreshCw size={18} aria-hidden="true" />
               <span>{copy.page.refresh}</span>
             </button>
-          </div>
-
-          <div className="analytics-instrument-strip" aria-hidden="true">
-            <span className="analytics-instrument-meta">
-              <span className="analytics-glyph-led" data-tone={ledTone} />
-              System Status
-            </span>
-            <span className="analytics-instrument-meta">Channel · Study Analytics</span>
-            <span className="analytics-instrument-meta">Range · {copy.ranges[preset]}</span>
-            <span className="analytics-instrument-meta">Clock · {localToday}</span>
           </div>
 
           <div className="analytics-range-bar" role="group" aria-label={copy.page.rangeLabel}>

@@ -314,7 +314,7 @@ export function applyDeleteTaskFutureBlocks(input: {
   }
 }
 
-/** Diff helper for allocation proposal confirm UI (STC-308 pure). */
+/** Diff helper for schedule block sets (pure). Historical STC-308 allocation confirm UI removed 2026-07-22. */
 export function diffScheduleBlocks(
   current: readonly ScheduleBlock[],
   proposed: readonly ScheduleBlock[]

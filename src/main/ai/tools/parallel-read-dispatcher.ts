@@ -110,7 +110,7 @@ export async function dispatchReadToolsInParallel(
 export function extractReadPathTargets(args: unknown): string[] {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return []
   const record = args as Record<string, unknown>
-  const keys = ['path', 'glob', 'target', 'targetPath', 'file', 'directory'] as const
+  const keys = ['path', 'file_path', 'filepath', 'filePath', 'glob', 'target', 'targetPath', 'file', 'directory'] as const
   const out: string[] = []
   const seen = new Set<string>()
   for (const key of keys) {

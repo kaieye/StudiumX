@@ -14,6 +14,7 @@ import {
   type PathnameWorkspaceWriteInput
 } from './workspace-pathname-write'
 import { captureAndAppendWritePreImage } from './write-rewind-journal'
+import { readToolPathArg, requireToolPathArg } from './tool-arguments'
 
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_READ_CHARS = 24_000
@@ -314,7 +315,7 @@ export const listWorkspaceTool: ToolEntry = {
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: '相对工作区路径，默认 "."' },
+          path: { type: 'string', description: '相对工作区路径，默认 "."。参数名必须是 path（也接受 file_path）。' },
           recursive: { type: 'boolean', description: '是否递归列出子目录，默认 false' }
         }
       }
@@ -323,7 +324,8 @@ export const listWorkspaceTool: ToolEntry = {
   handler: async (args: unknown, ctx: ToolContext): Promise<string> => {
     try {
       const input = (args ?? {}) as { path?: string; recursive?: boolean }
-      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
+      const path = readToolPathArg(args).path ?? input.path
+      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, path)
       if (isProtectedWorkspaceRelativePath(target.relativePath)) {
         throw new Error('该路径属于隐藏、构建或敏感文件范围，已拒绝读取。')
       }
@@ -354,7 +356,7 @@ export const readWorkspaceFileTool: ToolEntry = {
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: '相对工作区文件路径' },
+          path: { type: 'string', description: '相对工作区文件路径。参数名必须是 path（也接受 file_path）。' },
           offset: { type: 'number', description: '0-based 起始行，默认 0', minimum: 0 },
           limit: { type: 'number', description: '最多返回行数，默认 240，最大 800', minimum: 1, maximum: 800 }
         },
@@ -365,8 +367,8 @@ export const readWorkspaceFileTool: ToolEntry = {
   handler: async (args: unknown, ctx: ToolContext): Promise<string> => {
     try {
       const input = (args ?? {}) as { path?: string; offset?: number; limit?: number }
-      if (!input.path?.trim()) throw new Error('缺少参数 path。')
-      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
+      const path = requireToolPathArg(args)
+      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, path)
       if (isProtectedWorkspaceRelativePath(target.relativePath)) {
         throw new Error('该路径属于隐藏、构建或敏感文件范围，已拒绝读取。')
       }
@@ -544,10 +546,10 @@ async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext)
   creates: boolean
 }> {
   const input = (args ?? {}) as { path?: string; overwrite?: boolean }
-  if (!input.path?.trim()) throw new Error('缺少参数 path。')
+  const path = requireToolPathArg(args)
 
   try {
-    const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
+    const target = resolveWorkspacePathTarget(ctx.workspaceRoot, path)
     let existing: Awaited<ReturnType<typeof lstatIfExists>>
     try {
       existing = await lstatIfExists(workspaceWriteLogicalTargetPath(target))
@@ -626,13 +628,14 @@ export async function runWorkspaceWriteWithDurableDependenciesForTesting(
   dependencies: WorkspaceWriteDurableDependencies = defaultWorkspaceWriteDurableDependencies
 ): Promise<string> {
   const input = (args ?? {}) as { path?: string; content?: unknown; overwrite?: boolean }
-  if (!input.path?.trim() || typeof input.content !== 'string') {
+  const path = readToolPathArg(args).path ?? (typeof input.path === 'string' ? input.path.trim() : '')
+  if (!path || typeof input.content !== 'string') {
     return stableWorkspaceWriteError('request_rejected')
   }
 
   let target: ReturnType<typeof resolveWorkspacePathTarget>
   try {
-    target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
+    target = resolveWorkspacePathTarget(ctx.workspaceRoot, path)
   } catch {
     return stableWorkspaceWriteError('path_rejected')
   }
@@ -729,7 +732,7 @@ export const writeWorkspaceFileTool: ToolEntry = {
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: '相对工作区文件路径，例如 "reference/glossary.html"' },
+          path: { type: 'string', description: '相对工作区文件路径，例如 "reference/glossary.html"。参数名必须是 path（也接受 file_path）。' },
           content: { type: 'string', description: '要写入的完整文本内容' },
           overwrite: { type: 'boolean', description: '是否允许覆盖已有文件，默认 false' }
         },
@@ -756,7 +759,7 @@ export const searchWorkspaceTool: ToolEntry = {
         type: 'object',
         properties: {
           pattern: { type: 'string', description: '要搜索的文本或正则表达式' },
-          path: { type: 'string', description: '相对工作区文件或目录，默认 "."' },
+          path: { type: 'string', description: '相对工作区文件或目录，默认 "."。参数名必须是 path（也接受 file_path）。' },
           regex: { type: 'boolean', description: 'pattern 是否按正则表达式解释，默认 false' }
         },
         required: ['pattern']
@@ -767,7 +770,8 @@ export const searchWorkspaceTool: ToolEntry = {
     try {
       const input = (args ?? {}) as { pattern?: string; path?: string; regex?: boolean }
       if (!input.pattern?.trim()) throw new Error('缺少参数 pattern。')
-      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, input.path)
+      const path = readToolPathArg(args).path ?? input.path
+      const target = resolveWorkspacePathTarget(ctx.workspaceRoot, path)
       if (isProtectedWorkspaceRelativePath(target.relativePath)) {
         throw new Error('该路径属于隐藏、构建或敏感文件范围，已拒绝搜索。')
       }

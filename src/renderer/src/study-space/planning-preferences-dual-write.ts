@@ -207,3 +207,4 @@ export async function dualWriteSetSimulationWindow(
   }
   return dualWriteSetPreferences(ctx, buildSimulationWindowPreferencesPatch(window))
 }
+

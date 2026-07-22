@@ -317,15 +317,18 @@ describe('study-planning v1 authority demote (sole-authority end-state)', () => 
       expect(stripped.spaceCode).toBe(snap.spaceCode)
     })
 
-    it('shouldPersistV1TaskAuthority stops only when demoted + workspace', () => {
+    it('shouldPersistV1TaskAuthority is false whenever demoted (including offline)', () => {
       expect(shouldPersistV1TaskAuthority({ demoted: false, workspaceAvailable: true })).toBe(
         true
       )
       expect(shouldPersistV1TaskAuthority({ demoted: true, workspaceAvailable: false })).toBe(
-        true
+        false
       )
       expect(shouldPersistV1TaskAuthority({ demoted: true, workspaceAvailable: true })).toBe(
         false
+      )
+      expect(shouldPersistV1TaskAuthority({ demoted: false, workspaceAvailable: false })).toBe(
+        true
       )
     })
 

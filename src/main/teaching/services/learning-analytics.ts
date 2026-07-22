@@ -476,7 +476,9 @@ export class LearningAnalyticsService {
     const data = aggregateTokenFacts(evidence.rangedFacts, evidence.toolFacts, evidence.counters)
     const complete = evidence.complete && header.temporaryWarnings.length === 0
     const sectionCoverage = coverage(query, true, evidence.sources, evidence.facts.map((fact) => fact.localDate), complete)
-    const isPartial = !complete || evidence.counters.componentMissing > 0 || evidence.counters.totalInconsistent > 0
+    // Component-only totals and total/prompt mismatches remain warnings; they do not
+    // force the tokens section into partial as long as source discovery succeeded.
+    const isPartial = !complete
     if (selected.length > 0 && evidence.counters.workspaceErrors === selected.length && temporaryConversations.length === 0) {
       return { section: errorSection(queryTemporal(query), sectionCoverage, 'workspace_scan_failed', 'No selected Teaching workspace could be scanned.', true, evidence.warnings) }
     }

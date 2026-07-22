@@ -5,7 +5,7 @@
  * confirm is host-driven (onConfirmExpand). Never auto-expands; never clones Task.
  * Optional durable rule list via preferences.recurrenceRules + explicit save.
  */
-import { CalendarClock, Check, Save, X } from 'lucide-react'
+import { CalendarClock, CalendarRange, Check, Save, X } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { JsWeekday, RecurrenceRule, ScheduleBlock } from '../../../../shared/study-planning'
 import {
@@ -55,6 +55,11 @@ export type RecurrenceRuleEditorProps = {
    * Host should dual-write set_preferences with recurrenceRules.
    */
   onSaveRules?: (rules: readonly RecurrenceRule[]) => Promise<boolean> | boolean
+  /**
+   * Open full series edit sheet (STC-703 calendar / series UI).
+   * When provided, shows entry CTA next to minimal editor actions.
+   */
+  onOpenSeriesSheet?: () => void
   onError?: (message: string) => void
 }
 
@@ -94,6 +99,7 @@ export function RecurrenceRuleEditor({
   recurrenceRules = null,
   onConfirmExpand,
   onSaveRules,
+  onOpenSeriesSheet,
   onError
 }: RecurrenceRuleEditorProps) {
   const formId = useId()
@@ -244,7 +250,7 @@ export function RecurrenceRuleEditor({
         </span>
       </div>
       <p className="study-schedule-recurrence-hint">
-        可先保存规则，再预览确认后才写入时间块；不会复制任务。默认不自动展开。
+        可先保存规则，再预览确认后才写入时间块；不会复制任务。默认不自动展开。完整系列编辑请打开「系列编辑」。
       </p>
 
       <div className="study-schedule-recurrence-row" role="group" aria-label="频率">
@@ -345,6 +351,18 @@ export function RecurrenceRuleEditor({
       </div>
 
       <div className="study-schedule-recurrence-actions">
+        {onOpenSeriesSheet ? (
+          <button
+            type="button"
+            className="study-schedule-secondary-button"
+            onClick={onOpenSeriesSheet}
+            disabled={busy || saving}
+            aria-label="打开系列编辑"
+          >
+            <CalendarRange size={14} aria-hidden="true" />
+            系列编辑
+          </button>
+        ) : null}
         {onSaveRules ? (
           <button
             type="button"

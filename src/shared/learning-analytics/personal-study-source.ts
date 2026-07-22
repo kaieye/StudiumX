@@ -207,10 +207,13 @@ export function validatePersonalStudySnapshot(value: unknown, input: { clientId:
     accepted.push(retained)
   }
   const upstreamRejected = isRecord(value.diagnostics) && isFiniteNonNegative(value.diagnostics.invalidFactRows, PERSONAL_STUDY_SNAPSHOT_MAX_FACTS) ? value.diagnostics.invalidFactRows : 0
+  // Historical recovery notes stay in diagnostics for operators, but section
+  // completeness only depends on rows rejected during this validation pass.
   const warnings: AnalyticsWarning[] = []
-  if (rejectedFacts + upstreamRejected > 0) warnings.push(warning('facts_recovered_with_invalid_rows', 'Invalid personal Study fact rows were ignored before analytics aggregation.', { invalidFactRows: rejectedFacts + upstreamRejected }))
+  if (rejectedFacts > 0) warnings.push(warning('facts_recovered_with_invalid_rows', 'Invalid personal Study fact rows were ignored before analytics aggregation.', { invalidFactRows: rejectedFacts, historicalInvalidFactRows: upstreamRejected }))
+  else if (upstreamRejected > 0) warnings.push(warning('facts_recovered_with_invalid_rows', 'Previously recovered invalid personal Study fact rows were already filtered from the snapshot.', { invalidFactRows: 0, historicalInvalidFactRows: upstreamRejected }))
   if (retentionPruned) warnings.push(warning('retention_pruned', 'Personal Study facts outside the rolling 400-day retention window were ignored.'))
-  return { state: 'valid', cacheIdentity: identity, snapshot: { version: 1, identity, capturedAt: new Date(capturedAt).toISOString(), clientId: input.clientId, trackingStartedOn: value.trackingStartedOn, facts: accepted, current: { xp: value.current.xp, streakDays: value.current.streakDays, tasks: value.current.tasks }, diagnostics: { invalidFactRows: rejectedFacts + upstreamRejected, retentionPruned } }, rejectedFacts: rejectedFacts + upstreamRejected, retentionPruned, warnings }
+  return { state: 'valid', cacheIdentity: identity, snapshot: { version: 1, identity, capturedAt: new Date(capturedAt).toISOString(), clientId: input.clientId, trackingStartedOn: value.trackingStartedOn, facts: accepted, current: { xp: value.current.xp, streakDays: value.current.streakDays, tasks: value.current.tasks }, diagnostics: { invalidFactRows: rejectedFacts + upstreamRejected, retentionPruned } }, rejectedFacts, retentionPruned, warnings }
 }
 
 export function rebuildPersonalStudyDailyProjections(facts: StudyAnalyticsFact[], rebuiltAt: string): StudyDailyProjection[] {
@@ -267,8 +270,12 @@ function coverage(query: LearningAnalyticsQuery, validation: Extract<PersonalStu
   const effectiveFrom = query.range.from > lowerBound ? query.range.from : lowerBound
   const effectiveTo = query.range.to < query.calendarContext.localToday ? query.range.to : query.calendarContext.localToday
   const effectiveRange = effectiveFrom <= effectiveTo ? { ...query.range, from: effectiveFrom, to: effectiveTo } : null
-  const requestedCovered = effectiveRange?.from === query.range.from && effectiveRange.to === query.range.to
-  const sourceState: AnalyticsSourceCoverage['state'] = validation.rejectedFacts > 0 || validation.retentionPruned || !requestedCovered ? 'partial' : 'complete'
+  // Clamping the requested range to tracking/retention is expected for presets like
+  // `week`/`all` and must not mark honest complete data as partial. Only genuine
+  // fact loss from this validation pass (newly rejected rows) reduces completeness.
+  // Retention pruning is expected policy, not incomplete source discovery.
+  const sourceState: AnalyticsSourceCoverage['state'] =
+    validation.rejectedFacts > 0 ? 'partial' : 'complete'
   return { rangeApplied: true, requestedRange: query.range, effectiveRange, trackingStartedOn: snapshot.trackingStartedOn, dataStartDate: dataDates[0] ?? null, dataEndDate: dataDates.at(-1) ?? null, retention: { policy: 'rolling_local_days', days: 400, includesToday: true, cutoffDate }, complete: sourceState === 'complete', sources: [{ source: 'study_fact_store', state: sourceState, scanned: snapshot.facts.length + validation.rejectedFacts, included: snapshot.facts.length, missing: 0, rejected: validation.rejectedFacts, earliestLocalDate: dataDates[0], latestLocalDate: dataDates.at(-1) }] }
 }
 
@@ -276,8 +283,13 @@ function projectionRows(query: LearningAnalyticsQuery, validation: Extract<Perso
   const map = new Map(projections.map((item) => [item.date, item]))
   const cutoffDate = addAnalyticsLocalDays(query.calendarContext.localToday, -399)
   const coverageStart = validation.snapshot.trackingStartedOn > cutoffDate ? validation.snapshot.trackingStartedOn : cutoffDate
-  return Array.from({ length: countInclusiveLocalDays(query.range.from, query.range.to) }, (_, index) => {
-    const date = addAnalyticsLocalDays(query.range.from, index)
+  // Expand only the effective window (clamped to tracking/retention/today). Requested
+  // `all` uses sentinel from=0001-01-01 and must not allocate ~2M empty day rows.
+  const rowFrom = query.range.from > coverageStart ? query.range.from : coverageStart
+  const rowTo = query.range.to < query.calendarContext.localToday ? query.range.to : query.calendarContext.localToday
+  if (rowFrom > rowTo) return []
+  return Array.from({ length: countInclusiveLocalDays(rowFrom, rowTo) }, (_, index) => {
+    const date = addAnalyticsLocalDays(rowFrom, index)
     const existing = map.get(date)
     return { ...(existing ?? { projectionVersion: 1 as const, date, focusSeconds: 0, breakSeconds: 0, completedFocusSessions: 0, interruptedFocusSessions: 0, xpEarned: 0, modeSeconds: {}, roomSeconds: {}, signalSeconds: {}, hourBuckets: EMPTY_HOURS(), tasksCreated: 0, tasksCompleted: 0, tasksReopened: 0, tasksDeleted: 0, reviewAnswered: 0, reviewCorrect: 0, sourceFactCount: 0, rebuiltAt: validation.snapshot.capturedAt }), covered: date >= coverageStart && date <= query.calendarContext.localToday }
   })
@@ -475,11 +487,34 @@ export function buildPersonalStudyAnalytics(input: { query: LearningAnalyticsQue
   const taskWarnings = [...warnings, warning('schedule_history_missing', 'Task plan history is not reconstructable; planned time and execution rate remain unavailable.')]
   if (taskData.plan.attributedFocusSeconds === 0) taskWarnings.push(warning('task_attribution_missing', 'No explicit task-attributed focus facts were available.'))
   const taskTemporal = { kind: 'mixed' as const, range: query.range, asOf: generatedAt, rangeFields: ['flow', 'plan'], rangeInvariantFields: ['current'] }
-  const tasks: AnalyticsSectionResult<TaskAnalytics> = activities.length === 0 && currentTasks.length === 0 ? { state: 'empty', data: taskData, reason: 'scope_has_no_items', temporal: taskTemporal, coverage: sectionCoverage, warnings: taskWarnings } : { state: sectionCoverage.complete && activities.length > 0 ? 'available' : 'partial', data: taskData, temporal: taskTemporal, coverage: sectionCoverage, warnings: taskWarnings }
+  // Current task inventory is range-invariant. Missing in-range activity facts is an
+  // empty flow (not partial) when the snapshot itself is complete; only real coverage
+  // loss (rejected/pruned facts) should force partial.
+  const tasks: AnalyticsSectionResult<TaskAnalytics> =
+    activities.length === 0 && currentTasks.length === 0
+      ? { state: 'empty', data: taskData, reason: 'scope_has_no_items', temporal: taskTemporal, coverage: sectionCoverage, warnings: taskWarnings }
+      : {
+          state: sectionCoverage.complete ? 'available' : 'partial',
+          data: taskData,
+          temporal: taskTemporal,
+          coverage: sectionCoverage,
+          warnings: taskWarnings
+        }
   const tokenTotal = 'data' in tokens ? tokens.data.totals.totalTokens : 0
   const heroData: LearningAnalyticsHero = { focusSeconds, completedFocusSessions: completed, currentStreakDays: validation.snapshot.current.streakDays, currentXp: validation.snapshot.current.xp, currentLevel: growthLevel, totalTokens: tokenTotal, currentTaskCompletionRate: taskData.current.completionRate, insightLine: 'Based on currently available local Study and Teaching data.' }
   const heroTemporal = { kind: 'mixed' as const, range: query.range, asOf: generatedAt, rangeFields: ['focusSeconds', 'totalTokens'], rangeInvariantFields: ['currentStreakDays', 'currentXp', 'currentLevel', 'currentTaskCompletionRate'] }
-  const hero: AnalyticsSectionResult<LearningAnalyticsHero> = focus.state === 'unavailable' ? { state: 'unavailable', reason: 'history_not_recorded', temporal: heroTemporal, coverage: sectionCoverage, warnings } : { state: focus.state === 'available' ? 'available' : 'partial', data: heroData, temporal: heroTemporal, coverage: sectionCoverage, warnings: [...warnings, ...taskWarnings] }
+  // Hero can honestly show zeroes when focus is empty; empty is not partial.
+  // Only unavailable focus history or incomplete coverage should degrade the hero.
+  const hero: AnalyticsSectionResult<LearningAnalyticsHero> =
+    focus.state === 'unavailable'
+      ? { state: 'unavailable', reason: 'history_not_recorded', temporal: heroTemporal, coverage: sectionCoverage, warnings }
+      : {
+          state: sectionCoverage.complete ? 'available' : 'partial',
+          data: heroData,
+          temporal: heroTemporal,
+          coverage: sectionCoverage,
+          warnings: [...warnings, ...taskWarnings]
+        }
   return { hero, focus, tasks }
 }
 

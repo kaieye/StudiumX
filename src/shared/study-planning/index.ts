@@ -1,7 +1,8 @@
 /**
  * Study planning pure domain (Phase 1 + Phase 2 lifecycle pure module).
  *
- * ADR-0094 §4 / ADR-0117: TimerPlanV2 + allocateTimeWindow + ScheduleBlock + migrate dry-run
+ * ADR-0094 / ADR-0117: TimerPlanV2 + ScheduleBlock + migrate dry-run
+ * (allocateTimeWindow / AllocationProposal product path removed 2026-07-22)
  * + TimerSession lifecycle pure reducers (no canonical write, no renderer wire).
  */
 
@@ -24,10 +25,18 @@ export {
 
 export {
   CUSTOM_RHYTHM_SEED_LIMITS,
+  CUSTOM_RHYTHM_STEP_KIND_LABELS,
+  CUSTOM_RHYTHM_STEP_KIND_OPTIONS,
+  advanceCustomRhythmOnPhaseComplete,
+  assertBuiltinPomodoroSemanticsIntact,
   createCustomRhythmPlan,
   customRhythmMinutesForPhase,
   expandCustomRhythmSequence,
+  formatCustomRhythmIssueMessage,
+  isActivePlanSnapshotFrozenAgainstCatalogEdit,
   isCustomRhythmPlan,
+  isSaveableCustomRhythmSequence,
+  listCustomRhythmEditorIssues,
   nextCustomRhythmStep,
   normalizeCustomRhythmSequence,
   projectCustomRhythmPrimaryMinutes,
@@ -41,23 +50,13 @@ export {
 } from './custom-rhythm-sequence'
 
 
-export {
-  ALLOCATOR_TEST_DAY_UTC,
-  allocateTimeWindow,
-  msFromLocalMinutes,
-  type AllocateTimeWindowInput,
-  type AllocationProposal,
-  type AllocatorTask,
-  type LockedScheduleBlock,
-  type ProposedBlock,
-  type ProposedBlockKind,
-  type TimeWindow
-} from './allocate-time-window'
 
 export {
   isValidScheduleBlockInterval,
   isValidScheduleBlockTimeZone,
+  normalizeScheduleBlockTimeZoneStamp,
   proposalBlocksToScheduleBlocks,
+  resolveScheduleBlockTimeZoneOnWrite,
   validateScheduleBlocks,
   type PlanningTask,
   type PlanningTaskPriority,
@@ -226,11 +225,8 @@ export {
 } from './notification-and-review'
 
 export {
-  allocateMultiWindowDay,
-  compareAllocationUtilization,
   findScheduleConflicts,
-  suggestEstimateMinutesFromHistory,
-  type UtilizationCompareRow
+  suggestEstimateMinutesFromHistory
 } from './advanced-scheduling'
 
 export {
@@ -345,6 +341,7 @@ export {
   getUtcOffsetMinutes,
   nextLocalMidnightMs,
   projectWallClock,
+  reprojectIntervalWallPreserve,
   reprojectWallClockLabels,
   resolveLocalDateTime,
   splitIntervalAtLocalMidnights,
@@ -358,5 +355,6 @@ export {
   type ReprojectWallClockResult,
   type SplitIntervalResult,
   type TimeZoneId,
-  type WallClockParts
+  type WallClockParts,
+  type WallPreserveRezoneResult
 } from './timezone-dst-editing'

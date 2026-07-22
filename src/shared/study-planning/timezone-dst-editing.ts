@@ -732,3 +732,133 @@ export function formatZonedRangeDisplay(input: {
     crossesMidnight: split.crossedMidnight
   }
 }
+
+
+/**
+ * Wall-preserving rezone: keep civil wall-clock from `fromTimeZone`, resolve new
+ * absolute anchors in `toTimeZone`. Epoch is rewritten; duration is re-derived
+ * from the new anchors (may differ across DST). Fail-closed on ambiguous /
+ * nonexistent local times (does not invent).
+ *
+ * Pure; never writes. Callers must require explicit user confirm before apply.
+ */
+export type WallPreserveRezoneResult =
+  | {
+      ok: true
+      fromTimeZone: TimeZoneId
+      toTimeZone: TimeZoneId
+      startAtMs: number
+      endAtMs: number
+      durationMs: number
+      fromStartLabel: string
+      fromEndLabel: string
+      toStartLabel: string
+      toEndLabel: string
+    }
+  | { ok: false; code: string; message: string }
+
+export function reprojectIntervalWallPreserve(input: {
+  startAtMs: number
+  endAtMs: number
+  fromTimeZone: TimeZoneId
+  toTimeZone: TimeZoneId
+}): WallPreserveRezoneResult {
+  const duration = absoluteDurationMs(input.startAtMs, input.endAtMs)
+  if (!duration.ok) {
+    return { ok: false, code: duration.code, message: duration.message }
+  }
+
+  const fromTz = input.fromTimeZone?.trim() ?? ''
+  const toTz = input.toTimeZone?.trim() ?? ''
+  if (!isValidTimeZone(fromTz)) {
+    return { ok: false, code: 'timezone_invalid', message: `Unknown or empty fromTimeZone: ${input.fromTimeZone}` }
+  }
+  if (!isValidTimeZone(toTz)) {
+    return { ok: false, code: 'timezone_invalid', message: `Unknown or empty toTimeZone: ${input.toTimeZone}` }
+  }
+
+  const fromStart = projectWallClock(input.startAtMs, fromTz)
+  const fromEnd = projectWallClock(input.endAtMs, fromTz)
+  if (!fromStart.ok) return { ok: false, code: fromStart.code, message: fromStart.message }
+  if (!fromEnd.ok) return { ok: false, code: fromEnd.code, message: fromEnd.message }
+
+  const startRes = resolveLocalDateTime({
+    timeZone: toTz,
+    year: fromStart.parts.year,
+    month: fromStart.parts.month,
+    day: fromStart.parts.day,
+    hour: fromStart.parts.hour,
+    minute: fromStart.parts.minute,
+    second: fromStart.parts.second
+  })
+  if (startRes.kind === 'invalid_input') {
+    return { ok: false, code: startRes.code, message: startRes.message }
+  }
+  if (startRes.kind === 'ambiguous') {
+    return {
+      ok: false,
+      code: 'local_time_ambiguous',
+      message: `Start wall ${fromStart.parts.dateKey} ${fromStart.parts.timeLabel} is ambiguous in ${toTz}`
+    }
+  }
+  if (startRes.kind === 'nonexistent') {
+    return {
+      ok: false,
+      code: 'local_time_nonexistent',
+      message: `Start wall ${fromStart.parts.dateKey} ${fromStart.parts.timeLabel} does not exist in ${toTz}`
+    }
+  }
+
+  const endRes = resolveLocalDateTime({
+    timeZone: toTz,
+    year: fromEnd.parts.year,
+    month: fromEnd.parts.month,
+    day: fromEnd.parts.day,
+    hour: fromEnd.parts.hour,
+    minute: fromEnd.parts.minute,
+    second: fromEnd.parts.second
+  })
+  if (endRes.kind === 'invalid_input') {
+    return { ok: false, code: endRes.code, message: endRes.message }
+  }
+  if (endRes.kind === 'ambiguous') {
+    return {
+      ok: false,
+      code: 'local_time_ambiguous',
+      message: `End wall ${fromEnd.parts.dateKey} ${fromEnd.parts.timeLabel} is ambiguous in ${toTz}`
+    }
+  }
+  if (endRes.kind === 'nonexistent') {
+    return {
+      ok: false,
+      code: 'local_time_nonexistent',
+      message: `End wall ${fromEnd.parts.dateKey} ${fromEnd.parts.timeLabel} does not exist in ${toTz}`
+    }
+  }
+
+  if (endRes.atMs <= startRes.atMs) {
+    return {
+      ok: false,
+      code: 'range_empty_or_inverted',
+      message: 'Wall-preserve rezone produced empty or inverted interval'
+    }
+  }
+
+  const toStart = projectWallClock(startRes.atMs, toTz)
+  const toEnd = projectWallClock(endRes.atMs, toTz)
+  if (!toStart.ok) return { ok: false, code: toStart.code, message: toStart.message }
+  if (!toEnd.ok) return { ok: false, code: toEnd.code, message: toEnd.message }
+
+  return {
+    ok: true,
+    fromTimeZone: fromTz,
+    toTimeZone: toTz,
+    startAtMs: startRes.atMs,
+    endAtMs: endRes.atMs,
+    durationMs: endRes.atMs - startRes.atMs,
+    fromStartLabel: `${fromStart.parts.dateKey} ${fromStart.parts.timeLabel}`,
+    fromEndLabel: `${fromEnd.parts.dateKey} ${fromEnd.parts.timeLabel}`,
+    toStartLabel: `${toStart.parts.dateKey} ${toStart.parts.timeLabel}`,
+    toEndLabel: `${toEnd.parts.dateKey} ${toEnd.parts.timeLabel}`
+  }
+}

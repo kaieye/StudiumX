@@ -7,7 +7,6 @@
 
 import type { PlanningTask, ScheduleBlock } from './schedule-block'
 import {
-  proposalBlocksToScheduleBlocks,
   resolveScheduleBlockTimeZoneOnWrite,
   validateScheduleBlocks
 } from './schedule-block'
@@ -55,7 +54,7 @@ export type StudyPlanningPreferencesV1 = {
   classificationPromptOptOut?: boolean
   defaultTimerPlanId?: string | null
   /**
-   * Active simulation / allocation window labels (HH:MM), rebuildable UI preference.
+   * Active simulation window labels (HH:MM), rebuildable UI preference (not AllocationProposal product).
    * Not schedule history — same semantics as V1 snapshot simulationStart/EndTime.
    */
   simulationStartTime?: string
@@ -101,7 +100,6 @@ export type StudyPlanningCommandType =
   | 'save_timer_plan'
   | 'delete_timer_plan'
   | 'copy_timer_plan'
-  | 'apply_allocation_proposal'
   | 'upsert_schedule_block'
   | 'delete_schedule_block'
   | 'quick_start'
@@ -273,6 +271,7 @@ export function normalizePreferencesRecurrenceRules(input: unknown): RecurrenceR
   }
   return out
 }
+
 
 function coerceRecurrenceRule(raw: unknown): RecurrenceRule | null {
   if (!isObject(raw)) return null
@@ -698,41 +697,6 @@ export class StudyPlanningStore {
           }
           break
         }
-        case 'apply_allocation_proposal': {
-          const p = command.payload
-          if (!isObject(p) || !Array.isArray(p.blocks)) {
-            throw fail('invalid_command', 'apply_allocation_proposal.blocks required')
-          }
-          const hostStamp =
-            asString(p.timeZone) ?? asString(p.hostTimeZone) ?? undefined
-          const drafts = proposalBlocksToScheduleBlocks({
-            blocks: p.blocks as Parameters<typeof proposalBlocksToScheduleBlocks>[0]['blocks'],
-            planId: asString(p.planId),
-            planRevision: typeof p.planRevision === 'number' ? p.planRevision : undefined,
-            idPrefix: asString(p.idPrefix) ?? 'alloc',
-            ...(hostStamp ? { hostTimeZone: hostStamp } : {})
-          })
-          // Never move locked existing blocks: drop proposal pieces that overlap locked.
-          const locked = next.scheduleBlocks.filter((b) => b.locked)
-          const safe: ScheduleBlock[] = []
-          for (const draft of drafts) {
-            const hitsLocked = locked.some(
-              (l) => draft.startAtMs < l.endAtMs && l.startAtMs < draft.endAtMs
-            )
-            if (hitsLocked) continue
-            safe.push(draft)
-          }
-          const merged = [...next.scheduleBlocks, ...safe]
-          const validation = validateScheduleBlocks(merged)
-          if (!validation.ok) {
-            throw fail('invariant_violation', 'schedule validation failed', {
-              issues: validation.issues
-            })
-          }
-          next.scheduleBlocks = merged
-          effects.push({ type: 'schedule_blocks_applied', count: safe.length })
-          break
-        }
         case 'upsert_schedule_block': {
           const p = command.payload
           if (!isObject(p) || !isObject(p.block)) throw fail('invalid_command', 'upsert_schedule_block.block required')
@@ -741,11 +705,15 @@ export class StudyPlanningStore {
           const existingBlock = next.scheduleBlocks.find((b) => b.id === block.id)
           // STC-704: never overwrite existing timeZone (no silent rezone). Stamp host only when
           // existing had none and payload/host provides a valid zone.
+          // confirmOverwriteTimeZone=true is user-confirmed rezone write policy only (travel product UI removed).
           const hostStamp = asString(p.hostTimeZone) ?? asString(p.timeZone)
+          const confirmOverwrite =
+            p.confirmOverwriteTimeZone === true || p.confirmOverwriteTimeZone === 'true'
           const resolvedZone = resolveScheduleBlockTimeZoneOnWrite({
             existingTimeZone: existingBlock?.timeZone,
             incomingTimeZone: block.timeZone,
-            hostTimeZone: hostStamp
+            hostTimeZone: hostStamp,
+            confirmOverwriteTimeZone: confirmOverwrite
           })
           const finalBlock: ScheduleBlock = resolvedZone
             ? { ...block, timeZone: resolvedZone }
@@ -968,7 +936,7 @@ export class StudyPlanningStore {
               return {
                 recurrenceRules: normalizePreferencesRecurrenceRules(p.recurrenceRules)
               }
-            })()
+            })(),
           }
           break
         }

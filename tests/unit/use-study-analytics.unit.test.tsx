@@ -94,6 +94,13 @@ describe('analytics query construction', () => {
       from: '2026-04-15',
       to: '2026-07-13'
     })
+    expect(buildAnalyticsDateRange('all', '2026-07-13')).toMatchObject({
+      from: '0001-01-01',
+      to: '2026-07-13',
+      preset: 'all',
+      fromInclusive: true,
+      toInclusive: true
+    })
   })
 
   it('rejects incomplete, reversed, and future custom ranges', () => {

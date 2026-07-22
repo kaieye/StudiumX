@@ -322,4 +322,39 @@ describe('planning-schedule-conflict-resolve-host (STC-707)', () => {
       })
     ).toBe(true)
   })
+
+  it('shouldClearScheduleBlocksOverride when parent re-hydrate drops override-only orphans', () => {
+    const live = focusBlock({ id: 'live', startAtMs: 1, endAtMs: 2 })
+    const orphan = focusBlock({ id: 'orphan', startAtMs: 3, endAtMs: 4 })
+    // Parent no longer has orphan ids at all → override is pure stale ghost.
+    expect(
+      shouldClearScheduleBlocksOverride({
+        override: [live, orphan],
+        parent: [live]
+      })
+    ).toBe(true)
+  })
+
+  it('buildConflictResolvePreviewModel ignores orphan-task blocks when tasks provided', () => {
+    const live = focusBlock({
+      id: 'live',
+      taskId: 't1',
+      startAtMs: localMs(2026, 7, 20, 9, 0),
+      endAtMs: localMs(2026, 7, 20, 10, 0)
+    })
+    const orphan = focusBlock({
+      id: 'orphan',
+      taskId: 't-gone',
+      startAtMs: localMs(2026, 7, 20, 9, 30),
+      endAtMs: localMs(2026, 7, 20, 10, 30)
+    })
+    const preview = buildConflictResolvePreviewModel({
+      scheduleBlocks: [live, orphan],
+      tasks: [{ id: 't1', title: '阅读' }],
+      hasConflicts: true
+    })
+    expect(preview).not.toBeNull()
+    expect(preview!.kind).toBe('unavailable')
+    expect(preview!.reasonCode).toBe('no_conflicts')
+  })
 })

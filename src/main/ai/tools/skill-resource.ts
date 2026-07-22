@@ -5,6 +5,7 @@ import { skillPackManifestSchema } from '../../../shared/teaching-types'
 import type { InstalledSkillReference, SkillPackManifest } from '../../../shared/teaching-types'
 import { isPathInsideRoot } from '../../path-access'
 import type { ToolEntry } from './registry'
+import { missingToolPathMessage, requireToolPathArg } from './tool-arguments'
 
 const MAX_SKILL_RESOURCE_BYTES = 256 * 1024
 const MAX_SKILL_RESOURCE_CHARS = 24_000
@@ -56,7 +57,7 @@ export function createReadSkillResourceTool(skillReferences: InstalledSkillRefer
             },
             path: {
               type: 'string',
-              description: 'A relative path inside that skill directory, for example "MISSION-FORMAT.md" or "references/scenarios.md".'
+              description: 'A relative path inside that skill directory, for example "MISSION-FORMAT.md" or "references/scenarios.md". Parameter name must be path (file_path is also accepted).'
             },
             offset: {
               type: 'number',
@@ -87,8 +88,9 @@ export function createReadSkillResourceTool(skillReferences: InstalledSkillRefer
         if (root.manifest && !root.manifest.capabilities.includes('read-resources')) {
           throw new Error(`Skill "${skillId}" does not declare the read-resources capability.`)
         }
-        const resourcePath = input.path?.trim()
-        if (!resourcePath) throw new Error('Missing path.')
+        const resourcePath = requireToolPathArg(args, {
+          missingMessage: missingToolPathMessage(args, 'en')
+        })
         if (isAbsolute(resourcePath)) throw new Error('Use a relative skill resource path.')
         const realRoot = await realpath(root.root)
         const absolutePath = resolve(realRoot, resourcePath)

@@ -166,9 +166,11 @@ describe('Teaching token evidence discovery', () => {
       ledgerFallbackConversations: 1,
       invalidLedgerRows: 2,
       staleLedgerSnapshots: 1,
-      missingUsageConversations: 1,
+      // Readable assistant history without usage is an honest gap, not a scan failure.
+      missingUsageConversations: 0,
       duplicateRuns: 1
     })
+    // Still incomplete because ledger rows were invalid, not because usage was missing.
     expect(report.complete).toBe(false)
     expect(report.warnings.map((item) => item.code)).toEqual(expect.arrayContaining([
       'source_scan_incomplete',
@@ -177,6 +179,61 @@ describe('Teaching token evidence discovery', () => {
       'conversation_usage_missing',
       'custom'
     ]))
+  })
+
+  it('treats readable conversations without usage as available when discovery sources are healthy', async () => {
+    const draft = record('draft', [{ id: 'user-1', role: 'user', content: 'hello', createdAt: '2026-07-12T12:00:00.000Z' }])
+    const assistantWithoutUsage = record('no-usage', [{ id: 'a-1', role: 'assistant', content: 'answer', createdAt: '2026-07-12T12:00:00.000Z', metadata: { version: 1 } }])
+    const withUsage = record('with-usage', [{
+      id: 'a-2',
+      role: 'assistant',
+      content: 'answer',
+      createdAt: '2026-07-12T12:00:00.000Z',
+      metadata: { version: 1, runUsage: usage(50, 30, 20) }
+    }])
+    const adapters: TokenEvidenceAdapters = {
+      conversations: {
+        read: async (_workspaceId, conversationId) => {
+          if (conversationId === 'draft') return { state: 'readable', record: draft }
+          if (conversationId === 'no-usage') return { state: 'readable', record: assistantWithoutUsage }
+          return { state: 'readable', record: withUsage }
+        }
+      },
+      ledger: { read: async () => ({ latestByConversation: new Map(), scanned: 0, invalid: 0, readError: false }) }
+    }
+    const report = await discoverTokenEvidence({
+      query,
+      workspaces: [workspace([
+        conversationSummary('draft', draft.messageCount),
+        conversationSummary('no-usage', assistantWithoutUsage.messageCount),
+        conversationSummary('with-usage', withUsage.messageCount)
+      ])],
+      inheritedWarnings: [],
+      adapters
+    })
+
+    expect(report.facts).toHaveLength(1)
+    expect(report.complete).toBe(true)
+    expect(report.counters.missingUsageConversations).toBe(0)
+    expect(report.warnings.map((item) => item.code)).toContain('conversation_usage_missing')
+    expect(report.sources.find((item) => item.source === 'agent_conversations')?.state).toBe('complete')
+  })
+
+  it('marks discovery incomplete only when an unreadable conversation lacks ledger fallback', async () => {
+    const adapters: TokenEvidenceAdapters = {
+      conversations: { read: async () => ({ state: 'unreadable' }) },
+      ledger: { read: async () => ({ latestByConversation: new Map(), scanned: 0, invalid: 0, readError: false }) }
+    }
+    const report = await discoverTokenEvidence({
+      query,
+      workspaces: [workspace([conversationSummary('broken', 1)])],
+      inheritedWarnings: [],
+      adapters
+    })
+
+    expect(report.complete).toBe(false)
+    expect(report.counters.missingUsageConversations).toBe(1)
+    expect(report.sources.find((item) => item.source === 'agent_conversations')?.state).toBe('partial')
   })
 
   it('combines Teaching and temporary conversations without colliding on conversation or turn ids', async () => {

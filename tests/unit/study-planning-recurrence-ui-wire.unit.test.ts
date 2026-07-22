@@ -402,3 +402,17 @@ describe('dualWriteApplyExpandedRecurrenceBlocks', () => {
     expect(applyCalls).toBe(2)
   })
 })
+
+describe('series UI presenter integration (STC-703 series sheet)', () => {
+  it('buildRecurrenceRuleFromForm carries until/count for series sheet save path', () => {
+    const rule = buildRecurrenceRuleFromForm(
+      dailyDraft({ untilMs: MON + 5 * DAY, count: 4, ruleId: 'recurrence:task-read' })
+    )
+    expect(rule.taskId).toBe('task-read')
+    expect(rule.untilMs).toBe(MON + 5 * DAY)
+    expect(rule.count).toBe(4)
+    expect(rule.id).toBe('recurrence:task-read')
+    // no invent of a different task
+    expect(rule.taskId).not.toBeNull()
+  })
+})

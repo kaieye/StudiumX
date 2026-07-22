@@ -546,8 +546,14 @@ async function runTeachingConversationTurnActive(
   })
 
   const generatedLessons = lessonTool.generatedLessons()
+  // Durable history must hash the staged parent-turn userInput (raw composer text),
+  // not the provider-only teaching-context packet composed for this model turn.
   return {
-    turns: attachAgentRunAuditMetadata(toAgentTurns(memoryOutcome.messages), runEvents, result.usage),
+    turns: attachAgentRunAuditMetadata(
+      toAgentTurns(withDurableUserInput(memoryOutcome.messages, userInput)),
+      runEvents,
+      result.usage
+    ),
     finalText: memoryOutcome.finalText,
     iterations: result.iterations,
     toolsSupported: result.toolsSupported,
@@ -595,6 +601,19 @@ function toChatMessage(message: AgentChatMessage): ChatMessage {
   }
   if (message.role === 'user') return { role: 'user', content: message.content ?? '' }
   return { role: 'system', content: message.content ?? '' }
+}
+
+
+function withDurableUserInput(messages: ChatMessage[], userInput: string): ChatMessage[] {
+  const next = messages.slice()
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    const message = next[index]
+    if (message?.role === 'user') {
+      next[index] = { ...message, content: userInput }
+      return next
+    }
+  }
+  return next
 }
 
 function toAgentTurns(messages: ChatMessage[]): AgentChatTurn[] {

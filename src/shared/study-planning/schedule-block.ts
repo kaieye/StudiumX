@@ -34,7 +34,7 @@ export type ScheduleBlockSource = 'manual' | 'allocator' | 'quick_start' | 'migr
 export type ScheduleBlockStatus = 'planned' | 'running' | 'completed' | 'skipped' | 'cancelled'
 
 /**
- * Confirmed plan block (after user accepts AllocationProposal, or migrated V1 schedule).
+ * Confirmed plan block (manual / migrated V1 schedule; allocator product path removed).
  * Task 1:N ScheduleBlock — a task may own many blocks; breaks/wrap-ups have taskId null.
  *
  * Authority is epoch ms (ADR-0117). Optional `timeZone` is projection metadata for wall
@@ -93,18 +93,30 @@ export function normalizeScheduleBlockTimeZoneStamp(
 /**
  * Preserve existing block zone on update (no silent rezone). Stamp host only when
  * the stored block has no zone yet and a valid stamp is provided.
+ *
+ * `confirmOverwriteTimeZone: true` is the sole escape hatch for explicit
+ * user-confirmed rezone write policy (travel settings product CTA removed 2026-07-22). Never set from silent paths.
  */
 export function resolveScheduleBlockTimeZoneOnWrite(input: {
   existingTimeZone?: string | null
   incomingTimeZone?: string | null
   /** Host stamp used only when existing has no zone (create / unstamped update). */
   hostTimeZone?: string | null
+  /**
+   * Explicit user-confirm rezone. When true, a valid incoming/host zone may
+   * replace existing. Default false — preserve existing.
+   */
+  confirmOverwriteTimeZone?: boolean
 }): TimeZoneId | undefined {
   const existing = normalizeScheduleBlockTimeZoneStamp(input.existingTimeZone)
-  if (existing) return existing
   const incoming = normalizeScheduleBlockTimeZoneStamp(input.incomingTimeZone)
+  const host = normalizeScheduleBlockTimeZoneStamp(input.hostTimeZone)
+  if (input.confirmOverwriteTimeZone === true) {
+    return incoming ?? host ?? existing
+  }
+  if (existing) return existing
   if (incoming) return incoming
-  return normalizeScheduleBlockTimeZoneStamp(input.hostTimeZone)
+  return host
 }
 
 export function isValidScheduleBlockInterval(block: Pick<ScheduleBlock, 'startAtMs' | 'endAtMs'>): boolean {

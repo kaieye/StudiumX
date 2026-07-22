@@ -84,10 +84,6 @@ import {
   shouldClearV1ScheduleAfterDelete,
   upsertBlockInLocalCache
 } from '../planning-multi-block-dual-write'
-import {
-  dualWriteApplyAllocationProposal,
-  type AllocationApplyBlock
-} from '../planning-allocation-dual-write'
 import { buildFocusScheduleBlockFromV1 } from '../planning-schedule-block-adapter'
 import type { StudyPlanningApi } from '../planning-client'
 import {
@@ -95,7 +91,10 @@ import {
   dryRunV1Migration,
   formatMigrationConfirmMessage
 } from '../planning-migration'
-import { hydrateStudyTasksFromCanonical, studyTasksEqual } from '../planning-hydrate'
+import {
+  hydrateStudyTasksFromCanonical,
+  studyTasksEqual
+} from '../planning-hydrate'
 import {
   shouldOfferMigrationBanner,
   type MigrationBannerSummary
@@ -305,51 +304,6 @@ function timerSample() {
     ? performance.now()
     : undefined
   return { wallMs: Date.now(), ...(monotonicMs === undefined ? {} : { monotonicMs }) }
-}
-
-/**
- * STC-704 host glue: optional IANA zone for allocation create-stamp only.
- * Fail soft — omit when Intl is unavailable or returns empty (never invent UTC).
- * Does not rezone existing blocks (store append / preserve-on-update).
- */
-export function resolveOptionalHostTimeZoneForAllocationStamp(): string | undefined {
-  try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-    if (typeof tz === 'string') {
-      const trimmed = tz.trim()
-      if (trimmed) return trimmed
-    }
-  } catch {
-    // omit field
-  }
-  return undefined
-}
-
-export type AllocationProposalApplyInput = {
-  blocks: readonly AllocationApplyBlock[]
-  planId?: string | null
-  planRevision?: number
-  idPrefix?: string
-}
-
-/**
- * Build dual-write args for confirmed allocation apply.
- * Stamps host zone only when resolvable; never invents a zone.
- */
-export function buildAllocationProposalDualWriteInput(
-  input: AllocationProposalApplyInput,
-  resolveHostTimeZone: () => string | undefined = resolveOptionalHostTimeZoneForAllocationStamp
-): AllocationProposalApplyInput & { hostTimeZone?: string } {
-  const raw = resolveHostTimeZone()
-  const hostTimeZone =
-    typeof raw === 'string' && raw.trim() ? raw.trim() : undefined
-  return {
-    blocks: input.blocks,
-    ...(input.planId !== undefined ? { planId: input.planId } : {}),
-    ...(typeof input.planRevision === 'number' ? { planRevision: input.planRevision } : {}),
-    ...(input.idPrefix !== undefined ? { idPrefix: input.idPrefix } : {}),
-    ...(hostTimeZone ? { hostTimeZone } : {})
-  }
 }
 
 export function useStudySession({
@@ -2029,6 +1983,7 @@ export function useStudySession({
     return false
   }
 
+
   const toggleContract = (): void => {
     const current = snapshotRef.current
     commitSnapshot(toggleStudyContract(current, defaultStudyContractText(current, viewModel.activeMode.name)))
@@ -3023,26 +2978,6 @@ export function useStudySession({
     return true
   }
 
-  /**
-   * STC-308: confirm AllocationProposal apply (append-only blocks via dual-write).
-   * Host builds preview with pure planning-allocation-proposal-ui; this only writes.
-   */
-  const applyAllocationProposal = async (input: AllocationProposalApplyInput): Promise<boolean> => {
-    if (!Array.isArray(input.blocks) || input.blocks.length === 0) return false
-    // STC-704: stamp host IANA on NEW blocks only via dual-write optional field.
-    const dw = await dualWriteApplyAllocationProposal(
-      resolvePlanningContext(),
-      buildAllocationProposalDualWriteInput(input)
-    )
-    reportPlanningWrite(dw)
-    if (dw.kind === 'canonical_ok' && dw.result.snapshot?.scheduleBlocks) {
-      const next = dw.result.snapshot.scheduleBlocks.slice()
-      setScheduleBlocks(next)
-      scheduleBlocksRef.current = next
-      return true
-    }
-    return false
-  }
 
   /**
    * STC-205 / §10.3: extend countdown target on active break (or focus) session.
@@ -3147,8 +3082,6 @@ export function useStudySession({
     createFocusBlock,
     /** STC-307: delete one ScheduleBlock by id. */
     deleteScheduleBlock,
-    /** STC-308: apply confirmed allocation proposal blocks (append-only). */
-    applyAllocationProposal,
     /** Slice B: dry-run V1 local snapshot → user confirm → import_migration_commit durable. */
     migrateV1ToCanonicalPlanning,
     /** Slice B UX: hydrate-driven migration banner offer (null when none). */

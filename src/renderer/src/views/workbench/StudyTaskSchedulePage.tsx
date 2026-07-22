@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarClock, CalendarDays, Check, ChevronDown, Clock3, PencilLine, Plus, Target, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, ChevronDown, Clock3, PencilLine, Plus, Target, Trash2, X } from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -19,24 +19,14 @@ import type {
   StudyTaskScheduleInput,
   StudyTaskUpdateInput
 } from '../../study-space/types'
-import { createClassicPomodoroPlan, type RecurrenceRule, type ScheduleBlock } from '../../../../shared/study-planning'
+import { type RecurrenceRule, type ScheduleBlock } from '../../../../shared/study-planning'
 import { projectWeekScheduleEntriesFromHost } from '../../study-space/planning-schedule-block-adapter'
 import {
-  resolveLocalDayBounds,
   resolveLocalWeekAnchorMidnightMs
 } from '../../study-space/planning-task-timeline-adapter'
-import {
-  buildAllocationProposalPreview,
-  buildTimeWindowFromSimulation,
-  type AllocationProposalPreviewModel
-} from '../../study-space/planning-allocation-proposal-ui'
-import type { AllocationApplyBlock } from '../../study-space/planning-allocation-dual-write'
-import {
-  AllocationProposalPreviewSheet,
-  type AllocationProposalSheetResult
-} from './AllocationProposalPreviewSheet'
 import { StudyTaskMultiBlockSection } from './StudyTaskMultiBlockSection'
 import { RecurrenceRuleEditor } from './RecurrenceRuleEditor'
+import { RecurrenceSeriesEditSheet } from './RecurrenceSeriesEditSheet'
 import {
   defaultWeekExpandWindow,
   dualWriteApplyExpandedRecurrenceBlocks
@@ -66,6 +56,9 @@ import {
   updateStudyTaskCategory
 } from '../../study-space/taskCategories'
 import { dualWriteSetCategories } from '../../study-space/planning-categories-dual-write'
+import {
+  dualWriteSetPreferences
+} from '../../study-space/planning-preferences-dual-write'
 import type { CanonicalPlanningContext } from '../../study-space/planning-dual-write'
 import {
   MINUTES_PER_DAY,
@@ -152,22 +145,6 @@ type StudyTaskSchedulePageProps = {
    * When omitted, multi-block delete UI is hidden.
    */
   onDeleteScheduleBlock?: (taskId: string, blockId: string) => boolean
-  /**
-   * STC-308: V1 simulation window + active plan seeds for allocation preview.
-   * When onApplyAllocationProposal is omitted, the auto-schedule button is hidden.
-   */
-  simulationStartTime?: string
-  simulationEndTime?: string
-  focusMinutes?: number
-  breakMinutes?: number
-  activeTimerPlanId?: string | null
-  activeTimerPlanName?: string | null
-  onApplyAllocationProposal?: (input: {
-    blocks: readonly AllocationApplyBlock[]
-    planId?: string | null
-    planRevision?: number
-    idPrefix?: string
-  }) => Promise<boolean>
   /**
    * STC-304: optional TimerSession history for actual-focus projection.
    * Missing → actual shows 0 (fail-closed; no invent).
@@ -620,28 +597,20 @@ export function StudyTaskSchedulePage({
   canonicalCategories = null,
   onCreateFocusBlock,
   onDeleteScheduleBlock,
-  simulationStartTime = '09:00',
-  simulationEndTime = '11:00',
-  focusMinutes = 25,
-  breakMinutes = 5,
-  activeTimerPlanId = null,
-  activeTimerPlanName = null,
-  onApplyAllocationProposal,
   timerSessions = null
 }: StudyTaskSchedulePageProps) {
   const titleId = useId()
   const editorTitleId = useId()
-  const [allocationPreviewOpen, setAllocationPreviewOpen] = useState(false)
-  const [allocationPreviewModel, setAllocationPreviewModel] = useState<AllocationProposalPreviewModel | null>(null)
-  const [allocationPreviewBusy, setAllocationPreviewBusy] = useState(false)
   /** STC-707: dismiss fingerprint for current conflict set (null = not dismissed). */
   const [conflictsDismissedKey, setConflictsDismissedKey] = useState<string | null>(null)
   /** STC-707: local scheduleBlocks override after opt-in resolve apply (until parent prop catches up). */
   const [scheduleBlocksOverride, setScheduleBlocksOverride] = useState<ScheduleBlock[] | null>(null)
   const [resolveApplying, setResolveApplying] = useState(false)
   const [resolveApplyError, setResolveApplyError] = useState('')
+
   const [editor, setEditor] = useState<TaskEditorState | null>(null)
   const [editorError, setEditorError] = useState('')
+  const [seriesSheetOpen, setSeriesSheetOpen] = useState(false)
   const [draftTask, setDraftTask] = useState<DraftTaskState | null>(null)
   const [draftError, setDraftError] = useState('')
   const [hover, setHover] = useState<HoverState | null>(null)
@@ -724,7 +693,11 @@ export function StudyTaskSchedulePage({
     dismissedKey: conflictsDismissedKey
   })
 
-  /** Opt-in resolve preview; null when list-only (no conflicts / no CTA wire). */
+  /**
+   * STC-707 product-signal: opt-in resolve is a shipped default capability.
+   * Wire preview whenever conflicts + planningContext; never auto-apply on detect.
+   * Null only when list-only (no conflicts / no context for CAS write).
+   */
   const resolvePreview = useMemo(() => {
     if (
       !shouldWireConflictResolveCta({
@@ -737,13 +710,19 @@ export function StudyTaskSchedulePage({
     }
     return buildConflictResolvePreviewModel({
       scheduleBlocks: effectiveScheduleBlocks,
+      tasks: tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        done: task.done
+      })),
       hasConflicts: true
     })
   }, [
     planningContext,
     conflictsBannerModel.kind,
     conflictsBannerModel.conflictCount,
-    effectiveScheduleBlocks
+    effectiveScheduleBlocks,
+    tasks
   ])
 
   const handleApplyConflictResolve = async (
@@ -774,6 +753,7 @@ export function StudyTaskSchedulePage({
       setResolveApplying(false)
     }
   }
+
 
   const layoutsByDay = useMemo(() => {
     return weekDays.map((_, dayIndex) => layoutDayTasks(scheduledTasks.filter((task) => task.schedule.weekday === dayIndex)))
@@ -955,6 +935,7 @@ export function StudyTaskSchedulePage({
 
   const closeEditor = (): void => {
     setEditor(null)
+    setSeriesSheetOpen(false)
     setCategoryContextMenu(null)
     setEditorError('')
     setCustomCategoryError('')
@@ -1437,6 +1418,7 @@ export function StudyTaskSchedulePage({
                 expandWindow={defaultWeekExpandWindow(weekAnchorMidnightMs)}
                 existingBlocks={effectiveScheduleBlocks}
                 recurrenceRules={recurrenceRules}
+                onOpenSeriesSheet={() => setSeriesSheetOpen(true)}
                 onSaveRules={async (rules) => {
                   if (onSaveRecurrenceRules) {
                     const ok = await Promise.resolve(onSaveRecurrenceRules(rules))
@@ -1580,70 +1562,6 @@ export function StudyTaskSchedulePage({
         </div>
   ) : null
 
-  const openAllocationProposalPreview = (): void => {
-    if (!onApplyAllocationProposal) return
-    const nowMs = Date.now()
-    const { dayStartMs } = resolveLocalDayBounds(nowMs)
-    const window = buildTimeWindowFromSimulation({
-      dayStartMs,
-      simulationStartTime,
-      simulationEndTime,
-      label: `${simulationStartTime}–${simulationEndTime}`
-    })
-    if (!window) {
-      setAllocationPreviewModel(null)
-      setAllocationPreviewOpen(false)
-      return
-    }
-    const planId = (typeof activeTimerPlanId === 'string' && activeTimerPlanId.trim())
-      ? activeTimerPlanId.trim()
-      : 'classic_25_5'
-    const planName = (typeof activeTimerPlanName === 'string' && activeTimerPlanName.trim())
-      ? activeTimerPlanName.trim()
-      : '当前时钟方案'
-    const focus = Number.isFinite(focusMinutes) && focusMinutes > 0 ? Math.floor(focusMinutes) : 25
-    const shortBreak = Number.isFinite(breakMinutes) && breakMinutes > 0 ? Math.floor(breakMinutes) : 5
-    const plan = createClassicPomodoroPlan({
-      id: planId,
-      name: planName,
-      focusMinutes: focus,
-      shortBreakMinutes: shortBreak
-    })
-    const model = buildAllocationProposalPreview({
-      window,
-      plan,
-      tasks,
-      currentBlocks: effectiveScheduleBlocks ?? [],
-      nowMs
-    })
-    setAllocationPreviewModel(model)
-    setAllocationPreviewOpen(true)
-  }
-
-  const handleAllocationProposalResolve = (result: AllocationProposalSheetResult): void => {
-    if (result.choice === 'cancel') {
-      if (allocationPreviewBusy) return
-      setAllocationPreviewOpen(false)
-      setAllocationPreviewModel(null)
-      return
-    }
-    if (!onApplyAllocationProposal || !allocationPreviewModel?.canConfirm) return
-    setAllocationPreviewBusy(true)
-    void onApplyAllocationProposal({
-      blocks: allocationPreviewModel.applyBlocks,
-      planId: allocationPreviewModel.planId,
-      planRevision: allocationPreviewModel.planRevision,
-      idPrefix: `alloc-${Date.now()}`
-    }).then((ok) => {
-      setAllocationPreviewBusy(false)
-      if (ok) {
-        setAllocationPreviewOpen(false)
-        setAllocationPreviewModel(null)
-      }
-    }).catch(() => {
-      setAllocationPreviewBusy(false)
-    })
-  }
 
   if (showAddEditorOnly) return editorDialog
 
@@ -1657,17 +1575,6 @@ export function StudyTaskSchedulePage({
           <h1 id={titleId}><CalendarDays size={17} /> 任务详情</h1>
         </div>
         <div className="study-schedule-stats" aria-label="任务统计">
-          {onApplyAllocationProposal ? (
-            <button
-              type="button"
-              className="study-schedule-stat-add-button study-schedule-allocation-button"
-              onClick={openAllocationProposalPreview}
-              aria-label="排程提案"
-              title="按当前时钟方案生成今日排程提案"
-            >
-              <CalendarClock size={18} />
-            </button>
-          ) : null}
           <button
             type="button"
             className="study-schedule-stat-add-button"
@@ -1685,6 +1592,7 @@ export function StudyTaskSchedulePage({
         </div>
       </header>
 
+      {/* STC-707: conflicts → always show banner; CTA 预览错开→确认应用 when resolvePreview wired (shipped default; no silent auto). */}
       {showConflictsBanner ? (
         <StudyScheduleConflictsBanner
           model={conflictsBannerModel}
@@ -2007,12 +1915,69 @@ export function StudyTaskSchedulePage({
 
       {editorDialog}
 
-      <AllocationProposalPreviewSheet
-        open={allocationPreviewOpen}
-        model={allocationPreviewModel}
-        busy={allocationPreviewBusy}
-        onResolve={handleAllocationProposalResolve}
+      <RecurrenceSeriesEditSheet
+        open={seriesSheetOpen && editor?.mode === 'edit' && Boolean(planningContext)}
+        taskId={editor?.mode === 'edit' ? editor.taskId : ''}
+        taskTitle={editor?.mode === 'edit' ? editor.title : null}
+        schedule={editor?.mode === 'edit' ? editor.schedule : { weekday: 0, startMinutes: 9 * 60, endMinutes: 10 * 60 }}
+        dtStartMs={weekAnchorMidnightMs}
+        weekAnchorMidnightMs={weekAnchorMidnightMs}
+        existingBlocks={effectiveScheduleBlocks}
+        recurrenceRules={recurrenceRules}
+        onClose={() => setSeriesSheetOpen(false)}
+        onSaveRules={
+          planningContext
+            ? async (rules) => {
+                if (onSaveRecurrenceRules) {
+                  const ok = await Promise.resolve(onSaveRecurrenceRules(rules))
+                  if (ok) {
+                    setEditorError('')
+                    return true
+                  }
+                  setEditorError('无法保存规则：缺少工作区或规划 API')
+                  return false
+                }
+                const result = await dualWriteSetPreferences(planningContext, {
+                  recurrenceRules: [...rules]
+                })
+                if (result.kind === 'canonical_ok') {
+                  setEditorError('')
+                  return true
+                }
+                if (result.kind === 'canonical_skipped') {
+                  setEditorError('无法保存规则：缺少工作区或规划 API')
+                  return false
+                }
+                setEditorError(result.result.error.message ?? '规则保存失败')
+                return false
+              }
+            : undefined
+        }
+        onConfirmExpand={
+          planningContext
+            ? async (blocks) => {
+                const result = await dualWriteApplyExpandedRecurrenceBlocks(
+                  planningContext,
+                  blocks
+                )
+                if (result.kind === 'canonical_ok' || result.kind === 'partial') {
+                  if (result.applied > 0) {
+                    setEditorError('')
+                    return true
+                  }
+                }
+                if (result.kind === 'canonical_skipped') {
+                  setEditorError('无法写入：缺少工作区或规划 API')
+                  return false
+                }
+                setEditorError(result.error?.message ?? '展开写入失败')
+                return false
+              }
+            : undefined
+        }
+        onError={setEditorError}
       />
+
     </div>
   )
 }

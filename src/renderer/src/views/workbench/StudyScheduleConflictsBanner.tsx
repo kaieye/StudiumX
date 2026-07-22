@@ -2,8 +2,10 @@
  * Thin STC-707 week-plan conflict list banner.
  * Pure model lives in planning-schedule-conflicts-ui; host owns dismiss state.
  *
- * Opt-in resolve: "预览错开" → confirm → host applies sequential unlocked upserts.
- * Default remains list/banner only; never auto-applies on mount or detect.
+ * Product-signal (shipped default capability): when resolvePreview + onApplyResolve
+ * are provided, always offer two-step "预览错开" → "确认应用".
+ * Apply is disabled/hidden when preview empty or all targets locked.
+ * Never auto-applies on mount or detect (silent auto-stagger forbidden).
  */
 
 import { useState } from 'react'
@@ -23,13 +25,14 @@ export type StudyScheduleConflictsBannerProps = {
    */
   onOpenBlock?: (input: { taskId: string | null; blockId: string }) => void
   /**
-   * Opt-in pure preview (ready/unavailable). When absent, resolve CTA is hidden
-   * (list/banner-only path — default product behavior).
+   * Pure preview (ready/unavailable). Product-signal: host wires this whenever
+   * conflicts + planning context exist (shipped default capability).
+   * When absent, resolve CTA is hidden (list-only / no context path).
    */
   resolvePreview?: ScheduleConflictResolvePreview | null
   /**
    * Explicit user confirm → host applies unlocked moves with expectedRevision CAS.
-   * Never called unless user clicked 确认应用 after preview.
+   * Never called unless user clicked 确认应用 after 预览错开 (no silent apply).
    */
   onApplyResolve?: (moves: readonly ProposedBlockMove[]) => void | Promise<void>
   /** Optional busy flag while sequential upserts run. */
@@ -95,6 +98,14 @@ export function StudyScheduleConflictsBanner({
         </div>
         <h2 className="study-schedule-conflicts-banner__title">{model.copy.title}</h2>
         <p className="study-schedule-conflicts-banner__description">{model.copy.description}</p>
+        {model.copy.resolveRespectNote ? (
+          <p
+            className="study-schedule-conflicts-banner__respect-note"
+            data-testid="schedule-conflicts-respect-note"
+          >
+            {model.copy.resolveRespectNote}
+          </p>
+        ) : null}
         {hasLocked ? (
           <p className="study-schedule-conflicts-banner__locked-hint">{model.copy.lockedHint}</p>
         ) : null}
@@ -188,21 +199,26 @@ export function StudyScheduleConflictsBanner({
                 >
                   {model.copy.cancelResolveLabel || resolvePreview?.cancelLabel || '取消'}
                 </button>
-                <button
-                  type="button"
-                  className="study-schedule-conflicts-banner__resolve-apply"
-                  onClick={handleConfirmApply}
-                  disabled={!previewReady || resolveApplying}
-                  data-testid="schedule-conflicts-apply-resolve"
-                >
-                  {resolveApplying
-                    ? '应用中…'
-                    : model.copy.applyResolveLabel || resolvePreview?.applyLabel || '确认应用'}
-                </button>
+                {previewReady ? (
+                  <button
+                    type="button"
+                    className="study-schedule-conflicts-banner__resolve-apply"
+                    onClick={handleConfirmApply}
+                    disabled={resolveApplying}
+                    data-testid="schedule-conflicts-apply-resolve"
+                  >
+                    {resolveApplying
+                      ? '应用中…'
+                      : model.copy.applyResolveLabel || resolvePreview?.applyLabel || '确认应用'}
+                  </button>
+                ) : null}
               </div>
               {!previewReady ? (
-                <p className="study-schedule-conflicts-banner__resolve-unavailable">
-                  {model.copy.resolveUnavailableHint}
+                <p
+                  className="study-schedule-conflicts-banner__resolve-unavailable"
+                  data-testid="schedule-conflicts-resolve-unavailable"
+                >
+                  {resolvePreview?.reasonMessage || model.copy.resolveUnavailableHint}
                 </p>
               ) : null}
             </div>

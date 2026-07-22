@@ -257,8 +257,9 @@ export async function discoverTokenEvidence(input: {
         counters.governance.push(...conversationScan.governance)
         counters.invalidTimestampTurns += conversationScan.invalidTimestampTurns
         if (conversationScan.missingUsageTurns > 0) {
+          // Honest gaps (some assistant turns lack usage) stay as warnings only.
+          // They must not mark the whole tokens section as incomplete.
           counters.conversationsPartiallyMissingUsage += 1
-          workspacePartialUsage = true
           warnings.push(warning('conversation_usage_partially_missing', 'Some assistant turns have no usable run usage; ledger data was not added.', 'agent_conversations', { workspaceId: workspace.workspaceId, conversationId: summary.id, missingTurns: conversationScan.missingUsageTurns }))
         }
         continue
@@ -274,10 +275,16 @@ export async function discoverTokenEvidence(input: {
         if (snapshot.totalInconsistent) counters.totalInconsistent += 1
         if (isStaleLedgerSnapshot(snapshot, summary)) counters.staleLedgerSnapshots += 1
         warnings.push(warning('ledger_fallback_used', 'Learning-work ledger usage was used because the conversation had no usable usage facts.', 'learning_work_ledger', { workspaceId: workspace.workspaceId, conversationId: summary.id }))
-      } else {
+      } else if (conversationRead.state === 'unreadable') {
+        // Unreadable records without a ledger fallback are true source failures.
         counters.missingUsageConversations += 1
+        workspacePartialUsage = true
+        warnings.push(warning('conversation_usage_missing', 'A conversation could not be read and has no usable ledger fallback for token usage.', 'agent_conversations', { workspaceId: workspace.workspaceId, conversationId: summary.id }))
+      } else if ((conversationScan?.assistantTurns ?? 0) > 0) {
+        // Readable assistant history without usage is an honest gap, not a scan failure.
         warnings.push(warning('conversation_usage_missing', 'A conversation has no usable token usage in either the conversation record or its latest ledger snapshot.', 'agent_conversations', { workspaceId: workspace.workspaceId, conversationId: summary.id }))
       }
+      // Readable conversations with no assistant turns (drafts / user-only) are ignored.
     }
     const conversationMissing = workspace.summary.conversations.length - workspaceConversationsScanned
     sources.push({ source: 'agent_conversations', state: conversationMissing > 0 || workspacePartialUsage ? 'partial' : 'complete', scanned: workspace.summary.conversations.length, included: workspaceConversationFacts, missing: Math.max(0, conversationMissing), rejected: 0 })
@@ -330,10 +337,10 @@ export async function discoverTokenEvidence(input: {
         `temporary:${summary.absolutePath}`
       )
       if (!scan.facts.length) {
-        partial = true
-        missing += 1
-        counters.missingUsageConversations += 1
-        warnings.push(warning('conversation_usage_missing', 'A temporary conversation has no usable token usage.', 'agent_conversations', { workspaceId, conversationId: summary.id }))
+        if (scan.assistantTurns > 0) {
+          // Honest empty usage on temporary chats stays visible as a warning only.
+          warnings.push(warning('conversation_usage_missing', 'A temporary conversation has no usable token usage.', 'agent_conversations', { workspaceId, conversationId: summary.id }))
+        }
         continue
       }
 
@@ -347,7 +354,6 @@ export async function discoverTokenEvidence(input: {
       counters.governance.push(...scan.governance)
       counters.invalidTimestampTurns += scan.invalidTimestampTurns
       if (scan.missingUsageTurns > 0) {
-        partial = true
         counters.conversationsPartiallyMissingUsage += 1
         warnings.push(warning('conversation_usage_partially_missing', 'Some assistant turns in a temporary conversation have no usable run usage.', 'agent_conversations', { workspaceId, conversationId: summary.id, missingTurns: scan.missingUsageTurns }))
       }
@@ -376,8 +382,10 @@ export async function discoverTokenEvidence(input: {
     sources,
     warnings,
     counters,
-    // Staleness is reported for governance but does not change historical inclusion.
-    complete: counters.workspaceErrors === 0 && counters.ledgerReadErrors === 0 && counters.invalidLedgerRows === 0 && counters.missingUsageConversations === 0 && counters.conversationsPartiallyMissingUsage === 0 && counters.invalidTimestampTurns === 0
+    // Completeness tracks true source failures only. Honest gaps (assistant turns
+    // without usage, provider totals without prompt/completion split) stay as
+    // warnings so the tokens section can still render available data.
+    complete: counters.workspaceErrors === 0 && counters.ledgerReadErrors === 0 && counters.invalidLedgerRows === 0 && counters.missingUsageConversations === 0 && counters.invalidTimestampTurns === 0
   }
 }
 

@@ -54,7 +54,12 @@ export type ScheduleConflictsBannerCopy = {
   dismissLabel: string
   moreLabel: string
   lockedHint: string
-  /** Opt-in CTA labels (STC-707); never auto-applied. */
+  /**
+   * Product-signal (STC-707): states that opt-in stagger respects locked blocks
+   * and hard ends; never silent auto.
+   */
+  resolveRespectNote: string
+  /** Opt-in CTA labels (STC-707); never auto-applied — 预览错开 then 确认应用. */
   previewResolveLabel: string
   applyResolveLabel: string
   cancelResolveLabel: string
@@ -115,22 +120,57 @@ export function formatScheduleBlockTimeLabel(
 /**
  * Active focus blocks that participate in week-plan conflict detection.
  * Cancelled rows are excluded; other statuses still conflict when overlapping.
+ *
+ * When `activeTaskIds` is provided, only blocks owned by those tasks are scanned.
+ * This matches week-chip / task-table projection (orphan / soft-deleted-task blocks
+ * never appear in the board, so they must not inflate the conflict banner either).
  */
 export function selectFocusBlocksForConflictScan(
-  blocks: readonly ScheduleBlock[] | null | undefined
+  blocks: readonly ScheduleBlock[] | null | undefined,
+  options?: {
+    /**
+     * UI-visible task ids (non-cancelled PlanningTasks projected to V1).
+     * When set, blocks with missing/foreign taskId are excluded (no chip path).
+     */
+    activeTaskIds?: ReadonlySet<string> | readonly string[] | null
+  }
 ): ScheduleBlock[] {
   if (!blocks || blocks.length === 0) return []
-  return blocks.filter(
-    (b) =>
-      b
-      && typeof b.id === 'string'
-      && b.id.trim().length > 0
-      && b.kind === 'focus'
-      && b.status !== 'cancelled'
-      && Number.isFinite(b.startAtMs)
-      && Number.isFinite(b.endAtMs)
-      && b.endAtMs > b.startAtMs
-  )
+  const active =
+    options?.activeTaskIds == null
+      ? null
+      : options.activeTaskIds instanceof Set
+        ? options.activeTaskIds
+        : new Set(
+            [...options.activeTaskIds]
+              .map((id) => (typeof id === 'string' ? id.trim() : ''))
+              .filter((id) => id.length > 0)
+          )
+  return blocks.filter((b) => {
+    if (!b) return false
+    if (typeof b.id !== 'string' || b.id.trim().length === 0) return false
+    if (b.kind !== 'focus') return false
+    if (b.status === 'cancelled') return false
+    if (!Number.isFinite(b.startAtMs) || !Number.isFinite(b.endAtMs)) return false
+    if (b.endAtMs <= b.startAtMs) return false
+    if (active) {
+      const taskId = typeof b.taskId === 'string' ? b.taskId.trim() : ''
+      if (!taskId || !active.has(taskId)) return false
+    }
+    return true
+  })
+}
+
+function buildActiveTaskIdSet(
+  tasks: readonly ScheduleConflictTaskInput[] | null | undefined
+): Set<string> | null {
+  if (tasks == null) return null
+  const ids = new Set<string>()
+  for (const t of tasks) {
+    const id = normalizeId(t?.id)
+    if (id) ids.add(id)
+  }
+  return ids
 }
 
 function resolveTaskTitle(
@@ -184,7 +224,12 @@ export function projectScheduleConflictsBanner(input: {
   /** Override list cap (tests / dense UI). Default SCHEDULE_CONFLICTS_LIST_CAP. */
   listCap?: number
 }): ScheduleConflictsBannerModel {
-  const focusBlocks = selectFocusBlocksForConflictScan(input.scheduleBlocks)
+  // When host passes the task catalog (product path), only scan blocks that can
+  // project onto the week board / task detail tables — exclude soft-deleted orphans.
+  const activeTaskIds = buildActiveTaskIdSet(input.tasks)
+  const focusBlocks = selectFocusBlocksForConflictScan(input.scheduleBlocks, {
+    activeTaskIds
+  })
   const rawPairs = findScheduleConflicts(focusBlocks)
   const blockById = new Map(focusBlocks.map((b) => [b.id, b]))
   const taskById = new Map<string, ScheduleConflictTaskInput>()
@@ -248,10 +293,13 @@ export function projectScheduleConflictsBanner(input: {
         dismissLabel: '知道了',
         moreLabel: '',
         lockedHint: '锁定块也会计入冲突；请解锁后再移动。',
+        resolveRespectNote:
+          '可选「预览错开」→「确认应用」错开未锁定块；锁定块与硬结束边界会被尊重，不会静默自动调整。',
         previewResolveLabel: '预览错开',
         applyResolveLabel: '确认应用',
         cancelResolveLabel: '取消',
-        resolveUnavailableHint: '当前无法自动错开（例如双方均锁定）。'
+        resolveUnavailableHint:
+          '当前无法错开写回（例如双方均锁定、无可用间隙，或会超出硬结束）。'
       }
     }
   }
@@ -276,11 +324,14 @@ export function projectScheduleConflictsBanner(input: {
       emptyHint: '',
       dismissLabel: '暂时隐藏',
       moreLabel,
-      lockedHint: '含锁定标记的块需先解锁才能移动。',
+      lockedHint: '含锁定标记的块需先解锁才能移动；错开写回不会移动锁定块。',
+      resolveRespectNote:
+        '可选「预览错开」→「确认应用」错开未锁定块；锁定块与硬结束边界会被尊重，不会静默自动调整。',
       previewResolveLabel: '预览错开',
       applyResolveLabel: '确认应用',
       cancelResolveLabel: '取消',
-      resolveUnavailableHint: '当前无法自动错开（例如双方均锁定）。'
+      resolveUnavailableHint:
+        '当前无法错开写回（例如双方均锁定、无可用间隙，或会超出硬结束）。'
     }
   }
 }
@@ -313,14 +364,22 @@ function formatMsClock(ms: number): string {
 /**
  * Build opt-in resolve preview for the week conflict banner.
  * Pure: never writes. Host must require explicit confirm before upserts.
- * Default product path remains list-only when unavailable / no CTA used.
+ * Product-signal: preview is the first step of the shipped two-step CTA
+ * (预览错开 → 确认应用); silent auto-stagger remains forbidden.
  */
 export function projectScheduleConflictResolvePreview(input: {
   scheduleBlocks?: readonly ScheduleBlock[] | null
+  /**
+   * Optional UI task catalog. When provided, resolve only considers blocks owned
+   * by those tasks (same filter as the conflict banner / week board).
+   */
+  tasks?: readonly ScheduleConflictTaskInput[] | null
   /** Optional hard window; omit for unrestricted stagger within pure rules. */
   window?: { startAtMs: number; endAtMs: number; hardEnd: boolean }
 }): ScheduleConflictResolvePreview {
-  const focusBlocks = selectFocusBlocksForConflictScan(input.scheduleBlocks)
+  const focusBlocks = selectFocusBlocksForConflictScan(input.scheduleBlocks, {
+    activeTaskIds: buildActiveTaskIdSet(input.tasks)
+  })
   const proposal = proposeScheduleConflictResolve({
     blocks: focusBlocks,
     window: input.window
@@ -344,7 +403,7 @@ export function projectScheduleConflictResolvePreview(input: {
       reasonCode: proposal.code,
       reasonMessage: messageByCode[proposal.code] ?? proposal.message,
       previewLabel: '预览错开',
-      applyLabel: '应用错开',
+      applyLabel: '确认应用',
       cancelLabel: '取消'
     }
   }
@@ -367,8 +426,8 @@ export function projectScheduleConflictResolvePreview(input: {
     reasonCode: null,
     reasonMessage:
       proposal.remainingConflicts.length > 0
-        ? `可错开 ${proposal.moves.length} 个未锁定块；仍可能残留 ${proposal.remainingConflicts.length} 组重叠。`
-        : `可错开 ${proposal.moves.length} 个未锁定块以清除重叠。`,
+        ? `将错开 ${proposal.moves.length} 个未锁定块（锁定块与硬结束不受影响）；仍可能残留 ${proposal.remainingConflicts.length} 组重叠。`
+        : `将错开 ${proposal.moves.length} 个未锁定块以清除重叠；锁定块与硬结束边界会被尊重。`,
     previewLabel: '预览错开',
     applyLabel: '确认应用',
     cancelLabel: '取消'

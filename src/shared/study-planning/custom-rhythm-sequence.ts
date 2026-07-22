@@ -178,7 +178,7 @@ export function normalizeCustomRhythmSequence(input: unknown): CustomRhythmValid
       hard.push(
         issue(
           'step_minutes_out_of_range',
-          `step[${i}] ${kind} minutes must be ${range.min}–${range.max}`,
+          `step[${i}] ${kind} minutes must be ${range.min}-${range.max}`,
           { index: i, field: 'minutes' }
         )
       )
@@ -220,7 +220,7 @@ export function normalizeCustomRhythmSequence(input: unknown): CustomRhythmValid
     hard.push(
       issue(
         'sequence_total_too_short',
-        `sequence total minutes must be ≥ ${CUSTOM_RHYTHM_SEED_LIMITS.totalMinutesMin}`,
+        `sequence total minutes must be >= ${CUSTOM_RHYTHM_SEED_LIMITS.totalMinutesMin}`,
         { field: 'rhythmSequence' }
       )
     )
@@ -229,7 +229,7 @@ export function normalizeCustomRhythmSequence(input: unknown): CustomRhythmValid
     hard.push(
       issue(
         'sequence_total_too_long',
-        `sequence total minutes must be ≤ ${CUSTOM_RHYTHM_SEED_LIMITS.totalMinutesMax}`,
+        `sequence total minutes must be <= ${CUSTOM_RHYTHM_SEED_LIMITS.totalMinutesMax}`,
         { field: 'rhythmSequence' }
       )
     )
@@ -447,4 +447,257 @@ export function customRhythmMinutesForPhase(
   }
   const first = sequence.find((s) => s.kind === phase)
   return first?.minutes
+}
+
+// ---------------------------------------------------------------------------
+// STC-702 product-signal polish (ordered list only; no freeform drag)
+// ---------------------------------------------------------------------------
+
+/** Short product labels distinguishing step kinds (a11y + editor copy). */
+export const CUSTOM_RHYTHM_STEP_KIND_LABELS: Readonly<
+  Record<CustomRhythmStepKind, { label: string; shortLabel: string; description: string }>
+> = {
+  focus: {
+    label: '专注',
+    shortLabel: '专注',
+    description: '专注学习时段'
+  },
+  short_break: {
+    label: '短休息',
+    shortLabel: '短休',
+    description: '短休息时段'
+  },
+  long_break: {
+    label: '长休息',
+    shortLabel: '长休',
+    description: '长休息时段'
+  },
+  wrap_up: {
+    label: '收尾',
+    shortLabel: '收尾',
+    description: '收尾整理时段（通常为序列末步）'
+  }
+} as const
+
+export const CUSTOM_RHYTHM_STEP_KIND_OPTIONS: readonly {
+  value: CustomRhythmStepKind
+  label: string
+  shortLabel: string
+}[] = (
+  ['focus', 'short_break', 'long_break', 'wrap_up'] as const
+).map((value) => ({
+  value,
+  label: CUSTOM_RHYTHM_STEP_KIND_LABELS[value].label,
+  shortLabel: CUSTOM_RHYTHM_STEP_KIND_LABELS[value].shortLabel
+}))
+
+/** User-facing Chinese copy for editor issues (codes stay stable for tests). */
+export function formatCustomRhythmIssueMessage(
+  issue: CustomRhythmValidationIssue
+): string {
+  const step = issue.index !== undefined ? `第 ${issue.index + 1} 步` : '序列'
+  switch (issue.code) {
+    case 'sequence_not_array':
+      return '节奏序列无效：需要步骤列表'
+    case 'sequence_empty':
+      return '节奏序列不能为空，请至少添加一步（含一次专注）'
+    case 'sequence_too_long':
+      return `节奏最多 ${CUSTOM_RHYTHM_SEED_LIMITS.stepsMax} 步，不会静默截断`
+    case 'sequence_requires_focus':
+      return '节奏至少需要一个「专注」步骤'
+    case 'sequence_total_too_short':
+      return `合计时长至少 ${CUSTOM_RHYTHM_SEED_LIMITS.totalMinutesMin} 分钟`
+    case 'sequence_total_too_long':
+      return `合计时长不能超过 ${CUSTOM_RHYTHM_SEED_LIMITS.totalMinutesMax} 分钟`
+    case 'step_not_object':
+      return `${step} 数据无效`
+    case 'step_kind_invalid':
+      return `${step} 类型无效（须为 专注 / 短休息 / 长休息 / 收尾）`
+    case 'step_minutes_required':
+      return `${step} 分钟数无效`
+    case 'step_minutes_out_of_range':
+      return `${step} 分钟超出允许范围（禁止静默改写为默认番茄）`
+    case 'wrap_up_not_terminal':
+      return '「收尾」通常放在最后一步；当前允许但非常规'
+    default:
+      return issue.message
+  }
+}
+
+/**
+ * Editor-facing issue list: hard errors first, then warnings.
+ * Empty / unknown kind / non-positive minutes fail-closed (no silent invent).
+ */
+export function listCustomRhythmEditorIssues(
+  sequence: unknown
+): {
+  ok: boolean
+  hard: Array<CustomRhythmValidationIssue & { displayMessage: string }>
+  warnings: Array<CustomRhythmValidationIssue & { displayMessage: string }>
+} {
+  const result = normalizeCustomRhythmSequence(sequence)
+  if (!result.ok) {
+    return {
+      ok: false,
+      hard: result.issues.map((i) => ({
+        ...i,
+        displayMessage: formatCustomRhythmIssueMessage(i)
+      })),
+      warnings: []
+    }
+  }
+  return {
+    ok: true,
+    hard: [],
+    warnings: result.warnings.map((i) => ({
+      ...i,
+      displayMessage: formatCustomRhythmIssueMessage(i)
+    }))
+  }
+}
+
+/**
+ * Advance rhythm step index after a phase completes.
+ * - Walks forward to the next step whose kind matches `nextPhase` (wrap).
+ * - When completed step is wrap_up and wrap_up is last in sequence, marks
+ *   `wrapUpTerminal: true` (cycle may still wrap for multi-cycle playback).
+ * Fail-closed on empty sequence.
+ */
+export function advanceCustomRhythmOnPhaseComplete(input: {
+  sequence: readonly CustomRhythmStep[]
+  completedStepIndex: number
+  nextPhase: CustomRhythmStepKind
+}):
+  | {
+      ok: true
+      nextStepIndex: number
+      nextStep: CustomRhythmStep
+      wrapUpTerminal: boolean
+      wrapped: boolean
+    }
+  | { ok: false; code: string } {
+  const seq = input.sequence
+  if (!seq.length) return { ok: false, code: 'sequence_empty' }
+  const completedIdx = Number.isFinite(input.completedStepIndex)
+    ? Math.trunc(input.completedStepIndex)
+    : 0
+  const completedMod = ((completedIdx % seq.length) + seq.length) % seq.length
+  const completed = seq[completedMod]
+  const wrapUpTerminal =
+    completed.kind === 'wrap_up' && completedMod === seq.length - 1
+
+  let nextStepIndex: number | undefined
+  let wrapped = false
+  for (let j = 1; j <= seq.length; j += 1) {
+    const absolute = completedMod + j
+    const idx = absolute % seq.length
+    if (absolute >= seq.length) wrapped = true
+    if (seq[idx].kind === input.nextPhase) {
+      nextStepIndex = idx
+      break
+    }
+  }
+  if (nextStepIndex === undefined) {
+    const fallback = seq.findIndex((s) => s.kind === input.nextPhase)
+    if (fallback < 0) return { ok: false, code: 'phase_not_in_sequence' }
+    nextStepIndex = fallback
+    wrapped = true
+  }
+  return {
+    ok: true,
+    nextStepIndex,
+    nextStep: seq[nextStepIndex],
+    wrapUpTerminal,
+    wrapped
+  }
+}
+
+/**
+ * Pure coexistence check: builtin classic_25_5 / deep_50_10 semantics
+ * must not be rewritten when a custom_rhythm plan exists in the catalog.
+ * (Catalog entries are identity-keyed; this asserts seed shapes.)
+ */
+export function assertBuiltinPomodoroSemanticsIntact(plans: readonly {
+  id: string
+  kind?: string
+  focusMinutes?: number
+  shortBreakMinutes?: number
+  rhythmSequence?: unknown
+}[]): { ok: true } | { ok: false; code: string; planId: string } {
+  const classic = plans.find((p) => p.id === 'classic_25_5')
+  if (classic) {
+    if (classic.kind && classic.kind !== 'pomodoro') {
+      return { ok: false, code: 'classic_kind_rewritten', planId: 'classic_25_5' }
+    }
+    if (classic.focusMinutes !== undefined && classic.focusMinutes !== 25) {
+      return { ok: false, code: 'classic_focus_rewritten', planId: 'classic_25_5' }
+    }
+    if (classic.shortBreakMinutes !== undefined && classic.shortBreakMinutes !== 5) {
+      return { ok: false, code: 'classic_break_rewritten', planId: 'classic_25_5' }
+    }
+    if (Array.isArray(classic.rhythmSequence)) {
+      return { ok: false, code: 'classic_has_rhythm_sequence', planId: 'classic_25_5' }
+    }
+  }
+  const deep = plans.find((p) => p.id === 'deep_50_10')
+  if (deep) {
+    if (deep.kind && deep.kind !== 'pomodoro') {
+      return { ok: false, code: 'deep_kind_rewritten', planId: 'deep_50_10' }
+    }
+    if (deep.focusMinutes !== undefined && deep.focusMinutes !== 50) {
+      return { ok: false, code: 'deep_focus_rewritten', planId: 'deep_50_10' }
+    }
+    if (deep.shortBreakMinutes !== undefined && deep.shortBreakMinutes !== 10) {
+      return { ok: false, code: 'deep_break_rewritten', planId: 'deep_50_10' }
+    }
+    if (Array.isArray(deep.rhythmSequence)) {
+      return { ok: false, code: 'deep_has_rhythm_sequence', planId: 'deep_50_10' }
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * Active-session freeze: returns true when the live planSnapshot sequence
+ * is independent of a catalog/editor draft (catalog may differ or match;
+ * freeze is violated only if caller mutates the snapshot reference in place —
+ * pure helper documents expected non-mutation contract for product-path tests).
+ *
+ * Product rule: editing sequence while timer running only affects next plan /
+ * new session; active planSnapshot + rhythmStepIndex path stays stable.
+ */
+export function isActivePlanSnapshotFrozenAgainstCatalogEdit(input: {
+  activePlanSnapshot:
+    | { kind?: string; rhythmSequence?: readonly CustomRhythmStep[] | null }
+    | null
+    | undefined
+  /** Original frozen sequence captured at session start. */
+  frozenSequence: readonly CustomRhythmStep[] | null | undefined
+  catalogSequence?: readonly CustomRhythmStep[] | null | undefined
+}): boolean {
+  const snap = input.activePlanSnapshot
+  if (!snap) return true
+  const live = snap.rhythmSequence
+  const frozen = input.frozenSequence
+  if (!Array.isArray(live) || !Array.isArray(frozen)) {
+    // No sequence to protect — freeze vacuously holds.
+    return true
+  }
+  if (live.length !== frozen.length) return false
+  for (let i = 0; i < live.length; i += 1) {
+    if (live[i].kind !== frozen[i].kind || live[i].minutes !== frozen[i].minutes) {
+      return false
+    }
+  }
+  // Catalog may differ freely; snapshot must still match frozen original.
+  void input.catalogSequence
+  return true
+}
+
+/**
+ * Whether a draft sequence is saveable (fail-closed product gate).
+ * Empty / unknown kind / non-positive minutes -> false (no silent tomato invent).
+ */
+export function isSaveableCustomRhythmSequence(sequence: unknown): boolean {
+  return normalizeCustomRhythmSequence(sequence).ok
 }

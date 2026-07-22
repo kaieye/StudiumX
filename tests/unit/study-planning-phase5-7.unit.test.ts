@@ -2,27 +2,24 @@ import { describe, expect, it } from 'vitest'
 import {
   BUILTIN_TIME_WINDOW_TEMPLATES,
   StudyPlanningStore,
-  allocateMultiWindowDay,
   batchClassifyTasks,
-  compareAllocationUtilization,
   copyTimerPlanAsCustom,
   createClassicPomodoroPlan,
   detectPlanDeviations,
   findScheduleConflicts,
   listBuiltinTimerPlans,
   materializeTimeWindowTemplate,
-  msFromLocalMinutes,
   projectActiveVsNextTimerPlan,
   projectLocalReviewStats,
   resolveNotificationChannels,
   startTimerSession,
   suggestEstimateMinutesFromHistory,
   timerStatusAriaLabel,
-  validateContinuousCountdownMinutes,
-  ALLOCATOR_TEST_DAY_UTC
+  validateContinuousCountdownMinutes
 } from '../../src/shared/study-planning'
 
-const day = ALLOCATOR_TEST_DAY_UTC
+/** Local-midnight epoch used only for TimeWindow template materialization. */
+const day = new Date(2026, 6, 21, 0, 0, 0, 0).getTime()
 
 describe('Phase 5 timer plan catalog (STC-501..508 pure)', () => {
   it('lists builtins and copies as custom', () => {
@@ -245,41 +242,7 @@ describe('Phase 6 notification + review (STC-601..607 pure)', () => {
   })
 })
 
-describe('Phase 7 advanced pure (STC-701/705/706/707)', () => {
-  it('compares utilization across plans', () => {
-    const window = {
-      startAtMs: msFromLocalMinutes(day, 9 * 60),
-      endAtMs: msFromLocalMinutes(day, 12 * 60),
-      hardEnd: true
-    }
-    const rows = compareAllocationUtilization({
-      window,
-      plans: [createClassicPomodoroPlan(), createClassicPomodoroPlan({ id: 'd', focusMinutes: 50, shortBreakMinutes: 10 })]
-    })
-    expect(rows).toHaveLength(2)
-    expect(rows[0].utilizationRatio).toBeGreaterThan(0)
-  })
-
-  it('multi-window day returns one proposal per window', () => {
-    const plan = createClassicPomodoroPlan()
-    const proposals = allocateMultiWindowDay({
-      plan,
-      windows: [
-        {
-          startAtMs: msFromLocalMinutes(day, 9 * 60),
-          endAtMs: msFromLocalMinutes(day, 11 * 60),
-          hardEnd: true
-        },
-        {
-          startAtMs: msFromLocalMinutes(day, 14 * 60),
-          endAtMs: msFromLocalMinutes(day, 16 * 60),
-          hardEnd: true
-        }
-      ]
-    })
-    expect(proposals).toHaveLength(2)
-  })
-
+describe('Phase 7 advanced pure (STC-705/706/707 residual; allocation product removed)', () => {
   it('suggests estimate without writing tasks', () => {
     const s = suggestEstimateMinutesFromHistory({
       focusSecondsSamples: [20 * 60, 30 * 60, 40 * 60]

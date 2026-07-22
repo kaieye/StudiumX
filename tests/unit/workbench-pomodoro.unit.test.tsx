@@ -31,15 +31,15 @@ function renderPomodoro() {
 }
 
 describe('WorkbenchPomodoro timer-plan settings', () => {
-  it('replaces environment audio with settings, opens the left-side plan editor, and saves a named plan', async () => {
+  it('replaces environment audio with settings, opens the centered plan editor, and saves a named plan', async () => {
     const user = userEvent.setup()
     const callbacks = renderPomodoro()
 
     await user.click(screen.getByRole('button', { name: /专注计时/ }))
     await user.click(screen.getByRole('button', { name: '计时设置' }))
 
-    const editor = screen.getByRole('complementary', { name: '专注计时方案设置' })
-    expect(editor).toHaveClass('workbench-pomodoro-settings-card')
+    const editor = screen.getByRole('dialog', { name: '专注计时' })
+    expect(editor).toHaveClass('workbench-pomodoro-settings-panel')
     expect(screen.queryByLabelText(/环境音|白噪音/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '重置番茄钟' })).toBeInTheDocument()
 
@@ -84,7 +84,7 @@ describe('WorkbenchPomodoro timer-plan settings', () => {
     await user.click(screen.getByRole('button', { name: /专注计时/ }))
     await user.click(screen.getByRole('button', { name: '计时设置' }))
 
-    const editor = screen.getByRole('complementary', { name: '专注计时方案设置' })
+    const editor = screen.getByRole('dialog', { name: '专注计时' })
     await user.type(within(editor).getByLabelText('方案名称'), '长休息方案')
     await user.clear(within(editor).getByLabelText('长休息时间'))
     await user.type(within(editor).getByLabelText('长休息时间'), '20')
@@ -111,7 +111,7 @@ describe('WorkbenchPomodoro timer-plan settings', () => {
     await user.click(screen.getByRole('button', { name: /专注计时/ }))
     await user.click(screen.getByRole('button', { name: '计时设置' }))
 
-    const editor = screen.getByRole('complementary', { name: '专注计时方案设置' })
+    const editor = screen.getByRole('dialog', { name: '专注计时' })
     await user.type(within(editor).getByLabelText('方案名称'), '连续深潜')
     await user.selectOptions(within(editor).getByLabelText('方案类型'), 'continuous')
     await user.selectOptions(within(editor).getByLabelText('连续专注休息策略'), 'none')

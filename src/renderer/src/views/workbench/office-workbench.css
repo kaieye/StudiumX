@@ -6684,13 +6684,15 @@
 /* Add-task editor is displayed above the study room instead of navigating to
    the task-details route. Keep this transient dialog compact and remove the
    extra bottom shadow that read as a scrollbar shadow. */
-.office-workbench-task-add-overlay {
+.office-workbench-task-add-overlay,
+.office-workbench-timer-settings-overlay {
   position: absolute;
   inset: 0;
   z-index: 30;
 }
 
-.office-workbench-task-add-overlay .study-schedule-editor-backdrop {
+.office-workbench-task-add-overlay .study-schedule-editor-backdrop,
+.office-workbench-timer-settings-overlay .study-schedule-editor-backdrop {
   position: absolute;
   padding: 16px;
 }
@@ -7135,45 +7137,139 @@
 }
 
 /* Timer-plan settings ---------------------------------------------------------
-   The editor is deliberately a sibling glass card so it feels like a second
-   floating surface beside (rather than inside) the compact timer module. */
-.office-workbench-stage .workbench-pomodoro-card.has-settings-open {
-  overflow: visible;
-  z-index: 8;
-}
-
-.workbench-pomodoro-settings-card {
-  position: absolute;
-  right: calc(100% + 14px);
-  top: 0;
-  z-index: 10;
+   Landscape settings shell: left nav (like app settings) + right content.
+   Wider than tall so the plan editor can breathe beside the catalog. */
+.workbench-pomodoro-settings-panel {
+  position: relative;
   box-sizing: border-box;
-  width: min(294px, calc(100vw - 34px));
-  max-height: min(610px, calc(100vh - 32px));
-  overflow: auto;
-  padding: 17px;
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  width: min(920px, calc(100vw - 48px));
+  height: min(560px, calc(100vh - 48px));
+  max-height: min(560px, calc(100vh - 48px));
+  overflow: hidden;
+  gap: 0;
+  margin: 0;
+  padding: 0;
   color: var(--text, #17202b);
-  border: 1px solid color-mix(in srgb, #ffffff 68%, transparent);
+  border: 1px solid color-mix(in srgb, #ffffff 72%, var(--line, #d6deeb) 28%);
   border-radius: 24px;
   background:
-    linear-gradient(145deg, color-mix(in srgb, var(--surface-solid, #fff) 78%, transparent), color-mix(in srgb, var(--surface-solid, #fff) 34%, transparent)),
-    color-mix(in srgb, var(--surface-muted, #eaf2ff) 42%, transparent);
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 48%, transparent), transparent 40%),
+    color-mix(in srgb, var(--surface-solid, #fff) 92%, transparent);
   box-shadow:
-    0 24px 64px color-mix(in srgb, #142a4a 20%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 82%, transparent);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+    0 28px 80px color-mix(in srgb, #142a4a 22%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent);
+  backdrop-filter: blur(36px) saturate(180%);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
 }
 
-.workbench-pomodoro-settings-heading {
+.workbench-pomodoro-settings-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: var(--text-muted, #667085);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 86%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 88%, transparent);
+}
+
+.workbench-pomodoro-settings-close:hover {
+  color: var(--text, #17202b);
+}
+
+.workbench-pomodoro-settings-nav {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 0;
+  height: 100%;
+  padding: 22px 12px;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-muted, #eaf2ff) 42%, transparent);
+  overflow: auto;
+}
+
+.workbench-pomodoro-settings-nav-heading {
+  padding: 0 12px 16px;
+  color: var(--text-muted, #667085);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workbench-pomodoro-settings-nav-item {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 8px 12px;
+  color: var(--text-muted, #667085);
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
 }
 
-.workbench-pomodoro-settings-heading span,
+.workbench-pomodoro-settings-nav-item:hover,
+.workbench-pomodoro-settings-nav-item.is-active {
+  color: var(--text, #17202b);
+  background: color-mix(in srgb, var(--surface-solid, #fff) 88%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent);
+}
+
+.workbench-pomodoro-settings-nav-item span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.workbench-pomodoro-settings-nav-item strong {
+  font-size: 0.8125rem;
+  font-weight: 750;
+}
+
+.workbench-pomodoro-settings-nav-item small {
+  color: var(--text-muted, #667085);
+  font-size: 0.625rem;
+  font-weight: 620;
+}
+
+.workbench-pomodoro-settings-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 22px 48px 22px 24px;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.workbench-pomodoro-settings-panel-heading h2 {
+  margin: 0;
+  color: var(--text, #17202b);
+  font-size: 1.35rem;
+  font-weight: 780;
+  line-height: 1.2;
+}
+
+.workbench-pomodoro-settings-panel-heading p {
+  max-width: 42rem;
+  margin: 6px 0 0;
+  color: var(--text-muted, #667085);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
 .workbench-pomodoro-settings-fields label > span,
 .workbench-pomodoro-saved-plans > span {
   display: block;
@@ -7183,15 +7279,34 @@
   letter-spacing: 0.02em;
 }
 
-.workbench-pomodoro-settings-heading strong {
-  display: block;
-  margin-top: 3px;
-  color: var(--text, #17202b);
-  font-size: 0.9rem;
-  font-weight: 780;
+@media (max-width: 720px) {
+  .workbench-pomodoro-settings-panel {
+    grid-template-columns: 1fr;
+    width: min(100%, calc(100vw - 24px));
+    height: min(640px, calc(100vh - 24px));
+    max-height: min(640px, calc(100vh - 24px));
+  }
+
+  .workbench-pomodoro-settings-nav {
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
+    padding: 14px 12px 10px;
+  }
+
+  .workbench-pomodoro-settings-nav-heading {
+    padding-bottom: 10px;
+  }
+
+  .workbench-pomodoro-settings-nav-item small {
+    display: none;
+  }
+
+  .workbench-pomodoro-settings-content {
+    padding: 16px 18px 18px;
+  }
 }
 
-.workbench-pomodoro-settings-heading > button,
+
 .workbench-pomodoro-remove-plan {
   display: grid;
   flex: 0 0 auto;
@@ -7468,12 +7583,6 @@
 }
 
 .workbench-pomodoro-remove-plan:hover,
-.workbench-pomodoro-settings-heading > button:hover {
-  color: #c34f53;
-  border-color: color-mix(in srgb, #c34f53 36%, transparent);
-}
-
-
 /* Plans catalog depth (STC-501/502): multi-action rows + badges */
 .workbench-pomodoro-plan-row {
   display: grid;
@@ -7567,19 +7676,6 @@
   background: color-mix(in srgb, #007aff 13%, transparent);
 }
 
-@media (max-width: 720px) {
-  .workbench-pomodoro-settings-card {
-    right: 0;
-    top: calc(100% + 10px);
-  }
-}
-
-@media (max-height: 760px) {
-  .workbench-pomodoro-settings-card {
-    max-height: calc(100vh - 20px);
-    padding: 13px;
-  }
-}
 
 
 /* Focus-task attribution chip on the pomodoro face */
@@ -7926,125 +8022,6 @@
 .workbench-empty-start-sheet__task .workbench-classification-prompt-swatch {
   margin-top: -1px;
 }
-
-
-/* STC-308 Allocation proposal preview (extends empty-start sheet chrome) */
-.workbench-allocation-preview-meta {
-  margin: 6px 0 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.workbench-allocation-preview-empty {
-  margin: 0;
-  padding: 12px 4px 4px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.workbench-allocation-preview-list {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: min(42vh, 360px);
-  overflow: auto;
-}
-
-.workbench-allocation-preview-row {
-  display: grid;
-  grid-template-columns: minmax(52px, auto) minmax(92px, auto) 1fr auto;
-  gap: 8px 12px;
-  align-items: center;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
-  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
-  font-size: 13px;
-}
-
-.workbench-allocation-preview-row.is-added {
-  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
-    color-mix(in srgb, var(--surface-solid) 78%, transparent);
-}
-
-.workbench-allocation-preview-row.is-blank {
-  opacity: 0.78;
-  border-style: dashed;
-}
-
-.workbench-allocation-preview-kind {
-  font-weight: 650;
-  color: var(--text);
-}
-
-.workbench-allocation-preview-time {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-}
-
-.workbench-allocation-preview-task {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text);
-}
-
-.workbench-allocation-preview-badge {
-  justify-self: end;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 650;
-  color: color-mix(in srgb, var(--accent) 88%, #fff);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
-}
-
-.workbench-allocation-preview-row.is-blank .workbench-allocation-preview-badge {
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--surface-solid) 40%, transparent);
-  border-color: color-mix(in srgb, var(--line) 80%, transparent);
-}
-
-.workbench-allocation-preview-warnings {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, #d4a017 28%, var(--line));
-  background: color-mix(in srgb, #d4a017 10%, transparent);
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.workbench-allocation-preview-warnings strong {
-  display: block;
-  margin-bottom: 4px;
-}
-
-.workbench-allocation-preview-warnings ul {
-  margin: 0;
-  padding-left: 1.15em;
-}
-
-.study-schedule-allocation-button {
-  /* sibling of add button; same footprint, slightly cooler accent */
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 42%, transparent), transparent 48%),
-    linear-gradient(180deg, color-mix(in srgb, #4f7cff 78%, #ffffff), #3f6cf0);
-  border-color: color-mix(in srgb, #4f7cff 50%, transparent);
-  box-shadow:
-    0 8px 18px color-mix(in srgb, #4f7cff 22%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
-}
-
 
 /* Slice B migration banner (extends empty-start sheet chrome) */
 .workbench-migration-banner-meta {
@@ -8511,4 +8488,269 @@
 /* STC-205: mid-break +1 min control shares action chrome */
 .workbench-pomodoro-actions .workbench-pomodoro-extend {
   /* inherit button chrome from .workbench-pomodoro-actions button */
+}
+
+/* STC-703 recurrence min editor + series edit sheet */
+.study-schedule-recurrence {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
+}
+
+.study-schedule-recurrence-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.study-schedule-recurrence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  font-size: 13px;
+}
+
+.study-schedule-recurrence-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.study-schedule-recurrence-weekdays,
+.study-recurrence-series-window {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.study-recurrence-series-window > span {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.study-schedule-recurrence-day {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.study-schedule-recurrence-day.is-on {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: color-mix(in srgb, var(--accent) 88%, #fff);
+}
+
+.study-schedule-recurrence-times,
+.study-recurrence-series-bounds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.study-schedule-recurrence-times label,
+.study-recurrence-series-bounds label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.study-schedule-recurrence-times select,
+.study-recurrence-series-bounds input {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 80%, transparent);
+  color: var(--text);
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.study-schedule-recurrence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.study-schedule-recurrence-preview,
+.study-recurrence-series-preview {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+}
+
+.study-schedule-recurrence-summary {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.study-schedule-recurrence-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.study-schedule-recurrence-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.study-schedule-recurrence-list li {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.study-schedule-recurrence-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  color: color-mix(in srgb, var(--accent) 88%, #fff);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.study-schedule-recurrence-warnings {
+  margin: 8px 0 0;
+  padding-left: 1.15em;
+  font-size: 12px;
+  color: color-mix(in srgb, #d4a017 80%, var(--text));
+}
+
+.study-recurrence-series-sheet {
+  max-width: min(560px, calc(100vw - 32px));
+  max-height: min(88vh, 820px);
+  overflow: auto;
+}
+
+.study-recurrence-series-meta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.study-recurrence-series-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.study-recurrence-series-locked-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.study-recurrence-series-calendar {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.study-recurrence-series-day-group {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 50%, transparent);
+  padding: 8px 10px;
+}
+
+.study-recurrence-series-day-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 650;
+  margin-bottom: 6px;
+}
+
+.study-recurrence-series-day-count {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: color-mix(in srgb, var(--accent) 90%, #fff);
+}
+
+.study-recurrence-series-day-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.study-recurrence-series-day-rows li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  padding: 4px 2px;
+}
+
+.study-recurrence-series-delete-confirm {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #d44 30%, var(--line));
+  background: color-mix(in srgb, #d44 8%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.study-recurrence-series-delete-confirm strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.study-recurrence-series-delete-confirm p {
+  margin: 0 0 8px;
+}
+
+.study-recurrence-series-delete-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.study-recurrence-series-delete {
+  color: color-mix(in srgb, #d44 80%, var(--text));
 }

@@ -17,8 +17,8 @@ import type {
 
 type TestState = AgentConversationTurnRunnerState & { error: string | null }
 
-type TestApi = Omit<AgentConversationTurnRunnerApi, 'readAgentConversationSessionTree'> &
-  Partial<Pick<AgentConversationTurnRunnerApi, 'readAgentConversationSessionTree'>>
+type TestApi = Omit<AgentConversationTurnRunnerApi, 'readAgentConversationSessionTree' | 'getState'> &
+  Partial<Pick<AgentConversationTurnRunnerApi, 'readAgentConversationSessionTree' | 'getState'>>
 
 type Harness = {
   getState: () => TestState
@@ -106,6 +106,7 @@ function makeHarness(
   }
   const runnerApi: AgentConversationTurnRunnerApi = {
     readAgentConversationSessionTree: vi.fn(async ({ conversationId }) => sessionTree(conversationId)),
+    getState: vi.fn(async () => state.appState),
     ...api
   }
   const patches: Array<AgentConversationTurnRunnerPatch<string>> = []
@@ -833,6 +834,70 @@ describe('AgentConversationTurnRunner', () => {
       summary: { id: 'pending-42' },
       status: '保存对话…',
       toolsSupported: true
+    })
+  })
+
+  it('still emits generated-lesson effects when conversation save fails after lesson generation', async () => {
+    const harness = makeHarness({
+      agentChatStream: vi.fn(async () => ({ ...completedTurn(), generatedLessons: [generatedLesson()] })),
+      saveAgentConversation: vi.fn(async () => {
+        throw new Error('Conversation user input does not match the staged parent turn.')
+      }),
+      cancelAgentChatStream: vi.fn()
+    })
+
+    await harness.runner.run({ inputOverride: 'Explain momentum' })
+
+    expect(harness.effects).toEqual([[generatedLesson()]])
+    expect(harness.getState()).toMatchObject({
+      error: 'user:Conversation user input does not match the staged parent turn.',
+      agentChatBusy: false
+    })
+  })
+
+  it('refreshes appState catalog after lesson generation even when conversation save fails', async () => {
+    const lesson = generatedLesson()
+    const refreshedWorkspace = workspace({
+      lessons: [lesson],
+      courses: [{
+        id: 'course-1',
+        name: 'Mechanics',
+        relativePath: 'courses/mechanics',
+        absolutePath: '/workspace/courses/mechanics',
+        lessonCount: 1,
+        sessionCount: 1,
+        sessions: [{
+          id: 'session-1',
+          name: 'Session 1',
+          relativePath: 'courses/mechanics/session-1.md',
+          absolutePath: '/workspace/courses/mechanics/session-1.md',
+          lesson
+        }],
+        conversations: []
+      }]
+    })
+    const refreshed = appState(refreshedWorkspace)
+    const getState = vi.fn(async () => refreshed)
+    const harness = makeHarness({
+      agentChatStream: vi.fn(async () => ({ ...completedTurn(), generatedLessons: [lesson] })),
+      saveAgentConversation: vi.fn(async () => {
+        throw new Error('Conversation user input does not match the staged parent turn.')
+      }),
+      cancelAgentChatStream: vi.fn(),
+      getState
+    })
+
+    expect(harness.getState().appState.activeWorkspace?.lessons).toEqual([])
+
+    await harness.runner.run({ inputOverride: 'Explain momentum' })
+
+    expect(getState).toHaveBeenCalled()
+    expect(harness.getState().appState).toEqual(refreshed)
+    expect(harness.getState().appState.activeWorkspace?.courses[0]?.sessions).toHaveLength(1)
+    expect(harness.effects).toEqual([[lesson]])
+    expect(harness.getState()).toMatchObject({
+      error: 'user:Conversation user input does not match the staged parent turn.',
+      agentChatBusy: false
     })
   })
 

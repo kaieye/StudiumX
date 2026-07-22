@@ -5,7 +5,6 @@
 - **范围：** 学习规划 / 任务 / ScheduleBlock / TimerPlan / TimerSession 事实的 **canonical 路径布局、备份文件名、wire schema 版本、StudyPlanningStore 命令信封、错误码、V1→V2 迁移与 localStorage 擦除策略**
 - **相关：**
   - Phase 0 产品与架构冻结：[ADR-0094](0094-study-task-timer-planning-design-gate.md)
-  - 规划全文：[`docs/study-task-timer-planning-roadmap.md`](../study-task-timer-planning-roadmap.md)
   - 关键 JSON 备份精神：[ADR-0003](0003-critical-json-backups-and-verified-recovery.md)
   - sole-writer / revision 精神：[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)
   - TimerSession 命名消歧：[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)
@@ -102,7 +101,9 @@ type ApplyResult =
 
 **命令闭集（可增不可偷换语义；与路线图 §14.2 对齐）：**
 
-`create_task` · `update_task` · `complete_task` · `save_timer_plan` · `apply_allocation_proposal` · `start_timer_session` · `pause_timer_session` · `resume_timer_session` · `finish_timer_session` · `switch_session_task` · `reconcile_stale_session` · `quick_start` · `set_preferences` · `import_migration_commit`（仅迁移确认后）
+> **Product decision (2026-07-22):** `apply_allocation_proposal` command **removed** with the allocation-proposal product path (no 按时钟方案生成排程提案).
+
+`create_task` · `update_task` · `complete_task` · `save_timer_plan` · `start_timer_session` · `pause_timer_session` · `resume_timer_session` · `finish_timer_session` · `switch_session_task` · `reconcile_stale_session` · `quick_start` · `set_preferences` · `import_migration_commit`（仅迁移确认后）
 
 **错误码（稳定字符串）：**
 

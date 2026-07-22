@@ -23,7 +23,6 @@ const COMMAND_TYPES = new Set<StudyPlanningCommandType>([
   'save_timer_plan',
   'delete_timer_plan',
   'copy_timer_plan',
-  'apply_allocation_proposal',
   'upsert_schedule_block',
   'delete_schedule_block',
   'quick_start',

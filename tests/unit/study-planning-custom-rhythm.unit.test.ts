@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ALLOCATOR_TEST_DAY_UTC,
-  allocateTimeWindow,
   createClassicPomodoroPlan,
   createContinuousCountupPlan,
   createCustomRhythmPlan,
   customRhythmMinutesForPhase,
   expandCustomRhythmSequence,
   isCustomRhythmPlan,
-  msFromLocalMinutes,
   nextCustomRhythmStep,
   normalizeCustomRhythmSequence,
   normalizeTimerPlanV2,
@@ -19,7 +16,6 @@ import {
   type CustomRhythmStep
 } from '../../src/shared/study-planning'
 
-const day = ALLOCATOR_TEST_DAY_UTC
 
 const examSequence: CustomRhythmStep[] = [
   { kind: 'focus', minutes: 45 },
@@ -165,98 +161,5 @@ describe('sequence helpers', () => {
 
   it('validateCustomRhythmSequence mirrors normalize', () => {
     expect(validateCustomRhythmSequence(examSequence).ok).toBe(true)
-  })
-})
-
-describe('allocateTimeWindow with custom_rhythm (STC-702 integrate)', () => {
-  it('fills window by replaying ordered sequence without breaking pomodoro/continuous', () => {
-    const created = createCustomRhythmPlan({
-      id: 'exam-sim',
-      name: '考试模拟',
-      sequence: examSequence
-    })
-    expect(created.ok).toBe(true)
-    if (!created.ok) return
-
-    const window = {
-      startAtMs: msFromLocalMinutes(day, 9 * 60),
-      endAtMs: msFromLocalMinutes(day, 12 * 60),
-      hardEnd: true,
-      label: '09:00–12:00'
-    }
-
-    const proposal = allocateTimeWindow({
-      window,
-      plan: created.plan,
-      tasks: [{ id: 'A', estimateMinutes: 120, manualOrder: 0 }],
-      nowMs: window.startAtMs
-    })
-
-    expect(proposal.planSnapshot.kind).toBe('custom_rhythm')
-    expect(proposal.warnings).not.toContain('window_invalid')
-
-    // First cycle: focus45, short10, focus45, long20, wrap5 = 125; remaining 55 of 180.
-    // Second cycle starts focus45 then remainder 10 → adaptive final if >= minFinal(15)? 10 < 15 → blank/wrap
-    const kinds = proposal.blocks.map((b) => b.kind)
-    expect(kinds[0]).toBe('focus')
-    expect(kinds[1]).toBe('short_break')
-    expect(kinds[2]).toBe('focus')
-    expect(kinds[3]).toBe('long_break')
-    expect(kinds[4]).toBe('wrap_up')
-
-    // No block past hard end
-    for (const block of proposal.blocks) {
-      expect(block.endAtMs).toBeLessThanOrEqual(window.endAtMs)
-      expect(block.endAtMs).toBeGreaterThan(block.startAtMs)
-    }
-    for (let i = 1; i < proposal.blocks.length; i += 1) {
-      expect(proposal.blocks[i].startAtMs).toBeGreaterThanOrEqual(proposal.blocks[i - 1].endAtMs)
-    }
-
-    // Pomodoro classic still works (regression)
-    const pomodoro = allocateTimeWindow({
-      window,
-      plan: createClassicPomodoroPlan(),
-      tasks: [{ id: 'A', estimateMinutes: 50 }],
-      nowMs: window.startAtMs
-    })
-    expect(pomodoro.meta.focusMinutesTotal).toBeGreaterThan(0)
-    expect(pomodoro.planSnapshot.kind).toBe('pomodoro')
-
-    // Continuous still single-focus fill
-    const cont = allocateTimeWindow({
-      window,
-      plan: createContinuousCountupPlan(),
-      tasks: [{ id: 'A', estimateMinutes: 90 }],
-      nowMs: window.startAtMs
-    })
-    expect(cont.planSnapshot.kind).toBe('continuous')
-    expect(cont.blocks.every((b) => b.kind === 'focus' || b.kind === 'blank')).toBe(true)
-  })
-
-  it('cycles sequence when window is longer than one pass', () => {
-    const seq: CustomRhythmStep[] = [
-      { kind: 'focus', minutes: 30 },
-      { kind: 'short_break', minutes: 5 }
-    ]
-    const created = createCustomRhythmPlan({ id: 'r', name: 'r', sequence: seq })
-    expect(created.ok).toBe(true)
-    if (!created.ok) return
-
-    const window = {
-      startAtMs: msFromLocalMinutes(day, 9 * 60),
-      endAtMs: msFromLocalMinutes(day, 11 * 60), // 120 minutes
-      hardEnd: true
-    }
-    const proposal = allocateTimeWindow({
-      window,
-      plan: created.plan,
-      tasks: [{ id: 'T', estimateMinutes: 200 }],
-      nowMs: window.startAtMs
-    })
-    // 30f+5b+30f+5b+30f+5b + remainder 15 → adaptive final focus (minFinal 15)
-    const focusBlocks = proposal.blocks.filter((b) => b.kind === 'focus')
-    expect(focusBlocks.length).toBeGreaterThanOrEqual(3)
-    expect(proposal.blocks.some((b) => b.kind === 'short_break')).toBe(true)
   })
 })

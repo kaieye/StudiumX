@@ -1,5 +1,6 @@
 import { ChevronDown, Pause, Play, Plus, RotateCcw, Save, Settings2, Timer, X } from 'lucide-react'
-import { useEffect, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useEffect, useId, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { formatStudyDuration } from '../../study-space/domain'
 import type { StudySnapshot, StudyTimerMode, StudyTimerPlanInput } from '../../study-space/types'
 import {
@@ -136,6 +137,9 @@ export function WorkbenchPomodoro({
   const [selectedMode, setSelectedMode] = useState<StudyTimerMode>(snapshot.timerMode)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [draft, setDraft] = useState<TimerPlanDraft>(() => createTimerPlanDraft(snapshot))
+  const settingsTitleId = useId()
+  const [settingsPortalHost, setSettingsPortalHost] = useState<HTMLElement | null>(null)
+  const [settingsSection, setSettingsSection] = useState<'plan' | 'prefs'>('plan')
   // STC-604: host-owned reduced-motion flag (matchMedia); pure markers stay window-free.
   const [reducedMotion, setReducedMotion] = useState(false)
 
@@ -264,10 +268,35 @@ export function WorkbenchPomodoro({
   const toggleSettings = (): void => {
     setSettingsOpen((current) => {
       const next = !current
-      if (next) setDraft(createTimerPlanDraft(snapshot))
+      if (next) {
+        setDraft(createTimerPlanDraft(snapshot))
+        setSettingsSection('plan')
+      }
       return next
     })
   }
+
+  const closeSettings = (): void => {
+    setSettingsOpen(false)
+  }
+
+  useEffect(() => {
+    // Match add-task: host overlay on the study-room stage so tools transform
+    // cannot clip or offset the dialog. Tests fall back to document.body.
+    const stage = document.querySelector('.office-workbench-stage')
+    setSettingsPortalHost(stage instanceof HTMLElement ? stage : document.body)
+  }, [])
+
+  useEffect(() => {
+    if (!settingsOpen) return
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      closeSettings()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [settingsOpen])
 
   const updateDraft = <Key extends keyof TimerPlanDraft>(key: Key, value: TimerPlanDraft[Key]): void => {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -355,262 +384,335 @@ export function WorkbenchPomodoro({
       data-reduced-motion={stateMarkers.reduceMotion ? 'true' : 'false'}
       aria-label="番茄钟"
     >
-      {settingsOpen ? (
-        <aside id="workbench-pomodoro-settings" className="workbench-pomodoro-settings-card" aria-label="专注计时方案设置">
-          <div className="workbench-pomodoro-settings-heading">
-            <div>
-              <span>专注方案</span>
-              <strong>自定义计时节奏</strong>
-            </div>
-            <button type="button" onClick={toggleSettings} aria-label="关闭计时设置" title="关闭设置">
-              <X size={16} aria-hidden="true" />
-            </button>
-          </div>
-
-          <div className="workbench-pomodoro-settings-fields">
-            <label>
-              <span>方案名称</span>
-              <input
-                type="text"
-                aria-label="方案名称"
-                value={draft.name}
-                maxLength={24}
-                placeholder="例如：晨间冲刺"
-                onChange={(event) => updateDraft('name', event.target.value)}
-              />
-            </label>
-            <label>
-              <span>方案类型</span>
-              <select
-                aria-label="方案类型"
-                value={draftKind}
-                onChange={(event) => {
-                  const next = event.target.value as StudyTimerPlanKind
-                  setDraft((current) => ({
-                    ...current,
-                    kind: next,
-                    clockMode: next === 'continuous' ? 'countup' : 'countdown',
-                    continuousTarget: next === 'continuous' ? false : undefined,
-                    breakPolicy: next === 'continuous'
-                      ? defaultContinuousBreakPolicy()
-                      : (current.breakPolicy === 'automatic' || current.breakPolicy === 'ask'
-                        ? current.breakPolicy
-                        : 'ask'),
-                    breakMinutes: next === 'continuous' ? 0 : (current.breakMinutes || 5),
-                    rhythmSequence:
-                      next === 'custom_rhythm'
-                        ? (Array.isArray(current.rhythmSequence) && current.rhythmSequence.length > 0
-                          ? current.rhythmSequence
-                          : DEFAULT_CUSTOM_RHYTHM_SEQUENCE.map((s) => ({ ...s })))
-                        : undefined
-                  }))
-                }}
+      {settingsOpen && settingsPortalHost
+        ? createPortal(
+          <div className="office-workbench-timer-settings-overlay">
+            <div
+              className="study-schedule-editor-backdrop"
+              role="presentation"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) closeSettings()
+              }}
+            >
+              <div
+                id="workbench-pomodoro-settings"
+                className="workbench-pomodoro-settings-panel"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={settingsTitleId}
               >
-                {TIMER_PLAN_KIND_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
-            {draftKind === 'custom_rhythm' ? (
-              <CustomRhythmSequenceEditor
-                sequence={
-                  Array.isArray(draft.rhythmSequence) && draft.rhythmSequence.length > 0
-                    ? draft.rhythmSequence
-                    : DEFAULT_CUSTOM_RHYTHM_SEQUENCE
-                }
-                onChange={(next) => updateDraft('rhythmSequence', next)}
-              />
-            ) : (
-              <div className="workbench-pomodoro-settings-durations">
-                <label>
-                  <span>{draftKind === 'continuous' ? '目标时长（可选）' : '专注时间'}</span>
-                  <div className="workbench-pomodoro-number-input">
-                    <input
-                      type="number"
-                      aria-label="专注时间"
-                      value={draft.focusMinutes}
-                      min={5}
-                      max={draftKind === 'continuous' ? 240 : 120}
-                      step={1}
-                      disabled={draftKind === 'continuous' && draft.continuousTarget !== true}
-                      onChange={(event) => updateDraft('focusMinutes', Number(event.target.value))}
-                    />
-                    <em>分钟</em>
-                  </div>
-                </label>
-                {draftKind === 'pomodoro' ? (
-                  <label>
-                    <span>休息时间</span>
-                    <div className="workbench-pomodoro-number-input">
-                      <input
-                        type="number"
-                        aria-label="休息时间"
-                        value={draft.breakMinutes}
-                        min={1}
-                        max={45}
-                        step={1}
-                        onChange={(event) => updateDraft('breakMinutes', Number(event.target.value))}
-                      />
-                      <em>分钟</em>
-                    </div>
-                  </label>
-                ) : (
-                  <label>
-                    <span>目标正计时</span>
-                    <div className="workbench-pomodoro-number-input">
-                      <input
-                        type="checkbox"
-                        aria-label="启用目标正计时"
-                        checked={draft.continuousTarget === true}
-                        onChange={(event) => updateDraft('continuousTarget', event.target.checked)}
-                      />
-                      <em>设定目标</em>
-                    </div>
-                  </label>
-                )}
-              </div>
-            )}
-            {draftKind === 'pomodoro' ? (
-              <>
-                <div className="workbench-pomodoro-settings-durations" aria-label="长休息设置">
-                  <label>
-                    <span>长休息</span>
-                    <div className="workbench-pomodoro-number-input">
-                      <input
-                        type="number"
-                        aria-label="长休息时间"
-                        value={draft.longBreakMinutes ?? 15}
-                        min={5}
-                        max={60}
-                        step={1}
-                        onChange={(event) => updateDraft('longBreakMinutes', Number(event.target.value))}
-                      />
-                      <em>分钟</em>
-                    </div>
-                  </label>
-                  <label>
-                    <span>每 N 轮</span>
-                    <div className="workbench-pomodoro-number-input">
-                      <input
-                        type="number"
-                        aria-label="长休息间隔轮数"
-                        value={draft.longBreakEvery ?? 4}
-                        min={2}
-                        max={8}
-                        step={1}
-                        onChange={(event) => updateDraft('longBreakEvery', Number(event.target.value))}
-                      />
-                      <em>轮</em>
-                    </div>
-                  </label>
-                </div>
-                <label>
-                  <span>休息策略</span>
-                  <select
-                    aria-label="休息策略"
-                    value={draft.breakPolicy === 'automatic' || draft.breakPolicy === 'ask' ? draft.breakPolicy : 'ask'}
-                    onChange={(event) => updateDraft('breakPolicy', event.target.value as PomodoroBreakPolicy)}
+                <button
+                  type="button"
+                  className="workbench-pomodoro-settings-close"
+                  onClick={closeSettings}
+                  aria-label="关闭计时设置"
+                  title="关闭设置"
+                >
+                  <X size={17} aria-hidden="true" />
+                </button>
+
+                <aside className="workbench-pomodoro-settings-nav" aria-label="计时设置分区">
+                  <div className="workbench-pomodoro-settings-nav-heading" id={settingsTitleId}>专注计时</div>
+                  <button
+                    type="button"
+                    className={`workbench-pomodoro-settings-nav-item${settingsSection === 'plan' ? ' is-active' : ''}`}
+                    aria-current={settingsSection === 'plan' ? 'page' : undefined}
+                    onClick={() => setSettingsSection('plan')}
                   >
-                    {POMODORO_BREAK_POLICY_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </label>
-              </>
-            ) : draftKind === 'custom_rhythm' ? (
-              <label>
-                <span>休息策略</span>
-                <select
-                  aria-label="自定义节奏休息策略"
-                  value={draft.breakPolicy === 'automatic' || draft.breakPolicy === 'ask' ? draft.breakPolicy : 'ask'}
-                  onChange={(event) => updateDraft('breakPolicy', event.target.value as PomodoroBreakPolicy)}
-                >
-                  {POMODORO_BREAK_POLICY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <label>
-                <span>休息策略</span>
-                <select
-                  aria-label="连续专注休息策略"
-                  value={
-                    draft.breakPolicy === 'automatic' ||
-                    draft.breakPolicy === 'ask' ||
-                    draft.breakPolicy === 'reminder_only' ||
-                    draft.breakPolicy === 'none'
-                      ? draft.breakPolicy
-                      : defaultContinuousBreakPolicy()
-                  }
-                  onChange={(event) => updateDraft('breakPolicy', event.target.value as ContinuousBreakPolicy)}
-                >
-                  {CONTINUOUS_BREAK_POLICY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label>
-              <span>模拟时段</span>
-              <div className="workbench-pomodoro-time-range">
-                <input
-                  type="time"
-                  aria-label="模拟开始时间"
-                  value={draft.simulationStartTime}
-                  onChange={(event) => updateDraft('simulationStartTime', event.target.value)}
-                />
-                <i>至</i>
-                <input
-                  type="time"
-                  aria-label="模拟结束时间"
-                  value={draft.simulationEndTime}
-                  onChange={(event) => updateDraft('simulationEndTime', event.target.value)}
-                />
+                    <Settings2 size={17} aria-hidden="true" />
+                    <span>
+                      <strong>专注方案</strong>
+                      <small>时长 · 节奏 · 目录</small>
+                    </span>
+                  </button>
+                  {onEmptyStartPolicyChange && onClassificationPromptOptOutChange ? (
+                    <button
+                      type="button"
+                      className={`workbench-pomodoro-settings-nav-item${settingsSection === 'prefs' ? ' is-active' : ''}`}
+                      aria-current={settingsSection === 'prefs' ? 'page' : undefined}
+                      onClick={() => setSettingsSection('prefs')}
+                    >
+                      <Timer size={17} aria-hidden="true" />
+                      <span>
+                        <strong>启动偏好</strong>
+                        <small>空启动 · 分类提示</small>
+                      </span>
+                    </button>
+                  ) : null}
+                </aside>
+
+                <div className="workbench-pomodoro-settings-content">
+                  {settingsSection === 'plan' ? (
+                    <>
+                      <header className="workbench-pomodoro-settings-panel-heading">
+                        <h2>专注方案</h2>
+                        <p>自定义计时节奏，保存后可在目录中一键套用；进行中的会话方案快照不会被覆盖。</p>
+                      </header>
+
+                      <div className="workbench-pomodoro-settings-fields">
+                        <label>
+                          <span>方案名称</span>
+                          <input
+                            type="text"
+                            aria-label="方案名称"
+                            value={draft.name}
+                            maxLength={24}
+                            placeholder="例如：晨间冲刺"
+                            onChange={(event) => updateDraft('name', event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          <span>方案类型</span>
+                          <select
+                            aria-label="方案类型"
+                            value={draftKind}
+                            onChange={(event) => {
+                              const next = event.target.value as StudyTimerPlanKind
+                              setDraft((current) => ({
+                                ...current,
+                                kind: next,
+                                clockMode: next === 'continuous' ? 'countup' : 'countdown',
+                                continuousTarget: next === 'continuous' ? false : undefined,
+                                breakPolicy: next === 'continuous'
+                                  ? defaultContinuousBreakPolicy()
+                                  : (current.breakPolicy === 'automatic' || current.breakPolicy === 'ask'
+                                    ? current.breakPolicy
+                                    : 'ask'),
+                                breakMinutes: next === 'continuous' ? 0 : (current.breakMinutes || 5),
+                                rhythmSequence:
+                                  next === 'custom_rhythm'
+                                    ? (Array.isArray(current.rhythmSequence) && current.rhythmSequence.length > 0
+                                      ? current.rhythmSequence
+                                      : DEFAULT_CUSTOM_RHYTHM_SEQUENCE.map((s) => ({ ...s })))
+                                    : undefined
+                              }))
+                            }}
+                          >
+                            {TIMER_PLAN_KIND_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        {draftKind === 'custom_rhythm' ? (
+                          <CustomRhythmSequenceEditor
+                            sequence={
+                              Array.isArray(draft.rhythmSequence)
+                                ? draft.rhythmSequence
+                                : DEFAULT_CUSTOM_RHYTHM_SEQUENCE
+                            }
+                            onChange={(next) => updateDraft('rhythmSequence', next)}
+                            freezeActiveSession={Boolean(
+                              activeTimerSession
+                              && (activeTimerSession.state === 'running' || activeTimerSession.state === 'paused')
+                            )}
+                          />
+                        ) : (
+                          <div className="workbench-pomodoro-settings-durations">
+                            <label>
+                              <span>{draftKind === 'continuous' ? '目标时长（可选）' : '专注时间'}</span>
+                              <div className="workbench-pomodoro-number-input">
+                                <input
+                                  type="number"
+                                  aria-label="专注时间"
+                                  value={draft.focusMinutes}
+                                  min={5}
+                                  max={draftKind === 'continuous' ? 240 : 120}
+                                  step={1}
+                                  disabled={draftKind === 'continuous' && draft.continuousTarget !== true}
+                                  onChange={(event) => updateDraft('focusMinutes', Number(event.target.value))}
+                                />
+                                <em>分钟</em>
+                              </div>
+                            </label>
+                            {draftKind === 'pomodoro' ? (
+                              <label>
+                                <span>休息时间</span>
+                                <div className="workbench-pomodoro-number-input">
+                                  <input
+                                    type="number"
+                                    aria-label="休息时间"
+                                    value={draft.breakMinutes}
+                                    min={1}
+                                    max={45}
+                                    step={1}
+                                    onChange={(event) => updateDraft('breakMinutes', Number(event.target.value))}
+                                  />
+                                  <em>分钟</em>
+                                </div>
+                              </label>
+                            ) : (
+                              <label>
+                                <span>目标正计时</span>
+                                <div className="workbench-pomodoro-number-input">
+                                  <input
+                                    type="checkbox"
+                                    aria-label="启用目标正计时"
+                                    checked={draft.continuousTarget === true}
+                                    onChange={(event) => updateDraft('continuousTarget', event.target.checked)}
+                                  />
+                                  <em>设定目标</em>
+                                </div>
+                              </label>
+                            )}
+                          </div>
+                        )}
+                        {draftKind === 'pomodoro' ? (
+                          <>
+                            <div className="workbench-pomodoro-settings-durations" aria-label="长休息设置">
+                              <label>
+                                <span>长休息</span>
+                                <div className="workbench-pomodoro-number-input">
+                                  <input
+                                    type="number"
+                                    aria-label="长休息时间"
+                                    value={draft.longBreakMinutes ?? 15}
+                                    min={5}
+                                    max={60}
+                                    step={1}
+                                    onChange={(event) => updateDraft('longBreakMinutes', Number(event.target.value))}
+                                  />
+                                  <em>分钟</em>
+                                </div>
+                              </label>
+                              <label>
+                                <span>每 N 轮</span>
+                                <div className="workbench-pomodoro-number-input">
+                                  <input
+                                    type="number"
+                                    aria-label="长休息间隔轮数"
+                                    value={draft.longBreakEvery ?? 4}
+                                    min={2}
+                                    max={8}
+                                    step={1}
+                                    onChange={(event) => updateDraft('longBreakEvery', Number(event.target.value))}
+                                  />
+                                  <em>轮</em>
+                                </div>
+                              </label>
+                            </div>
+                            <label>
+                              <span>休息策略</span>
+                              <select
+                                aria-label="休息策略"
+                                value={draft.breakPolicy === 'automatic' || draft.breakPolicy === 'ask' ? draft.breakPolicy : 'ask'}
+                                onChange={(event) => updateDraft('breakPolicy', event.target.value as PomodoroBreakPolicy)}
+                              >
+                                {POMODORO_BREAK_POLICY_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                              </select>
+                            </label>
+                          </>
+                        ) : draftKind === 'custom_rhythm' ? (
+                          <label>
+                            <span>休息策略</span>
+                            <select
+                              aria-label="自定义节奏休息策略"
+                              value={draft.breakPolicy === 'automatic' || draft.breakPolicy === 'ask' ? draft.breakPolicy : 'ask'}
+                              onChange={(event) => updateDraft('breakPolicy', event.target.value as PomodoroBreakPolicy)}
+                            >
+                              {POMODORO_BREAK_POLICY_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : (
+                          <label>
+                            <span>休息策略</span>
+                            <select
+                              aria-label="连续专注休息策略"
+                              value={
+                                draft.breakPolicy === 'automatic' ||
+                                draft.breakPolicy === 'ask' ||
+                                draft.breakPolicy === 'reminder_only' ||
+                                draft.breakPolicy === 'none'
+                                  ? draft.breakPolicy
+                                  : defaultContinuousBreakPolicy()
+                              }
+                              onChange={(event) => updateDraft('breakPolicy', event.target.value as ContinuousBreakPolicy)}
+                            >
+                              {CONTINUOUS_BREAK_POLICY_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        <label>
+                          <span>模拟时段</span>
+                          <div className="workbench-pomodoro-time-range">
+                            <input
+                              type="time"
+                              aria-label="模拟开始时间"
+                              value={draft.simulationStartTime}
+                              onChange={(event) => updateDraft('simulationStartTime', event.target.value)}
+                            />
+                            <i>至</i>
+                            <input
+                              type="time"
+                              aria-label="模拟结束时间"
+                              value={draft.simulationEndTime}
+                              onChange={(event) => updateDraft('simulationEndTime', event.target.value)}
+                            />
+                          </div>
+                        </label>
+                      </div>
+
+                      <button
+                        className="workbench-pomodoro-save-plan"
+                        type="button"
+                        onClick={handleSavePlan}
+                        disabled={!hasValidDraft}
+                      >
+                        <Save size={15} aria-hidden="true" />
+                        保存方案
+                      </button>
+                      {draft.simulationStartTime >= draft.simulationEndTime ? (
+                        <p className="workbench-pomodoro-settings-hint" role="status">结束时间需晚于开始时间。</p>
+                      ) : null}
+                      {draftKind === 'custom_rhythm' && !hasValidDraft ? (
+                        <p className="workbench-pomodoro-settings-hint" role="status">
+                          自定义节奏未通过校验：空序列、未知类型或非正分钟数会阻止保存（不会静默使用默认番茄）。
+                        </p>
+                      ) : null}
+
+                      <ActiveVsNextPlanSection
+                        activeSession={activeTimerSession}
+                        timerSessions={timerSessions}
+                        nextPlanId={defaultTimerPlanId}
+                        userPlans={snapshot.timerPlans}
+                      />
+
+                      <StudyTimerPlanCatalogSection
+                        userPlans={snapshot.timerPlans}
+                        defaultTimerPlanId={defaultTimerPlanId}
+                        onApply={onApplyTimerPlan}
+                        onCopy={onCopyTimerPlan}
+                        onRemove={onRemoveTimerPlan}
+                        onRename={onRenameTimerPlan}
+                        onSetDefault={onSetDefaultTimerPlan}
+                      />
+                    </>
+                  ) : onEmptyStartPolicyChange && onClassificationPromptOptOutChange ? (
+                    <>
+                      <header className="workbench-pomodoro-settings-panel-heading">
+                        <h2>启动偏好</h2>
+                        <p>控制空启动归因与分类提示，避免静默绑定或提示风暴。</p>
+                      </header>
+                      <StudyPlanningPrefsSection
+                        emptyStartPolicy={emptyStartPolicy}
+                        classificationPromptOptOut={classificationPromptOptOut}
+                        onEmptyStartPolicyChange={onEmptyStartPolicyChange}
+                        onClassificationPromptOptOutChange={onClassificationPromptOptOutChange}
+                      />
+                    </>
+                  ) : null}
+                </div>
               </div>
-            </label>
-          </div>
-
-          <button
-            className="workbench-pomodoro-save-plan"
-            type="button"
-            onClick={handleSavePlan}
-            disabled={!hasValidDraft}
-          >
-            <Save size={15} aria-hidden="true" />
-            保存方案
-          </button>
-          {draft.simulationStartTime >= draft.simulationEndTime ? (
-            <p className="workbench-pomodoro-settings-hint" role="status">结束时间需晚于开始时间。</p>
-          ) : null}
-
-          {onEmptyStartPolicyChange && onClassificationPromptOptOutChange ? (
-            <StudyPlanningPrefsSection
-              emptyStartPolicy={emptyStartPolicy}
-              classificationPromptOptOut={classificationPromptOptOut}
-              onEmptyStartPolicyChange={onEmptyStartPolicyChange}
-              onClassificationPromptOptOutChange={onClassificationPromptOptOutChange}
-            />
-          ) : null}
-
-          <ActiveVsNextPlanSection
-            activeSession={activeTimerSession}
-            timerSessions={timerSessions}
-            nextPlanId={defaultTimerPlanId}
-            userPlans={snapshot.timerPlans}
-          />
-
-          <StudyTimerPlanCatalogSection
-            userPlans={snapshot.timerPlans}
-            defaultTimerPlanId={defaultTimerPlanId}
-            onApply={onApplyTimerPlan}
-            onCopy={onCopyTimerPlan}
-            onRemove={onRemoveTimerPlan}
-            onRename={onRenameTimerPlan}
-            onSetDefault={onSetDefaultTimerPlan}
-          />
-        </aside>
-      ) : null}
+            </div>
+          </div>,
+          settingsPortalHost
+        )
+        : null}
 
       <button
         type="button"

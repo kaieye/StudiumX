@@ -172,7 +172,7 @@ describe('applyCompleteTaskFutureBlocks (STC-306 / freeze #7)', () => {
     expect(second.task.status).toBe('done')
     expect(second.scheduleBlocks[0].status).toBe('cancelled')
   })
-describe('diffScheduleBlocks (STC-308)', () => {
+describe('diffScheduleBlocks (pure set-diff; historical STC-308 UI removed)', () => {
   it('reports added and removed by id', () => {
     const a = block({ id: '1', taskId: 't', startAtMs: 0, endAtMs: 1 })
     const b = block({ id: '2', taskId: 't', startAtMs: 2, endAtMs: 3 })
@@ -235,62 +235,6 @@ describe('empty-start + classification (STC-401..407)', () => {
 })
 
 describe('StudyPlanningStore Phase 3/4 commands', () => {
-  it('apply_allocation_proposal appends blocks without moving locked', () => {
-    const store = new StudyPlanningStore({ nowMs: () => now })
-    // seed locked block
-    let rev = 1
-    const up = store.applyCommand(
-      {
-        actionId: 'lock',
-        type: 'upsert_schedule_block',
-        payload: {
-          block: block({
-            id: 'locked',
-            taskId: 'x',
-            startAtMs: now,
-            endAtMs: now + 30 * 60_000,
-            locked: true
-          })
-        }
-      },
-      rev
-    )
-    expect(up.ok).toBe(true)
-    if (!up.ok) return
-    rev = up.revision
-
-    const applied = store.applyCommand(
-      {
-        actionId: 'alloc',
-        type: 'apply_allocation_proposal',
-        payload: {
-          planId: 'classic_25_5',
-          blocks: [
-            {
-              kind: 'focus',
-              startAtMs: now + 5 * 60_000,
-              endAtMs: now + 20 * 60_000,
-              taskId: 'y'
-            },
-            {
-              kind: 'focus',
-              startAtMs: now + 40 * 60_000,
-              endAtMs: now + 60 * 60_000,
-              taskId: 'y'
-            }
-          ]
-        }
-      },
-      rev
-    )
-    expect(applied.ok).toBe(true)
-    if (!applied.ok) return
-    // overlap with locked skipped; only second block added
-    const ids = applied.snapshot.scheduleBlocks.map((b) => b.id)
-    expect(ids).toContain('locked')
-    expect(applied.snapshot.scheduleBlocks.filter((b) => b.taskId === 'y')).toHaveLength(1)
-  })
-
   it('quick_start creates at most one task + session', () => {
     const store = new StudyPlanningStore({ nowMs: () => now })
     const r = store.applyCommand(

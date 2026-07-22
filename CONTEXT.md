@@ -46,7 +46,7 @@ _Avoid_: chat log, message history
 
 ### Study planning language
 
-Study-space checklist, focus rhythm, and clock facts. Distinct from teaching Course/Session language. Phase 0 decision freeze authority: [ADR-0094](docs/adr/0094-study-task-timer-planning-design-gate.md). Planning/detail document: [study-task-timer-planning-roadmap.md](docs/study-task-timer-planning-roadmap.md) (§2 terms). Local focus analytics are local study analytics, not remote telemetry.
+Study-space checklist, focus rhythm, and clock facts. Distinct from teaching Course/Session language. Phase 0 decision freeze authority: [ADR-0094](docs/adr/0094-study-task-timer-planning-design-gate.md). Planning/detail roadmap archived/removed; residual policy: [ADR-0130](docs/adr/0130-study-planning-phase7-and-completion-residual.md). Local focus analytics are local study analytics, not remote telemetry.
 
 **Study task**:
 A learner checklist intent in study space (something to finish, possibly over several blocks). Not a teaching Mission and not one timer run.

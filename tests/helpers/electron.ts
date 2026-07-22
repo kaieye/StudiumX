@@ -45,3 +45,4 @@ export const test = base.extend<ElectronFixtures>({
 })
 
 export { expect }
+export { forceKillElectronRuntime, launchElectronRuntime } from './test-runtime/electron'

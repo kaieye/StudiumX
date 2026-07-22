@@ -80,7 +80,8 @@ export type DualWriteExpandApplyResult = {
   skipped: number
   lastRevision: number
   results: DualWriteResult[]
-  reason?: DualWriteResult extends { kind: 'canonical_skipped'; reason: infer R } ? R : never
+  /** Present when kind is canonical_skipped. */
+  reason?: 'missing_workspace' | 'api_unavailable'
   error?: { code: string; message: string }
 }
 

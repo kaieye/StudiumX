@@ -231,16 +231,17 @@ export function stripTaskAuthorityFromSnapshot(snapshot: StudySnapshot): StudySn
 
 /**
  * Whether persist should treat V1 task arrays as authority co-cache.
- * When demoted + workspace active → presence-only shell.
+ * Once demoted, always strip task/timer authority (presence-only shell).
+ * Offline demoted keeps the last shell by *not inventing erase of the demote
+ * marker* and by not re-serializing in-memory sole-read tasks into V1 —
+ * empty demoted shell stays empty; never co-write canonical tasks offline.
  */
 export function shouldPersistV1TaskAuthority(input: {
   demoted: boolean
   workspaceAvailable: boolean
 }): boolean {
-  if (!input.demoted) return true
-  // Offline / no workspace: keep last shell write path (do not invent erase).
-  if (!input.workspaceAvailable) return true
-  return false
+  if (input.demoted) return false
+  return true
 }
 
 /**

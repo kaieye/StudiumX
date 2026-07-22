@@ -3,6 +3,9 @@
  *
  * Proves demoted + workspace does not reassert V1 task authority via default refill
  * or task-authority co-persist. Fail-closed erase gates remain.
+ *
+ * End-to-end product-path composition (demote → cold rehydrate → sole-read hydrate)
+ * lives in study-planning-v1-authority-cold-start-product-path.unit.test.ts (e2e-proxy).
  */
 
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -104,15 +107,18 @@ describe('study-planning v1 authority cold-start (non-resurrection)', () => {
   })
 
   describe('pure cold-start gates', () => {
-    it('shouldPersistV1TaskAuthority is false only when demoted + workspace', () => {
+    it('shouldPersistV1TaskAuthority is false whenever demoted (including offline)', () => {
       expect(
         shouldPersistV1TaskAuthority({ demoted: true, workspaceAvailable: true })
       ).toBe(false)
       expect(
         shouldPersistV1TaskAuthority({ demoted: true, workspaceAvailable: false })
-      ).toBe(true)
+      ).toBe(false)
       expect(
         shouldPersistV1TaskAuthority({ demoted: false, workspaceAvailable: true })
+      ).toBe(true)
+      expect(
+        shouldPersistV1TaskAuthority({ demoted: false, workspaceAvailable: false })
       ).toBe(true)
     })
 
@@ -189,7 +195,7 @@ describe('study-planning v1 authority cold-start (non-resurrection)', () => {
       expect(JSON.stringify(stored)).not.toContain('plan-live')
     })
 
-    it('still writes task arrays when demoted but offline (no silent wipe invent)', () => {
+    it('strips task arrays when demoted even offline (no sole-read mirror into V1)', () => {
       const snap = makeSnapshot({
         tasks: [{ id: 'offline', title: 'Offline shell task', done: false, categoryId: 'study' }]
       })
@@ -197,7 +203,11 @@ describe('study-planning v1 authority cold-start (non-resurrection)', () => {
       const stored = JSON.parse(
         window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY) ?? 'null'
       ) as StudySnapshot
-      expect(stored.tasks.some((t) => t.id === 'offline')).toBe(true)
+      // Presence shell only: demoted must not re-serialize in-memory tasks into V1.
+      expect(stored.tasks).toEqual([])
+      expect(stored.timerPlans).toEqual([])
+      expect(stored.nickname).toBe('Cold')
+      expect(JSON.stringify(stored)).not.toContain('Offline shell task')
     })
   })
 
@@ -315,6 +325,27 @@ describe('study-planning v1 authority cold-start (non-resurrection)', () => {
       })
       expect(accidental.ok).toBe(false)
       if (!accidental.ok) expect(accidental.code).toBe('no_erase_flags')
+      expect(JSON.parse(store.getItem(STUDY_SPACE_STORAGE_KEY)!).tasks).toHaveLength(1)
+    })
+  })
+
+  describe('auto ≥30d wipe remains absent (unit contract)', () => {
+    it('demote helpers have no age-based erase; stale marker alone does not wipe V1', () => {
+      const store = memoryStorage({
+        [STUDY_SPACE_STORAGE_KEY]: JSON.stringify(makeSnapshot())
+      })
+      // Marker older than 30d — product must still require confirm+backup to erase.
+      writeV1LocalAuthorityDemotedMarker(1_700_000_000_000 - 40 * 24 * 60 * 60 * 1000, store)
+      expect(isV1LocalAuthorityDemoted(store)).toBe(true)
+      expect(JSON.parse(store.getItem(STUDY_SPACE_STORAGE_KEY)!).tasks).toHaveLength(1)
+
+      const refused = demoteV1LocalStorageKeys({
+        eraseTasks: true,
+        backupExportOk: true,
+        storage: store
+      })
+      expect(refused.ok).toBe(false)
+      if (!refused.ok) expect(refused.code).toBe('confirm_required')
       expect(JSON.parse(store.getItem(STUDY_SPACE_STORAGE_KEY)!).tasks).toHaveLength(1)
     })
   })

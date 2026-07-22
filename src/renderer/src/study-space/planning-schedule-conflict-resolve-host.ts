@@ -1,11 +1,17 @@
 /**
  * STC-707 host glue for week-plan conflict resolve on StudyTaskSchedulePage.
  *
+ * Product-signal freeze (IMPL-U):
+ * - Opt-in preview → confirm writeback is a **shipped default capability** on the
+ *   schedule page whenever conflicts are detected and planning context exists.
+ * - Silent auto-stagger remains **forbidden** (never auto-apply on detect/hydrate).
+ * - Locked blocks never move; hard ends respected by pure propose.
+ *
  * - Pure preview selection (wraps projectScheduleConflictResolvePreview)
  * - Apply orchestration: sequential dual-write CAS + re-read refresh
  * - Never auto-invoked on detect/hydrate; host must call only after explicit confirm
  *
- * ADR-0130 §5.1: no silent auto-stagger default; never move locked (pure + dual-write refuse).
+ * ADR-0130 §5.1 + roadmap STC-707: opt-in shipped; silent default banned.
  */
 
 import type { ProposedBlockMove, ScheduleBlock } from '../../../shared/study-planning'
@@ -20,11 +26,54 @@ import {
 } from './planning-schedule-conflicts-ui'
 
 /**
+ * STC-707 product-signal freeze (code-level contract).
+ * Opt-in two-step writeback is the default shipped capability when conflicts exist;
+ * silent automatic resolve on detect is never enabled.
+ */
+export const STC_707_PRODUCT_SIGNAL = {
+  /** Opt-in preview→confirm is shipped whenever conflicts + planning context. */
+  optInWritebackShippedDefault: true as const,
+  /** Silent auto-stagger on detect/hydrate is forbidden. */
+  silentAutoStaggerAllowed: false as const,
+  /** Apply requires explicit 确认应用 after 预览错开. */
+  requireExplicitConfirm: true as const,
+  /** Pure + dual-write never move locked blocks. */
+  respectLockedBlocks: true as const,
+  /** Pure propose fails closed on hardEnd window violation. */
+  respectHardEnd: true as const
+} as const
+
+/**
+ * Product freeze: never auto-apply conflict resolve on detect/hydrate.
+ * Hosts must only call apply after explicit 确认应用.
+ */
+export function shouldAutoApplyConflictResolveOnDetect(): false {
+  return STC_707_PRODUCT_SIGNAL.silentAutoStaggerAllowed
+}
+
+/**
+ * Whether the confirm-apply CTA may run (preview ready with at least one move).
+ * Empty preview / all targets locked → false (apply disabled/hidden path).
+ */
+export function canConfirmConflictResolveApply(input: {
+  preview: ScheduleConflictResolvePreview | null | undefined
+}): boolean {
+  const preview = input.preview
+  if (!preview || preview.kind !== 'ready') return false
+  return Array.isArray(preview.moves) && preview.moves.length > 0
+}
+
+/**
  * Build opt-in resolve preview when the banner has conflicts.
  * Pure: never writes. Returns null when host should stay list-only (no conflicts).
  */
 export function buildConflictResolvePreviewModel(input: {
   scheduleBlocks?: readonly ScheduleBlock[] | null
+  /**
+   * UI-visible tasks for orphan-filter parity with projectScheduleConflictsBanner.
+   * When omitted, resolve scans all focus blocks (legacy pure tests).
+   */
+  tasks?: readonly { id: string; title?: string | null; done?: boolean }[] | null
   /** When false, host stays list-only (no CTA). */
   hasConflicts?: boolean
   window?: { startAtMs: number; endAtMs: number; hardEnd: boolean }
@@ -32,19 +81,21 @@ export function buildConflictResolvePreviewModel(input: {
   if (input.hasConflicts === false) return null
   return projectScheduleConflictResolvePreview({
     scheduleBlocks: input.scheduleBlocks,
+    tasks: input.tasks,
     window: input.window
   })
 }
 
 /**
  * Whether the host should pass resolve CTA props into the banner.
- * Requires canonical planning context so apply can CAS-write.
- * Default product path (no context) remains list/banner only.
+ * Product-signal (shipped default): wire whenever planning context + conflicts.
+ * Without context, stay list-only (cannot CAS-write). Never implies silent auto.
  */
 export function shouldWireConflictResolveCta(input: {
   hasPlanningContext: boolean
   hasConflicts: boolean
 }): boolean {
+  if (!STC_707_PRODUCT_SIGNAL.optInWritebackShippedDefault) return false
   return Boolean(input.hasPlanningContext && input.hasConflicts)
 }
 
@@ -174,6 +225,11 @@ export function applyMovesToLocalBlocks(
 /**
  * When parent scheduleBlocks catch up to a local override (same start/end per id),
  * drop the override so sole parent prop remains source.
+ *
+ * Also clear when the parent set is a *strict subset / re-sync* that no longer
+ * carries every override id with matching intervals — e.g. soft-delete dropped
+ * orphan blocks. Stale override would otherwise keep phantom conflict banners
+ * after the host re-hydrated a cleaner canonical snapshot.
  */
 export function shouldClearScheduleBlocksOverride(input: {
   override: readonly ScheduleBlock[] | null | undefined
@@ -184,9 +240,31 @@ export function shouldClearScheduleBlocksOverride(input: {
   if (!override || override.length === 0) return true
   if (!parent || parent.length === 0) return false
   const parentById = new Map(parent.map((b) => [b.id, b]))
-  return override.every((ob) => {
+  const overrideById = new Map(override.map((b) => [b.id, b]))
+
+  // Parent has every override id with identical interval → override is fully applied.
+  const overrideCaughtUp = override.every((ob) => {
     const pb = parentById.get(ob.id)
     if (!pb) return false
     return pb.startAtMs === ob.startAtMs && pb.endAtMs === ob.endAtMs
   })
+  if (overrideCaughtUp) return true
+
+  // Parent re-sync dropped or rewrote blocks relative to override: keep override only
+  // while parent still looks older (missing moved intervals). If parent has *extra*
+  // authoritative rows or different times for shared ids, prefer parent (clear).
+  // Clear when no shared id still needs the override (all shared ids already match
+  // or parent has no shared ids left — override is pure stale ghost).
+  let sharedNeedsOverride = false
+  for (const [id, ob] of overrideById) {
+    const pb = parentById.get(id)
+    if (!pb) continue
+    if (pb.startAtMs !== ob.startAtMs || pb.endAtMs !== ob.endAtMs) {
+      sharedNeedsOverride = true
+      break
+    }
+  }
+  // No shared id still differs → parent either absorbed moves or dropped them.
+  // Drop override so conflict scan / week chips sole-read parent again.
+  return !sharedNeedsOverride
 }

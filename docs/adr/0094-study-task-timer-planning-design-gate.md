@@ -5,8 +5,7 @@
 - **范围：** 任务清单、任务详情、周/日时间排布、番茄时钟、连续专注、正计时/倒计时、时钟方案、休息、无任务启动、分类、提醒、恢复与本地分析的**产品与架构决策冻结**；不授权任何生产代码、路径/schema wire 或 UI 变更
 - **相关：**
   - 产品地板：[`AGENTS.md`](../../AGENTS.md)
-  - 规划全文：[`docs/study-task-timer-planning-roadmap.md`](../study-task-timer-planning-roadmap.md)
-  - Phase 0 决策包：[`docs/_agent-work/phase0-freeze-package.md`](../_agent-work/phase0-freeze-package.md)（**ephemeral workstream freeze package / 编排产物**；持久产品文档权威为 **本 ADR + 路线图**，勿将 `_agent-work` 当作长期 sole authority）
+  - Phase 0 决策包：历史 ephemeral 编排产物（`docs/_agent-work/` 已于 2026-07-22 清理）；**持久权威**为 **本 ADR + [ADR-0130](0130-study-planning-phase7-and-completion-residual.md)**（原路线图已删除）
   - [ADR-0003](0003-critical-json-backups-and-verified-recovery.md)（关键 JSON 备份与恢复精神）
   - [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)（教学 Session / LearningSession 消歧）
   - [ADR-0021](0021-agent-run-state-machine-separate-from-session.md)（AgentRun 与 Session 状态机分离；防计时/教学 Session 命名混用）
@@ -16,7 +15,7 @@
 
 ## 背景
 
-截至 2026-07-21，仓库已有任务、周排程、倒计时与时钟方案的初始能力，但“任务”“时钟方案”“时间窗口”与“正在运行的计时器”仍松散耦合。规划见 `docs/study-task-timer-planning-roadmap.md`。
+截至 2026-07-21，仓库已有任务、周排程、倒计时与时钟方案的初始能力，但“任务”“时钟方案”“时间窗口”与“正在运行的计时器”仍松散耦合。规划路线图文档已归档删除；规划与 residual 政策以本 ADR 与 [ADR-0130](0130-study-planning-phase7-and-completion-residual.md) 为准。
 
 在未完成 Phase 0 design gate 前，任何 canonical 文件路径、writer、schema、迁移或 UI 重写都不得被解释为已批准实施。本 ADR **只冻结**产品与架构决策及当前可审计基线，**不**新增 public API、**不**改生产路径、**不**宣称功能已实施。
 
@@ -171,10 +170,15 @@
 | 文档 | 角色 |
 | --- | --- |
 | **本 ADR-0094** | Phase 0 **冻结决策权威**（产品 10 项、六层模型、架构原则、STC 映射、non-claims） |
-| [`docs/study-task-timer-planning-roadmap.md`](../study-task-timer-planning-roadmap.md) | 规划细节、边界场景、测试矩阵、分阶段清单的展开说明；**不得**与本 ADR 冻结值冲突；冲突时以本 ADR 为准 |
-| [`docs/_agent-work/phase0-freeze-package.md`](../_agent-work/phase0-freeze-package.md) | 本 workstream **ephemeral** 决策包 / 编排产物来源；本 ADR 与之对齐。**持久权威**为 **ADR-0094 + 路线图**，非 `_agent-work` |
+| （历史）`docs/_agent-work/phase0-freeze-package.md` | **已清理**（2026-07-22）；曾为 ephemeral 决策包来源。**持久权威**为 **本 ADR + ADR-0130**，非 `_agent-work` |
 | 未来实现 ADR | 路径 / schema / 备份 / 迁移 / store IPC 的落地权威 |
 
 ---
 
 **一句话：** 任务是目标、时间块是安排、TimerSession 是事实；先提案后写入；文件为真相源；本文件只关门 Phase 0 决策，不交付实现。
+
+---
+
+## Living product note (2026-07-22)
+
+Phase 0 freeze historically named **`allocateTimeWindow` / AllocationProposal** as a pure-first design target for explainable window fill. **Product decision 2026-07-22:** the shipped product **does not** include 「按时钟方案生成排程提案」 (`allocateTimeWindow` / AllocationProposal UI / `apply_allocation_proposal`) nor 「旅行时区」 settings (`defaultTimeZone` prefs / travel rezone sheet). Those surfaces were **withdrawn** from code + residual docs (see [ADR-0130](0130-study-planning-phase7-and-completion-residual.md)；原路线图已删除). TimerPlan / 时钟方案 catalog, conflict detect/resolve, estimate suggestion, and timezone-DST display helpers remain. This note does **not** rewrite the historical freeze tables above; it only records the later product withdrawal.

@@ -10,7 +10,6 @@
   - sole-writer / revision 精神：[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)
   - TimerSession 命名消歧：[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)
   - 模块尺寸：[ADR-0075](0075-module-size-policy-and-giant-peel.md)
-  - 规划全文：[`docs/study-task-timer-planning-roadmap.md`](../study-task-timer-planning-roadmap.md)
 - **证据提交：** 本 ADR + 已合并的 shared pure / main durable / renderer dual-write·hydrate 与对应 unit 测试；**不**附带本切片新功能实现
 
 ## 背景
@@ -20,7 +19,7 @@
 1. **Phase 1–7 shared pure + 内存 Store + durable host + product IPC**（main sole-writer）；
 2. **Renderer cutover**：在保留 V1 `StudySnapshot` UI shell 的同时，把清单 / 排程 / 方案 / 计时 / 类别等 **写** 经 dual-write 推入 canonical，**读** 在 canonical 有数据时 sole-read hydrate。
 
-在未沉淀本 ADR 前，这些 cutover 决策分散在路线图 §22.4 changelog 与 `docs/_agent-work/reports/study-planning-cutover-*.md` 中。本 ADR 把 **已落地且重要** 的权威切分写成可审计架构决定，避免后续 PR 误把 dual-write 当成「双权威」、或误宣称 §18 完成 / 路径再冻结。
+在未沉淀本 ADR 前，这些 cutover 决策分散在历史路线图 §22.4 changelog 与 ephemeral `docs/_agent-work/reports/study-planning-cutover-*.md` 中（`docs/_agent-work/` 已于 2026-07-22 清理）。本 ADR 把 **已落地且重要** 的权威切分写成可审计架构决定，避免后续 PR 误把 dual-write 当成「双权威」、或误宣称 §18 完成 / 路径再冻结。
 
 ### 当前代码锚点（只读事实）
 
@@ -155,7 +154,7 @@ STC-206 产品路径 **已** 在 renderer 落地：
 4. 改写 `TeachingTurnCoordinator`、LearningSession ledger、outcome settlement 或 `toolsReplayed:false`；
 5. 实现 localStorage 自动擦除 UI、或把 V1 完全删除；（main `powerMonitor` **信号桥** 已落地，见 §4；unit recovery matrix 已补；e2e 完整矩阵仍开）
 6. 把 SQLite / agent run 提升为规划或教学权威；
-7. 把 ephemeral `docs/_agent-work/*` 当作长期 sole authority（长期权威为本 ADR + ADR-0094 + ADR-0117 + 路线图产品节）。
+7. 把 ephemeral `docs/_agent-work/*` 当作长期 sole authority（`docs/_agent-work/` 已于 2026-07-22 清理；长期权威为本 ADR + ADR-0094 + ADR-0117 + ADR-0130）。
 
 ## 后续工作约束
 

@@ -445,12 +445,18 @@ describe('teaching analytics integration', () => {
     const count = { value: 0 }
     const service = makeService(runtime, workspaceScan(runtime, [good]), records, count)
     const bundle = await service.getLearningAnalytics(query({ ...query().range, to: '2026-07-11' }))
-    expect(bundle.tokens.state).toBe('partial')
+    // Partial assistant turns and ledger fallback are honest gaps/warnings; the
+    // tokens section remains available when discovery sources themselves succeed.
+    expect(bundle.tokens.state).toBe('available')
     if (bundle.tokens.state === 'partial' || bundle.tokens.state === 'available' || bundle.tokens.state === 'empty') {
       expect(bundle.tokens.data.totals.totalTokens).toBe(40)
       expect(bundle.tokens.data.byConversation.find((item) => item.conversationId === 'conv-turn')?.totalTokens).toBe(10)
       expect(bundle.tokens.data.byConversation.find((item) => item.conversationId === 'conv-fallback')?.totalTokens).toBe(30)
       expect(bundle.tokens.data.sourceCoverage.ledgerFallbackConversations).toBe(1)
+      expect(bundle.tokens.warnings.map((item) => item.code)).toEqual(expect.arrayContaining([
+        'conversation_usage_partially_missing',
+        'ledger_fallback_used'
+      ]))
     }
   })
 
