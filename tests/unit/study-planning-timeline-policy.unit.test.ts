@@ -254,7 +254,8 @@ describe('StudyPlanningStore Phase 3/4 commands', () => {
     expect(r.snapshot.tasks).toHaveLength(1)
     expect(r.snapshot.tasks[0]).toMatchObject({
       id: 'tmp-1',
-      inbox: true,
+      categoryId: 'other',
+      inbox: false,
       source: 'quick_start'
     })
     expect(r.snapshot.timerSessions).toHaveLength(1)

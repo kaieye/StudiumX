@@ -140,10 +140,23 @@ export function applyStudyTimerPlan(snapshot: StudySnapshot, plan: StudyTimerPla
 }
 
 export function saveStudyTimerPlan(snapshot: StudySnapshot, plan: StudyTimerPlan): StudySnapshot {
-  const timerPlans = [plan, ...snapshot.timerPlans.filter((item) => item.id !== plan.id && item.name !== plan.name)].slice(0, 12)
+  // Keep stable catalog order on update/apply so left-nav items do not jump.
+  // New plans append to the end of the custom list (builtins stay separate in UI).
+  // Drop same-id or same-name collisions, then restore this plan at its prior index.
+  const existingIndex = snapshot.timerPlans.findIndex((item) => item.id === plan.id)
+  const without = snapshot.timerPlans.filter(
+    (item) => item.id !== plan.id && item.name !== plan.name
+  )
+  const nextPlans =
+    existingIndex >= 0
+      ? (() => {
+          const insertAt = Math.min(existingIndex, without.length)
+          return [...without.slice(0, insertAt), plan, ...without.slice(insertAt)]
+        })()
+      : [...without, plan]
   return {
     ...applyStudyTimerPlan(snapshot, plan),
-    timerPlans
+    timerPlans: nextPlans.slice(0, 12)
   }
 }
 
@@ -272,16 +285,22 @@ export function switchStudyTimerMode(snapshot: StudySnapshot, timerMode: StudyTi
   }
 }
 
-export function addStudyTask(snapshot: StudySnapshot, titleInput: string, id: string): {
+export function addStudyTask(
+  snapshot: StudySnapshot,
+  titleInput: string,
+  id: string,
+  categoryIdInput?: string | null
+): {
   snapshot: StudySnapshot
   added: boolean
 } {
   const title = titleInput.trim()
+  const categoryId = normalizeStudyTaskCategoryId(categoryIdInput) ?? 'study'
   if (!title) return { snapshot, added: false }
   return {
     snapshot: {
       ...snapshot,
-      tasks: [{ id, title: title.slice(0, 80), done: false, categoryId: 'study' as const }, ...snapshot.tasks].slice(0, STUDY_TASK_LIMIT)
+      tasks: [{ id, title: title.slice(0, 80), done: false, categoryId }, ...snapshot.tasks].slice(0, STUDY_TASK_LIMIT)
     },
     added: true
   }

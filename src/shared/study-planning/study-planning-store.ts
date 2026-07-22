@@ -51,6 +51,11 @@ export const STUDY_PLANNING_SCHEMA_VERSION = 1 as const
 
 export type StudyPlanningPreferencesV1 = {
   emptyStartPolicy?: 'ask_every_time' | 'remember_quick_start' | 'remember_unattributed'
+  /**
+   * Empty-start / quick_start task category id (builtin or custom-*).
+   * Default product path: 'other'. Optional wire ok without schemaVersion bump.
+   */
+  emptyStartCategoryId?: string | null
   classificationPromptOptOut?: boolean
   defaultTimerPlanId?: string | null
   /**
@@ -185,7 +190,8 @@ function emptySnapshot(nowMs: number): StudyPlanningSnapshotV1 {
     timerPlans: [createClassicPomodoroPlan()],
     timerSessions: [],
     preferences: {
-      emptyStartPolicy: 'ask_every_time',
+      emptyStartPolicy: 'remember_quick_start',
+      emptyStartCategoryId: 'other',
       classificationPromptOptOut: false,
       defaultTimerPlanId: 'classic_25_5'
     },
@@ -597,7 +603,13 @@ export class StudyPlanningStore {
           if (others.length + 1 > 12) {
             throw fail('invariant_violation', 'timer plan limit 12; refuse silent truncate')
           }
-          next.timerPlans = [plan, ...others]
+          // Preserve catalog order on update; only prepend was reordering custom rows in UI.
+          const existingIndex = next.timerPlans.findIndex((x) => x.id === plan.id)
+          if (existingIndex >= 0) {
+            next.timerPlans = next.timerPlans.map((x) => (x.id === plan.id ? plan : x))
+          } else {
+            next.timerPlans = [...others, plan]
+          }
           break
         }
         case 'copy_timer_plan': {
@@ -786,8 +798,8 @@ export class StudyPlanningStore {
               id: taskId,
               title,
               status: 'open',
-              categoryId: null,
-              inbox: true,
+              categoryId: 'other',
+              inbox: false,
               estimateMinutes: null,
               remainingEstimateMinutes: null,
               splittable: true,
@@ -897,6 +909,11 @@ export class StudyPlanningStore {
                   emptyStartPolicy: asString(p.emptyStartPolicy) as StudyPlanningPreferencesV1['emptyStartPolicy']
                 }
               : {}),
+            ...(p.emptyStartCategoryId === null
+              ? { emptyStartCategoryId: null as string | null }
+              : asString(p.emptyStartCategoryId)
+                ? { emptyStartCategoryId: asString(p.emptyStartCategoryId) }
+                : {}),
             ...(typeof p.classificationPromptOptOut === 'boolean'
               ? { classificationPromptOptOut: p.classificationPromptOptOut }
               : {}),

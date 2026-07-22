@@ -76,6 +76,7 @@ const sampleCats: StudyTaskCategory[] = [
   { id: 'study', name: '学习', color: '#8197aa', builtin: true },
   { id: 'entertainment', name: '娱乐', color: '#9c8aa5', builtin: true },
   { id: 'exercise', name: '锻炼', color: '#829d91', builtin: true },
+  { id: 'other', name: '其他', color: '#8a9096', builtin: true },
   { id: 'custom-lab', name: '实验', color: '#112233', builtin: false }
 ]
 

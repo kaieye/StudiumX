@@ -6,7 +6,9 @@ import {
   buildSimulationWindowPreferencesPatch,
   normalizeSimulationTimeLabel,
   normalizeSimulationWindow,
-  projectSimulationWindowFromPreferences
+  projectSimulationWindowFromPreferences,
+  simulationWindowFromTotalMinutes,
+  totalMinutesFromSimulationWindow
 } from '../../src/renderer/src/study-space/planning-simulation-window-ui'
 
 describe('planning-simulation-window-ui', () => {
@@ -48,5 +50,15 @@ describe('planning-simulation-window-ui', () => {
       simulationStartTime: '08:00',
       simulationEndTime: '11:00'
     })
+  })
+
+  it('converts total minutes to/from same-day HH:MM window', () => {
+    expect(totalMinutesFromSimulationWindow('00:00', '02:00')).toBe(120)
+    expect(totalMinutesFromSimulationWindow('09:00', '12:00')).toBe(180)
+    expect(totalMinutesFromSimulationWindow('12:00', '09:00')).toBeNull()
+    expect(simulationWindowFromTotalMinutes(120)).toEqual({ start: '00:00', end: '02:00' })
+    expect(simulationWindowFromTotalMinutes(180)).toEqual({ start: '00:00', end: '03:00' })
+    expect(simulationWindowFromTotalMinutes(0)).toBeNull()
+    expect(simulationWindowFromTotalMinutes(1500)).toBeNull()
   })
 })

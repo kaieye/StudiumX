@@ -36,7 +36,7 @@ export function resolveFocusStartAttribution(input: ResolveFocusStartInput): Foc
     return { kind: 'task', taskId: selected }
   }
 
-  const policy = input.emptyStartPolicy ?? 'ask_every_time'
+  const policy = input.emptyStartPolicy ?? 'remember_quick_start'
   const empty = resolveEmptyStart({
     policy,
     ...(input.userChoice ? { userChoice: input.userChoice } : {}),

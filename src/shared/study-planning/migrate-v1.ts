@@ -114,8 +114,11 @@ export function v1ScheduleToIntervalMs(input: {
   if (!Number.isFinite(input.weekAnchorMidnightMs)) return null
 
   const anchor = new Date(input.weekAnchorMidnightMs)
-  // Use UTC getters only for arithmetic base; weekday alignment is caller's local anchor.
-  const anchorWeekday = anchor.getUTCDay()
+  // weekAnchor is local midnight of some day in the target week (see
+  // resolveLocalWeekAnchorMidnightMs / resolveDefaultWeekAnchorMidnightMs).
+  // Must use local getDay() — getUTCDay() is off-by-one for UTC+ offsets
+  // (e.g. Asia/Shanghai Sunday 00:00 local = Saturday UTC → drag lands next day).
+  const anchorWeekday = anchor.getDay()
   const dayDelta = (weekday - anchorWeekday + 7) % 7
   // Full calendar day (not 24 minutes — prior bug used 24 * MINUTE_MS only).
   const dayStart = input.weekAnchorMidnightMs + dayDelta * 24 * 60 * MINUTE_MS

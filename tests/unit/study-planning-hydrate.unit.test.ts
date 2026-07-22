@@ -635,7 +635,8 @@ describe('hydrateStudyTasksFromCanonical preferences + timerPlans sole-read', ()
     expect(result.defaultTimerPlanId).toBeNull()
     expect(result.timerPlansProjected).toBe(0)
     // STC-404 fail-closed defaults when prefs omit empty-start / classification opt-out
-    expect(result.emptyStartPolicy).toBe('ask_every_time')
+    expect(result.emptyStartPolicy).toBe('remember_quick_start')
+    expect(result.emptyStartCategoryId).toBe('other')
     expect(result.classificationPromptOptOut).toBe(false)
     // STC-703 host: empty sole-read list when prefs omit recurrenceRules
     expect(result.recurrenceRules).toEqual([])
@@ -658,6 +659,7 @@ describe('hydrateStudyTasksFromCanonical preferences + timerPlans sole-read', ()
     expect(result.kind).toBe('applied')
     if (result.kind !== 'applied') return
     expect(result.emptyStartPolicy).toBe('remember_quick_start')
+    expect(result.emptyStartCategoryId).toBe('other')
     expect(result.classificationPromptOptOut).toBe(true)
     expect(result.recurrenceRules).toEqual([])
   })

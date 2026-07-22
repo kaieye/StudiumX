@@ -80,6 +80,38 @@ describe('study timer plans', () => {
     expect(running.breakMinutes).toBe(10)
   })
 
+
+  it('updates an existing plan without reordering the catalog list', () => {
+    const first = {
+      id: 'plan-a',
+      name: '方案A',
+      focusMinutes: 25,
+      breakMinutes: 5,
+      simulationStartTime: '09:00',
+      simulationEndTime: '12:00'
+    }
+    const second = {
+      id: 'plan-b',
+      name: '方案B',
+      focusMinutes: 40,
+      breakMinutes: 8,
+      simulationStartTime: '13:00',
+      simulationEndTime: '16:00'
+    }
+    const withTwo = saveStudyTimerPlan(saveStudyTimerPlan(defaultStudySnapshot, first), second)
+    expect(withTwo.timerPlans.map((p) => p.id)).toEqual(['plan-a', 'plan-b'])
+
+    const updated = saveStudyTimerPlan(withTwo, {
+      ...first,
+      focusMinutes: 50,
+      breakMinutes: 12
+    })
+    expect(updated.timerPlans.map((p) => p.id)).toEqual(['plan-a', 'plan-b'])
+    expect(updated.timerPlans[0]).toMatchObject({ id: 'plan-a', focusMinutes: 50, breakMinutes: 12 })
+    expect(updated.focusMinutes).toBe(50)
+    expect(updated.breakMinutes).toBe(12)
+  })
+
   it('preserves optional advanced fields on normalize', () => {
     const snapshot = normalizeStudySnapshot({
       ...defaultStudySnapshot,

@@ -376,11 +376,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     setDefaultTimerPlan,
     defaultTimerPlanId,
     emptyStartPolicy,
-    setEmptyStartPolicyPreference,
-    classificationPromptOptOut,
-    setClassificationPromptOptOutPreference,
-    recurrenceRules,
-    setRecurrenceRulesPreference,
+    emptyStartCategoryId,
+    setEmptyStartCategoryIdPreference,
     addScheduledTask,
     updateTask,
     toggleTask,
@@ -389,11 +386,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     completeTasksBatch,
     scheduleBlocks,
     canonicalCategories,
-    timerSessions,
     activeTimerSession,
     extendActiveTimerTarget,
-    createFocusBlock,
-    deleteScheduleBlock,
     migrationOffer,
     migrationBusy,
     migrationError,
@@ -921,11 +915,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                 : null
           }}
           canonicalCategories={canonicalCategories}
-          onCreateFocusBlock={createFocusBlock}
-          onDeleteScheduleBlock={deleteScheduleBlock}
-          timerSessions={timerSessions}
-          recurrenceRules={recurrenceRules}
-          onSaveRecurrenceRules={setRecurrenceRulesPreference}
         />
       </section>
     )
@@ -964,10 +953,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             timerProgress={viewModel.timerProgress}
             selectedTaskId={selectedTaskId}
             defaultTimerPlanId={defaultTimerPlanId}
-            emptyStartPolicy={emptyStartPolicy}
-            classificationPromptOptOut={classificationPromptOptOut}
+            emptyStartCategoryId={emptyStartCategoryId}
+            emptyStartCategoryOptions={(canonicalCategories ?? listStudyTaskCategories()).map((c) => ({
+              value: c.id,
+              label: c.name
+            }))}
             activeTimerSession={activeTimerSession}
-            timerSessions={timerSessions}
             onToggleTimer={toggleTimer}
             onResetTimer={resetTimer}
             onStartTimerInMode={startTimerInMode}
@@ -977,8 +968,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             onCopyTimerPlan={copyTimerPlan}
             onRenameTimerPlan={renameTimerPlan}
             onSetDefaultTimerPlan={setDefaultTimerPlan}
-            onEmptyStartPolicyChange={setEmptyStartPolicyPreference}
-            onClassificationPromptOptOutChange={setClassificationPromptOptOutPreference}
+            onEmptyStartCategoryIdChange={setEmptyStartCategoryIdPreference}
             onExtendActiveTimer={(minutes) => {
               extendActiveTimerTarget({ addMinutes: minutes })
             }}
@@ -1123,8 +1113,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                     : null
               }}
               canonicalCategories={canonicalCategories}
-              recurrenceRules={recurrenceRules}
-              onSaveRecurrenceRules={setRecurrenceRulesPreference}
                     />
           </div>
         ) : null}

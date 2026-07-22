@@ -53,7 +53,7 @@ export function buildEmptyStartSheetModel(input: {
   openTasks: readonly EmptyStartSheetTask[]
   now?: Date
 }): EmptyStartSheetModel {
-  const policy = input.policy ?? 'ask_every_time'
+  const policy = input.policy ?? 'remember_quick_start'
   const openTasks = input.openTasks
     .filter((task) => typeof task.id === 'string' && task.id.trim().length > 0)
     .map((task) => ({
@@ -80,14 +80,14 @@ export function buildEmptyStartSheetModel(input: {
     copy: {
       title: hasOpenTasks ? '开始专注前选择任务' : '开始专注',
       description: hasOpenTasks
-        ? '当前没有选中任务。请选择清单中的任务、快速创建临时任务，或以「无任务」计时。不会静默绑定第一条开放任务。'
-        : '清单暂无开放任务。可快速创建「临时专注」并开始，或以「无任务」计时（时间不计入任务占比）。',
+        ? '当前没有选中任务。请选择清单中的任务、快速创建临时任务（默认归入「其他」），或以「无任务」计时。不会静默绑定第一条开放任务。'
+        : '清单暂无开放任务。可快速创建「临时专注」并开始（默认归入「其他」），或以「无任务」计时（时间不计入任务占比）。',
       pickTaskLabel: '选择任务',
       quickStartLabel: hasOpenTasks ? '新建临时任务并开始' : '创建「临时专注」并开始',
       unattributedLabel: '无任务计时开始',
       cancelLabel: '取消',
       quickStartTitleLabel: '临时任务标题',
-      emptyTasksHint: '暂无开放任务，请创建临时任务或无任务计时。'
+      emptyTasksHint: '暂无开放任务，请创建临时任务（归入「其他」）或无任务计时。'
     }
   }
 }

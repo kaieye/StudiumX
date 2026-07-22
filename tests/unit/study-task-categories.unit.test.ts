@@ -10,7 +10,7 @@ import {
   updateStudyTaskCategory
 } from '../../src/renderer/src/study-space/taskCategories'
 import { normalizeStudyTasks } from '../../src/renderer/src/study-space/domain'
-import { updateStudyTask, addScheduledStudyTask } from '../../src/renderer/src/study-space/session/transitions'
+import { updateStudyTask, addScheduledStudyTask, addStudyTask } from '../../src/renderer/src/study-space/session/transitions'
 import { defaultStudySnapshot } from '../../src/renderer/src/study-space/constants'
 
 describe('study task categories', () => {
@@ -18,9 +18,9 @@ describe('study task categories', () => {
     window.localStorage.clear()
   })
 
-  it('includes builtin 学习 / 娱乐 / 锻炼 categories', () => {
-    expect(builtinStudyTaskCategories.map((item) => item.name)).toEqual(['学习', '娱乐', '锻炼'])
-    expect(normalizeStudyTaskCategories([])).toHaveLength(3)
+  it('includes builtin 学习 / 娱乐 / 锻炼 / 其他 categories', () => {
+    expect(builtinStudyTaskCategories.map((item) => item.name)).toEqual(['学习', '娱乐', '锻炼', '其他'])
+    expect(normalizeStudyTaskCategories([])).toHaveLength(4)
   })
 
   it('allows custom categories with bound colors', () => {
@@ -31,7 +31,7 @@ describe('study task categories', () => {
     expect(result.category?.name).toBe('科研')
     expect(result.category?.color).toBe('#6f8fa8')
     expect(result.category?.builtin).toBe(false)
-    expect(result.categories).toHaveLength(4)
+    expect(result.categories).toHaveLength(5)
   })
 
   it('does not remove builtin categories', () => {
@@ -76,5 +76,13 @@ describe('study task categories', () => {
 
     const cleared = updateStudyTask(updated.snapshot, 'task-run', { categoryId: null })
     expect(cleared.snapshot.tasks.find((task) => task.id === 'task-run')?.categoryId).toBe('study')
+  })
+
+  it('addStudyTask accepts categoryId including builtin 其他', () => {
+    const plain = addStudyTask(defaultStudySnapshot, '普通任务', 'task-plain')
+    expect(plain.snapshot.tasks[0]?.categoryId).toBe('study')
+    const other = addStudyTask(defaultStudySnapshot, '临时', 'task-other', 'other')
+    expect(other.added).toBe(true)
+    expect(other.snapshot.tasks[0]?.categoryId).toBe('other')
   })
 })

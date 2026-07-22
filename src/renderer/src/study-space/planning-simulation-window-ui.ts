@@ -72,3 +72,53 @@ export function buildSimulationWindowPreferencesPatch(window: SimulationWindowLa
     simulationEndTime: window.end
   }
 }
+
+/**
+ * Derive total minutes from an HH:MM simulation window (same-day).
+ * Returns null when the window is invalid.
+ */
+export function totalMinutesFromSimulationWindow(
+  simulationStartTime?: unknown,
+  simulationEndTime?: unknown
+): number | null {
+  const window = normalizeSimulationWindow({
+    simulationStartTime,
+    simulationEndTime
+  })
+  if (!window) return null
+  const [sh, sm] = window.start.split(':').map(Number)
+  const [eh, em] = window.end.split(':').map(Number)
+  const total = eh * 60 + em - (sh * 60 + sm)
+  return total > 0 ? total : null
+}
+
+/**
+ * Encode total minutes as a same-day HH:MM window starting at 00:00.
+ * Caps at 23:59 (1439 minutes). Returns null when out of range.
+ */
+export function simulationWindowFromTotalMinutes(
+  totalMinutes: number,
+  baseStart: string = '00:00'
+): SimulationWindowLabels | null {
+  if (!Number.isInteger(totalMinutes) || totalMinutes < 1 || totalMinutes > 24 * 60 - 1) {
+    return null
+  }
+  const start = normalizeSimulationTimeLabel(baseStart) ?? '00:00'
+  const [sh, sm] = start.split(':').map(Number)
+  const startTotal = sh * 60 + sm
+  const endTotal = startTotal + totalMinutes
+  if (endTotal > 24 * 60 - 1) {
+    // Prefer anchoring at 00:00 when base would overflow the day.
+    if (start !== '00:00') {
+      return simulationWindowFromTotalMinutes(totalMinutes, '00:00')
+    }
+    return null
+  }
+  const eh = Math.floor(endTotal / 60)
+  const em = endTotal % 60
+  return {
+    start,
+    end: `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`
+  }
+}
+

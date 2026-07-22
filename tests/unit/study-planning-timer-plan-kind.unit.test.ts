@@ -236,7 +236,17 @@ describe('resolvePlanV2ForStart / createContinuousCountupPlan', () => {
 })
 
 describe('isValidContinuousPlanDraft', () => {
-  it('accepts open continuous without focus target', () => {
+  it('requires focus + total minutes for continuous cycle', () => {
+    expect(
+      isValidContinuousPlanDraft({
+        name: 'A',
+        continuousTarget: false,
+        breakPolicy: 'reminder_only',
+        focusMinutes: 25,
+        breakMinutes: 5,
+        totalMinutes: 120
+      })
+    ).toBe(true)
     expect(
       isValidContinuousPlanDraft({
         name: 'A',
@@ -245,10 +255,10 @@ describe('isValidContinuousPlanDraft', () => {
         simulationStartTime: '09:00',
         simulationEndTime: '12:00'
       })
-    ).toBe(true)
+    ).toBe(false)
   })
 
-  it('requires focusMinutes when continuousTarget true', () => {
+  it('requires total minutes for exam continuous (no separate focus field)', () => {
     expect(
       isValidContinuousPlanDraft({
         name: 'A',
@@ -261,7 +271,14 @@ describe('isValidContinuousPlanDraft', () => {
       isValidContinuousPlanDraft({
         name: 'A',
         continuousTarget: true,
-        focusMinutes: 90,
+        breakPolicy: 'none',
+        totalMinutes: 180
+      })
+    ).toBe(true)
+    expect(
+      isValidContinuousPlanDraft({
+        name: 'A',
+        continuousTarget: true,
         breakPolicy: 'none',
         simulationStartTime: '09:00',
         simulationEndTime: '12:00'

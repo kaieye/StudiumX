@@ -17,7 +17,7 @@ describe('study-planning-categories pure', () => {
     const next = normalizeStudyPlanningCategories([
       { id: 'study', name: '学习', color: '#ABCDEF', builtin: true }
     ])
-    expect(next.map((c) => c.id)).toEqual(['study', 'entertainment', 'exercise'])
+    expect(next.map((c) => c.id)).toEqual(['study', 'entertainment', 'exercise', 'other'])
     expect(next[0]?.color).toBe('#abcdef')
   })
 

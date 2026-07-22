@@ -1,6 +1,6 @@
 /**
  * Empty-start and classification policies (Phase 4 pure / STC-401..407).
- * Default empty-start: ask_every_time (product freeze #1).
+ * Default empty-start: remember_quick_start (attribute to builtin 「其他」 via temp task).
  */
 
 export type EmptyStartPolicy = 'ask_every_time' | 'remember_quick_start' | 'remember_unattributed'
@@ -22,7 +22,7 @@ export function resolveEmptyStart(input: {
   userChoice?: EmptyStartChoice
   selectedTaskId?: string | null
 }): EmptyStartResolution {
-  const policy = input.policy ?? 'ask_every_time'
+  const policy = input.policy ?? 'remember_quick_start'
 
   if (policy === 'ask_every_time') {
     if (!input.userChoice) return { action: 'ask', policy }

@@ -21,12 +21,12 @@ describe('resolveFocusStartAttribution (STC-401)', () => {
     ).toEqual({ kind: 'task', taskId: 'b' })
   })
 
-  it('asks by default when no selection (never silent first open)', () => {
+  it('quick_start by default when no selection (never silent first open)', () => {
     expect(
       resolveFocusStartAttribution({
         openTaskIds: ['a', 'b']
       })
-    ).toEqual({ kind: 'ask', policy: 'ask_every_time' })
+    ).toEqual({ kind: 'quick_start' })
   })
 
   it('honors remember_unattributed preference', () => {
@@ -42,6 +42,7 @@ describe('resolveFocusStartAttribution (STC-401)', () => {
     expect(
       resolveFocusStartAttribution({
         openTaskIds: ['a'],
+        emptyStartPolicy: 'ask_every_time',
         userChoice: 'unattributed'
       })
     ).toEqual({ kind: 'unattributed' })
@@ -57,6 +58,7 @@ describe('resolveFocusStartAttribution (STC-401)', () => {
     expect(
       resolveFocusStartAttribution({
         openTaskIds: [],
+        emptyStartPolicy: 'ask_every_time',
         userChoice: 'quick_start'
       })
     ).toEqual({ kind: 'quick_start' })

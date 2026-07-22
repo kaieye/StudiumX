@@ -1,79 +1,83 @@
 /**
- * Study planning prefs strip (STC-404) — empty-start policy + classification opt-out.
- * Peel from WorkbenchPomodoro settings so the card stays thin.
+ * Study planning prefs strip — empty-start category row (settings-style).
+ * Embedded into 专注方案 after product subtraction of the standalone 启动偏好 page.
  */
 
 import { useMemo } from 'react'
-import type { EmptyStartPolicy } from '../../../../shared/study-planning'
-import { buildStudyPlanningPrefsModel } from '../../study-space/planning-study-prefs-ui'
+import { SettingsRow, SettingsSelect } from '../settings/SettingsPrimitives'
+import {
+  buildStudyPlanningPrefsModel,
+  type EmptyStartCategoryOption
+} from '../../study-space/planning-study-prefs-ui'
 
 export type StudyPlanningPrefsSectionProps = {
-  emptyStartPolicy: EmptyStartPolicy
-  classificationPromptOptOut: boolean
-  onEmptyStartPolicyChange: (policy: EmptyStartPolicy) => void
-  onClassificationPromptOptOutChange: (optOut: boolean) => void
+  emptyStartCategoryId: string
+  categoryOptions: readonly EmptyStartCategoryOption[]
+  onEmptyStartCategoryIdChange: (categoryId: string) => void
+  /**
+   * Compact embed inside 专注方案: one settings-row only (no outer card).
+   */
+  compact?: boolean
 }
 
 export function StudyPlanningPrefsSection({
-  emptyStartPolicy,
-  classificationPromptOptOut,
-  onEmptyStartPolicyChange,
-  onClassificationPromptOptOutChange
+  emptyStartCategoryId,
+  categoryOptions,
+  onEmptyStartCategoryIdChange,
+  compact = true
 }: StudyPlanningPrefsSectionProps) {
   const model = useMemo(
     () =>
       buildStudyPlanningPrefsModel({
-        emptyStartPolicy,
-        classificationPromptOptOut
+        emptyStartCategoryId,
+        categoryOptions
       }),
-    [emptyStartPolicy, classificationPromptOptOut]
+    [emptyStartCategoryId, categoryOptions]
   )
 
-  return (
-    <section className="workbench-study-planning-prefs" aria-label={model.copy.title}>
-      <header className="workbench-study-planning-prefs__header">
-        <strong>{model.copy.title}</strong>
-        <p>{model.copy.description}</p>
-      </header>
+  const options = useMemo(
+    () =>
+      (categoryOptions.length > 0
+        ? categoryOptions
+        : [{ value: model.emptyStartCategoryId, label: model.emptyStartCategoryId }]
+      ).map((o) => ({ value: o.value, label: o.label })),
+    [categoryOptions, model.emptyStartCategoryId]
+  )
 
-      <div className="workbench-study-planning-prefs__field">
-        <span className="workbench-study-planning-prefs__label">{model.copy.emptyStartLabel}</span>
-        <div
-          className="workbench-study-planning-prefs__options"
-          role="radiogroup"
-          aria-label={model.copy.emptyStartLabel}
-        >
-          {model.options.map((option) => {
-            const selected = option.value === model.emptyStartPolicy
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                className={`workbench-study-planning-prefs__option${selected ? ' is-selected' : ''}`}
-                onClick={() => onEmptyStartPolicyChange(option.value)}
-              >
-                <strong>{option.label}</strong>
-                <small>{option.description}</small>
-              </button>
-            )
-          })}
-        </div>
+  const selected = options.some((o) => o.value === model.emptyStartCategoryId)
+    ? model.emptyStartCategoryId
+    : (options[0]?.value ?? 'other')
+
+  const row = (
+    <SettingsRow label={model.copy.emptyStartLabel} detail={model.copy.description}>
+      <SettingsSelect
+        value={selected}
+        position="item-aligned"
+        options={options}
+        onChange={onEmptyStartCategoryIdChange}
+      />
+    </SettingsRow>
+  )
+
+  // Compact: plain row only (parent supplies SettingsCard).
+  if (compact) {
+    return (
+      <div
+        className="workbench-study-planning-prefs workbench-study-planning-prefs--row"
+        role="region"
+        aria-label={model.copy.title}
+      >
+        {row}
       </div>
+    )
+  }
 
-      <label className="workbench-study-planning-prefs__toggle">
-        <input
-          type="checkbox"
-          checked={model.classificationPromptOptOut}
-          onChange={(event) => onClassificationPromptOptOutChange(event.target.checked)}
-          aria-label={model.copy.classificationOptOutLabel}
-        />
-        <span>
-          <strong>{model.copy.classificationOptOutLabel}</strong>
-          <small>{model.copy.classificationOptOutDetail}</small>
-        </span>
-      </label>
+  return (
+    <section
+      className="workbench-study-planning-prefs workbench-study-planning-prefs--row"
+      aria-label={model.copy.title}
+    >
+      {row}
     </section>
   )
 }

@@ -8,7 +8,7 @@
 export const STUDY_PLANNING_CATEGORY_NAME_MAX = 16
 export const STUDY_PLANNING_CUSTOM_CATEGORY_LIMIT = 24
 
-export type StudyPlanningBuiltinCategoryId = 'study' | 'entertainment' | 'exercise'
+export type StudyPlanningBuiltinCategoryId = 'study' | 'entertainment' | 'exercise' | 'other'
 export type StudyPlanningCategoryId = StudyPlanningBuiltinCategoryId | `custom-${string}`
 
 export type StudyPlanningCategoryV1 = {
@@ -23,7 +23,8 @@ export const BUILTIN_STUDY_PLANNING_CATEGORIES: ReadonlyArray<
 > = [
   { id: 'study', name: '学习', color: '#8197aa', builtin: true },
   { id: 'entertainment', name: '娱乐', color: '#9c8aa5', builtin: true },
-  { id: 'exercise', name: '锻炼', color: '#829d91', builtin: true }
+  { id: 'exercise', name: '锻炼', color: '#829d91', builtin: true },
+  { id: 'other', name: '其他', color: '#8a9096', builtin: true }
 ]
 
 const builtinIds = new Set<string>(BUILTIN_STUDY_PLANNING_CATEGORIES.map((c) => c.id))

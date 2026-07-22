@@ -50,7 +50,7 @@ export type StudyTaskScheduleColorId =
   | 'rose'
   | `#${string}`
 
-export type StudyTaskBuiltinCategoryId = 'study' | 'entertainment' | 'exercise'
+export type StudyTaskBuiltinCategoryId = 'study' | 'entertainment' | 'exercise' | 'other'
 export type StudyTaskCategoryId = StudyTaskBuiltinCategoryId | `custom-${string}`
 
 export type StudyTaskCategory = {

@@ -48,6 +48,10 @@ if (!HTMLElement.prototype.scrollIntoView) {
   HTMLElement.prototype.scrollIntoView = vi.fn()
 }
 
+if (!Element.prototype.scrollTo) {
+  Element.prototype.scrollTo = vi.fn() as typeof Element.prototype.scrollTo
+}
+
 if (!globalThis.requestAnimationFrame) {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
     setTimeout(() => callback(performance.now()), 0)

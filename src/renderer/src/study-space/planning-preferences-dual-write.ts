@@ -22,6 +22,8 @@ import {
 
 export type StudyPlanningPrefsPatch = {
   emptyStartPolicy?: EmptyStartPolicy
+  /** Empty-start quick_start category id (default other). */
+  emptyStartCategoryId?: string | null
   classificationPromptOptOut?: boolean
   defaultTimerPlanId?: string | null
   /** Active simulation window labels (HH:MM). */
@@ -66,6 +68,9 @@ export function buildSetPreferencesCommand(
   const payload: Record<string, unknown> = {}
   if (patch.emptyStartPolicy !== undefined) {
     payload.emptyStartPolicy = patch.emptyStartPolicy
+  }
+  if (patch.emptyStartCategoryId !== undefined) {
+    payload.emptyStartCategoryId = patch.emptyStartCategoryId
   }
   if (typeof patch.classificationPromptOptOut === 'boolean') {
     payload.classificationPromptOptOut = patch.classificationPromptOptOut
@@ -142,6 +147,7 @@ export async function dualWriteSetPreferences(
   if (!hasCanonicalContext(ctx)) return skipped(ctx)
   if (
     patch.emptyStartPolicy === undefined &&
+    patch.emptyStartCategoryId === undefined &&
     patch.classificationPromptOptOut === undefined &&
     patch.defaultTimerPlanId === undefined &&
     patch.simulationStartTime === undefined &&
@@ -174,6 +180,13 @@ export async function dualWriteSetEmptyStartPolicy(
   emptyStartPolicy: EmptyStartPolicy
 ): Promise<DualWriteResult> {
   return dualWriteSetPreferences(ctx, { emptyStartPolicy })
+}
+
+export async function dualWriteSetEmptyStartCategoryId(
+  ctx: CanonicalPlanningContext,
+  emptyStartCategoryId: string | null
+): Promise<DualWriteResult> {
+  return dualWriteSetPreferences(ctx, { emptyStartCategoryId })
 }
 
 export async function dualWriteSetClassificationPromptOptOut(

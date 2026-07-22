@@ -66,7 +66,7 @@ export const TIMER_PLAN_SEED_DEFAULTS = {
   focusMinutesMin: 5,
   focusMinutesMax: 180,
   continuousFocusMinutesMax: 240,
-  shortBreakMinutesMin: 1,
+  shortBreakMinutesMin: 0,
   shortBreakMinutesMax: 45,
   longBreakMinutesMin: 5,
   longBreakMinutesMax: 60,

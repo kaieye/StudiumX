@@ -3257,7 +3257,7 @@
 
 .study-schedule-stats {
   display: grid;
-  grid-template-columns: 42px repeat(3, minmax(74px, 1fr));
+  grid-template-columns: 28px repeat(3, minmax(74px, 1fr));
   gap: 8px;
   min-width: 0;
 }
@@ -3621,7 +3621,6 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-.study-schedule-stat-add-button,
 .study-schedule-editor-close,
 .study-schedule-draft-actions button,
 .study-schedule-event-status button {
@@ -3638,18 +3637,19 @@
 }
 
 .study-schedule-stat-add-button {
-  width: 42px;
-  height: 42px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
   align-self: center;
-  color: #ffffff;
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  border-radius: 14px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 42%, transparent), transparent 48%),
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, #ffffff), var(--accent));
-  box-shadow:
-    0 8px 18px color-mix(in srgb, var(--accent) 22%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+  padding: 0;
+  color: var(--accent);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
 }
 
 .study-schedule-hover-line {
@@ -4300,7 +4300,7 @@
 
 .study-schedule-category-swatches {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -4772,7 +4772,7 @@
   }
 
   .study-schedule-stats {
-    grid-template-columns: 42px repeat(3, minmax(0, 1fr));
+    grid-template-columns: 28px repeat(3, minmax(0, 1fr));
   }
 
   .study-schedule-editor-backdrop {
@@ -7144,9 +7144,10 @@
   box-sizing: border-box;
   display: grid;
   grid-template-columns: 176px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   width: min(920px, calc(100vw - 48px));
-  height: min(560px, calc(100vh - 48px));
-  max-height: min(560px, calc(100vh - 48px));
+  height: min(620px, calc(100vh - 48px));
+  max-height: min(620px, calc(100vh - 48px));
   overflow: hidden;
   gap: 0;
   margin: 0;
@@ -7185,15 +7186,17 @@
 
 .workbench-pomodoro-settings-nav {
   display: grid;
-  align-content: start;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
   gap: 6px;
+  min-width: 0;
   min-height: 0;
   height: 100%;
   padding: 22px 12px;
   border: 0;
   border-right: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
   background: color-mix(in srgb, var(--surface-muted, #eaf2ff) 42%, transparent);
-  overflow: auto;
+  overflow: hidden;
 }
 
 .workbench-pomodoro-settings-nav-heading {
@@ -7203,6 +7206,94 @@
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+
+.workbench-pomodoro-settings-nav-list {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.workbench-pomodoro-settings-nav-add {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
+}
+
+.workbench-pomodoro-settings-nav-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text, #17202b);
+  font-size: 12.5px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.workbench-pomodoro-settings-nav-add-btn:hover {
+  background: color-mix(in srgb, var(--surface-solid, #fff) 72%, transparent);
+}
+
+
+.workbench-pomodoro-settings-nav-plan {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 2px;
+  border-radius: 10px;
+}
+
+.workbench-pomodoro-settings-nav-plan.is-active {
+  background: color-mix(in srgb, var(--surface-solid, #fff) 88%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent);
+}
+
+.workbench-pomodoro-settings-nav-plan .workbench-pomodoro-settings-nav-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-pomodoro-settings-nav-plan .workbench-pomodoro-rename-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  min-width: 0;
+}
+
+.workbench-pomodoro-settings-nav-plan .workbench-pomodoro-rename-row input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 86%, transparent);
+  border-radius: 8px;
+}
+
+/* Empty-start row lives inside SettingsCard — no nested card chrome. */
+.workbench-study-planning-prefs--row {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-study-planning-prefs--row:last-child .settings-row {
+  border-bottom: 0;
 }
 
 .workbench-pomodoro-settings-nav-item {
@@ -7239,19 +7330,73 @@
 }
 
 .workbench-pomodoro-settings-nav-item small {
-  color: var(--text-muted, #667085);
-  font-size: 0.625rem;
-  font-weight: 620;
+  display: none;
 }
 
 .workbench-pomodoro-settings-content {
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  padding: 22px 48px 22px 24px;
+  height: 100%;
+  overflow: hidden;
+  padding: 22px 48px 16px 24px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: stretch;
+  gap: 12px;
+}
+
+.workbench-pomodoro-settings-scroll {
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+  padding-bottom: 4px;
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 12px;
+}
+
+.workbench-pomodoro-settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
+}
+
+.workbench-pomodoro-settings-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.workbench-pomodoro-settings-footer .ghost-button {
+  min-height: 34px;
+  height: auto;
+  padding: 0 12px;
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.workbench-pomodoro-settings-footer .ghost-button.strong {
+  min-width: 112px;
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan {
+  width: auto;
+  margin-top: 0;
+  box-shadow: none;
+  background: var(--text, #17202b);
+  border-color: var(--text, #17202b);
+  color: #fff;
 }
 
 .workbench-pomodoro-settings-panel-heading h2 {
@@ -7270,7 +7415,6 @@
   line-height: 1.45;
 }
 
-.workbench-pomodoro-settings-fields label > span,
 .workbench-pomodoro-saved-plans > span {
   display: block;
   color: var(--text-muted, #667085);
@@ -7302,7 +7446,20 @@
   }
 
   .workbench-pomodoro-settings-content {
-    padding: 16px 18px 18px;
+    padding: 16px 18px 14px;
+  }
+
+  .workbench-pomodoro-settings-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .workbench-pomodoro-settings-footer-actions {
+    width: 100%;
+  }
+
+  .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan {
+    width: 100%;
   }
 }
 
@@ -7323,64 +7480,74 @@
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 58%, transparent);
 }
 
-.workbench-pomodoro-settings-fields {
-  display: grid;
-  gap: 11px;
+/* Settings-card list form (align with 设置 · 外观) */
+.workbench-pomodoro-settings-card {
+  margin: 0;
 }
 
-.workbench-pomodoro-settings-fields label {
-  display: grid;
-  gap: 6px;
-}
-
-.workbench-pomodoro-settings-fields input,
-.workbench-pomodoro-settings-fields select {
-  box-sizing: border-box;
-  width: 100%;
+.workbench-pomodoro-settings-card .settings-row-control .settings-input,
+.workbench-pomodoro-settings-card .settings-row-control .settings-number {
+  width: min(220px, 100%);
   min-width: 0;
-  height: 34px;
-  padding: 0 10px;
-  color: var(--text, #17202b);
-  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 86%, transparent);
-  border-radius: 10px;
-  outline: none;
-  background: color-mix(in srgb, var(--surface-solid, #fff) 62%, transparent);
-  box-shadow: inset 0 1px 1px color-mix(in srgb, #142a4a 5%, transparent);
-  font: inherit;
-  font-size: 0.75rem;
-  font-weight: 650;
 }
 
-.workbench-pomodoro-settings-fields input:focus,
-.workbench-pomodoro-settings-fields select:focus {
-  border-color: color-mix(in srgb, var(--accent, #007aff) 56%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #007aff) 14%, transparent);
-}
 
-.workbench-pomodoro-settings-durations {
+.workbench-pomodoro-settings-dual-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 16px;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-muted, color-mix(in srgb, var(--line, #d6deeb) 70%, transparent));
 }
 
-.workbench-pomodoro-number-input {
-  position: relative;
+.workbench-pomodoro-settings-dual-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
 }
 
-.workbench-pomodoro-number-input input {
-  padding-right: 42px;
+.workbench-pomodoro-settings-dual-label {
+  color: var(--text, #17202b);
+  font-size: 13.5px;
+  font-weight: 730;
+  white-space: nowrap;
 }
 
-.workbench-pomodoro-number-input em {
-  position: absolute;
-  top: 50%;
-  right: 10px;
+.workbench-pomodoro-settings-dual-row .workbench-pomodoro-settings-control-inline .settings-number {
+  width: 72px;
+}
+
+@media (max-width: 720px) {
+  .workbench-pomodoro-settings-dual-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.workbench-pomodoro-settings-control-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workbench-pomodoro-settings-control-inline .settings-number {
+  width: 88px;
+}
+
+.workbench-pomodoro-settings-unit {
   color: var(--text-muted, #667085);
-  font-size: 0.62rem;
-  font-style: normal;
-  font-weight: 680;
-  transform: translateY(-50%);
-  pointer-events: none;
+  font-size: 12px;
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-settings-rhythm-row {
+  padding: 10px 14px 14px;
+  border-bottom: 1px solid var(--line-muted, color-mix(in srgb, var(--line, #d6deeb) 70%, transparent));
 }
 
 .workbench-pomodoro-time-range {
@@ -7388,6 +7555,10 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 6px;
+}
+
+.workbench-pomodoro-time-range--settings {
+  width: min(260px, 100%);
 }
 
 .workbench-pomodoro-time-range input {
@@ -7495,25 +7666,7 @@
   gap: 2px;
 }
 
-.workbench-pomodoro-save-plan {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  min-height: 36px;
-  margin-top: 14px;
-  padding: 0 12px;
-  color: #fff;
-  border: 1px solid color-mix(in srgb, #007aff 64%, transparent);
-  border-radius: 11px;
-  background: linear-gradient(180deg, color-mix(in srgb, #3398ff 92%, #fff), #007aff);
-  box-shadow: 0 9px 18px color-mix(in srgb, #007aff 24%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.34);
-  font-size: 0.74rem;
-  font-weight: 760;
-}
-
-.workbench-pomodoro-save-plan:disabled {
+.workbench-pomodoro-apply-plan:disabled {
   cursor: not-allowed;
   opacity: 0.42;
 }
@@ -7619,24 +7772,6 @@
   border-color: color-mix(in srgb, #007aff 36%, transparent);
 }
 
-.workbench-pomodoro-plan-badge {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 5px;
-  color: var(--text-muted, #667085);
-  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 80%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-solid, #fff) 55%, transparent);
-  font-size: 0.55rem;
-  font-style: normal;
-  font-weight: 720;
-  vertical-align: middle;
-}
-
-.workbench-pomodoro-plan-badge.is-default {
-  color: #007aff;
-  border-color: color-mix(in srgb, #007aff 36%, transparent);
-}
 
 .workbench-pomodoro-plan-row.is-builtin .workbench-pomodoro-saved-plan {
   background: color-mix(in srgb, var(--surface-muted, #eaf2ff) 40%, transparent);
@@ -7908,95 +8043,13 @@
 }
 
 
-/* STC-404 Study planning prefs (pomodoro settings strip) */
+/* STC-404 Study planning prefs — settings-row only (no nested cards). */
 .workbench-study-planning-prefs {
-  display: grid;
-  gap: 12px;
-  margin: 14px 0 4px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-solid) 68%, transparent);
-}
-
-.workbench-study-planning-prefs__header strong {
-  display: block;
-  font-size: 13px;
-  font-weight: 720;
-}
-
-.workbench-study-planning-prefs__header p {
-  margin: 4px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.workbench-study-planning-prefs__field {
-  display: grid;
-  gap: 8px;
-}
-
-.workbench-study-planning-prefs__label {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.workbench-study-planning-prefs__options {
-  display: grid;
-  gap: 8px;
-}
-
-.workbench-study-planning-prefs__option {
-  display: grid;
-  gap: 3px;
-  text-align: left;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-solid) 58%, transparent);
-  color: var(--text);
-  cursor: pointer;
-}
-
-.workbench-study-planning-prefs__option strong {
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.workbench-study-planning-prefs__option small {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.workbench-study-planning-prefs__option.is-selected {
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
-}
-
-.workbench-study-planning-prefs__toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  cursor: pointer;
-}
-
-.workbench-study-planning-prefs__toggle input {
-  margin-top: 3px;
-}
-
-.workbench-study-planning-prefs__toggle strong {
-  display: block;
-  font-size: 13px;
-}
-
-.workbench-study-planning-prefs__toggle small {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.4;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 /* STC-406/407 Classification prompt (extends empty-start sheet chrome) */

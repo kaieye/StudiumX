@@ -74,6 +74,7 @@ import {
 import type { RecurrenceRule } from '../../../../shared/study-planning'
 import { shouldSuppressClassificationPromptStorm } from '../../../../shared/study-planning'
 import {
+  normalizeEmptyStartCategoryId,
   normalizeEmptyStartPolicy
 } from '../planning-study-prefs-ui'
 import {
@@ -230,7 +231,7 @@ type UseStudySessionOptions = {
   /** Optional explicitly selected task; omitted means the session stays unattributed. */
   selectedTaskId?: string | null
   /**
-   * Empty-start preference (product freeze #1 default ask_every_time).
+   * Empty-start preference (product default remember_quick_start → 「其他」).
    * When start has no explicit/selected task, never auto-bind first open task.
    */
   emptyStartPolicy?: EmptyStartPolicy
@@ -380,6 +381,7 @@ export function useStudySession({
   const [emptyStartPolicy, setEmptyStartPolicy] = useState<EmptyStartPolicy>(
     () => normalizeEmptyStartPolicy(emptyStartPolicyProp)
   )
+  const [emptyStartCategoryId, setEmptyStartCategoryId] = useState<string>('other')
   const [classificationPromptOptOut, setClassificationPromptOptOut] = useState(false)
   /**
    * STC-703: sole-read preferences.recurrenceRules for schedule page host wire.
@@ -388,6 +390,8 @@ export function useStudySession({
   const [recurrenceRules, setRecurrenceRules] = useState<RecurrenceRule[]>([])
   const emptyStartPolicyRef = useRef(emptyStartPolicy)
   emptyStartPolicyRef.current = emptyStartPolicy
+  const emptyStartCategoryIdRef = useRef(emptyStartCategoryId)
+  emptyStartCategoryIdRef.current = emptyStartCategoryId
   const classificationPromptOptOutRef = useRef(classificationPromptOptOut)
   classificationPromptOptOutRef.current = classificationPromptOptOut
   /** STC-408: suppress per-task classification prompts during batch complete. */
@@ -1162,6 +1166,7 @@ export function useStudySession({
         setTimerSessions(hydrate.timerSessions.slice())
         setDefaultTimerPlanId(hydrate.defaultTimerPlanId)
         setEmptyStartPolicy(hydrate.emptyStartPolicy)
+        setEmptyStartCategoryId(hydrate.emptyStartCategoryId)
         setClassificationPromptOptOut(hydrate.classificationPromptOptOut)
         setRecurrenceRules(hydrate.recurrenceRules.slice())
         if (hydrate.categories) {
@@ -1524,6 +1529,7 @@ export function useStudySession({
       setTimerSessions(result.timerSessions.slice())
       setDefaultTimerPlanId(result.defaultTimerPlanId)
       setEmptyStartPolicy(result.emptyStartPolicy)
+      setEmptyStartCategoryId(result.emptyStartCategoryId)
       setClassificationPromptOptOut(result.classificationPromptOptOut)
       setRecurrenceRules(result.recurrenceRules.slice())
       if (result.categories) {
@@ -1842,17 +1848,63 @@ export function useStudySession({
     return `timer-plan-${Date.now()}-${Math.random().toString(36).slice(2)}`
   }
 
-  const saveTimerPlan = (input: StudyTimerPlanInput): void => {
-    const plan = { ...input, id: makeTimerPlanId() }
+  /**
+   * Upsert a timer plan (optional id keeps identity) and apply it to the active preset.
+   * `applyOnly: true` updates the active timer/window without writing the catalog.
+   * Returns the catalog plan id when saved, or null for apply-only.
+   */
+  const saveTimerPlan = (
+    input: StudyTimerPlanInput & { id?: string; applyOnly?: boolean }
+  ): string | null => {
+    const ctx = resolvePlanningContext()
+    if (input.applyOnly) {
+      const shell = {
+        id: input.id?.trim() || 'apply-only',
+        name: input.name?.trim() || '',
+        focusMinutes: input.focusMinutes,
+        breakMinutes: input.breakMinutes,
+        simulationStartTime: input.simulationStartTime,
+        simulationEndTime: input.simulationEndTime,
+        longBreakMinutes: input.longBreakMinutes,
+        longBreakEvery: input.longBreakEvery,
+        breakPolicy: input.breakPolicy,
+        kind: input.kind,
+        clockMode: input.clockMode,
+        continuousTarget: input.continuousTarget,
+        rhythmSequence: input.rhythmSequence
+      }
+      commitSnapshot(applyStudyTimerPlan(snapshotRef.current, shell))
+      void dualWriteSetSimulationWindow(ctx, {
+        simulationStartTime: shell.simulationStartTime,
+        simulationEndTime: shell.simulationEndTime
+      }).then(reportPlanningWrite)
+      return null
+    }
+    const id = input.id?.trim() || makeTimerPlanId()
+    const plan = {
+      name: input.name,
+      focusMinutes: input.focusMinutes,
+      breakMinutes: input.breakMinutes,
+      simulationStartTime: input.simulationStartTime,
+      simulationEndTime: input.simulationEndTime,
+      longBreakMinutes: input.longBreakMinutes,
+      longBreakEvery: input.longBreakEvery,
+      breakPolicy: input.breakPolicy,
+      kind: input.kind,
+      clockMode: input.clockMode,
+      continuousTarget: input.continuousTarget,
+      rhythmSequence: input.rhythmSequence,
+      id
+    }
     commitSnapshot(saveStudyTimerPlan(snapshotRef.current, plan))
     // Dual-write custom plan into canonical catalog (TimerPlanV2).
-    const ctx = resolvePlanningContext()
     void dualWriteSaveTimerPlan(ctx, plan).then(reportPlanningWrite)
     // Sole-authority demotion: active simulation window → preferences (not plan field).
     void dualWriteSetSimulationWindow(ctx, {
       simulationStartTime: plan.simulationStartTime,
       simulationEndTime: plan.simulationEndTime
     }).then(reportPlanningWrite)
+    return id
   }
 
   const applyTimerPlan = (planId: string): void => {
@@ -1941,6 +1993,22 @@ export function useStudySession({
     const next = normalizeEmptyStartPolicy(policy)
     setEmptyStartPolicy(next)
     void dualWriteSetEmptyStartPolicy(resolvePlanningContext(), next).then(reportPlanningWrite)
+  }
+
+  /**
+   * Empty-start category preference (session sole-read + set_preferences dual-write).
+   * Always pairs with remember_quick_start so empty timer start creates a temp task.
+   */
+  const setEmptyStartCategoryIdPreference = (categoryId: string): void => {
+    const known = (canonicalCategories ?? listStudyTaskCategories()).map((c) => c.id)
+    const next = normalizeEmptyStartCategoryId(categoryId, known)
+    setEmptyStartCategoryId(next)
+    // Product path: category picker implies quick_start (not ask / unattributed).
+    setEmptyStartPolicy('remember_quick_start')
+    void dualWriteSetPreferences(resolvePlanningContext(), {
+      emptyStartCategoryId: next,
+      emptyStartPolicy: 'remember_quick_start'
+    }).then(reportPlanningWrite)
   }
 
   /**
@@ -2103,7 +2171,7 @@ export function useStudySession({
     }
 
     if (attr.kind === 'quick_start') {
-      // Create temporary inbox task in V1 cache (+ dual-write) then attribute timer to it.
+      // Create temporary task under builtin 「其他」 (+ dual-write) then attribute timer to it.
       const title = normalizeQuickStartTitle(quickStartTitle)
       const createdId = createQuickStartTask(title)
       if (!createdId) return undefined
@@ -2128,7 +2196,12 @@ export function useStudySession({
     const title = normalizeQuickStartTitle(titleInput)
     const current = snapshotRef.current
     const taskId = createStudyAnalyticsFactId('quick-start')
-    const result = addStudyTask(current, title, taskId)
+    // Empty-start / quick-start attributes time to emptyStartCategoryId (default 「其他」).
+    const categoryId = normalizeEmptyStartCategoryId(
+      emptyStartCategoryIdRef.current,
+      (canonicalCategories ?? listStudyTaskCategories()).map((c) => c.id)
+    )
+    const result = addStudyTask(current, title, taskId, categoryId)
     if (!result.added) return null
     recordTaskMutation(current, result.snapshot)
     commitSnapshot(result.snapshot)
@@ -2138,7 +2211,7 @@ export function useStudySession({
     void dualWriteCreateTask(resolvePlanningContext(), {
       id: taskId,
       title,
-      categoryId: null,
+      categoryId,
       source: 'quick_start'
     }).then(reportPlanningWrite)
     return taskId
@@ -3054,6 +3127,8 @@ export function useStudySession({
     defaultTimerPlanId,
     emptyStartPolicy,
     setEmptyStartPolicyPreference,
+    emptyStartCategoryId,
+    setEmptyStartCategoryIdPreference,
     classificationPromptOptOut,
     setClassificationPromptOptOutPreference,
     /** STC-703: sole-read preferences.recurrenceRules for schedule host wire. */

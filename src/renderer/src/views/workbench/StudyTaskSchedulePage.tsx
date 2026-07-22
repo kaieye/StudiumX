@@ -19,19 +19,11 @@ import type {
   StudyTaskScheduleInput,
   StudyTaskUpdateInput
 } from '../../study-space/types'
-import { type RecurrenceRule, type ScheduleBlock } from '../../../../shared/study-planning'
+import { type ScheduleBlock } from '../../../../shared/study-planning'
 import { projectWeekScheduleEntriesFromHost } from '../../study-space/planning-schedule-block-adapter'
 import {
   resolveLocalWeekAnchorMidnightMs
 } from '../../study-space/planning-task-timeline-adapter'
-import { StudyTaskMultiBlockSection } from './StudyTaskMultiBlockSection'
-import { RecurrenceRuleEditor } from './RecurrenceRuleEditor'
-import { RecurrenceSeriesEditSheet } from './RecurrenceSeriesEditSheet'
-import {
-  defaultWeekExpandWindow,
-  dualWriteApplyExpandedRecurrenceBlocks
-} from '../../study-space/planning-recurrence-expand'
-import { StudyTaskDetailStatsSection } from './StudyTaskDetailStatsSection'
 import { StudyScheduleConflictsBanner } from './StudyScheduleConflictsBanner'
 import {
   projectScheduleConflictsBanner,
@@ -45,7 +37,6 @@ import {
   shouldWireConflictResolveCta
 } from '../../study-space/planning-schedule-conflict-resolve-host'
 import type { ProposedBlockMove } from '../../../../shared/study-planning'
-import { normalizeEstimateMinutesInput } from '../../study-space/planning-task-detail-stats'
 import {
   addStudyTaskCategory,
   getReadableCategoryInk,
@@ -56,9 +47,6 @@ import {
   updateStudyTaskCategory
 } from '../../study-space/taskCategories'
 import { dualWriteSetCategories } from '../../study-space/planning-categories-dual-write'
-import {
-  dualWriteSetPreferences
-} from '../../study-space/planning-preferences-dual-write'
 import type { CanonicalPlanningContext } from '../../study-space/planning-dual-write'
 import {
   MINUTES_PER_DAY,
@@ -117,39 +105,10 @@ type StudyTaskSchedulePageProps = {
   /** Optional canonical planning context for categories dual-write. */
   planningContext?: CanonicalPlanningContext | null
   /**
-   * Durable preferences.recurrenceRules from canonical snapshot (STC-703).
-   * Passed into RecurrenceRuleEditor for load + dual-write save.
-   */
-  recurrenceRules?: readonly RecurrenceRule[] | null
-  /**
-   * Host-owned set_preferences dual-write + sole-read re-read (STC-703 host wire).
-   * When provided, preferred over page-local dualWriteSetPreferences so session mirror stays current.
-   */
-  onSaveRecurrenceRules?: (rules: readonly RecurrenceRule[]) => Promise<boolean> | boolean
-  /**
    * Sole-read categories from hydrate (when present).
    * When provided, replaces initial localStorage catalog on mount/update.
    */
   canonicalCategories?: readonly StudyTaskCategory[] | null
-  /**
-   * STC-307: add another focus ScheduleBlock for a task (no Task clone).
-   * When omitted, multi-block create UI is hidden.
-   */
-  onCreateFocusBlock?: (
-    taskId: string,
-    schedule: StudyTaskScheduleInput,
-    options?: { weekAnchorMidnightMs?: number; blockId?: string }
-  ) => string | null
-  /**
-   * STC-307: delete one ScheduleBlock by id.
-   * When omitted, multi-block delete UI is hidden.
-   */
-  onDeleteScheduleBlock?: (taskId: string, blockId: string) => boolean
-  /**
-   * STC-304: optional TimerSession history for actual-focus projection.
-   * Missing → actual shows 0 (fail-closed; no invent).
-   */
-  timerSessions?: readonly import('../../../../shared/study-planning').TimerSessionRecord[] | null
 }
 
 type TaskEditorState =
@@ -163,8 +122,6 @@ type TaskEditorState =
       schedule: StudyTaskScheduleInput
       /** Real ScheduleBlock id when editing a multi-block chip / list row. */
       scheduleBlockId?: string
-      /** STC-304 estimate draft (minutes string; empty = unset). */
-      estimateDraft?: string
     }
 
 type DraftTaskState = {
@@ -592,12 +549,7 @@ export function StudyTaskSchedulePage({
   onEditorDismiss,
   scheduleBlocks = null,
   planningContext = null,
-  recurrenceRules = null,
-  onSaveRecurrenceRules,
-  canonicalCategories = null,
-  onCreateFocusBlock,
-  onDeleteScheduleBlock,
-  timerSessions = null
+  canonicalCategories = null
 }: StudyTaskSchedulePageProps) {
   const titleId = useId()
   const editorTitleId = useId()
@@ -610,7 +562,6 @@ export function StudyTaskSchedulePage({
 
   const [editor, setEditor] = useState<TaskEditorState | null>(null)
   const [editorError, setEditorError] = useState('')
-  const [seriesSheetOpen, setSeriesSheetOpen] = useState(false)
   const [draftTask, setDraftTask] = useState<DraftTaskState | null>(null)
   const [draftError, setDraftError] = useState('')
   const [hover, setHover] = useState<HoverState | null>(null)
@@ -889,8 +840,6 @@ export function StudyTaskSchedulePage({
     setCategoryContextMenu(null)
     setEditorError('')
     setCustomCategoryError('')
-    const sourceTask = tasks.find((row) => row.id === task.id)
-    const est = sourceTask?.estimateMinutes
     setEditor({
       mode: 'edit',
       taskId: task.id,
@@ -898,9 +847,7 @@ export function StudyTaskSchedulePage({
       done: task.done,
       categoryId: task.categoryId ?? 'study',
       schedule: task.schedule,
-      ...(task.scheduleBlockId ? { scheduleBlockId: task.scheduleBlockId } : {}),
-      estimateDraft:
-        est === null || est === undefined ? '' : String(Math.max(0, Math.floor(est)))
+      ...(task.scheduleBlockId ? { scheduleBlockId: task.scheduleBlockId } : {})
     })
   }
 
@@ -935,7 +882,6 @@ export function StudyTaskSchedulePage({
 
   const closeEditor = (): void => {
     setEditor(null)
-    setSeriesSheetOpen(false)
     setCategoryContextMenu(null)
     setEditorError('')
     setCustomCategoryError('')
@@ -1033,8 +979,7 @@ export function StudyTaskSchedulePage({
             title,
             done: editor.done,
             categoryId: editor.categoryId,
-            schedule: editor.schedule,
-            estimateMinutes: normalizeEstimateMinutesInput(editor.estimateDraft ?? '')
+            schedule: editor.schedule
           },
           {
             weekAnchorMidnightMs: weekAnchorMidnightMs,
@@ -1348,122 +1293,6 @@ export function StudyTaskSchedulePage({
                 />
               </div>
             </div>
-            {editor.mode === 'edit' ? (
-              <StudyTaskDetailStatsSection
-                taskId={editor.taskId}
-                scheduleBlocks={effectiveScheduleBlocks}
-                timerSessions={timerSessions}
-                estimateMinutes={normalizeEstimateMinutesInput(editor.estimateDraft ?? '')}
-                estimateDraft={editor.estimateDraft ?? ''}
-                onEstimateDraftChange={(value) => {
-                  setEditor((current) =>
-                    current && current.mode === 'edit'
-                      ? { ...current, estimateDraft: value }
-                      : current
-                  )
-                }}
-              />
-            ) : null}
-            {editor.mode === 'edit' ? (
-              <StudyTaskMultiBlockSection
-                taskId={editor.taskId}
-                scheduleBlocks={effectiveScheduleBlocks}
-                selectedBlockId={editor.scheduleBlockId}
-                currentSchedule={editor.schedule}
-                weekAnchorMidnightMs={weekAnchorMidnightMs}
-                onSelectBlock={(row) => {
-                  setEditor((current) =>
-                    current && current.mode === 'edit'
-                      ? {
-                          ...current,
-                          schedule: row.schedule,
-                          scheduleBlockId: row.blockId
-                        }
-                      : current
-                  )
-                  setEditorError('')
-                }}
-                onCreateBlock={onCreateFocusBlock}
-                onDeleteBlock={onDeleteScheduleBlock}
-                onError={setEditorError}
-                onCreated={(nextSchedule, blockId) => {
-                  setEditorError('')
-                  setEditor((current) =>
-                    current && current.mode === 'edit'
-                      ? {
-                          ...current,
-                          schedule: nextSchedule,
-                          ...(blockId ? { scheduleBlockId: blockId } : { scheduleBlockId: undefined })
-                        }
-                      : current
-                  )
-                }}
-                onDeleted={(blockId) => {
-                  setEditorError('')
-                  setEditor((current) => {
-                    if (!current || current.mode !== 'edit') return current
-                    if (current.scheduleBlockId === blockId) {
-                      return { ...current, scheduleBlockId: undefined }
-                    }
-                    return current
-                  })
-                }}
-              />
-            ) : null}
-            {editor.mode === 'edit' && planningContext ? (
-              <RecurrenceRuleEditor
-                taskId={editor.taskId}
-                schedule={editor.schedule}
-                dtStartMs={weekAnchorMidnightMs}
-                expandWindow={defaultWeekExpandWindow(weekAnchorMidnightMs)}
-                existingBlocks={effectiveScheduleBlocks}
-                recurrenceRules={recurrenceRules}
-                onOpenSeriesSheet={() => setSeriesSheetOpen(true)}
-                onSaveRules={async (rules) => {
-                  if (onSaveRecurrenceRules) {
-                    const ok = await Promise.resolve(onSaveRecurrenceRules(rules))
-                    if (ok) {
-                      setEditorError('')
-                      return true
-                    }
-                    setEditorError('无法保存规则：缺少工作区或规划 API')
-                    return false
-                  }
-                  const result = await dualWriteSetPreferences(planningContext, {
-                    recurrenceRules: [...rules]
-                  })
-                  if (result.kind === 'canonical_ok') {
-                    setEditorError('')
-                    return true
-                  }
-                  if (result.kind === 'canonical_skipped') {
-                    setEditorError('无法保存规则：缺少工作区或规划 API')
-                    return false
-                  }
-                  setEditorError(result.result.error.message ?? '规则保存失败')
-                  return false
-                }}
-                onConfirmExpand={async (blocks) => {
-                  const result = await dualWriteApplyExpandedRecurrenceBlocks(
-                    planningContext,
-                    blocks
-                  )
-                  if (result.kind === 'canonical_ok' || result.kind === 'partial') {
-                    if (result.applied > 0) {
-                      setEditorError('')
-                      return true
-                    }
-                  }
-                  if (result.kind === 'canonical_skipped') {
-                    setEditorError('无法写入：缺少工作区或规划 API')
-                    return false
-                  }
-                  setEditorError(result.error?.message ?? '展开写入失败')
-                  return false
-                }}
-                onError={setEditorError}
-              />
-            ) : null}
             <div className="study-schedule-editor-categories">
               <span>类别</span>
               <div className="study-schedule-category-swatches" aria-label="任务类别">
@@ -1915,68 +1744,6 @@ export function StudyTaskSchedulePage({
 
       {editorDialog}
 
-      <RecurrenceSeriesEditSheet
-        open={seriesSheetOpen && editor?.mode === 'edit' && Boolean(planningContext)}
-        taskId={editor?.mode === 'edit' ? editor.taskId : ''}
-        taskTitle={editor?.mode === 'edit' ? editor.title : null}
-        schedule={editor?.mode === 'edit' ? editor.schedule : { weekday: 0, startMinutes: 9 * 60, endMinutes: 10 * 60 }}
-        dtStartMs={weekAnchorMidnightMs}
-        weekAnchorMidnightMs={weekAnchorMidnightMs}
-        existingBlocks={effectiveScheduleBlocks}
-        recurrenceRules={recurrenceRules}
-        onClose={() => setSeriesSheetOpen(false)}
-        onSaveRules={
-          planningContext
-            ? async (rules) => {
-                if (onSaveRecurrenceRules) {
-                  const ok = await Promise.resolve(onSaveRecurrenceRules(rules))
-                  if (ok) {
-                    setEditorError('')
-                    return true
-                  }
-                  setEditorError('无法保存规则：缺少工作区或规划 API')
-                  return false
-                }
-                const result = await dualWriteSetPreferences(planningContext, {
-                  recurrenceRules: [...rules]
-                })
-                if (result.kind === 'canonical_ok') {
-                  setEditorError('')
-                  return true
-                }
-                if (result.kind === 'canonical_skipped') {
-                  setEditorError('无法保存规则：缺少工作区或规划 API')
-                  return false
-                }
-                setEditorError(result.result.error.message ?? '规则保存失败')
-                return false
-              }
-            : undefined
-        }
-        onConfirmExpand={
-          planningContext
-            ? async (blocks) => {
-                const result = await dualWriteApplyExpandedRecurrenceBlocks(
-                  planningContext,
-                  blocks
-                )
-                if (result.kind === 'canonical_ok' || result.kind === 'partial') {
-                  if (result.applied > 0) {
-                    setEditorError('')
-                    return true
-                  }
-                }
-                if (result.kind === 'canonical_skipped') {
-                  setEditorError('无法写入：缺少工作区或规划 API')
-                  return false
-                }
-                setEditorError(result.error?.message ?? '展开写入失败')
-                return false
-              }
-            : undefined
-        }
-        onError={setEditorError}
-      />
 
     </div>
   )

@@ -35,6 +35,7 @@ import {
 import { v2TimerPlanToV1 } from './planning-timer-plan-dual-write'
 import {
   projectClassificationPromptOptOutFromPreferences,
+  projectEmptyStartCategoryIdFromPreferences,
   projectEmptyStartPolicyFromPreferences
 } from './planning-study-prefs-ui'
 import { projectSimulationWindowFromPreferences } from './planning-simulation-window-ui'
@@ -57,8 +58,10 @@ export type HydrateStudyPlanningResult =
        * null when unset / empty — catalog UI falls back to classic_25_5.
        */
       defaultTimerPlanId: string | null
-      /** Sole-read preferences.emptyStartPolicy (STC-404). Default ask_every_time. */
+      /** Sole-read preferences.emptyStartPolicy (STC-404). Default remember_quick_start. */
       emptyStartPolicy: EmptyStartPolicy
+      /** Sole-read preferences.emptyStartCategoryId (default other). */
+      emptyStartCategoryId: string
       /** Sole-read preferences.classificationPromptOptOut (STC-406/407 restore). */
       classificationPromptOptOut: boolean
       /**
@@ -384,6 +387,7 @@ export async function hydrateStudyTasksFromCanonical(
     timerPlansProjected: merged.timerPlansProjected,
     defaultTimerPlanId: projectDefaultTimerPlanIdFromPreferences(planning.preferences),
     emptyStartPolicy: projectEmptyStartPolicyFromPreferences(planning.preferences),
+    emptyStartCategoryId: projectEmptyStartCategoryIdFromPreferences(planning.preferences),
     classificationPromptOptOut: projectClassificationPromptOptOutFromPreferences(
       planning.preferences
     ),

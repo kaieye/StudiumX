@@ -29,7 +29,7 @@ export type EmptyStartSheetProps = {
 
 export function EmptyStartSheet({
   open,
-  policy = 'ask_every_time',
+  policy = 'remember_quick_start',
   openTasks,
   onResolve,
   now
@@ -143,7 +143,7 @@ export function EmptyStartSheet({
               aria-label={model.copy.quickStartLabel}
             >
               <strong aria-hidden="true">{model.copy.quickStartLabel}</strong>
-              <small>创建待归类临时任务，立即可见并与本次计时共用 ID。</small>
+              <small>创建归入「其他」的临时任务，立即可见并与本次计时共用 ID。</small>
             </button>
             <button
               type="button"

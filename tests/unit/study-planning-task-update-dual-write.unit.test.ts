@@ -87,6 +87,8 @@ describe('weekday Mon-first ↔ JS conversion', () => {
 
   it('monFirstScheduleToIntervalMs places Monday on week anchor Monday (UTC)', () => {
     // weekAnchor = Monday 2026-07-20 UTC midnight (getUTCDay()=1)
+    // On hosts near UTC this matches local Monday; regression for non-UTC local
+    // anchors is covered by the next test.
     const weekAnchor = Date.UTC(2026, 6, 20)
     // Product Mon-first weekday 0 = Monday → JS weekday 1
     const mon = monFirstScheduleToIntervalMs({
@@ -114,6 +116,35 @@ describe('weekday Mon-first ↔ JS conversion', () => {
     })
     expect(tue?.startAtMs).not.toBe(mon?.startAtMs)
     expect(tue?.startAtMs).toBe(mon!.startAtMs + 24 * 60 * 60_000)
+  })
+
+  it('monFirstScheduleToIntervalMs keeps Monday on local-Sunday week anchors (week-drag)', () => {
+    // Production week drag uses resolveLocalWeekAnchorMidnightMs → local Sunday 00:00.
+    // In Asia/Shanghai that instant is Saturday UTC; getUTCDay() would write Mon→Tue.
+    const weekAnchor = new Date(2026, 6, 19, 0, 0, 0, 0).getTime() // local Sunday
+    expect(new Date(weekAnchor).getDay()).toBe(0)
+
+    const mon = monFirstScheduleToIntervalMs({
+      weekday: 0, // product Mon-first Monday
+      startMinutes: 9 * 60,
+      endMinutes: 10 * 60,
+      weekAnchorMidnightMs: weekAnchor
+    })
+    expect(mon).not.toBeNull()
+
+    const start = new Date(mon!.startAtMs)
+    expect(start.getDay()).toBe(1) // local Monday
+    expect(start.getHours()).toBe(9)
+    expect(start.getMinutes()).toBe(0)
+
+    const sameDayDrop = monFirstScheduleToIntervalMs({
+      weekday: 0,
+      startMinutes: 10 * 60,
+      endMinutes: 11 * 60,
+      weekAnchorMidnightMs: weekAnchor
+    })
+    expect(new Date(sameDayDrop!.startAtMs).getDay()).toBe(1)
+    expect(sameDayDrop!.startAtMs - mon!.startAtMs).toBe(60 * 60_000)
   })
 })
 

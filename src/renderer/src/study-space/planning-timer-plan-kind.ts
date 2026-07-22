@@ -127,8 +127,7 @@ export const TIMER_PLAN_KIND_OPTIONS: readonly {
   label: string
 }[] = [
   { value: 'pomodoro', label: '番茄循环' },
-  { value: 'continuous', label: '连续专注' },
-  { value: 'custom_rhythm', label: '自定义节奏' }
+  { value: 'continuous', label: '连续专注' }
 ] as const
 
 export function defaultContinuousBreakPolicy(): ContinuousBreakPolicy {
@@ -143,8 +142,14 @@ export function defaultContinuousBreakPolicy(): ContinuousBreakPolicy {
 export function isValidContinuousPlanDraft(draft: {
   name?: string
   focusMinutes?: number | null
+  breakMinutes?: number | null
   continuousTarget?: boolean
   breakPolicy?: string
+  /**
+   * Total session minutes for continuous cycle / exam (encoded via simulation window in V1 cache).
+   * When provided, preferred over simulationStart/End string pair validation.
+   */
+  totalMinutes?: number | null
   simulationStartTime?: string
   simulationEndTime?: string
 }): boolean {
@@ -152,19 +157,45 @@ export function isValidContinuousPlanDraft(draft: {
   if (!name) return false
   const policy = typeof draft.breakPolicy === 'string' ? draft.breakPolicy.trim() : ''
   if (!policy || !CONTINUOUS_BREAK_SET.has(policy as ContinuousBreakPolicy)) return false
+
+  // Total duration (minutes) — continuous cycle and exam both need a positive total.
+  const total =
+    draft.totalMinutes != null && Number.isInteger(draft.totalMinutes)
+      ? draft.totalMinutes
+      : null
+  if (total != null) {
+    if (total < TIMER_PLAN_SEED_DEFAULTS.focusMinutesMin || total > TIMER_PLAN_SEED_DEFAULTS.continuousFocusMinutesMax) {
+      return false
+    }
+  } else {
+    const start = draft.simulationStartTime ?? ''
+    const end = draft.simulationEndTime ?? ''
+    if (start && end && start >= end) return false
+  }
+
   if (draft.continuousTarget === true) {
-    if (draft.focusMinutes == null || !Number.isInteger(draft.focusMinutes)) return false
+    // Exam / open continuous: only total minutes required (no separate focus target field).
+    return total != null || Boolean(draft.simulationStartTime && draft.simulationEndTime && draft.simulationStartTime < draft.simulationEndTime)
+  }
+
+  // Continuous cycle: focus + break segment minutes.
+  if (draft.focusMinutes == null || !Number.isInteger(draft.focusMinutes)) return false
+  if (
+    draft.focusMinutes < TIMER_PLAN_SEED_DEFAULTS.focusMinutesMin ||
+    draft.focusMinutes > TIMER_PLAN_SEED_DEFAULTS.continuousFocusMinutesMax
+  ) {
+    return false
+  }
+  if (draft.breakMinutes != null) {
     if (
-      draft.focusMinutes < TIMER_PLAN_SEED_DEFAULTS.focusMinutesMin ||
-      draft.focusMinutes > TIMER_PLAN_SEED_DEFAULTS.continuousFocusMinutesMax
+      !Number.isInteger(draft.breakMinutes)
+      || draft.breakMinutes < TIMER_PLAN_SEED_DEFAULTS.shortBreakMinutesMin
+      || draft.breakMinutes > TIMER_PLAN_SEED_DEFAULTS.shortBreakMinutesMax
     ) {
       return false
     }
   }
-  const start = draft.simulationStartTime ?? ''
-  const end = draft.simulationEndTime ?? ''
-  if (start && end && start >= end) return false
-  return true
+  return total != null || Boolean(draft.simulationStartTime && draft.simulationEndTime)
 }
 
 function isOpenContinuous(plan: Pick<StudyTimerPlan, 'kind' | 'clockMode' | 'continuousTarget'>): boolean {
