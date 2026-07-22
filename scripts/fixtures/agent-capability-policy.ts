@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import { resolveTeachingCapabilityPolicy } from '../../src/main/ai/agent-capability-policy'
 import { buildToolContext, buildDefaultRegistry, type ToolEntry, ToolRegistry } from '../../src/main/ai/tools/registry'
+import { getWorkspaceWriteToolAvailability } from '../../src/main/ai/tools/workspace'
 import { defaultSettings } from '../../src/main/teaching-settings'
 
 function toolNames(policy: ReturnType<typeof resolveTeachingCapabilityPolicy>): string[] {
@@ -47,6 +48,8 @@ function stubTool(name: string): ToolEntry {
   }
 }
 
+// Temporary shares the agent surface with teaching except lesson/product writers
+// (ADR-0128 §5.4). Workspace tools still require an explicit grant.
 const temporary = resolveTeachingCapabilityPolicy({
   mode: 'temporary',
   toolsEnabled: true,
@@ -55,8 +58,44 @@ const temporary = resolveTeachingCapabilityPolicy({
   hasLessonGenerator: true
 })
 assert.equal(temporary.id, 'temporary_chat')
-assert.deepEqual(toolNames(temporary), ['web_search', 'web_fetch', 'ask', 'read_skill_resource'])
+assert.deepEqual(toolNames(temporary), [
+  'web_search',
+  'web_fetch',
+  'ask',
+  'read_skill_resource',
+  'list_workspace',
+  'read_workspace_file',
+  'search_workspace',
+  'glob_workspace',
+  'write_workspace_file',
+  'delegate_task',
+  'read_only_task',
+  'parallel_tasks'
+])
+assert.equal(temporary.allowsTool('generate_lesson'), false, 'temporary chat must exclude teaching-product writers')
 assert.equal(temporary.allowsTool('future_tool'), false, 'unassigned future tools must remain fail-closed')
+assert.equal(temporary.workspaceToolsEnabled, true)
+assert.equal(temporary.delegationEnabled, true)
+assert.equal(temporary.lessonToolEnabled, false)
+
+const temporaryWithoutWorkspaceGrant = resolveTeachingCapabilityPolicy({
+  mode: 'temporary',
+  toolsEnabled: true,
+  hasTeachingWorkspace: true,
+  workspaceToolAccessGranted: false,
+  hasLessonGenerator: true
+})
+assert.deepEqual(toolNames(temporaryWithoutWorkspaceGrant), [
+  'web_search',
+  'web_fetch',
+  'ask',
+  'read_skill_resource',
+  'delegate_task',
+  'read_only_task',
+  'parallel_tasks'
+])
+assert.equal(temporaryWithoutWorkspaceGrant.workspaceToolsEnabled, false)
+assert.equal(temporaryWithoutWorkspaceGrant.allowsTool('write_workspace_file'), false)
 
 const teachingWithoutWorkspace = resolveTeachingCapabilityPolicy({
   mode: 'teaching',
@@ -149,12 +188,23 @@ try {
       allow: teachingTrustedWorkspace.allowedToolNames,
       deny: teachingTrustedWorkspace.deniedToolNames
     })
+  const availability = getWorkspaceWriteToolAvailability()
   const handler = registry.handlerMap(buildToolContext(settings, { workspaceRoot: root })).write_workspace_file
-  assert.ok(handler, 'workspace policy must retain the established write tool')
-  const result = JSON.parse(await handler!({ path: 'notes/blocked.md', content: '# blocked\n' }))
-  assert.equal(result.permission.kind, 'workspace_write')
-  assert.match(result.error, /没有审批通道/)
-  await assert.rejects(() => stat(join(root, 'notes', 'blocked.md')))
+  if (!availability.available) {
+    assert.equal(availability.code, 'containment_unavailable')
+    assert.equal(typeof handler, 'undefined', 'unavailable hosts must not expose a write handler after policy projection')
+    assert.equal(
+      registry.names().includes('write_workspace_file'),
+      false,
+      'policy allow-list cannot invent a host-withheld durable writer'
+    )
+  } else {
+    assert.ok(handler, 'workspace policy must retain the established write tool on capable hosts')
+    const result = JSON.parse(await handler!({ path: 'notes/blocked.md', content: '# blocked\n' }))
+    assert.equal(result.permission.kind, 'workspace_write')
+    assert.match(result.error, /没有审批通道/)
+    await assert.rejects(() => stat(join(root, 'notes', 'blocked.md')))
+  }
 } finally {
   await rm(root, { recursive: true, force: true })
 }

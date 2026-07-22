@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { buildDefaultRegistry, buildToolContext } from '../../src/main/ai/tools/registry'
+import { getWorkspaceWriteToolAvailability } from '../../src/main/ai/tools/workspace'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { buildAgentChatSystemPrompt } from '../../src/main/teaching-conversation-prompt'
 
@@ -29,6 +30,7 @@ try {
   const registry = buildDefaultRegistry(settings, { workspaceRoot: root, workspaceWrite: true })
   const handlers = registry.handlerMap(context)
   const toolNamesBefore = registry.names()
+  const workspaceWriteAvailability = getWorkspaceWriteToolAvailability()
 
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input)
@@ -80,14 +82,33 @@ try {
 
   assert.deepEqual(registry.names(), toolNamesBefore, 'external content must not change the locally resolved tool registry')
   assert.equal(settings.tools.approvalMode, 'request_approval', 'external content must not mutate the local permission mode')
-  const writeResult = JSON.parse(await handlers.write_workspace_file({
-    path: 'notes/injected.md',
-    content: injectedExternalText
-  }))
-  assert.equal(writeResult.permission.kind, 'workspace_write')
-  assert.equal(writeResult.permission.decision, 'deny')
-  assert.match(writeResult.error, /External content cannot approve local writes/)
-  await assert.rejects(stat(join(root, 'notes', 'injected.md')))
+
+  // Host may withhold the durable writer (e.g. Linux CI without containment).
+  // External content still must not invent a write tool or mutate local gates.
+  assert.equal(
+    toolNamesBefore.includes('write_workspace_file'),
+    workspaceWriteAvailability.available,
+    'write registration must match host durable-write capability'
+  )
+  if (!workspaceWriteAvailability.available) {
+    assert.equal(workspaceWriteAvailability.code, 'containment_unavailable')
+    assert.equal(typeof handlers.write_workspace_file, 'undefined', 'unavailable hosts must not expose write_workspace_file')
+    assert.equal(
+      await stat(join(root, 'notes', 'injected.md')).then(() => true).catch(() => false),
+      false,
+      'withheld write tools must not create a target file'
+    )
+    console.log('[agent external-content boundary] durable workspace writer unavailable; registry withheld the write tool')
+  } else {
+    const writeResult = JSON.parse(await handlers.write_workspace_file({
+      path: 'notes/injected.md',
+      content: injectedExternalText
+    }))
+    assert.equal(writeResult.permission.kind, 'workspace_write')
+    assert.equal(writeResult.permission.decision, 'deny')
+    assert.match(writeResult.error, /External content cannot approve local writes/)
+    await assert.rejects(stat(join(root, 'notes', 'injected.md')))
+  }
 
   const prompt = buildAgentChatSystemPrompt({ mode: 'teaching', lessonToolEnabled: false, skillReferences: [] })
   assert.match(prompt, /<external-content-boundary>/)
