@@ -9,7 +9,7 @@ StudiumX is a **local teaching workspace**. This document states the product tru
 3. **Provider egress** — model and optional web tools only leave the machine through configured provider endpoints. Privacy redaction applies to logs and support material where implemented.
 4. **Logs and support bundles** — support bundles require explicit user consent and redaction (ADR-0034). History redaction applies to newly persisted conversation/history projections (ADR-0007).
 5. **Tool effect authorization** — tools are classified (`read` | `workspace_write` | `external_write` | `privileged`) and fail closed for unknown tools (ADR-0024). Capability catalog remains fail-closed (ADR-0022).
-6. **MCP lifecycle and trust** — ADR-0132 + **ADR-0141 product experience**: multi-source, auto-connect, OAuth, workspace-root injection, plugin MCP, and marketplace are **product capabilities** (not permanently “manual-only”). Hard invariants unchanged: secrets/tokens never enter renderer/Doctor/support bundle/logs; MCP results are not LearningSession/Evidence/Outcome authority; settlement sole-writer unchanged; tool calls still pass effect lattice + approval (no YOLO). Catalog fetch is not product telemetry. Emergency disable / revoke remain required.
+6. **MCP lifecycle and trust** — ADR-0132 + ADR-0141 (hard safety / foundation) + **ADR-0142 (Settings product surface)**: multi-source, auto-connect host APIs, OAuth, workspace-root injection, and plugin MCP remain available. **Marketplace is main/shared foundation only** — **no Settings marketplace UI** in current shipping. MCP Settings = list/editor/import/OAuth. Hard invariants unchanged: secrets/tokens never enter renderer/Doctor/support bundle/logs; MCP results are not LearningSession/Evidence/Outcome authority; settlement sole-writer unchanged; tool calls still pass effect lattice + approval (no YOLO). Catalog fetch is not product telemetry. Emergency disable / revoke remain required.
 
 Executable gates: `pnpm run check:security`, `pnpm run check:provider-privacy`, `pnpm run check:settings-secret-storage`.
 
@@ -26,7 +26,7 @@ Bypassing a heuristic **does not automatically** constitute a CVE unless it cros
 ## Explicit non-claims
 
 - StudiumX currently **does not** expose a general shell / arbitrary code execution product path.
-- **MCP multi-source / auto-connect / workspace-root / plugin / marketplace** are authorized product surfaces under ADR-0132 + ADR-0141 (parity with mainstream MCP clients). Prefer clear toggles and revoke/emergency paths over permanent feature bans. Auto-connect discovers tools; tool invocation still uses effect/approval. YOLO / always-approve labels remain forbidden.
+- **MCP multi-source / auto-connect / workspace-root / plugin foundation** are authorized under ADR-0132 + ADR-0141; **Settings marketplace UI is out of shipping surface** (ADR-0142) (parity with mainstream MCP clients). Prefer clear toggles and revoke/emergency paths over permanent feature bans. Auto-connect discovers tools; tool invocation still uses effect/approval. YOLO / always-approve labels remain forbidden.
 - We **do not** claim Docker-class OS sandbox isolation for model actions.
 - Memory and workspace durable I/O default to **trusted-root pathname** persistence (`temp → write → optional fsync → rename`; ADR-0131). This is **non-CAS**, **not** descriptor-strict, and **not** an OS sandbox claim. Historical dual-profile inventory (ADR-0126) remains documentation only; descriptor-strict is **not** the full-platform default (see also ADR-0004 / ADR-0035).
 - LearningSession ledger / outcome settlement authority is **not** owned by the agent controller (ADR-0008, ADR-0021, ADR-0023).
@@ -53,7 +53,8 @@ Do not open public issues that contain API keys, learner answers, or unredacted 
 - MCP Phase D config import/export / McpSync wire: `docs/adr/0136-mcp-config-import-export-and-sync-contract.md`
 - MCP Phase E multi-source / auto-connect: `docs/adr/0137-mcp-multi-source-precedence-and-auto-connect.md`
 - MCP Phase F workspace-root injection: `docs/adr/0138-mcp-filesystem-workspace-root-injection.md`
-- MCP Phase H local marketplace catalog: `docs/adr/0140-mcp-marketplace-local-catalog.md`
+- MCP Phase H local marketplace catalog (foundation): `docs/adr/0140-mcp-marketplace-local-catalog.md`
+- MCP Settings product surface (no marketplace UI): `docs/adr/0142-mcp-product-surface-settings-only.md`
 - Tool contract: `docs/tools/TOOL_CONTRACT.md`
 - Config paths: `docs/CONFIG_PATHS.md`
 - Contributor checks: `CONTRIBUTING.md`

@@ -1,7 +1,6 @@
 # ADR-0141：MCP 产品体验对齐政策修订（放宽过度严格的体验边界）
 
-- **状态：** 已采纳（产品政策修订；**取代/收窄** ADR-0132 / 0137 / 0139 / 0140 中过严的“体验层禁止”，不废止教学 settlement / secret isolation 硬安全不变量）
-- **日期：** 2026-07-23
+- **状态：** 已采纳（产品政策修订；**取代/收窄** ADR-0132 / 0137 / 0139 / 0140 中过严的“体验层禁止”，不废止教学 settlement / secret isolation 硬安全不变量）；**产品面收窄见 [ADR-0142](0142-mcp-product-surface-settings-only.md)**（Settings 无 marketplace UI）。\n- **日期：** 2026-07-23
 - **范围：** 将 StudiumX MCP 的**产品体验默认与能力开放面**对齐主流 MCP 客户端（Claude Desktop / Cursor / Zcode 等）：可自动连接、可 marketplace、可安装后连接、可展示多来源与目录 UI、可网络 McpSync 与远程目录（用户配置源）、可合理默认 workspace-root 注入与 annotations 辅助 UX。
 - **相关：** ADR-0127、ADR-0128、ADR-0132、ADR-0133–0140、`AGENTS.md`、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`、`docs/improvements/mcp-zcode-alignment-target.md`。
 
@@ -86,6 +85,18 @@ A–H foundation 落地后，文档仍保留大量**体验层**限制（例如�
 - annotations 辅助审批与可选 effect 建议  
 
 工程默认值与迁移由后续小步 PR 落地；本 ADR 只改**政策权威**。
+
+
+
+## 6a. 产品面收窄（2026-07-23 / ADR-0142）
+
+ADR-0141 仍描述**硬安全**与 foundation 能力边界。**当前 shipping 的 Settings 产品面**收窄为用户 MCP **list/editor/import/OAuth**，**不**交付：
+
+1. Settings marketplace 子页 / 安装网格  
+2. 默认远程 catalog 产品页  
+3. 以「全量 Zcode Settings parity」为必交付的 UI 清单  
+
+Main marketplace-store / host IPC / feature 元数据可继续存在（ADR-0140 foundation）。若未来要 Settings 市场，须修订 ADR-0142 并实现 UI + 测试。
 
 ## 5. 一句话
 

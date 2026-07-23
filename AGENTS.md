@@ -12,7 +12,7 @@
 | --- | --- |
 | 文件是教学真相源 | 投影可重建；canonical 在工作区文件，不把 SQLite / agent run 当 teaching authority |
 | 无默认 shell | 不暴露通用 shell / 任意代码执行产品路径 |
-| MCP 全面对齐 | [ADR-0132](docs/adr/0132-mcp-zcode-parity-and-trust-lifecycle.md) + **体验政策 [ADR-0141](docs/adr/0141-mcp-product-experience-parity-policy.md)**：A–H foundation 已落地；**允许**主流体验（auto-connect、marketplace、install→connect、远程 catalog、McpSync 客户端）。**硬安全不变**：secret/token 永不进 renderer；MCP 非 teaching evidence；settlement sole-writer；MCP tool 仍进 effect lattice / approval / ToolOutcome；禁止 YOLO 标签。 |
+| MCP 全面对齐 | [ADR-0132](docs/adr/0132-mcp-zcode-parity-and-trust-lifecycle.md) + 体验边界 [ADR-0141](docs/adr/0141-mcp-product-experience-parity-policy.md) + **产品面 [ADR-0142](docs/adr/0142-mcp-product-surface-settings-only.md)**：A–H foundation 可保留；**Settings 产品面 = list/editor/import/OAuth**（**无** marketplace 设置页）。硬安全不变：secret/token 永不进 public DTO/Doctor；MCP 非 teaching evidence；settlement sole-writer；MCP tool 仍进 effect lattice / approval / ToolOutcome；禁止 YOLO 标签。 |
 | 无自动 remote telemetry | 本地优先；**不**默认 phone-home / Statsig / Mixpanel 式外发 |
 | effect lattice + TOOL_CONTRACT | `read` / `workspace_write` / `external_write` / `privileged` 三态审批；**禁止 YOLO / always-approve 标签** |
 | Settlement sole-writer | `TeachingTurnCoordinator` / host 为 outcome settlement 唯一写入路径；IPC 须 `expectedRevision`；fork 路径保持 `toolsReplayed: false` |
@@ -53,7 +53,7 @@ git config core.hooksPath .githooks
 
 1. **不要** 引入默认 ShellTool / OS sandbox 产品声明 / shell-escalation 策略语言。
 2. **不要** 加 YOLO / DangerFullAccess / always-approve 默认或 UI 标签。
-3. **MCP 体验**以 [ADR-0141](docs/adr/0141-mcp-product-experience-parity-policy.md) 为准：允许 auto-connect、marketplace、install→connect、远程目录与完整 Settings UI（对齐主流客户端）。所有 MCP tools 仍必须入 effect lattice 与 approval；禁止 YOLO 标签、jiti 全权限扩展、code-mode 执行不可信代码或 shell-escalation 旁路；secret 永不进 renderer。
+3. **MCP 产品面**以 [ADR-0142](docs/adr/0142-mcp-product-surface-settings-only.md) 为准：Settings **仅** list/editor/import/OAuth；**不要**再挂 marketplace 设置页或半成品市场入口。host/foundation（ADR-0140 store/IPC）可保留。所有 MCP tools 仍必须入 effect lattice 与 approval；禁止 YOLO 标签、jiti 全权限扩展、code-mode 执行不可信代码或 shell-escalation 旁路；secret 永不进 public DTO / Doctor / support bundle。
 4. **不要** 默认远程 OTEL / phone-home；本地 doctor / support-bundle 须脱敏与同意。
 5. **不要** 用 SQLite FTS 或向量库做产品搜索面。
 6. **不要** 启动自动 memories / dream / 静默改 learner-profile 或自动 skill 创建。

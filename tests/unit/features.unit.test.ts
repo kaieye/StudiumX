@@ -63,14 +63,15 @@ describe('FEATURES table integrity', () => {
     }
   })
 
-  it('registers mcp-marketplace as experimental product path (ADR-0141)', () => {
+  it('registers mcp-marketplace as under_development foundation (ADR-0140/0142; no Settings UI)', () => {
     const feature = getFeature('mcp-marketplace')
     expect(feature).toBeDefined()
-    expect(feature!.stage).toBe('experimental')
-    expect(feature!.summary).toMatch(/local|remote|catalog|目录/i)
+    expect(feature!.stage).toBe('under_development')
+    expect(feature!.summary).toMatch(/foundation|catalog|ADR-0140|ADR-0142|Settings/i)
     expect(feature!.summary).toMatch(/approval|审批/i)
+    expect(feature!.summary).toMatch(/No Settings marketplace UI|无 Settings/i)
     expect(isFeatureEnabled('mcp-marketplace')).toBe(false)
-    expect(isFeatureEnabled('mcp-marketplace', { allowExperimental: true })).toBe(true)
+    expect(isFeatureEnabled('mcp-marketplace', { allowUnderDevelopment: true })).toBe(true)
   })
 })
 

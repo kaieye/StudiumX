@@ -198,16 +198,16 @@ export const FEATURES: readonly FeatureDefinition[] = [
     stage: 'experimental',
     title: '用户可配置 MCP',
     summary:
-      'userData opt-in MCP servers（默认 off）；stdio 传输；tools 经 registry/effect/审批；无 YOLO；marketplace 见 mcp-marketplace。',
+      'userData opt-in MCP servers (default off); stdio/HTTP/SSE; tools use registry/effect/approval (no YOLO); Settings = list/editor only (ADR-0142).',
     since: '2026-07',
     footprintHint: 4
   },
   {
     id: 'mcp-marketplace',
-    stage: 'experimental',
+    stage: 'under_development',
     title: 'MCP Marketplace',
     summary:
-      'Local + optional remote MCP catalog (ADR-0140/0141); install may connect/enable; tool calls still use effect/approval. Not a YOLO bypass; secrets stay in main.',
+      'Main/shared marketplace catalog foundation (ADR-0140). No Settings marketplace UI (ADR-0142). Tool calls still use effect/approval. Not a YOLO bypass; secrets stay in main.',
     since: '2026-07',
     footprintHint: 3
   }

@@ -1,6 +1,6 @@
 # ADR-0132：MCP 与 Zcode 对齐——多来源、自动连接、插件市场与信任生命周期
 
-- **状态：** 已采纳；**体验政策由 [ADR-0141](0141-mcp-product-experience-parity-policy.md) 修订**（允许 auto-connect / marketplace / install→connect 等主流体验；硬安全不变量仍见 §3）
+- **状态：** 已采纳；**体验政策由 [ADR-0141](0141-mcp-product-experience-parity-policy.md) 修订**（允许 auto-connect / marketplace / install→connect 等主流体验；硬安全不变量仍见 §3）；Settings 产品面收窄见 [ADR-0142](0142-mcp-product-surface-settings-only.md)。
 - **日期：** 2026-07-22
 - **范围：** 将 MCP 从“用户手动配置、默认关闭的 v1 client”升级为完整 MCP client 目标：多来源配置、自动连接、OAuth、workspace-root 注入、plugin-provided servers、marketplace、迁移/同步、完整 server lifecycle，以及相应的 trust/provenance/approval 合同。
 - **参照：** `ref_project/Zcode` Desktop 3.3.3（2026-07-08 构建）和 [`docs/improvements/mcp-zcode-alignment-target.md`](../improvements/mcp-zcode-alignment-target.md)。

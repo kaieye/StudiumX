@@ -36,6 +36,12 @@
 
 **一句话：** *roadmap completion is a planning-document state; §18 is a product-evidence state.* 二者不得互换。
 
+
+
+### 2a. Continuous 子模式（open / target / exam）— 2026-07-23 补记
+
+产品将「连续专注」细分为 durable `TimerPlanV2.continuousMode?: 'open' | 'target' | 'exam'`（shared `timer-plan.ts`）。V1 dual-write cache（`StudyTimerPlan`）同步可选 `continuousMode`，`continuousTarget` 仅作 **exam 兼容布尔**（`true` ⇔ exam）。Open 无 focus 目标；target 有 focusMinutes；exam 为考试墙仿真（默认 180 分种子）。**禁止**仅用 `clockMode === 'countup' && !continuousTarget` 推断 open（会吞掉 target countup）。实现锚：`continuousModeFromV1`、`createOpenContinuousPlan` / `createExamSimulationPlan` / `createTargetContinuousPlan`。
+
 ### 2. STC-702 — 自定义节奏序列（Custom rhythm）
 
 **对齐：** 路线图 §4.1 C、§21「自定义节奏序列编辑器」、Phase 7 STC-702。

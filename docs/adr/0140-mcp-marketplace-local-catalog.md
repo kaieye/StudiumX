@@ -3,7 +3,7 @@
 - **状态：** 已实施 foundation；**产品开放面由 [ADR-0141](0141-mcp-product-experience-parity-policy.md) 扩展**（允许远程 catalog、install→connect、marketplace UI；本文件仍描述本地 store 数据面）
 - **日期：** 2026-07-23
 - **范围：** 本地 marketplace catalog 与 install/revoke/emergency-disable 数据面；feature registry 登记 `mcp-marketplace`（`under_development`）；纯函数校验 / pin / preview；userData 持久化。
-- **相关：** ADR-0127、ADR-0128、ADR-0132 §2.6 / Phase H、ADR-0133–0136、ADR-0073、`SECURITY.md`、`src/shared/features.ts`。
+- **产品面（2026-07-23）：** Settings **不**挂载 marketplace UI；见 [ADR-0142](0142-mcp-product-surface-settings-only.md)。本 ADR 仍描述 **main/shared foundation** 契约。\n- **相关：** ADR-0127、ADR-0128、ADR-0132 §2.6 / Phase H、ADR-0133–0136、ADR-0073、`SECURITY.md`、`src/shared/features.ts`。
 
 ## 1. 决定与非目标
 

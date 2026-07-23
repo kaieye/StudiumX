@@ -86,3 +86,6 @@ temporary-chat tools ≈ teaching-chat tools \ { 教学产物写工具 }
 - `tests/unit/teaching-command.unit.test.ts`：验证封闭 catalog、解析/发现、执行 gating，以及帮助/UI 入口与 `TEACHING_COMMANDS` 的单源关系。
 - `src/shared/teaching-command.ts`：`TEACHING_COMMANDS`、`listTeachingCommandsForHelp()`、parser/discovery/resolver 的唯一实现入口。
 - 新增第 4 或第 5 阶能力时，必须另行提供 capability/readiness、effect-policy、成本/权限和失败语义的测试与 ADR/design gate 证据。
+
+
+> **2026-07-23 补记：** 表中「禁 marketplace」指 **不作为默认 footprint / 授权旁路**；MCP marketplace **main foundation** 见 ADR-0140，**Settings 无市场 UI** 见 ADR-0142。勿将本表读成「永久删除 store」。
