@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarDays, Check, ChevronDown, Clock3, PencilLine, Plus, Target, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, PencilLine, Plus, Target, Trash2, X } from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -20,10 +20,28 @@ import type {
   StudyTaskUpdateInput
 } from '../../study-space/types'
 import { type ScheduleBlock } from '../../../../shared/study-planning'
-import { projectWeekScheduleEntriesFromHost } from '../../study-space/planning-schedule-block-adapter'
+import {
+  projectWeekScheduleEntriesFromHost,
+  type WeekScheduleEntry
+} from '../../study-space/planning-schedule-block-adapter'
 import {
   resolveLocalWeekAnchorMidnightMs
 } from '../../study-space/planning-task-timeline-adapter'
+import {
+  buildScheduleMonthModel,
+  buildWeekDayHeadModels,
+  filterScheduleEntriesForWeek,
+  formatWeekRangeLabel,
+  monthRangeFromEpoch,
+  monthRangeFromWeekAnchor,
+  parseLocalDateKeyMs,
+  shiftMonthRange,
+  shiftWeekAnchorMidnightMs,
+  SCHEDULE_CALENDAR_VIEW_OPTIONS,
+  type ScheduleCalendarViewMode,
+  type ScheduleMonthTaskChip
+} from '../../study-space/planning-schedule-calendar-nav'
+import { StudyTaskScheduleMonthBoard } from './StudyTaskScheduleMonthBoard'
 import { StudyScheduleConflictsBanner } from './StudyScheduleConflictsBanner'
 import {
   projectScheduleConflictsBanner,
@@ -57,7 +75,6 @@ import {
   createDefaultSchedule,
   createScheduleTaskProposal,
   createSelectionSchedule,
-  currentWeekdayIndex,
   formatScheduleMinutes,
   getPointerGrabOffsetMinutes,
   getTimeParts,
@@ -69,6 +86,33 @@ import {
   type SchedulePointerProjection
 } from './study-task-schedule-interaction'
 import { layoutDayTasks, type ScheduledStudyTask } from './study-task-schedule-layout'
+
+/**
+ * Total duration of the week-day wash (fade-in + hold + fade-out).
+ * Driven in JS so the breathe is never skipped by CSS animation policies.
+ */
+const WEEK_DAY_HIGHLIGHT_MS = 2000
+/** Peak overlay opacity during the hold phase. */
+const WEEK_DAY_HIGHLIGHT_PEAK_OPACITY = 0.32
+
+/**
+ * Smoothstep-ish envelope: 0 → peak → 0 over `durationMs`.
+ * Pure function so the breathe never depends on CSS animation/transition.
+ */
+function weekDayHighlightOpacityAt(elapsedMs: number, durationMs: number, peak: number): number {
+  if (durationMs <= 0 || elapsedMs <= 0) return 0
+  if (elapsedMs >= durationMs) return 0
+  const t = elapsedMs / durationMs
+  // 0–22% fade in, 22–58% hold, 58–100% fade out
+  if (t < 0.22) {
+    const u = t / 0.22
+    return peak * u * u * (3 - 2 * u)
+  }
+  if (t < 0.58) return peak
+  const u = (t - 0.58) / 0.42
+  const s = u * u * (3 - 2 * u)
+  return peak * (1 - s)
+}
 
 /** Week chip may carry the real ScheduleBlock id (STC-307 multi-block). */
 type WeekChipTask = ScheduledStudyTask & {
@@ -585,7 +629,18 @@ export function StudyTaskSchedulePage({
   const hasOpenedInitialAddEditorRef = useRef(false)
   const taskDragRef = useRef<TaskDragState | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
-  const weekAnchorMidnightMs = useMemo(() => resolveLocalWeekAnchorMidnightMs(), [])
+  const [viewMode, setViewMode] = useState<ScheduleCalendarViewMode>('week')
+  const [weekAnchorMidnightMs, setWeekAnchorMidnightMs] = useState(() => resolveLocalWeekAnchorMidnightMs())
+  const [monthRange, setMonthRange] = useState(() => monthRangeFromWeekAnchor(resolveLocalWeekAnchorMidnightMs()))
+  /**
+   * Soft highlight after month double-click. Opacity is rAF-driven (not CSS
+   * animation) so fade-in / hold / fade-out always render, even when the OS
+   * prefers reduced motion or CSS transitions get composited away.
+   */
+  const [weekDayHighlightDateKey, setWeekDayHighlightDateKey] = useState<string | null>(null)
+  const [weekDayHighlightOpacity, setWeekDayHighlightOpacity] = useState(0)
+  const weekDayHighlightRafRef = useRef<number | null>(null)
+  const weekDayHighlightTokenRef = useRef(0)
 
   // STC-707: prefer local override after opt-in resolve so week chips refresh before parent re-hydrate.
   const effectiveScheduleBlocks = scheduleBlocksOverride ?? scheduleBlocks
@@ -602,30 +657,101 @@ export function StudyTaskSchedulePage({
     }
   }, [scheduleBlocks, scheduleBlocksOverride])
 
-  const scheduledTasks = useMemo((): WeekChipTask[] => {
+  const allScheduleEntries = useMemo((): WeekScheduleEntry[] => {
     const entries = projectWeekScheduleEntriesFromHost({
       tasks,
       scheduleBlocks: effectiveScheduleBlocks,
       weekAnchorMidnightMs
     })
-    if (entries.length > 0) {
-      // Multi-block path: one chip per projectable focus ScheduleBlock (or V1 fallback).
-      return entries.map((entry) => ({
-        id: entry.taskId,
-        title: entry.title,
-        done: entry.done,
-        ...(entry.categoryId ? { categoryId: entry.categoryId } : {}),
-        schedule: entry.schedule,
-        scheduleBlockId: entry.blockId,
-        ...(entry.sliceIndex !== undefined ? { sliceIndex: entry.sliceIndex } : {}),
-        ...(entry.zoneTooltip ? { zoneTooltip: entry.zoneTooltip } : {})
-      }))
-    }
+    if (entries.length > 0) return entries
+    // Pre-migration / no workspace: V1 weekday patterns only.
     return tasks.filter(hasSchedule).map((task) => ({
-      ...task,
-      schedule: task.schedule
+      blockId: `block:${task.id}:v1`,
+      taskId: task.id,
+      title: task.title,
+      done: task.done,
+      ...(task.categoryId ? { categoryId: task.categoryId } : {}),
+      schedule: task.schedule!,
+      isPrimary: true as const,
+      locked: false,
+      source: 'manual' as const,
+      status: 'planned' as const
     }))
   }, [tasks, effectiveScheduleBlocks, weekAnchorMidnightMs])
+
+  const scheduledTasks = useMemo((): WeekChipTask[] => {
+    const entries = filterScheduleEntriesForWeek(allScheduleEntries, weekAnchorMidnightMs)
+    return entries.map((entry) => ({
+      id: entry.taskId,
+      title: entry.title,
+      done: entry.done,
+      ...(entry.categoryId ? { categoryId: entry.categoryId } : {}),
+      schedule: entry.schedule,
+      scheduleBlockId: entry.blockId,
+      ...(entry.sliceIndex !== undefined ? { sliceIndex: entry.sliceIndex } : {}),
+      ...(entry.zoneTooltip ? { zoneTooltip: entry.zoneTooltip } : {})
+    }))
+  }, [allScheduleEntries, weekAnchorMidnightMs])
+
+  const monthModel = useMemo(
+    () =>
+      buildScheduleMonthModel({
+        month: monthRange,
+        entries: allScheduleEntries.map((entry) => ({
+          blockId: entry.blockId,
+          taskId: entry.taskId,
+          title: entry.title,
+          done: entry.done,
+          ...(entry.categoryId ? { categoryId: entry.categoryId } : {}),
+          schedule: entry.schedule,
+          ...(entry.dateKey ? { dateKey: entry.dateKey } : {}),
+          ...(entry.sliceIndex !== undefined ? { sliceIndex: entry.sliceIndex } : {}),
+          ...(entry.zoneTooltip ? { zoneTooltip: entry.zoneTooltip } : {})
+        }))
+      }),
+    [monthRange, allScheduleEntries]
+  )
+
+  const weekDayHeads = useMemo(
+    () => buildWeekDayHeadModels({ weekAnchorMidnightMs }),
+    [weekAnchorMidnightMs]
+  )
+  const calendarRangeLabel =
+    viewMode === 'week' ? formatWeekRangeLabel(weekAnchorMidnightMs) : monthModel.titleLabel
+
+  const goPrevCalendar = (): void => {
+    if (viewMode === 'week') {
+      const next = shiftWeekAnchorMidnightMs(weekAnchorMidnightMs, -1)
+      setWeekAnchorMidnightMs(next)
+      setMonthRange(monthRangeFromWeekAnchor(next))
+      return
+    }
+    const next = shiftMonthRange(monthRange, -1)
+    setMonthRange(next)
+    setWeekAnchorMidnightMs(
+      resolveLocalWeekAnchorMidnightMs(new Date(next.year, next.monthIndex, 1).getTime())
+    )
+  }
+
+  const goNextCalendar = (): void => {
+    if (viewMode === 'week') {
+      const next = shiftWeekAnchorMidnightMs(weekAnchorMidnightMs, 1)
+      setWeekAnchorMidnightMs(next)
+      setMonthRange(monthRangeFromWeekAnchor(next))
+      return
+    }
+    const next = shiftMonthRange(monthRange, 1)
+    setMonthRange(next)
+    setWeekAnchorMidnightMs(
+      resolveLocalWeekAnchorMidnightMs(new Date(next.year, next.monthIndex, 1).getTime())
+    )
+  }
+
+  const goTodayCalendar = (): void => {
+    const nowAnchor = resolveLocalWeekAnchorMidnightMs()
+    setWeekAnchorMidnightMs(nowAnchor)
+    setMonthRange(monthRangeFromEpoch(Date.now()))
+  }
 
   const conflictsBannerModel = useMemo(
     () =>
@@ -709,7 +835,6 @@ export function StudyTaskSchedulePage({
   const layoutsByDay = useMemo(() => {
     return weekDays.map((_, dayIndex) => layoutDayTasks(scheduledTasks.filter((task) => task.schedule.weekday === dayIndex)))
   }, [scheduledTasks])
-  const todayIndex = currentWeekdayIndex()
   const contextMenuTask = contextMenu ? scheduledTasks.find((task) => task.id === contextMenu.taskId) ?? null : null
   const draggedTaskCategory = taskDrag ? resolveTaskCategory(taskDrag.categoryId, taskCategories) : null
 
@@ -958,6 +1083,87 @@ export function StudyTaskSchedulePage({
     if (editor?.categoryId === categoryId) updateEditorCategory('study')
     setCategoryContextMenu(null)
   }
+
+  const openMonthTask = (chip: ScheduleMonthTaskChip): void => {
+    const match = allScheduleEntries.find(
+      (entry) => entry.blockId === chip.blockId && entry.taskId === chip.taskId
+    )
+    if (match) {
+      openEditEditor({
+        id: match.taskId,
+        title: match.title,
+        done: match.done,
+        ...(match.categoryId ? { categoryId: match.categoryId } : {}),
+        schedule: match.schedule,
+        scheduleBlockId: match.blockId,
+        ...(match.sliceIndex !== undefined ? { sliceIndex: match.sliceIndex } : {}),
+        ...(match.zoneTooltip ? { zoneTooltip: match.zoneTooltip } : {})
+      })
+      return
+    }
+    openEditEditor({
+      id: chip.taskId,
+      title: chip.title,
+      done: chip.done,
+      ...(chip.categoryId ? { categoryId: chip.categoryId } : {}),
+      schedule: {
+        weekday: 0,
+        startMinutes: chip.startMinutes,
+        endMinutes: chip.endMinutes
+      },
+      scheduleBlockId: chip.blockId
+    } as WeekChipTask)
+  }
+
+  const handleMonthDayAdd = (isoDate: string): void => {
+    const dayMs = parseLocalDateKeyMs(isoDate)
+    if (dayMs == null) return
+    openAddEditor(createDefaultSchedule(new Date(dayMs)))
+  }
+
+  const stopWeekDayHighlightAnimation = (): void => {
+    if (weekDayHighlightRafRef.current != null) {
+      window.cancelAnimationFrame(weekDayHighlightRafRef.current)
+      weekDayHighlightRafRef.current = null
+    }
+  }
+
+  /** Month double-click: jump to the week containing `isoDate` and briefly highlight that day. */
+  const handleMonthDayOpenWeek = (isoDate: string): void => {
+    const dayMs = parseLocalDateKeyMs(isoDate)
+    if (dayMs == null) return
+    const nextAnchor = resolveLocalWeekAnchorMidnightMs(dayMs)
+    setWeekAnchorMidnightMs(nextAnchor)
+    setMonthRange(monthRangeFromEpoch(dayMs))
+    setViewMode('week')
+
+    stopWeekDayHighlightAnimation()
+    const token = ++weekDayHighlightTokenRef.current
+    setWeekDayHighlightDateKey(isoDate)
+    setWeekDayHighlightOpacity(0)
+    const startedAt = performance.now()
+
+    const tick = (now: number): void => {
+      if (weekDayHighlightTokenRef.current !== token) return
+      const elapsed = now - startedAt
+      const next = weekDayHighlightOpacityAt(
+        elapsed,
+        WEEK_DAY_HIGHLIGHT_MS,
+        WEEK_DAY_HIGHLIGHT_PEAK_OPACITY
+      )
+      setWeekDayHighlightOpacity(next)
+      if (elapsed >= WEEK_DAY_HIGHLIGHT_MS) {
+        weekDayHighlightRafRef.current = null
+        setWeekDayHighlightDateKey((current) => (current === isoDate ? null : current))
+        setWeekDayHighlightOpacity(0)
+        return
+      }
+      weekDayHighlightRafRef.current = window.requestAnimationFrame(tick)
+    }
+    weekDayHighlightRafRef.current = window.requestAnimationFrame(tick)
+  }
+
+  useEffect(() => () => stopWeekDayHighlightAnimation(), [])
 
   const handleEditorSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -1397,11 +1603,59 @@ export function StudyTaskSchedulePage({
   return (
     <div className="study-schedule-page" aria-labelledby={titleId}>
       <header className="study-schedule-header">
-        <button type="button" className="study-schedule-back" onClick={onBack} aria-label="返回自习室">
-          <ArrowLeft size={18} />
-        </button>
-        <div className="study-schedule-title">
-          <h1 id={titleId}><CalendarDays size={17} /> 任务详情</h1>
+        <div className="study-schedule-header-left">
+          <button type="button" className="study-schedule-back" onClick={onBack} aria-label="返回自习室">
+            <ArrowLeft size={18} />
+          </button>
+          <div className="study-schedule-title">
+            <h1 id={titleId}><CalendarDays size={17} /> 任务详情</h1>
+          </div>
+          <div className="study-schedule-view-toggle" role="tablist" aria-label="视图切换">
+            {SCHEDULE_CALENDAR_VIEW_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="tab"
+                aria-selected={viewMode === option.id}
+                className={`study-schedule-view-toggle-button${viewMode === option.id ? ' is-active' : ''}`}
+                onClick={() => setViewMode(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="study-schedule-calendar-nav" aria-label="日历导航">
+          <button
+            type="button"
+            className="study-schedule-calendar-nav-button"
+            onClick={goPrevCalendar}
+            aria-label={viewMode === 'week' ? '上一周' : '上一月'}
+            title={viewMode === 'week' ? '上一周' : '上一月'}
+          >
+            <ChevronLeft size={16} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="study-schedule-calendar-today-button"
+            onClick={goTodayCalendar}
+            aria-label="回到今天"
+            title="回到今天"
+          >
+            今天
+          </button>
+          <strong className="study-schedule-calendar-range" aria-live="polite">
+            {calendarRangeLabel}
+          </strong>
+          <button
+            type="button"
+            className="study-schedule-calendar-nav-button"
+            onClick={goNextCalendar}
+            aria-label={viewMode === 'week' ? '下一周' : '下一月'}
+            title={viewMode === 'week' ? '下一周' : '下一月'}
+          >
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
         </div>
         <div className="study-schedule-stats" aria-label="任务统计">
           <button
@@ -1440,16 +1694,52 @@ export function StudyTaskSchedulePage({
         </p>
       ) : null}
 
+      <div className="study-schedule-main">
+      {viewMode === 'month' ? (
+        <StudyTaskScheduleMonthBoard
+          model={monthModel}
+          categories={taskCategories}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={onSelectTask}
+          onOpenTask={openMonthTask}
+          onAddTaskForDay={handleMonthDayAdd}
+          onOpenWeekForDay={handleMonthDayOpenWeek}
+        />
+      ) : (
       <div className="study-schedule-board" role="grid" aria-label="一周 0 点到 24 点任务表">
         <div className="study-schedule-corner" aria-hidden="true">
           <Clock3 size={14} />
         </div>
-        {weekDays.map((day, index) => (
-          <div key={day} className={`study-schedule-day-head${index === todayIndex ? ' is-today' : ''}`} role="columnheader">
-            <span>{day}</span>
-            <strong>{layoutsByDay[index]?.length ?? 0}</strong>
-          </div>
-        ))}
+        {weekDayHeads.map((head) => {
+          const isHighlightTarget = weekDayHighlightDateKey === head.dateKey
+          return (
+            <div
+              key={head.dateKey}
+              className={[
+                'study-schedule-day-head',
+                head.isToday ? 'is-today' : '',
+                isHighlightTarget ? 'is-flash-highlight' : ''
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              role="columnheader"
+              data-date-key={head.dateKey}
+            >
+              {isHighlightTarget ? (
+                <span
+                  className="study-schedule-day-highlight-wash"
+                  style={{ opacity: weekDayHighlightOpacity }}
+                  aria-hidden="true"
+                />
+              ) : null}
+              <span>
+                {head.weekdayLabel}
+                <em className="study-schedule-day-date">{head.dayOfMonth}</em>
+              </span>
+              <strong>{layoutsByDay[head.dayIndex]?.length ?? 0}</strong>
+            </div>
+          )
+        })}
         <div className="study-schedule-time-rail" aria-hidden="true">
           {hourMarks.map((hour) => (
             <span
@@ -1465,11 +1755,20 @@ export function StudyTaskSchedulePage({
           const selectionSchedule = selection?.dayIndex === dayIndex
             ? createSelectionSchedule(dayIndex, selection.anchorMinutes, selection.currentMinutes)
             : null
+          const columnDateKey = weekDayHeads[dayIndex]?.dateKey
+          const isHighlightTarget =
+            columnDateKey != null && weekDayHighlightDateKey === columnDateKey
           return (
             <div
               key={day}
-              className="study-schedule-day-column"
+              className={[
+                'study-schedule-day-column',
+                isHighlightTarget ? 'is-flash-highlight' : ''
+              ]
+                .filter(Boolean)
+                .join(' ')}
               data-day-index={dayIndex}
+              data-date-key={columnDateKey}
               role="gridcell"
               aria-label={day}
               onPointerMove={(event) => handleColumnPointerMove(dayIndex, event)}
@@ -1478,6 +1777,13 @@ export function StudyTaskSchedulePage({
               onPointerCancel={handleColumnPointerCancel}
               onPointerLeave={() => handleColumnPointerLeave(dayIndex)}
             >
+              {isHighlightTarget ? (
+                <span
+                  className="study-schedule-day-highlight-wash"
+                  style={{ opacity: weekDayHighlightOpacity }}
+                  aria-hidden="true"
+                />
+              ) : null}
               {hover?.dayIndex === dayIndex ? (
                 <div
                   className={`study-schedule-hover-line${hover.minutes >= 23 * 60 + 30 ? ' is-late' : ''}`}
@@ -1668,6 +1974,8 @@ export function StudyTaskSchedulePage({
         })}
       </div>
 
+      )}
+      </div>
       {taskDrag && draggedTaskCategory ? (
         <div
           className="study-schedule-drag-float"

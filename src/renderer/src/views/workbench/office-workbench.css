@@ -336,14 +336,18 @@
   font-weight: 680;
   text-align: left;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Label is a multi-item flex row (icon + title + status + room code).
+     Do not force nowrap on the whole span — that collides title/code into one ellipsis blob. */
+  white-space: normal;
 }
 
 .workbench-leaderboard-toggle strong {
+  flex: 0 0 auto;
   color: #17202b;
   font-size: 0.75rem;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .workbench-leaderboard-label {
@@ -351,6 +355,7 @@
   align-items: center;
   gap: 7px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .workbench-heartbeat-dot {
@@ -414,13 +419,14 @@
 
 .workbench-leaderboard-row {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
-  min-height: 40px;
-  padding: 4px 8px;
-  border: 1px solid transparent;
-  border-radius: 11px;
+  gap: 10px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
 }
 
 .workbench-leaderboard-row > span {
@@ -681,10 +687,12 @@
 }
 
 /* Keep the analytics label stationary on pointer interaction; unlike a
-   prominent CTA, it is a utility action alongside "详情". */
+   prominent CTA, it is a utility action alongside "详情". The generic
+   `.workbench-task-head > button:hover` rule paints a dark wash — cancel it. */
 .workbench-task-head > .workbench-task-analytics-button:not(:disabled):hover,
 .workbench-task-head > .workbench-task-analytics-button:active {
   border-color: transparent;
+  background: transparent;
   box-shadow: none;
   transform: none;
   filter: none;
@@ -851,7 +859,7 @@
 
 .workbench-task-list {
   display: grid;
-  gap: 6px;
+  gap: 2px;
   max-height: 150px;
   margin-top: 11px;
   overflow-y: auto;
@@ -866,11 +874,16 @@
   min-height: 34px;
   padding: 6px 9px;
   color: #17202b;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.32);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  /* Flat list rows (match music queue): no glass pill wrapper. */
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
   text-align: left;
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease;
 }
 
 .workbench-task-row > span {
@@ -940,11 +953,7 @@
   .workbench-task-form button:not(:disabled):hover,
   .workbench-space-join button:hover,
   .workbench-task-row:hover {
-    transform: translateY(-1px);
-    border-color: rgba(255, 255, 255, 0.9);
-    box-shadow:
-      0 9px 22px rgba(55, 72, 98, 0.12),
-      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    background: rgba(20, 47, 95, 0.055);
   }
 }
 
@@ -1119,9 +1128,9 @@
 .workbench-task-form input,
 .workbench-task-row {
   color: var(--text);
-  border-color: var(--line);
-  background: color-mix(in srgb, var(--surface-solid) 66%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .workbench-pomodoro-time strong {
@@ -1187,8 +1196,7 @@
   .workbench-task-form button:not(:disabled):hover,
   .workbench-space-join button:hover,
   .workbench-task-row:hover {
-    border-color: var(--line-strong);
-    box-shadow: var(--shadow-card);
+    background: rgba(20, 47, 95, 0.055);
   }
 }
 
@@ -1502,15 +1510,10 @@
 .workbench-leaderboard-row {
   min-height: 38px;
   padding: 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  border-radius: var(--workbench-control-radius);
-  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
 }
 
 .workbench-leaderboard-row.is-me {
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent 58%),
-    color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .workbench-heartbeat-dot {
@@ -1540,7 +1543,6 @@
 .workbench-room-code button,
 .workbench-pomodoro-actions button:not(.is-primary),
 .workbench-pomodoro-presets button,
-.workbench-task-row,
 .workbench-task-form input,
 .workbench-room-join input {
   border-color: color-mix(in srgb, var(--line) 72%, transparent);
@@ -1698,7 +1700,7 @@
 }
 
 .workbench-task-list {
-  gap: 6px;
+  gap: 2px;
   max-height: 216px;
   margin-top: 10px;
   scrollbar-width: thin;
@@ -1752,11 +1754,7 @@
   .workbench-task-form button:not(:disabled):hover,
   .workbench-space-join button:hover,
   .workbench-task-row:hover {
-    transform: translateY(-1px);
-    border-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 32%, var(--line-strong));
-    box-shadow:
-      0 9px 24px color-mix(in srgb, var(--text) 11%, transparent),
-      inset 0 1px 0 color-mix(in srgb, #ffffff 38%, transparent);
+    background: rgba(20, 47, 95, 0.055);
   }
 }
 
@@ -2138,8 +2136,6 @@
 .workbench-leaderboard-row {
   min-height: 42px;
   padding: 8px;
-  border-radius: var(--workbench-control-radius);
-  background: var(--workbench-module-inset);
 }
 
 .workbench-task-card {
@@ -2197,7 +2193,7 @@
 
 .workbench-task-list {
   --scrollbar-track: transparent;
-  gap: 7px;
+  gap: 5px;
   max-height: 216px;
   margin-top: 10px;
   padding-right: 1px;
@@ -2209,9 +2205,10 @@
   min-height: 38px;
   padding: 7px 9px;
   color: var(--text);
-  border: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
-  border-radius: var(--workbench-control-radius);
-  background: color-mix(in srgb, var(--surface-solid) 56%, transparent);
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .workbench-task-row > span {
@@ -2241,7 +2238,10 @@
     transform: translateY(-1px);
   }
 
-  .workbench-task-row:hover,
+  .workbench-task-row:hover {
+    background: rgba(20, 47, 95, 0.055);
+  }
+
   .workbench-tools .workbench-leaderboard-toggle:hover {
     background: color-mix(in srgb, var(--surface-solid) 78%, transparent);
   }
@@ -2386,12 +2386,42 @@
 .workbench-pomodoro-presets button,
 .workbench-task-summary span,
 .workbench-task-form input,
-.workbench-task-form button,
-.workbench-task-row,
-.workbench-leaderboard-row {
+.workbench-task-form button {
   border: 1px solid var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34));
   background: var(--liquid-glass-control-fill, rgba(255, 255, 255, 0.2));
   box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, rgba(255, 255, 255, 0.4));
+}
+
+/* Task + leaderboard rows stay flat like music queue items (no glass control chrome). */
+.workbench-task-row,
+.workbench-leaderboard-row {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-task-row:hover,
+.workbench-task-row:focus-within {
+  background: rgba(20, 47, 95, 0.055);
+}
+
+.workbench-task-row.is-focus-task,
+.workbench-task-row.is-focus-task:hover,
+.workbench-task-row.is-focus-task:focus-within {
+  background: rgba(20, 47, 95, 0.09);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .workbench-task-row:hover,
+:root[data-resolved-theme='dark'] .workbench-task-row:focus-within {
+  background: var(--surface-hover, rgba(255, 255, 255, 0.06));
+}
+
+:root[data-resolved-theme='dark'] .workbench-task-row.is-focus-task,
+:root[data-resolved-theme='dark'] .workbench-task-row.is-focus-task:hover,
+:root[data-resolved-theme='dark'] .workbench-task-row.is-focus-task:focus-within {
+  background: rgba(138, 180, 255, 0.14);
+  box-shadow: none;
 }
 
 .workbench-room-code button.is-random,
@@ -2441,8 +2471,7 @@
   z-index: 1;
 }
 
-.workbench-pomodoro-presets button.is-active,
-.workbench-leaderboard-row.is-me {
+.workbench-pomodoro-presets button.is-active {
   background:
     linear-gradient(145deg, color-mix(in srgb, #ffffff 32%, transparent), transparent 50%),
     color-mix(in srgb, var(--accent) 14%, transparent);
@@ -2453,8 +2482,8 @@
 
 .workbench-tools button:not(.workbench-disclosure-toggle):active,
 .workbench-task-row:active {
-  transform: scale(0.965);
-  filter: brightness(1.04);
+  transform: none;
+  filter: none;
 }
 
 @media (hover: hover) {
@@ -2520,10 +2549,14 @@
   }
 }
 
-/* Keep the controls on the study-room stage instead of inside a separate rail. */
-.office-workbench-stage .workbench-tools {
+/* Shared stage insets for right-rail tools and left music dock bottoms. */
+.office-workbench-stage {
   --workbench-tools-inline-inset: clamp(6px, 1.25vw, 14px);
   --workbench-tools-block-inset: clamp(12px, 3vh, 28px);
+}
+
+/* Keep the controls on the study-room stage instead of inside a separate rail. */
+.office-workbench-stage .workbench-tools {
   top: var(--workbench-tools-block-inset);
   right: var(--workbench-tools-inline-inset);
   bottom: auto;
@@ -2656,17 +2689,29 @@
   color: var(--text);
   font-size: 0.8125rem;
   font-weight: 760;
+  line-height: 1.2;
+}
+
+.workbench-leaderboard-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workbench-leaderboard-space-code {
   display: inline-block;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 7.5em;
   overflow: hidden;
   color: var(--accent);
   font-family: inherit;
   font-size: 0.75rem;
   font-weight: 780;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2677,18 +2722,31 @@
 }
 
 .workbench-leaderboard-header > strong {
+  flex: 0 0 auto;
+  margin-left: 4px;
   color: var(--text);
   font-size: 0.75rem;
   font-weight: 780;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
+/* One glass surface only: the outer disclosure card. Detail content is flat
+   layout inside that surface — no nested panel card, fixed open body height. */
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
   width: 100%;
-  margin-top: 10px;
+  height: 268px;
+  min-height: 268px;
+  max-height: 268px;
+  margin-top: 4px;
   padding: 0;
-  overflow: visible;
+  overflow: hidden;
+  color: inherit;
   border: 0;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
   backdrop-filter: none;
@@ -2698,23 +2756,99 @@
 
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel::before,
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel::after {
+  content: none;
   display: none;
 }
 
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-list {
-  max-height: 238px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
   padding-right: 2px;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-row {
-  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-row em {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-row.is-me {
+  border: 0;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: none;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-row.is-me em {
+  color: var(--accent);
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-actions {
+  flex: 0 0 auto;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+/* Room join is a single-layer control on the outer card — do not re-apply
+   legacy room-switcher / card chrome under the search field. */
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-actions .workbench-room-join {
+  margin-top: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid) 36%, transparent);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-actions .workbench-room-join input {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-actions .workbench-room-join button {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 @media (max-width: 720px) {
-  .office-workbench-stage .workbench-tools {
+  .office-workbench-stage {
     --workbench-tools-inline-inset: 10px;
     --workbench-tools-block-inset: 10px;
   }
@@ -2840,58 +2974,68 @@
 }
 
 .workbench-task-row {
-  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  grid-template-columns: minmax(0, 1fr) 28px 28px;
   gap: 6px;
-  padding: 4px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .workbench-task-row:not(:has(.workbench-task-focus)) {
-  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-columns: minmax(0, 1fr) 28px;
 }
 
 .workbench-task-row.is-focus-task {
-  border-color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 46%, var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34)));
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 24%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  border: 0;
+  background: rgba(20, 47, 95, 0.09);
+  box-shadow: none;
 }
 
-.workbench-task-focus {
+/* Icon-only row actions: no glass control chrome, no lift/scale motion. */
+.workbench-task-focus,
+.workbench-task-delete {
   display: inline-grid;
   place-items: center;
   align-self: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   color: var(--text-muted);
-  border: 1px solid var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34));
-  border-radius: var(--workbench-control-radius, 10px);
-  background: var(--liquid-glass-control-fill, rgba(255, 255, 255, 0.2));
-  box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, rgba(255, 255, 255, 0.4));
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  /* Override .workbench-tools button hover translateY / active scale. */
+  transform: none !important;
+  filter: none !important;
+  transition: color 160ms ease;
 }
 
 .workbench-task-focus.is-active {
-  color: #ffffff;
-  border-color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 50%, transparent);
-  background: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 82%, #163b2d);
+  color: var(--pomodoro-accent, #2f9e78);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
-.workbench-task-focus:hover {
-  color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 80%, var(--text));
-  border-color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 40%, var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34)));
-  background: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 16%, transparent);
+.workbench-task-focus:hover,
+.workbench-task-focus:active,
+.workbench-tools button.workbench-task-focus:not(.workbench-disclosure-toggle):hover,
+.workbench-tools button.workbench-task-focus:not(.workbench-disclosure-toggle):active {
+  color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 88%, var(--text));
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none !important;
+  filter: none !important;
 }
 
 @media (hover: hover) {
   .workbench-task-focus:not(.is-active) {
     opacity: 0;
     pointer-events: none;
-    transform: translateX(3px);
-    transition:
-      opacity 140ms ease,
-      transform 140ms ease,
-      color 160ms ease,
-      border-color 160ms ease,
-      background-color 160ms ease;
   }
 
   .workbench-task-row:hover .workbench-task-focus,
@@ -2899,7 +3043,6 @@
   .workbench-task-focus.is-active {
     opacity: 1;
     pointer-events: auto;
-    transform: none;
   }
 }
 
@@ -2967,43 +3110,28 @@
   color: color-mix(in srgb, var(--text-soft) 72%, transparent);
 }
 
-.workbench-task-delete {
-  display: inline-grid;
-  place-items: center;
-  align-self: center;
-  width: 30px;
-  height: 30px;
-  color: var(--text-muted);
-  border: 1px solid var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34));
-  border-radius: var(--workbench-control-radius);
-  background: var(--liquid-glass-control-fill, rgba(255, 255, 255, 0.2));
-  box-shadow: inset 0 1px 0 var(--liquid-glass-rim-soft, rgba(255, 255, 255, 0.4));
-}
-
-.workbench-task-delete:hover {
+.workbench-task-delete:hover,
+.workbench-task-delete:active,
+.workbench-tools button.workbench-task-delete:not(.workbench-disclosure-toggle):hover,
+.workbench-tools button.workbench-task-delete:not(.workbench-disclosure-toggle):active {
   color: var(--red, #ff453a);
-  border-color: color-mix(in srgb, var(--red, #ff453a) 40%, var(--liquid-glass-control-line, rgba(255, 255, 255, 0.34)));
-  background: color-mix(in srgb, var(--red, #ff453a) 16%, transparent);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none !important;
+  filter: none !important;
 }
 
 @media (hover: hover) {
   .workbench-task-delete {
     opacity: 0;
     pointer-events: none;
-    transform: translateX(3px);
-    transition:
-      opacity 140ms ease,
-      transform 140ms ease,
-      color 160ms ease,
-      border-color 160ms ease,
-      background-color 160ms ease;
   }
 
   .workbench-task-row:hover .workbench-task-delete,
   .workbench-task-row:focus-within .workbench-task-delete {
     opacity: 1;
     pointer-events: auto;
-    transform: none;
   }
 }
 
@@ -3014,13 +3142,18 @@
   min-width: 0;
   height: 100%;
   min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   padding: 24px;
   overflow: hidden;
   color: var(--text);
   background: var(--app-shell-main-bg);
+}
+
+.study-schedule-page > .study-schedule-main {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .study-schedule-header,
@@ -3038,11 +3171,29 @@
 
 .study-schedule-header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 14px;
   border-radius: 20px;
+}
+
+.study-schedule-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  justify-self: start;
+}
+
+.study-schedule-header > .study-schedule-calendar-nav {
+  justify-self: center;
+  grid-column: 2;
+}
+
+.study-schedule-header > .study-schedule-stats {
+  justify-self: end;
+  grid-column: 3;
 }
 
 .study-schedule-back,
@@ -3088,6 +3239,245 @@
 .study-schedule-title h1 svg {
   flex: 0 0 auto;
   color: var(--accent);
+}
+
+.study-schedule-main {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.study-schedule-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
+}
+
+.study-schedule-view-toggle-button {
+  min-width: 40px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 0.8125rem;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.study-schedule-view-toggle-button.is-active {
+  color: #fff;
+  background: var(--accent);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.study-schedule-calendar-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.study-schedule-calendar-nav-button,
+.study-schedule-calendar-today-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, #ffffff 46%, var(--line) 54%);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent),
+    0 6px 16px color-mix(in srgb, var(--text) 7%, transparent);
+  cursor: pointer;
+}
+
+.study-schedule-calendar-nav-button {
+  width: 30px;
+  padding: 0;
+}
+
+.study-schedule-calendar-today-button {
+  padding: 0 9px;
+  font-size: 0.75rem;
+  font-weight: 720;
+}
+
+.study-schedule-calendar-range {
+  min-width: 0;
+  max-width: min(34vw, 260px);
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.study-schedule-day-date {
+  margin-left: 4px;
+  color: var(--text-muted);
+  font-style: normal;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-schedule-day-head.is-today .study-schedule-day-date {
+  color: var(--accent);
+}
+
+.study-schedule-month-board {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: 32px repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--liquid-glass-line, color-mix(in srgb, #ffffff 42%, var(--line) 58%));
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--line) 55%, transparent);
+  box-shadow:
+    0 24px 70px color-mix(in srgb, var(--text) 11%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent);
+  backdrop-filter: blur(36px) saturate(200%) contrast(1.08);
+  -webkit-backdrop-filter: blur(36px) saturate(200%) contrast(1.08);
+}
+
+.study-schedule-month-weekday {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  font-size: 0.75rem;
+  font-weight: 760;
+}
+
+.study-schedule-month-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px;
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
+  cursor: pointer;
+}
+
+.study-schedule-month-cell.is-out-of-month {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.study-schedule-month-cell.is-today {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 55%),
+    color-mix(in srgb, var(--surface-solid) 86%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.study-schedule-month-cell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.study-schedule-month-day-number {
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-schedule-month-cell.is-today .study-schedule-month-day-number {
+  color: var(--accent);
+}
+
+.study-schedule-month-day-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface-solid) 48%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 720;
+}
+
+.study-schedule-month-cell-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.study-schedule-month-task {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 22px;
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, var(--event-color, var(--accent)) 40%, var(--line));
+  border-radius: 7px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--event-color, var(--accent)) 22%, var(--surface-solid));
+  text-align: left;
+  cursor: pointer;
+}
+
+.study-schedule-month-task.is-done {
+  opacity: 0.62;
+  text-decoration: line-through;
+}
+
+.study-schedule-month-task.is-selected {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.study-schedule-month-task-time {
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-schedule-month-task-title {
+  overflow: hidden;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-schedule-month-task-category {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--category-swatch-color, var(--accent));
+}
+
+.study-schedule-month-overflow {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding-left: 2px;
 }
 
 
@@ -3417,6 +3807,32 @@
   background: var(--accent);
 }
 
+/*
+ * Month→week day highlight wash.
+ * Opacity is driven by React inline style (rAF envelope) — CSS only paints a flat fill.
+ * No border ring, no spatial gradient.
+ */
+.study-schedule-day-highlight-wash {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: var(--accent);
+  /* opacity set inline by StudyTaskSchedulePage */
+  opacity: 0;
+  transform: translateZ(0);
+}
+
+.study-schedule-day-head.is-flash-highlight {
+  position: relative;
+  overflow: hidden;
+}
+
+.study-schedule-day-head.is-flash-highlight > :not(.study-schedule-day-highlight-wash) {
+  position: relative;
+  z-index: 1;
+}
+
 .study-schedule-time-rail {
   position: sticky;
   left: 0;
@@ -3460,6 +3876,16 @@
       color-mix(in srgb, var(--line) 48%, transparent) 4.166667%
     ),
     color-mix(in srgb, var(--surface-muted) 55%, var(--surface-solid));
+}
+
+.study-schedule-day-column.is-flash-highlight {
+  z-index: 1;
+  overflow: hidden;
+}
+
+/* Keep events/selection above the wash without rewriting their positioning. */
+.study-schedule-day-column.is-flash-highlight > :not(.study-schedule-day-highlight-wash) {
+  z-index: 1;
 }
 
 .study-schedule-event {
@@ -4693,11 +5119,29 @@
   }
 
   .study-schedule-header {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: stretch;
   }
 
-  .study-schedule-stats {
-    grid-column: 1 / -1;
+  .study-schedule-header-left {
+    grid-column: 1;
+    justify-self: start;
+  }
+
+  .study-schedule-header > .study-schedule-calendar-nav {
+    grid-column: 1;
+    justify-self: center;
+    width: 100%;
+  }
+
+  .study-schedule-header > .study-schedule-stats {
+    grid-column: 1;
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .study-schedule-calendar-range {
+    max-width: min(52vw, 220px);
   }
 
   .study-schedule-form {
@@ -4944,7 +5388,7 @@
   }
 
   .office-workbench-stage .workbench-task-list {
-    gap: 4px;
+    gap: 5px;
     max-height: 84px;
   }
 
@@ -4977,7 +5421,7 @@
 }
 
 .office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-panel {
-  min-height: 0;
+  min-height: 268px;
 }
 
 .office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-list {
@@ -4985,18 +5429,20 @@
 }
 
 .workbench-leaderboard-list {
+  display: grid;
   gap: 2px;
+  align-content: start;
 }
 
 .workbench-leaderboard-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-height: 34px;
-  padding: 5px 8px;
+  padding: 6px 10px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 12px;
   background: transparent;
   box-shadow: none;
 }
@@ -5005,7 +5451,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -5014,15 +5460,22 @@
 
 .workbench-leaderboard-row em {
   color: var(--text-muted);
-  font-size: 0.6875rem;
-  font-weight: 700;
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .workbench-leaderboard-row.is-me {
   border: 0;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   box-shadow: none;
+}
+
+.workbench-leaderboard-row.is-me em {
+  color: var(--accent);
 }
 
 .workbench-leaderboard-actions {
@@ -5342,9 +5795,11 @@
 /* Keep the timer at the top-right and anchor the collapsed task list to the
    bottom-right. The explicit-height reveal makes its expansion travel upward. */
 .office-workbench-stage .workbench-tools {
-  height: calc(var(--workbench-tools-layout-height) - 10px);
-  max-height: calc(var(--workbench-tools-layout-height) - 10px);
-  padding-bottom: 4px;
+  /* Match the music dock bottom: layout height already equals stage height minus
+     top and bottom block insets (office-scene-runtime: visibleHeight - 2*top). */
+  height: var(--workbench-tools-layout-height);
+  max-height: var(--workbench-tools-layout-height);
+  padding-bottom: 0;
   overflow: visible;
 }
 
@@ -6012,21 +6467,27 @@
   z-index: 30;
   display: grid;
   place-items: center;
-  padding: 16px;
+  padding: 20px;
   background: rgba(3, 7, 15, 0.46);
   backdrop-filter: blur(16px) saturate(135%);
   -webkit-backdrop-filter: blur(16px) saturate(135%);
 }
 
+.workbench-scene-picker-backdrop.is-drop-active {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 .workbench-scene-picker {
   box-sizing: border-box;
-  width: min(580px, 100%);
+  width: min(760px, calc(100% - 24px));
+  max-height: min(760px, calc(100% - 24px));
   display: grid;
-  gap: 15px;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  overflow: auto;
   color: var(--text);
   border: 1px solid var(--workbench-quick-note-line);
-  border-radius: 22px;
+  border-radius: 20px;
   background: var(--workbench-quick-note-surface);
   box-shadow:
     var(--workbench-quick-note-shadow),
@@ -6036,68 +6497,63 @@
 
 .workbench-scene-picker__header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.workbench-scene-picker__eyebrow {
-  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 760;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
 }
 
-.workbench-scene-picker__header h2 {
-  margin: 4px 0 0;
-  font-size: 19px;
-  line-height: 1.2;
+.workbench-scene-picker__title {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
 }
 
-.workbench-scene-picker__header p,
-.workbench-scene-picker__current {
-  margin: 6px 0 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.workbench-scene-picker__current {
-  margin: -5px 0 0;
-}
-
+/* Icon-only close: no outer ring / bordered plate. */
 .workbench-scene-picker__close {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
   padding: 0;
   color: var(--text-muted);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-solid) 54%, transparent);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
   cursor: pointer;
+}
+
+.workbench-scene-picker__close:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+}
+
+.workbench-scene-picker__close:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 64%, #ffffff);
+  outline-offset: 2px;
 }
 
 .workbench-scene-picker__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .workbench-scene-picker__preset {
   position: relative;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 4 / 3;
+  min-height: 0;
   display: flex;
   align-items: flex-end;
   overflow: hidden;
-  padding: 14px;
+  padding: 10px;
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 15px;
+  border-radius: 12px;
   background: #030303;
   box-shadow: none;
   cursor: pointer;
@@ -6122,6 +6578,48 @@
   content: '';
 }
 
+.workbench-scene-picker__delete {
+  position: absolute;
+  z-index: 2;
+  right: 8px;
+  bottom: 8px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  color: #ffffff;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.workbench-scene-picker__delete:hover {
+  color: #ffb4b4;
+}
+
+.workbench-scene-picker__delete:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.workbench-scene-picker__name-input {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  color: #ffffff;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+}
+
 .workbench-immersive-video,
 .workbench-scene-picker__video-preview {
   width: 100%;
@@ -6140,18 +6638,84 @@
   inset: 0;
 }
 
+.workbench-scene-picker__upload {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 16px 14px;
+  color: var(--text-muted);
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+  text-align: center;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.workbench-scene-picker__upload strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.workbench-scene-picker__upload span {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workbench-scene-picker__upload.is-drop-active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 72%, #ffffff);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-solid));
+}
+
+.workbench-scene-picker__file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.workbench-scene-picker__upload-btn {
+  margin-top: 6px;
+  padding: 9px 16px;
+  color: #ffffff;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 86%, #172034);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.workbench-scene-picker__upload-btn:hover {
+  background: color-mix(in srgb, var(--accent) 94%, #172034);
+}
+
+.workbench-scene-picker__upload-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 64%, #ffffff);
+  outline-offset: 3px;
+}
+
 .workbench-scene-picker__clock-preview {
   position: absolute;
   z-index: -1;
   inset: 0;
-  padding: 12px 14px;
+  padding: 8px 10px;
   container-type: inline-size;
 }
 
 .workbench-scene-picker__clock-preview .workbench-clock__display {
   width: 100%;
-  gap: clamp(10px, 6cqw, 16px);
-  font-size: clamp(40px, 20cqw, 56px);
+  gap: clamp(6px, 5cqw, 12px);
+  font-size: clamp(28px, 18cqw, 44px);
   transform: scaleX(0.88);
 }
 
@@ -6177,17 +6741,23 @@
 }
 
 .workbench-scene-picker__preset-copy strong {
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.2;
 }
 
 .workbench-scene-picker__preset-copy small {
   color: rgba(255, 255, 255, 0.78);
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.35;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 720px) {
+  .workbench-scene-picker__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
   .workbench-scene-picker__grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -6195,14 +6765,14 @@
 
 .workbench-scene-picker__selected-mark {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  padding: 4px 7px;
+  top: 6px;
+  right: 6px;
+  padding: 3px 6px;
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.32);
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 76%, #172034);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 760;
   line-height: 1;
 }
@@ -6288,22 +6858,8 @@
   transition-delay: 0s;
 }
 
-/* Fullscreen exit is a persistent control, not a hover affordance. The native
-   :fullscreen selector keeps it reachable even before React processes the
-   fullscreenchange event; the state class carries the same guarantee afterward.
-   Only the exit action receives pointer events so hide/scene/note cannot be
-   hit while the fan is collapsed. */
-.workbench-immersive-controls.is-fullscreen .workbench-immersive-arc-menu,
-.office-workbench-stage:fullscreen .workbench-immersive-arc-menu {
-  visibility: visible;
-  pointer-events: none;
-  transition-delay: 0s;
-}
-
-.workbench-immersive-controls.is-fullscreen .workbench-immersive-arc-menu.is-active,
-.office-workbench-stage:fullscreen .workbench-immersive-arc-menu.is-active {
-  pointer-events: auto;
-}
+/* Fullscreen no longer pins the exit control open — the whole fan (including
+   enter/exit fullscreen) follows hover/focus via .is-active only. */
 
 .workbench-immersive-arc-action {
   --arc-x: 0px;
@@ -6350,14 +6906,9 @@
   animation: workbench-immersive-arc-action-in 360ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
 }
 
-.workbench-immersive-controls.is-fullscreen .workbench-immersive-arc-action--fullscreen,
-.office-workbench-stage:fullscreen .workbench-immersive-arc-action--fullscreen {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translate(
-      calc(-50% + var(--arc-x)),
-      calc(50% + var(--arc-y))
-    ) scale(1);
+/* Pressed/active style for fullscreen uses aria-pressed + optional hover;
+   do not force the control visible while the fan is collapsed. */
+.workbench-immersive-arc-menu.is-active > .workbench-immersive-arc-action--fullscreen[aria-pressed='true'] {
   color: #ffffff;
   border-color: color-mix(in srgb, var(--accent) 64%, #ffffff);
   background: color-mix(in srgb, var(--accent) 68%, var(--surface-solid));
@@ -6389,7 +6940,7 @@
   --arc-y: -35px;
 }
 
-.workbench-immersive-arc-action--fullscreen {
+.workbench-immersive-arc-action--note {
   --arc-x: -24px;
   --arc-y: -66px;
 }
@@ -6399,7 +6950,7 @@
   --arc-y: -66px;
 }
 
-.workbench-immersive-arc-action--note {
+.workbench-immersive-arc-action--fullscreen {
   --arc-x: 61px;
   --arc-y: -35px;
 }
@@ -6511,7 +7062,7 @@
     --arc-y: -20px;
   }
 
-  .workbench-immersive-arc-action--fullscreen {
+  .workbench-immersive-arc-action--note {
     --arc-x: -18px;
     --arc-y: -58px;
   }
@@ -6521,7 +7072,7 @@
     --arc-y: -58px;
   }
 
-  .workbench-immersive-arc-action--note {
+  .workbench-immersive-arc-action--fullscreen {
     --arc-x: 48px;
     --arc-y: -20px;
   }
@@ -6610,7 +7161,8 @@
 }
 
 .workbench-task-reveal-inner {
-  padding: 0 var(--workbench-disclosure-toggle-padding) 10px;
+  /* Keep header actions clear of the card top rim. */
+  padding: 12px var(--workbench-disclosure-toggle-padding) 10px;
 }
 
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-reveal-inner {
@@ -6684,6 +7236,13 @@
   .workbench-task-toggle-card,
   .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle {
     min-height: 34px;
+  }
+
+  .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel,
+  .office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-panel {
+    height: 220px;
+    min-height: 220px;
+    max-height: 220px;
   }
 
   .office-workbench-task-add-overlay .study-schedule-editor-panel {
@@ -8855,13 +9414,20 @@
 :root[data-resolved-theme='dark'] .workbench-task-card,
 :root[data-resolved-theme='dark'] .workbench-music-card,
 :root[data-resolved-theme='dark'] .workbench-room-switcher,
-:root[data-resolved-theme='dark'] .workbench-leaderboard-panel,
 :root[data-resolved-theme='dark'] .workbench-space-join,
-:root[data-resolved-theme='dark'] .workbench-tools .workbench-leaderboard-toggle {
+:root[data-resolved-theme='dark'] .workbench-tools .workbench-leaderboard-toggle,
+:root[data-resolved-theme='dark'] .office-workbench-stage > .workbench-leaderboard {
   background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
   box-shadow:
     var(--shadow-card),
     inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* Nested panel is flat content inside the outer glass card — never a second surface. */
+:root[data-resolved-theme='dark'] .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel {
+  background: transparent;
+  box-shadow: none;
+  border: 0;
 }
 
 :root[data-resolved-theme='dark'] .study-schedule-page {
@@ -8871,10 +9437,32 @@
 :root[data-resolved-theme='dark'] .study-schedule-header,
 :root[data-resolved-theme='dark'] .study-schedule-form,
 :root[data-resolved-theme='dark'] .study-schedule-editor-panel,
-:root[data-resolved-theme='dark'] .study-schedule-board {
+:root[data-resolved-theme='dark'] .study-schedule-board,
+:root[data-resolved-theme='dark'] .study-schedule-month-board {
   background: var(--surface-solid);
   border-color: var(--line);
   box-shadow: var(--shadow-card);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-view-toggle {
+  background: var(--surface-muted);
+  border-color: var(--line);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-calendar-nav-button,
+:root[data-resolved-theme='dark'] .study-schedule-calendar-today-button {
+  background: var(--surface-muted);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-month-weekday,
+:root[data-resolved-theme='dark'] .study-schedule-month-cell {
+  background: var(--surface-solid);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-month-board {
+  background: var(--line);
 }
 
 :root[data-resolved-theme='dark'] .study-schedule-back,

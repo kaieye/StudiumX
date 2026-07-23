@@ -182,6 +182,30 @@ describe('planning-timer-display (focus sole-read)', () => {
     ).toBe(50)
   })
 
+  it('projectTimerProgressPercent fills clockwise for countup elapsed cache', () => {
+    // Exam / continuous dual-write: remainingSeconds holds elapsed, not time left.
+    expect(
+      projectTimerProgressPercent({
+        remainingSeconds: 300,
+        targetSeconds: 1500,
+        focusMinutes: 25,
+        breakMinutes: 0,
+        timerMode: 'focus',
+        clockMode: 'countup'
+      })
+    ).toBe(20)
+    expect(
+      projectTimerProgressPercent({
+        remainingSeconds: 0,
+        targetSeconds: 1500,
+        focusMinutes: 25,
+        breakMinutes: 0,
+        timerMode: 'focus',
+        clockMode: 'countup'
+      })
+    ).toBe(0)
+  })
+
   it('pickActiveFocusTimerSession prefers running over paused', () => {
     const paused = baseSession({ id: 'p', state: 'paused' })
     const running = baseSession({ id: 'r', state: 'running' })

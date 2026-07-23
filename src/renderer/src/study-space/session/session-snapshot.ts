@@ -88,7 +88,9 @@ export function normalizeStudySignalId(input: unknown): StudySignalId {
 
 export function normalizeStudySpaceCode(input: unknown): string {
   if (typeof input !== 'string') return STUDY_PUBLIC_SPACE_CODE
-  const value = input.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 18)
+  let value = input.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 18)
+  // Legacy generators used a "ROOM-" label; keep only the id segment.
+  if (value.startsWith('ROOM-')) value = value.slice(5)
   return value.length >= 3 ? value : STUDY_PUBLIC_SPACE_CODE
 }
 

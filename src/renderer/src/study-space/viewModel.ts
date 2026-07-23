@@ -136,7 +136,18 @@ function timerStateStageLabel(timerState: StudyTimerState, timerMode: StudyTimer
   return '准备进入'
 }
 
-export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: StudyPresenceState, nowMs: number): StudySpaceViewModel {
+export function createStudySpaceViewModel(
+  snapshot: StudySnapshot,
+  presence: StudyPresenceState,
+  nowMs: number,
+  options?: {
+    /**
+     * When countup, snapshot.remainingSeconds is elapsed (exam / continuous).
+     * Progress must fill clockwise rather than deplete remaining.
+     */
+    timerClockMode?: 'countdown' | 'countup'
+  }
+): StudySpaceViewModel {
   const activeRoom = studyRooms.find((room) => room.id === snapshot.roomId) ?? studyRooms[0]
   const activeMode = studyModes.find((mode) => mode.id === snapshot.modeId) ?? studyModes[0]
   const roomCycle = getStudyRoomCycle(activeRoom, nowMs)
@@ -154,7 +165,25 @@ export function createStudySpaceViewModel(snapshot: StudySnapshot, presence: Stu
   const roomCapacityPercent = Math.min(100, Math.round((online / activeRoom.capacity) * 100))
   const localSeatLabel = presenceOnline ? `${spaceOnline} 人在 ${snapshot.spaceCode}` : `本机席位 · ${snapshot.spaceCode}`
   const timerTotalSeconds = (snapshot.timerMode === 'focus' ? snapshot.focusMinutes : snapshot.breakMinutes) * 60
-  const timerProgress = timerTotalSeconds > 0 ? Math.round(((timerTotalSeconds - snapshot.remainingSeconds) / timerTotalSeconds) * 100) : 0
+  const timerClockMode = options?.timerClockMode === 'countup' ? 'countup' : 'countdown'
+  // Countup dual-write stores elapsed in remainingSeconds (see projectFocusTimerUi).
+  // Only invert while live so idle shells that still seed remaining=target stay at 0%.
+  const liveCountup =
+    timerClockMode === 'countup'
+    && (snapshot.timerState === 'running' || snapshot.timerState === 'paused')
+  const timerProgress = timerTotalSeconds > 0
+    ? Math.min(
+      100,
+      Math.max(
+        0,
+        Math.round(
+          liveCountup
+            ? (Math.max(0, snapshot.remainingSeconds) / timerTotalSeconds) * 100
+            : ((timerTotalSeconds - snapshot.remainingSeconds) / timerTotalSeconds) * 100
+        )
+      )
+    )
+    : 0
   const followingRoomCycle = snapshot.timerState === 'running'
     && snapshot.timerMode === roomCycle.phase
     && snapshot.focusMinutes === activeRoom.sessionMinutes

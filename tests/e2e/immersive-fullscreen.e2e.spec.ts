@@ -15,6 +15,14 @@ async function enterImmersive(mainWindow: Page): Promise<void> {
   await expect(mainWindow.getByRole('button', { name: '收起沉浸模式' })).toBeVisible()
 }
 
+async function hoverImmersiveControls(mainWindow: Page): Promise<void> {
+  const controls = mainWindow.locator('.workbench-immersive-controls')
+  const box = await controls.boundingBox()
+  if (!box) throw new Error('The immersive controls have no bounding box')
+  await mainWindow.mouse.move(box.x + box.width / 2, box.y + box.height - 28)
+  await expect(mainWindow.locator('.workbench-immersive-arc-menu')).toHaveClass(/is-active/)
+}
+
 async function expectStageFullscreen(mainWindow: Page, expected: boolean): Promise<void> {
   await expect.poll(() =>
     mainWindow.evaluate(() =>
@@ -23,13 +31,10 @@ async function expectStageFullscreen(mainWindow: Page, expected: boolean): Promi
   ).toBe(expected)
 }
 
-async function activeElementLabel(mainWindow: Page): Promise<string | null> {
-  return mainWindow.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null)
-}
-
-test('fullscreen exit stays reachable after pointer and focus leave the immersive arc', async ({ mainWindow }) => {
+test('fullscreen arc collapses after pointer leaves and reopens on hover', async ({ mainWindow }) => {
   await enterImmersive(mainWindow)
 
+  await hoverImmersiveControls(mainWindow)
   const enterFullscreen = mainWindow.getByRole('button', { name: '进入全屏' })
   await expect(enterFullscreen).toBeVisible()
   await enterFullscreen.click()
@@ -37,22 +42,24 @@ test('fullscreen exit stays reachable after pointer and focus leave the immersiv
 
   await mainWindow.locator('.office-workbench-canvas').focus()
   await mainWindow.mouse.move(8, 8)
+  await expect(mainWindow.locator('.workbench-immersive-arc-menu')).not.toHaveClass(/is-active/)
+  await expect(mainWindow.getByRole('button', { name: '退出全屏' })).toHaveCount(0)
+  await expect(mainWindow.getByRole('button', { name: '隐藏自习室卡片' })).toHaveCount(0)
 
+  await hoverImmersiveControls(mainWindow)
   const exitFullscreen = mainWindow.getByRole('button', { name: '退出全屏' })
   await expect(exitFullscreen).toBeVisible()
-  // Only the exit control stays pinned; hide/scene/note must not remain hover-hit targets.
-  await expect(mainWindow.getByRole('button', { name: '隐藏自习室卡片' })).toHaveCount(0)
-  await expect(mainWindow.getByRole('button', { name: '选择场景' })).toHaveCount(0)
-  await expect(mainWindow.getByRole('button', { name: '快捷记事' })).toHaveCount(0)
   await exitFullscreen.click()
   await expectStageFullscreen(mainWindow, false)
+
+  await hoverImmersiveControls(mainWindow)
   await expect(mainWindow.getByRole('button', { name: '进入全屏' })).toBeVisible()
-  await expect.poll(() => activeElementLabel(mainWindow)).toBe('进入全屏')
 })
 
-test('browser fullscreenchange restores the trigger, then Escape closes immersive mode', async ({ mainWindow }) => {
+test('browser fullscreenchange keeps immersive open without pinning the arc', async ({ mainWindow }) => {
   await enterImmersive(mainWindow)
 
+  await hoverImmersiveControls(mainWindow)
   await mainWindow.getByRole('button', { name: '进入全屏' }).click()
   await expectStageFullscreen(mainWindow, true)
   await mainWindow.evaluate(async () => {
@@ -62,8 +69,8 @@ test('browser fullscreenchange restores the trigger, then Escape closes immersiv
 
   await expectStageFullscreen(mainWindow, false)
   await expect(mainWindow.getByRole('button', { name: '收起沉浸模式' })).toBeVisible()
-  await expect(mainWindow.getByRole('button', { name: '进入全屏' })).toBeVisible()
-  await expect.poll(() => activeElementLabel(mainWindow)).toBe('进入全屏')
+  await mainWindow.mouse.move(8, 8)
+  await expect(mainWindow.locator('.workbench-immersive-arc-menu')).not.toHaveClass(/is-active/)
 
   await mainWindow.keyboard.press('Escape')
   const immersiveToggle = mainWindow.getByRole('button', { name: '进入沉浸模式' })
@@ -75,17 +82,20 @@ test('fullscreen controls survive repeated enter and exit cycles', async ({ main
   await enterImmersive(mainWindow)
 
   for (let cycle = 0; cycle < 2; cycle += 1) {
+    await hoverImmersiveControls(mainWindow)
     const enterFullscreen = mainWindow.getByRole('button', { name: '进入全屏' })
     await expect(enterFullscreen).toBeVisible()
     await enterFullscreen.click()
     await expectStageFullscreen(mainWindow, true)
 
     await mainWindow.mouse.move(8, 8)
+    await expect(mainWindow.locator('.workbench-immersive-arc-menu')).not.toHaveClass(/is-active/)
+
+    await hoverImmersiveControls(mainWindow)
     const exitFullscreen = mainWindow.getByRole('button', { name: '退出全屏' })
     await expect(exitFullscreen).toBeVisible()
     await exitFullscreen.click()
     await expectStageFullscreen(mainWindow, false)
-    await expect.poll(() => activeElementLabel(mainWindow)).toBe('进入全屏')
   }
 })
 
@@ -102,9 +112,9 @@ test('leaving fullscreen room for analytics and returning restores a clean enter
   await mainWindow.getByRole('button', { name: '进入沉浸模式' }).click()
   await expect(mainWindow.getByRole('button', { name: '收起沉浸模式' })).toBeVisible()
 
+  await hoverImmersiveControls(mainWindow)
   await mainWindow.getByRole('button', { name: '进入全屏' }).click()
   await expectStageFullscreen(mainWindow, true)
-  await expect(mainWindow.getByRole('button', { name: '退出全屏' })).toBeVisible()
   await expect(mainWindow.locator('.workbench-immersive-controls')).toHaveClass(/is-fullscreen/)
 
   // Leave the room while still in fullscreen.
@@ -120,6 +130,7 @@ test('leaving fullscreen room for analytics and returning restores a clean enter
   await expect(immersiveToggle).toBeVisible()
   await immersiveToggle.click()
 
+  await hoverImmersiveControls(mainWindow)
   const enterFullscreen = mainWindow.getByRole('button', { name: '进入全屏' })
   await expect(enterFullscreen).toBeVisible()
   await expect(mainWindow.locator('.workbench-immersive-controls')).not.toHaveClass(/is-fullscreen/)
@@ -127,8 +138,10 @@ test('leaving fullscreen room for analytics and returning restores a clean enter
 
   await enterFullscreen.click()
   await expectStageFullscreen(mainWindow, true)
-  const exitFullscreen = mainWindow.getByRole('button', { name: '退出全屏' })
-  await expect(exitFullscreen).toBeVisible()
   await expect(mainWindow.locator('.workbench-immersive-controls')).toHaveClass(/is-fullscreen/)
-  await expect.poll(() => activeElementLabel(mainWindow)).toBe('退出全屏')
+
+  await mainWindow.mouse.move(8, 8)
+  await expect(mainWindow.locator('.workbench-immersive-arc-menu')).not.toHaveClass(/is-active/)
+  await hoverImmersiveControls(mainWindow)
+  await expect(mainWindow.getByRole('button', { name: '退出全屏' })).toBeVisible()
 })

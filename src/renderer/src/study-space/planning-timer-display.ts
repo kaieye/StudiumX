@@ -297,19 +297,31 @@ export function startLocalNextPhaseFromCompleted(input: {
  * Falls back to V1 focus/break minutes when no active session.
  */
 export function projectTimerProgressPercent(input: {
+  /**
+   * Countdown: seconds left. Countup (exam / continuous): elapsed seconds
+   * (same dual-write cache shape as FocusTimerUiProjection.remainingSeconds).
+   */
   remainingSeconds: number
   targetSeconds: number | null | undefined
   focusMinutes: number
   breakMinutes: number
   timerMode: 'focus' | 'break'
+  /**
+   * Countup rings fill clockwise from empty; countdown depletes remaining.
+   * Default countdown preserves historical callers.
+   */
+  clockMode?: 'countdown' | 'countup'
 }): number {
   const total =
     input.targetSeconds != null && input.targetSeconds > 0
       ? input.targetSeconds
       : (input.timerMode === 'focus' ? input.focusMinutes : input.breakMinutes) * 60
   if (total <= 0) return 0
-  const remaining = Math.max(0, input.remainingSeconds)
-  return Math.min(100, Math.max(0, Math.round(((total - remaining) / total) * 100)))
+  const value = Math.max(0, input.remainingSeconds)
+  if (input.clockMode === 'countup') {
+    return Math.min(100, Math.max(0, Math.round((value / total) * 100)))
+  }
+  return Math.min(100, Math.max(0, Math.round(((total - value) / total) * 100)))
 }
 
 /**

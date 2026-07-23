@@ -92,12 +92,13 @@ assert.equal(presetIdle.remainingSeconds, 45 * 60)
 assert.equal(studyRooms.length, 4)
 const studyRoom = studyRooms[0]!
 
-assert.equal(joinStudySpace(snapshot, ' room-ab12 ', 3000).spaceCode, 'ROOM-AB12')
+assert.equal(joinStudySpace(snapshot, ' room-ab12 ', 3000).spaceCode, 'AB12')
 assert.equal(joinStudySpace(snapshot, ' room-ab12 ', 3000).seatClaimedAt, 3000)
 assert.equal(joinStudySpace(snapshot, ' public ', 3000).seatClaimedAt, snapshot.seatClaimedAt)
 assert.equal(joinStudySpace(snapshot, 'x').spaceCode, 'PUBLIC')
-assert.equal(setStudySpaceCode(snapshot, 'ROOM-NEW', 3100).spaceCode, 'ROOM-NEW')
-assert.equal(setStudySpaceCode(snapshot, 'ROOM-NEW', 3100).seatClaimedAt, 3100)
+assert.equal(setStudySpaceCode(snapshot, 'ROOM-NEW', 3100).spaceCode, 'NEW')
+assert.equal(setStudySpaceCode(snapshot, 'AB12CD', 3100).spaceCode, 'AB12CD')
+assert.equal(setStudySpaceCode(snapshot, 'AB12CD', 3100).seatClaimedAt, 3100)
 
 const sameSeat = chooseStudySeatSnapshot(snapshot, 0, 3200)
 assert.equal(sameSeat.seatIndex, 0)

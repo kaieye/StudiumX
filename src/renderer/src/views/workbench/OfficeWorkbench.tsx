@@ -1,6 +1,8 @@
-import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, StickyNote, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, StickyNote, Trash2, Upload, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
+import cloudGlowScene from '../../assets/images/workbench/scenes/cloud-glow.png'
+import summerLakesideScene from '../../assets/images/workbench/scenes/summer-lakeside.png'
 import girlVideo from '../../assets/videos/workbench/girl.mp4'
 import {
   formatStudyDuration,
@@ -13,6 +15,18 @@ import {
   type OfficeSceneSeatOccupant,
   type OfficeSceneSeatState
 } from './office-scene-runtime'
+import {
+  addImmersiveCustomMedia,
+  customScenePreference,
+  deleteImmersiveCustomMedia,
+  isBuiltInImmersiveScene,
+  listImmersiveCustomMedia,
+  parseCustomSceneId,
+  readImmersiveScenePreference,
+  renameImmersiveCustomMedia,
+  writeImmersiveScenePreference,
+  type ImmersiveCustomMediaKind
+} from './immersive-custom-media-store'
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { readBrowserNotificationPermission } from '../../study-space/planning-notification-host'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
@@ -72,11 +86,31 @@ const workbenchSeatCount = 12
 const immersiveCloseFallbackDurationMs = 1_200
 const clockRefreshIntervalMs = 60_000
 type ImmersivePhase = 'closed' | 'open' | 'closing'
-type ImmersiveScene = 'clock' | 'girl'
+type BuiltInImmersiveSceneId = 'clock' | 'girl' | 'cloud-glow' | 'summer-lakeside'
+type ImmersiveSceneId = BuiltInImmersiveSceneId | `custom:${string}`
+type ImmersiveCustomMedia = {
+  id: string
+  kind: ImmersiveCustomMediaKind
+  url: string
+  name: string
+}
 
-const immersiveSceneLabels: Record<ImmersiveScene, string> = {
-  clock: '翻页时钟',
-  girl: '女孩自习'
+const immersiveMediaAccept = 'image/*,video/*'
+const immersiveMediaMaxBytes = 200 * 1024 * 1024
+
+function classifyImmersiveMediaFile(file: File): ImmersiveCustomMediaKind | null {
+  if (file.type.startsWith('image/')) return 'image'
+  if (file.type.startsWith('video/')) return 'video'
+  const lower = file.name.toLowerCase()
+  if (/\.(png|jpe?g|gif|webp|bmp|avif|svg)$/i.test(lower)) return 'image'
+  if (/\.(mp4|webm|ogg|mov|m4v)$/i.test(lower)) return 'video'
+  return null
+}
+
+function sceneNameFromFileName(fileName: string): string {
+  const trimmed = fileName.trim()
+  const extensionIndex = trimmed.lastIndexOf('.')
+  return extensionIndex > 0 ? trimmed.slice(0, extensionIndex) : trimmed
 }
 
 function deskIdForSeatIndex(seatIndex: number): DeskId {
@@ -473,7 +507,13 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const [areRoomCardsHidden, setAreRoomCardsHidden] = useState(false)
   const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false)
   const [isScenePickerOpen, setIsScenePickerOpen] = useState(false)
-  const [immersiveScene, setImmersiveScene] = useState<ImmersiveScene>('clock')
+  const [immersiveScene, setImmersiveScene] = useState<ImmersiveSceneId>('clock')
+  const [customImmersiveMediaList, setCustomImmersiveMediaList] = useState<ImmersiveCustomMedia[]>([])
+  const [editingCustomSceneId, setEditingCustomSceneId] = useState<string | null>(null)
+  const [customSceneNameDraft, setCustomSceneNameDraft] = useState('')
+  const [isSceneDropActive, setIsSceneDropActive] = useState(false)
+  const customMediaUrlsRef = useRef<Map<string, string>>(new Map())
+  const sceneFileInputRef = useRef<HTMLInputElement | null>(null)
   const [clockState, setClockState] = useState(() => ({
     current: new Date(),
     previous: null as Date | null
@@ -651,12 +691,201 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     setIsImmersiveArcFocusActive(false)
   }, [])
 
+  const revokeAllCustomImmersiveMedia = useCallback((): void => {
+    for (const url of customMediaUrlsRef.current.values()) {
+      URL.revokeObjectURL(url)
+    }
+    customMediaUrlsRef.current.clear()
+  }, [])
+
+  const revokeCustomImmersiveMediaById = useCallback((id: string): void => {
+    const url = customMediaUrlsRef.current.get(id)
+    if (!url) return
+    URL.revokeObjectURL(url)
+    customMediaUrlsRef.current.delete(id)
+  }, [])
+
+  const adoptCustomImmersiveMediaList = useCallback(
+    (
+      items: Array<{
+        id: string
+        kind: ImmersiveCustomMediaKind
+        name: string
+        blob: Blob
+      }>
+    ): ImmersiveCustomMedia[] => {
+      revokeAllCustomImmersiveMedia()
+      const next: ImmersiveCustomMedia[] = items.map((item) => {
+        const url = URL.createObjectURL(item.blob)
+        customMediaUrlsRef.current.set(item.id, url)
+        return {
+          id: item.id,
+          kind: item.kind,
+          url,
+          name: item.name
+        }
+      })
+      setCustomImmersiveMediaList(next)
+      return next
+    },
+    [revokeAllCustomImmersiveMedia]
+  )
+
+  const applyCustomImmersiveMedia = useCallback(
+    (file: File): boolean => {
+      const kind = classifyImmersiveMediaFile(file)
+      if (!kind) return false
+      if (file.size > immersiveMediaMaxBytes) return false
+      const sceneName = sceneNameFromFileName(file.name)
+      const provisionalId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+      const url = URL.createObjectURL(file)
+      customMediaUrlsRef.current.set(provisionalId, url)
+      setCustomImmersiveMediaList((current) => [
+        ...current,
+        { id: provisionalId, kind, url, name: sceneName }
+      ])
+      const sceneId = customScenePreference(provisionalId)
+      setImmersiveScene(sceneId)
+      writeImmersiveScenePreference(sceneId)
+      setIsSceneDropActive(false)
+      void (async () => {
+        const persistedId = await addImmersiveCustomMedia({
+          id: provisionalId,
+          kind,
+          name: sceneName,
+          mimeType: file.type,
+          blob: file
+        })
+        if (!persistedId || persistedId === provisionalId) return
+        const oldUrl = customMediaUrlsRef.current.get(provisionalId)
+        if (oldUrl) {
+          customMediaUrlsRef.current.delete(provisionalId)
+          customMediaUrlsRef.current.set(persistedId, oldUrl)
+        }
+        setCustomImmersiveMediaList((current) =>
+          current.map((item) =>
+            item.id === provisionalId ? { ...item, id: persistedId } : item
+          )
+        )
+        setImmersiveScene((current) =>
+          current === customScenePreference(provisionalId)
+            ? customScenePreference(persistedId)
+            : current
+        )
+        writeImmersiveScenePreference(customScenePreference(persistedId))
+      })()
+      return true
+    },
+    []
+  )
+
+  const selectImmersiveScene = useCallback(
+    (scene: ImmersiveSceneId): void => {
+      if (scene.startsWith('custom:')) {
+        const id = parseCustomSceneId(scene)
+        if (!id) return
+        const exists = customImmersiveMediaList.some((item) => item.id === id)
+        if (!exists) return
+      }
+      setImmersiveScene(scene)
+      writeImmersiveScenePreference(scene)
+    },
+    [customImmersiveMediaList]
+  )
+
+  const removeCustomImmersiveMedia = useCallback(
+    (id: string): void => {
+      revokeCustomImmersiveMediaById(id)
+      setCustomImmersiveMediaList((current) => current.filter((item) => item.id !== id))
+      if (editingCustomSceneId === id) {
+        setEditingCustomSceneId(null)
+        setCustomSceneNameDraft('')
+      }
+      if (immersiveScene === customScenePreference(id)) {
+        setImmersiveScene('clock')
+        writeImmersiveScenePreference('clock')
+      }
+      void deleteImmersiveCustomMedia(id)
+    },
+    [editingCustomSceneId, immersiveScene, revokeCustomImmersiveMediaById]
+  )
+
+  const startCustomSceneNameEditing = useCallback(
+    (id: string): void => {
+      const target = customImmersiveMediaList.find((item) => item.id === id)
+      if (!target) return
+      setCustomSceneNameDraft(target.name)
+      setEditingCustomSceneId(id)
+    },
+    [customImmersiveMediaList]
+  )
+
+  const finishCustomSceneNameEditing = useCallback((): void => {
+    const id = editingCustomSceneId
+    const name = customSceneNameDraft.trim()
+    setEditingCustomSceneId(null)
+    if (!id || !name) return
+    const current = customImmersiveMediaList.find((item) => item.id === id)
+    if (!current || name === current.name) return
+    setCustomImmersiveMediaList((list) =>
+      list.map((item) => (item.id === id ? { ...item, name } : item))
+    )
+    void renameImmersiveCustomMedia(id, name)
+  }, [customImmersiveMediaList, customSceneNameDraft, editingCustomSceneId])
+
+  // Restore durable custom scenes + last scene preference after restart.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const stored = await listImmersiveCustomMedia()
+      if (cancelled) return
+      const adopted = adoptCustomImmersiveMediaList(
+        stored.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          name: item.name,
+          blob: item.blob
+        }))
+      )
+      const preferred = readImmersiveScenePreference()
+      if (cancelled) return
+      if (isBuiltInImmersiveScene(preferred)) {
+        setImmersiveScene(preferred)
+        return
+      }
+      const preferredCustomId = parseCustomSceneId(preferred)
+      if (preferredCustomId && adopted.some((item) => item.id === preferredCustomId)) {
+        setImmersiveScene(customScenePreference(preferredCustomId))
+        return
+      }
+      // Legacy preference "custom": pick the first restored item if any.
+      if (preferred === 'custom' && adopted[0]) {
+        setImmersiveScene(customScenePreference(adopted[0].id))
+        writeImmersiveScenePreference(customScenePreference(adopted[0].id))
+        return
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [adoptCustomImmersiveMediaList])
+
+  useEffect(
+    () => () => {
+      revokeAllCustomImmersiveMedia()
+    },
+    [revokeAllCustomImmersiveMedia]
+  )
+
   const openImmersive = useCallback((): void => {
     clearImmersiveCloseTimer()
     immersiveCloseRequestedRef.current = false
     immersivePhaseRef.current = 'open'
     setImmersivePhase('open')
-    setIsImmersiveArcFocusActive(true)
+    // Do not force the fan open or closed: pointer/focus handlers already own expand state.
   }, [clearImmersiveCloseTimer])
 
   const finishImmersiveClose = useCallback((): void => {
@@ -757,7 +986,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     } catch {
       fullscreenReturnFocusRef.current = null
       // Fullscreen is controlled by the browser/Electron host and may be unavailable.
-      // Keep immersive mode intact and leave the exit control reachable for retry.
+      // Keep immersive mode intact; the exit control remains reachable via hover/focus.
       if (
         document.fullscreenElement != null &&
         document.fullscreenElement === stageRef.current
@@ -788,11 +1017,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       setIsFullscreen(stageOwnsFullscreen)
 
       if (stageOwnsFullscreen) {
-        // Pin only the exit control. Clear hover/focus expand state so hide/scene/note
-        // do not remain interactive just because focus stayed inside the control group.
-        setIsImmersiveArcPointerActive(false)
+        // Do not pin the fan open after entering fullscreen. A click leaves focus on
+        // the button; blur it so the arc collapses with pointer leave like peers.
+        if (document.activeElement === fullscreenButtonRef.current) {
+          fullscreenButtonRef.current?.blur()
+        }
         setIsImmersiveArcFocusActive(false)
-        focusImmersiveControl(fullscreenButtonRef.current)
         return
       }
 
@@ -802,12 +1032,9 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         return
       }
 
-      if (immersivePhaseRef.current === 'open' && routeRef.current === 'room') {
-        setIsImmersiveArcFocusActive(true)
-        const returnFocus = fullscreenReturnFocusRef.current
-        focusImmersiveControl(returnFocus?.isConnected ? returnFocus : fullscreenButtonRef.current)
-      }
+      // Leaving fullscreen: keep the fan hover/focus gated (no forced pin).
       fullscreenReturnFocusRef.current = null
+      setIsImmersiveArcFocusActive(false)
     }
     syncFullscreenState()
     document.addEventListener('fullscreenchange', syncFullscreenState)
@@ -876,12 +1103,10 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   useEffect(() => clearImmersiveCloseTimer, [clearImmersiveCloseTimer])
 
-  // Fullscreen only pins the exit control; hide/scene/note stay hover/focus gated
-  // so the bottom of the stage does not become a large accidental hit target.
-  const isImmersiveArcActive = immersivePhase === 'open' && (
+  // Arc actions (including fullscreen) are hover/focus gated in both room and
+  // immersive modes so the bottom of the stage stays clear when the pointer leaves.
+  const isImmersiveArcActive =
     isImmersiveArcPointerActive || isImmersiveArcFocusActive
-  )
-  const isImmersiveExitControlActive = isFullscreen || isImmersiveArcActive
 
   if (route === 'analytics') {
     return (
@@ -1132,7 +1357,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               <div className="workbench-immersive-clock-scene workbench-clock" aria-hidden="true">
                 <ClockDisplay time={clockTime} previousTime={clockState.previous} />
               </div>
-            ) : (
+            ) : immersiveScene === 'girl' ? (
               <video
                 className="workbench-immersive-video"
                 src={girlVideo}
@@ -1142,26 +1367,71 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                 playsInline
                 aria-hidden="true"
               />
-            )}
+            ) : immersiveScene === 'cloud-glow' ? (
+              <img
+                className="workbench-immersive-video"
+                src={cloudGlowScene}
+                alt=""
+                aria-hidden="true"
+              />
+            ) : immersiveScene === 'summer-lakeside' ? (
+              <img
+                className="workbench-immersive-video"
+                src={summerLakesideScene}
+                alt=""
+                aria-hidden="true"
+              />
+            ) : (() => {
+              const activeCustom = immersiveScene.startsWith('custom:')
+                ? customImmersiveMediaList.find(
+                    (item) => item.id === parseCustomSceneId(immersiveScene)
+                  ) ?? null
+                : null
+              if (activeCustom?.kind === 'image') {
+                return (
+                  <img
+                    className="workbench-immersive-video"
+                    src={activeCustom.url}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                )
+              }
+              if (activeCustom?.kind === 'video') {
+                return (
+                  <video
+                    className="workbench-immersive-video"
+                    src={activeCustom.url}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    aria-hidden="true"
+                  />
+                )
+              }
+              return (
+              <div className="workbench-immersive-clock-scene workbench-clock" aria-hidden="true">
+                <ClockDisplay time={clockTime} previousTime={clockState.previous} />
+              </div>
+              )
+            })()}
             <div className="workbench-immersive-vignette" aria-hidden="true" />
           </div>
         </div>
         <div
           className={`workbench-immersive-controls${immersivePhase !== 'closed' ? ' is-open' : ''}${isFullscreen ? ' is-fullscreen' : ''}`}
           onPointerEnter={() => setIsImmersiveArcPointerActive(true)}
-          onPointerLeave={() => setIsImmersiveArcPointerActive(false)}
-          onFocusCapture={(event) => {
-            // Fullscreen pins only the exit control. Focusing that control alone
-            // must not reveal hide/scene/note and create an invisible hit fan.
-            const target = event.target as Node | null
-            if (
-              document.fullscreenElement != null &&
-              stageRef.current != null &&
-              document.fullscreenElement === stageRef.current &&
-              target === fullscreenButtonRef.current
-            ) {
-              return
+          onPointerLeave={(event) => {
+            setIsImmersiveArcPointerActive(false)
+            // Pointer-driven collapse: residual click-focus must not keep the fan latched.
+            const active = document.activeElement
+            if (active instanceof HTMLElement && event.currentTarget.contains(active)) {
+              active.blur()
             }
+            setIsImmersiveArcFocusActive(false)
+          }}
+          onFocusCapture={() => {
             setIsImmersiveArcFocusActive(true)
           }}
           onBlurCapture={(event) => {
@@ -1191,24 +1461,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             className={`workbench-immersive-arc-menu${isImmersiveArcActive ? ' is-active' : ''}`}
             role="group"
             aria-label="沉浸模式快捷操作"
-            aria-hidden={!isImmersiveExitControlActive}
+            aria-hidden={!isImmersiveArcActive}
           >
-            <button
-              ref={fullscreenButtonRef}
-              type="button"
-              className="workbench-immersive-arc-action workbench-immersive-arc-action--fullscreen"
-              onClick={() => void toggleFullscreen()}
-              aria-pressed={isFullscreen}
-              aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
-              title={isFullscreen ? '退出全屏' : '进入全屏'}
-              tabIndex={isImmersiveExitControlActive ? 0 : -1}
-            >
-              {isFullscreen ? (
-                <Minimize2 size={20} strokeWidth={2} aria-hidden="true" />
-              ) : (
-                <Maximize2 size={20} strokeWidth={2} aria-hidden="true" />
-              )}
-            </button>
             <button
               type="button"
               className={`workbench-immersive-arc-action workbench-immersive-arc-action--hide${areRoomCardsHidden ? ' is-active' : ''}`}
@@ -1227,6 +1481,18 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             </button>
             <button
               type="button"
+              className={`workbench-immersive-arc-action workbench-immersive-arc-action--note${isQuickNoteOpen ? ' is-active' : ''}`}
+              onClick={() => setIsQuickNoteOpen((open) => !open)}
+              aria-pressed={isQuickNoteOpen}
+              aria-hidden={!isImmersiveArcActive}
+              tabIndex={isImmersiveArcActive ? 0 : -1}
+              aria-label="快捷记事"
+              title="快捷记事"
+            >
+              <StickyNote size={20} strokeWidth={2} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
               className={`workbench-immersive-arc-action workbench-immersive-arc-action--scene${isScenePickerOpen ? ' is-active' : ''}`}
               onClick={() => setIsScenePickerOpen(true)}
               aria-pressed={isScenePickerOpen}
@@ -1238,21 +1504,47 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               <Image size={20} strokeWidth={2} aria-hidden="true" />
             </button>
             <button
+              ref={fullscreenButtonRef}
               type="button"
-              className={`workbench-immersive-arc-action workbench-immersive-arc-action--note${isQuickNoteOpen ? ' is-active' : ''}`}
-              onClick={() => setIsQuickNoteOpen((open) => !open)}
-              aria-pressed={isQuickNoteOpen}
-              aria-hidden={!isImmersiveArcActive}
+              className="workbench-immersive-arc-action workbench-immersive-arc-action--fullscreen"
+              onClick={() => void toggleFullscreen()}
+              aria-pressed={isFullscreen}
+              aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
+              title={isFullscreen ? '退出全屏' : '进入全屏'}
               tabIndex={isImmersiveArcActive ? 0 : -1}
-              aria-label="快捷记事"
-              title="快捷记事"
             >
-              <StickyNote size={20} strokeWidth={2} aria-hidden="true" />
+              {isFullscreen ? (
+                <Minimize2 size={20} strokeWidth={2} aria-hidden="true" />
+              ) : (
+                <Maximize2 size={20} strokeWidth={2} aria-hidden="true" />
+              )}
             </button>
           </div>
         </div>
         {isScenePickerOpen ? (
-          <div className="workbench-scene-picker-backdrop" role="presentation" onMouseDown={() => setIsScenePickerOpen(false)}>
+          <div
+            className={`workbench-scene-picker-backdrop${isSceneDropActive ? ' is-drop-active' : ''}`}
+            role="presentation"
+            onMouseDown={() => setIsScenePickerOpen(false)}
+            onDragEnter={(event) => {
+              event.preventDefault()
+              setIsSceneDropActive(true)
+            }}
+            onDragOver={(event) => {
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'copy'
+              setIsSceneDropActive(true)
+            }}
+            onDragLeave={(event) => {
+              if (event.currentTarget === event.target) setIsSceneDropActive(false)
+            }}
+            onDrop={(event) => {
+              event.preventDefault()
+              setIsSceneDropActive(false)
+              const files = Array.from(event.dataTransfer.files ?? [])
+              for (const file of files) applyCustomImmersiveMedia(file)
+            }}
+          >
             <section
               className="workbench-scene-picker"
               role="dialog"
@@ -1261,11 +1553,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               onMouseDown={(event) => event.stopPropagation()}
             >
               <header className="workbench-scene-picker__header">
-                <div>
-                  <span className="workbench-scene-picker__eyebrow"><Image size={15} aria-hidden="true" /> 沉浸空间</span>
-                  <h2>选择场景</h2>
-                  <p>选择一个沉浸场景，陪伴你专注学习。</p>
-                </div>
+                <h2 className="workbench-scene-picker__title">选择场景</h2>
                 <button
                   type="button"
                   className="workbench-scene-picker__close"
@@ -1276,15 +1564,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                   <X size={18} aria-hidden="true" />
                 </button>
               </header>
-              <p className="workbench-scene-picker__current">当前场景：{immersiveSceneLabels[immersiveScene]}</p>
               <div className="workbench-scene-picker__grid">
                 <button
                   type="button"
                   className={`workbench-scene-picker__preset workbench-scene-picker__preset--clock${immersiveScene === 'clock' ? ' is-selected' : ''}`}
-                  onClick={() => {
-                    setImmersiveScene('clock')
-                    setIsScenePickerOpen(false)
-                  }}
+                  onClick={() => selectImmersiveScene('clock')}
+                  aria-label="翻页时钟"
                   aria-pressed={immersiveScene === 'clock'}
                 >
                   <div className="workbench-scene-picker__clock-preview workbench-clock" aria-hidden="true">
@@ -1292,17 +1577,14 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                   </div>
                   <span className="workbench-scene-picker__preset-copy">
                     <strong>翻页时钟</strong>
-                    <small>低资源占用的专注时钟</small>
                   </span>
                   {immersiveScene === 'clock' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
                 </button>
                 <button
                   type="button"
                   className={`workbench-scene-picker__preset workbench-scene-picker__preset--girl${immersiveScene === 'girl' ? ' is-selected' : ''}`}
-                  onClick={() => {
-                    setImmersiveScene('girl')
-                    setIsScenePickerOpen(false)
-                  }}
+                  onClick={() => selectImmersiveScene('girl')}
+                  aria-label="室内自习"
                   aria-pressed={immersiveScene === 'girl'}
                 >
                   <video
@@ -1316,10 +1598,189 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                     aria-hidden="true"
                   />
                   <span className="workbench-scene-picker__preset-copy">
-                    <strong>女孩自习</strong>
-                    <small>girl.mp4 · 沉浸式自习陪伴</small>
+                    <strong>室内自习</strong>
                   </span>
                   {immersiveScene === 'girl' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className={`workbench-scene-picker__preset workbench-scene-picker__preset--cloud-glow${immersiveScene === 'cloud-glow' ? ' is-selected' : ''}`}
+                  onClick={() => selectImmersiveScene('cloud-glow')}
+                  aria-label="云蒸霞光"
+                  aria-pressed={immersiveScene === 'cloud-glow'}
+                >
+                  <img
+                    className="workbench-scene-picker__video-preview"
+                    src={cloudGlowScene}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <span className="workbench-scene-picker__preset-copy">
+                    <strong>云蒸霞光</strong>
+                  </span>
+                  {immersiveScene === 'cloud-glow' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className={`workbench-scene-picker__preset workbench-scene-picker__preset--summer-lakeside${immersiveScene === 'summer-lakeside' ? ' is-selected' : ''}`}
+                  onClick={() => selectImmersiveScene('summer-lakeside')}
+                  aria-label="夏日湖畔"
+                  aria-pressed={immersiveScene === 'summer-lakeside'}
+                >
+                  <img
+                    className="workbench-scene-picker__video-preview"
+                    src={summerLakesideScene}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <span className="workbench-scene-picker__preset-copy">
+                    <strong>夏日湖畔</strong>
+                  </span>
+                  {immersiveScene === 'summer-lakeside' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
+                </button>
+                {customImmersiveMediaList.map((customMedia) => {
+                  const sceneId = customScenePreference(customMedia.id)
+                  const isSelected = immersiveScene === sceneId
+                  const isEditing = editingCustomSceneId === customMedia.id
+                  return (
+                    <div
+                      key={customMedia.id}
+                      className={`workbench-scene-picker__preset workbench-scene-picker__preset--custom${isSelected ? ' is-selected' : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => selectImmersiveScene(sceneId)}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation()
+                        startCustomSceneNameEditing(customMedia.id)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          selectImmersiveScene(sceneId)
+                        }
+                      }}
+                      aria-label={customMedia.name || '自定义场景'}
+                      aria-pressed={isSelected}
+                    >
+                      {customMedia.kind === 'image' ? (
+                        <img
+                          className="workbench-scene-picker__video-preview"
+                          src={customMedia.url}
+                          alt=""
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <video
+                          className="workbench-scene-picker__video-preview"
+                          src={customMedia.url}
+                          muted
+                          loop
+                          autoPlay
+                          playsInline
+                          preload="metadata"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span className="workbench-scene-picker__preset-copy">
+                        {isEditing ? (
+                          <input
+                            className="workbench-scene-picker__name-input"
+                            value={customSceneNameDraft}
+                            onChange={(event) => setCustomSceneNameDraft(event.target.value)}
+                            onClick={(event) => event.stopPropagation()}
+                            onDoubleClick={(event) => event.stopPropagation()}
+                            onBlur={finishCustomSceneNameEditing}
+                            onKeyDown={(event) => {
+                              event.stopPropagation()
+                              if (event.key === 'Enter') {
+                                event.preventDefault()
+                                finishCustomSceneNameEditing()
+                              }
+                              if (event.key === 'Escape') {
+                                event.preventDefault()
+                                setEditingCustomSceneId(null)
+                              }
+                            }}
+                            aria-label="编辑自定义场景名称"
+                            autoFocus
+                          />
+                        ) : (
+                          <strong>{customMedia.name || '自定义场景'}</strong>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        className="workbench-scene-picker__delete"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          removeCustomImmersiveMedia(customMedia.id)
+                        }}
+                        aria-label={`删除自定义场景 ${customMedia.name || ''}`.trim()}
+                        title="删除自定义场景"
+                      >
+                        <Trash2 size={16} aria-hidden="true" />
+                      </button>
+                      {isSelected ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
+                    </div>
+                  )
+                })}
+              </div>
+              <div
+                className={`workbench-scene-picker__upload${isSceneDropActive ? ' is-drop-active' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => sceneFileInputRef.current?.click()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    sceneFileInputRef.current?.click()
+                  }
+                }}
+                onDragEnter={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setIsSceneDropActive(true)
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  event.dataTransfer.dropEffect = 'copy'
+                }}
+                onDragLeave={(event) => {
+                  if (event.currentTarget === event.target) setIsSceneDropActive(false)
+                }}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setIsSceneDropActive(false)
+                  const files = Array.from(event.dataTransfer.files ?? [])
+                  for (const file of files) applyCustomImmersiveMedia(file)
+                }}
+              >
+                <input
+                  ref={sceneFileInputRef}
+                  type="file"
+                  className="workbench-scene-picker__file-input"
+                  accept={immersiveMediaAccept}
+                  multiple
+                  onChange={(event) => {
+                    const files = Array.from(event.target.files ?? [])
+                    for (const file of files) applyCustomImmersiveMedia(file)
+                    event.target.value = ''
+                  }}
+                />
+                <Upload size={22} aria-hidden="true" />
+                <strong>添加视频或图片</strong>
+                <span>点击选择，或拖放到此处</span>
+                <button
+                  type="button"
+                  className="workbench-scene-picker__upload-btn"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    sceneFileInputRef.current?.click()
+                  }}
+                >
+                  选择文件
                 </button>
               </div>
             </section>

@@ -56,8 +56,8 @@ assert.match(
 
 assert.match(
   leaderboard,
-  /workbench-heartbeat-dot[\s\S]*workbench-leaderboard-space-code[^>]*>\{spaceCode\}<\/code>/,
-  'leaderboard header should show the room code immediately after the heartbeat dot'
+  /workbench-leaderboard-title[\s\S]*workbench-heartbeat-dot[\s\S]*workbench-leaderboard-space-code[^>]*>\{spaceCode\}<\/code>/,
+  'leaderboard header should show the title, heartbeat, then room code'
 )
 
 assert.doesNotMatch(
@@ -243,7 +243,7 @@ assert.doesNotMatch(
 
 assert.match(
   css,
-  /\.office-workbench-stage \.workbench-tools \{[\s\S]*height: calc\(var\(--workbench-tools-layout-height\) - 10px\);[\s\S]*padding-bottom: 4px;[\s\S]*overflow: visible;/,
+  /\.office-workbench-stage \.workbench-tools \{[\s\S]*height: var\(--workbench-tools-layout-height\);[\s\S]*max-height: var\(--workbench-tools-layout-height\);[\s\S]*padding-bottom: 0;[\s\S]*overflow: visible;/,
   'tools layer should span the stage so the task list can sit at the bottom-right'
 )
 assert.match(
@@ -302,6 +302,16 @@ assert.doesNotMatch(
   'shared card hover should not use the theme accent color'
 )
 assert.match(css, /\.workbench-leaderboard-panel \{/, 'expanded workbench leaderboard should have dedicated styling')
+assert.match(
+  css,
+  /\.office-workbench-stage > \.workbench-leaderboard \.workbench-leaderboard-panel \{[\s\S]*height: 268px;[\s\S]*background: transparent;[\s\S]*box-shadow: none;/,
+  'expanded leaderboard panel should be a flat fixed-height body inside the outer card, not a nested glass card'
+)
+assert.match(
+  css,
+  /\.office-workbench-stage > \.workbench-leaderboard \.workbench-leaderboard-panel::before,[\s\S]*::after \{[\s\S]*display: none;/,
+  'expanded leaderboard panel must not paint a second sheen/card layer'
+)
 assert.match(
   css,
   /\.workbench-leaderboard-actions \{[\s\S]*grid-template-columns:/,

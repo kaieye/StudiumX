@@ -4,7 +4,8 @@
 .workbench-music-dock {
   position: absolute;
   left: clamp(12px, 3vw, 32px);
-  bottom: clamp(12px, 3vh, 28px);
+  /* Same vertical inset as .workbench-tools block inset so bottoms line up. */
+  bottom: var(--workbench-tools-block-inset, clamp(12px, 3vh, 28px));
   z-index: 5;
   width: min(300px, calc(100% - 24px));
   max-width: 300px;
@@ -239,29 +240,6 @@
 .workbench-music-toggle-art-disc.is-playing {
   animation-play-state: running;
   will-change: transform;
-}
-
-/* A small moving indicator makes the disc motion legible even for artwork with
-   a visually symmetrical cover image. */
-.workbench-music-cover-disc.is-playing::after,
-.workbench-music-toggle-art-disc.is-playing::after {
-  position: absolute;
-  top: 8%;
-  left: 50%;
-  width: 7px;
-  height: 7px;
-  border: 1px solid rgba(255, 255, 255, 0.86);
-  border-radius: 50%;
-  background: linear-gradient(135deg, #72c6ff 0 42%, #007aff 43% 100%);
-  box-shadow: 0 1px 4px rgba(0, 72, 152, 0.42);
-  content: '';
-  transform: translateX(-50%);
-}
-
-.workbench-music-toggle-art-disc.is-playing::after {
-  width: 3px;
-  height: 3px;
-  border-width: 0.5px;
 }
 
 .workbench-music-now-meta {
