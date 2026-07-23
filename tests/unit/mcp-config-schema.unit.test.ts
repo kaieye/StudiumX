@@ -49,7 +49,7 @@ function parseServer(overrides: Record<string, unknown> = {}) {
 describe('UserMcpConfig parse (ADR-0128)', () => {
   it('defaults to root off and empty servers', () => {
     const config = defaultUserMcpConfig()
-    expect(config.enabled).toBe(false)
+    expect(config.enabled).toBe(true)
     expect(config.servers).toEqual([])
     expect(config.schemaVersion).toBe(1)
     expect(config.honorRemoteReadOnlyHint).toBe(false)
@@ -243,9 +243,9 @@ describe('UserMcpConfig parse (ADR-0128)', () => {
     }
   })
 
-  it('keeps root enabled false by default so workspace files cannot open MCP authority', () => {
+  it('defaults root MCP enabled (Zcode-like; workspace files still cannot write user gate)', () => {
     const empty = defaultUserMcpConfig()
-    expect(empty.enabled).toBe(false)
+    expect(empty.enabled).toBe(true)
     expect(empty.servers).toEqual([])
     const bad = parseUserMcpConfig({ schemaVersion: 1, enabled: true, servers: 'not-array' })
     expect(bad.ok).toBe(false)

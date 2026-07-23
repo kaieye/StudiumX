@@ -61,7 +61,6 @@ import { ModelProviderSettingsSection } from './sections/ModelProviderSettingsSe
 import { TeachingDoctorSettingsSection } from './sections/TeachingDoctorSettingsSection'
 import { TeachingTurnReviewSettingsSection } from './sections/TeachingTurnReviewSettingsSection'
 import { UserMcpSettingsSection } from './sections/UserMcpSettingsSection'
-import { UserMcpMarketplaceSection } from './sections/UserMcpMarketplaceSection'
 
 export function SettingsView({
   section,
@@ -518,10 +517,7 @@ export function SettingsView({
         )}
 
         {section === 'mcp' && (
-          <>
-            <UserMcpSettingsSection workspaceRoot={activeWorkspace?.rootPath ?? null} />
-            <UserMcpMarketplaceSection workspaceRoot={activeWorkspace?.rootPath ?? null} />
-          </>
+          <UserMcpSettingsSection workspaceRoot={activeWorkspace?.rootPath ?? null} />
         )}
 
         {section === 'connectors' && (

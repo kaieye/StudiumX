@@ -206,7 +206,7 @@ describe('UserMcpSettingsSection', () => {
     expect(screen.getByText('beta server')).toBeInTheDocument()
   })
 
-  it('renders collapsible multi-source configuration view when IPC is available', async () => {
+  it('loads multi-source effective view for server badges without a sources panel', async () => {
     const mcpGetEffectiveView = vi.fn(async () => ({
       ok: true as const,
       view: {
@@ -248,19 +248,14 @@ describe('UserMcpSettingsSection', () => {
       mcpTestServer: vi.fn(),
       mcpGetEffectiveView
     })
-    const user = userEvent.setup()
 
     render(<UserMcpSettingsSection workspaceRoot={null} />)
 
     await screen.findByText('alpha server')
     expect(mcpGetEffectiveView).toHaveBeenCalled()
-    expect(screen.getByTestId('mcp-sources-section')).toBeInTheDocument()
+    // Product MCP page stays Zcode-like: no collapsible sources dump / marketplace chrome.
+    expect(screen.queryByTestId('mcp-sources-section')).not.toBeInTheDocument()
     expect(screen.getByTestId('mcp-server-source-badge')).toBeInTheDocument()
-
-    await user.click(screen.getByTestId('mcp-sources-toggle'))
-    expect(screen.getByTestId('mcp-sources-body')).toBeInTheDocument()
-    expect(screen.getByTestId('mcp-source-winner-alpha')).toBeInTheDocument()
-    expect(screen.getByTestId('mcp-sources-shadowed')).toBeInTheDocument()
   })
 
   it('refreshes a server only from the explicit action without using test-server', async () => {
@@ -298,12 +293,8 @@ describe('UserMcpSettingsSection', () => {
 
     render(<UserMcpSettingsSection workspaceRoot="/tmp/course" />)
     await screen.findByText('alpha server')
-    expect(screen.getByTestId('mcp-inventory-summary')).toHaveTextContent(
-      /2 discovered.*2 registered.*0 rejected|已发现 2.*已注册 2.*已拒绝 0/i
-    )
-    expect(screen.getByTestId('mcp-inventory-summary')).toHaveTextContent(
-      /inventory changed|工具清单已变更/i
-    )
+    // Compact Zcode-like rows expose tool count, not full inventory diagnostics.
+    expect(screen.getByText(/2 个工具|2 tools/)).toBeInTheDocument()
 
     expect(mcpRefreshServer).not.toHaveBeenCalled()
     expect(mcpTestServer).not.toHaveBeenCalled()
@@ -322,7 +313,7 @@ describe('UserMcpSettingsSection', () => {
   })
 
   it('keeps add cancellable and saves standard whitespace-separated arguments immediately', async () => {
-    const harness = createMutableApi(config([], false))
+    const harness = createMutableApi(config([]))
     installTeachingSystem(harness.api)
     const user = userEvent.setup()
 
@@ -332,7 +323,7 @@ describe('UserMcpSettingsSection', () => {
     await user.click(screen.getByTestId('mcp-add-server'))
     expect(within(screen.getByTestId('mcp-editor')).queryByRole('switch')).not.toBeInTheDocument()
     expect(screen.queryByTestId('mcp-root-control')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /返回服务器列表|Back to server list/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /返回 MCP 列表|Back to MCP list|返回服务器列表|Back to server list/ })).toBeInTheDocument()
     expect(screen.getByLabelText(/^参数$|^Arguments$/)).not.toBeVisible()
     await user.click(screen.getByText(/高级选项|Advanced options/))
     expect(screen.getByLabelText(/^参数$|^Arguments$/)).toBeVisible()
@@ -459,12 +450,8 @@ describe('UserMcpSettingsSection', () => {
       workspaceRoot: '/tmp/course'
     })
 
-    await user.click(screen.getByTestId('mcp-test-server'))
-    await waitFor(() => expect(harness.mcpTestServer).toHaveBeenCalledTimes(1))
-    expect(harness.mcpTestServer).toHaveBeenCalledWith({
-      serverId: 'workspace-mcp',
-      workspaceRoot: '/tmp/course'
-    })
+    // Connection/status is driven by runtime + refresh, not a separate "test" toolbar control
+    // (Zcode-style list). Scope binding is already asserted on the save payload above.
   })
 
   it('does not test unsaved editor values when persistence fails', async () => {
@@ -497,38 +484,23 @@ describe('UserMcpSettingsSection', () => {
     expect(mcpTestServer).not.toHaveBeenCalled()
   })
 
-  it('toggles MCP immediately without confirmation or success cards', async () => {
+  it('keeps MCP always enabled without a root enable switch (Zcode-like)', async () => {
     const harness = createMutableApi(config([server('alpha')], false))
     installTeachingSystem(harness.api)
-    const user = userEvent.setup()
 
     render(<UserMcpSettingsSection workspaceRoot={null} />)
     await screen.findByText('alpha server')
 
-    const rootSwitch = within(screen.getByTestId('mcp-root-control')).getByRole('switch')
-    await user.click(rootSwitch)
+    // No product "Enable MCP" control.
+    expect(screen.queryByTestId('mcp-root-control')).not.toBeInTheDocument()
 
-    await waitFor(() => expect(harness.mcpUpdateConfig).toHaveBeenCalledTimes(1))
+    // Legacy root-off configs are rewritten to enabled + autoConnect on load.
+    await waitFor(() => expect(harness.mcpUpdateConfig).toHaveBeenCalled())
     const submitted = harness.mcpUpdateConfig.mock.calls[0]?.[0].config as {
       enabled: boolean
       autoConnect: boolean
     }
     expect(submitted.enabled).toBe(true)
-    // ADR-0141: enabling root defaults smart-connect on.
     expect(submitted.autoConnect).toBe(true)
-    expect(screen.queryByTestId('mcp-enable-confirm')).not.toBeInTheDocument()
-    await waitFor(() => expect(rootSwitch).toHaveAttribute('aria-checked', 'true'))
-    expect(screen.queryByTestId('mcp-status')).not.toBeInTheDocument()
-
-    await user.click(rootSwitch)
-    await waitFor(() => expect(harness.mcpUpdateConfig).toHaveBeenCalledTimes(2))
-    const disabledSubmission = harness.mcpUpdateConfig.mock.calls[1]?.[0].config as {
-      enabled: boolean
-      autoConnect: boolean
-    }
-    expect(disabledSubmission.enabled).toBe(false)
-    expect(disabledSubmission.autoConnect).toBe(false)
-    await waitFor(() => expect(rootSwitch).toHaveAttribute('aria-checked', 'false'))
-    expect(screen.queryByTestId('mcp-status')).not.toBeInTheDocument()
   })
 })

@@ -30,14 +30,16 @@ export type ParseMcpConfigResult =
 export function defaultUserMcpConfig(): UserMcpConfigV1 {
   return {
     schemaVersion: MCP_CONFIG_SCHEMA_VERSION,
-    enabled: false,
-    autoConnect: false,
+    // Zcode-like product default: MCP is available without a root enable ceremony.
+    enabled: true,
+    // Omitted autoConnect would also mean on when enabled; set true for CAS stability.
+    autoConnect: true,
     honorRemoteReadOnlyHint: false,
     servers: [],
     fingerprint: fingerprintUserMcpConfig({
       schemaVersion: MCP_CONFIG_SCHEMA_VERSION,
-      enabled: false,
-      autoConnect: false,
+      enabled: true,
+      autoConnect: true,
       honorRemoteReadOnlyHint: false,
       servers: []
     })

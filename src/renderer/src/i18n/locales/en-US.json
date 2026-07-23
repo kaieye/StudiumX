@@ -1317,7 +1317,7 @@
   },
   "mcp": {
     "title": "MCP servers",
-    "subtitle": "Add, edit, and manage MCP servers.",
+    "subtitle": "Manage MCP server configurations used by the agent.",
     "rootEnabled": {
       "label": "Enable MCP",
       "detail": "No MCP servers connect while this is off."
@@ -1348,15 +1348,15 @@
       }
     },
     "servers": {
-      "heading": "MCP servers",
+      "heading": "Configured MCP servers",
       "count": "{{count}} configured",
       "emptyTitle": "No MCP servers yet",
-      "empty": "Add an MCP server to get started.",
+      "empty": "Add an MCP server to give the agent extra capabilities.",
       "noResultsTitle": "No matching servers",
       "noResults": "Try a different name, type, URL, command, path, or runtime status.",
       "searchLabel": "Search MCP servers",
-      "searchPlaceholder": "Search servers",
-      "add": "Add server",
+      "searchPlaceholder": "Search MCP servers…",
+      "add": "Add MCP server",
       "edit": "Edit server",
       "remove": "Delete server",
       "enabled": "Enabled",
@@ -1396,18 +1396,18 @@
       "retryAtSuffix": " · next {{time}}",
       "diagnosticsSummary": "Local diagnostics",
       "inventoryStale": "Tool inventory changed — refresh to apply.",
-      "import": "Import",
+      "import": "Import from external agents",
       "export": "Export",
-      "importAria": "Import MCP servers from JSON",
+      "importAria": "Import MCP servers from external agents",
       "exportAria": "Export redacted MCP configuration",
       "workspaceRootInjection": "Allow injecting the current workspace root path",
       "workspaceRootInjectionHint": "When enabled, the active workspace root is appended once to stdio arguments on connect. Default is off."
     },
     "editor": {
-      "createTitle": "Add MCP server",
-      "createDetail": "Choose a transport and enter the server configuration.",
+      "createTitle": "New MCP server",
+      "createDetail": "Fill in the new MCP configuration, then save to return to the list.",
       "editTitle": "Edit MCP server",
-      "editDetail": "Update the server configuration and save it directly.",
+      "editDetail": "Modify the current MCP configuration, then save to return to the list.",
       "labelPlaceholder": "Example server",
       "add": "Add server",
       "save": "Save server",
@@ -1419,7 +1419,7 @@
       "jsonConfig": "MCP JSON configuration",
       "jsonHint": "Accepts an mcpServers wrapper, a single-server map, or a direct server config object. Edit one server at a time.",
       "workspaceUnavailable": "No workspace is currently available.",
-      "backToServers": "Back to server list",
+      "backToServers": "Back to MCP list",
       "advanced": "Advanced options"
     },
     "deleteConfirm": {

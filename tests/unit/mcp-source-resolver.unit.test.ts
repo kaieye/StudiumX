@@ -193,12 +193,12 @@ describe('MCP source resolver (ADR-0137)', () => {
 })
 
 describe('UserMcpConfig autoConnect field (ADR-0141)', () => {
-  it('default document keeps autoConnect false while root is off', () => {
+  it('default document enables root MCP and autoConnect (Zcode-like)', () => {
     const def = defaultUserMcpConfig()
-    expect(def.enabled).toBe(false)
-    expect(def.autoConnect).toBe(false)
-    expect(toPublicMcpConfig(def).autoConnect).toBe(false)
-    expect(userGateFromConfig(def)).toEqual({ enabled: false, autoConnect: false })
+    expect(def.enabled).toBe(true)
+    expect(def.autoConnect).toBe(true)
+    expect(toPublicMcpConfig(def).autoConnect).toBe(true)
+    expect(userGateFromConfig(def)).toEqual({ enabled: true, autoConnect: true })
   })
 
   it('omitted autoConnect with enabled true is effective true (omit means on)', () => {

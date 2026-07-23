@@ -1,26 +1,18 @@
 /**
- * User MCP settings (ADR-0128 + multi-source/auto-connect ADR-0137, import/export ADR-0136,
- * OAuth ADR-0135, workspace-root injection ADR-0138, plugin/marketplace foundations ADR-0139/0140;
- * product experience policy ADR-0141). Default-off root gate; secrets never enter the renderer.
- * Marketplace UI is separate (UserMcpMarketplaceSection); install may connect (ADR-0141) but never skips tool approval.
+ * User MCP settings — product surface modeled on Zcode Settings → MCP:
+ * list + status, add/edit, optional external-agent import, OAuth authorize.
+ * Secrets never enter the renderer. No marketplace / smart-connect / export chrome.
  */
 
-import { Download, Plus, RefreshCw, Upload } from 'lucide-react'
+import { Plus, RefreshCw, Search, Upload } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  exportPublicMcpConfigJson,
   parseMcpImportText,
   selectMcpImportDrafts,
-  toMcpSyncEnvelope,
   type McpImportPreview,
   type McpImportRiskFlag
 } from '../../../../../shared/mcp/import-export'
-import {
-  mcpSyncServersToImportJson,
-  parseMcpSyncEnvelopeText,
-  previewMcpSyncMerge
-} from '../../../../../shared/mcp/mcp-sync'
 import type {
   McpListedToolSummary,
   McpRuntimeServerView,
@@ -28,7 +20,7 @@ import type {
   UserMcpServerPublicV1
 } from '../../../../../shared/mcp/types'
 import type { McpEffectiveViewPublicV1 } from '../../../../../shared/mcp/effective-view-public'
-import { SettingsPanel, ToggleSwitch } from '../SettingsPrimitives'
+import { SettingsPanel } from '../SettingsPrimitives'
 import { UserMcpServerEditor } from './UserMcpServerEditor'
 import { UserMcpServerList } from './UserMcpServerList'
 import {
@@ -63,7 +55,6 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
   const [config, setConfig] = useState<UserMcpConfigPublicV1 | null>(null)
   const [runtime, setRuntime] = useState<readonly McpRuntimeServerView[]>([])
   const [effectiveView, setEffectiveView] = useState<McpEffectiveViewPublicV1 | null>(null)
-  const [sourcesOpen, setSourcesOpen] = useState(false)
   const [testTools, setTestTools] = useState<Record<string, readonly McpListedToolSummary[]>>({})
   const [status, setStatus] = useState<StatusMessage>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
@@ -73,7 +64,9 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
   const [importPreview, setImportPreview] = useState<McpImportPreview | null>(null)
   const [importSelected, setImportSelected] = useState<Set<string>>(new Set())
   const [importError, setImportError] = useState<string | null>(null)
+  const [listQuery, setListQuery] = useState('')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const migratedRootOnRef = useRef(false)
 
   const api = window.teachingSystem
   const available =
@@ -87,9 +80,8 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
     typeof api?.mcpAuthorizeServer === 'function' &&
     typeof api?.mcpRevokeAuthorization === 'function'
   const effectiveViewAvailable = typeof api?.mcpGetEffectiveView === 'function'
-  const rootEnabled = config?.enabled ?? false
-  const autoConnectEnabled = config?.autoConnect === true
-  const honorRemoteReadOnlyHint = config?.honorRemoteReadOnlyHint === true
+  // Zcode-like: no product "enable MCP" gate — treat MCP as available once configured.
+  const rootEnabled = true
   const servers = config?.servers ?? []
   const busy =
     loading || saving || testingId != null || refreshingId != null || authorizingId != null
@@ -103,26 +95,13 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
     return map
   }, [effectiveView])
 
-  const refreshEffectiveView = useCallback(async (): Promise<void> => {
-    if (!available || !effectiveViewAvailable) {
-      setEffectiveView(null)
-      return
-    }
-    try {
-      const result = await api.mcpGetEffectiveView({ workspaceRoot })
-      setEffectiveView(result.ok ? result.view : null)
-    } catch {
-      setEffectiveView(null)
-    }
-  }, [api, available, effectiveViewAvailable, workspaceRoot])
-
   const refreshRuntime = useCallback(async (): Promise<void> => {
     if (!available) return
     try {
       const result = await api.mcpListRuntime()
       setRuntime(result.ok ? result.servers : [])
     } catch {
-      // Runtime polling is best-effort. Explicit operations still surface errors.
+      // Runtime polling is best-effort.
     }
   }, [api, available])
 
@@ -175,13 +154,8 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
     void reload()
   }, [reload])
 
-
   const persistConfig = useCallback(
-    async (
-      nextEnabled: boolean,
-      nextServers: readonly DraftMcpServer[],
-      options: { autoConnect?: boolean; honorRemoteReadOnlyHint?: boolean } = {}
-    ): Promise<UserMcpConfigPublicV1 | null> => {
+    async (nextServers: readonly DraftMcpServer[]): Promise<UserMcpConfigPublicV1 | null> => {
       if (!available || !config) {
         setStatus({ kind: 'error', text: t('mcp.status.unavailable') })
         return null
@@ -189,15 +163,10 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
       setSaving(true)
       setStatus(null)
       try {
-        const update = draftMcpServersToConfigUpdate(nextEnabled, nextServers, {
-          autoConnect:
-            options.autoConnect !== undefined
-              ? options.autoConnect
-              : config.autoConnect === true,
-          honorRemoteReadOnlyHint:
-            options.honorRemoteReadOnlyHint !== undefined
-              ? options.honorRemoteReadOnlyHint
-              : config.honorRemoteReadOnlyHint === true
+        // Root MCP stays on (no enable switch); auto-connect stays on for Zcode-like discovery.
+        const update = draftMcpServersToConfigUpdate(true, nextServers, {
+          autoConnect: true,
+          honorRemoteReadOnlyHint: config.honorRemoteReadOnlyHint === true
         })
         const result = await api.mcpUpdateConfig({
           expectedFingerprint: config.fingerprint,
@@ -215,7 +184,14 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
         }
         setConfig(result.config)
         await refreshRuntime()
-        await refreshEffectiveView()
+        if (effectiveViewAvailable) {
+          try {
+            const ev = await api.mcpGetEffectiveView({ workspaceRoot })
+            setEffectiveView(ev.ok ? ev.view : null)
+          } catch {
+            setEffectiveView(null)
+          }
+        }
         return result.config
       } catch (error) {
         setStatus({
@@ -227,50 +203,27 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
         setSaving(false)
       }
     },
-    [api, available, config, refreshEffectiveView, refreshRuntime, reload, t]
+    [api, available, config, effectiveViewAvailable, refreshRuntime, reload, t, workspaceRoot]
   )
 
-  const requestRootToggle = (enabled: boolean): void => {
-    if (!config || saving) return
+  /** Migrate legacy root-off configs once when the page loads (no enable switch). */
+  useEffect(() => {
+    if (!available || !config || config.enabled === true || saving || loading) return
+    if (migratedRootOnRef.current) return
+    migratedRootOnRef.current = true
     void (async () => {
-      // ADR-0141: turning root on defaults smart-connect on and runs discovery.
-      const saved = await persistConfig(enabled, publicMcpConfigToDrafts(config), {
-        autoConnect: enabled ? true : false
-      })
-      if (!saved || !enabled) return
-      if (typeof api?.mcpAutoConnectNow !== 'function') return
-      try {
-        await api.mcpAutoConnectNow({ workspaceRoot })
-        await refreshRuntime()
-      } catch {
-        // Discovery is best-effort; status remains on runtime views.
+      const saved = await persistConfig(publicMcpConfigToDrafts(config))
+      if (!saved) return
+      if (typeof api?.mcpAutoConnectNow === 'function') {
+        try {
+          await api.mcpAutoConnectNow({ workspaceRoot })
+          await refreshRuntime()
+        } catch {
+          // best-effort
+        }
       }
     })()
-  }
-
-  const requestAutoConnectToggle = (enabled: boolean): void => {
-    if (!config || saving || !config.enabled) return
-    void (async () => {
-      const saved = await persistConfig(config.enabled, publicMcpConfigToDrafts(config), {
-        autoConnect: enabled
-      })
-      if (!saved || !enabled) return
-      if (typeof api?.mcpAutoConnectNow !== 'function') return
-      try {
-        await api.mcpAutoConnectNow({ workspaceRoot })
-        await refreshRuntime()
-      } catch {
-        // Discovery is best-effort; status remains on runtime views.
-      }
-    })()
-  }
-
-  const requestHonorRemoteReadOnlyHintToggle = (enabled: boolean): void => {
-    if (!config || saving) return
-    void persistConfig(config.enabled, publicMcpConfigToDrafts(config), {
-      honorRemoteReadOnlyHint: enabled
-    })
-  }
+  }, [api, available, config, loading, persistConfig, refreshRuntime, saving, workspaceRoot])
 
   const openCreateEditor = (): void => {
     setDeletingId(null)
@@ -305,9 +258,17 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
               ? { ...normalized, id: editor.originalServer.id }
               : server
           )
-    const saved = await persistConfig(config.enabled, nextServers)
+    const saved = await persistConfig(nextServers)
     if (!saved) return false
     setEditor(null)
+    if (typeof api?.mcpAutoConnectNow === 'function') {
+      try {
+        await api.mcpAutoConnectNow({ workspaceRoot })
+        await refreshRuntime()
+      } catch {
+        // best-effort
+      }
+    }
     return true
   }
 
@@ -320,13 +281,21 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
     const nextServers = publicMcpConfigToDrafts(config).map((draft) =>
       draft.id === server.id ? { ...draft, enabled, updatedAt: stamp } : draft
     )
-    await persistConfig(config.enabled, nextServers)
+    const saved = await persistConfig(nextServers)
+    if (saved && enabled && typeof api?.mcpAutoConnectNow === 'function') {
+      try {
+        await api.mcpAutoConnectNow({ workspaceRoot })
+        await refreshRuntime()
+      } catch {
+        // best-effort
+      }
+    }
   }
 
   const deleteServer = async (serverId: string): Promise<void> => {
     if (!config) return
     const nextServers = publicMcpConfigToDrafts(config).filter((draft) => draft.id !== serverId)
-    const saved = await persistConfig(config.enabled, nextServers)
+    const saved = await persistConfig(nextServers)
     if (!saved) return
     setDeletingId(null)
     setTestTools((current) => {
@@ -337,7 +306,7 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
   }
 
   const refreshServer = async (server: UserMcpServerPublicV1): Promise<void> => {
-    if (!refreshAvailable || !rootEnabled || !server.enabled) return
+    if (!available || !refreshAvailable) return
     setRefreshingId(server.id)
     setStatus({ kind: 'info', text: t('mcp.status.refreshing', { name: server.label }) })
     try {
@@ -350,20 +319,17 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
         await refreshRuntime()
         return
       }
-      await refreshRuntime()
       setStatus({ kind: 'success', text: t('mcp.status.refreshOk') })
+      await refreshRuntime()
     } catch {
-      // Deliberately avoid projecting a transport-provided error to the renderer.
-      // Runtime diagnostics are sanitized by main before mcpListRuntime exposes them.
       setStatus({ kind: 'error', text: t('mcp.status.refreshFail') })
     } finally {
       setRefreshingId(null)
     }
   }
 
-
   const authorizeServer = async (server: UserMcpServerPublicV1): Promise<void> => {
-    if (!authorizeAvailable || !server.oauth || server.transport === 'stdio') return
+    if (!available || !authorizeAvailable) return
     setAuthorizingId(server.id)
     setStatus({ kind: 'info', text: t('mcp.status.authorizing', { name: server.label }) })
     try {
@@ -371,7 +337,6 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
         serverId: server.id,
         workspaceRoot: workspaceRoot ?? undefined
       })
-      await refreshRuntime()
       if (!result.ok) {
         setStatus({
           kind: 'error',
@@ -384,10 +349,11 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
       setStatus({
         kind: 'success',
         text:
-          result.authorization.state === 'authorizing'
+          result.opened === true
             ? t('mcp.status.authorizeOpened', { name: server.label })
             : t('mcp.status.authorizeOk', { name: server.label })
       })
+      await refreshRuntime()
     } catch (error) {
       setStatus({
         kind: 'error',
@@ -401,15 +367,13 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
   }
 
   const revokeAuthorization = async (server: UserMcpServerPublicV1): Promise<void> => {
-    if (!authorizeAvailable || !server.oauth || server.transport === 'stdio') return
+    if (!available || !authorizeAvailable) return
     setAuthorizingId(server.id)
     setStatus({ kind: 'info', text: t('mcp.status.revoking', { name: server.label }) })
     try {
       const result = await api.mcpRevokeAuthorization({
-        serverId: server.id,
-        workspaceRoot: workspaceRoot ?? undefined
+        serverId: server.id
       })
-      await refreshRuntime()
       if (!result.ok) {
         setStatus({
           kind: 'error',
@@ -420,6 +384,7 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
         return
       }
       setStatus({ kind: 'success', text: t('mcp.status.revokeOk', { name: server.label }) })
+      await refreshRuntime()
     } catch (error) {
       setStatus({
         kind: 'error',
@@ -431,6 +396,7 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
       setAuthorizingId(null)
     }
   }
+
   const testServer = async (server: UserMcpServerPublicV1): Promise<void> => {
     if (!available || !rootEnabled || !server.enabled) return
     setTestingId(server.id)
@@ -487,53 +453,7 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
 
   const parseImport = (): void => {
     if (!config) return
-    // McpSync envelope (paste) → conflict preview → only non-conflicting via existing import path
-    const syncParsed = parseMcpSyncEnvelopeText(importText)
-    if (syncParsed.ok) {
-      const merge = previewMcpSyncMerge(config, syncParsed.envelope)
-      if (merge.importableServers.length === 0 && merge.conflicts.length > 0) {
-        setImportPreview(null)
-        setImportSelected(new Set())
-        setImportError(
-          t('mcp.import.mcpSyncAllConflicts', {
-            count: merge.conflicts.length,
-            ids: merge.conflicts.map((c) => c.serverId).join(', ')
-          })
-        )
-        return
-      }
-      if (merge.importableServers.length === 0) {
-        setImportPreview(null)
-        setImportSelected(new Set())
-        setImportError(t('mcp.import.parseError', { reason: 'empty_mcp_sync_payload' }))
-        return
-      }
-      const converted = mcpSyncServersToImportJson(merge.importableServers)
-      const result = parseMcpImportText(converted, { existingIds })
-      if (!result.ok) {
-        setImportPreview(null)
-        setImportSelected(new Set())
-        setImportError(t('mcp.import.parseError', { reason: result.reason }))
-        return
-      }
-      setImportError(
-        merge.conflicts.length > 0
-          ? t('mcp.import.mcpSyncConflictsSkipped', {
-              count: merge.conflicts.length,
-              ids: merge.conflicts.map((c) => c.serverId).join(', ')
-            })
-          : null
-      )
-      setImportPreview(result)
-      setImportSelected(
-        new Set(result.drafts.filter((draft) => draft.selectedByDefault).map((draft) => draft.draftKey))
-      )
-      return
-    }
-
-    const result = parseMcpImportText(importText, {
-      existingIds: existingIds
-    })
+    const result = parseMcpImportText(importText, { existingIds })
     if (!result.ok) {
       setImportPreview(null)
       setImportSelected(new Set())
@@ -572,66 +492,20 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
       importedDrafts
     )
     setStatus({ kind: 'info', text: t('mcp.status.importing') })
-    const saved = await persistConfig(config.enabled, nextServers)
+    const saved = await persistConfig(nextServers)
     if (!saved) return
     closeImport()
     setStatus({
       kind: 'success',
       text: t('mcp.import.success', { count: selected.length })
     })
-    // After successful import, if root is enabled, request discovery-only auto-connect
-    // (main no-ops unless autoConnect is also true). Best-effort; never tools/call.
-    if (config.enabled === true && typeof api?.mcpAutoConnectNow === 'function') {
+    if (typeof api?.mcpAutoConnectNow === 'function') {
       try {
         await api.mcpAutoConnectNow({ workspaceRoot })
         await refreshRuntime()
       } catch {
-        // Import already succeeded; per-server runtime errors remain on list views.
+        // best-effort
       }
-    }
-  }
-
-  const exportConfig = async (): Promise<void> => {
-    if (!config) return
-    try {
-      setStatus({ kind: 'info', text: t('mcp.status.exporting') })
-      const json = exportPublicMcpConfigJson(config, { pretty: true })
-      const blob = new Blob([json], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = 'studiumx-mcp-export.json'
-      anchor.click()
-      URL.revokeObjectURL(url)
-      if (typeof navigator?.clipboard?.writeText === 'function') {
-        await navigator.clipboard.writeText(json).catch(() => undefined)
-      }
-      setStatus({ kind: 'success', text: t('mcp.export.downloadSuccess') })
-    } catch {
-      setStatus({ kind: 'error', text: t('mcp.export.fail') })
-    }
-  }
-
-  /** Optional McpSync envelope export (secret-free; no network). */
-  const exportMcpSync = async (): Promise<void> => {
-    if (!config) return
-    try {
-      setStatus({ kind: 'info', text: t('mcp.status.exporting') })
-      const envelope = toMcpSyncEnvelope(config, { kind: 'mcp_sync_export' })
-      const json = JSON.stringify(envelope, null, 2)
-      const blob = new Blob([json], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = 'studiumx-mcp-sync.json'
-      anchor.click()
-      URL.revokeObjectURL(url)
-      if (typeof navigator?.clipboard?.writeText === 'function') {
-        await navigator.clipboard.writeText(json).catch(() => undefined)
-      }
-      setStatus({ kind: 'success', text: t('mcp.export.mcpSyncSuccess') })
-    } catch {
-      setStatus({ kind: 'error', text: t('mcp.export.fail') })
     }
   }
 
@@ -821,32 +695,46 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
         </>
       ) : (
         <>
-          <div className="mcp-page-toolbar" data-testid="mcp-root-control">
-            <div className="mcp-page-toolbar-copy">
-              <strong>{t('mcp.rootEnabled.label')}</strong>
-              <span>{t('mcp.rootEnabled.detail')}</span>
-            </div>
-            <div className="settings-actions">
-              <ToggleSwitch
-                checked={rootEnabled}
-                disabled={busy || !config}
-                ariaLabel={t('mcp.rootEnabled.label')}
-                onChange={requestRootToggle}
+          {/* Search + icon actions on one row (Zcode-like toolbar) */}
+          <div className="mcp-page-actions" data-testid="mcp-page-actions">
+            <div className="mcp-search mcp-search-bar">
+              <Search size={15} aria-hidden="true" />
+              <input
+                id="mcp-server-search"
+                type="search"
+                value={listQuery}
+                disabled={loading}
+                placeholder={t('mcp.servers.searchPlaceholder')}
+                aria-label={t('mcp.servers.searchLabel')}
+                data-testid="mcp-search"
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => setListQuery(event.target.value)}
               />
             </div>
-          </div>
-          <div className="mcp-page-toolbar" data-testid="mcp-auto-connect-control">
-            <div className="mcp-page-toolbar-copy">
-              <strong>{t('mcp.autoConnect.label')}</strong>
-              <span>{t('mcp.autoConnect.detail')}</span>
-            </div>
-            <div className="settings-actions">
-              <ToggleSwitch
-                checked={autoConnectEnabled}
-                disabled={busy || !config || !rootEnabled}
-                ariaLabel={t('mcp.autoConnect.label')}
-                onChange={requestAutoConnectToggle}
-              />
+            <div className="mcp-page-action-buttons">
+              <button
+                className="mcp-toolbar-button"
+                type="button"
+                disabled={busy || !config || deletingId != null}
+                data-testid="mcp-import-open"
+                aria-label={t('mcp.servers.importAria')}
+                title={t('mcp.servers.import')}
+                onClick={openImport}
+              >
+                <Upload size={15} />
+              </button>
+              <button
+                className="mcp-toolbar-button is-accent"
+                type="button"
+                disabled={busy || !config || deletingId != null}
+                data-testid="mcp-add-server"
+                aria-label={t('mcp.servers.add')}
+                title={t('mcp.servers.add')}
+                onClick={openCreateEditor}
+              >
+                <Plus size={15} />
+              </button>
               <button
                 className="mcp-toolbar-button"
                 type="button"
@@ -858,70 +746,8 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
               >
                 <RefreshCw size={15} className={loading ? 'is-spinning' : undefined} />
               </button>
-              <button
-                className="ghost-button"
-                type="button"
-                disabled={busy || !config || deletingId != null}
-                data-testid="mcp-import-open"
-                aria-label={t('mcp.servers.importAria')}
-                title={t('mcp.servers.import')}
-                onClick={openImport}
-              >
-                <Upload size={15} />
-                {t('mcp.servers.import')}
-              </button>
-              <button
-                className="ghost-button"
-                type="button"
-                disabled={busy || !config || deletingId != null}
-                data-testid="mcp-export"
-                aria-label={t('mcp.servers.exportAria')}
-                title={t('mcp.servers.export')}
-                onClick={() => void exportConfig()}
-              >
-                <Download size={15} />
-                {t('mcp.servers.export')}
-              </button>
-              <button
-                className="ghost-button"
-                type="button"
-                disabled={busy || !config || deletingId != null}
-                data-testid="mcp-export-mcp-sync"
-                aria-label={t('mcp.export.mcpSyncAria')}
-                title={t('mcp.export.mcpSync')}
-                onClick={() => void exportMcpSync()}
-              >
-                <Download size={15} />
-                {t('mcp.export.mcpSync')}
-              </button>
-              <button
-                className="ghost-button strong"
-                type="button"
-                disabled={busy || !config || deletingId != null}
-                data-testid="mcp-add-server"
-                onClick={openCreateEditor}
-              >
-                <Plus size={15} />
-                {t('mcp.servers.add')}
-              </button>
             </div>
           </div>
-
-          <div className="mcp-page-toolbar" data-testid="mcp-honor-remote-readonly-control">
-            <div className="mcp-page-toolbar-copy">
-              <strong>{t('mcp.honorRemoteReadOnlyHint.label')}</strong>
-              <span>{t('mcp.honorRemoteReadOnlyHint.detail')}</span>
-            </div>
-            <div className="settings-actions">
-              <ToggleSwitch
-                checked={honorRemoteReadOnlyHint}
-                disabled={busy || !config}
-                ariaLabel={t('mcp.honorRemoteReadOnlyHint.label')}
-                onChange={requestHonorRemoteReadOnlyHintToggle}
-              />
-            </div>
-          </div>
-
 
           {status ? (
             <div
@@ -932,79 +758,6 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
             >
               {status.text}
             </div>
-          ) : null}
-
-          {effectiveViewAvailable && effectiveView ? (
-            <section className="mcp-sources-section" data-testid="mcp-sources-section">
-              <button
-                className="mcp-sources-toggle"
-                type="button"
-                aria-expanded={sourcesOpen}
-                data-testid="mcp-sources-toggle"
-                onClick={() => setSourcesOpen((open) => !open)}
-              >
-                <strong>{t('mcp.sources.heading')}</strong>
-                <span>
-                  {t('mcp.sources.summary', {
-                    winners: effectiveView.effectiveServers.length,
-                    shadowed: effectiveView.shadowed.length
-                  })}
-                </span>
-              </button>
-              {sourcesOpen ? (
-                <div className="mcp-sources-body" data-testid="mcp-sources-body">
-                  <p className="mcp-sources-detail">{t('mcp.sources.detail')}</p>
-                  {effectiveView.effectiveServers.length === 0 ? (
-                    <p data-testid="mcp-sources-empty">{t('mcp.sources.empty')}</p>
-                  ) : (
-                    <ul className="mcp-sources-list" data-testid="mcp-sources-winners">
-                      {effectiveView.effectiveServers.map((entry) => (
-                        <li key={entry.id} data-testid={`mcp-source-winner-${entry.id}`}>
-                          <strong>{entry.label}</strong>
-                          <span className="mcp-badge" data-testid="mcp-source-kind">
-                            {t(`mcp.sources.kind.${entry.sourceKind}`)}
-                          </span>
-                          {entry.sourceLabel ? (
-                            <span className="mcp-sources-label" title={entry.sourceLabel}>
-                              {entry.sourceLabel}
-                            </span>
-                          ) : null}
-                          {entry.state ? (
-                            <span data-testid="mcp-source-state">
-                              {t(`mcp.runtimeState.${entry.state}`)}
-                            </span>
-                          ) : null}
-                          <span>
-                            {entry.enabled ? t('mcp.sources.enabled') : t('mcp.sources.disabled')}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {effectiveView.shadowed.length > 0 ? (
-                    <ul className="mcp-sources-shadowed" data-testid="mcp-sources-shadowed">
-                      {effectiveView.shadowed.map((entry) => (
-                        <li key={`${entry.id}-${entry.sourceKind}-${entry.sourceLabel}`}>
-                          {t('mcp.sources.shadowedNote', {
-                            id: entry.id,
-                            source: t(`mcp.sources.kind.${entry.sourceKind}`),
-                            winner: entry.shadowedBy.id,
-                            winnerSource: t(`mcp.sources.kind.${entry.shadowedBy.sourceKind}`)
-                          })}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  {effectiveView.warnings.length > 0 ? (
-                    <ul className="mcp-sources-warnings" data-testid="mcp-sources-warnings">
-                      {effectiveView.warnings.map((warning) => (
-                        <li key={warning}>{warning}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ) : null}
-            </section>
           ) : null}
 
           <UserMcpServerList
@@ -1022,7 +775,9 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
             deletingId={deletingId}
             testTools={testTools}
             workspaceRoot={workspaceRoot}
-            onAdd={openCreateEditor}
+            hideSearch
+            searchQuery={listQuery}
+            onSearchQueryChange={setListQuery}
             onEdit={openEditEditor}
             onToggle={(server, enabled) => void toggleServer(server, enabled)}
             onTest={(server) => void testServer(server)}

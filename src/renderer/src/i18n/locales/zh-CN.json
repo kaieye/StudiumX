@@ -1317,10 +1317,10 @@
   },
   "mcp": {
     "title": "MCP 服务器",
-    "subtitle": "添加、编辑和管理 MCP 服务器。",
+    "subtitle": "管理 Agent 使用的 MCP 服务器配置。",
     "rootEnabled": {
       "label": "启用 MCP",
-      "detail": "关闭时不连接任何 MCP 服务器。"
+      "detail": "关闭后不会连接任何 MCP 服务器。"
     },
     "autoConnect": {
       "label": "智能连接",
@@ -1348,15 +1348,15 @@
       }
     },
     "servers": {
-      "heading": "MCP 服务器",
+      "heading": "已配置 MCP 服务器",
       "count": "已配置 {{count}} 个",
-      "emptyTitle": "尚无 MCP 服务器",
-      "empty": "添加一个 MCP 服务器即可开始使用。",
+      "emptyTitle": "还没有 MCP 服务器",
+      "empty": "添加一个 MCP 服务器，让 Agent 获得额外能力。",
       "noResultsTitle": "没有匹配的服务器",
       "noResults": "可尝试搜索其他名称、类型、URL、命令、路径或运行状态。",
       "searchLabel": "搜索 MCP 服务器",
-      "searchPlaceholder": "搜索服务器",
-      "add": "添加服务器",
+      "searchPlaceholder": "搜索 MCP 服务器…",
+      "add": "新建 MCP 服务器",
       "edit": "编辑服务器",
       "remove": "删除服务器",
       "enabled": "启用",
@@ -1396,18 +1396,18 @@
       "retryAtSuffix": " · 下次 {{time}}",
       "diagnosticsSummary": "本地诊断",
       "inventoryStale": "工具清单已变更，请刷新后应用。",
-      "import": "导入",
+      "import": "从外部 Agent 导入",
       "export": "导出",
-      "importAria": "从 JSON 导入 MCP 服务器",
+      "importAria": "从外部 Agent 导入 MCP 服务器",
       "exportAria": "导出脱敏后的 MCP 配置",
       "workspaceRootInjection": "允许注入当前工作区根路径",
       "workspaceRootInjectionHint": "启用后，连接时会将当前工作区根路径追加到 stdio 参数（仅一次）。默认关闭。"
     },
     "editor": {
-      "createTitle": "添加 MCP 服务器",
-      "createDetail": "选择传输方式并填写服务器配置。",
+      "createTitle": "新建 MCP 服务器",
+      "createDetail": "填写新的 MCP 配置，保存后返回列表。",
       "editTitle": "编辑 MCP 服务器",
-      "editDetail": "修改服务器配置，保存后立即生效。",
+      "editDetail": "修改当前 MCP 配置，保存后返回列表。",
       "labelPlaceholder": "示例服务器",
       "add": "添加服务器",
       "save": "保存服务器",
@@ -1419,12 +1419,12 @@
       "jsonConfig": "MCP JSON 配置",
       "jsonHint": "支持 mcpServers 包装、单服务器映射或直接服务器配置对象。一次编辑一个服务器。",
       "workspaceUnavailable": "当前没有可用工作区。",
-      "backToServers": "返回服务器列表",
+      "backToServers": "返回 MCP 列表",
       "advanced": "高级选项"
     },
     "deleteConfirm": {
-      "title": "删除 {{name}}？",
-      "detail": "服务器及其已存配置引用将被移除，无法从本页面撤销。",
+      "title": "删除 MCP 服务器\"{{name}}\"？",
+      "detail": "删除后将无法恢复，该服务器配置将从文件中移除。",
       "confirm": "确认删除",
       "cancel": "取消"
     },

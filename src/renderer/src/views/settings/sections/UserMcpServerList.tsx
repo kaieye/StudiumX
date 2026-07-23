@@ -7,9 +7,7 @@ import {
   Pencil,
   RefreshCw,
   KeyRound,
-  Plus,
   Search,
-  TestTube2,
   Trash2,
   UserRound
 } from 'lucide-react'
@@ -24,7 +22,6 @@ import type {
 import type { McpEffectiveServerPublicV1 } from '../../../../../shared/mcp/effective-view-public'
 import { SettingsCard, ToggleSwitch } from '../SettingsPrimitives'
 import {
-  configuredMcpSecretCount,
   mcpServerCommandSummary,
   mcpServerMatchesSearch,
   serverMatchesActiveWorkspace
@@ -46,7 +43,10 @@ type UserMcpServerListProps = {
   deletingId: string | null
   testTools: Readonly<Record<string, readonly McpListedToolSummary[]>>
   workspaceRoot: string | null
-  onAdd: () => void
+  /** When true, parent hosts the search field in the page toolbar. */
+  hideSearch?: boolean
+  searchQuery?: string
+  onSearchQueryChange?: (query: string) => void
   onEdit: (server: UserMcpServerPublicV1) => void
   onToggle: (server: UserMcpServerPublicV1, enabled: boolean) => void
   onTest: (server: UserMcpServerPublicV1) => void
@@ -65,7 +65,7 @@ export function UserMcpServerList({
   servers,
   runtime,
   sourceByServerId,
-  testingId,
+  testingId: _testingId,
   refreshingId,
   authorizingId,
   refreshAvailable,
@@ -73,19 +73,29 @@ export function UserMcpServerList({
   deletingId,
   testTools,
   workspaceRoot,
-  onAdd,
+  hideSearch = false,
+  searchQuery,
+  onSearchQueryChange,
   onEdit,
   onToggle,
-  onTest,
+  onTest: _onTest,
   onRefresh,
   onAuthorize,
-  onRevoke,
+  onRevoke: _onRevoke,
   onRequestDelete,
   onCancelDelete,
   onConfirmDelete
 }: UserMcpServerListProps) {
+  void _testingId
+  void _onTest
+  void _onRevoke
   const { t } = useTranslation()
-  const [query, setQuery] = useState('')
+  const [internalQuery, setInternalQuery] = useState('')
+  const query = hideSearch ? (searchQuery ?? '') : internalQuery
+  const setQuery = (value: string): void => {
+    if (hideSearch) onSearchQueryChange?.(value)
+    else setInternalQuery(value)
+  }
   const [expandedToolsId, setExpandedToolsId] = useState<string | null>(null)
 
   const runtimeById = useMemo(() => {
@@ -100,25 +110,21 @@ export function UserMcpServerList({
   )
 
   return (
-    <section className="mcp-list-section" aria-labelledby="mcp-server-list-heading">
-      <div className="mcp-list-heading">
-        <div>
-          <h3 id="mcp-server-list-heading">{t('mcp.servers.heading')}</h3>
-          <p>{t('mcp.servers.count', { count: servers.length })}</p>
-        </div>
-        <label className="mcp-search">
+    <section className="mcp-list-section" aria-label={t('mcp.servers.heading')}>
+      {!hideSearch ? (
+        <label className="mcp-search mcp-search-bar">
           <Search size={15} aria-hidden="true" />
           <input
             type="search"
             value={query}
-            disabled={loading}
+            disabled={loading || servers.length === 0}
             placeholder={t('mcp.servers.searchPlaceholder')}
             aria-label={t('mcp.servers.searchLabel')}
             data-testid="mcp-search"
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-      </div>
+      ) : null}
 
       {loading ? (
         <SettingsCard className="mcp-loading-card">
@@ -134,10 +140,6 @@ export function UserMcpServerList({
           </div>
           <strong>{t('mcp.servers.emptyTitle')}</strong>
           <p>{t('mcp.servers.empty')}</p>
-          <button className="ghost-button strong" type="button" disabled={busy} onClick={onAdd}>
-            <Plus size={15} />
-            {t('mcp.servers.add')}
-          </button>
         </SettingsCard>
       ) : null}
 
@@ -161,8 +163,6 @@ export function UserMcpServerList({
             )
             const tools = testTools[server.id]
             const toolCount = runtimeState?.toolCount ?? tools?.length
-            const secretCount = configuredMcpSecretCount(server)
-            const isTesting = testingId === server.id
             const isRefreshing = refreshingId === server.id
             const isAuthorizing = authorizingId === server.id
             const isDeleting = deletingId === server.id
@@ -171,19 +171,12 @@ export function UserMcpServerList({
             const authorization = runtimeState?.authorization ?? null
             const authorizationState =
               authorization?.state ?? (oauthConfigured ? 'authorization_required' : null)
-            const canTest = rootEnabled && server.enabled && inActiveScope && !busy && !isTesting
             const canAuthorize =
               authorizeAvailable &&
               oauthConfigured &&
               rootEnabled &&
               server.enabled &&
               inActiveScope &&
-              !busy &&
-              !isAuthorizing
-            const canRevoke =
-              authorizeAvailable &&
-              oauthConfigured &&
-              authorizationState === 'authorized' &&
               !busy &&
               !isAuthorizing
             const canRefresh =
@@ -195,7 +188,7 @@ export function UserMcpServerList({
                   <div className="mcp-server-identity">
                     <div className="mcp-server-icon" aria-hidden="true">
                       <Network size={17} />
-                      {effectiveState === 'connecting' || isTesting || isRefreshing ? (
+                      {effectiveState === 'connecting' || isRefreshing ? (
                         <Loader2 className="mcp-status-spinner is-spinning" size={11} />
                       ) : (
                         <span className={`mcp-status-dot is-${effectiveState}`} />
@@ -204,32 +197,28 @@ export function UserMcpServerList({
                     <div className="mcp-server-copy">
                       <div className="mcp-server-title-line">
                         <strong>{server.label}</strong>
-                        <span className="mcp-badge">
-                          <UserRound size={11} />
-                          {t(
-                            server.scope === 'workspace'
-                              ? 'mcp.servers.workspaceScope'
-                              : 'mcp.servers.userScope'
-                          )}
-                        </span>
+                        {sourceByServerId?.get(server.id)?.sourceKind === 'plugin' ? (
+                          <span className="mcp-badge is-accent" data-testid="mcp-server-source-badge">
+                            {t('mcp.sources.kind.plugin')}
+                          </span>
+                        ) : (
+                          <span className="mcp-badge" data-testid="mcp-server-source-badge">
+                            <UserRound size={11} />
+                            {t(
+                              server.scope === 'workspace'
+                                ? 'mcp.servers.workspaceScope'
+                                : 'mcp.servers.userScope'
+                            )}
+                          </span>
+                        )}
                         <span className="mcp-badge">
                           {server.transport === 'http'
                             ? t('mcp.servers.streamableHttp')
                             : server.transport}
                         </span>
-                        {sourceByServerId?.get(server.id) ? (
-                          <span className="mcp-badge is-accent" data-testid="mcp-server-source-badge">
-                            {t(`mcp.sources.kind.${sourceByServerId.get(server.id)!.sourceKind}`)}
-                          </span>
-                        ) : null}
                         {toolCount != null ? (
                           <span className="mcp-badge is-accent">
                             {t('mcp.servers.toolCount', { count: toolCount })}
-                          </span>
-                        ) : null}
-                        {secretCount > 0 ? (
-                          <span className="mcp-badge">
-                            {t('mcp.servers.secretCount', { count: secretCount })}
                           </span>
                         ) : null}
                       </div>
@@ -243,55 +232,7 @@ export function UserMcpServerList({
                             {t(`mcp.authorizationState.${authorizationState}`)}
                           </span>
                         ) : null}
-                        {server.scope === 'workspace' && server.workspaceRoot ? (
-                          <span>{server.workspaceRoot}</span>
-                        ) : server.cwd ? (
-                          <span>{server.cwd}</span>
-                        ) : null}
                       </div>
-                      {runtimeState?.inventory ? (
-                        <div className="mcp-runtime-summary" data-testid="mcp-inventory-summary">
-                          <span>
-                            {t('mcp.servers.inventorySummary', {
-                              discovered: runtimeState.inventory.discoveredToolCount,
-                              registered: runtimeState.inventory.registeredToolCount,
-                              rejected: runtimeState.inventory.rejectedToolCount
-                            })}
-                          </span>
-                          {runtimeState.inventory.stale ? (
-                            <span>{t('mcp.servers.inventoryStale')}</span>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {runtimeState?.refresh?.retry &&
-                      (runtimeState.refresh.retry.maxAttempts ?? 0) > 0 ? (
-                        <div className="mcp-runtime-summary" data-testid="mcp-retry-summary">
-                          <span>
-                            {t('mcp.servers.retrySummary', {
-                              attempt: runtimeState.refresh.retry.attemptCount,
-                              max: runtimeState.refresh.retry.maxAttempts,
-                              when: runtimeState.refresh.retry.retryAt
-                                ? t('mcp.servers.retryAtSuffix', {
-                                    time: runtimeState.refresh.retry.retryAt
-                                  })
-                                : ''
-                            })}
-                          </span>
-                        </div>
-                      ) : null}
-                      {runtimeState?.diagnosticsLines &&
-                      runtimeState.diagnosticsLines.length > 0 ? (
-                        <div
-                          className="mcp-runtime-summary is-muted"
-                          data-testid="mcp-diagnostics-summary"
-                          title={runtimeState.diagnosticsLines.join('\n')}
-                        >
-                          <span>
-                            {t('mcp.servers.diagnosticsSummary')}:{' '}
-                            {runtimeState.diagnosticsLines.slice(0, 2).join(' · ')}
-                          </span>
-                        </div>
-                      ) : null}
                       {runtimeState?.errorCode || runtimeState?.lastErrorMessage ? (
                         <div className="mcp-runtime-error" role="status">
                           <CircleAlert size={13} />
@@ -366,36 +307,6 @@ export function UserMcpServerList({
                         )}
                       </button>
                     ) : null}
-                    {oauthConfigured && authorizeAvailable && authorizationState === 'authorized' ? (
-                      <button
-                        className="mcp-icon-button is-danger"
-                        type="button"
-                        disabled={!canRevoke}
-                        aria-label={t('mcp.servers.revokeAria', { name: server.label })}
-                        title={t('mcp.servers.revoke')}
-                        data-testid="mcp-revoke-authorization"
-                        onClick={() => onRevoke(server)}
-                      >
-                        <CircleAlert size={15} />
-                      </button>
-                    ) : null}
-                    <button
-                      className="mcp-icon-button"
-                      type="button"
-                      disabled={!canTest}
-                      aria-label={t('mcp.servers.testAria', { name: server.label })}
-                      title={
-                        canTest ? t('mcp.servers.test') : t('mcp.servers.testDisabledHint')
-                      }
-                      data-testid="mcp-test-server"
-                      onClick={() => onTest(server)}
-                    >
-                      {isTesting ? (
-                        <Loader2 size={15} className="is-spinning" />
-                      ) : (
-                        <TestTube2 size={15} />
-                      )}
-                    </button>
                     <button
                       className="mcp-icon-button"
                       type="button"
