@@ -43,7 +43,7 @@ describe('study timer plans', () => {
       {
         id: 'timer-plan-1',
         name: '无效时段',
-        focusMinutes: 120,
+        focusMinutes: 180,
         breakMinutes: 1,
         simulationStartTime: defaultStudySnapshot.simulationStartTime,
         simulationEndTime: defaultStudySnapshot.simulationEndTime

@@ -12,10 +12,13 @@
 import {
   createClassicPomodoroPlan,
   createContinuousCountupPlan,
+  createExamSimulationPlan,
+  createOpenContinuousPlan,
   createCustomRhythmPlan,
   sumCustomRhythmMinutes,
   TIMER_PLAN_SEED_DEFAULTS,
   type BreakPolicy,
+  type ContinuousMode,
   type CustomRhythmStep,
   type TimerClockMode,
   type TimerPlanKind,
@@ -243,19 +246,39 @@ export function projectV1TimerPlanToV2(plan: StudyTimerPlan): TimerPlanV2 {
       clockMode,
       continuousTarget: plan.continuousTarget
     })
+    // V1 continuousTarget true → exam; open countup → open; else target (cycle).
+    const continuousMode: ContinuousMode = open
+      ? 'open'
+      : plan.continuousTarget === true
+        ? 'exam'
+        : 'target'
 
+    if (continuousMode === 'exam') {
+      return createExamSimulationPlan({
+        id: plan.id,
+        name: plan.name,
+        breakPolicy,
+        focusMinutes: plan.focusMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes,
+        ...(plan.breakMinutes > 0 ? { shortBreakMinutes: plan.breakMinutes } : {})
+      })
+    }
+    if (continuousMode === 'open') {
+      return createOpenContinuousPlan({
+        id: plan.id,
+        name: plan.name,
+        clockMode: clockMode === 'countdown' ? 'countdown' : 'countup',
+        breakPolicy,
+        ...(plan.breakMinutes > 0 ? { shortBreakMinutes: plan.breakMinutes } : {})
+      })
+    }
     return createContinuousCountupPlan({
       id: plan.id,
       name: plan.name,
       kind: 'continuous',
+      continuousMode: 'target',
       clockMode: clockMode === 'countdown' ? 'countdown' : 'countup',
       breakPolicy,
-      ...(open
-        ? {}
-        : {
-            focusMinutes:
-              plan.focusMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes
-          }),
+      focusMinutes: plan.focusMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes,
       ...(plan.breakMinutes > 0 ? { shortBreakMinutes: plan.breakMinutes } : {})
     })
   }
@@ -323,29 +346,30 @@ export function projectV2TimerPlanToV1(
   }).fields
 
   if (plan.kind === 'continuous') {
-    // Exam wall simulation: builtin continuous_countup, or countup with a focus
-    // target (continuousTarget true on V1). Continuous *cycle* uses countdown with
-    // focusMinutes and must NOT be labeled exam — otherwise the face/start path
-    // still runs countup after the user turns 正计时 off.
+    // Prefer durable continuousMode; legacy: open = countup without focus; exam only when mode is exam.
     const clockMode = plan.clockMode === 'countdown' ? 'countdown' : 'countup'
-    const isExamSeed =
-      plan.id === 'continuous_countup'
-      || (clockMode === 'countup' && plan.focusMinutes != null)
-    const openCountup = !isExamSeed && clockMode === 'countup' && plan.focusMinutes == null
+    let continuousMode = plan.continuousMode
+    if (continuousMode !== 'open' && continuousMode !== 'target' && continuousMode !== 'exam') {
+      if (clockMode === 'countup' && plan.focusMinutes == null) continuousMode = 'open'
+      else if (plan.id === 'continuous_countup') continuousMode = 'exam'
+      else continuousMode = 'target'
+    }
+    const isExam = continuousMode === 'exam'
+    const openCountup = continuousMode === 'open'
     return {
       id: plan.id,
       name: plan.name,
       focusMinutes:
         plan.focusMinutes
-        ?? (plan.id === 'continuous_countup' ? 180 : TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes),
+        ?? (isExam ? 180 : TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes),
       breakMinutes:
         plan.shortBreakMinutes
-        ?? (isExamSeed || openCountup ? 0 : TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes),
+        ?? (isExam || openCountup ? 0 : TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes),
       simulationStartTime: window?.simulationStartTime ?? '09:00',
       simulationEndTime: window?.simulationEndTime ?? '12:00',
       kind: 'continuous',
-      clockMode,
-      continuousTarget: isExamSeed,
+      clockMode: isExam ? 'countup' : clockMode,
+      continuousTarget: isExam,
       breakPolicy: plan.breakPolicy
     }
   }
@@ -434,7 +458,7 @@ export function resolvePlanV2ForStart(input: {
   if (fromUser) return projectV1TimerPlanToV2(fromUser)
 
   if (planId === 'continuous_countup') {
-    return createContinuousCountupPlan({ id: planId })
+    return createExamSimulationPlan({ id: planId })
   }
   if (planId === 'deep_50_10') {
     return createClassicPomodoroPlan({
@@ -454,11 +478,7 @@ export function resolvePlanV2ForStart(input: {
  * Open continuous countup → null (lifecycle open-ended).
  */
 export function resolveStartTargetSeconds(plan: TimerPlanV2): number | null {
-  if (
-    plan.kind === 'continuous' &&
-    plan.clockMode === 'countup' &&
-    plan.focusMinutes == null
-  ) {
+  if (isOpenContinuousPlanV2(plan)) {
     return null
   }
   if (plan.focusMinutes != null) return Math.max(1, plan.focusMinutes * 60)
@@ -466,11 +486,10 @@ export function resolveStartTargetSeconds(plan: TimerPlanV2): number | null {
 }
 
 export function isOpenContinuousPlanV2(plan: TimerPlanV2): boolean {
-  return (
-    plan.kind === 'continuous' &&
-    plan.clockMode === 'countup' &&
-    plan.focusMinutes == null
-  )
+  if (plan.kind !== 'continuous') return false
+  if (plan.continuousMode === 'open') return true
+  if (plan.continuousMode === 'exam' || plan.continuousMode === 'target') return false
+  return plan.clockMode === 'countup' && plan.focusMinutes == null
 }
 
 

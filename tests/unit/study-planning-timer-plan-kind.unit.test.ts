@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   createContinuousCountupPlan,
+  createExamSimulationPlan,
+  createOpenContinuousPlan,
   createClassicPomodoroPlan
 } from '../../src/shared/study-planning'
 import {
@@ -242,6 +244,7 @@ describe('resolvePlanV2ForStart / createContinuousCountupPlan', () => {
     expect(plan.id).toBe('continuous_countup')
     expect(plan.kind).toBe('continuous')
     expect(plan.clockMode).toBe('countup')
+    expect(plan.continuousMode).toBe('exam')
     // Product: 考场模拟 freezes a morning-window target so the ring is 3h, not open-ended.
     expect(plan.focusMinutes).toBe(180)
     expect(resolveStartTargetSeconds(plan)).toBe(180 * 60)
@@ -274,6 +277,36 @@ describe('resolvePlanV2ForStart / createContinuousCountupPlan', () => {
     expect(plan.clockMode).toBe('countup')
     expect(plan.id).toBe('x')
     expect(plan.name).toBe('X')
+  })
+
+  it('createExamSimulationPlan freezes exam continuousMode and 180 focus', () => {
+    const plan = createExamSimulationPlan()
+    expect(plan.continuousMode).toBe('exam')
+    expect(plan.focusMinutes).toBe(180)
+    expect(plan.id).toBe('continuous_countup')
+  })
+
+  it('createOpenContinuousPlan never inherits 180 focusMinutes', () => {
+    const plan = createOpenContinuousPlan({ id: 'open-x', name: 'Open' })
+    expect(plan.continuousMode).toBe('open')
+    expect(plan.focusMinutes).toBeUndefined()
+    expect(plan.id).toBe('open-x')
+  })
+
+  it('V2→V1 exam uses continuousMode not catalog id heuristics for non-catalog ids', () => {
+    const exam = createExamSimulationPlan({ id: 'user-exam', focusMinutes: 120 })
+    const v1 = projectV2TimerPlanToV1(exam)
+    expect(v1.continuousTarget).toBe(true)
+    expect(v1.focusMinutes).toBe(120)
+    const target = createContinuousCountupPlan({
+      id: 'user-target',
+      continuousMode: 'target',
+      focusMinutes: 90,
+      clockMode: 'countup'
+    })
+    const v1t = projectV2TimerPlanToV1(target)
+    expect(v1t.continuousTarget).toBe(false)
+    expect(v1t.focusMinutes).toBe(90)
   })
 
   it('pomodoro path still coerces none via project', () => {

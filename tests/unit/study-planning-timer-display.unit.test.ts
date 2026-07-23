@@ -191,7 +191,8 @@ describe('planning-timer-display (focus sole-read)', () => {
         focusMinutes: 25,
         breakMinutes: 0,
         timerMode: 'focus',
-        clockMode: 'countup'
+        clockMode: 'countup',
+        timerState: 'running'
       })
     ).toBe(20)
     expect(
@@ -201,7 +202,22 @@ describe('planning-timer-display (focus sole-read)', () => {
         focusMinutes: 25,
         breakMinutes: 0,
         timerMode: 'focus',
-        clockMode: 'countup'
+        clockMode: 'countup',
+        timerState: 'running'
+      })
+    ).toBe(0)
+  })
+
+  it('projectTimerProgressPercent keeps idle countup at 0% even when remaining seeded to total', () => {
+    expect(
+      projectTimerProgressPercent({
+        remainingSeconds: 1500,
+        targetSeconds: 1500,
+        focusMinutes: 25,
+        breakMinutes: 0,
+        timerMode: 'focus',
+        clockMode: 'countup',
+        timerState: 'idle'
       })
     ).toBe(0)
   })

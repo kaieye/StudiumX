@@ -401,15 +401,15 @@ export function WorkbenchPomodoro({
       return
     }
     if (row) {
-      const isExamBuiltin = row.id === 'continuous_countup' || row.planKind === 'continuous'
+      // Builtin continuous_countup catalog row is exam simulation (stable id).
+      const isExamBuiltin = row.id === 'continuous_countup'
       setDraft(draftFromPlan({
         name: row.name,
         focusMinutes: row.focusMinutes,
         breakMinutes: row.breakMinutes,
         simulationStartTime: row.simulationStartTime,
         simulationEndTime: row.simulationEndTime,
-        kind: row.planKind === 'continuous' ? 'continuous' : 'pomodoro',
-        // Builtin continuous seed is exam-style (wall-clock window + countup from start).
+        kind: row.planKind === 'continuous' || isExamBuiltin ? 'continuous' : 'pomodoro',
         continuousTarget: isExamBuiltin,
         clockMode: isExamBuiltin ? 'countup' : 'countdown'
       }))

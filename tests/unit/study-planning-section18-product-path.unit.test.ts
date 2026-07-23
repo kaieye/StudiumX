@@ -37,6 +37,8 @@ import {
   buildEmptyStartSheetModel,
   createClassicPomodoroPlan,
   createContinuousCountupPlan,
+  createExamSimulationPlan,
+  createOpenContinuousPlan,
   materializeTimeWindowTemplate,
   pauseTimerSession,
   projectActiveVsNextTimerPlan,
@@ -304,7 +306,7 @@ describe('§18 #3 product-path: timer modes + planSnapshot continuity (partial)'
 
   it('continuous open countup starts with null target and frozen continuous plan', () => {
     // Open continuous is not the catalog exam seed (which freezes 180 min target).
-    const plan = createContinuousCountupPlan({ id: 'open-continuous', focusMinutes: undefined })
+    const plan = createOpenContinuousPlan({ id: 'open-continuous' })
     expect(plan.kind).toBe('continuous')
     expect(plan.clockMode).toBe('countup')
     expect(plan.focusMinutes).toBeUndefined()
@@ -323,8 +325,9 @@ describe('§18 #3 product-path: timer modes + planSnapshot continuity (partial)'
   })
 
   it('catalog exam continuous_countup freezes 180 min target for the ring', () => {
-    const plan = createContinuousCountupPlan()
+    const plan = createExamSimulationPlan()
     expect(plan.id).toBe('continuous_countup')
+    expect(plan.continuousMode).toBe('exam')
     expect(plan.focusMinutes).toBe(180)
     const started = startTimerSession({
       id: 's-exam',

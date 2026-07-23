@@ -1,20 +1,10 @@
-import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, StickyNote, Trash2, Upload, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, StickyNote, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
-import cloudGlowScene from '../../assets/images/workbench/scenes/cloud-glow.png'
-import summerLakesideScene from '../../assets/images/workbench/scenes/summer-lakeside.png'
-import girlVideo from '../../assets/videos/workbench/girl.mp4'
 import {
   formatStudyDuration,
   formatStudySeatLabel
 } from '../../study-space/domain'
-import {
-  formatDurationClockParts,
-  formatExamWallClock,
-  formatExamWallClockParts,
-  projectWorkbenchTimerFaceClock
-} from '../../study-space/planning-timer-face-clock-ui'
-import { resolveTimerPlanShellForCatalog } from '../../study-space/planning-timer-plan-catalog-ui'
 import { useStudySession } from '../../study-space/session/useStudySession'
 import {
   createOfficeSceneRuntime,
@@ -22,18 +12,15 @@ import {
   type OfficeSceneSeatOccupant,
   type OfficeSceneSeatState
 } from './office-scene-runtime'
+import { useImmersiveFocusTimerFace } from './ImmersiveFocusTimerScene'
+import { ImmersiveSceneLayer, ImmersiveScenePlane } from './ImmersiveSceneLayer'
 import {
-  addImmersiveCustomMedia,
-  customScenePreference,
-  deleteImmersiveCustomMedia,
-  isBuiltInImmersiveScene,
-  listImmersiveCustomMedia,
-  parseCustomSceneId,
-  readImmersiveScenePreference,
-  renameImmersiveCustomMedia,
-  writeImmersiveScenePreference,
-  type ImmersiveCustomMediaKind
-} from './immersive-custom-media-store'
+  IMMERSIVE_CLOSE_FALLBACK_DURATION_MS,
+  type ImmersivePhase
+} from './immersive-scene-types'
+import { useImmersiveCustomMedia } from './useImmersiveCustomMedia'
+import { ImmersiveScenePicker } from './ImmersiveScenePicker'
+import { ClockDisplay } from './immersive-clock-display'
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { readBrowserNotificationPermission } from '../../study-space/planning-notification-host'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
@@ -90,108 +77,10 @@ type DeskId = `desk-${number}`
 // OfficeSceneRuntime owns browser asset loading: new URL('../../assets/images/workbench/ref.png', import.meta.url).
 // Its canvas draw loop renders every desk with drawDeskImage(ctx, assets.deskImage, slot).
 const workbenchSeatCount = 12
-const immersiveCloseFallbackDurationMs = 1_200
 const clockRefreshIntervalMs = 60_000
-type ImmersivePhase = 'closed' | 'open' | 'closing'
-type BuiltInImmersiveSceneId = 'clock' | 'focus-timer' | 'girl' | 'cloud-glow' | 'summer-lakeside'
-type ImmersiveSceneId = BuiltInImmersiveSceneId | `custom:${string}`
-type ImmersiveCustomMedia = {
-  id: string
-  kind: ImmersiveCustomMediaKind
-  url: string
-  name: string
-}
-
-const immersiveMediaAccept = 'image/*,video/*'
-const immersiveMediaMaxBytes = 200 * 1024 * 1024
-
-function classifyImmersiveMediaFile(file: File): ImmersiveCustomMediaKind | null {
-  if (file.type.startsWith('image/')) return 'image'
-  if (file.type.startsWith('video/')) return 'video'
-  const lower = file.name.toLowerCase()
-  if (/\.(png|jpe?g|gif|webp|bmp|avif|svg)$/i.test(lower)) return 'image'
-  if (/\.(mp4|webm|ogg|mov|m4v)$/i.test(lower)) return 'video'
-  return null
-}
-
-function sceneNameFromFileName(fileName: string): string {
-  const trimmed = fileName.trim()
-  const extensionIndex = trimmed.lastIndexOf('.')
-  return extensionIndex > 0 ? trimmed.slice(0, extensionIndex) : trimmed
-}
 
 function deskIdForSeatIndex(seatIndex: number): DeskId {
   return `desk-${seatIndex + 1}`
-}
-
-function ClockFace({ className, value }: { className: string; value: string }) {
-  return (
-    <span className={`workbench-clock__face ${className}`} aria-hidden="true">
-      <span className="workbench-clock__face-value">{value}</span>
-    </span>
-  )
-}
-
-function ClockDigit({ value, previousValue, shouldFlip }: {
-  value: string
-  previousValue: string
-  shouldFlip: boolean
-}) {
-  return (
-    <span className={`workbench-clock__digit${shouldFlip ? ' is-flipping' : ''}`}>
-      <ClockFace className="workbench-clock__face--current-top" value={value} />
-      <ClockFace className="workbench-clock__face--current-bottom" value={value} />
-      {shouldFlip ? (
-        <>
-          <ClockFace className="workbench-clock__face--previous-top" value={previousValue} />
-          <ClockFace className="workbench-clock__face--previous-bottom" value={previousValue} />
-          <ClockFace className="workbench-clock__face--next-bottom" value={value} />
-        </>
-      ) : null}
-    </span>
-  )
-}
-
-function ClockDisplay({ time, previousTime }: { time: Date; previousTime: Date | null }) {
-  const hours = String(time.getHours()).padStart(2, '0')
-  const minutes = String(time.getMinutes()).padStart(2, '0')
-  const previousHours = String(previousTime?.getHours() ?? time.getHours()).padStart(2, '0')
-  const previousMinutes = String(previousTime?.getMinutes() ?? time.getMinutes()).padStart(2, '0')
-  const digits = [
-    { value: hours[0], previousValue: previousHours[0] },
-    { value: hours[1], previousValue: previousHours[1] },
-    { value: minutes[0], previousValue: previousMinutes[0] },
-    { value: minutes[1], previousValue: previousMinutes[1] }
-  ]
-  // A real flip clock turns every card at the minute boundary—even the digits
-  // that retain the same value—so use the refreshed timestamp as the card key.
-  const turnKey = time.getTime()
-  const shouldFlip = previousTime !== null
-
-  return (
-    <time className="workbench-clock__display" dateTime={time.toISOString()} aria-label={`当前时间 ${hours}:${minutes}`}>
-      <span className="workbench-clock__pair">
-        {digits.slice(0, 2).map((digit, index) => (
-          <ClockDigit
-            key={`hour-${index}-${turnKey}`}
-            value={digit.value}
-            previousValue={digit.previousValue}
-            shouldFlip={shouldFlip}
-          />
-        ))}
-      </span>
-      <span className="workbench-clock__pair">
-        {digits.slice(2).map((digit, index) => (
-          <ClockDigit
-            key={`minute-${index}-${turnKey}`}
-            value={digit.value}
-            previousValue={digit.previousValue}
-            shouldFlip={shouldFlip}
-          />
-        ))}
-      </span>
-    </time>
-  )
 }
 
 type OfficeWorkbenchProps = {
@@ -514,13 +403,22 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const [areRoomCardsHidden, setAreRoomCardsHidden] = useState(false)
   const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false)
   const [isScenePickerOpen, setIsScenePickerOpen] = useState(false)
-  const [immersiveScene, setImmersiveScene] = useState<ImmersiveSceneId>('clock')
-  const [customImmersiveMediaList, setCustomImmersiveMediaList] = useState<ImmersiveCustomMedia[]>([])
-  const [editingCustomSceneId, setEditingCustomSceneId] = useState<string | null>(null)
-  const [customSceneNameDraft, setCustomSceneNameDraft] = useState('')
-  const [isSceneDropActive, setIsSceneDropActive] = useState(false)
-  const customMediaUrlsRef = useRef<Map<string, string>>(new Map())
-  const sceneFileInputRef = useRef<HTMLInputElement | null>(null)
+  const {
+    immersiveScene,
+    customImmersiveMediaList,
+    editingCustomSceneId,
+    customSceneNameDraft,
+    isSceneDropActive,
+    sceneFileInputRef,
+    setIsSceneDropActive,
+    setCustomSceneNameDraft,
+    setEditingCustomSceneId,
+    applyCustomImmersiveMedia,
+    selectImmersiveScene,
+    removeCustomImmersiveMedia,
+    startCustomSceneNameEditing,
+    finishCustomSceneNameEditing
+  } = useImmersiveCustomMedia()
   const [clockState, setClockState] = useState(() => ({
     current: new Date(),
     previous: null as Date | null
@@ -698,255 +596,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     setIsImmersiveArcFocusActive(false)
   }, [])
 
-  const revokeAllCustomImmersiveMedia = useCallback((): void => {
-    for (const url of customMediaUrlsRef.current.values()) {
-      URL.revokeObjectURL(url)
-    }
-    customMediaUrlsRef.current.clear()
-  }, [])
-
-  const revokeCustomImmersiveMediaById = useCallback((id: string): void => {
-    const url = customMediaUrlsRef.current.get(id)
-    if (!url) return
-    URL.revokeObjectURL(url)
-    customMediaUrlsRef.current.delete(id)
-  }, [])
-
-  const adoptCustomImmersiveMediaList = useCallback(
-    (
-      items: Array<{
-        id: string
-        kind: ImmersiveCustomMediaKind
-        name: string
-        blob: Blob
-      }>
-    ): ImmersiveCustomMedia[] => {
-      revokeAllCustomImmersiveMedia()
-      const next: ImmersiveCustomMedia[] = items.map((item) => {
-        const url = URL.createObjectURL(item.blob)
-        customMediaUrlsRef.current.set(item.id, url)
-        return {
-          id: item.id,
-          kind: item.kind,
-          url,
-          name: item.name
-        }
-      })
-      setCustomImmersiveMediaList(next)
-      return next
-    },
-    [revokeAllCustomImmersiveMedia]
-  )
-
-  const applyCustomImmersiveMedia = useCallback(
-    (file: File): boolean => {
-      const kind = classifyImmersiveMediaFile(file)
-      if (!kind) return false
-      if (file.size > immersiveMediaMaxBytes) return false
-      const sceneName = sceneNameFromFileName(file.name)
-      const provisionalId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-      const url = URL.createObjectURL(file)
-      customMediaUrlsRef.current.set(provisionalId, url)
-      setCustomImmersiveMediaList((current) => [
-        ...current,
-        { id: provisionalId, kind, url, name: sceneName }
-      ])
-      const sceneId = customScenePreference(provisionalId)
-      setImmersiveScene(sceneId)
-      writeImmersiveScenePreference(sceneId)
-      setIsSceneDropActive(false)
-      void (async () => {
-        const persistedId = await addImmersiveCustomMedia({
-          id: provisionalId,
-          kind,
-          name: sceneName,
-          mimeType: file.type,
-          blob: file
-        })
-        if (!persistedId || persistedId === provisionalId) return
-        const oldUrl = customMediaUrlsRef.current.get(provisionalId)
-        if (oldUrl) {
-          customMediaUrlsRef.current.delete(provisionalId)
-          customMediaUrlsRef.current.set(persistedId, oldUrl)
-        }
-        setCustomImmersiveMediaList((current) =>
-          current.map((item) =>
-            item.id === provisionalId ? { ...item, id: persistedId } : item
-          )
-        )
-        setImmersiveScene((current) =>
-          current === customScenePreference(provisionalId)
-            ? customScenePreference(persistedId)
-            : current
-        )
-        writeImmersiveScenePreference(customScenePreference(persistedId))
-      })()
-      return true
-    },
-    []
-  )
-
-  const selectImmersiveScene = useCallback(
-    (scene: ImmersiveSceneId): void => {
-      if (scene.startsWith('custom:')) {
-        const id = parseCustomSceneId(scene)
-        if (!id) return
-        const exists = customImmersiveMediaList.some((item) => item.id === id)
-        if (!exists) return
-      }
-      setImmersiveScene(scene)
-      writeImmersiveScenePreference(scene)
-    },
-    [customImmersiveMediaList]
-  )
-
-  const removeCustomImmersiveMedia = useCallback(
-    (id: string): void => {
-      revokeCustomImmersiveMediaById(id)
-      setCustomImmersiveMediaList((current) => current.filter((item) => item.id !== id))
-      if (editingCustomSceneId === id) {
-        setEditingCustomSceneId(null)
-        setCustomSceneNameDraft('')
-      }
-      if (immersiveScene === customScenePreference(id)) {
-        setImmersiveScene('clock')
-        writeImmersiveScenePreference('clock')
-      }
-      void deleteImmersiveCustomMedia(id)
-    },
-    [editingCustomSceneId, immersiveScene, revokeCustomImmersiveMediaById]
-  )
-
-  const startCustomSceneNameEditing = useCallback(
-    (id: string): void => {
-      const target = customImmersiveMediaList.find((item) => item.id === id)
-      if (!target) return
-      setCustomSceneNameDraft(target.name)
-      setEditingCustomSceneId(id)
-    },
-    [customImmersiveMediaList]
-  )
-
-  const finishCustomSceneNameEditing = useCallback((): void => {
-    const id = editingCustomSceneId
-    const name = customSceneNameDraft.trim()
-    setEditingCustomSceneId(null)
-    if (!id || !name) return
-    const current = customImmersiveMediaList.find((item) => item.id === id)
-    if (!current || name === current.name) return
-    setCustomImmersiveMediaList((list) =>
-      list.map((item) => (item.id === id ? { ...item, name } : item))
-    )
-    void renameImmersiveCustomMedia(id, name)
-  }, [customImmersiveMediaList, customSceneNameDraft, editingCustomSceneId])
-
-  // Restore durable custom scenes + last scene preference after restart.
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const stored = await listImmersiveCustomMedia()
-      if (cancelled) return
-      const adopted = adoptCustomImmersiveMediaList(
-        stored.map((item) => ({
-          id: item.id,
-          kind: item.kind,
-          name: item.name,
-          blob: item.blob
-        }))
-      )
-      const preferred = readImmersiveScenePreference()
-      if (cancelled) return
-      if (isBuiltInImmersiveScene(preferred)) {
-        setImmersiveScene(preferred)
-        return
-      }
-      const preferredCustomId = parseCustomSceneId(preferred)
-      if (preferredCustomId && adopted.some((item) => item.id === preferredCustomId)) {
-        setImmersiveScene(customScenePreference(preferredCustomId))
-        return
-      }
-      // Legacy preference "custom": pick the first restored item if any.
-      if (preferred === 'custom' && adopted[0]) {
-        setImmersiveScene(customScenePreference(adopted[0].id))
-        writeImmersiveScenePreference(customScenePreference(adopted[0].id))
-        return
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [adoptCustomImmersiveMediaList])
-
-  /** Large immersive dial: same face projection as WorkbenchPomodoro (live remaining / exam wall). */
-  const immersiveFocusTimerFace = useMemo(() => {
-    const timerPlans = snapshot.timerPlans ?? []
-    const planId = defaultTimerPlanId ?? timerPlans[0]?.id ?? null
-    const appliedPlan =
-      planId && typeof resolveTimerPlanShellForCatalog === 'function'
-        ? resolveTimerPlanShellForCatalog(planId, timerPlans)
-        : null
-    const timerState = snapshot.timerState ?? 'idle'
-    const timerMode = snapshot.timerMode === 'break' ? 'break' : 'focus'
-    const remainingSeconds =
-      typeof snapshot.remainingSeconds === 'number' ? snapshot.remainingSeconds : 0
-    const focusMinutes = typeof snapshot.focusMinutes === 'number' ? snapshot.focusMinutes : 25
-    const breakMinutes = typeof snapshot.breakMinutes === 'number' ? snapshot.breakMinutes : 5
-    const faceClock = projectWorkbenchTimerFaceClock({
-      timerState,
-      timerMode,
-      selectedMode: timerMode,
-      remainingSeconds,
-      focusMinutes,
-      breakMinutes,
-      simulationStartTime: snapshot.simulationStartTime,
-      simulationEndTime: snapshot.simulationEndTime,
-      appliedPlan,
-      activeSessionClockMode: activeTimerSession?.clockMode ?? null
-    })
-    const displaySeconds = faceClock.displaySeconds
-    const isExamFace = faceClock.wallBaseSeconds != null
-    const timeParts = isExamFace
-      ? formatExamWallClockParts(faceClock.wallBaseSeconds!, displaySeconds)
-      : formatDurationClockParts(displaySeconds)
-    const remainingTime = isExamFace
-      ? formatExamWallClock(faceClock.wallBaseSeconds!, displaySeconds, {
-          alwaysSeconds: timerState === 'running' || timerState === 'paused'
-        })
-      : formatStudyDuration(displaySeconds)
-    const progress = Math.min(100, Math.max(0, viewModel.timerProgress ?? 0))
-    const ringStyle = { '--timer-ring-offset': `${100 - progress}` } as CSSProperties
-    const secondValue = Number.parseInt(timeParts.seconds, 10)
-    const secondAngleDeg = (Number.isFinite(secondValue) ? secondValue : 0) * 6
-    return {
-      remainingTime,
-      timeParts,
-      ringStyle,
-      secondAngleDeg,
-      timerState
-    }
-  }, [
-    activeTimerSession?.clockMode,
+  const immersiveFocusTimerFace = useImmersiveFocusTimerFace({
+    snapshot,
     defaultTimerPlanId,
-    snapshot.breakMinutes,
-    snapshot.focusMinutes,
-    snapshot.remainingSeconds,
-    snapshot.simulationEndTime,
-    snapshot.simulationStartTime,
-    snapshot.timerMode,
-    snapshot.timerPlans,
-    snapshot.timerState,
-    viewModel.timerProgress
-  ])
-
-  useEffect(
-    () => () => {
-      revokeAllCustomImmersiveMedia()
-    },
-    [revokeAllCustomImmersiveMedia]
-  )
+    activeTimerSession,
+    timerProgress: viewModel.timerProgress
+  })
 
   const openImmersive = useCallback((): void => {
     clearImmersiveCloseTimer()
@@ -988,7 +643,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     setImmersivePhase('closing')
     immersiveCloseTimerRef.current = window.setTimeout(
       finishImmersiveClose,
-      immersiveCloseFallbackDurationMs
+      IMMERSIVE_CLOSE_FALLBACK_DURATION_MS
     )
   }, [clearImmersiveCloseTimer, finishImmersiveClose, resetImmersiveArc])
 
@@ -1410,145 +1065,22 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         <div className="workbench-music-dock">
           <WorkbenchMusicPlayer />
         </div>
-        <div
-          id="workbench-immersive-layer"
-          className={`workbench-immersive-layer${immersivePhase === 'open' ? ' is-open' : immersivePhase === 'closing' ? ' is-closing' : ''}`}
-          aria-hidden={immersivePhase === 'closed'}
-          onAnimationEnd={(event) => {
-            if (event.target === event.currentTarget && immersivePhase === 'closing') {
-              finishImmersiveClose()
-            }
-          }}
+        <ImmersiveSceneLayer
+          immersivePhase={immersivePhase}
+          onCloseAnimationEnd={finishImmersiveClose}
         >
-          <div className="workbench-immersive-plane">
-            {immersiveScene === 'clock' ? (
-              <div className="workbench-immersive-clock-scene workbench-clock" aria-hidden="true">
-                <ClockDisplay time={clockTime} previousTime={clockState.previous} />
-              </div>
-            ) : immersiveScene === 'focus-timer' ? (
-              <div
-                className="workbench-immersive-focus-timer-scene"
-                data-timer-state={immersiveFocusTimerFace.timerState}
-                data-timer-mode={snapshot.timerMode}
-                aria-label={`专注计时 ${immersiveFocusTimerFace.remainingTime}`}
-              >
-                <div className="workbench-immersive-focus-timer-scene__glow" aria-hidden="true" />
-                <div className="workbench-immersive-focus-timer-scene__face">
-                  <div
-                    className="workbench-timer-ring workbench-immersive-focus-timer-scene__ring"
-                    style={
-                      {
-                        ...immersiveFocusTimerFace.ringStyle,
-                        '--second-hand-angle': `${immersiveFocusTimerFace.secondAngleDeg}deg`
-                      } as CSSProperties
-                    }
-                    aria-hidden="true"
-                  >
-                    <svg className="workbench-timer-ring__dial" viewBox="0 0 120 120" focusable="false">
-                      <circle className="workbench-timer-ring__track" cx="60" cy="60" r="56" pathLength="100" />
-                      <circle
-                        className="workbench-timer-ring__progress"
-                        cx="60"
-                        cy="60"
-                        r="56"
-                        pathLength="100"
-                        transform="rotate(-90 60 60)"
-                      />
-                    </svg>
-                    <div className="workbench-pomodoro-time workbench-immersive-focus-timer-scene__time">
-                      <strong className="workbench-pomodoro-time__primary">
-                        {immersiveFocusTimerFace.timeParts.primary}
-                      </strong>
-                      <span className="visually-hidden">{immersiveFocusTimerFace.remainingTime}</span>
-                    </div>
-                    <div
-                      className={`workbench-immersive-focus-timer-scene__seconds-clock${
-                        immersiveFocusTimerFace.timerState === 'running' ? ' is-running' : ''
-                      }`}
-                      aria-hidden="true"
-                    >
-                      <span className="workbench-immersive-focus-timer-scene__seconds-clock-face">
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="0" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="1" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="2" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="3" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="4" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="5" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="6" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="7" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="8" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="9" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="10" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="11" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-hand" />
-                        <span className="workbench-immersive-focus-timer-scene__seconds-hub" />
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : immersiveScene === 'girl' ? (
-              <video
-                className="workbench-immersive-video"
-                src={girlVideo}
-                autoPlay
-                loop
-                muted
-                playsInline
-                aria-hidden="true"
-              />
-            ) : immersiveScene === 'cloud-glow' ? (
-              <img
-                className="workbench-immersive-video"
-                src={cloudGlowScene}
-                alt=""
-                aria-hidden="true"
-              />
-            ) : immersiveScene === 'summer-lakeside' ? (
-              <img
-                className="workbench-immersive-video"
-                src={summerLakesideScene}
-                alt=""
-                aria-hidden="true"
-              />
-            ) : (() => {
-              const activeCustom = immersiveScene.startsWith('custom:')
-                ? customImmersiveMediaList.find(
-                    (item) => item.id === parseCustomSceneId(immersiveScene)
-                  ) ?? null
-                : null
-              if (activeCustom?.kind === 'image') {
-                return (
-                  <img
-                    className="workbench-immersive-video"
-                    src={activeCustom.url}
-                    alt=""
-                    aria-hidden="true"
-                  />
-                )
-              }
-              if (activeCustom?.kind === 'video') {
-                return (
-                  <video
-                    className="workbench-immersive-video"
-                    src={activeCustom.url}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                    aria-hidden="true"
-                  />
-                )
-              }
-              return (
-              <div className="workbench-immersive-clock-scene workbench-clock" aria-hidden="true">
-                <ClockDisplay time={clockTime} previousTime={clockState.previous} />
-              </div>
-              )
-            })()}
-            <div className="workbench-immersive-vignette" aria-hidden="true" />
-          </div>
-        </div>
+          <ImmersiveScenePlane
+            immersiveScene={immersiveScene}
+            customImmersiveMediaList={customImmersiveMediaList}
+            clockTime={clockTime}
+            previousClockTime={clockState.previous}
+            focusTimerFace={immersiveFocusTimerFace}
+            timerMode={snapshot.timerMode}
+            renderClock={(time, previousTime) => (
+              <ClockDisplay time={time} previousTime={previousTime} />
+            )}
+          />
+        </ImmersiveSceneLayer>
         <div
           className={`workbench-immersive-controls${immersivePhase !== 'closed' ? ' is-open' : ''}${isFullscreen ? ' is-fullscreen' : ''}`}
           onPointerEnter={() => setIsImmersiveArcPointerActive(true)}
@@ -1652,306 +1184,28 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           </div>
         </div>
         {isScenePickerOpen ? (
-          <div
-            className={`workbench-scene-picker-backdrop${isSceneDropActive ? ' is-drop-active' : ''}`}
-            role="presentation"
-            onMouseDown={() => setIsScenePickerOpen(false)}
-            onDragEnter={(event) => {
-              event.preventDefault()
-              setIsSceneDropActive(true)
-            }}
-            onDragOver={(event) => {
-              event.preventDefault()
-              event.dataTransfer.dropEffect = 'copy'
-              setIsSceneDropActive(true)
-            }}
-            onDragLeave={(event) => {
-              if (event.currentTarget === event.target) setIsSceneDropActive(false)
-            }}
-            onDrop={(event) => {
-              event.preventDefault()
-              setIsSceneDropActive(false)
-              const files = Array.from(event.dataTransfer.files ?? [])
+          <ImmersiveScenePicker
+            clockTime={clockTime}
+            previousClockTime={clockState.previous}
+            immersiveScene={immersiveScene}
+            customImmersiveMediaList={customImmersiveMediaList}
+            editingCustomSceneId={editingCustomSceneId}
+            customSceneNameDraft={customSceneNameDraft}
+            isSceneDropActive={isSceneDropActive}
+            sceneFileInputRef={sceneFileInputRef}
+            focusTimerFace={immersiveFocusTimerFace}
+            onClose={() => setIsScenePickerOpen(false)}
+            onSelectScene={selectImmersiveScene}
+            onApplyFiles={(files) => {
               for (const file of files) applyCustomImmersiveMedia(file)
             }}
-          >
-            <section
-              className="workbench-scene-picker"
-              role="dialog"
-              aria-modal="true"
-              aria-label="选择场景"
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <header className="workbench-scene-picker__header">
-                <h2 className="workbench-scene-picker__title">选择场景</h2>
-                <button
-                  type="button"
-                  className="workbench-scene-picker__close"
-                  onClick={() => setIsScenePickerOpen(false)}
-                  aria-label="关闭场景选择"
-                  title="关闭"
-                >
-                  <X size={18} aria-hidden="true" />
-                </button>
-              </header>
-              <div className="workbench-scene-picker__grid">
-                <button
-                  type="button"
-                  className={`workbench-scene-picker__preset workbench-scene-picker__preset--clock${immersiveScene === 'clock' ? ' is-selected' : ''}`}
-                  onClick={() => selectImmersiveScene('clock')}
-                  aria-label="翻页时钟"
-                  aria-pressed={immersiveScene === 'clock'}
-                >
-                  <div className="workbench-scene-picker__clock-preview workbench-clock" aria-hidden="true">
-                    <ClockDisplay time={clockTime} previousTime={clockState.previous} />
-                  </div>
-                  <span className="workbench-scene-picker__preset-copy">
-                    <strong>翻页时钟</strong>
-                  </span>
-                  {immersiveScene === 'clock' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
-                </button>
-                <button
-                  type="button"
-                  className={`workbench-scene-picker__preset workbench-scene-picker__preset--focus-timer${immersiveScene === 'focus-timer' ? ' is-selected' : ''}`}
-                  onClick={() => selectImmersiveScene('focus-timer')}
-                  aria-label="专注计时"
-                  aria-pressed={immersiveScene === 'focus-timer'}
-                >
-                  <div className="workbench-scene-picker__focus-timer-preview" aria-hidden="true">
-                    <div
-                      className="workbench-timer-ring workbench-scene-picker__focus-timer-ring"
-                      style={immersiveFocusTimerFace.ringStyle}
-                    >
-                      <svg className="workbench-timer-ring__dial" viewBox="0 0 120 120" focusable="false">
-                        <circle className="workbench-timer-ring__track" cx="60" cy="60" r="56" pathLength="100" />
-                        <circle
-                          className="workbench-timer-ring__progress"
-                          cx="60"
-                          cy="60"
-                          r="56"
-                          pathLength="100"
-                          transform="rotate(-90 60 60)"
-                        />
-                      </svg>
-                      <div className="workbench-pomodoro-time">
-                        <strong className="workbench-pomodoro-time__primary">
-                          {immersiveFocusTimerFace.timeParts.primary}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-                  <span className="workbench-scene-picker__preset-copy">
-                    <strong>专注计时</strong>
-                  </span>
-                  {immersiveScene === 'focus-timer' ? (
-                    <span className="workbench-scene-picker__selected-mark">当前</span>
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  className={`workbench-scene-picker__preset workbench-scene-picker__preset--girl${immersiveScene === 'girl' ? ' is-selected' : ''}`}
-                  onClick={() => selectImmersiveScene('girl')}
-                  aria-label="室内自习"
-                  aria-pressed={immersiveScene === 'girl'}
-                >
-                  <video
-                    className="workbench-scene-picker__video-preview"
-                    src={girlVideo}
-                    muted
-                    loop
-                    autoPlay
-                    playsInline
-                    preload="metadata"
-                    aria-hidden="true"
-                  />
-                  <span className="workbench-scene-picker__preset-copy">
-                    <strong>室内自习</strong>
-                  </span>
-                  {immersiveScene === 'girl' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
-                </button>
-                <button
-                  type="button"
-                  className={`workbench-scene-picker__preset workbench-scene-picker__preset--cloud-glow${immersiveScene === 'cloud-glow' ? ' is-selected' : ''}`}
-                  onClick={() => selectImmersiveScene('cloud-glow')}
-                  aria-label="云蒸霞光"
-                  aria-pressed={immersiveScene === 'cloud-glow'}
-                >
-                  <img
-                    className="workbench-scene-picker__video-preview"
-                    src={cloudGlowScene}
-                    alt=""
-                    aria-hidden="true"
-                  />
-                  <span className="workbench-scene-picker__preset-copy">
-                    <strong>云蒸霞光</strong>
-                  </span>
-                  {immersiveScene === 'cloud-glow' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
-                </button>
-                <button
-                  type="button"
-                  className={`workbench-scene-picker__preset workbench-scene-picker__preset--summer-lakeside${immersiveScene === 'summer-lakeside' ? ' is-selected' : ''}`}
-                  onClick={() => selectImmersiveScene('summer-lakeside')}
-                  aria-label="夏日湖畔"
-                  aria-pressed={immersiveScene === 'summer-lakeside'}
-                >
-                  <img
-                    className="workbench-scene-picker__video-preview"
-                    src={summerLakesideScene}
-                    alt=""
-                    aria-hidden="true"
-                  />
-                  <span className="workbench-scene-picker__preset-copy">
-                    <strong>夏日湖畔</strong>
-                  </span>
-                  {immersiveScene === 'summer-lakeside' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
-                </button>
-                {customImmersiveMediaList.map((customMedia) => {
-                  const sceneId = customScenePreference(customMedia.id)
-                  const isSelected = immersiveScene === sceneId
-                  const isEditing = editingCustomSceneId === customMedia.id
-                  return (
-                    <div
-                      key={customMedia.id}
-                      className={`workbench-scene-picker__preset workbench-scene-picker__preset--custom${isSelected ? ' is-selected' : ''}`}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => selectImmersiveScene(sceneId)}
-                      onDoubleClick={(event) => {
-                        event.stopPropagation()
-                        startCustomSceneNameEditing(customMedia.id)
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault()
-                          selectImmersiveScene(sceneId)
-                        }
-                      }}
-                      aria-label={customMedia.name || '自定义场景'}
-                      aria-pressed={isSelected}
-                    >
-                      {customMedia.kind === 'image' ? (
-                        <img
-                          className="workbench-scene-picker__video-preview"
-                          src={customMedia.url}
-                          alt=""
-                          aria-hidden="true"
-                        />
-                      ) : (
-                        <video
-                          className="workbench-scene-picker__video-preview"
-                          src={customMedia.url}
-                          muted
-                          loop
-                          autoPlay
-                          playsInline
-                          preload="metadata"
-                          aria-hidden="true"
-                        />
-                      )}
-                      <span className="workbench-scene-picker__preset-copy">
-                        {isEditing ? (
-                          <input
-                            className="workbench-scene-picker__name-input"
-                            value={customSceneNameDraft}
-                            onChange={(event) => setCustomSceneNameDraft(event.target.value)}
-                            onClick={(event) => event.stopPropagation()}
-                            onDoubleClick={(event) => event.stopPropagation()}
-                            onBlur={finishCustomSceneNameEditing}
-                            onKeyDown={(event) => {
-                              event.stopPropagation()
-                              if (event.key === 'Enter') {
-                                event.preventDefault()
-                                finishCustomSceneNameEditing()
-                              }
-                              if (event.key === 'Escape') {
-                                event.preventDefault()
-                                setEditingCustomSceneId(null)
-                              }
-                            }}
-                            aria-label="编辑自定义场景名称"
-                            autoFocus
-                          />
-                        ) : (
-                          <strong>{customMedia.name || '自定义场景'}</strong>
-                        )}
-                      </span>
-                      <button
-                        type="button"
-                        className="workbench-scene-picker__delete"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          removeCustomImmersiveMedia(customMedia.id)
-                        }}
-                        aria-label={`删除自定义场景 ${customMedia.name || ''}`.trim()}
-                        title="删除自定义场景"
-                      >
-                        <Trash2 size={16} aria-hidden="true" />
-                      </button>
-                      {isSelected ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
-                    </div>
-                  )
-                })}
-              </div>
-              <div
-                className={`workbench-scene-picker__upload${isSceneDropActive ? ' is-drop-active' : ''}`}
-                role="button"
-                tabIndex={0}
-                onClick={() => sceneFileInputRef.current?.click()}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    sceneFileInputRef.current?.click()
-                  }
-                }}
-                onDragEnter={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  setIsSceneDropActive(true)
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  event.dataTransfer.dropEffect = 'copy'
-                }}
-                onDragLeave={(event) => {
-                  if (event.currentTarget === event.target) setIsSceneDropActive(false)
-                }}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  setIsSceneDropActive(false)
-                  const files = Array.from(event.dataTransfer.files ?? [])
-                  for (const file of files) applyCustomImmersiveMedia(file)
-                }}
-              >
-                <input
-                  ref={sceneFileInputRef}
-                  type="file"
-                  className="workbench-scene-picker__file-input"
-                  accept={immersiveMediaAccept}
-                  multiple
-                  onChange={(event) => {
-                    const files = Array.from(event.target.files ?? [])
-                    for (const file of files) applyCustomImmersiveMedia(file)
-                    event.target.value = ''
-                  }}
-                />
-                <Upload size={22} aria-hidden="true" />
-                <strong>添加视频或图片</strong>
-                <span>点击选择，或拖放到此处</span>
-                <button
-                  type="button"
-                  className="workbench-scene-picker__upload-btn"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    sceneFileInputRef.current?.click()
-                  }}
-                >
-                  选择文件
-                </button>
-              </div>
-            </section>
-          </div>
+            setIsSceneDropActive={setIsSceneDropActive}
+            setCustomSceneNameDraft={setCustomSceneNameDraft}
+            setEditingCustomSceneId={setEditingCustomSceneId}
+            startCustomSceneNameEditing={startCustomSceneNameEditing}
+            finishCustomSceneNameEditing={finishCustomSceneNameEditing}
+            removeCustomImmersiveMedia={removeCustomImmersiveMedia}
+          />
         ) : null}
         {isQuickNoteOpen ? (
           <aside className="workbench-quick-note" aria-label="快捷记事">

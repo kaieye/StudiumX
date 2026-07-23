@@ -16,6 +16,7 @@ import {
   winningStudySeatClaim,
   type StudySeatClaim
 } from './domain'
+import { projectTimerProgressPercent } from './planning-timer-display'
 import type { StudyPresencePeer, StudyPresenceStatus, StudyRoomCycle, StudyRoomEvent, StudyRoomEventKind, StudySnapshot, StudyTimerMode, StudyTimerState } from './types'
 
 type StudyRoom = typeof studyRooms[number]
@@ -177,28 +178,16 @@ export function createStudySpaceViewModel(
       : null
   // Prefer frozen session target (exam window total, long continuous goal, …)
   // so the ring is not stuck on a classic 25-minute snapshot shell.
-  const timerTotalSeconds =
-    snapshot.timerMode === 'break'
-      ? (fromTarget ?? Math.max(0, snapshot.breakMinutes * 60))
-      : (fromTarget ?? Math.max(0, snapshot.focusMinutes * 60))
-  // Countup dual-write stores elapsed in remainingSeconds (see projectFocusTimerUi).
-  // Only invert while live so idle shells that still seed remaining=target stay at 0%.
-  const liveCountup =
-    timerClockMode === 'countup'
-    && (snapshot.timerState === 'running' || snapshot.timerState === 'paused')
-  const timerProgress = timerTotalSeconds > 0
-    ? Math.min(
-      100,
-      Math.max(
-        0,
-        Math.round(
-          liveCountup
-            ? (Math.max(0, snapshot.remainingSeconds) / timerTotalSeconds) * 100
-            : ((timerTotalSeconds - snapshot.remainingSeconds) / timerTotalSeconds) * 100
-        )
-      )
-    )
-    : 0
+  // Shared pure helper owns countdown vs countup + idle countup → 0% semantics.
+  const timerProgress = projectTimerProgressPercent({
+    remainingSeconds: snapshot.remainingSeconds,
+    targetSeconds: fromTarget,
+    focusMinutes: snapshot.focusMinutes,
+    breakMinutes: snapshot.breakMinutes,
+    timerMode: snapshot.timerMode,
+    clockMode: timerClockMode,
+    timerState: snapshot.timerState
+  })
   const followingRoomCycle = snapshot.timerState === 'running'
     && snapshot.timerMode === roomCycle.phase
     && snapshot.focusMinutes === activeRoom.sessionMinutes

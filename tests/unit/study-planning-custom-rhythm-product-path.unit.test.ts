@@ -6,6 +6,7 @@ import {
   assertBuiltinPomodoroSemanticsIntact,
   createClassicPomodoroPlan,
   createContinuousCountupPlan,
+  createOpenContinuousPlan,
   createCustomRhythmPlan,
   formatCustomRhythmIssueMessage,
   isActivePlanSnapshotFrozenAgainstCatalogEdit,
@@ -176,9 +177,10 @@ describe('STC-702 product-path: pomodoro coexistence', () => {
 
 describe('STC-702 product-path: continuous coexistence', () => {
   it('continuous countup + breakPolicy still work when custom rhythm not selected', () => {
-    const cont = createContinuousCountupPlan()
+    const cont = createOpenContinuousPlan({ id: 'open-coexist' })
     expect(cont.kind).toBe('continuous')
     expect(cont.clockMode).toBe('countup')
+    expect(cont.focusMinutes).toBeUndefined()
     expect(cont.breakPolicy).toBe('reminder_only')
     expect(cont.rhythmSequence).toBeUndefined()
 

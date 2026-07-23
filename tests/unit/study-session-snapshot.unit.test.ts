@@ -6,9 +6,12 @@ import {
 } from '../../src/renderer/src/study-space/constants'
 import {
   applyStudyInviteParams,
+  normalizeStudySnapshot,
+  normalizeStudyTimerPlans,
   readStudySnapshot,
   syncStudyLocation
 } from '../../src/renderer/src/study-space/session/session-snapshot'
+import { TIMER_PLAN_SEED_DEFAULTS } from '../../src/shared/study-planning'
 
 describe('durable Study Session snapshot', () => {
   beforeEach(() => {
@@ -85,3 +88,92 @@ describe('durable Study Session snapshot', () => {
     )
   })
 })
+
+describe('normalizeStudySnapshot timer clamps (continuous / countup)', () => {
+  it('allows remainingSeconds 0 for idle continuous countup', () => {
+    const snap = normalizeStudySnapshot({
+      ...defaultStudySnapshot,
+      timerState: 'idle',
+      remainingSeconds: 0,
+      focusMinutes: 180,
+      breakMinutes: 0,
+      simulationStartTime: '09:00',
+      simulationEndTime: '12:00',
+      timerPlans: [
+        {
+          id: 'continuous_countup',
+          name: '连续专注',
+          focusMinutes: 180,
+          breakMinutes: 0,
+          simulationStartTime: '09:00',
+          simulationEndTime: '12:00',
+          kind: 'continuous',
+          clockMode: 'countup'
+        }
+      ]
+    })
+    expect(snap.remainingSeconds).toBe(0)
+    expect(snap.focusMinutes).toBe(180)
+    expect(snap.breakMinutes).toBe(0)
+  })
+
+  it('does not clamp open continuous elapsed to classic focusMinutes ceiling', () => {
+    const elapsed = 200 * 60
+    const snap = normalizeStudySnapshot({
+      ...defaultStudySnapshot,
+      timerState: 'running',
+      remainingSeconds: elapsed,
+      focusMinutes: 180,
+      breakMinutes: 0,
+      timerPlans: [
+        {
+          id: 'continuous_countup',
+          name: '连续专注',
+          focusMinutes: 180,
+          breakMinutes: 0,
+          simulationStartTime: '09:00',
+          simulationEndTime: '12:00',
+          kind: 'continuous',
+          clockMode: 'countup',
+          continuousTarget: false
+        }
+      ]
+    })
+    // Bound by continuousFocusMinutesMax (240m), not focusMinutes (180m)
+    expect(snap.remainingSeconds).toBe(elapsed)
+    expect(snap.remainingSeconds).toBeLessThanOrEqual(
+      TIMER_PLAN_SEED_DEFAULTS.continuousFocusMinutesMax * 60
+    )
+  })
+
+  it('widens focusMinutes for continuous plan using TIMER_PLAN_SEED_DEFAULTS', () => {
+    const plans = normalizeStudyTimerPlans([
+      {
+        id: 'c1',
+        name: '连续',
+        focusMinutes: 200,
+        breakMinutes: 0,
+        simulationStartTime: '09:00',
+        simulationEndTime: '12:00',
+        kind: 'continuous',
+        clockMode: 'countup'
+      }
+    ])
+    expect(plans[0]?.focusMinutes).toBe(200)
+    expect(plans[0]?.breakMinutes).toBe(0)
+  })
+
+  it('keeps classic pomodoro remaining min of 1 when missing', () => {
+    const snap = normalizeStudySnapshot({
+      ...defaultStudySnapshot,
+      timerState: 'idle',
+      remainingSeconds: 0,
+      focusMinutes: 25,
+      breakMinutes: 5,
+      timerPlans: []
+    })
+    // Classic path still rejects 0 remaining (min 1) and falls back to phase ceiling
+    expect(snap.remainingSeconds).toBeGreaterThanOrEqual(1)
+  })
+})
+

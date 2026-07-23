@@ -293,8 +293,15 @@ export function startLocalNextPhaseFromCompleted(input: {
 }
 
 /**
- * Project V1 timerProgress from focus session when available.
- * Falls back to V1 focus/break minutes when no active session.
+ * Project ring progress (0–100) for V1 snapshot / focus UI.
+ *
+ * Explicit dual-write semantics for 
+emainingSeconds:
+ * - countdown: seconds left (depletes toward 0)
+ * - countup: elapsed seconds (fills toward total)
+ *
+ * Idle + countup always yields 0% so shells that seed remaining to the
+ * target (or 0) do not paint a full / inverted ring before start.
  */
 export function projectTimerProgressPercent(input: {
   /**
@@ -311,6 +318,11 @@ export function projectTimerProgressPercent(input: {
    * Default countdown preserves historical callers.
    */
   clockMode?: 'countdown' | 'countup'
+  /**
+   * When countup and idle, progress stays 0 even if remainingSeconds was
+   * seeded to total (or left at 0). Running/paused countup fill from value.
+   */
+  timerState?: 'idle' | 'running' | 'paused'
 }): number {
   const total =
     input.targetSeconds != null && input.targetSeconds > 0
@@ -319,6 +331,7 @@ export function projectTimerProgressPercent(input: {
   if (total <= 0) return 0
   const value = Math.max(0, input.remainingSeconds)
   if (input.clockMode === 'countup') {
+    if (input.timerState === 'idle') return 0
     return Math.min(100, Math.max(0, Math.round((value / total) * 100)))
   }
   return Math.min(100, Math.max(0, Math.round(((total - value) / total) * 100)))

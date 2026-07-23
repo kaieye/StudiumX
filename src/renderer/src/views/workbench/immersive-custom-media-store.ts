@@ -17,15 +17,8 @@ export type ImmersiveCustomMediaRecord = {
   createdAt: number
 }
 
-export type ImmersiveCustomMediaView = {
-  id: string
-  kind: ImmersiveCustomMediaKind
-  name: string
-  mimeType: string
-  blob: Blob
-  updatedAt: number
-  createdAt: number
-}
+/** Alias - durable IDB row and list API share one shape. */
+export type ImmersiveCustomMediaView = ImmersiveCustomMediaRecord
 
 const DB_NAME = 'studiumx-workbench-v1'
 const DB_VERSION = 1
@@ -35,18 +28,21 @@ const LEGACY_RECORD_ID = 'current'
 
 const SCENE_PREF_KEY = 'studiumx:workbench:immersive-scene:v1'
 
-export type BuiltInImmersiveScenePreference =
+/** Built-in immersive scene ids - single source of truth for UI + localStorage prefs. */
+export type BuiltInImmersiveSceneId =
   | 'clock'
   | 'focus-timer'
   | 'girl'
   | 'cloud-glow'
   | 'summer-lakeside'
 
+/** @deprecated Prefer BuiltInImmersiveSceneId - same union. */
+export type BuiltInImmersiveScenePreference = BuiltInImmersiveSceneId
+
 export type ImmersiveScenePreference =
-  | BuiltInImmersiveScenePreference
+  | BuiltInImmersiveSceneId
   | 'custom'
   | `custom:${string}`
-
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
@@ -289,7 +285,7 @@ export async function clearImmersiveCustomMedia(): Promise<boolean> {
 
 export function isBuiltInImmersiveScene(
   value: string | null | undefined
-): value is BuiltInImmersiveScenePreference {
+): value is BuiltInImmersiveSceneId {
   return (
     value === 'clock' ||
     value === 'focus-timer' ||

@@ -31,23 +31,39 @@ class FakeRequest<T> {
 }
 
 class FakeTx {
-  oncomplete: ((event: Event) => void) | null = null
   onerror: ((event: Event) => void) | null = null
   onabort: ((event: Event) => void) | null = null
   error: DOMException | null = null
   private readonly map: StoreMap
   private readonly mode: IDBTransactionMode
   private completeScheduled = false
+  private completed = false
+  private _oncomplete: ((event: Event) => void) | null = null
 
   constructor(map: StoreMap, mode: IDBTransactionMode) {
     this.map = map
     this.mode = mode
   }
 
+  get oncomplete(): ((event: Event) => void) | null {
+    return this._oncomplete
+  }
+
+  set oncomplete(handler: ((event: Event) => void) | null) {
+    this._oncomplete = handler
+    // If the fake already finished before waitForTransaction attached, resolve now.
+    if (handler && this.completed) {
+      queueMicrotask(() => handler(new Event('complete')))
+    }
+  }
+
   private scheduleComplete(): void {
     if (this.completeScheduled) return
     this.completeScheduled = true
-    queueMicrotask(() => this.oncomplete?.(new Event('complete')))
+    queueMicrotask(() => {
+      this.completed = true
+      this._oncomplete?.(new Event('complete'))
+    })
   }
 
   objectStore(): {
@@ -61,17 +77,18 @@ class FakeTx {
     return {
       get: (key: string) => {
         const req = new FakeRequest(map.get(key))
-        if (this.mode === 'readonly') this.scheduleComplete()
+        // Real IDB completes when all requests finish (incl. readwrite get-only).
+        this.scheduleComplete()
         return req
       },
       getAll: () => {
         const req = new FakeRequest(Array.from(map.values()))
-        if (this.mode === 'readonly') this.scheduleComplete()
+        this.scheduleComplete()
         return req
       },
       getAllKeys: () => {
         const req = new FakeRequest(Array.from(map.keys()))
-        if (this.mode === 'readonly') this.scheduleComplete()
+        this.scheduleComplete()
         return req
       },
       put: (value: unknown) => {

@@ -13,6 +13,7 @@ import {
 import { normalizeStudyTaskCategoryId } from '../taskCategories'
 import { pickOptionalAdvancedFields } from '../planning-timer-plan-advanced-fields'
 import { pickOptionalKindFields } from '../planning-timer-plan-kind'
+import { TIMER_PLAN_SEED_DEFAULTS } from '../../../../shared/study-planning'
 import {
   isV1LocalAuthorityDemoted,
   shouldPersistV1TaskAuthority,
@@ -182,15 +183,35 @@ export function normalizeStudyTimerPlans(input: unknown): StudyTimerPlan[] {
       const kindFields = pickOptionalKindFields(item as Record<string, unknown>)
       const continuousTarget =
         (item as { continuousTarget?: unknown }).continuousTarget === true
-      // Continuous open plans may store breakMinutes 0; widen clamp for continuous.
-      const isContinuous = kindFields.kind === 'continuous'
-      const focusMax = isContinuous ? 240 : 120
-      const breakMin = isContinuous ? 0 : 1
+      // Continuous / exam open plans may store breakMinutes 0; widen clamp via shared seeds.
+      // Treat kind 'exam' like continuous if another agent lands TimerPlanKind exam.
+      const isContinuousOrExam =
+        kindFields.kind === 'continuous' || (kindFields.kind as string | undefined) === 'exam'
+      const focusMax = isContinuousOrExam
+        ? TIMER_PLAN_SEED_DEFAULTS.continuousFocusMinutesMax
+        : TIMER_PLAN_SEED_DEFAULTS.focusMinutesMax
+      const breakMin = isContinuousOrExam
+        ? TIMER_PLAN_SEED_DEFAULTS.shortBreakMinutesMin
+        : Math.max(1, TIMER_PLAN_SEED_DEFAULTS.shortBreakMinutesMin)
       return {
         id: typeof item.id === 'string' && item.id.trim() ? item.id.trim().slice(0, 80) : `timer-plan-${index}`,
         name: typeof item.name === 'string' ? item.name.trim().slice(0, 24) : '',
-        focusMinutes: Math.floor(clampNumber(item.focusMinutes, 5, focusMax, defaultStudySnapshot.focusMinutes)),
-        breakMinutes: Math.floor(clampNumber(item.breakMinutes, breakMin, 45, defaultStudySnapshot.breakMinutes)),
+        focusMinutes: Math.floor(
+          clampNumber(
+            item.focusMinutes,
+            TIMER_PLAN_SEED_DEFAULTS.focusMinutesMin,
+            focusMax,
+            defaultStudySnapshot.focusMinutes
+          )
+        ),
+        breakMinutes: Math.floor(
+          clampNumber(
+            item.breakMinutes,
+            breakMin,
+            TIMER_PLAN_SEED_DEFAULTS.shortBreakMinutesMax,
+            defaultStudySnapshot.breakMinutes
+          )
+        ),
         simulationStartTime: normalizeStudyTime(item.simulationStartTime, defaultStudySnapshot.simulationStartTime),
         simulationEndTime: normalizeStudyTime(item.simulationEndTime, defaultStudySnapshot.simulationEndTime),
         ...(advanced.longBreakMinutes !== undefined
@@ -242,8 +263,11 @@ export function normalizeStudySnapshot(
   const simulationEndTime = normalizeStudyTime(raw.simulationEndTime, defaultStudySnapshot.simulationEndTime)
   const timerPlans = normalizeStudyTimerPlans(raw.timerPlans)
   // Exam / continuous shells may store 3h+ focus targets (simulation window).
-  // Detect continuous plans or a multi-hour window so we do not clamp 180 → 120.
-  const hasContinuousPlan = timerPlans.some((plan) => plan.kind === 'continuous')
+  // Prefer plan kind + shared continuousFocusMinutesMax; fall back to window span > classic max.
+  const hasContinuousOrExamPlan = timerPlans.some(
+    (plan) => plan.kind === 'continuous' || (plan.kind as string | undefined) === 'exam'
+  )
+  const hasCountupPlan = timerPlans.some((plan) => plan.clockMode === 'countup')
   const windowMinutesHint = (() => {
     const m = /^(?:[01]\d|2[0-3]):[0-5]\d$/.exec(simulationStartTime)
     const n = /^(?:[01]\d|2[0-3]):[0-5]\d$/.exec(simulationEndTime)
@@ -253,14 +277,47 @@ export function normalizeStudySnapshot(
     const total = eh * 60 + em - (sh * 60 + sm)
     return total > 0 ? total : null
   })()
+  const classicFocusMax = TIMER_PLAN_SEED_DEFAULTS.focusMinutesMax
+  const continuousFocusMax = TIMER_PLAN_SEED_DEFAULTS.continuousFocusMinutesMax
   const focusMax =
-    hasContinuousPlan || (windowMinutesHint != null && windowMinutesHint > 120) ? 240 : 120
-  const focusMinutes = Math.floor(clampNumber(raw.focusMinutes, 5, focusMax, defaultStudySnapshot.focusMinutes))
+    hasContinuousOrExamPlan
+    || (windowMinutesHint != null && windowMinutesHint > classicFocusMax)
+      ? continuousFocusMax
+      : classicFocusMax
+  const focusMinutes = Math.floor(
+    clampNumber(
+      raw.focusMinutes,
+      TIMER_PLAN_SEED_DEFAULTS.focusMinutesMin,
+      focusMax,
+      defaultStudySnapshot.focusMinutes
+    )
+  )
   // Continuous / exam may store breakMinutes 0.
-  const breakMin = hasContinuousPlan ? 0 : 1
-  const breakMinutes = Math.floor(clampNumber(raw.breakMinutes, breakMin, 45, defaultStudySnapshot.breakMinutes))
-  // Countup elapsed can exceed target during open continuous; cap remaining by focusMax window.
-  const maxRemaining = (timerMode === 'focus' ? focusMinutes : Math.max(1, breakMinutes)) * 60
+  const breakMin = hasContinuousOrExamPlan
+    ? TIMER_PLAN_SEED_DEFAULTS.shortBreakMinutesMin
+    : Math.max(1, TIMER_PLAN_SEED_DEFAULTS.shortBreakMinutesMin)
+  const breakMinutes = Math.floor(
+    clampNumber(
+      raw.breakMinutes,
+      breakMin,
+      TIMER_PLAN_SEED_DEFAULTS.shortBreakMinutesMax,
+      defaultStudySnapshot.breakMinutes
+    )
+  )
+  const timerState =
+    raw.timerState === 'running' || raw.timerState === 'paused' ? raw.timerState : 'idle'
+  // Countup dual-write stores elapsed in remainingSeconds; idle countup may be 0.
+  // Open continuous may exceed the classic focusMinutes target — bound by continuous max.
+  const phaseCeilingSeconds =
+    (timerMode === 'focus' ? focusMinutes : Math.max(1, breakMinutes)) * 60
+  const openCountupCeilingSeconds = continuousFocusMax * 60
+  const maxRemaining =
+    hasContinuousOrExamPlan || hasCountupPlan
+      ? Math.max(phaseCeilingSeconds, openCountupCeilingSeconds)
+      : phaseCeilingSeconds
+  const minRemaining =
+    timerState === 'idle' && (hasCountupPlan || hasContinuousOrExamPlan) ? 0 : 1
+  const defaultRemaining = timerState === 'idle' && minRemaining === 0 ? 0 : maxRemaining
   const lastStudyDate = typeof raw.lastStudyDate === 'string' ? raw.lastStudyDate : ''
   const isToday = lastStudyDate === localTodayKey()
   const seatIndex = normalizeStudySeatIndex(raw.seatIndex, roomId, clientId)
@@ -277,13 +334,13 @@ export function normalizeStudySnapshot(
     seatIndex,
     seatClaimedAt: normalizeStudySeatClaimedAt(raw.seatClaimedAt),
     timerMode,
-    timerState: raw.timerState === 'running' || raw.timerState === 'paused' ? raw.timerState : 'idle',
+    timerState,
     focusMinutes,
     breakMinutes,
     simulationStartTime,
     simulationEndTime,
     timerPlans,
-    remainingSeconds: clampNumber(raw.remainingSeconds, 1, maxRemaining, maxRemaining),
+    remainingSeconds: clampNumber(raw.remainingSeconds, minRemaining, maxRemaining, defaultRemaining),
     todayFocusSeconds: isToday ? clampNumber(raw.todayFocusSeconds, 0, 24 * 60 * 60, 0) : 0,
     todaySessions: isToday ? clampNumber(raw.todaySessions, 0, 99, 0) : 0,
     totalFocusSeconds: clampNumber(raw.totalFocusSeconds, 0, 100_000 * 60, 0),

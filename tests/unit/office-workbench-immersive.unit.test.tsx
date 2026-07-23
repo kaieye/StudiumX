@@ -77,12 +77,29 @@ const immersiveMediaStore = vi.hoisted(() => ({
   clearImmersiveCustomMedia: vi.fn(async () => true),
   renameImmersiveCustomMedia: vi.fn(async () => true),
   loadImmersiveCustomMedia: vi.fn(async () => null),
+  listImmersiveCustomMedia: vi.fn(async () => [] as Array<{
+    id: string
+    kind: 'image' | 'video'
+    name: string
+    mimeType: string
+    blob: Blob
+    updatedAt: number
+    createdAt: number
+  }>),
   saveImmersiveCustomMedia: vi.fn(async () => true),
-  readImmersiveScenePreference: vi.fn(() => null as null | 'clock' | 'girl' | 'custom'),
+  addImmersiveCustomMedia: vi.fn(async (input: { id?: string }) => input.id ?? 'persisted-custom'),
+  deleteImmersiveCustomMedia: vi.fn(async () => true),
+  readImmersiveScenePreference: vi.fn(() => null as null | 'clock' | 'girl' | 'custom' | `custom:${string}`),
   writeImmersiveScenePreference: vi.fn()
 }))
 
-vi.mock('../../src/renderer/src/views/workbench/immersive-custom-media-store', () => immersiveMediaStore)
+vi.mock('../../src/renderer/src/views/workbench/immersive-custom-media-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/renderer/src/views/workbench/immersive-custom-media-store')>()
+  return {
+    ...actual,
+    ...immersiveMediaStore
+  }
+})
 vi.mock('../../src/renderer/src/views/workbench/WorkbenchLeaderboard', () => ({
   WorkbenchLeaderboard: () => <div data-testid="leaderboard" />
 }))
@@ -149,8 +166,14 @@ describe('OfficeWorkbench immersive fullscreen lifecycle', () => {
     immersiveMediaStore.renameImmersiveCustomMedia.mockResolvedValue(true)
     immersiveMediaStore.loadImmersiveCustomMedia.mockReset()
     immersiveMediaStore.loadImmersiveCustomMedia.mockResolvedValue(null)
+    immersiveMediaStore.listImmersiveCustomMedia.mockReset()
+    immersiveMediaStore.listImmersiveCustomMedia.mockResolvedValue([])
     immersiveMediaStore.saveImmersiveCustomMedia.mockReset()
     immersiveMediaStore.saveImmersiveCustomMedia.mockResolvedValue(true)
+    immersiveMediaStore.addImmersiveCustomMedia.mockReset()
+    immersiveMediaStore.addImmersiveCustomMedia.mockImplementation(async (input: { id?: string }) => input.id ?? 'persisted-custom')
+    immersiveMediaStore.deleteImmersiveCustomMedia.mockReset()
+    immersiveMediaStore.deleteImmersiveCustomMedia.mockResolvedValue(true)
     immersiveMediaStore.readImmersiveScenePreference.mockReset()
     immersiveMediaStore.readImmersiveScenePreference.mockReturnValue(null)
     immersiveMediaStore.writeImmersiveScenePreference.mockReset()
@@ -476,9 +499,9 @@ describe('OfficeWorkbench immersive fullscreen lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(immersiveMediaStore.saveImmersiveCustomMedia).toHaveBeenCalled()
+      expect(immersiveMediaStore.addImmersiveCustomMedia).toHaveBeenCalled()
     })
-    const saved = immersiveMediaStore.saveImmersiveCustomMedia.mock.calls.at(-1)?.[0] as {
+    const saved = immersiveMediaStore.addImmersiveCustomMedia.mock.calls.at(-1)?.[0] as {
       kind: string
       name: string
       blob: Blob
@@ -487,17 +510,28 @@ describe('OfficeWorkbench immersive fullscreen lifecycle', () => {
     expect(saved.name).toBe('wall')
     expect(saved.blob).toBeInstanceOf(Blob)
     expect(screen.getByRole('dialog', { name: '选择场景' })).toBeVisible()
-    expect(immersiveMediaStore.writeImmersiveScenePreference).toHaveBeenCalledWith('custom')
+    expect(immersiveMediaStore.writeImmersiveScenePreference).toHaveBeenCalledWith(
+      expect.stringMatching(/^custom:/)
+    )
     first.unmount()
 
     // Simulate app restart: durable load returns the saved media + preference.
     immersiveMediaStore.loadImmersiveCustomMedia.mockResolvedValue({
+      id: 'custom-1',
       kind: 'image',
       name: 'wall',
       mimeType: 'image/png',
       blob,
       updatedAt: Date.now()
     })
+    immersiveMediaStore.listImmersiveCustomMedia.mockResolvedValue([{
+      id: 'custom-1',
+      kind: 'image',
+      name: 'wall',
+      mimeType: 'image/png',
+      blob,
+      updatedAt: Date.now()
+    }])
     immersiveMediaStore.readImmersiveScenePreference.mockReturnValue('custom')
 
     renderWorkbench()
@@ -551,12 +585,21 @@ describe('OfficeWorkbench immersive fullscreen lifecycle', () => {
     const user = userEvent.setup()
     const blob = new Blob([new Uint8Array([9, 8, 7])], { type: 'image/png' })
     immersiveMediaStore.loadImmersiveCustomMedia.mockResolvedValue({
+      id: 'custom-1',
       kind: 'image',
       name: 'wall.png',
       mimeType: 'image/png',
       blob,
       updatedAt: Date.now()
     })
+    immersiveMediaStore.listImmersiveCustomMedia.mockResolvedValue([{
+      id: 'custom-1',
+      kind: 'image',
+      name: 'wall.png',
+      mimeType: 'image/png',
+      blob,
+      updatedAt: Date.now()
+    }])
 
     renderWorkbench()
     await user.click(screen.getByRole('button', { name: '进入沉浸模式' }))
@@ -568,7 +611,7 @@ describe('OfficeWorkbench immersive fullscreen lifecycle', () => {
     await user.clear(nameInput)
     await user.type(nameInput, '我的自习室{Enter}')
 
-    expect(immersiveMediaStore.renameImmersiveCustomMedia).toHaveBeenCalledWith('我的自习室')
+    expect(immersiveMediaStore.renameImmersiveCustomMedia).toHaveBeenCalledWith('custom-1', '我的自习室')
     expect(screen.getByRole('button', { name: '我的自习室' })).toBeVisible()
   })
 
@@ -576,23 +619,32 @@ describe('OfficeWorkbench immersive fullscreen lifecycle', () => {
     const user = userEvent.setup()
     const blob = new Blob([new Uint8Array([9, 8, 7])], { type: 'image/png' })
     immersiveMediaStore.loadImmersiveCustomMedia.mockResolvedValue({
+      id: 'custom-1',
       kind: 'image',
       name: 'wall.png',
       mimeType: 'image/png',
       blob,
       updatedAt: Date.now()
     })
+    immersiveMediaStore.listImmersiveCustomMedia.mockResolvedValue([{
+      id: 'custom-1',
+      kind: 'image',
+      name: 'wall.png',
+      mimeType: 'image/png',
+      blob,
+      updatedAt: Date.now()
+    }])
 
     renderWorkbench()
     await user.click(screen.getByRole('button', { name: '进入沉浸模式' }))
     fireEvent.pointerEnter(document.querySelector('.workbench-immersive-controls')!)
     await user.click(screen.getByRole('button', { name: '选择场景' }))
 
-    await user.click(await screen.findByRole('button', { name: '删除自定义场景' }))
+    await user.click(await screen.findByRole('button', { name: /删除自定义场景/ }))
 
-    expect(immersiveMediaStore.clearImmersiveCustomMedia).toHaveBeenCalledTimes(1)
+    expect(immersiveMediaStore.deleteImmersiveCustomMedia).toHaveBeenCalledWith('custom-1')
     expect(screen.getByRole('dialog', { name: '选择场景' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: '删除自定义场景' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /删除自定义场景/ })).toBeNull()
   })
 
   it('renders scene picker close control without an outer bordered plate class contract', async () => {

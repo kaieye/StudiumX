@@ -54,3 +54,36 @@ describe('study space timer progress (exam / countup)', () => {
     ).toBe(8)
   })
 })
+
+  it('idle countup stays 0% when remainingSeconds is seeded to total', () => {
+    const snapshot = {
+      ...defaultStudySnapshot,
+      focusMinutes: 180,
+      breakMinutes: 0,
+      timerMode: 'focus' as const,
+      timerState: 'idle' as const,
+      remainingSeconds: 180 * 60
+    }
+    const vm = createStudySpaceViewModel(snapshot, offlinePresence, Date.now(), {
+      timerClockMode: 'countup',
+      timerTargetSeconds: 180 * 60
+    })
+    expect(vm.timerProgress).toBe(0)
+  })
+
+  it('paused countup still fills from elapsed remainingSeconds', () => {
+    const snapshot = {
+      ...defaultStudySnapshot,
+      focusMinutes: 25,
+      breakMinutes: 0,
+      timerMode: 'focus' as const,
+      timerState: 'paused' as const,
+      remainingSeconds: 15 * 60
+    }
+    const vm = createStudySpaceViewModel(snapshot, offlinePresence, Date.now(), {
+      timerClockMode: 'countup',
+      timerTargetSeconds: 180 * 60
+    })
+    expect(vm.timerProgress).toBe(8)
+  })
+

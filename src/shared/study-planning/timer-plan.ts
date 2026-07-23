@@ -7,6 +7,13 @@
  */
 
 export type TimerPlanKind = 'pomodoro' | 'continuous' | 'custom_rhythm'
+/**
+ * Sub-mode for kind === 'continuous' (durable V2 field).
+ * - open: open-ended countup (no focusMinutes target)
+ * - target: continuous cycle / focus target (focusMinutes set; may be countdown or countup)
+ * - exam: exam wall simulation (countup + focusMinutes target; V1 continuousTarget true)
+ */
+export type ContinuousMode = 'open' | 'target' | 'exam'
 export type TimerClockMode = 'countdown' | 'countup'
 export type BreakPolicy = 'automatic' | 'ask' | 'reminder_only' | 'none'
 export type WindowFillPolicy = 'complete_cycles' | 'adaptive_final_focus' | 'allow_overrun'
@@ -24,6 +31,11 @@ export type TimerPlanV2 = {
   name: string
   kind: TimerPlanKind
   clockMode: TimerClockMode
+  /**
+   * Continuous sub-mode. Required when kind === 'continuous' after normalize
+   * (inferred from focusMinutes/clockMode when missing for legacy snapshots).
+   */
+  continuousMode?: ContinuousMode
   focusMinutes?: number
   shortBreakMinutes?: number
   longBreakMinutes?: number
@@ -126,6 +138,7 @@ export const BUILTIN_TIMER_PLAN_CATALOG: readonly TimerPlanV2[] = [
     name: '考场模拟',
     kind: 'continuous',
     clockMode: 'countup',
+    continuousMode: 'exam',
     // Default morning exam window 09:00–12:00 = 180 minutes (ring + session target).
     focusMinutes: 180,
     breakPolicy: 'reminder_only',
@@ -144,6 +157,7 @@ export const BUILTIN_TIMER_PLAN_CATALOG: readonly TimerPlanV2[] = [
 
 const KIND_SET = new Set<TimerPlanKind>(['pomodoro', 'continuous', 'custom_rhythm'])
 const CLOCK_SET = new Set<TimerClockMode>(['countdown', 'countup'])
+const CONTINUOUS_MODE_SET = new Set<ContinuousMode>(['open', 'target', 'exam'])
 const BREAK_POLICY_SET = new Set<BreakPolicy>(['automatic', 'ask', 'reminder_only', 'none'])
 const FILL_POLICY_SET = new Set<WindowFillPolicy>([
   'complete_cycles',
@@ -227,6 +241,34 @@ export function normalizeTimerPlanV2(input: unknown): TimerPlanValidationResult 
 
   if (hard.length > 0 || !id || !name || !kind || !clockMode) {
     return { ok: false, issues: hard }
+  }
+
+  // continuousMode: explicit field preferred; legacy infer from focusMinutes / clockMode.
+  let continuousMode: ContinuousMode | undefined
+  if (kind === 'continuous') {
+    const modeRaw = asTrimmedString(input.continuousMode)
+    if (modeRaw && CONTINUOUS_MODE_SET.has(modeRaw as ContinuousMode)) {
+      continuousMode = modeRaw as ContinuousMode
+    } else if (modeRaw) {
+      warnings.push(
+        issue(
+          'continuous_mode_fallback',
+          `Unknown continuousMode "${modeRaw}"; inferring from focus/clock`,
+          'continuousMode'
+        )
+      )
+    }
+    if (continuousMode === undefined) {
+      const focusProbe = asInt(input.focusMinutes)
+      if (clockMode === 'countup' && focusProbe === undefined) {
+        continuousMode = 'open'
+      } else if (clockMode === 'countup' && focusProbe != null) {
+        // Legacy catalog exam seed id; other countup+focus → target (V1 continuousTarget maps exam explicitly).
+        continuousMode = id === 'continuous_countup' ? 'exam' : 'target'
+      } else {
+        continuousMode = 'target'
+      }
+    }
   }
 
   // Product freeze #3 / #6: pomodoro default ask; continuous may use none/reminder_only.
@@ -436,12 +478,40 @@ export function normalizeTimerPlanV2(input: unknown): TimerPlanValidationResult 
     )
   }
 
+  // Exam sub-mode always countup; open has no focus target.
+  let resolvedClock = clockMode
+  let resolvedFocus = focusMinutes
+  let resolvedContinuousMode = continuousMode
+  if (kind === 'continuous' && continuousMode === 'exam') {
+    resolvedClock = 'countup'
+    if (resolvedFocus === undefined) {
+      resolvedFocus = 180
+      warnings.push(
+        issue('exam_focus_defaulted', 'exam continuousMode defaulted focusMinutes to 180', 'focusMinutes')
+      )
+    }
+  }
+  if (kind === 'continuous' && continuousMode === 'open') {
+    resolvedFocus = undefined
+  }
+  // If open but focus was provided explicitly, promote to target.
+  if (kind === 'continuous' && resolvedContinuousMode === 'open' && asInt(input.focusMinutes) != null) {
+    // open factory always passes undefined; explicit focus on open → treat as target
+    if (Object.prototype.hasOwnProperty.call(input, 'focusMinutes') && input.focusMinutes != null) {
+      resolvedContinuousMode = 'target'
+      resolvedFocus = focusMinutes
+    }
+  }
+
   const plan: TimerPlanV2 = {
     id,
     name,
     kind,
-    clockMode,
-    ...(focusMinutes !== undefined ? { focusMinutes } : {}),
+    clockMode: resolvedClock,
+    ...(kind === 'continuous' && resolvedContinuousMode
+      ? { continuousMode: resolvedContinuousMode }
+      : {}),
+    ...(resolvedFocus !== undefined ? { focusMinutes: resolvedFocus } : {}),
     ...(shortBreakMinutes !== undefined ? { shortBreakMinutes } : {}),
     ...(longBreakMinutes !== undefined ? { longBreakMinutes } : {}),
     ...(longBreakEvery !== undefined ? { longBreakEvery } : {}),
@@ -455,7 +525,7 @@ export function normalizeTimerPlanV2(input: unknown): TimerPlanValidationResult 
   }
 
   // Continuous + countdown without focus target is weak; warn.
-  if (kind === 'continuous' && clockMode === 'countdown' && focusMinutes === undefined) {
+  if (kind === 'continuous' && resolvedClock === 'countdown' && resolvedFocus === undefined) {
     warnings.push(
       issue(
         'continuous_countdown_missing_focus',
@@ -484,39 +554,145 @@ export function createClassicPomodoroPlan(overrides?: Partial<TimerPlanV2>): Tim
   return result.plan
 }
 
-/** Create continuous open countup seed plan (readonly catalog entry clone). */
-export function createContinuousCountupPlan(overrides?: Partial<TimerPlanV2>): TimerPlanV2 {
+/** Exam wall simulation seed (catalog id continuous_countup; continuousMode exam). */
+export function createExamSimulationPlan(overrides?: Partial<TimerPlanV2>): TimerPlanV2 {
   const base = BUILTIN_TIMER_PLAN_CATALOG.find((p) => p.id === 'continuous_countup') ?? BUILTIN_TIMER_PLAN_CATALOG[2]
-  const id = overrides?.id ?? base.id
-  // Catalog seeds exam focusMinutes (180). Do not inherit that onto open continuous
-  // shells (id != continuous_countup / explicit open without focusMinutes).
-  const { focusMinutes: catalogFocus, ...baseWithoutFocus } = base
-  const hasFocusOverride = overrides != null && Object.prototype.hasOwnProperty.call(overrides, 'focusMinutes')
-  const focusMinutes = hasFocusOverride
-    ? overrides!.focusMinutes
-    : id === 'continuous_countup'
-      ? (catalogFocus ?? 180)
-      : undefined
   const result = normalizeTimerPlanV2({
-    ...baseWithoutFocus,
+    ...base,
     ...overrides,
-    id,
-    // Re-apply resolved focus so a stripped open plan stays without focusMinutes
-    // even when base catalog carries an exam default.
-    ...(focusMinutes !== undefined ? { focusMinutes } : { focusMinutes: undefined })
+    id: overrides?.id ?? base.id,
+    kind: 'continuous',
+    clockMode: 'countup',
+    continuousMode: 'exam',
+    focusMinutes:
+      overrides != null && Object.prototype.hasOwnProperty.call(overrides, 'focusMinutes')
+        ? overrides.focusMinutes
+        : (base.focusMinutes ?? 180)
   })
   if (!result.ok) {
     return {
-      ...baseWithoutFocus,
-      id,
-      ...(focusMinutes !== undefined ? { focusMinutes } : {})
+      ...base,
+      id: overrides?.id ?? base.id,
+      continuousMode: 'exam',
+      clockMode: 'countup',
+      kind: 'continuous',
+      focusMinutes: base.focusMinutes ?? 180
     }
-  }
-  // normalize may omit undefined optional fields — ensure open plans stay open.
-  if (focusMinutes === undefined && result.plan.focusMinutes != null && id !== 'continuous_countup') {
-    const { focusMinutes: _drop, ...rest } = result.plan
-    return rest
   }
   return result.plan
 }
 
+/** Open continuous countup: no focusMinutes target (never inherits exam 180). */
+export function createOpenContinuousPlan(overrides?: Partial<TimerPlanV2>): TimerPlanV2 {
+  const base = BUILTIN_TIMER_PLAN_CATALOG.find((p) => p.id === 'continuous_countup') ?? BUILTIN_TIMER_PLAN_CATALOG[2]
+  const { focusMinutes: _dropFocus, continuousMode: _dropMode, ...baseShell } = base
+  const id = overrides?.id ?? 'open_continuous'
+  const result = normalizeTimerPlanV2({
+    ...baseShell,
+    ...overrides,
+    id,
+    kind: 'continuous',
+    clockMode: overrides?.clockMode === 'countdown' ? 'countdown' : 'countup',
+    continuousMode: 'open',
+    focusMinutes: undefined,
+    name: overrides?.name ?? '连续专注'
+  })
+  if (!result.ok) {
+    return {
+      ...baseShell,
+      id,
+      kind: 'continuous',
+      clockMode: 'countup',
+      continuousMode: 'open',
+      name: overrides?.name ?? '连续专注',
+      breakPolicy: base.breakPolicy
+    }
+  }
+  // Ensure open stays without focusMinutes even if normalize invents one.
+  if (result.plan.focusMinutes != null) {
+    const { focusMinutes: _f, ...rest } = result.plan
+    return { ...rest, continuousMode: 'open' }
+  }
+  return { ...result.plan, continuousMode: 'open' }
+}
+
+/**
+ * @deprecated Prefer createExamSimulationPlan / createOpenContinuousPlan.
+ * Compat wrapper: catalog id continuous_countup or continuousMode exam → exam seed;
+ * explicit open (no focus / continuousMode open) → open; else target continuous.
+ */
+export function createContinuousCountupPlan(overrides?: Partial<TimerPlanV2>): TimerPlanV2 {
+  const id = overrides?.id
+  const mode = overrides?.continuousMode
+  const hasFocus =
+    overrides != null && Object.prototype.hasOwnProperty.call(overrides, 'focusMinutes')
+  const focus = hasFocus ? overrides!.focusMinutes : undefined
+
+  // Exam: explicit mode, or default catalog seed (no overrides / only cosmetic overrides).
+  if (mode === 'exam') {
+    return createExamSimulationPlan(overrides)
+  }
+  if (mode === 'open') {
+    return createOpenContinuousPlan(overrides)
+  }
+  if (mode === 'target') {
+    const base = BUILTIN_TIMER_PLAN_CATALOG.find((p) => p.id === 'continuous_countup') ?? BUILTIN_TIMER_PLAN_CATALOG[2]
+    const { focusMinutes: _cf, continuousMode: _cm, ...baseShell } = base
+    const result = normalizeTimerPlanV2({
+      ...baseShell,
+      ...overrides,
+      id: overrides?.id ?? 'continuous_target',
+      kind: 'continuous',
+      continuousMode: 'target',
+      ...(hasFocus
+        ? focus === undefined
+          ? { focusMinutes: undefined }
+          : { focusMinutes: focus }
+        : { focusMinutes: TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes })
+    })
+    if (!result.ok) {
+      return createOpenContinuousPlan(overrides)
+    }
+    return result.plan
+  }
+
+  // No continuousMode: legacy heuristics without id-only exam for non-catalog shells.
+  if (!hasFocus && (id == null || id === 'continuous_countup')) {
+    return createExamSimulationPlan(overrides)
+  }
+  if (!hasFocus || focus === undefined) {
+    return createOpenContinuousPlan(overrides)
+  }
+  // Has focusMinutes → target continuous (not exam unless mode/id catalog handled above)
+  if (id === 'continuous_countup') {
+    return createExamSimulationPlan(overrides)
+  }
+  const base = BUILTIN_TIMER_PLAN_CATALOG.find((p) => p.id === 'continuous_countup') ?? BUILTIN_TIMER_PLAN_CATALOG[2]
+  const { focusMinutes: _cf, continuousMode: _cm, ...baseShell } = base
+  const result = normalizeTimerPlanV2({
+    ...baseShell,
+    ...overrides,
+    id: overrides?.id ?? 'continuous_target',
+    kind: 'continuous',
+    continuousMode: 'target',
+    focusMinutes: focus
+  })
+  if (!result.ok) {
+    return {
+      ...baseShell,
+      id: overrides?.id ?? 'continuous_target',
+      kind: 'continuous',
+      clockMode: overrides?.clockMode === 'countdown' ? 'countdown' : 'countup',
+      continuousMode: 'target',
+      focusMinutes: focus,
+      breakPolicy: base.breakPolicy,
+      windowFillPolicy: base.windowFillPolicy,
+      minimumFinalFocusMinutes: base.minimumFinalFocusMinutes,
+      wrapUpMinutes: base.wrapUpMinutes,
+      notificationPolicy: base.notificationPolicy,
+      revision: 1,
+      name: overrides?.name ?? base.name
+    }
+  }
+  return result.plan
+}
