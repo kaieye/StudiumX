@@ -10,10 +10,61 @@ import {
   setMcpEffectLookup
 } from '../../src/main/ai/tools/effect-policy'
 
-describe('MCP effect map (ADR-0128 §6)', () => {
+describe('MCP effect map (ADR-0128 §6 / ADR-0141)', () => {
   it('defaults to privileged', () => {
     expect(resolveMcpToolEffect('anything')).toBe('privileged')
     expect(resolveMcpToolEffect('x', {})).toBe('privileged')
+  })
+
+  it('ignores remote readOnlyHint when honorRemoteReadOnlyHint is off (default)', () => {
+    expect(resolveMcpToolEffect('read_file')).toBe('privileged')
+    expect(resolveMcpToolEffect('read_file', {})).toBe('privileged')
+    expect(
+      resolveMcpToolEffect('read_file', {}, {
+        honorRemoteReadOnlyHint: false,
+        annotations: { readOnlyHint: true, destructiveHint: false }
+      })
+    ).toBe('privileged')
+    expect(resolveMcpToolEffect('read_file', { read_file: 'read' })).toBe('read')
+  })
+
+  it('maps trusted readOnlyHint to read when honorRemoteReadOnlyHint is true', () => {
+    expect(
+      resolveMcpToolEffect('remote_read', undefined, {
+        honorRemoteReadOnlyHint: true,
+        annotations: { readOnlyHint: true }
+      })
+    ).toBe('read')
+    expect(
+      resolveMcpToolEffect('remote_read', {}, {
+        honorRemoteReadOnlyHint: true,
+        annotations: { readOnlyHint: true, destructiveHint: false }
+      })
+    ).toBe('read')
+  })
+
+  it('does not map readOnlyHint when destructiveHint is true', () => {
+    expect(
+      resolveMcpToolEffect('risky', undefined, {
+        honorRemoteReadOnlyHint: true,
+        annotations: { readOnlyHint: true, destructiveHint: true }
+      })
+    ).toBe('privileged')
+  })
+
+  it('prefers explicit overrides over trusted readOnlyHint', () => {
+    expect(
+      resolveMcpToolEffect('echo', { echo: 'external_write' }, {
+        honorRemoteReadOnlyHint: true,
+        annotations: { readOnlyHint: true }
+      })
+    ).toBe('external_write')
+    expect(
+      resolveMcpToolEffect('echo', { echo: 'read' }, {
+        honorRemoteReadOnlyHint: true,
+        annotations: { readOnlyHint: false }
+      })
+    ).toBe('read')
   })
 
   it('applies per-raw-name overrides', () => {
@@ -56,4 +107,3 @@ describe('classifyToolEffect MCP path (ADR-0128 §6.1)', () => {
     setMcpEffectLookup(null)
   })
 })
-

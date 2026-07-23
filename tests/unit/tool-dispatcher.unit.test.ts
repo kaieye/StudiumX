@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { ToolCall } from '../../src/main/ai/provider-adapter'
 import { ToolDispatcher } from '../../src/main/ai/tools/dispatcher'
+import { McpApplicationToolError } from '../../src/main/ai/tools/mcp-application-error'
 import {
   authorizeToolEffect,
   classifyToolEffect
@@ -232,6 +233,28 @@ describe('ToolDispatcher', () => {
         }
       }
     ])
+  })
+
+  it('maps a normalized MCP application failure to failed rather than timeout/cancelled', async () => {
+    const dispatcher = new ToolDispatcher({
+      handlers: {
+        mcp__demo__lookup: async () => {
+          throw new McpApplicationToolError('request timed out according to the remote service')
+        }
+      }
+    })
+
+    const outcome = await dispatcher.dispatch(toolCall('mcp__demo__lookup', '{}'))
+
+    expect(outcome.status).toBe('failed')
+    expect(outcome.isError).toBe(true)
+    if (outcome.status === 'failed') {
+      expect(outcome.error).toEqual({
+        code: 'mcp_application_error',
+        message: 'request timed out according to the remote service'
+      })
+    }
+    expect(outcome.content).toContain('mcp_application_error')
   })
 
   it('returns failed for unknown tools without inventing a handler', async () => {

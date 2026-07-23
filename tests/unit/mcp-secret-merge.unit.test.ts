@@ -30,6 +30,9 @@ function server(overrides: Partial<UserMcpServerV1> & Pick<UserMcpServerV1, 'id'
     headersPlain: overrides.headersPlain ?? {},
     timeoutMs: overrides.timeoutMs ?? null,
     toolEffectOverrides: overrides.toolEffectOverrides ?? {},
+    oauth: overrides.oauth ?? null,
+    workspaceRootInjection: overrides.workspaceRootInjection ?? 'off',
+    injectionIdentity: overrides.injectionIdentity ?? null,
     createdAt: '2026-07-22T00:00:00.000Z',
     updatedAt: '2026-07-22T00:00:00.000Z'
   }

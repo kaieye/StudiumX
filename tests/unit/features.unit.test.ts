@@ -52,15 +52,25 @@ describe('FEATURES table integrity', () => {
     }
   })
 
-  it('does not register shell / code_mode / marketplace / yolo feature ids', () => {
+  it('does not register shell / code_mode / yolo bypass feature ids', () => {
     const ids = new Set(FEATURES.map((f) => f.id))
     for (const forbidden of FORBIDDEN_FEATURE_IDS) {
       expect(ids.has(forbidden)).toBe(false)
     }
-    // Also reject substring-style product traps
+    // Also reject substring-style product traps (marketplace is allowed as mcp-marketplace metadata)
     for (const feature of FEATURES) {
-      expect(feature.id).not.toMatch(/shell|code[_-]?mode|yolo|mcp[_-]?market/i)
+      expect(feature.id).not.toMatch(/shell|code[_-]?mode|yolo/i)
     }
+  })
+
+  it('registers mcp-marketplace as experimental product path (ADR-0141)', () => {
+    const feature = getFeature('mcp-marketplace')
+    expect(feature).toBeDefined()
+    expect(feature!.stage).toBe('experimental')
+    expect(feature!.summary).toMatch(/local|remote|catalog|目录/i)
+    expect(feature!.summary).toMatch(/approval|审批/i)
+    expect(isFeatureEnabled('mcp-marketplace')).toBe(false)
+    expect(isFeatureEnabled('mcp-marketplace', { allowExperimental: true })).toBe(true)
   })
 })
 

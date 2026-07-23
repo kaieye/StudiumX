@@ -152,7 +152,24 @@ const api: TeachingSystemApi = {
   mcpGetConfig: () => ipcRenderer.invoke(teachingInvokeChannels.mcpGetConfig),
   mcpUpdateConfig: (payload) => ipcRenderer.invoke(teachingInvokeChannels.mcpUpdateConfig, payload),
   mcpTestServer: (payload) => ipcRenderer.invoke(teachingInvokeChannels.mcpTestServer, payload),
-  mcpListRuntime: () => ipcRenderer.invoke(teachingInvokeChannels.mcpListRuntime)
+  mcpRefreshServer: (payload) => ipcRenderer.invoke(teachingInvokeChannels.mcpRefreshServer, payload),
+  mcpAuthorizeServer: (payload) => ipcRenderer.invoke(teachingInvokeChannels.mcpAuthorizeServer, payload),
+  mcpRevokeAuthorization: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.mcpRevokeAuthorization, payload),
+  mcpListRuntime: () => ipcRenderer.invoke(teachingInvokeChannels.mcpListRuntime),
+  mcpAutoConnectNow: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.mcpAutoConnectNow, payload),
+  mcpGetEffectiveView: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.mcpGetEffectiveView, payload),
+  mcpMarketplaceList: () => ipcRenderer.invoke(teachingInvokeChannels.mcpMarketplaceList),
+  mcpMarketplaceInstall: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.mcpMarketplaceInstall, payload),
+  mcpMarketplaceUninstall: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.mcpMarketplaceUninstall, payload),
+  mcpMarketplaceSetCatalogUrls: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.mcpMarketplaceSetCatalogUrls, payload),
+  mcpMarketplaceRefreshCatalog: () =>
+    ipcRenderer.invoke(teachingInvokeChannels.mcpMarketplaceRefreshCatalog)
 }
 
 const musicApi: StudiumxMusicApi = {

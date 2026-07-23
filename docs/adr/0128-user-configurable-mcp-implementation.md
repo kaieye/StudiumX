@@ -1,6 +1,6 @@
 # ADR-0128：用户可配置 MCP — 实现合同（传输 / 配置 / effect / IPC / 分阶段落地）
 
-- **状态：** 已采纳（实现合同；工程已落地 A–F：官方 MCP SDK `1.29.0`、stdio / Streamable HTTP / SSE、user/workspace scope、IPC、registry 注入、Form/JSON Settings UI、doctor `mcp_status` 与 support-bundle 脱敏；**默认仍 off**；无 marketplace、无自动连接、无 YOLO）
+- **状态：** 已采纳（v1 实现合同；工程已落地 A–F：官方 MCP SDK `1.29.0`、stdio / Streamable HTTP / SSE、user/workspace scope、IPC、registry 注入、Form/JSON Settings UI、doctor `mcp_status` 与 support-bundle 脱敏。v1 默认 off/manual 行为保持为兼容基线；marketplace、auto-connect、多来源与 plugin lifecycle 的后续产品政策由 [ADR-0132](0132-mcp-zcode-parity-and-trust-lifecycle.md) 取代/扩展）
 - **日期：** 2026-07-22
 - **范围：** 在 [ADR-0127](0127-user-configurable-mcp-design-gate.md) 决策冻结之上，锁定用户可配置 MCP 的 **wire schema、路径、传输子集、tool 命名、effect 映射、IPC、与 registry/dispatcher/fingerprint 接线、测试与分 phase 切片**。
 - **相关：**
@@ -13,6 +13,8 @@
   - 代码锚点：`src/main/ai/tools/{registry,dispatcher,effect-policy,tools-schema-fingerprint}.ts`、`src/shared/features.ts`、`src/shared/teaching-ipc-contract.ts`
 - **证据提交：** 本 ADR + 各 phase 合并时的定向 unit / 文档同步；全量 e2e / 真模型非本 ADR 强制
 
+> **取代说明（2026-07-22）：** 本文 §1.2、§3、§8、§9、§12 与结语中关于“无 marketplace”“无 auto-connect”“workspace 配置不可作为 authority”“plugin/manifest MCP 不得成为实际来源”等限制，仅描述已交付的 v1 范围；作为未来产品禁令的效力已被 [ADR-0132](0132-mcp-zcode-parity-and-trust-lifecycle.md) 与 [ADR-0141](0141-mcp-product-experience-parity-policy.md) 取代。本文关于 dispatcher/effect/approval、secret-free IPC、预算、settlement、replay 和 v1 schema 的合同仍有效，直到后续 implementation addendum 明确迁移。
+
 ## 1. 目标与非目标
 
 ### 1.1 目标
@@ -24,7 +26,7 @@
 
 ### 1.2 非目标（本 ADR 全 phase 均不交付）
 
-- MCP **marketplace** / 远程推荐目录 / 自动信任第三方二进制
+- MCP **marketplace** / 远程推荐目录 / 自动信任第三方二进制（不在本 ADR 的已交付 v1；后续由 ADR-0132 分阶段实施）
 - YOLO / always-approve / DangerFullAccess
 - 默认 ShellTool 产品词表（stdio 仅作用户指定 server 的 transport，不向模型暴露通用 shell）
 - MCP 写 LearningSession / Outcome / Learning record
@@ -146,7 +148,7 @@ src/renderer/… Settings 段（Phase B/D）
 
 - Streamable HTTP 使用内部 `http`，通用 JSON 对外写作 `streamableHttp`；legacy SSE 保持 `sse`。
 - URL 必须使用 `http:` 或 `https:`；未知 scheme 拒绝。
-- 仍无 marketplace；URL 只来自用户填写或粘贴的配置。
+- v1 无 marketplace；URL 仅来自用户填写或粘贴的配置。ADR-0132 的 plugin/marketplace phase 可在其 provenance/trust 合同下扩展来源。
 
 ### 4.3 环境变量消毒
 
@@ -342,7 +344,7 @@ footprintHint: 4
 | **A — 纯核心** | `src/shared/mcp/*` + `src/main/mcp/*` stdio + config-store + session-manager + tool-bridge；**无** UI；可选 dev-only 主进程钩子或 unit 用 fake transport | 下表 unit；typecheck；**默认仍 off** |
 | **B — IPC** | `teach:mcp-*` channels + preload + secret-free DTO；无完整 Settings UI 可用最小 dev 调用 | IPC contract 测试；安全检查扩展 |
 | **C — Registry 注入** | `buildDefaultRegistry` / agent run 接线；fingerprint 含 MCP；**temporary 与 teaching 同 MCP 注入**；临时仅排除教学产物写工具 | tool-dispatcher unit + schema guard unit |
-| **D — Settings UI** | 列表 + 详细添加/编辑页；Name/Scope；Form/JSON；stdio / Streamable HTTP / SSE；单击开关；显式试连 | i18n；无 marketplace；默认 off 可见；无二次确认/切换成功卡 |
+| **D — Settings UI** | 列表 + 详细添加/编辑页；Name/Scope；Form/JSON；stdio / Streamable HTTP / SSE；单击开关；显式试连 | v1 i18n/manual UI 验收；marketplace/auto-connect 由 ADR-0132 后续 phase 验收；无二次确认/切换成功卡 |
 | **E — Doctor / bundle** | facts + redact | support-bundle 脱敏测试 |
 | **F — SSE/HTTP** | 官方 SDK remote transports + URL/header/timeout 规则 | 已完成；定向 config/session unit |
 

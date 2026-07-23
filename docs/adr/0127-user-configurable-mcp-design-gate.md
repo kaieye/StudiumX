@@ -1,6 +1,6 @@
 # ADR-0127：用户可配置 MCP 接入（推翻「默认禁止任意 MCP」产品地板）— Design gate
 
-- **状态：** 已采纳（设计 gate；生产实现已由 [ADR-0128](0128-user-configurable-mcp-implementation.md) 完成 A–F，并保持本 ADR 的默认 off、无 marketplace、effect lattice 与 settlement 边界）
+- **状态：** 部分被 [ADR-0132](0132-mcp-zcode-parity-and-trust-lifecycle.md) 取代（本 ADR 的 v1 用户配置、effect lattice、secret isolation 与 settlement 边界仍有效；其中默认 off、无 auto-connect、无 marketplace、workspace/plugin MCP 仅草稿等产品禁令已不再约束后续阶段）
 - **日期：** 2026-07-22
 - **范围：** 正式记录产品方决策——允许**终端用户**在本地以 **opt-in** 方式配置并连接**其自行指定**的 MCP 服务器（「任意」= 服务器地址/启动命令由用户选择，而非平台预置闭集）；定义信任模型、effect 映射、settlement 不变量、与既有 ADR 的废止/收窄关系、以及实现门槛。
 - **相关：**
@@ -15,7 +15,9 @@
   - [ADR-0048](0048-tool-contract-and-write-policy.md) / [ADR-0063](0063-declarative-tool-policy.md)（policy / 禁 YOLO）
   - [ADR-0073](0073-teaching-feature-registry.md)（原禁止 `mcp_marketplace` feature id；本 ADR **不**开放 marketplace）
   - [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md) / [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)（settlement sole-writer）
-- **证据提交：** 本 ADR（决策记录）+ [ADR-0128](0128-user-configurable-mcp-implementation.md)（运行时 client、IPC、UI、registry 与 transport 实现合同）
+- **证据提交：** 本 ADR（v1 决策记录）+ [ADR-0128](0128-user-configurable-mcp-implementation.md)（运行时 client、IPC、UI、registry 与 transport 实现合同）
+
+> **取代说明（2026-07-22）：** 若本文关于 MCP marketplace、remote/plugin discovery、默认/自动连接、workspace 文件作为配置来源、ExtensionManifest `mcpServers` 只可导入草稿、或 filesystem MCP workspace-root access 的“禁止 / 不得 / 不开放”措辞与 [ADR-0132](0132-mcp-zcode-parity-and-trust-lifecycle.md) 冲突，以 ADR-0132 为准；**产品体验默认另见 [ADR-0141](0141-mcp-product-experience-parity-policy.md)**。本文继续约束 effect lattice、approval、secret isolation、settlement sole-writer、`expectedRevision`、`toolsReplayed:false` 与无默认 remote telemetry。
 
 ## 1. 背景与动机
 
@@ -182,7 +184,7 @@
 
 | 文档 | 同步动作 |
 | --- | --- |
-| AGENTS.md §1 产品地板 | 「无 MCP marketplace」行改为：允许用户 opt-in 配置 MCP（本 ADR）；**仍无** marketplace；实现前不可当已上线 |
+| AGENTS.md §1 产品地板 | 历史 v1 文案；现由 ADR-0132 的多来源、auto-connect、marketplace trust lifecycle 和分阶段门替代 |
 | AGENTS.md §3 红线 3 | 禁止 marketplace / jiti 全权限 / code-mode；将「默认任意 MCP」改为「禁止未 opt-in、未过 lattice 的 MCP」 |
 | SECURITY.md | 增补 MCP egress / 用户自担 server 信任；声明默认 off；settlement 不变量 |
 | docs/adr/README.md | 索引本 ADR；更新「按问题查阅」中 MCP 相关行 |

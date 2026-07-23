@@ -313,9 +313,73 @@ export type TeachingSystemApi = {
     serverId: string
     workspaceRoot?: string | null
   }) => Promise<import('../mcp/types').McpTestServerResult>
+  /** Explicit user-initiated inventory refresh; never schedules background reconnects. */
+  mcpRefreshServer: (
+    payload: import('../mcp/ipc-contract').McpRefreshServerPayload
+  ) => Promise<import('../mcp/types').McpTestServerResult>
+  /** Explicit user-initiated OAuth authorization (secret-free response only). */
+  mcpAuthorizeServer: (
+    payload: import('../mcp/ipc-contract').McpAuthorizeServerPayload
+  ) => Promise<
+    | Readonly<{ ok: true; authorization: import('../mcp/oauth-types').McpOAuthAuthorizationPublicState }>
+    | Readonly<{
+        ok: false
+        code: import('../mcp/types').McpErrorCode
+        message: string
+        authorization: import('../mcp/oauth-types').McpOAuthAuthorizationPublicState
+      }>
+  >
+  /** Explicit OAuth revocation for one server (secret-free response only). */
+  mcpRevokeAuthorization: (
+    payload: import('../mcp/ipc-contract').McpRevokeAuthorizationPayload
+  ) => Promise<
+    | Readonly<{ ok: true; authorization: import('../mcp/oauth-types').McpOAuthAuthorizationPublicState }>
+    | Readonly<{
+        ok: false
+        code: import('../mcp/types').McpErrorCode
+        message: string
+        authorization: import('../mcp/oauth-types').McpOAuthAuthorizationPublicState
+      }>
+  >
   /** Current process MCP connection view (no secrets). */
   mcpListRuntime: () => Promise<{
     ok: true
     servers: readonly import('../mcp/types').McpRuntimeServerView[]
   }>
+  /**
+   * Opt-in discovery auto-connect for eligible servers (ADR-0137).
+   * No-op unless root enabled and autoConnect true; never tools/call.
+   */
+  mcpAutoConnectNow: (payload?: {
+    workspaceRoot?: string | null
+  }) => Promise<{
+    ok: true
+    results: readonly import('../mcp/types').McpTestServerResult[]
+  }>
+  /**
+   * Secret-free multi-source effective view (ADR-0137 / ADR-0141).
+   * Optional at runtime for older preload; Settings degrades when missing.
+   */
+  mcpGetEffectiveView: (payload?: {
+    workspaceRoot?: string | null
+  }) => Promise<import('../mcp/effective-view-public').McpGetEffectiveViewResult>
+  /** Secret-free marketplace catalog + installs (ADR-0140/0141). */
+  mcpMarketplaceList: () => Promise<import('../mcp/marketplace-types').McpMarketplaceListResultV1>
+  /** Pin install + enable user server; optional connect; never grants tool approval. */
+  mcpMarketplaceInstall: (payload: {
+    entryId: string
+    connect?: boolean
+    workspaceRoot?: string | null
+  }) => Promise<import('../mcp/marketplace-types').McpMarketplaceInstallResultV1>
+  mcpMarketplaceUninstall: (payload: {
+    entryId: string
+  }) => Promise<import('../mcp/marketplace-types').McpMarketplaceUninstallResultV1>
+  /** Persist remote catalog URLs (no fetch; secret-free). */
+  mcpMarketplaceSetCatalogUrls: (payload: {
+    catalogUrls: readonly string[]
+  }) => Promise<import('../mcp/ipc-contract').McpMarketplaceSetCatalogUrlsResult>
+  /** Refresh remote catalogs for configured URLs (fail-soft; no telemetry). */
+  mcpMarketplaceRefreshCatalog: () => Promise<
+    import('../mcp/ipc-contract').McpMarketplaceRefreshCatalogResult
+  >
 }

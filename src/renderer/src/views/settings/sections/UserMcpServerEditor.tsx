@@ -331,6 +331,26 @@ function McpServerForm({
                 />
                 <small>{t('mcp.servers.envHint')}</small>
               </label>
+              <label className="mcp-field mcp-field-wide mcp-checkbox-field">
+                <span>{t('mcp.servers.workspaceRootInjection')}</span>
+                <input
+                  type="checkbox"
+                  checked={draft.workspaceRootInjection === 'granted'}
+                  disabled={disabled}
+                  aria-label={t('mcp.servers.workspaceRootInjection')}
+                  onChange={(event) =>
+                    update({
+                      workspaceRootInjection: event.target.checked ? 'granted' : 'off',
+                      // Stamp identity so normalize can tell explicit off from "never configured".
+                      injectionIdentity:
+                        event.target.checked
+                          ? draft.injectionIdentity ?? 'filesystem_mcp'
+                          : draft.injectionIdentity ?? 'generic'
+                    })
+                  }
+                />
+                <small>{t('mcp.servers.workspaceRootInjectionHint')}</small>
+              </label>
             </>
           ) : (
             <>

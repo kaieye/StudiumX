@@ -417,12 +417,18 @@ type TeachingWorkspaceServiceOptions = {
   durableWarn?: (message: string) => void
   /** Optional user MCP session manager for agent-run inject (ADR-0128). */
   mcpSessionManager?: import('./mcp/session-manager').McpSessionManager | null
+  /**
+   * Optional MCP host for multi-source prepare / controlled auto-connect
+   * before agent-run inject (ADR-0137). When present, preferred over bare session manager.
+   */
+  mcpHost?: import('./mcp/host').McpHost | null
 }
 
 export class TeachingWorkspaceService {
   private readonly registryPath: string
   private readonly appDataRoot: string
   private readonly mcpSessionManager: import('./mcp/session-manager').McpSessionManager | null
+  private readonly mcpHost: import('./mcp/host').McpHost | null
   private readonly defaultRoot: string
   private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
   private readonly skillLibraryService?: SkillLibraryService
@@ -454,6 +460,7 @@ export class TeachingWorkspaceService {
     this.registryPath = options.registryPath
     this.appDataRoot = dirname(this.registryPath)
     this.mcpSessionManager = options.mcpSessionManager ?? null
+    this.mcpHost = options.mcpHost ?? null
     this.defaultRoot = options.defaultRoot
     this.settingsProvider = options.settingsProvider
     this.skillLibraryService = options.skillLibraryService
@@ -602,34 +609,37 @@ export class TeachingWorkspaceService {
     activeWorkspaceId?: string | null
     selectedLessonPath?: string | null
   } = {}): Promise<TeachingAppState> {
-    return this.activation.load(options)
+    const state = await this.activation.load(options)
+    this.maybePrepareMcpForActiveWorkspace(state)
+    return state
   }
 
-
-  async listWorkspaceSummariesForAnalytics(): Promise<AnalyticsWorkspaceScanResult[]> {
-    const registry = await this.ensureRegistry()
-    const visible = visibleRegistryWorkspaces(orderRegistryWorkspaces(registry.workspaces))
-    return Promise.all(visible.map(async (workspace) => {
-      try {
-        return {
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-          rootPath: workspace.rootPath,
-          summary: await this.summarizeWorkspace(workspace)
-        }
-      } catch {
-        return {
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-          rootPath: workspace.rootPath,
-          error: 'workspace_scan_failed'
-        }
-      }
-    }))
+  async createWorkspace(payload: CreateWorkspacePayload): Promise<TeachingAppState> {
+    const state = await this.activation.create(payload)
+    this.maybePrepareMcpForActiveWorkspace(state)
+    return state
   }
 
-  async listTemporaryConversationSummariesForAnalytics(): Promise<AgentConversationSummary[]> {
-    return this.listTemporaryConversations(await this.ensureRegistry())
+  async selectWorkspace(workspaceId: string): Promise<TeachingAppState> {
+    const state = await this.activation.select(workspaceId)
+    this.maybePrepareMcpForActiveWorkspace(state)
+    return state
+  }
+
+  async importWorkspace(rootPath: string): Promise<TeachingAppState> {
+    const state = await this.activation.import(rootPath)
+    this.maybePrepareMcpForActiveWorkspace(state)
+    return state
+  }
+
+  /**
+   * ADR-0141: when a workspace becomes active and MCP host is present,
+   * prepare multi-source config + controlled auto-connect (fail-soft).
+   */
+  private maybePrepareMcpForActiveWorkspace(state: TeachingAppState): void {
+    const root = state.activeWorkspace?.rootPath
+    if (!root || !this.mcpHost) return
+    void this.mcpHost.prepareForWorkspace(root).catch(() => undefined)
   }
 
   async readTemporaryConversationForAnalytics(
@@ -680,18 +690,6 @@ export class TeachingWorkspaceService {
       roots.set(resolve(root), root)
     }
     return [...roots.values()].map((root) => new AgentRunStore(root))
-  }
-
-  async createWorkspace(payload: CreateWorkspacePayload): Promise<TeachingAppState> {
-    return this.activation.create(payload)
-  }
-
-  async selectWorkspace(workspaceId: string): Promise<TeachingAppState> {
-    return this.activation.select(workspaceId)
-  }
-
-  async importWorkspace(rootPath: string): Promise<TeachingAppState> {
-    return this.activation.import(rootPath)
   }
 
   /**
@@ -1112,6 +1110,7 @@ export class TeachingWorkspaceService {
     const result = await runTeachingConversationTurn(payload, stream, runtimeWorkspace, {
       appDataRoot: this.appDataRoot,
       mcpSessionManager: this.mcpSessionManager,
+      mcpHost: this.mcpHost,
       runStore: new AgentRunStore(runStorageRoot),
       loadSettings: () => this.loadSettings(),
       listMemories: (workspaceRoot, includeDeleted) => this.memoryStore.list(workspaceRoot, includeDeleted === true),

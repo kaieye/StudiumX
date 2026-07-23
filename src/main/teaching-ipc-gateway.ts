@@ -96,6 +96,11 @@ export interface TeachingIpcRegistration {
   mcpFactsSource?: {
     loadConfig(): Promise<import('../shared/mcp/types').UserMcpConfigV1 | null>
     listRuntime(): readonly import('../shared/mcp/types').McpRuntimeServerView[]
+    getHostAggregates?(): {
+      effectiveSourceCount?: number
+      sourceWarningCount?: number
+      marketplaceEmergencyDisabled?: boolean
+    } | null
   } | null
 }
 
@@ -738,7 +743,9 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             ? [
                 createTeachingDoctorMcpFactsCollector({
                   loadConfig: () => context.mcpFactsSource!.loadConfig(),
-                  listRuntime: () => context.mcpFactsSource!.listRuntime()
+                  listRuntime: () => context.mcpFactsSource!.listRuntime(),
+                  getHostAggregates: () =>
+                    context.mcpFactsSource!.getHostAggregates?.() ?? null
                 })
               ]
             : [])

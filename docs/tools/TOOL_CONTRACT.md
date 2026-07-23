@@ -60,11 +60,15 @@ Bridge rules (product invariants):
 | --- | --- |
 | Naming | Registered tool names are `mcp__{serverId}__{rawToolName}` only. |
 | Default effect | `privileged` unless an explicit per-tool override maps to `read` / `workspace_write` / `external_write` / `privileged`. |
-| Permission | Non-`read` MCP tools require interactive approval; enabling a server is **not** tool-call authorization. |
-| Handler stance | MCP handlers must not write workspace files, LearningSession ledger, or teaching outcomes. Results are data only. |
-| Budget | Per-server / global tool and schema budgets apply at list/register time (see ADR-0128 §5.3). |
-| Settlement | MCP is orthogonal to settlement sole-writer; fork paths keep `toolsReplayed: false`. |
-| Defaults | Root MCP switch default **off**; no auto-connect; no marketplace; no YOLO / always-approve labels. |
+| Permission | Non-`read` MCP tools require interactive approval (or existing risk-based/lesson grant UX). Enabling/auto-connecting a server **lists** tools for the model; it does **not** skip effect/permission for side-effecting calls (ADR-0141). |
+| Provenance | UI / diagnostics should surface config **source** (user settings, import, future workspace/plugin/marketplace) when multi-source lands; provenance is display + policy input, not an effect downgrade. |
+| Annotations | Remote tool annotations (`readOnlyHint`, etc.) are **display-only** metadata; they **never** downgrade registry effect or skip approval. |
+| Handler stance | MCP handlers must not write workspace files, LearningSession ledger, or teaching outcomes; MCP modules must not import ledger / outcome committer. Results are data only (ADR-0134) — **not** teaching evidence. |
+| Secrets | Resolved headers/env/OAuth tokens stay main-process only; never on renderer/preload IPC, Doctor, or support bundle (ADR-0128 / ADR-0135). |
+| Budget | Per-server / global tool and schema budgets apply at list/register time (see ADR-0128 §5.3); result normalizer applies MCP budgets before generic tool result budgets (ADR-0134). |
+| Settlement | MCP is orthogonal to settlement sole-writer (`TeachingTurnCoordinator` / host); fork paths keep `toolsReplayed: false`; MCP does not widen `expectedRevision`. |
+| Workspace-root | Filesystem workspace-root injection (ADR-0138 + ADR-0141) may **default on** for recognized filesystem servers (user can disable); still not a bypass of `write_workspace_file` / teaching writers. |
+| Defaults | Root switch may ship off for first-run zero-connect; once enabled, **auto-connect is a supported default** (ADR-0141). Marketplace / plugin install may connect. Tool **invocation** still uses effect lattice + approval — no YOLO. Annotations may inform UX and optional effect suggestions under policy. |
 | Fingerprint | MCP tools that are registered for a run **are** included in tools-schema fingerprint (ADR-0060). |
 
 Static teaching tools remain the authoritative closed set in this document. Dynamic MCP audit snapshots may record registered names and effects without expanding this table.

@@ -12,6 +12,7 @@ import type {
   ToolRegistry
 } from '../ai/tools/registry'
 import { annotationsForEffectClass } from '../ai/tools/annotations'
+import { McpApplicationToolError } from '../ai/tools/mcp-application-error'
 import { setMcpEffectLookup } from '../ai/tools/effect-policy'
 import { capabilitiesForEffectClass } from '../ai/tools/tool-capabilities'
 import {
@@ -76,6 +77,12 @@ export function createMcpToolEntry(
         callCtx?.signal ?? _ctx.signal
       )
       if (!result.ok) {
+        // MCP protocol application errors are an explicit terminal failure, not
+        // error-shaped successful tool content. The session manager has already
+        // normalized and bounded this untrusted server-controlled message.
+        if (result.errorCode === 'mcp_application_error') {
+          throw new McpApplicationToolError(result.modelText || result.message)
+        }
         return JSON.stringify(
           {
             ok: false,
