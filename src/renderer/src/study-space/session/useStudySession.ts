@@ -711,7 +711,8 @@ export function useStudySession({
       const answer = await onPhasePromptAsk({ completed: normalizedCompleted })
       const answerIntent = resolvePhasePromptAnswerIntent({
         action: answer?.action,
-        extendMinutes: answer?.extendMinutes
+        extendMinutes:
+          answer?.action === 'extend_and_start' ? answer.extendMinutes : undefined
       })
       if (answerIntent.kind === 'noop') return
       if (answerIntent.kind === 'skip_to_focus_idle') {

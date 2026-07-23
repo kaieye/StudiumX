@@ -33,6 +33,14 @@ export type StudyTimerPlanKind = TimerPlanKind
 export type StudyTimerClockMode = TimerClockMode
 export type ContinuousBreakPolicy = BreakPolicy
 
+type TimerPlanKindInput = Pick<
+  StudyTimerPlan,
+  'kind' | 'clockMode' | 'continuousTarget' | 'continuousMode'
+> & {
+  /** External/UI shells may not have a validated focus target yet. */
+  focusMinutes?: number | null
+}
+
 export type TimerPlanKindFields = {
   kind?: StudyTimerPlanKind
   clockMode?: StudyTimerClockMode
@@ -241,10 +249,7 @@ const CONTINUOUS_MODE_SET = new Set<ContinuousMode>(['open', 'target', 'exam'])
  * - continuous + countdown → target (cycle)
  */
 export function continuousModeFromV1(
-  plan: Pick<
-    StudyTimerPlan,
-    'kind' | 'clockMode' | 'continuousTarget' | 'continuousMode' | 'focusMinutes'
-  >
+  plan: TimerPlanKindInput
 ): ContinuousMode {
   const raw = plan.continuousMode
   if (typeof raw === 'string' && CONTINUOUS_MODE_SET.has(raw as ContinuousMode)) {
