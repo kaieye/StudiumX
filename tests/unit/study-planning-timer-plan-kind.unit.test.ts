@@ -152,6 +152,55 @@ describe('project continuous open / target', () => {
   })
 })
 
+
+  it('does not label continuous cycle countdown as exam (countup toggle off)', () => {
+    const original: StudyTimerPlan = {
+      id: 'cont-cycle-cd',
+      name: 'cycle-cd',
+      focusMinutes: 50,
+      breakMinutes: 10,
+      ...window,
+      kind: 'continuous',
+      clockMode: 'countdown',
+      continuousTarget: false,
+      breakPolicy: 'ask'
+    }
+    const v2 = projectV1TimerPlanToV2(original)
+    expect(v2.kind).toBe('continuous')
+    expect(v2.clockMode).toBe('countdown')
+    expect(v2.focusMinutes).toBe(50)
+    const back = projectV2TimerPlanToV1(v2, window)
+    expect(back).toMatchObject({
+      id: 'cont-cycle-cd',
+      kind: 'continuous',
+      clockMode: 'countdown',
+      continuousTarget: false,
+      focusMinutes: 50,
+      breakMinutes: 10
+    })
+    expect(resolvePlanV2ForStart({ planId: original.id, userPlans: [original] }).clockMode).toBe(
+      'countdown'
+    )
+  })
+
+  it('keeps pomodoro countdown after countup toggle off (resolve for start)', () => {
+    const original: StudyTimerPlan = {
+      id: 'pomo-cd',
+      name: 'pomo-cd',
+      focusMinutes: 25,
+      breakMinutes: 5,
+      ...window,
+      kind: 'pomodoro',
+      clockMode: 'countdown'
+    }
+    const v2 = projectV1TimerPlanToV2(original)
+    expect(v2.clockMode).toBe('countdown')
+    expect(projectV2TimerPlanToV1(v2, window).clockMode).toBe('countdown')
+    expect(resolvePlanV2ForStart({ planId: original.id, userPlans: [original] }).clockMode).toBe(
+      'countdown'
+    )
+  })
+
 describe('formatTimerPlanKindSummary', () => {
   it('labels open continuous', () => {
     expect(

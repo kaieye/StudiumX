@@ -323,9 +323,15 @@ export function projectV2TimerPlanToV1(
   }).fields
 
   if (plan.kind === 'continuous') {
-    // Builtin continuous_countup is the product 考场模拟 seed (wall window + countup).
+    // Exam wall simulation: builtin continuous_countup, or countup with a focus
+    // target (continuousTarget true on V1). Continuous *cycle* uses countdown with
+    // focusMinutes and must NOT be labeled exam — otherwise the face/start path
+    // still runs countup after the user turns 正计时 off.
+    const clockMode = plan.clockMode === 'countdown' ? 'countdown' : 'countup'
     const isExamSeed =
-      plan.id === 'continuous_countup' || plan.focusMinutes != null
+      plan.id === 'continuous_countup'
+      || (clockMode === 'countup' && plan.focusMinutes != null)
+    const openCountup = !isExamSeed && clockMode === 'countup' && plan.focusMinutes == null
     return {
       id: plan.id,
       name: plan.name,
@@ -334,11 +340,11 @@ export function projectV2TimerPlanToV1(
         ?? (plan.id === 'continuous_countup' ? 180 : TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes),
       breakMinutes:
         plan.shortBreakMinutes
-        ?? (isExamSeed ? 0 : TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes),
+        ?? (isExamSeed || openCountup ? 0 : TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes),
       simulationStartTime: window?.simulationStartTime ?? '09:00',
       simulationEndTime: window?.simulationEndTime ?? '12:00',
       kind: 'continuous',
-      clockMode: plan.clockMode === 'countdown' ? 'countdown' : 'countup',
+      clockMode,
       continuousTarget: isExamSeed,
       breakPolicy: plan.breakPolicy
     }

@@ -617,14 +617,22 @@ export function WorkbenchPomodoro({
     if (row) {
       const nextKind = next.kind === 'continuous' ? 'continuous' : 'pomodoro'
       const rowKind = row.planKind === 'continuous' ? 'continuous' : 'pomodoro'
+      // Compare draft clock/exam flags to the applied shell — not a hard-coded
+      // "countdown implies same as catalog". Turning 正计时 off must still applyOnly
+      // so the next start freezes countdown (or cycle continuous, not exam).
+      const appliedShell = resolveTimerPlanShellForCatalog(row.id, snapshot.timerPlans)
+      const draftClock = next.clockMode === 'countup' ? 'countup' : 'countdown'
+      const shellClock = appliedShell?.clockMode === 'countup' ? 'countup' : 'countdown'
+      const draftExam = next.continuousTarget === true
+      const shellExam = appliedShell?.continuousTarget === true
       const sameTimer =
         nextKind === rowKind
         && next.focusMinutes === row.focusMinutes
         && next.breakMinutes === row.breakMinutes
         && next.simulationStartTime === row.simulationStartTime
         && next.simulationEndTime === row.simulationEndTime
-        && (next.continuousTarget === true) === false
-        && next.clockMode !== 'countup'
+        && draftClock === shellClock
+        && draftExam === shellExam
       if (sameTimer) return
     }
     onSaveTimerPlan({

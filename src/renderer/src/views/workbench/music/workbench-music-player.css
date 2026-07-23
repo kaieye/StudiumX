@@ -58,8 +58,14 @@
   position: absolute;
   inset-inline: 0;
   bottom: 0;
+  display: flex;
+  flex-direction: column;
   height: var(--workbench-music-reveal-height);
+  max-height: var(--workbench-music-reveal-height);
   padding-bottom: 10px;
+  box-sizing: border-box;
+  /* Keep overflow visible for volume popover; lists clip themselves. */
+  overflow: visible;
 }
 
 /* The reveal itself must remain overflow-visible once open so the volume
@@ -82,9 +88,15 @@
 .workbench-music-panel {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
-  gap: 12px;
-  padding: 4px 2px 2px;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  gap: 10px;
+  padding: 4px 2px 0;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .workbench-music-head {
@@ -529,6 +541,106 @@
    surface while every tab touches the next one with no individual card shell.
    The highlight is a single moving pill, so both of its ends stay round while
    the selection glides between tabs. */
+/* Panel rail hosts the segment switch; search expands from the「搜索」slot. */
+.workbench-music-panel-rail {
+  position: relative;
+  width: 100%;
+}
+
+.workbench-music-panel-rail.is-search .workbench-music-panel-switch {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Search field overlays the rail, same vertical metrics as the active indicator pill. */
+.workbench-music-search-expand {
+  position: absolute;
+  z-index: 3;
+  top: 1px;
+  bottom: 1px;
+  /* Collapsed: only the second segment (搜索), centered expand origin. */
+  left: calc(1px + (100% - 2px) * 0.25);
+  width: calc((100% - 2px) * 0.25);
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 2px;
+  padding: 0 3px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-full, 999px);
+  background: var(--surface-solid, #fff);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 3px 8px rgba(0, 0, 0, 0.06);
+  opacity: 0;
+  pointer-events: none;
+  transform: none;
+  transition:
+    left 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease;
+}
+
+.workbench-music-search-expand.is-open {
+  left: 1px;
+  width: calc(100% - 2px);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.workbench-music-search-expand input {
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text, #17202b);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 680;
+}
+
+.workbench-music-search-expand .workbench-music-search-submit,
+.workbench-music-search-close {
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  max-height: 24px;
+  padding: 0;
+  border-radius: 8px;
+  align-self: center;
+}
+
+.workbench-music-search-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--text, #17202b) 55%, transparent);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    background 140ms ease;
+}
+
+.workbench-music-search-close:hover {
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.055);
+}
+
+.workbench-music-search-expand .workbench-music-search-submit:hover:not(:disabled) {
+  border-radius: 8px;
+}
+
+.workbench-music-search-body {
+  min-height: 0;
+}
+
 /* Panel switch (播放/搜索/曲库/账号) — same segmented chrome as surface switch. */
 .workbench-music-panel-switch {
   position: relative;
@@ -611,13 +723,53 @@
 
 .workbench-music-list {
   --scrollbar-track: transparent;
-  max-height: 168px;
-  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 5px;
   padding-right: 2px;
+  margin-bottom: 0;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* Tab bodies fill remaining panel height; lists scroll inside. */
+.workbench-music-search-body,
+.workbench-music-library-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.workbench-music-search-body > .workbench-music-list,
+.workbench-music-library-body > .workbench-music-list,
+.workbench-music-list--fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.workbench-music-library-body > .workbench-music-library-actions,
+.workbench-music-library-body > .workbench-music-section-title {
+  flex: 0 0 auto;
+}
+
+/* Non-scrolling chrome above the list. */
+.workbench-music-head,
+.workbench-music-now,
+.workbench-music-progress,
+.workbench-music-panel-rail,
+.workbench-music-status {
+  flex: 0 0 auto;
 }
 
 .workbench-music-list::-webkit-scrollbar-track,
@@ -727,7 +879,9 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 18px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
 }
 
 .workbench-music-search-form {
@@ -760,13 +914,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 28px;
-  min-height: 28px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
   padding: 0;
   color: color-mix(in srgb, var(--text, #17202b) 62%, transparent);
   border: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   box-shadow: none;
   cursor: pointer;
@@ -830,6 +985,9 @@
 }
 
 .workbench-music-account {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1062,6 +1220,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .workbench-music-search-expand {
+    transition-duration: 1ms;
+  }
+
   .workbench-music-card .is-spinning {
     animation: none;
   }
@@ -1191,6 +1353,26 @@
 }
 
 :root[data-resolved-theme='dark'] .workbench-music-search-submit:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-search-expand {
+  background: var(--surface-solid, #1c1c1e);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.26),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-search-expand input {
+  color: var(--text, #f5f5f7);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-search-close {
+  color: color-mix(in srgb, var(--text) 72%, #ffffff);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-search-close:hover {
   color: var(--text);
   background: var(--surface-hover);
 }

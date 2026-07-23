@@ -15,7 +15,8 @@ import {
   SkipForward,
   UserRound,
   Volume2,
-  VolumeX
+  VolumeX,
+  X
 } from 'lucide-react'
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type {
@@ -207,6 +208,7 @@ export function WorkbenchMusicPlayer() {
   const playAtIndexRef = useRef<(index: number, sourceQueue?: MusicSong[]) => Promise<void>>(
     async () => undefined
   )
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   const [surface, setSurface] = useState<MusicSurface>('netease')
   const provider: MusicProvider = surface === 'studiumx' ? 'netease' : surface
@@ -300,6 +302,25 @@ export function WorkbenchMusicPlayer() {
     setIsVolumeOpen(false)
     setSurface(next)
   }, [])
+
+  useEffect(() => {
+    if (tab !== 'search') return
+    const id = window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    })
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setTab('player')
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.cancelAnimationFrame(id)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [setTab, tab])
 
   useEffect(() => {
     if (!isVolumeOpen) return
@@ -629,7 +650,8 @@ export function WorkbenchMusicPlayer() {
       const result = await musicSearch(target, keywords, 24)
       patchProviderUi(target, {
         searchResults: result.songs,
-        statusText: result.songs.length === 0 ? '未找到相关歌曲' : `找到 ${result.songs.length} 首`,
+        // Keep the footer clear on success — empty state lives in the list body.
+        statusText: result.songs.length === 0 ? '未找到相关歌曲' : '',
         tab: 'search'
       })
     } catch (error) {
@@ -962,44 +984,89 @@ export function WorkbenchMusicPlayer() {
               </div>
 
               <div
-                className="workbench-music-panel-switch"
+                className={`workbench-music-panel-rail${tab === 'search' ? ' is-search' : ''}`}
                 data-active-tab={tab}
-                role="tablist"
-                aria-label="音乐面板"
               >
-                <span className="workbench-music-panel-switch-indicator" aria-hidden="true" />
-                {(
-                  [
-                    ['player', '播放'],
-                    ['search', '搜索'],
-                    ['library', '曲库'],
-                    ['account', '账号']
-                  ] as const
-                ).map(([id, label]) => {
-                  const isActive = tab === id
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      role="tab"
-                      aria-selected={isActive}
-                      className={`workbench-music-panel-switch-btn${isActive ? ' is-active' : ''}`}
-                      onClick={() => {
-                        setIsVolumeOpen(false)
-                        setTab(id)
-                        if (id === 'library' && playlists.length === 0 && librarySongs.length === 0) {
-                          void loadLibraryPlaylists()
-                        }
-                      }}
-                    >
-                      <span>{label}</span>
-                    </button>
-                  )
-                })}
+                <div
+                  className="workbench-music-panel-switch"
+                  data-active-tab={tab}
+                  role="tablist"
+                  aria-label="音乐面板"
+                  aria-hidden={tab === 'search'}
+                >
+                  <span className="workbench-music-panel-switch-indicator" aria-hidden="true" />
+                  {(
+                    [
+                      ['player', '播放'],
+                      ['search', '搜索'],
+                      ['library', '曲库'],
+                      ['account', '账号']
+                    ] as const
+                  ).map(([id, label]) => {
+                    const isActive = tab === id
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        tabIndex={tab === 'search' ? -1 : undefined}
+                        className={`workbench-music-panel-switch-btn${isActive ? ' is-active' : ''}`}
+                        onClick={() => {
+                          setIsVolumeOpen(false)
+                          setTab(id)
+                          if (id === 'library' && playlists.length === 0 && librarySongs.length === 0) {
+                            void loadLibraryPlaylists()
+                          }
+                        }}
+                      >
+                        <span>{label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <form
+                  className={`workbench-music-search-expand${tab === 'search' ? ' is-open' : ''}`}
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void handleSearch()
+                  }}
+                  aria-hidden={tab !== 'search'}
+                >
+                  <button
+                    type="button"
+                    className="workbench-music-search-close"
+                    onClick={() => setTab('player')}
+                    aria-label="关闭搜索"
+                    title="关闭搜索"
+                    tabIndex={tab === 'search' ? 0 : -1}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                  <input
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder={`搜索${PROVIDER_LABEL[provider]}歌曲`}
+                    aria-label="搜索歌曲"
+                    tabIndex={tab === 'search' ? 0 : -1}
+                  />
+                  <button
+                    type="submit"
+                    className="workbench-music-search-submit"
+                    disabled={busy}
+                    aria-label="搜索"
+                    title="搜索"
+                    tabIndex={tab === 'search' ? 0 : -1}
+                  >
+                    <Search size={15} aria-hidden="true" />
+                  </button>
+                </form>
               </div>
 
               {tab === 'player' ? (
-                <div className="workbench-music-list" role="list" aria-label="当前队列">
+                <div className="workbench-music-list workbench-music-list--fill" role="list" aria-label="当前队列">
                   {surfaceQueueEntries.length === 0 ? (
                     <div className="workbench-music-empty">
                       本平台队列为空，去搜索或打开歌单吧
@@ -1023,30 +1090,7 @@ export function WorkbenchMusicPlayer() {
               ) : null}
 
               {tab === 'search' ? (
-                <div>
-                  <form
-                    className="workbench-music-search-form"
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      void handleSearch()
-                    }}
-                  >
-                    <input
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder={`搜索${PROVIDER_LABEL[provider]}歌曲`}
-                      aria-label="搜索歌曲"
-                    />
-                    <button
-                      type="submit"
-                      className="workbench-music-search-submit"
-                      disabled={busy}
-                      aria-label="搜索"
-                      title="搜索"
-                    >
-                      <Search size={16} aria-hidden="true" />
-                    </button>
-                  </form>
+                <div className="workbench-music-search-body">
                   <div className="workbench-music-list" role="list" aria-label="搜索结果">
                     {searchResults.length === 0 ? (
                       <div className="workbench-music-empty">输入关键词搜索歌曲</div>
@@ -1073,7 +1117,7 @@ export function WorkbenchMusicPlayer() {
               ) : null}
 
               {tab === 'library' ? (
-                <div>
+                <div className="workbench-music-library-body">
                   <div className="workbench-music-library-actions">
                     <button type="button" onClick={() => void loadLibraryPlaylists()} disabled={busy}>
                       我的歌单
