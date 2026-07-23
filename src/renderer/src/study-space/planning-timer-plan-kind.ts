@@ -14,6 +14,8 @@ import {
   createContinuousCountupPlan,
   createExamSimulationPlan,
   createOpenContinuousPlan,
+  focusTargetSecondsForPlan,
+  isOpenContinuousPlanV2,
   createCustomRhythmPlan,
   sumCustomRhythmMinutes,
   TIMER_PLAN_SEED_DEFAULTS,
@@ -144,8 +146,11 @@ export function timerPlanKindToUi(
   continuousTarget?: boolean,
   continuousMode?: ContinuousMode | string | null
 ): StudyTimerPlanKindUi {
-  const exam =
-    continuousMode === 'exam' || continuousTarget === true
+  const exam = isExamContinuousPlan({
+    kind,
+    continuousTarget,
+    continuousMode
+  })
   if (kind === 'continuous' && exam) return 'exam'
   if (kind === 'continuous') return 'continuous'
   if (kind === 'custom_rhythm') return 'custom_rhythm'
@@ -197,8 +202,7 @@ export function isValidContinuousPlanDraft(draft: {
     if (start && end && start >= end) return false
   }
 
-  const isExam =
-    draft.continuousMode === 'exam' || draft.continuousTarget === true
+  const isExam = isExamContinuousPlan(draft)
   if (isExam) {
     // Exam UI: only total minutes required (no separate focus target field).
     return total != null || Boolean(draft.simulationStartTime && draft.simulationEndTime && draft.simulationStartTime < draft.simulationEndTime)
@@ -261,6 +265,39 @@ export function continuousModeFromV1(
   if (clockMode === 'countup' && !hasFocusTarget) return 'open'
   // countup + focus present + non-exam → target (must not collapse to open)
   return 'target'
+}
+
+/**
+ * Single exam-detection predicate for UI + draft + face clock.
+ * Prefer continuousModeFromV1 over continuousTarget-only checks at call sites.
+ */
+export function isExamContinuousPlan(
+  plan:
+    | Pick<
+        StudyTimerPlan,
+        'kind' | 'clockMode' | 'continuousTarget' | 'continuousMode' | 'focusMinutes'
+      >
+    | {
+        continuousMode?: ContinuousMode | string | null
+        continuousTarget?: boolean
+        kind?: StudyTimerPlan['kind'] | string
+        clockMode?: StudyTimerPlan['clockMode'] | string
+        focusMinutes?: number | null
+      }
+    | null
+    | undefined
+): boolean {
+  if (!plan) return false
+  return continuousModeFromV1({
+    kind: plan.kind as StudyTimerPlan['kind'] | undefined,
+    clockMode: plan.clockMode as StudyTimerPlan['clockMode'] | undefined,
+    continuousTarget: plan.continuousTarget === true,
+    continuousMode: plan.continuousMode as ContinuousMode | undefined,
+    focusMinutes:
+      typeof plan.focusMinutes === 'number' && Number.isFinite(plan.focusMinutes)
+        ? plan.focusMinutes
+        : undefined
+  }) === 'exam'
 }
 
 function isOpenContinuous(
@@ -534,19 +571,11 @@ export function resolvePlanV2ForStart(input: {
  * Open continuous countup → null (lifecycle open-ended).
  */
 export function resolveStartTargetSeconds(plan: TimerPlanV2): number | null {
-  if (isOpenContinuousPlanV2(plan)) {
-    return null
-  }
-  if (plan.focusMinutes != null) return Math.max(1, plan.focusMinutes * 60)
-  return 25 * 60
+  return focusTargetSecondsForPlan(plan)
 }
 
-export function isOpenContinuousPlanV2(plan: TimerPlanV2): boolean {
-  if (plan.kind !== 'continuous') return false
-  if (plan.continuousMode === 'open') return true
-  if (plan.continuousMode === 'exam' || plan.continuousMode === 'target') return false
-  return plan.clockMode === 'countup' && plan.focusMinutes == null
-}
+export { isOpenContinuousPlanV2 }
+
 
 
 /** Validate custom_rhythm draft for save (ordered sequence, fail-closed). */

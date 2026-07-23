@@ -7,7 +7,10 @@ import {
   createClassicPomodoroPlan
 } from '../../src/shared/study-planning'
 import {
+  continuousModeFromV1,
   formatTimerPlanKindSummary,
+  isExamContinuousPlan,
+  timerPlanKindToUi,
   isOpenContinuousPlanV2,
   isValidContinuousPlanDraft,
   normalizeTimerPlanKindFields,
@@ -424,6 +427,85 @@ describe('resolvePlanV2ForStart / createContinuousCountupPlan', () => {
     expect(v2.kind).toBe('pomodoro')
     expect(v2.breakPolicy).toBe('ask')
     expect(createClassicPomodoroPlan().kind).toBe('pomodoro')
+  })
+})
+
+
+
+describe('timerPlanKindToUi continuousMode authority', () => {
+  it('maps continuous + continuousMode exam to exam UI', () => {
+    expect(timerPlanKindToUi('continuous', false, 'exam')).toBe('exam')
+  })
+
+  it('maps legacy continuousTarget true to exam UI', () => {
+    expect(timerPlanKindToUi('continuous', true, undefined)).toBe('exam')
+  })
+
+  it('does not map continuous target countup to exam UI', () => {
+    expect(timerPlanKindToUi('continuous', false, 'target')).toBe('continuous')
+  })
+})
+
+describe('isExamContinuousPlan / continuousModeFromV1 authority', () => {
+  it('returns false for nullish input', () => {
+    expect(isExamContinuousPlan(null)).toBe(false)
+    expect(isExamContinuousPlan(undefined)).toBe(false)
+  })
+
+  it('prefers continuousMode exam over missing continuousTarget', () => {
+    expect(
+      isExamContinuousPlan({
+        kind: 'continuous',
+        clockMode: 'countup',
+        continuousMode: 'exam',
+        continuousTarget: false,
+        focusMinutes: 90
+      })
+    ).toBe(true)
+    expect(
+      continuousModeFromV1({
+        kind: 'continuous',
+        clockMode: 'countup',
+        continuousMode: 'exam',
+        continuousTarget: false,
+        focusMinutes: 90
+      })
+    ).toBe('exam')
+  })
+
+  it('legacy continuousTarget true maps to exam', () => {
+    expect(
+      isExamContinuousPlan({
+        kind: 'continuous',
+        clockMode: 'countup',
+        continuousTarget: true,
+        focusMinutes: 90
+      })
+    ).toBe(true)
+  })
+
+  it('does not treat continuous target countup as exam', () => {
+    expect(
+      isExamContinuousPlan({
+        kind: 'continuous',
+        clockMode: 'countup',
+        continuousMode: 'target',
+        continuousTarget: false,
+        focusMinutes: 25
+      })
+    ).toBe(false)
+  })
+
+  it('does not treat open continuous as exam', () => {
+    expect(
+      isExamContinuousPlan({
+        kind: 'continuous',
+        clockMode: 'countup',
+        continuousMode: 'open',
+        continuousTarget: false,
+        focusMinutes: 0
+      })
+    ).toBe(false)
   })
 })
 

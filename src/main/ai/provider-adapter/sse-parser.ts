@@ -3,6 +3,7 @@ import type { ToolCall } from '../provider-adapter'
 import { normalizeStopReason, type ProviderStopReason } from '../provider-hooks'
 import { parseDsmlToolCalls, stripDsmlToolCallBlocks } from './dsml-tool-calls'
 import { toolsSupportedForFormat } from './formats'
+import { extractUsage, type ProviderUsage } from './response-parser'
 
 type ToolCallFragment = {
   index: number
@@ -35,6 +36,22 @@ function normalizeStreamText(value: unknown): string | undefined {
     return joined
   }
   return undefined
+}
+
+/** Shared content/reasoning extraction from OpenAI-compatible delta objects. */
+function textAndReasoningFromOpenAiDelta(delta: {
+  content?: unknown
+  text?: unknown
+  reasoning_content?: unknown
+  reasoning?: unknown
+}): { content?: string; reasoning?: string } {
+  const content = normalizeStreamText(delta.content) ?? normalizeStreamText(delta.text)
+  const reasoning =
+    normalizeStreamText(delta.reasoning_content) ?? normalizeStreamText(delta.reasoning)
+  return {
+    ...(content ? { content } : {}),
+    ...(reasoning ? { reasoning } : {})
+  }
 }
 
 function extractStreamDelta(format: ModelEndpointFormat, event: unknown): { content?: string; reasoning?: string } {
@@ -70,27 +87,23 @@ function extractStreamDelta(format: ModelEndpointFormat, event: unknown): { cont
       delta?: { content?: unknown; text?: unknown; reasoning_content?: unknown; reasoning?: unknown }
     })?.delta
     if (!delta) return {}
-    const content = normalizeStreamText(delta.content) ?? normalizeStreamText(delta.text)
-    const reasoning = normalizeStreamText(delta.reasoning_content) ?? normalizeStreamText(delta.reasoning)
-    return {
-      ...(content ? { content } : {}),
-      ...(reasoning ? { reasoning } : {})
-    }
+    return textAndReasoningFromOpenAiDelta(delta)
   }
   return {}
 }
 
-
-export async function readSseStream(
+/**
+ * Shared SSE framing loop (sole place for decode / data: / [DONE] / line split).
+ * onPayload receives each non-empty `data:` payload string (including the
+ * literal `[DONE]`). Return `'stop'` to end early (callers always stop on [DONE]).
+ */
+async function consumeSsePayloads(
   body: ReadableStream<Uint8Array>,
-  format: ModelEndpointFormat,
-  onToken: (delta: string) => void,
-  onReasoning?: (delta: string) => void
-): Promise<string> {
+  onPayload: (payload: string) => 'continue' | 'stop'
+): Promise<void> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  let acc = ''
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -101,17 +114,46 @@ export async function readSseStream(
       const trimmed = line.trim()
       if (!trimmed.startsWith('data:')) continue
       const data = trimmed.slice(5).trim()
-      if (data === '[DONE]') return acc
       if (!data) continue
-      const delta = extractStreamDelta(format, safeJsonParse(data))
-      if (delta.reasoning) onReasoning?.(delta.reasoning)
-      if (delta.content) {
-        acc += delta.content
-        onToken(delta.content)
-      }
+      if (onPayload(data) === 'stop') return
     }
   }
-  return acc
+}
+
+export type TextSseStreamResult = {
+  text: string
+  usage?: ProviderUsage
+}
+
+/**
+ * Text-only SSE stream. Accumulates answer text and last-seen usage
+ * (when hosts honor stream_options.include_usage).
+ */
+export async function readSseStream(
+  body: ReadableStream<Uint8Array>,
+  format: ModelEndpointFormat,
+  onToken: (delta: string) => void,
+  onReasoning?: (delta: string) => void
+): Promise<TextSseStreamResult> {
+  let acc = ''
+  let usage: ProviderUsage | undefined
+  await consumeSsePayloads(body, (data) => {
+    if (data === '[DONE]') return 'stop'
+    const parsed = safeJsonParse(data)
+    const chunkUsage = extractUsage(format, parsed)
+    if (chunkUsage) usage = chunkUsage
+    const delta = extractStreamDelta(format, parsed)
+    if (delta.reasoning) onReasoning?.(delta.reasoning)
+    if (delta.content) {
+      acc += delta.content
+      onToken(delta.content)
+    }
+    return 'continue'
+  })
+  return {
+    text: acc,
+    ...(usage ? { usage } : {})
+  }
 }
 
 function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
@@ -142,10 +184,9 @@ function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
     out.finishReason = normalizeStopReason(choice.finish_reason)
   }
   if (!delta) return out
-  const content = normalizeStreamText(delta.content) ?? normalizeStreamText(delta.text)
-  if (content) out.content = content
-  const reasoning = normalizeStreamText(delta.reasoning_content) ?? normalizeStreamText(delta.reasoning)
-  if (reasoning) out.reasoning = reasoning
+  const textParts = textAndReasoningFromOpenAiDelta(delta)
+  if (textParts.content) out.content = textParts.content
+  if (textParts.reasoning) out.reasoning = textParts.reasoning
   if (Array.isArray(delta.tool_calls)) {
     out.toolCalls = delta.tool_calls.map((f) => {
       const fn = (f as { function?: { name?: string; arguments?: string } }).function ?? {}
@@ -163,8 +204,9 @@ function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
 function assembleStream(
   textAcc: string,
   toolAcc: Map<number, { index: number; id?: string; name?: string; arguments: string }>,
-  finishReason?: ProviderStopReason
-): { text: string; toolCalls: ToolCall[]; finishReason?: ProviderStopReason } {
+  finishReason?: ProviderStopReason,
+  usage?: ProviderUsage
+): { text: string; toolCalls: ToolCall[]; finishReason?: ProviderStopReason; usage?: ProviderUsage } {
   const nativeToolCalls: ToolCall[] = []
   for (const slot of toolAcc.values()) {
     // Some OpenAI-compatible hosts stream name/args without a durable id.
@@ -183,7 +225,8 @@ function assembleStream(
   return {
     text: stripDsmlToolCallBlocks(textAcc),
     toolCalls,
-    ...(finishReason ? { finishReason } : {})
+    ...(finishReason ? { finishReason } : {}),
+    ...(usage ? { usage } : {})
   }
 }
 
@@ -192,43 +235,36 @@ export async function readChatSseStream(
   format: ModelEndpointFormat,
   onToken?: (delta: string) => void,
   onReasoning?: (delta: string) => void
-): Promise<{ text: string; toolCalls: ToolCall[]; finishReason?: ProviderStopReason }> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
+): Promise<{ text: string; toolCalls: ToolCall[]; finishReason?: ProviderStopReason; usage?: ProviderUsage }> {
   let textAcc = ''
   let finishReason: ProviderStopReason | undefined
+  let usage: ProviderUsage | undefined
   const toolAcc = new Map<number, { index: number; id?: string; name?: string; arguments: string }>()
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data:')) continue
-      const data = trimmed.slice(5).trim()
-      if (data === '[DONE]') return assembleStream(textAcc, toolAcc, finishReason)
-      if (!data) continue
-      const delta = extractChatDelta(format, safeJsonParse(data))
-      if (delta.reasoning) onReasoning?.(delta.reasoning)
-      if (delta.content) {
-        textAcc += delta.content
-        onToken?.(delta.content)
-      }
-      if (delta.finishReason) finishReason = delta.finishReason
-      if (delta.toolCalls) {
-        for (const f of delta.toolCalls) {
-          const slot = toolAcc.get(f.index) ?? { index: f.index, arguments: '' }
-          if (f.id) slot.id = f.id
-          if (f.name) slot.name = f.name
-          if (typeof f.arguments === 'string') slot.arguments += f.arguments
-          toolAcc.set(f.index, slot)
-        }
+
+  await consumeSsePayloads(body, (data) => {
+    if (data === '[DONE]') return 'stop'
+    const parsed = safeJsonParse(data)
+    // Final OpenAI-compatible chunks may carry usage with empty choices.
+    const chunkUsage = extractUsage(format, parsed)
+    if (chunkUsage) usage = chunkUsage
+    const delta = extractChatDelta(format, parsed)
+    if (delta.reasoning) onReasoning?.(delta.reasoning)
+    if (delta.content) {
+      textAcc += delta.content
+      onToken?.(delta.content)
+    }
+    if (delta.finishReason) finishReason = delta.finishReason
+    if (delta.toolCalls) {
+      for (const f of delta.toolCalls) {
+        const slot = toolAcc.get(f.index) ?? { index: f.index, arguments: '' }
+        if (f.id) slot.id = f.id
+        if (f.name) slot.name = f.name
+        if (typeof f.arguments === 'string') slot.arguments += f.arguments
+        toolAcc.set(f.index, slot)
       }
     }
-  }
-  return assembleStream(textAcc, toolAcc, finishReason)
-}
+    return 'continue'
+  })
 
+  return assembleStream(textAcc, toolAcc, finishReason, usage)
+}

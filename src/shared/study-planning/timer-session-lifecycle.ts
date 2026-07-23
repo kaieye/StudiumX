@@ -8,11 +8,16 @@
  */
 
 import type { TimerPlanV2 } from './timer-plan'
-import { TIMER_PLAN_SEED_DEFAULTS } from './timer-plan'
 import {
+  isOpenContinuousPlanV2,
+  phaseTargetSecondsForPlan
+} from './timer-plan'
+import {
+  advanceCustomRhythmOnPhaseComplete,
   customRhythmMinutesForPhase,
   isCustomRhythmPlan
 } from './custom-rhythm-sequence'
+import { resolveNextBreakPhase } from './next-break-phase'
 
 export type TimerSessionPhase = 'focus' | 'short_break' | 'long_break' | 'wrap_up'
 export type TimerSessionState =
@@ -106,19 +111,7 @@ function phaseDurationSeconds(
     const mins = customRhythmMinutesForPhase(plan.rhythmSequence, phase, rhythmStepIndex)
     if (mins !== undefined) return mins * 60
   }
-  if (phase === 'focus') {
-    if (plan.clockMode === 'countup' && plan.kind === 'continuous' && plan.focusMinutes == null) {
-      return null
-    }
-    return (plan.focusMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes) * 60
-  }
-  if (phase === 'short_break') {
-    return (plan.shortBreakMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes) * 60
-  }
-  if (phase === 'long_break') {
-    return (plan.longBreakMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes) * 60
-  }
-  return (plan.wrapUpMinutes ?? TIMER_PLAN_SEED_DEFAULTS.wrapUpMinutes) * 60
+  return phaseTargetSecondsForPlan(plan, phase)
 }
 
 /** Default rhythmStepIndex for a phase (first matching step, else 0). */
@@ -134,42 +127,7 @@ function nextBreakPhase(
   focusRoundInPlan: number,
   rhythmStepIndex?: number
 ): TimerSessionPhase {
-  if (!plan || plan.kind === 'continuous') return 'short_break'
-  // STC-702: prefer walk from stored rhythmStepIndex when available.
-  if (plan.kind === 'custom_rhythm' && Array.isArray(plan.rhythmSequence) && plan.rhythmSequence.length > 0) {
-    const seq = plan.rhythmSequence
-    if (rhythmStepIndex !== undefined && Number.isFinite(rhythmStepIndex)) {
-      const base = Math.trunc(rhythmStepIndex)
-      for (let j = 1; j <= seq.length; j += 1) {
-        const next = seq[(base + j) % seq.length]
-        if (next.kind === 'long_break') return 'long_break'
-        if (next.kind === 'short_break') return 'short_break'
-        if (next.kind === 'wrap_up') return 'wrap_up'
-      }
-      return 'short_break'
-    }
-    // Fallback: count focus completions vs focusRoundInPlan.
-    let focusSeen = 0
-    for (let i = 0; i < seq.length * 2; i += 1) {
-      const step = seq[i % seq.length]
-      if (step.kind === 'focus') {
-        focusSeen += 1
-        if (focusSeen === focusRoundInPlan) {
-          for (let j = 1; j <= seq.length; j += 1) {
-            const next = seq[(i + j) % seq.length]
-            if (next.kind === 'long_break') return 'long_break'
-            if (next.kind === 'short_break') return 'short_break'
-            if (next.kind === 'wrap_up') return 'wrap_up'
-          }
-          break
-        }
-      }
-    }
-    return 'short_break'
-  }
-  const every = plan.longBreakEvery ?? TIMER_PLAN_SEED_DEFAULTS.classicLongBreakEvery
-  if (focusRoundInPlan > 0 && focusRoundInPlan % every === 0) return 'long_break'
-  return 'short_break'
+  return resolveNextBreakPhase({ plan, focusRoundInPlan, rhythmStepIndex })
 }
 
 export type StartTimerSessionInput = {
@@ -208,7 +166,7 @@ export function startTimerSession(input: StartTimerSessionInput): TimerSessionRe
   let targetSeconds: number | null
   if (input.targetSeconds !== undefined) {
     targetSeconds = input.targetSeconds
-  } else if (clockMode === 'countup' && plan.kind === 'continuous' && plan.focusMinutes == null) {
+  } else if (clockMode === 'countup' && isOpenContinuousPlanV2(plan)) {
     targetSeconds = null
   } else {
     targetSeconds = phaseDurationSeconds(plan, phase, rhythmStepIndex)
@@ -630,24 +588,21 @@ export function startNextPhaseFromCompleted(input: {
   const focusRound =
     input.phase === 'focus' ? input.completed.focusRoundInPlan + 1 : input.completed.focusRoundInPlan
 
-  // STC-702: advance rhythmStepIndex to the next matching phase step (wrap).
+  // STC-702: advance rhythmStepIndex via sole custom-rhythm walker (wrap).
   let rhythmStepIndex: number | undefined
   if (isCustomRhythmPlan(plan)) {
-    const seq = plan.rhythmSequence
     const completedIdx =
       input.completed.rhythmStepIndex !== undefined
         ? input.completed.rhythmStepIndex
         : defaultRhythmStepIndex(plan, input.completed.phase) ?? 0
-    for (let j = 1; j <= seq.length; j += 1) {
-      const idx = (Math.trunc(completedIdx) + j) % seq.length
-      if (seq[idx].kind === input.phase) {
-        rhythmStepIndex = idx
-        break
-      }
-    }
-    if (rhythmStepIndex === undefined) {
-      rhythmStepIndex = defaultRhythmStepIndex(plan, input.phase)
-    }
+    const advanced = advanceCustomRhythmOnPhaseComplete({
+      sequence: plan.rhythmSequence,
+      completedStepIndex: completedIdx,
+      nextPhase: input.phase
+    })
+    rhythmStepIndex = advanced.ok
+      ? advanced.nextStepIndex
+      : defaultRhythmStepIndex(plan, input.phase)
   }
 
   const taskId =

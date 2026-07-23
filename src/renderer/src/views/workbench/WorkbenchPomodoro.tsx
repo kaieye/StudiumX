@@ -30,11 +30,12 @@ import {
   projectWorkbenchTimerFaceClock
 } from '../../study-space/planning-timer-face-clock-ui'
 import {
-  buildPlanPayload,
   createTimerPlanDraft,
+  decideApplyPlan,
+  decideLiveDraftCommit,
+  decideSavePlan,
+  draftFromCatalogPlanSources,
   draftFromPlan,
-  draftKindFromCatalogPlanKind,
-  hasApplyableTimerFields,
   isDraftPayloadValid,
   type TimerPlanDraft
 } from './workbench-pomodoro-draft'
@@ -294,26 +295,21 @@ export function WorkbenchPomodoro({
     const row = catalogRows.find((r) => r.id === planId)
     const plan = snapshot.timerPlans.find((p) => p.id === planId)
     const shell = plan ?? resolveTimerPlanShellForCatalog(planId, snapshot.timerPlans)
-    if (shell) {
-      setDraft(draftFromPlan(shell))
-      return
-    }
-    if (row) {
-      // Catalog row has planKind only. Exam/target/open come from shell continuousMode
-      // (resolveTimerPlanShellForCatalog above). Fallback: continuous → target cycle.
-      const kind = draftKindFromCatalogPlanKind(row.planKind)
-      setDraft(draftFromPlan({
-        name: row.name,
-        focusMinutes: row.focusMinutes,
-        breakMinutes: row.breakMinutes,
-        simulationStartTime: row.simulationStartTime,
-        simulationEndTime: row.simulationEndTime,
-        kind,
-        continuousTarget: false,
-        continuousMode: kind === 'continuous' ? 'target' : undefined,
-        clockMode: 'countdown'
-      }))
-    }
+    const next = draftFromCatalogPlanSources({
+      shell: shell ?? null,
+      row: row
+        ? {
+            id: row.id,
+            name: row.name,
+            planKind: row.planKind,
+            focusMinutes: row.focusMinutes,
+            breakMinutes: row.breakMinutes,
+            simulationStartTime: row.simulationStartTime,
+            simulationEndTime: row.simulationEndTime
+          }
+        : null
+    })
+    if (next) setDraft(next)
   }
 
   /** Left-nav selects/previews a plan; apply only via footer 应用 (or explicit host apply). */
@@ -342,19 +338,19 @@ export function WorkbenchPomodoro({
     if (nextRow) {
       setSelectedCatalogPlanId(nextRow.id)
       const plan = snapshot.timerPlans.find((p) => p.id === nextRow.id)
-      if (plan) {
-        setDraft(draftFromPlan(plan))
-      } else {
-        const kind = draftKindFromCatalogPlanKind(nextRow.planKind)
-        setDraft(draftFromPlan({
+      const next = draftFromCatalogPlanSources({
+        shell: plan ?? null,
+        row: {
+          id: nextRow.id,
           name: nextRow.name,
+          planKind: nextRow.planKind,
           focusMinutes: nextRow.focusMinutes,
           breakMinutes: nextRow.breakMinutes,
           simulationStartTime: nextRow.simulationStartTime,
-          simulationEndTime: nextRow.simulationEndTime,
-          kind
-        }))
-      }
+          simulationEndTime: nextRow.simulationEndTime
+        }
+      })
+      if (next) setDraft(next)
     } else {
       setSelectedCatalogPlanId('')
       setDraft(createTimerPlanDraft(snapshot))
@@ -436,58 +432,36 @@ export function WorkbenchPomodoro({
       : !hasValidDraft
 
   /**
-   * Immediate effect on draft change:
-   * - upsert same id when editing a custom catalog plan (full valid draft)
-   * - otherwise applyOnly the active timer preset when timer fields are valid
-   * - skip while composing a brand-new plan (wait for 添加)
+   * Immediate effect on draft change — decision is pure ({@link decideLiveDraftCommit}).
    * Running session planSnapshot stays frozen (STC-503 / ADR-0094).
    */
   const commitLiveDraft = (next: TimerPlanDraft): void => {
-    if (isAddingPlanMode) return
-    if (isEditingCustomPlan && selectedCatalogRow && isDraftPayloadValid(next)) {
-      onSaveTimerPlan({
-        ...buildPlanPayload(next),
-        id: selectedCatalogRow.id
-      })
+    const row = selectedCatalogRow
+    const decision = decideLiveDraftCommit({
+      draft: next,
+      isAddingPlanMode,
+      isEditingCustomPlan,
+      selectedCatalogRow: row
+        ? {
+            id: row.id,
+            planKind: row.planKind,
+            focusMinutes: row.focusMinutes,
+            breakMinutes: row.breakMinutes,
+            simulationStartTime: row.simulationStartTime,
+            simulationEndTime: row.simulationEndTime,
+            name: row.name
+          }
+        : null,
+      appliedShell: row
+        ? resolveTimerPlanShellForCatalog(row.id, snapshot.timerPlans)
+        : null
+    })
+    if (decision.action === 'skip') return
+    if (decision.action === 'save') {
+      onSaveTimerPlan({ ...decision.payload, id: decision.id })
       return
     }
-    // Builtin / preview: immediately apply active timer preset when timer fields change.
-    if (!hasApplyableTimerFields(next)) return
-    const row = selectedCatalogRow
-    if (row) {
-      const nextKind =
-        next.kind === 'continuous'
-          ? 'continuous'
-          : next.kind === 'custom_rhythm'
-            ? 'custom_rhythm'
-            : 'pomodoro'
-      const rowKind = draftKindFromCatalogPlanKind(row.planKind)
-      // Compare draft clock/exam flags to the applied shell — not a hard-coded
-      // "countdown implies same as catalog". Turning 正计时 off must still applyOnly
-      // so the next start freezes countdown (or cycle continuous, not exam).
-      const appliedShell = resolveTimerPlanShellForCatalog(row.id, snapshot.timerPlans)
-      const draftClock = next.clockMode === 'countup' ? 'countup' : 'countdown'
-      const shellClock = appliedShell?.clockMode === 'countup' ? 'countup' : 'countdown'
-      const draftExam = next.continuousMode === 'exam' || next.continuousTarget === true
-      const shellExam =
-        appliedShell?.continuousMode === 'exam' || appliedShell?.continuousTarget === true
-      const sameTimer =
-        nextKind === rowKind
-        && next.focusMinutes === row.focusMinutes
-        && next.breakMinutes === row.breakMinutes
-        && next.simulationStartTime === row.simulationStartTime
-        && next.simulationEndTime === row.simulationEndTime
-        && draftClock === shellClock
-        && draftExam === shellExam
-      if (sameTimer) return
-    }
-    onSaveTimerPlan({
-      ...buildPlanPayload({
-        ...next,
-        name: next.name.trim() || selectedCatalogRow?.name || 'temp'
-      }),
-      applyOnly: true
-    })
+    onSaveTimerPlan({ ...decision.payload, applyOnly: true })
   }
 
   const updateDraft = <Key extends keyof TimerPlanDraft>(key: Key, value: TimerPlanDraft[Key]): void => {
@@ -508,61 +482,55 @@ export function WorkbenchPomodoro({
 
   /** Persist draft to catalog without switching the live applied preset. */
   const handleSavePlan = (): void => {
-    if (!hasValidDraft) return
-    const payload = buildPlanPayload(draft)
-    if (isAddingPlanMode) {
-      const newId = onSaveTimerPlan(payload)
-      if (typeof newId === 'string' && newId) {
-        setSelectedCatalogPlanId(newId)
-        setDraft(draftFromPlan({ ...payload, name: payload.name }))
-      } else {
-        setSelectedCatalogPlanId(null)
-      }
+    const decision = decideSavePlan({
+      draft,
+      hasValidDraft,
+      isAddingPlanMode,
+      isEditingCustomPlan,
+      selectedCatalogRowId: selectedCatalogRow?.id ?? null
+    })
+    if (decision.action === 'skip') return
+    if (decision.action === 'update') {
+      onSaveTimerPlan({ ...decision.payload, id: decision.id })
       return
     }
-    if (isEditingCustomPlan && selectedCatalogRow) {
-      onSaveTimerPlan({ ...payload, id: selectedCatalogRow.id })
-      return
-    }
-    // Builtin / new-name: save as a new custom catalog plan (do not apply live preset).
-    const newId = onSaveTimerPlan(payload)
+    // create
+    const newId = onSaveTimerPlan(decision.payload)
     if (typeof newId === 'string' && newId) {
       setSelectedCatalogPlanId(newId)
-      setDraft(draftFromPlan({ ...payload, name: payload.name }))
+      setDraft(draftFromPlan({ ...decision.payload, name: decision.payload.name }))
+    } else if (isAddingPlanMode) {
+      setSelectedCatalogPlanId(null)
     }
   }
 
   const handleApplyPlan = (): void => {
-    if (!hasValidDraft || isViewingAppliedPlan) return
-    const payload = buildPlanPayload(draft)
-    if (isAddingPlanMode) {
-      // 添加: create new catalog entry, apply live, and stay on that plan.
-      const newId = onSaveTimerPlan(payload)
-      if (typeof newId === 'string' && newId) {
-        setSelectedCatalogPlanId(newId)
-        setAppliedCatalogPlanId(newId)
-        onApplyTimerPlan(newId)
-        setDraft(draftFromPlan({ ...payload, name: payload.name }))
-      } else {
-        // Host may not return id (legacy void); leave add mode via null selection.
-        setSelectedCatalogPlanId(null)
-      }
-      return
-    }
-    if (isEditingCustomPlan && selectedCatalogRow) {
+    const decision = decideApplyPlan({
+      draft,
+      hasValidDraft,
+      isAddingPlanMode,
+      isEditingCustomPlan,
+      isViewingAppliedPlan,
+      selectedCatalogRowId: selectedCatalogRow?.id ?? null
+    })
+    if (decision.action === 'skip') return
+    if (decision.action === 'update_and_apply') {
       // Explicit 应用: re-upsert current custom plan id and mark as active preset.
-      onSaveTimerPlan({ ...payload, id: selectedCatalogRow.id })
-      onApplyTimerPlan(selectedCatalogRow.id)
-      setAppliedCatalogPlanId(selectedCatalogRow.id)
+      onSaveTimerPlan({ ...decision.payload, id: decision.id })
+      onApplyTimerPlan(decision.id)
+      setAppliedCatalogPlanId(decision.id)
       return
     }
-    // Builtin / new-name path: save as new custom plan from current draft and apply.
-    const newId = onSaveTimerPlan(payload)
+    // create_and_apply
+    const newId = onSaveTimerPlan(decision.payload)
     if (typeof newId === 'string' && newId) {
       setSelectedCatalogPlanId(newId)
       setAppliedCatalogPlanId(newId)
       onApplyTimerPlan(newId)
-      setDraft(draftFromPlan({ ...payload, name: payload.name }))
+      setDraft(draftFromPlan({ ...decision.payload, name: decision.payload.name }))
+    } else if (isAddingPlanMode) {
+      // Host may not return id (legacy void); leave add mode via null selection.
+      setSelectedCatalogPlanId(null)
     }
   }
 

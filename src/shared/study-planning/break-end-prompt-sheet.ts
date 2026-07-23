@@ -12,7 +12,14 @@
  */
 
 import type { BreakPolicy, TimerPlanV2 } from './timer-plan'
-import { TIMER_PLAN_SEED_DEFAULTS } from './timer-plan'
+import {
+  focusTargetSecondsForPlan,
+  isOpenContinuousPlanV2,
+  normalizeBreakPolicy,
+  TIMER_PLAN_SEED_DEFAULTS
+} from './timer-plan'
+
+export { focusTargetSecondsForPlan }
 import type { TimerSessionPhase, TimerSessionRecord } from './timer-session-lifecycle'
 import { isBreakPhase, resolvePhasePromptDisposition } from './phase-prompt-sheet'
 
@@ -76,17 +83,6 @@ export function wrapUpMinutesForPlan(plan: TimerPlanV2 | null | undefined): numb
 }
 
 /**
- * Next focus target seconds from frozen plan (null for open continuous countup).
- */
-export function focusTargetSecondsForPlan(plan: TimerPlanV2): number | null {
-  if (plan.clockMode === 'countup' && plan.kind === 'continuous' && plan.focusMinutes == null) {
-    return null
-  }
-  const minutes = plan.focusMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes
-  return Math.max(1, minutes) * 60
-}
-
-/**
  * Project post-break handoff from a completed rest TimerSession.
  * Fail-closed: null when not completed break with snapshot.
  */
@@ -95,13 +91,7 @@ export function projectBreakEndHandoffPlan(
 ): BreakEndHandoffPlan | null {
   if (!shouldOfferBreakEndHandoff(completed)) return null
   const plan = completed!.planSnapshot!
-  const breakPolicy: BreakPolicy =
-    plan.breakPolicy === 'automatic' ||
-    plan.breakPolicy === 'ask' ||
-    plan.breakPolicy === 'reminder_only' ||
-    plan.breakPolicy === 'none'
-      ? plan.breakPolicy
-      : 'ask'
+  const breakPolicy = normalizeBreakPolicy(plan.breakPolicy)
   const wrapUpMinutes = wrapUpMinutesForPlan(plan)
   const focusRoundInPlan = completed!.focusRoundInPlan
   return {
@@ -125,24 +115,21 @@ export function buildBreakEndPromptSheetModel(input: {
   completed: Pick<TimerSessionRecord, 'planSnapshot' | 'focusRoundInPlan' | 'phase' | 'state'>
 }): BreakEndPromptSheetModel {
   const plan = input.completed.planSnapshot
-  const breakPolicy: BreakPolicy =
-    plan?.breakPolicy === 'automatic' ||
-    plan?.breakPolicy === 'ask' ||
-    plan?.breakPolicy === 'reminder_only' ||
-    plan?.breakPolicy === 'none'
-      ? plan.breakPolicy
-      : 'ask'
+  const breakPolicy = normalizeBreakPolicy(plan?.breakPolicy)
   const focusRoundInPlan = input.completed.focusRoundInPlan
   const nextFocusRound = focusRoundInPlan + 1
   const planName = (plan?.name ?? '').trim() || '当前方案'
   const wrapUpMinutes = wrapUpMinutesForPlan(plan ?? undefined)
   const offerWrapUp = wrapUpMinutes > 0
+  // Prefer continuousMode / isOpenContinuousPlanV2 — not kind+countup (exam is countup with focus).
   const focusMinutes =
-    plan?.focusMinutes != null && Number.isFinite(plan.focusMinutes)
-      ? plan.focusMinutes
-      : plan?.kind === 'continuous' && plan.clockMode === 'countup'
+    plan == null
+      ? TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes
+      : isOpenContinuousPlanV2(plan)
         ? null
-        : TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes
+        : plan.focusMinutes != null && Number.isFinite(plan.focusMinutes)
+          ? plan.focusMinutes
+          : TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes
 
   const focusLabel =
     focusMinutes == null

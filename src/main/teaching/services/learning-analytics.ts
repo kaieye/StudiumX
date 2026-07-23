@@ -215,12 +215,18 @@ export class LearningAnalyticsService {
         sections: ['tokens'],
         fingerprint: async (_context, dependencies) => this.fingerprintTokenEvidence(dependencies.get('workspace_catalog')!.value as ScanHeader),
         read: async (context, access) => {
-          const header = access.value<ScanHeader>('workspace_catalog')
-          const token = await this.scanTokens(context.query, header, [
-            ...access.warningsFor('workspace_catalog'),
-            ...header.temporaryWarnings
-          ])
-          return { value: token, warnings: token.section.warnings, partial: token.section.state === 'partial' || token.section.state === 'error' }
+          try {
+            const header = access.value<ScanHeader>('workspace_catalog')
+            const token = await this.scanTokens(context.query, header, [
+              ...access.warningsFor('workspace_catalog'),
+              ...header.temporaryWarnings
+            ])
+            return { value: token, warnings: token.section.warnings, partial: token.section.state === 'partial' || token.section.state === 'error' }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Token analytics failed.'
+            const section = sourceReadFailureSection<TokenAnalytics>(context.query, this.now().toISOString(), 'token_scan_failed', message, access.warningsFor('workspace_catalog'))
+            return { value: { section }, warnings: section.warnings, partial: true }
+          }
         }
       },
       {
@@ -229,8 +235,13 @@ export class LearningAnalyticsService {
         sections: ['workspace_assets'],
         fingerprint: async (_context, dependencies) => this.fingerprintWorkspaceAssets(dependencies.get('workspace_catalog')!.value as ScanHeader),
         read: async (context, access) => {
-          const header = access.value<ScanHeader>('workspace_catalog')
-          return sectionSource(buildWorkspaceAssetsSection(context.query, this.now().toISOString(), header.selected, access.warningsFor('workspace_catalog')))
+          try {
+            const header = access.value<ScanHeader>('workspace_catalog')
+            return sectionSource(buildWorkspaceAssetsSection(context.query, this.now().toISOString(), header.selected, access.warningsFor('workspace_catalog')))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Workspace asset analytics failed.'
+            return sectionSource(sourceReadFailureSection<WorkspaceAssetsAnalytics>(context.query, this.now().toISOString(), 'workspace_assets_scan_failed', message, access.warningsFor('workspace_catalog')))
+          }
         }
       },
       {
@@ -239,8 +250,13 @@ export class LearningAnalyticsService {
         sections: ['review'],
         fingerprint: async (_context, dependencies) => this.fingerprintReviewSources(dependencies.get('workspace_catalog')!.value as ScanHeader),
         read: async (context, access) => {
-          const header = access.value<ScanHeader>('workspace_catalog')
-          return sectionSource(await this.scanReview(context.query, this.now().toISOString(), header.selected, access.warningsFor('workspace_catalog')))
+          try {
+            const header = access.value<ScanHeader>('workspace_catalog')
+            return sectionSource(await this.scanReview(context.query, this.now().toISOString(), header.selected, access.warningsFor('workspace_catalog')))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Review analytics failed.'
+            return sectionSource(sourceReadFailureSection<ReviewAnalytics>(context.query, this.now().toISOString(), 'review_scan_failed', message, access.warningsFor('workspace_catalog')))
+          }
         }
       },
       {
@@ -249,8 +265,13 @@ export class LearningAnalyticsService {
         sections: ['memory'],
         fingerprint: async (_context, dependencies) => this.fingerprintMemoryStore(dependencies.get('workspace_catalog')!.value as ScanHeader),
         read: async (context, access) => {
-          const header = access.value<ScanHeader>('workspace_catalog')
-          return sectionSource(await this.scanMemory(context.query, this.now().toISOString(), header.selected, access.warningsFor('workspace_catalog')))
+          try {
+            const header = access.value<ScanHeader>('workspace_catalog')
+            return sectionSource(await this.scanMemory(context.query, this.now().toISOString(), header.selected, access.warningsFor('workspace_catalog')))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Memory analytics failed.'
+            return sectionSource(sourceReadFailureSection<MemoryAnalytics>(context.query, this.now().toISOString(), 'memory_scan_failed', message, access.warningsFor('workspace_catalog')))
+          }
         }
       },
       {
@@ -259,8 +280,13 @@ export class LearningAnalyticsService {
         sections: ['platform'],
         fingerprint: async (_context, dependencies) => this.fingerprintPlatformSources(dependencies.get('workspace_catalog')!.value as ScanHeader),
         read: async (context, access) => {
-          const header = await this.loadPlatformHeader(access.value<ScanHeader>('workspace_catalog'))
-          return sectionSource(await this.scanPlatform(context.query, this.now().toISOString(), header))
+          try {
+            const header = await this.loadPlatformHeader(access.value<ScanHeader>('workspace_catalog'))
+            return sectionSource(await this.scanPlatform(context.query, this.now().toISOString(), header))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Platform analytics failed.'
+            return sectionSource(sourceReadFailureSection<PlatformAnalytics>(context.query, this.now().toISOString(), 'platform_scan_failed', message, access.warningsFor('workspace_catalog')))
+          }
         }
       },
       {
@@ -268,14 +294,32 @@ export class LearningAnalyticsService {
         dependsOn: ['token_evidence'],
         sections: ['hero', 'focus', 'tasks'],
         fingerprint: async (context, dependencies) => digest(stableJson({ personal: personalCacheFingerprint(context.personal), tokens: dependencies.get('token_evidence')!.fingerprint })),
-        read: async (context, access) => ({
-          value: buildPersonalStudyAnalytics({
-            query: context.query,
-            validation: context.personal,
-            generatedAt: this.now().toISOString(),
-            tokens: access.value<TokenScanResult>('token_evidence').section
-          })
-        })
+        read: async (context, access) => {
+          try {
+            const tokenResult = access.value<TokenScanResult | null>('token_evidence')
+            const tokens = tokenResult && typeof tokenResult === 'object' && tokenResult.section
+              ? tokenResult.section
+              : sourceReadFailureSection<TokenAnalytics>(context.query, this.now().toISOString(), 'token_scan_failed', 'Token analytics source was unavailable.')
+            return {
+              value: buildPersonalStudyAnalytics({
+                query: context.query,
+                validation: context.personal,
+                generatedAt: this.now().toISOString(),
+                tokens
+              })
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Personal study analytics failed.'
+            const failed = sourceReadFailureSection(context.query, this.now().toISOString(), 'personal_study_failed', message)
+            return {
+              value: {
+                hero: failed as ReturnType<typeof buildPersonalStudyAnalytics>['hero'],
+                focus: failed as ReturnType<typeof buildPersonalStudyAnalytics>['focus'],
+                tasks: failed as ReturnType<typeof buildPersonalStudyAnalytics>['tasks']
+              }
+            }
+          }
+        }
       },
       {
         id: 'presence_snapshot',
@@ -292,17 +336,36 @@ export class LearningAnalyticsService {
         dependsOn: ['token_evidence', 'workspace_assets', 'review_sources', 'memory_store', 'platform_sources'],
         sections: ['insights'],
         fingerprint: async (_context, dependencies) => digest(stableJson([...dependencies.entries()].map(([id, item]) => [id, item.fingerprint]))),
-        read: async (context, access) => ({
-          value: buildInsightsSection(
-            context.query,
-            this.now().toISOString(),
-            access.value<TokenScanResult>('token_evidence').section,
-            access.value<AnalyticsSectionResult<WorkspaceAssetsAnalytics>>('workspace_assets'),
-            access.value<AnalyticsSectionResult<ReviewAnalytics>>('review_sources'),
-            access.value<AnalyticsSectionResult<MemoryAnalytics>>('memory_store'),
-            access.value<AnalyticsSectionResult<PlatformAnalytics>>('platform_sources')
-          )
-        })
+        read: async (context, access) => {
+          try {
+            const tokenResult = access.value<TokenScanResult | null>('token_evidence')
+            const tokens = tokenResult && typeof tokenResult === 'object' && tokenResult.section
+              ? tokenResult.section
+              : sourceReadFailureSection<TokenAnalytics>(context.query, this.now().toISOString(), 'token_scan_failed', 'Token analytics source was unavailable.')
+            const asSection = <T>(value: unknown, code: string): AnalyticsSectionResult<T> => {
+              if (value && typeof value === 'object' && typeof (value as { state?: unknown }).state === 'string') {
+                return value as AnalyticsSectionResult<T>
+              }
+              return sourceReadFailureSection<T>(context.query, this.now().toISOString(), code, 'Analytics source was unavailable.')
+            }
+            return {
+              value: buildInsightsSection(
+                context.query,
+                this.now().toISOString(),
+                tokens,
+                asSection<WorkspaceAssetsAnalytics>(access.value('workspace_assets'), 'workspace_assets_scan_failed'),
+                asSection<ReviewAnalytics>(access.value('review_sources'), 'review_scan_failed'),
+                asSection<MemoryAnalytics>(access.value('memory_store'), 'memory_scan_failed'),
+                asSection<PlatformAnalytics>(access.value('platform_sources'), 'platform_scan_failed')
+              )
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Insights analytics failed.'
+            return {
+              value: sourceReadFailureSection(context.query, this.now().toISOString(), 'insights_scan_failed', message)
+            }
+          }
+        }
       }
     ])
   }
@@ -314,19 +377,42 @@ export class LearningAnalyticsService {
       : createUnrequestedBundle(context.query, generatedAt)
     const refreshed = new Set(refreshedSections)
     const include = (section: AnalyticsSectionId): boolean => refreshed.has(section)
-    if (include('tokens')) bundle.tokens = (values.get('token_evidence') as TokenScanResult).section
-    if (include('workspace_assets')) bundle.workspaceAssets = values.get('workspace_assets') as AnalyticsSectionResult<WorkspaceAssetsAnalytics>
-    if (include('review')) bundle.review = values.get('review_sources') as AnalyticsSectionResult<ReviewAnalytics>
-    if (include('memory')) bundle.memory = values.get('memory_store') as AnalyticsSectionResult<MemoryAnalytics>
-    if (include('platform')) bundle.platform = values.get('platform_sources') as AnalyticsSectionResult<PlatformAnalytics>
-    if (include('presence')) bundle.presence = values.get('presence_snapshot') as AnalyticsSectionResult<PresenceSnapshotAnalytics>
-    if (include('hero') || include('focus') || include('tasks')) {
-      const personal = values.get('personal_study') as ReturnType<typeof buildPersonalStudyAnalytics>
-      if (include('hero')) bundle.hero = personal.hero
-      if (include('focus')) bundle.focus = personal.focus
-      if (include('tasks')) bundle.tasks = personal.tasks
+    const asSection = <T>(value: unknown, sectionId: AnalyticsSectionId): AnalyticsSectionResult<T> => {
+      if (value && typeof value === 'object' && typeof (value as { state?: unknown }).state === 'string') {
+        return value as AnalyticsSectionResult<T>
+      }
+      return sourceReadFailureSection<T>(
+        context.query,
+        generatedAt,
+        `${sectionId}_missing`,
+        `Analytics section ${sectionId} was not produced.`
+      )
     }
-    if (include('insights')) bundle.insights = values.get('insight_derivation') as LearningAnalyticsBundle['insights']
+    if (include('tokens')) {
+      const token = values.get('token_evidence') as TokenScanResult | undefined
+      bundle.tokens = token && token.section
+        ? token.section
+        : sourceReadFailureSection(context.query, generatedAt, 'token_scan_failed', 'Token analytics section was not produced.')
+    }
+    if (include('workspace_assets')) bundle.workspaceAssets = asSection(values.get('workspace_assets'), 'workspace_assets')
+    if (include('review')) bundle.review = asSection(values.get('review_sources'), 'review')
+    if (include('memory')) bundle.memory = asSection(values.get('memory_store'), 'memory')
+    if (include('platform')) bundle.platform = asSection(values.get('platform_sources'), 'platform')
+    if (include('presence')) bundle.presence = asSection(values.get('presence_snapshot'), 'presence')
+    if (include('hero') || include('focus') || include('tasks')) {
+      const personal = values.get('personal_study') as ReturnType<typeof buildPersonalStudyAnalytics> | undefined
+      if (personal && personal.hero && personal.focus && personal.tasks) {
+        if (include('hero')) bundle.hero = personal.hero
+        if (include('focus')) bundle.focus = personal.focus
+        if (include('tasks')) bundle.tasks = personal.tasks
+      } else {
+        const failed = sourceReadFailureSection(context.query, generatedAt, 'personal_study_failed', 'Personal study analytics section was not produced.')
+        if (include('hero')) bundle.hero = failed as LearningAnalyticsBundle['hero']
+        if (include('focus')) bundle.focus = failed as LearningAnalyticsBundle['focus']
+        if (include('tasks')) bundle.tasks = failed as LearningAnalyticsBundle['tasks']
+      }
+    }
+    if (include('insights')) bundle.insights = asSection(values.get('insight_derivation'), 'insights') as LearningAnalyticsBundle['insights']
     return bundle
   }
 
@@ -565,7 +651,7 @@ export class LearningAnalyticsService {
     const active = [...records.values()].filter((record) => !record.deletedAt && !record.disabledAt)
     const byScope = (['user', 'workspace', 'project'] as const).map((scope) => ({ scope, count: active.filter((record) => record.scope === scope).length }))
     const tags = new Map<string, number>()
-    for (const record of active) for (const tag of record.tags) tags.set(tag, (tags.get(tag) ?? 0) + 1)
+    for (const record of active) for (const tag of (Array.isArray(record.tags) ? record.tags : [])) tags.set(tag, (tags.get(tag) ?? 0) + 1)
     const buckets = [{ fromInclusive: 0, toInclusive: 0.25, count: 0 }, { fromInclusive: 0.25, toInclusive: 0.5, count: 0 }, { fromInclusive: 0.5, toInclusive: 0.75, count: 0 }, { fromInclusive: 0.75, toInclusive: 1, count: 0 }]
     for (const record of active) buckets[record.confidence >= 0.75 ? 3 : record.confidence >= 0.5 ? 2 : record.confidence >= 0.25 ? 1 : 0].count += 1
     const data: MemoryAnalytics = {
@@ -598,34 +684,60 @@ export class LearningAnalyticsService {
     const rangedChanges = changes.filter((change) => isDateInRange(dateToLocalKey(new Date(change.timestamp), query.calendarContext.timeZone), query.range))
     const changesByDay = new Map<string, number>()
     for (const change of rangedChanges) { const date = dateToLocalKey(new Date(change.timestamp), query.calendarContext.timeZone); changesByDay.set(date, (changesByDay.get(date) ?? 0) + 1) }
-    if (!settings || !skills) {
+
+    // Settings/skills must be structurally complete. A truthy but partial object used to throw
+    // inside this method and fail the entire Learning Analytics IPC for every section.
+    const settingsReady = Boolean(
+      settings
+      && settings.provider
+      && Array.isArray(settings.provider.providers)
+      && settings.generator
+      && typeof settings.generator.providerId === 'string'
+      && settings.pet
+      && typeof settings.pet.appearance === 'string'
+    )
+    const skillList = Array.isArray(skills?.skills) ? skills.skills : null
+    const skillsReady = skillList !== null
+
+    if (!settingsReady || !skillsReady) {
+      if (settings && !settingsReady) {
+        warnings.push(warning('source_scan_incomplete', 'Settings payload was incomplete for platform analytics.', 'settings'))
+      }
+      if (skills && !skillsReady) {
+        warnings.push(warning('source_scan_incomplete', 'Skill catalog payload was incomplete for platform analytics.', 'skill_catalog'))
+      }
       const sources: AnalyticsSourceCoverage[] = [
-        { source: 'settings', state: settings ? 'complete' : 'error', scanned: 1, included: settings ? 1 : 0, missing: settings ? 0 : 1, rejected: 0 },
-        { source: 'skill_catalog', state: skills ? 'complete' : 'error', scanned: skills?.skills.length ?? 0, included: 0, missing: skills ? 0 : 1, rejected: 0 },
+        { source: 'settings', state: settingsReady ? 'complete' : 'error', scanned: 1, included: settingsReady ? 1 : 0, missing: settingsReady ? 0 : 1, rejected: 0 },
+        { source: 'skill_catalog', state: skillsReady ? 'complete' : 'error', scanned: skillList?.length ?? 0, included: 0, missing: skillsReady ? 0 : 1, rejected: 0 },
         { source: 'workspace_change_history', state: this.dependencies.listWorkspaceChanges ? (changeFailures ? 'partial' : 'complete') : 'unavailable', scanned: changes.length + changeFailures, included: rangedChanges.length, missing: changeFailures, rejected: 0 }
       ]
       const sectionCoverage = coverage(query, true, sources, changes.map((change) => dateToLocalKey(new Date(change.timestamp), query.calendarContext.timeZone)), false)
       return errorSection(mixedTemporal(query, generatedAt, ['workspaceChanges'], ['skills', 'pet', 'model', 'connectors']), sectionCoverage, 'platform_sources_failed', 'Platform analytics sources could not be read.', true, warnings)
     }
-    const installedSkills = skills.skills.filter((skill) => skill.installed)
+
+    const installedSkills = skillList!.filter((skill) => skill?.installed)
     const byCategory = new Map<string, number>()
-    for (const skill of installedSkills) byCategory.set(skill.category, (byCategory.get(skill.category) ?? 0) + 1)
-    const provider = settings.provider.providers.find((item) => item.id === settings.generator.providerId)
+    for (const skill of installedSkills) {
+      const category = typeof skill.category === 'string' && skill.category ? skill.category : 'uncategorized'
+      byCategory.set(category, (byCategory.get(category) ?? 0) + 1)
+    }
+    const providers = settings!.provider.providers
+    const provider = providers.find((item) => item?.id === settings!.generator.providerId)
     const data: PlatformAnalytics = {
       skills: { installed: installedSkills.length, byCategory: [...byCategory.entries()].map(([category, count]) => ({ category, count })).sort((a, b) => b.count - a.count), usedInRange: null },
-      pet: { appearanceId: settings?.pet.appearance ?? 'unknown', plantStage: 'unknown' },
-      model: { providerLabel: provider?.name ?? settings?.generator.providerId ?? 'unknown', modelLabel: settings?.generator.model ?? 'unknown', lessonRunsInRange: null, failedLessonRunsInRange: null },
+      pet: { appearanceId: settings!.pet.appearance ?? 'unknown', plantStage: 'unknown' },
+      model: { providerLabel: provider?.name ?? settings!.generator.providerId ?? 'unknown', modelLabel: settings!.generator.model ?? 'unknown', lessonRunsInRange: null, failedLessonRunsInRange: null },
       workspaceChanges: { changesInRange: this.dependencies.listWorkspaceChanges ? rangedChanges.length : null, byDay: [...changesByDay.entries()].map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date)) },
       connectors: (header.connectorStatuses?.connectors ?? []).map((connector) => ({ id: connector.id, configured: connector.state !== 'missing_config' && connector.state !== 'missing_dependency', usedInRange: null }))
     }
     const sources: AnalyticsSourceCoverage[] = [
-      { source: 'settings', state: settings ? 'complete' : 'error', scanned: 1, included: settings ? 1 : 0, missing: settings ? 0 : 1, rejected: 0 },
-      { source: 'skill_catalog', state: skills ? 'complete' : 'error', scanned: skills?.skills.length ?? 0, included: installedSkills.length, missing: skills ? 0 : 1, rejected: 0 },
+      { source: 'settings', state: 'complete', scanned: 1, included: 1, missing: 0, rejected: 0 },
+      { source: 'skill_catalog', state: 'complete', scanned: skillList!.length, included: installedSkills.length, missing: 0, rejected: 0 },
       { source: 'workspace_change_history', state: this.dependencies.listWorkspaceChanges ? (changeFailures ? 'partial' : 'complete') : 'unavailable', scanned: changes.length + changeFailures, included: rangedChanges.length, missing: changeFailures, rejected: 0 }
     ]
     warnings.push(warning('source_not_configured', 'Skill usage, lesson-run history, connector usage, and plant growth history are not timestamped; their range metrics remain unavailable.', 'settings'))
     if (changeFailures) warnings.push(warning('source_scan_incomplete', 'Some workspace change histories could not be read.', 'workspace_change_history', { failures: changeFailures }))
-    const complete = Boolean(settings && skills && this.dependencies.listWorkspaceChanges && changeFailures === 0)
+    const complete = Boolean(settingsReady && skillsReady && this.dependencies.listWorkspaceChanges && changeFailures === 0)
     const sectionCoverage = coverage(query, true, sources, changes.map((change) => dateToLocalKey(new Date(change.timestamp), query.calendarContext.timeZone)), complete)
     const temporal = mixedTemporal(query, generatedAt, ['workspaceChanges'], ['skills', 'pet', 'model', 'connectors'])
     if (!complete) return partialSection(temporal, sectionCoverage, data, warnings)
@@ -671,7 +783,7 @@ function buildWorkspaceAssetsSection(query: LearningAnalyticsQuery, generatedAt:
   if (failed.length) warnings.push(warning('source_scan_incomplete', 'Some workspace asset catalogs could not be read.', 'workspace_catalog', { failures: failed.length }))
   const conversations = workspaces.flatMap((workspace) => workspace.conversations)
   const courses = workspaces.flatMap((workspace) => workspace.courses.map((course) => ({ workspaceId: workspace.id, courseId: course.id, name: course.name, sessionCount: course.sessionCount, lessonCount: course.lessonCount, conversationCount: course.conversations.length, pinned: Boolean(course.conversations.some((conversation) => conversation.pinned)), updatedAt: latestString(course.conversations.map((conversation) => conversation.updatedAt)) ?? latestString(course.sessions.map((session) => session.lesson.createdAt)) })))
-  const data: WorkspaceAssetsAnalytics = { counts: { workspaces: workspaces.length, courses: sum(workspaces.map((workspace) => workspace.courses.length)), sessions: sum(workspaces.flatMap((workspace) => workspace.courses.map((course) => course.sessionCount))), lessons: sum(workspaces.map((workspace) => workspace.lessons.length)), resources: sum(workspaces.map((workspace) => workspace.resources.length)), learningRecords: sum(workspaces.map((workspace) => workspace.records.length)), references: sum(workspaces.map((workspace) => workspace.referenceCount)), conversations: new Set(conversations.map((conversation) => `${conversation.workspaceId ?? ''}:${conversation.id}`)).size }, courses, recentLessons: workspaces.flatMap((workspace) => workspace.lessons.map((lesson) => ({ workspaceId: workspace.id, lessonId: lesson.id, title: lesson.title, courseName: lesson.courseName, createdAt: lesson.createdAt, durationMinutes: lesson.durationMinutes }))).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20), missionHealth: workspaces.map((workspace) => ({ workspaceId: workspace.id, hasMission: Boolean(workspace.missionTitle && workspace.missionExcerpt && workspace.missionExcerpt !== '等待补充学习使命。'), title: workspace.missionTitle, excerptLength: workspace.missionExcerpt.length, updatedAt: workspace.updatedAt })) }
+  const data: WorkspaceAssetsAnalytics = { counts: { workspaces: workspaces.length, courses: sum(workspaces.map((workspace) => workspace.courses.length)), sessions: sum(workspaces.flatMap((workspace) => workspace.courses.map((course) => course.sessionCount))), lessons: sum(workspaces.map((workspace) => workspace.lessons.length)), resources: sum(workspaces.map((workspace) => workspace.resources.length)), learningRecords: sum(workspaces.map((workspace) => workspace.records.length)), references: sum(workspaces.map((workspace) => workspace.referenceCount)), conversations: new Set(conversations.map((conversation) => `${conversation.workspaceId ?? ''}:${conversation.id}`)).size }, courses, recentLessons: workspaces.flatMap((workspace) => workspace.lessons.map((lesson) => ({ workspaceId: workspace.id, lessonId: lesson.id, title: lesson.title, courseName: lesson.courseName, createdAt: lesson.createdAt, durationMinutes: lesson.durationMinutes }))).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20), missionHealth: workspaces.map((workspace) => ({ workspaceId: workspace.id, hasMission: Boolean(workspace.missionTitle && workspace.missionExcerpt && workspace.missionExcerpt !== '等待补充学习使命。'), title: workspace.missionTitle ?? '', excerptLength: (workspace.missionExcerpt ?? '').length, updatedAt: workspace.updatedAt })) }
   const dates = workspaces.flatMap((workspace) => [workspace.createdAt, workspace.updatedAt, ...workspace.lessons.map((lesson) => lesson.createdAt)]).map((value) => dateToLocalKey(new Date(value), query.calendarContext.timeZone))
   const sources: AnalyticsSourceCoverage[] = [{ source: 'workspace_catalog', state: failed.length ? 'partial' : 'complete', scanned: selected.length, included: workspaces.length, missing: failed.length, rejected: 0 }]
   const sectionCoverage = coverage(query, false, sources, dates, failed.length === 0)
@@ -692,6 +804,11 @@ function buildInsightsSection(query: LearningAnalyticsQuery, generatedAt: string
   const sectionCoverage = coverage(query, false, combinedSources, [], sections.every((section) => section.coverage.complete))
   const data = { items }
   return items.length ? (sectionCoverage.complete ? availableSection(asOfTemporal(generatedAt), sectionCoverage, data, combinedWarnings) : partialSection(asOfTemporal(generatedAt), sectionCoverage, data, combinedWarnings)) : emptySection(asOfTemporal(generatedAt), sectionCoverage, data, 'no_activity', combinedWarnings)
+}
+
+
+function sourceReadFailureSection<T>(query: LearningAnalyticsQuery, generatedAt: string, code: string, message: string, warnings: AnalyticsWarning[] = []): AnalyticsSectionResult<T> {
+  return errorSection(asOfTemporal(generatedAt), coverage(query, false, [], [], false), code, message, true, warnings)
 }
 
 function createUnrequestedBundle(query: LearningAnalyticsQuery, generatedAt: string): LearningAnalyticsBundle {

@@ -10,7 +10,12 @@
  */
 
 import type { BreakPolicy, TimerPlanV2 } from './timer-plan'
-import { TIMER_PLAN_SEED_DEFAULTS } from './timer-plan'
+import {
+  normalizeBreakPolicy,
+  phaseTargetSecondsForPlan,
+  TIMER_PLAN_SEED_DEFAULTS
+} from './timer-plan'
+import { resolveNextBreakPhase, type NextBreakPhase } from './next-break-phase'
 import type { TimerSessionPhase, TimerSessionRecord } from './timer-session-lifecycle'
 
 export type PhasePromptAction = 'start_break' | 'skip_break' | 'later' | 'extend_and_start'
@@ -42,52 +47,48 @@ export type PhasePromptSheetModel = {
 }
 
 /**
- * Next rest phase from frozen plan + focus round (mirrors lifecycle nextBreakPhase).
- * continuous / missing plan → short_break.
+ * Next rest phase for phase-prompt **break** handoff UI (short/long only).
+ *
+ * Authority: {@link resolveNextBreakPhase}. When the sole walker returns
+ * `wrap_up` (custom_rhythm), presentation coerces to `short_break` so the
+ * existing PhasePromptSheet (start_break / skip) stays valid. Lifecycle
+ * `phase_prompt` events still use full {@link resolveNextBreakPhase} including wrap_up.
+ *
+ * Pass `rhythmStepIndex` when known so custom_rhythm matches lifecycle.
  */
 export function computeNextBreakPhase(
   plan: TimerPlanV2 | null | undefined,
-  focusRoundInPlan: number
+  focusRoundInPlan: number,
+  rhythmStepIndex?: number
 ): 'short_break' | 'long_break' {
-  if (!plan || plan.kind === 'continuous') return 'short_break'
-  // STC-702: walk custom rhythm for next short/long break after N focus steps.
-  if (plan.kind === 'custom_rhythm' && Array.isArray(plan.rhythmSequence) && plan.rhythmSequence.length > 0) {
-    const seq = plan.rhythmSequence
-    let focusSeen = 0
-    for (let i = 0; i < seq.length * 2; i += 1) {
-      const step = seq[i % seq.length]
-      if (step.kind === 'focus') {
-        focusSeen += 1
-        if (focusSeen === focusRoundInPlan) {
-          for (let j = 1; j <= seq.length; j += 1) {
-            const next = seq[(i + j) % seq.length]
-            if (next.kind === 'long_break') return 'long_break'
-            if (next.kind === 'short_break') return 'short_break'
-          }
-          break
-        }
-      }
-    }
-    return 'short_break'
-  }
-  const every = plan.longBreakEvery ?? TIMER_PLAN_SEED_DEFAULTS.classicLongBreakEvery
-  if (focusRoundInPlan > 0 && focusRoundInPlan % every === 0) return 'long_break'
+  const next: NextBreakPhase = resolveNextBreakPhase({
+    plan,
+    focusRoundInPlan,
+    rhythmStepIndex
+  })
+  if (next === 'long_break') return 'long_break'
+  // wrap_up → short_break for break-sheet surface only
   return 'short_break'
 }
 
+/**
+ * Rest minutes for handoff UI / idle shell.
+ * Authority: {@link phaseTargetSecondsForPlan} (same seeds as lifecycle targets).
+ */
 export function breakMinutesForPhase(
   plan: TimerPlanV2 | null | undefined,
   phase: 'short_break' | 'long_break'
 ): number {
   if (!plan) {
-    return phase === 'long_break'
-      ? TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes
-      : TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes
+    const minutes =
+      phase === 'long_break'
+        ? TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes
+        : TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes
+    return Math.max(1, minutes)
   }
-  if (phase === 'long_break') {
-    return plan.longBreakMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes
-  }
-  return plan.shortBreakMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes
+  const seconds = phaseTargetSecondsForPlan(plan, phase)
+  // Product shells use whole minutes; clamp to ≥1 so idle break never shows 0.
+  return Math.max(1, Math.ceil((seconds ?? 0) / 60))
 }
 
 /**
@@ -100,9 +101,10 @@ export function breakMinutesForPhase(
 export function resolvePhasePromptDisposition(
   breakPolicy: BreakPolicy | string | null | undefined
 ): 'prompt' | 'auto_start' | 'remind' | 'suppress' {
-  if (breakPolicy === 'automatic') return 'auto_start'
-  if (breakPolicy === 'none') return 'suppress'
-  if (breakPolicy === 'reminder_only') return 'remind'
+  const policy = normalizeBreakPolicy(breakPolicy)
+  if (policy === 'automatic') return 'auto_start'
+  if (policy === 'none') return 'suppress'
+  if (policy === 'reminder_only') return 'remind'
   // Default / ask / unknown → ask (pomodoro freeze #3)
   return 'prompt'
 }
@@ -111,20 +113,22 @@ export function resolvePhasePromptDisposition(
  * Build presentation model for focus→break phase prompt.
  */
 export function buildPhasePromptSheetModel(input: {
-  completed: Pick<TimerSessionRecord, 'planSnapshot' | 'focusRoundInPlan' | 'phase' | 'state'>
+  completed: Pick<
+    TimerSessionRecord,
+    'planSnapshot' | 'focusRoundInPlan' | 'phase' | 'state' | 'rhythmStepIndex'
+  >
   /** Override next phase (tests); otherwise computed from frozen plan. */
   nextPhase?: 'short_break' | 'long_break'
 }): PhasePromptSheetModel {
   const plan = input.completed.planSnapshot
-  const breakPolicy: BreakPolicy =
-    plan?.breakPolicy === 'automatic' ||
-    plan?.breakPolicy === 'ask' ||
-    plan?.breakPolicy === 'reminder_only' ||
-    plan?.breakPolicy === 'none'
-      ? plan.breakPolicy
-      : 'ask'
+  const breakPolicy = normalizeBreakPolicy(plan?.breakPolicy)
   const nextPhase =
-    input.nextPhase ?? computeNextBreakPhase(plan, input.completed.focusRoundInPlan)
+    input.nextPhase
+    ?? computeNextBreakPhase(
+      plan,
+      input.completed.focusRoundInPlan,
+      input.completed.rhythmStepIndex
+    )
   const nextBreakMinutes = breakMinutesForPhase(plan, nextPhase)
   const planName = (plan?.name ?? '').trim() || '当前方案'
   const isLong = nextPhase === 'long_break'
@@ -214,15 +218,14 @@ export function projectPhaseHandoffPlan(
 ): PhaseHandoffPlan | null {
   if (!shouldOfferPhaseHandoff(completed)) return null
   const plan = completed!.planSnapshot!
-  const breakPolicy: BreakPolicy =
-    plan.breakPolicy === 'automatic' ||
-    plan.breakPolicy === 'ask' ||
-    plan.breakPolicy === 'reminder_only' ||
-    plan.breakPolicy === 'none'
-      ? plan.breakPolicy
-      : 'ask'
-  const nextPhase = computeNextBreakPhase(plan, completed!.focusRoundInPlan)
+  const breakPolicy = normalizeBreakPolicy(plan.breakPolicy)
+  const nextPhase = computeNextBreakPhase(
+    plan,
+    completed!.focusRoundInPlan,
+    completed!.rhythmStepIndex
+  )
   const nextBreakMinutes = breakMinutesForPhase(plan, nextPhase)
+  const targetFromPlan = phaseTargetSecondsForPlan(plan, nextPhase)
   return {
     disposition: resolvePhasePromptDisposition(breakPolicy),
     breakPolicy,
@@ -230,7 +233,10 @@ export function projectPhaseHandoffPlan(
     nextBreakMinutes,
     focusRoundInPlan: completed!.focusRoundInPlan,
     plan,
-    targetSeconds: nextBreakMinutes * 60
+    // Prefer seconds authority; fall back to minutes * 60 if plan returns null.
+    targetSeconds: targetFromPlan != null && targetFromPlan > 0
+      ? targetFromPlan
+      : nextBreakMinutes * 60
   }
 }
 

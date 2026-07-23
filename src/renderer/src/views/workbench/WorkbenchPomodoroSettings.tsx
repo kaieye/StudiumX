@@ -12,7 +12,7 @@ import {
 import { StudyPlanningPrefsSection } from './StudyPlanningPrefsSection'
 import {
   TIMER_PLAN_KIND_OPTIONS,
-  defaultContinuousBreakPolicy,
+  isExamContinuousPlan,
   type StudyTimerPlanKind,
   type StudyTimerPlanKindUi
 } from '../../study-space/planning-timer-plan-kind'
@@ -23,7 +23,10 @@ import {
 } from '../../study-space/planning-simulation-window-ui'
 import type { TimerPlanCatalogRow } from '../../study-space/planning-timer-plan-catalog-ui'
 import type { EmptyStartCategoryOption } from '../../study-space/planning-study-prefs-ui'
-import type { TimerPlanDraft } from './workbench-pomodoro-draft'
+import {
+  applyTimerPlanKindUi,
+  type TimerPlanDraft
+} from './workbench-pomodoro-draft'
 
 export type WorkbenchPomodoroSettingsProps = {
   settingsTitleId: string
@@ -204,99 +207,13 @@ export function WorkbenchPomodoroSettings({
                     position="item-aligned"
                     options={[...TIMER_PLAN_KIND_OPTIONS]}
                     onChange={(next) => {
-                      setDraftAndMaybeCommit((current) => {
-                        if (next === 'exam') {
-                          const existingTotal =
-                            totalMinutesFromSimulationWindow(
-                              current.simulationStartTime,
-                              current.simulationEndTime
-                            )
-                          const keepWindow =
-                            current.simulationStartTime
-                            && current.simulationEndTime
-                            && current.simulationStartTime < current.simulationEndTime
-                            && current.simulationStartTime !== '00:00'
-                          const examStart = keepWindow ? current.simulationStartTime : '09:00'
-                          const examEnd = keepWindow
-                            ? current.simulationEndTime
-                            : (existingTotal
-                              ? (simulationWindowFromTotalMinutes(existingTotal, '09:00')?.end ?? '11:30')
-                              : '11:30')
-                          const examTotal =
-                            totalMinutesFromSimulationWindow(examStart, examEnd) ?? 150
-                          return {
-                            ...current,
-                            kind: 'continuous',
-                            continuousTarget: true,
-                            continuousMode: 'exam',
-                            clockMode: 'countup',
-                            focusMinutes: examTotal,
-                            breakMinutes: 0,
-                            simulationStartTime: examStart,
-                            simulationEndTime: examEnd,
-                            breakPolicy: 'none',
-                            rhythmSequence: undefined
-                          }
-                        }
-                        if (next === 'continuous') {
-                          const existingTotal =
-                            totalMinutesFromSimulationWindow(
-                              current.simulationStartTime,
-                              current.simulationEndTime
-                            )
-                          const nextFocus =
-                            Number.isInteger(current.focusMinutes) && current.focusMinutes >= 5
-                              ? current.focusMinutes
-                              : 25
-                          const nextBreak =
-                            Number.isInteger(current.breakMinutes) && current.breakMinutes >= 0
-                              ? current.breakMinutes
-                              : 5
-                          const nextTotal =
-                            existingTotal
-                            ?? Math.min(240, Math.max(5, nextFocus * 2 + nextBreak))
-                          const totalWindow = simulationWindowFromTotalMinutes(nextTotal) ?? {
-                            start: '00:00',
-                            end: '01:30'
-                          }
-                          return {
-                            ...current,
-                            kind: 'continuous',
-                            continuousTarget: false,
-                            continuousMode: 'target',
-                            clockMode: current.clockMode === 'countup' ? 'countup' : 'countdown',
-                            focusMinutes: nextFocus,
-                            breakMinutes: nextBreak,
-                            simulationStartTime: totalWindow.start,
-                            simulationEndTime: totalWindow.end,
-                            breakPolicy:
-                              current.breakPolicy === 'automatic'
-                              || current.breakPolicy === 'ask'
-                              || current.breakPolicy === 'reminder_only'
-                              || current.breakPolicy === 'none'
-                                ? current.breakPolicy
-                                : defaultContinuousBreakPolicy(),
-                            rhythmSequence: undefined
-                          }
-                        }
-                        return {
-                          ...current,
-                          kind: 'pomodoro',
-                          continuousTarget: undefined,
-                          continuousMode: undefined,
-                          clockMode: 'countdown',
-                          breakPolicy:
-                            current.breakPolicy === 'automatic' || current.breakPolicy === 'ask'
-                              ? current.breakPolicy
-                              : 'ask',
-                          breakMinutes: current.breakMinutes || 5,
-                          rhythmSequence: undefined
-                        }
-                      })
+                      setDraftAndMaybeCommit((current) =>
+                        applyTimerPlanKindUi(current, next as StudyTimerPlanKindUi)
+                      )
                     }}
                   />
                 </SettingsRow>
-                {draftKind === 'continuous' && (draft.continuousMode === 'exam' || draft.continuousTarget === true) ? (
+                {draftKind === 'continuous' && isExamContinuousPlan(draft) ? (
                   <>
                     <SettingsRow label="考试时段" detail="开始与结束时间">
                       <div className="workbench-pomodoro-time-range workbench-pomodoro-time-range--settings">

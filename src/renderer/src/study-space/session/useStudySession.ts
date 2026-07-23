@@ -48,7 +48,11 @@ import {
   normalizePhasePromptExtendMinutes,
   normalizeQuickStartTitle,
   projectBreakEndHandoffPlan,
-  projectPhaseHandoffPlan
+  projectPhaseHandoffPlan,
+  resolveBreakEndAnswerIntent,
+  resolveBreakEndHandoffIntent,
+  resolveFocusCompleteHandoffIntent,
+  resolvePhasePromptAnswerIntent
 } from '../../../../shared/study-planning'
 import { pickPrimaryScheduleBlockForTask } from '../planning-hydrate'
 import { resolveFocusBlockIdForScheduleUpsert } from '../planning-schedule-block-adapter'
@@ -667,28 +671,10 @@ export function useStudySession({
       return
     }
 
-    const idleBreakShell = applyFocusCompleteWithoutAutoBreak({
-      ...hostWithAnalytics,
-      breakMinutes: handoff.nextBreakMinutes
-    })
+    // Sole disposition → intent table (shared pure module; host only applies effects).
+    const intent = resolveFocusCompleteHandoffIntent(handoff)
 
-    if (handoff.disposition === 'auto_start') {
-      commitSnapshot(idleBreakShell)
-      startBreakFromCompletedHandoff(normalizedCompleted!, true)
-      return
-    }
-
-    if (handoff.disposition === 'remind') {
-      commitSnapshot(idleBreakShell)
-      // Soft in-app reminder only; do not start break TimerSession.
-      void showNotification(
-        '自习室',
-        `专注到点。当前方案仅提醒休息（${handoff.nextBreakMinutes} 分钟建议）。`
-      )
-      return
-    }
-
-    if (handoff.disposition === 'suppress') {
+    if (intent.kind === 'suppress_to_focus_idle') {
       // breakPolicy none: stay ready — prefer focus idle for next start.
       commitSnapshot({
         ...hostAfterAdvance,
@@ -700,13 +686,35 @@ export function useStudySession({
       return
     }
 
-    // disposition === 'prompt' (ask)
+    const idleBreakShell = applyFocusCompleteWithoutAutoBreak({
+      ...hostWithAnalytics,
+      breakMinutes: intent.breakMinutes
+    })
+
+    if (intent.kind === 'auto_start_break') {
+      commitSnapshot(idleBreakShell)
+      startBreakFromCompletedHandoff(normalizedCompleted!, true)
+      return
+    }
+
+    if (intent.kind === 'remind') {
+      commitSnapshot(idleBreakShell)
+      // Soft in-app reminder only; do not start break TimerSession.
+      void showNotification(intent.notifyTitle, intent.notifyBody)
+      return
+    }
+
+    // intent.kind === 'prompt' (ask)
     commitSnapshot(idleBreakShell)
     if (!onPhasePromptAsk || !normalizedCompleted) return
     try {
       const answer = await onPhasePromptAsk({ completed: normalizedCompleted })
-      if (!answer || answer.action === 'later') return
-      if (answer.action === 'skip_break') {
+      const answerIntent = resolvePhasePromptAnswerIntent({
+        action: answer?.action,
+        extendMinutes: answer?.extendMinutes
+      })
+      if (answerIntent.kind === 'noop') return
+      if (answerIntent.kind === 'skip_to_focus_idle') {
         // Skip: idle focus shell; do not forge rest.
         const latest = snapshotRef.current
         commitSnapshot({
@@ -718,13 +726,13 @@ export function useStudySession({
         })
         return
       }
-      if (answer.action === 'start_break') {
+      if (answerIntent.kind === 'start_break') {
         startBreakFromCompletedHandoff(normalizedCompleted, true)
         return
       }
-      if (answer.action === 'extend_and_start') {
+      if (answerIntent.kind === 'extend_and_start') {
         startBreakFromCompletedHandoff(normalizedCompleted, true, {
-          extendMinutes: answer.extendMinutes
+          extendMinutes: answerIntent.extendMinutes
         })
       }
     } catch {
@@ -821,6 +829,9 @@ export function useStudySession({
       return
     }
 
+    // Sole disposition → intent table (shared pure module; host only applies effects).
+    const intent = resolveBreakEndHandoffIntent(handoff)
+
     const idleFocusShell: StudySnapshot = {
       ...hostWithAnalytics,
       timerMode: 'focus',
@@ -834,38 +845,38 @@ export function useStudySession({
       contractLocked: false
     }
 
-    if (handoff.disposition === 'auto_start') {
+    if (intent.kind === 'auto_start_focus') {
       commitSnapshot(idleFocusShell)
       startNextFromCompletedBreak(normalizedCompleted!, true, 'focus')
       return
     }
 
-    if (handoff.disposition === 'remind') {
+    if (intent.kind === 'remind') {
       commitSnapshot(idleFocusShell)
-      void showNotification(
-        '自习室',
-        `休息到点。当前方案仅提醒（下一轮专注建议第 ${handoff.nextFocusRound} 轮）。`
-      )
+      void showNotification(intent.notifyTitle, intent.notifyBody)
       return
     }
 
-    if (handoff.disposition === 'suppress') {
+    if (intent.kind === 'suppress_idle_focus') {
       commitSnapshot(idleFocusShell)
       return
     }
 
-    // disposition === 'prompt' (ask)
+    // intent.kind === 'prompt' (ask)
     commitSnapshot(idleFocusShell)
     if (!onBreakEndPromptAsk || !normalizedCompleted) return
     try {
       const answer = await onBreakEndPromptAsk({ completed: normalizedCompleted })
-      if (!answer || answer.action === 'later') return
-      if (answer.action === 'start_focus') {
+      const answerIntent = resolveBreakEndAnswerIntent({
+        action: answer?.action,
+        offerWrapUp: handoff.offerWrapUp
+      })
+      if (answerIntent.kind === 'noop') return
+      if (answerIntent.kind === 'start_focus') {
         startNextFromCompletedBreak(normalizedCompleted, true, 'focus')
         return
       }
-      if (answer.action === 'wrap_up') {
-        if (!handoff.offerWrapUp) return
+      if (answerIntent.kind === 'wrap_up') {
         startNextFromCompletedBreak(normalizedCompleted, true, 'wrap_up')
       }
     } catch {

@@ -11,19 +11,24 @@ export type ProviderUsage = {
 }
 
 export function extractUsage(format: ModelEndpointFormat, body: unknown): ProviderUsage | undefined {
-  const raw = (body as { usage?: unknown })?.usage
+  if (!body || typeof body !== 'object') return undefined
+  const record = body as Record<string, unknown>
+  // OpenAI chat stream final chunk: top-level usage.
+  // Anthropic stream: message_delta.usage / message_start.message.usage.
+  // OpenAI responses stream: response.completed.response.usage.
+  const nestedMessage = record.message && typeof record.message === 'object'
+    ? (record.message as Record<string, unknown>).usage
+    : undefined
+  const nestedResponse = record.response && typeof record.response === 'object'
+    ? (record.response as Record<string, unknown>).usage
+    : undefined
+  const raw = record.usage ?? nestedMessage ?? nestedResponse
   if (!raw || typeof raw !== 'object') return undefined
   const usage = raw as Record<string, unknown>
-  const promptTokens = finiteTokenCount(
-    format === 'chat_completions' || format === 'custom_endpoint'
-      ? usage.prompt_tokens
-      : usage.input_tokens
-  )
-  const completionTokens = finiteTokenCount(
-    format === 'chat_completions' || format === 'custom_endpoint'
-      ? usage.completion_tokens
-      : usage.output_tokens
-  )
+  // Accept both OpenAI and Anthropic field names — stream hosts vary by format.
+  void format
+  const promptTokens = finiteTokenCount(usage.prompt_tokens ?? usage.input_tokens)
+  const completionTokens = finiteTokenCount(usage.completion_tokens ?? usage.output_tokens)
   const totalTokens = finiteTokenCount(usage.total_tokens)
     ?? (promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined)
   if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) return undefined

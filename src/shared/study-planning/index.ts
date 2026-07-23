@@ -12,10 +12,14 @@ export {
   createClassicPomodoroPlan,
   createContinuousCountupPlan,
   createExamSimulationPlan,
+  focusTargetSecondsForPlan,
+  isOpenContinuousPlanV2,
   createOpenContinuousPlan,
   createTargetContinuousPlan,
   OPEN_CONTINUOUS_SHELL,
+  normalizeBreakPolicy,
   normalizeTimerPlanV2,
+  phaseTargetSecondsForPlan,
   validateTimerPlanV2,
   type BreakPolicy,
   type ContinuousMode,
@@ -300,6 +304,12 @@ export {
 } from './batch-classify-sheet'
 
 export {
+  resolveNextBreakPhase,
+  type NextBreakPhase,
+  type ResolveNextBreakPhaseInput
+} from './next-break-phase'
+
+export {
   buildPhasePromptSheetModel,
   breakMinutesForPhase,
   computeNextBreakPhase,
@@ -316,8 +326,18 @@ export {
 } from './phase-prompt-sheet'
 
 export {
+  resolveBreakEndAnswerIntent,
+  resolveBreakEndHandoffIntent,
+  resolveFocusCompleteHandoffIntent,
+  resolvePhasePromptAnswerIntent,
+  type BreakEndAnswerIntent,
+  type BreakEndHandoffIntent,
+  type FocusCompleteHandoffIntent,
+  type PhasePromptAnswerIntent
+} from './phase-handoff-intent'
+
+export {
   buildBreakEndPromptSheetModel,
-  focusTargetSecondsForPlan,
   isWrapUpPhase,
   normalizeBreakEndPromptAction,
   projectBreakEndHandoffPlan,

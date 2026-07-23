@@ -9,7 +9,7 @@
  */
 
 import { formatStudyDuration } from './domain'
-import { continuousModeFromV1 } from './planning-timer-plan-kind'
+import { isExamContinuousPlan, normalizeTimerPlanKindFields } from './planning-timer-plan-kind'
 import type { StudyTimerMode, StudyTimerPlan, StudyTimerState } from './types'
 
 export type WorkbenchTimerFaceClockModel = {
@@ -57,9 +57,7 @@ function planKind(
   plan: TimerFaceAppliedPlan
 ): 'pomodoro' | 'continuous' | 'custom_rhythm' {
   if (!plan) return 'pomodoro'
-  if (plan.kind === 'continuous') return 'continuous'
-  if (plan.kind === 'custom_rhythm') return 'custom_rhythm'
-  return 'pomodoro'
+  return normalizeTimerPlanKindFields({ kind: plan.kind }).kind
 }
 
 /**
@@ -68,15 +66,7 @@ function planKind(
  */
 function isExamContinuous(plan: TimerFaceAppliedPlan): boolean {
   if (!plan || planKind(plan) !== 'continuous') return false
-  return (
-    continuousModeFromV1({
-      kind: plan.kind,
-      clockMode: plan.clockMode,
-      continuousTarget: plan.continuousTarget,
-      continuousMode: plan.continuousMode,
-      focusMinutes: plan.focusMinutes
-    }) === 'exam'
-  )
+  return isExamContinuousPlan(plan)
 }
 
 /** Non-exam countup dial (pomodoro countup or continuous open/cycle countup). */

@@ -7,6 +7,7 @@ import {
   buildPhasePromptSheetModel,
   computeNextBreakPhase,
   createClassicPomodoroPlan,
+  normalizeBreakPolicy,
   normalizePhasePromptAction,
   projectPhaseHandoffPlan,
   resolvePhasePromptDisposition,
@@ -43,12 +44,32 @@ describe('phase-prompt-sheet pure model (STC-205)', () => {
     expect(resolvePhasePromptDisposition(undefined)).toBe('prompt')
   })
 
+  it('normalizeBreakPolicy is fail-closed sole authority for sheet allowlists', () => {
+    expect(normalizeBreakPolicy('automatic')).toBe('automatic')
+    expect(normalizeBreakPolicy('ask')).toBe('ask')
+    expect(normalizeBreakPolicy('reminder_only')).toBe('reminder_only')
+    expect(normalizeBreakPolicy('none')).toBe('none')
+    expect(normalizeBreakPolicy(undefined)).toBe('ask')
+    expect(normalizeBreakPolicy('nope')).toBe('ask')
+    expect(normalizeBreakPolicy('nope', 'reminder_only')).toBe('reminder_only')
+  })
+
   it('computeNextBreakPhase uses long break every N focus rounds', () => {
     const plan = createClassicPomodoroPlan({ longBreakEvery: 4, longBreakMinutes: 15 })
     expect(computeNextBreakPhase(plan, 1)).toBe('short_break')
     expect(computeNextBreakPhase(plan, 3)).toBe('short_break')
     expect(computeNextBreakPhase(plan, 4)).toBe('long_break')
     expect(computeNextBreakPhase(plan, 8)).toBe('long_break')
+  })
+
+  it('computeNextBreakPhase and resolveNextBreakPhase share pomodoro authority', async () => {
+    const { resolveNextBreakPhase } = await import('../../src/shared/study-planning')
+    const plan = createClassicPomodoroPlan({ longBreakEvery: 4, longBreakMinutes: 15 })
+    for (const round of [1, 3, 4, 8] as const) {
+      const full = resolveNextBreakPhase({ plan, focusRoundInPlan: round })
+      const ui = computeNextBreakPhase(plan, round)
+      expect(ui).toBe(full === 'wrap_up' ? 'short_break' : full)
+    }
   })
 
   it('buildPhasePromptSheetModel offers start / skip / later with minutes', () => {

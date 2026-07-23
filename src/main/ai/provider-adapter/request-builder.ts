@@ -45,6 +45,7 @@ export function buildRequest(
             temperature: generator.temperature,
             max_tokens: maxOutputTokens,
             stream,
+            ...(stream ? { stream_options: { include_usage: true } } : {}),
             ...reasoningRequestOptions(format, provider, generator),
             ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
           })
@@ -98,6 +99,7 @@ export function buildRequest(
             temperature: generator.temperature,
             max_tokens: maxOutputTokens,
             stream,
+            ...(stream ? { stream_options: { include_usage: true } } : {}),
             ...reasoningRequestOptions(format, provider, generator),
             ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
           })
@@ -135,6 +137,8 @@ export function buildChatRequest(
     temperature: generator.temperature,
     max_tokens: maxOutputTokens,
     stream,
+    // OpenAI-compatible hosts only emit usage on the final SSE chunk when this is set.
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
     ...reasoningRequestOptions(format, provider, generator),
     ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
   }

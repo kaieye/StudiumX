@@ -18,6 +18,26 @@ export type TimerClockMode = 'countdown' | 'countup'
 export type BreakPolicy = 'automatic' | 'ask' | 'reminder_only' | 'none'
 export type WindowFillPolicy = 'complete_cycles' | 'adaptive_final_focus' | 'allow_overrun'
 
+/**
+ * Fail-closed normalize for wire/UI breakPolicy values.
+ * Unknown / missing → fallback (product default `ask` for pomodoro sheets).
+ * Single authority for phase-prompt, break-end, and editor transitions.
+ */
+export function normalizeBreakPolicy(
+  raw: BreakPolicy | string | null | undefined,
+  fallback: BreakPolicy = 'ask'
+): BreakPolicy {
+  if (
+    raw === 'automatic'
+    || raw === 'ask'
+    || raw === 'reminder_only'
+    || raw === 'none'
+  ) {
+    return raw
+  }
+  return fallback
+}
+
 export type TimerPlanNotificationPolicy = {
   sound: boolean
   systemNotification: boolean
@@ -699,3 +719,67 @@ export function createContinuousCountupPlan(overrides?: Partial<TimerPlanV2>): T
   return createTargetContinuousPlan(overrides)
 }
 
+
+/**
+ * Open-ended continuous countup: no focus target seconds.
+ * Prefer continuousMode === 'open'; legacy: continuous + countup + missing focusMinutes.
+ * Exam and target modes are never open.
+ */
+export function isOpenContinuousPlanV2(plan: Pick<TimerPlanV2, 'kind' | 'clockMode' | 'continuousMode' | 'focusMinutes'>): boolean {
+  if (plan.kind !== 'continuous') return false
+  if (plan.continuousMode === 'open') return true
+  if (plan.continuousMode === 'exam' || plan.continuousMode === 'target') return false
+  return plan.clockMode === 'countup' && plan.focusMinutes == null
+}
+
+/**
+ * Focus-phase target seconds from a plan snapshot.
+ * Open continuous → null; otherwise focusMinutes (seed classic default when missing).
+ * Single authority for lifecycle, break-end handoff, and local start.
+ */
+export function focusTargetSecondsForPlan(
+  plan: Pick<TimerPlanV2, 'kind' | 'clockMode' | 'continuousMode' | 'focusMinutes'>
+): number | null {
+  if (isOpenContinuousPlanV2(plan)) {
+    return null
+  }
+  const minutes = plan.focusMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes
+  return Math.max(1, Math.floor(minutes)) * 60
+}
+
+/**
+ * Phase target seconds from plan snapshot (no custom_rhythm step walk).
+ * For custom_rhythm with a known step index, callers should prefer
+ * customRhythmMinutesForPhase; this helper is the seed-default authority for
+ * focus / short_break / long_break / wrap_up when step minutes are unavailable.
+ */
+export function phaseTargetSecondsForPlan(
+  plan: Pick<
+    TimerPlanV2,
+    | 'kind'
+    | 'clockMode'
+    | 'continuousMode'
+    | 'focusMinutes'
+    | 'shortBreakMinutes'
+    | 'longBreakMinutes'
+    | 'wrapUpMinutes'
+  >,
+  phase: 'focus' | 'short_break' | 'long_break' | 'wrap_up' | 'break'
+): number | null {
+  if (phase === 'focus') {
+    return focusTargetSecondsForPlan(plan)
+  }
+  if (phase === 'long_break') {
+    const minutes =
+      plan.longBreakMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicLongBreakMinutes
+    return Math.max(0, Math.floor(minutes)) * 60
+  }
+  if (phase === 'wrap_up') {
+    const minutes = plan.wrapUpMinutes ?? TIMER_PLAN_SEED_DEFAULTS.wrapUpMinutes
+    return Math.max(0, Math.floor(minutes)) * 60
+  }
+  // short_break | break
+  const minutes =
+    plan.shortBreakMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes
+  return Math.max(0, Math.floor(minutes)) * 60
+}

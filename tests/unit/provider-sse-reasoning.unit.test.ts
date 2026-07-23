@@ -34,7 +34,7 @@ describe('provider SSE reasoning', () => {
   it('streams Anthropic thinking deltas separately from answer text', async () => {
     const answer: string[] = []
     const reasoning: string[] = []
-    const text = await readSseStream(
+    const result = await readSseStream(
       sseBody([
         { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '检查资料' } },
         { type: 'content_block_delta', delta: { type: 'text_delta', text: '回答' } }
@@ -46,9 +46,8 @@ describe('provider SSE reasoning', () => {
 
     expect(reasoning).toEqual(['检查资料'])
     expect(answer).toEqual(['回答'])
-    expect(text).toBe('回答')
+    expect(result.text).toBe('回答')
   })
-})
 
   it('accepts OpenAI-compatible array content parts and missing tool call ids', async () => {
     const answer: string[] = []
@@ -80,4 +79,5 @@ describe('provider SSE reasoning', () => {
       }
     ])
   })
+})
 

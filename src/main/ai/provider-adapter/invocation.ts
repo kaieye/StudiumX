@@ -104,14 +104,17 @@ export async function streamTextInvocation(opts: InvocationBase & {
   }
   const body = response.body
   opts.callbacks.onStatus?.('streaming')
-  const text = await readSseStream(
+  const { text, usage } = await readSseStream(
     body,
     format,
     (delta) => opts.callbacks.onToken?.(delta),
     (delta) => opts.callbacks.onReasoning?.(delta)
   )
   if (!text) throw new ProviderAdapterError('parse', '流式响应未产生任何内容。')
-  return { text }
+  return {
+    text,
+    ...(usage ? { usage } : {})
+  }
 }
 
 export async function callChatInvocation(opts: InvocationBase & {
@@ -187,7 +190,7 @@ export async function streamChatInvocation(opts: InvocationBase & {
   }
 
   opts.callbacks.onStatus?.('streaming')
-  const { text, toolCalls, finishReason } = await readChatSseStream(
+  const { text, toolCalls, finishReason, usage } = await readChatSseStream(
     response.body,
     format,
     (delta) => opts.callbacks.onToken?.(delta),
@@ -206,13 +209,14 @@ export async function streamChatInvocation(opts: InvocationBase & {
         // Keep the original empty-stream diagnosis when the retry also fails.
       }
     }
-    throw new ProviderAdapterError('parse', '流式响应未产生任何内容或工具调用。')
+    throw new ProviderAdapterError('parse', '流式响应未返回任何内容或工具调用。')
   }
   const result: ChatAdapterResult = {
     text,
     toolCalls,
     toolsSupported,
-    ...(finishReason ? { finishReason } : {})
+    ...(finishReason ? { finishReason } : {}),
+    ...(usage ? { usage } : {})
   }
   emitToolCalls(opts.callbacks, toolCalls)
   return result

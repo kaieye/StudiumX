@@ -28,7 +28,8 @@ import {
   type TimerPlanV2,
   type TimerSessionPhase,
   type TimerSessionRecord,
-  type TimerSessionState
+  type TimerSessionState,
+  phaseTargetSecondsForPlan
 } from '../../../shared/study-planning'
 import type { StudySnapshot, StudyTimerState } from './types'
 import { resolvePlanV2ForStart } from './planning-timer-plan-kind'
@@ -213,16 +214,20 @@ export function startLocalFocusTimerSession(
   })
   if (!started.session) {
     // Fail-closed fallback: still return a minimal running record so UI can start.
+    // Prefer shared phaseTargetSecondsForPlan (seed defaults) — not hard-coded 25/15/5.
     const fallbackTarget: number | null =
       input.targetSeconds !== undefined
         ? input.targetSeconds
-        : plan.kind === 'continuous' && plan.clockMode === 'countup' && plan.focusMinutes == null && phase === 'focus'
-          ? null
-          : phase === 'focus'
-            ? (plan.focusMinutes ?? 25) * 60
-            : phase === 'long_break'
-              ? (plan.longBreakMinutes ?? 15) * 60
-              : (plan.shortBreakMinutes ?? 5) * 60
+        : phaseTargetSecondsForPlan(
+            plan,
+            phase === 'long_break'
+              ? 'long_break'
+              : phase === 'wrap_up'
+                ? 'wrap_up'
+                : phase === 'focus'
+                  ? 'focus'
+                  : 'short_break'
+          )
     return {
       id: input.sessionId,
       taskId: phase === 'focus' ? (input.taskId ?? null) : null,
