@@ -171,12 +171,29 @@ export type TeachingDoctorMcpServerFacts = {
   errorCode?: string | null
   /** Redacted command label only (never secret env). */
   commandLabel?: string | null
+  /**
+   * Aggregate inventory counters only (no tool names/schemas).
+   * Optional for backward compatibility with older fact collectors.
+   */
+  inventory?: {
+    discoveredToolCount: number
+    registeredToolCount: number
+    rejectedToolCount: number
+    stale: boolean
+  } | null
+  /**
+   * Secret-free OAuth lifecycle category only (`authorization_required` | …).
+   * Never includes tokens, codes, endpoints, or error detail text.
+   */
+  authorizationState?: string | null
 }
 
 export type TeachingDoctorMcpFacts = {
   /** Feature / implementation present in this build. */
   implementationPresent: boolean
   rootEnabled: boolean
+  /** Opt-in discovery auto-connect (ADR-0137); never implies tool approval. */
+  autoConnectEnabled?: boolean
   serverCount: number
   enabledServerCount: number
   connectedServerCount: number
@@ -184,6 +201,15 @@ export type TeachingDoctorMcpFacts = {
   servers: readonly TeachingDoctorMcpServerFacts[]
   /** Logical locator only. */
   configPathLabel?: string | null
+  /** Local marketplace emergency kill-switch (ADR-0140); no catalog payload. */
+  marketplaceEmergencyDisabled?: boolean
+  /**
+   * Distinct multi-source origin kinds represented among effective winners
+   * (ADR-0137). Aggregate only — no paths or server payloads.
+   */
+  effectiveSourceCount?: number
+  /** Count of non-secret multi-source load/parse warnings (aggregate only). */
+  sourceWarningCount?: number
 }
 
 export type TeachingDoctorProcessCrashMarkerFacts = {

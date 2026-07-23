@@ -107,7 +107,17 @@ export const teachingInvokeChannels = {
   mcpGetConfig: 'teach:mcp-get-config',
   mcpUpdateConfig: 'teach:mcp-update-config',
   mcpTestServer: 'teach:mcp-test-server',
-  mcpListRuntime: 'teach:mcp-list-runtime'
+  mcpRefreshServer: 'teach:mcp-refresh-server',
+  mcpAuthorizeServer: 'teach:mcp-authorize-server',
+  mcpRevokeAuthorization: 'teach:mcp-revoke-authorization',
+  mcpListRuntime: 'teach:mcp-list-runtime',
+  mcpAutoConnectNow: 'teach:mcp-auto-connect-now',
+  mcpGetEffectiveView: 'teach:mcp-get-effective-view',
+  mcpMarketplaceList: 'teach:mcp-marketplace-list',
+  mcpMarketplaceInstall: 'teach:mcp-marketplace-install',
+  mcpMarketplaceUninstall: 'teach:mcp-marketplace-uninstall',
+  mcpMarketplaceSetCatalogUrls: 'teach:mcp-marketplace-set-catalog-urls',
+  mcpMarketplaceRefreshCatalog: 'teach:mcp-marketplace-refresh-catalog'
 } satisfies Record<TeachingInvokeCapability, string>
 
 export const teachingEventChannels = {

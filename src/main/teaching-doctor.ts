@@ -665,15 +665,37 @@ function checkMcpStatus(
     .filter(Boolean)
     .slice(0, 16)
 
+  const autoConnectEnabled = facts.autoConnectEnabled === true
+  const effectiveSourceCount =
+    typeof facts.effectiveSourceCount === 'number' &&
+    Number.isSafeInteger(facts.effectiveSourceCount) &&
+    facts.effectiveSourceCount >= 0
+      ? facts.effectiveSourceCount
+      : null
+  const sourceWarningCount =
+    typeof facts.sourceWarningCount === 'number' &&
+    Number.isSafeInteger(facts.sourceWarningCount) &&
+    facts.sourceWarningCount >= 0
+      ? facts.sourceWarningCount
+      : null
+  const marketplaceEmergencyDisabled =
+    typeof facts.marketplaceEmergencyDisabled === 'boolean'
+      ? facts.marketplaceEmergencyDisabled
+      : null
+
   const evidence = safeEvidence(
     {
       implementationPresent,
       rootEnabled,
+      autoConnectEnabled,
       serverCount,
       enabledServerCount,
       connectedServerCount,
       errorServerCount,
-      configPathLabel: configPath
+      configPathLabel: configPath,
+      ...(effectiveSourceCount != null ? { effectiveSourceCount } : {}),
+      ...(sourceWarningCount != null ? { sourceWarningCount } : {}),
+      ...(marketplaceEmergencyDisabled != null ? { marketplaceEmergencyDisabled } : {})
     },
     serverIds.map((id) => `server=${id}`)
   )
@@ -712,7 +734,7 @@ function checkMcpStatus(
         'manual_review',
         'Review MCP server command/config under Settings · MCP; fix spawn/handshake failures. Secrets stay out of doctor evidence.'
       ),
-      'Open Settings · MCP, test the failing server, and inspect logs (redacted). Do not enable marketplace or YOLO.',
+      'Open Settings · MCP, test the failing server, and inspect logs (redacted). Keep secret material out of support bundles.',
       {
         configPath,
         fixSuggestion: {

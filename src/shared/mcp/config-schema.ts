@@ -11,8 +11,11 @@ import {
   MCP_CONFIG_SCHEMA_VERSION,
   MCP_SECRET_REF_KEEP,
   MCP_SECRET_REF_PENDING,
+  type McpInjectionIdentity,
   type McpTransportKind,
+  type McpWorkspaceRootInjection,
   type UserMcpConfigV1,
+  type UserMcpServerOAuthConfigV1,
   type UserMcpServerPublicV1,
   type UserMcpServerV1,
   type UserMcpConfigPublicV1
@@ -28,13 +31,29 @@ export function defaultUserMcpConfig(): UserMcpConfigV1 {
   return {
     schemaVersion: MCP_CONFIG_SCHEMA_VERSION,
     enabled: false,
+    autoConnect: false,
+    honorRemoteReadOnlyHint: false,
     servers: [],
     fingerprint: fingerprintUserMcpConfig({
       schemaVersion: MCP_CONFIG_SCHEMA_VERSION,
       enabled: false,
+      autoConnect: false,
+      honorRemoteReadOnlyHint: false,
       servers: []
     })
   }
+}
+
+/**
+ * ADR-0141 product default: when root MCP is on, omitted `autoConnect` means
+ * smart-connect is on. Explicit `false` still disables. Root off always yields false.
+ *
+ * `effectiveAutoConnect = config.enabled && config.autoConnect !== false`
+ */
+export function effectiveAutoConnect(
+  config: Pick<UserMcpConfigV1, 'enabled' | 'autoConnect'>
+): boolean {
+  return config.enabled && config.autoConnect !== false
 }
 
 /**
@@ -45,6 +64,11 @@ export function fingerprintUserMcpConfig(config: Omit<UserMcpConfigV1, 'fingerpr
   const payload = {
     schemaVersion: config.schemaVersion,
     enabled: config.enabled,
+    // Normalize omitted autoConnect to false so CAS is stable across parse paths.
+    // Effective product preference is separate (see effectiveAutoConnect).
+    autoConnect: config.autoConnect === true,
+    // Omitted honorRemoteReadOnlyHint fingerprints as false (opt-in only).
+    honorRemoteReadOnlyHint: config.honorRemoteReadOnlyHint === true,
     servers: config.servers.map((s) => ({
       id: s.id,
       label: s.label,
@@ -62,6 +86,17 @@ export function fingerprintUserMcpConfig(config: Omit<UserMcpConfigV1, 'fingerpr
       headersPlain: sortRecord(s.headersPlain),
       timeoutMs: s.timeoutMs,
       toolEffectOverrides: sortRecord(s.toolEffectOverrides),
+      oauth: s.oauth
+        ? {
+            authorizationEndpoint: s.oauth.authorizationEndpoint,
+            tokenEndpoint: s.oauth.tokenEndpoint,
+            clientId: s.oauth.clientId,
+            scopes: [...s.oauth.scopes],
+            resource: s.oauth.resource
+          }
+        : null,
+      workspaceRootInjection: s.workspaceRootInjection,
+      injectionIdentity: s.injectionIdentity,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt
     }))
@@ -86,6 +121,20 @@ export function parseUserMcpConfig(input: unknown): ParseMcpConfigResult {
     return { ok: false, reason: 'enabled must be boolean' }
   }
 
+  // Optional field (ADR-0137/0141): leave omitted as undefined so
+  // effectiveAutoConnect can treat omit-as-true when enabled.
+  // Present non-boolean values coerce to false (explicit off).
+  let autoConnect: boolean | undefined
+  if (Object.prototype.hasOwnProperty.call(raw, 'autoConnect')) {
+    autoConnect = raw.autoConnect === true
+  }
+
+  // Optional ADR-0141 policy: only explicit true is stored; omit/false → omit or false.
+  let honorRemoteReadOnlyHint: boolean | undefined
+  if (Object.prototype.hasOwnProperty.call(raw, 'honorRemoteReadOnlyHint')) {
+    honorRemoteReadOnlyHint = raw.honorRemoteReadOnlyHint === true
+  }
+
   if (!Array.isArray(raw.servers)) {
     return { ok: false, reason: 'servers must be an array' }
   }
@@ -106,6 +155,8 @@ export function parseUserMcpConfig(input: unknown): ParseMcpConfigResult {
   const base: Omit<UserMcpConfigV1, 'fingerprint'> = {
     schemaVersion: MCP_CONFIG_SCHEMA_VERSION,
     enabled: raw.enabled,
+    ...(autoConnect !== undefined ? { autoConnect } : {}),
+    ...(honorRemoteReadOnlyHint !== undefined ? { honorRemoteReadOnlyHint } : {}),
     servers
   }
 
@@ -139,6 +190,9 @@ export function toPublicMcpConfig(config: UserMcpConfigV1): UserMcpConfigPublicV
   return {
     schemaVersion: config.schemaVersion,
     enabled: config.enabled,
+    // Project effective preference (ADR-0141): omit + enabled → true.
+    autoConnect: effectiveAutoConnect(config),
+    honorRemoteReadOnlyHint: config.honorRemoteReadOnlyHint === true,
     fingerprint: config.fingerprint ?? fingerprintUserMcpConfig(config),
     servers: config.servers.map(toPublicServer)
   }
@@ -171,6 +225,9 @@ export function toPublicServer(server: UserMcpServerV1): UserMcpServerPublicV1 {
     headersPlain: sortRecord(server.headersPlain),
     timeoutMs: server.timeoutMs,
     toolEffectOverrides: server.toolEffectOverrides,
+    oauth: server.oauth,
+    workspaceRootInjection: server.workspaceRootInjection,
+    injectionIdentity: server.injectionIdentity,
     createdAt: server.createdAt,
     updatedAt: server.updatedAt
   }
@@ -303,6 +360,35 @@ function parseServer(
   const updatedAt = parseIso(raw.updatedAt, `servers[${index}].updatedAt`)
   if (!updatedAt.ok) return updatedAt
 
+  const oauth = parseOAuthConfig(raw.oauth, `servers[${index}].oauth`, transport as McpTransportKind)
+  if (!oauth.ok) return oauth
+
+  const workspaceRootInjection = parseWorkspaceRootInjection(
+    raw.workspaceRootInjection,
+    `servers[${index}].workspaceRootInjection`
+  )
+  if (!workspaceRootInjection.ok) return workspaceRootInjection
+
+  const injectionIdentity = parseInjectionIdentity(
+    raw.injectionIdentity,
+    `servers[${index}].injectionIdentity`
+  )
+  if (!injectionIdentity.ok) return injectionIdentity
+
+  // Static Authorization headers and OAuth must not coexist silently.
+  if (oauth.value) {
+    const headerKeys = [
+      ...Object.keys(headersPlain.value),
+      ...Object.keys(headersSecretRefs.value)
+    ]
+    if (headerKeys.some((key) => key.toLowerCase() === 'authorization')) {
+      return {
+        ok: false,
+        reason: `servers[${index}] cannot combine OAuth with a static Authorization header`
+      }
+    }
+  }
+
   const server: UserMcpServerV1 = {
     id: raw.id,
     label: raw.label.trim(),
@@ -320,11 +406,38 @@ function parseServer(
     headersPlain: transport === 'stdio' ? {} : headersPlain.value,
     timeoutMs: timeoutMs.value,
     toolEffectOverrides: overrides.value,
+    oauth: oauth.value,
+    workspaceRootInjection: workspaceRootInjection.value,
+    injectionIdentity: injectionIdentity.value,
     createdAt: createdAt.value,
     updatedAt: updatedAt.value
   }
 
   return { ok: true, server }
+}
+
+function parseWorkspaceRootInjection(
+  value: unknown,
+  path: string
+): { ok: true; value: McpWorkspaceRootInjection } | { ok: false; reason: string } {
+  if (value == null || value === '') return { ok: true, value: 'off' }
+  if (value === 'off' || value === 'granted') return { ok: true, value }
+  return {
+    ok: false,
+    reason: `${path} must be "off" or "granted"`
+  }
+}
+
+function parseInjectionIdentity(
+  value: unknown,
+  path: string
+): { ok: true; value: McpInjectionIdentity | null } | { ok: false; reason: string } {
+  if (value == null || value === '') return { ok: true, value: null }
+  if (value === 'filesystem_mcp' || value === 'generic') return { ok: true, value }
+  return {
+    ok: false,
+    reason: `${path} must be "filesystem_mcp", "generic", or null`
+  }
 }
 
 function parseStringArray(
@@ -427,6 +540,121 @@ function parseIso(
     return { ok: false, reason: `${path} is not a valid date` }
   }
   return { ok: true, value: value.trim() }
+}
+
+
+function parseOAuthConfig(
+  value: unknown,
+  path: string,
+  transport: McpTransportKind
+): { ok: true; value: UserMcpServerOAuthConfigV1 | null } | { ok: false; reason: string } {
+  if (value == null) return { ok: true, value: null }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, reason: `${path} must be an object or null` }
+  }
+  if (transport === 'stdio') {
+    return { ok: false, reason: `${path} is not supported for stdio transport` }
+  }
+
+  const raw = value as Record<string, unknown>
+  // Reject any secret-shaped keys up front so client secrets never enter config.
+  for (const key of Object.keys(raw)) {
+    if (/secret|password|client_secret|clientSecret/i.test(key)) {
+      return { ok: false, reason: `${path} must not include client secrets or passwords` }
+    }
+  }
+
+  const authorizationEndpoint = parseSafeOAuthHttpUrl(
+    raw.authorizationEndpoint,
+    `${path}.authorizationEndpoint`
+  )
+  if (!authorizationEndpoint.ok) return authorizationEndpoint
+  const tokenEndpoint = parseSafeOAuthHttpUrl(raw.tokenEndpoint, `${path}.tokenEndpoint`)
+  if (!tokenEndpoint.ok) return tokenEndpoint
+
+  if (typeof raw.clientId !== 'string' || !raw.clientId.trim()) {
+    return { ok: false, reason: `${path}.clientId is required` }
+  }
+  const clientId = raw.clientId.trim()
+  if (clientId.length > 256 || /[\u0000-\u001f\u007f]/.test(clientId)) {
+    return { ok: false, reason: `${path}.clientId is invalid` }
+  }
+
+  let scopes: string[] = []
+  if (raw.scopes != null) {
+    if (typeof raw.scopes === 'string') {
+      scopes = raw.scopes
+        .split(/\s+/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+    } else if (Array.isArray(raw.scopes)) {
+      for (const item of raw.scopes) {
+        if (typeof item !== 'string' || !item.trim()) {
+          return { ok: false, reason: `${path}.scopes must contain non-empty strings` }
+        }
+        scopes.push(item.trim())
+      }
+    } else {
+      return { ok: false, reason: `${path}.scopes must be a string or string array` }
+    }
+  }
+  if (scopes.length > 32 || scopes.some((scope) => scope.length > 128 || /[\u0000-\u001f\u007f]/.test(scope))) {
+    return { ok: false, reason: `${path}.scopes is invalid` }
+  }
+
+  let resource: string | null = null
+  if (raw.resource != null && raw.resource !== '') {
+    if (typeof raw.resource !== 'string') {
+      return { ok: false, reason: `${path}.resource must be a string or null` }
+    }
+    const parsedResource = parseSafeOAuthHttpUrl(raw.resource, `${path}.resource`)
+    if (!parsedResource.ok) return parsedResource
+    resource = parsedResource.value
+  }
+
+  return {
+    ok: true,
+    value: {
+      authorizationEndpoint: authorizationEndpoint.value,
+      tokenEndpoint: tokenEndpoint.value,
+      clientId,
+      scopes,
+      resource
+    }
+  }
+}
+
+function parseSafeOAuthHttpUrl(
+  value: unknown,
+  path: string
+): { ok: true; value: string } | { ok: false; reason: string } {
+  if (typeof value !== 'string' || !value.trim()) {
+    return { ok: false, reason: `${path} is required` }
+  }
+  try {
+    const parsed = new URL(value.trim())
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { ok: false, reason: `${path} must use http or https` }
+    }
+    if (parsed.username || parsed.password) {
+      return { ok: false, reason: `${path} must not include userinfo` }
+    }
+    if (parsed.hash) {
+      return { ok: false, reason: `${path} must not include a fragment` }
+    }
+    // Reject token-like query params so OAuth endpoints cannot smuggle credentials.
+    for (const [key, queryValue] of parsed.searchParams.entries()) {
+      if (/token|secret|password|api[_-]?key|authorization|code|refresh/i.test(key)) {
+        return { ok: false, reason: `${path} query must not include credential-like parameters` }
+      }
+      if (/token|secret|password|bearer\s+/i.test(queryValue)) {
+        return { ok: false, reason: `${path} query must not include credential-like values` }
+      }
+    }
+    return { ok: true, value: parsed.toString() }
+  } catch {
+    return { ok: false, reason: `${path} must be a valid URL` }
+  }
 }
 
 function sortRecord<T>(record: Readonly<Record<string, T>>): Record<string, T> {

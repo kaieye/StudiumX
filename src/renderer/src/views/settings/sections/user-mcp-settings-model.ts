@@ -1,3 +1,5 @@
+import type { McpImportServerDraft } from '../../../../../shared/mcp/import-export'
+import { resolveFilesystemInjectionDefaults } from '../../../../../shared/mcp/filesystem-mcp-defaults'
 import {
   MCP_SECRET_CONFIGURED_PLACEHOLDER,
   MCP_SECRET_REF_KEEP,
@@ -7,6 +9,9 @@ import {
   type McpServerScope,
   type McpTransportKind,
   type UserMcpConfigPublicV1,
+  type McpInjectionIdentity,
+  type McpWorkspaceRootInjection,
+  type UserMcpServerOAuthConfigV1,
   type UserMcpServerPublicV1
 } from '../../../../../shared/mcp/types'
 
@@ -30,6 +35,12 @@ export type DraftMcpServer = {
   createdAt: string
   updatedAt: string
   toolEffectOverrides: UserMcpServerPublicV1['toolEffectOverrides']
+  /** Secret-free OAuth public config; preserved across draft saves. */
+  oauth: UserMcpServerOAuthConfigV1 | null
+  /** ADR-0138: explicit workspace-root injection grant (stdio only). */
+  workspaceRootInjection: McpWorkspaceRootInjection
+  /** Optional injection identity label. */
+  injectionIdentity: McpInjectionIdentity | null
 }
 
 export type DraftMcpServerValidationError =
@@ -59,6 +70,39 @@ export type DraftMcpConfigUpdate = Readonly<{
   config: Record<string, unknown>
   secretChanges?: McpSecretInputChanges
 }>
+
+function parseDraftOAuth(value: unknown): UserMcpServerOAuthConfigV1 | null {
+  if (value == null) return null
+  if (typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Record<string, unknown>
+  if (typeof raw.authorizationEndpoint !== 'string' || !raw.authorizationEndpoint.trim()) return null
+  if (typeof raw.tokenEndpoint !== 'string' || !raw.tokenEndpoint.trim()) return null
+  if (typeof raw.clientId !== 'string' || !raw.clientId.trim()) return null
+  let scopes: string[] = []
+  if (typeof raw.scopes === 'string') {
+    scopes = raw.scopes
+      .split(/\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+  } else if (Array.isArray(raw.scopes)) {
+    for (const item of raw.scopes) {
+      if (typeof item !== 'string' || !item.trim()) return null
+      scopes.push(item.trim())
+    }
+  } else if (raw.scopes != null) {
+    return null
+  }
+  let resource: string | null = null
+  if (typeof raw.resource === 'string' && raw.resource.trim()) resource = raw.resource.trim()
+  else if (raw.resource != null && raw.resource !== '') return null
+  return {
+    authorizationEndpoint: raw.authorizationEndpoint.trim(),
+    tokenEndpoint: raw.tokenEndpoint.trim(),
+    clientId: raw.clientId.trim(),
+    scopes,
+    resource
+  }
+}
 
 const SECRET_KEY_RE = /api[_-]?key|token|secret|password|authorization/i
 const MCP_SERVER_ID_RE = /^[a-z][a-z0-9_-]{0,63}$/
@@ -90,12 +134,83 @@ export function publicMcpServerToDraft(server: UserMcpServerPublicV1): DraftMcpS
     headersSecretConfigured: server.headersSecretConfigured,
     createdAt: server.createdAt,
     updatedAt: server.updatedAt,
-    toolEffectOverrides: server.toolEffectOverrides
+    toolEffectOverrides: server.toolEffectOverrides,
+    oauth: server.oauth ?? null,
+    workspaceRootInjection: server.workspaceRootInjection ?? 'off',
+    injectionIdentity: server.injectionIdentity ?? null
   }
 }
 
 export function publicMcpConfigToDrafts(config: UserMcpConfigPublicV1): DraftMcpServer[] {
   return config.servers.map(publicMcpServerToDraft)
+}
+
+/**
+ * Convert a selected import draft into an editor DraftMcpServer for CAS save.
+ * Secret-shaped values remain in env/headers text so draftMcpServersToConfigUpdate
+ * routes them through secretChanges; `<configured>` placeholders keep existing secrets.
+ */
+export function importServerDraftToDraftMcpServer(draft: McpImportServerDraft): DraftMcpServer {
+  const stamp = nowIso()
+  const envSecretConfigured: Record<string, boolean> = {}
+  const headersSecretConfigured: Record<string, boolean> = {}
+  for (const key of Object.keys(draft.env)) {
+    if (SECRET_KEY_RE.test(key) || draft.env[key] === MCP_SECRET_CONFIGURED_PLACEHOLDER) {
+      envSecretConfigured[key] = true
+    }
+  }
+  for (const key of Object.keys(draft.headers)) {
+    if (SECRET_KEY_RE.test(key) || draft.headers[key] === MCP_SECRET_CONFIGURED_PLACEHOLDER) {
+      headersSecretConfigured[key] = true
+    }
+  }
+  const injection = resolveFilesystemInjectionDefaults({
+    transport: draft.transport,
+    command: draft.command,
+    args: draft.args,
+    workspaceRootInjection: draft.workspaceRootInjection,
+    injectionIdentity: draft.injectionIdentity ?? null,
+    allowFilesystemDefault: true
+  })
+  return {
+    id: draft.proposedId,
+    label: draft.label,
+    enabled: draft.enabled,
+    scope: 'user',
+    workspaceRoot: '',
+    transport: draft.transport,
+    command: draft.command ?? '',
+    argsText: draft.args.join(' '),
+    cwd: draft.cwd ?? '',
+    envText: stringifyStringRecord(draft.env),
+    url: draft.url ?? '',
+    headersText: stringifyStringRecord(draft.headers),
+    timeoutText: draft.timeoutMs == null ? '' : String(draft.timeoutMs),
+    envSecretConfigured,
+    headersSecretConfigured,
+    createdAt: stamp,
+    updatedAt: stamp,
+    toolEffectOverrides: {},
+    oauth: draft.oauth,
+    workspaceRootInjection: draft.transport === 'stdio' ? injection.workspaceRootInjection : 'off',
+    injectionIdentity: draft.transport === 'stdio' ? injection.injectionIdentity : null
+  }
+}
+
+/**
+ * Merge selected import drafts into existing drafts. Existing ids that are not
+ * overwritten by an import proposedId are preserved. Import never replaces by
+ * sourceKey alone when proposedId was renamed for conflict.
+ */
+export function mergeImportDraftsIntoConfig(
+  existing: readonly DraftMcpServer[],
+  imported: readonly DraftMcpServer[]
+): DraftMcpServer[] {
+  const byId = new Map(existing.map((server) => [server.id, server]))
+  for (const server of imported) {
+    byId.set(server.id, server)
+  }
+  return [...byId.values()]
 }
 
 export function createDraftMcpServer(existingIds: ReadonlySet<string>): DraftMcpServer {
@@ -118,7 +233,10 @@ export function createDraftMcpServer(existingIds: ReadonlySet<string>): DraftMcp
     headersSecretConfigured: {},
     createdAt: stamp,
     updatedAt: stamp,
-    toolEffectOverrides: {}
+    toolEffectOverrides: {},
+    oauth: null,
+    workspaceRootInjection: 'off',
+    injectionIdentity: null
   }
 }
 
@@ -131,16 +249,39 @@ export function normalizeDraftMcpServer(
   const unavailableIds = new Set(existingIds)
   if (originalId) unavailableIds.delete(originalId)
   const id = originalId ?? uniqueServerId(slugifyServerId(label), unavailableIds)
+  const command = server.command.trim()
+  const argsText = server.argsText.trim()
+  const args = splitArguments(argsText)
+  // Apply filesystem defaults only when grant was never set and identity is unset
+  // (blank create → user pastes filesystem package). Explicit off/granted always win.
+  const looksUnset =
+    server.workspaceRootInjection === 'off' && server.injectionIdentity == null
+  const injection =
+    server.transport === 'stdio' && looksUnset
+      ? resolveFilesystemInjectionDefaults({
+          transport: server.transport,
+          command,
+          args,
+          workspaceRootInjection: null,
+          injectionIdentity: null,
+          allowFilesystemDefault: true
+        })
+      : {
+          workspaceRootInjection: server.workspaceRootInjection,
+          injectionIdentity: server.injectionIdentity
+        }
   return {
     ...server,
     id,
     label,
     workspaceRoot: server.scope === 'workspace' ? server.workspaceRoot.trim() : '',
-    command: server.command.trim(),
-    argsText: server.argsText.trim(),
+    command,
+    argsText,
     cwd: server.cwd.trim(),
     url: server.url.trim(),
     timeoutText: server.timeoutText.trim(),
+    workspaceRootInjection: injection.workspaceRootInjection,
+    injectionIdentity: injection.injectionIdentity,
     updatedAt: nowIso()
   }
 }
@@ -167,7 +308,8 @@ export function validateDraftMcpServer(
 
 export function draftMcpServersToConfigUpdate(
   enabled: boolean,
-  servers: readonly DraftMcpServer[]
+  servers: readonly DraftMcpServer[],
+  options: { autoConnect?: boolean; honorRemoteReadOnlyHint?: boolean } = {}
 ): DraftMcpConfigUpdate {
   const secretChanges: Record<string, { env?: Record<string, string>; headers?: Record<string, string> }> = {}
   const documentServers = servers.map((server) => {
@@ -202,12 +344,23 @@ export function draftMcpServersToConfigUpdate(
       headersPlain: headers.plain,
       timeoutMs: server.timeoutText ? Number(server.timeoutText) : null,
       toolEffectOverrides: server.toolEffectOverrides ?? {},
+      oauth: server.transport === 'stdio' ? null : server.oauth ?? null,
+      workspaceRootInjection:
+        server.transport === 'stdio' ? server.workspaceRootInjection ?? 'off' : 'off',
+      injectionIdentity:
+        server.transport === 'stdio' ? server.injectionIdentity ?? null : null,
       createdAt: server.createdAt,
       updatedAt: server.updatedAt
     }
   })
   return {
-    config: { schemaVersion: 1, enabled, servers: documentServers },
+    config: {
+      schemaVersion: 1,
+      enabled,
+      autoConnect: options.autoConnect === true,
+      honorRemoteReadOnlyHint: options.honorRemoteReadOnlyHint === true,
+      servers: documentServers
+    },
     ...(Object.keys(secretChanges).length > 0 ? { secretChanges } : {})
   }
 }
@@ -223,10 +376,17 @@ export function draftMcpServerToJson(server: DraftMcpServer): string {
     if (server.cwd.trim()) config.cwd = server.cwd.trim()
     const env = parseStringRecordText(server.envText)
     if (env.ok && Object.keys(env.value).length > 0) config.env = env.value
+    if (server.workspaceRootInjection === 'granted') {
+      config.workspaceRootInjection = 'granted'
+    }
+    if (server.injectionIdentity) {
+      config.injectionIdentity = server.injectionIdentity
+    }
   } else {
     config.url = server.url
     const headers = parseStringRecordText(server.headersText)
     if (headers.ok && Object.keys(headers.value).length > 0) config.headers = headers.value
+    if (server.oauth) config.oauth = server.oauth
   }
   return JSON.stringify({ [server.label.trim() || server.id || 'my-server']: config }, null, 2)
 }
@@ -290,21 +450,48 @@ export function jsonToDraftMcpServer(
     return { ok: false, error: 'jsonUrlInvalid' }
   }
 
+  const workspaceRootInjectionRaw =
+    rawConfig.workspaceRootInjection === 'granted'
+      ? 'granted'
+      : rawConfig.workspaceRootInjection === 'off'
+        ? 'off'
+        : null
+  const injectionIdentityRaw =
+    rawConfig.injectionIdentity === 'filesystem_mcp' || rawConfig.injectionIdentity === 'generic'
+      ? rawConfig.injectionIdentity
+      : null
+  const command = typeof rawConfig.command === 'string' ? rawConfig.command : ''
+  const args = Array.isArray(rawConfig.args) && isStringArray(rawConfig.args) ? rawConfig.args : []
+  const injection =
+    transport === 'stdio'
+      ? resolveFilesystemInjectionDefaults({
+          transport,
+          command,
+          args,
+          workspaceRootInjection: workspaceRootInjectionRaw,
+          injectionIdentity: injectionIdentityRaw,
+          allowFilesystemDefault: true
+        })
+      : { workspaceRootInjection: 'off' as const, injectionIdentity: null }
+
   return {
     ok: true,
     draft: {
       ...current,
       label: name,
       transport,
-      command: typeof rawConfig.command === 'string' ? rawConfig.command : '',
-      argsText: Array.isArray(rawConfig.args) ? rawConfig.args.join(' ') : '',
+      oauth: transport === 'stdio' ? null : parseDraftOAuth(rawConfig.oauth) ?? current.oauth,
+      command,
+      argsText: args.join(' '),
       cwd: typeof rawConfig.cwd === 'string' ? rawConfig.cwd : '',
       envText: stringifyStringRecord(isStringRecord(rawConfig.env) ? rawConfig.env : {}),
       url: typeof rawConfig.url === 'string' ? rawConfig.url : '',
       headersText: stringifyStringRecord(
         isStringRecord(rawConfig.headers) ? rawConfig.headers : {}
       ),
-      timeoutText: typeof rawConfig.timeoutMs === 'number' ? String(rawConfig.timeoutMs) : ''
+      timeoutText: typeof rawConfig.timeoutMs === 'number' ? String(rawConfig.timeoutMs) : '',
+      workspaceRootInjection: injection.workspaceRootInjection,
+      injectionIdentity: injection.injectionIdentity
     }
   }
 }

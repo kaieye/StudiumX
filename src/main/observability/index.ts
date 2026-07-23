@@ -106,6 +106,7 @@ export {
   createTeachingDoctorMcpFactsCollector,
   mapMcpFacts,
   type CreateTeachingDoctorMcpFactsCollectorOptions,
-  type TeachingDoctorMcpFactsSource
+  type TeachingDoctorMcpFactsSource,
+  type TeachingDoctorMcpHostAggregates
 } from './teaching-doctor-mcp-facts'
 

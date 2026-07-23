@@ -26,6 +26,7 @@ import {
   type ToolOutcomeError
 } from './tool-outcome'
 import { enforceToolResultBudget } from './annotations'
+import { isMcpApplicationToolError } from './mcp-application-error'
 
 export type ToolDispatcherOptions = Readonly<{
   handlers: ToolHandlerMap
@@ -143,6 +144,17 @@ export class ToolDispatcher {
           terminalOutcome(base, 'cancelled', {
             code: 'tool_canceled',
             message: TOOL_CANCELED_MESSAGE
+          })
+        )
+      }
+      if (isMcpApplicationToolError(error)) {
+        // The bridge only raises this for MCP protocol `isError: true` after
+        // normalizing and bounding server-controlled content. Recognize it
+        // before timeout wording so a server cannot spoof a terminal status.
+        return finish(
+          terminalOutcome(base, 'failed', {
+            code: error.code,
+            message: enforceToolResultBudget(error.message).content
           })
         )
       }

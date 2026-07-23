@@ -1,6 +1,7 @@
 /**
- * MCP tool effect mapping (ADR-0128 §6).
- * Pure — default privileged; optional per-raw-name overrides.
+ * MCP tool effect mapping (ADR-0128 §6, ADR-0141 optional readOnlyHint).
+ * Pure — default privileged; optional per-raw-name overrides; optional remote
+ * readOnlyHint when user policy honorRemoteReadOnlyHint is on.
  */
 
 import type { McpEffectClass } from './types'
@@ -16,19 +17,47 @@ export function isMcpEffectClass(value: unknown): value is McpEffectClass {
   return typeof value === 'string' && EFFECT_CLASSES.has(value as McpEffectClass)
 }
 
+export type ResolveMcpToolEffectOptions = Readonly<{
+  /**
+   * When true (user root policy), a remote readOnlyHint without destructiveHint
+   * may map to effect `read` after overrides. Default/omit: never trust remote.
+   */
+  honorRemoteReadOnlyHint?: boolean
+  /** Protocol annotations; only consulted when honorRemoteReadOnlyHint is true. */
+  annotations?: Readonly<{
+    readOnlyHint?: boolean
+    destructiveHint?: boolean
+  }> | null
+}>
+
 /**
  * Resolve effect for one MCP tool.
- * Unknown / missing override → privileged (fail-closed default).
+ * 1. Valid per-raw-name override wins.
+ * 2. Else optional trusted readOnlyHint → read (ADR-0141).
+ * 3. Else privileged (fail-closed).
  */
 export function resolveMcpToolEffect(
   rawToolName: string,
-  overrides?: Readonly<Record<string, McpEffectClass>> | null
+  overrides?: Readonly<Record<string, McpEffectClass>> | null,
+  options?: ResolveMcpToolEffectOptions
 ): McpEffectClass {
-  if (!overrides) return 'privileged'
-  const key = typeof rawToolName === 'string' ? rawToolName.trim() : ''
-  if (!key) return 'privileged'
-  const override = overrides[key]
-  return isMcpEffectClass(override) ? override : 'privileged'
+  if (overrides) {
+    const key = typeof rawToolName === 'string' ? rawToolName.trim() : ''
+    if (key) {
+      const override = overrides[key]
+      if (isMcpEffectClass(override)) return override
+    }
+  }
+
+  if (
+    options?.honorRemoteReadOnlyHint === true &&
+    options.annotations?.readOnlyHint === true &&
+    options.annotations?.destructiveHint !== true
+  ) {
+    return 'read'
+  }
+
+  return 'privileged'
 }
 
 /**

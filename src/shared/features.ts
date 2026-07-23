@@ -10,8 +10,9 @@
  * - Features are documentation + stage metadata only. Execution still goes through
  *   TOOL_CONTRACT, effect lattice, CapabilityCatalog readiness, and settlement
  *   sole-writer (`expectedRevision`, `toolsReplayed: false`).
- * - Must not introduce shell, code_mode, MCP marketplace, remote telemetry, YOLO,
- *   or always-approve as product features or as enablement bypass keys.
+ * - Must not introduce shell, code_mode, remote telemetry, YOLO, or always-approve
+ *   as enablement bypass keys. Local MCP marketplace may be registered as
+ *   under_development metadata only (ADR-0140); it is never an authorization bypass.
  * - `isFeatureEnabled` is a pure stage gate for product/doctor consumers; it does
  *   not grant tools, write policy, or network.
  */
@@ -84,7 +85,6 @@ export type DangerousFeatureFlagKey = (typeof DANGEROUS_FEATURE_FLAG_KEYS)[numbe
 export const FORBIDDEN_FEATURE_IDS = [
   'shell',
   'code_mode',
-  'mcp_marketplace',
   'yolo',
   'danger_full_access',
   'always_approve',
@@ -198,9 +198,18 @@ export const FEATURES: readonly FeatureDefinition[] = [
     stage: 'experimental',
     title: '用户可配置 MCP',
     summary:
-      'userData opt-in MCP servers（默认 off）；stdio 传输；tools 经 registry/effect/审批；无 marketplace、无 YOLO。',
+      'userData opt-in MCP servers（默认 off）；stdio 传输；tools 经 registry/effect/审批；无 YOLO；marketplace 见 mcp-marketplace。',
     since: '2026-07',
     footprintHint: 4
+  },
+  {
+    id: 'mcp-marketplace',
+    stage: 'experimental',
+    title: 'MCP Marketplace',
+    summary:
+      'Local + optional remote MCP catalog (ADR-0140/0141); install may connect/enable; tool calls still use effect/approval. Not a YOLO bypass; secrets stay in main.',
+    since: '2026-07',
+    footprintHint: 3
   }
 ] as const
 

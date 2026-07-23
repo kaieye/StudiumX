@@ -11,6 +11,7 @@ import { registerTeachingIpcGateway } from './teaching-ipc-gateway'
 import { createTeachingTurnCoordinatorHost } from './teaching-turn-coordinator-host'
 import { registerMusicIpcGateway } from './music/music-ipc-gateway'
 import { McpHost, registerMcpIpcGateway } from './mcp'
+import { installMcpOAuthDeepLinkBridge } from './mcp/oauth-deep-link-bridge'
 import { Logger } from './logger'
 import { TrayManager, setAppIsQuitting } from './tray'
 import { openExternalHttpUrl } from './external-links'
@@ -215,8 +216,24 @@ if (!hasSingleInstanceLock) {
     app.setAppUserModelId('com.local.studiumx')
 
     const userDataPath = app.getPath('userData')
-    mcpHost = new McpHost({ userDataPath, secretStorage: safeStorage })
+    mcpHost = new McpHost({
+      userDataPath,
+      secretStorage: safeStorage,
+      // Explicit user-initiated OAuth only: open the provider browser via main.
+      openExternal: async (url) => {
+        await shell.openExternal(url)
+      }
+    })
     await mcpHost.start()
+
+    // ADR-0135: fixed studiumx://mcp-oauth/callback only. No arbitrary deep-link routes.
+    installMcpOAuthDeepLinkBridge({
+      app,
+      handleDeepLink: async (deepLink) => {
+        if (!mcpHost) return
+        await mcpHost.handleOAuthCallback(deepLink)
+      }
+    })
     // Local crash marker (ADR-0066 / B-11): next-start doctor visibility only.
     // No upload, OTEL, or remote telemetry.
     const crashMarkers = createCrashMarkerStore({ appDataRoot: userDataPath })
@@ -256,7 +273,8 @@ if (!hasSingleInstanceLock) {
           settingsProvider: () => settingsService.load(),
           skillLibraryService,
           logger,
-          mcpSessionManager: mcpHost?.getSessionManager() ?? null
+          mcpSessionManager: mcpHost?.getSessionManager() ?? null,
+          mcpHost: mcpHost ?? null
         })
         return {
           settingsService,
@@ -338,7 +356,8 @@ if (!hasSingleInstanceLock) {
           mcpFactsSource: mcpHost
             ? {
                 loadConfig: () => mcpHost!.configStore.load(),
-                listRuntime: () => mcpHost!.listRuntime()
+                listRuntime: () => mcpHost!.listRuntime(),
+                getHostAggregates: () => mcpHost!.getDoctorHostAggregates()
               }
             : null
         })

@@ -42,6 +42,9 @@ function server(
     headersPlain: {},
     timeoutMs: null,
     toolEffectOverrides: {},
+    oauth: null,
+    workspaceRootInjection: 'off' as const,
+    injectionIdentity: null,
     createdAt: '2026-07-20T10:00:00.000Z',
     updatedAt: '2026-07-20T10:00:00.000Z',
     ...overrides
@@ -53,7 +56,7 @@ function config(
   enabled = true,
   fingerprint = 'fp-1'
 ): UserMcpConfigPublicV1 {
-  return { schemaVersion: 1, enabled, servers, fingerprint }
+  return { schemaVersion: 1, enabled, autoConnect: false, honorRemoteReadOnlyHint: false, servers, fingerprint }
 }
 
 function createMutableApi(
@@ -63,6 +66,7 @@ function createMutableApi(
   api: Partial<TeachingSystemApi>
   mcpUpdateConfig: ReturnType<typeof vi.fn>
   mcpTestServer: ReturnType<typeof vi.fn>
+  mcpRefreshServer: ReturnType<typeof vi.fn>
   current: () => UserMcpConfigPublicV1
 } {
   let current = initial
@@ -95,6 +99,9 @@ function createMutableApi(
     current = {
       schemaVersion: 1,
       enabled: document.enabled,
+      autoConnect: (document as { autoConnect?: boolean }).autoConnect === true,
+      honorRemoteReadOnlyHint:
+        (document as { honorRemoteReadOnlyHint?: boolean }).honorRemoteReadOnlyHint === true,
       fingerprint: `fp-${revision}`,
       servers: document.servers.map((item) => {
         const previous = current.servers.find((candidate) => candidate.id === item.id)
@@ -132,15 +139,22 @@ function createMutableApi(
     serverId,
     tools: []
   }))
+  const mcpRefreshServer = vi.fn(async ({ serverId }: { serverId: string }) => ({
+    ok: true as const,
+    serverId,
+    tools: []
+  }))
   return {
     api: {
       mcpGetConfig: vi.fn(async () => ({ ok: true as const, config: current })),
       mcpUpdateConfig,
       mcpListRuntime: vi.fn(async () => ({ ok: true as const, servers: runtime })),
-      mcpTestServer
+      mcpTestServer,
+      mcpRefreshServer
     },
     mcpUpdateConfig,
     mcpTestServer,
+    mcpRefreshServer,
     current: () => current
   }
 }
@@ -190,6 +204,121 @@ describe('UserMcpSettingsSection', () => {
     await user.type(screen.getByTestId('mcp-search'), 'example.com')
     expect(screen.queryByText('alpha server')).not.toBeInTheDocument()
     expect(screen.getByText('beta server')).toBeInTheDocument()
+  })
+
+  it('renders collapsible multi-source configuration view when IPC is available', async () => {
+    const mcpGetEffectiveView = vi.fn(async () => ({
+      ok: true as const,
+      view: {
+        enabled: true,
+        autoConnect: false,
+        effectiveServers: [
+          {
+            id: 'alpha',
+            label: 'alpha server',
+            sourceKind: 'user' as const,
+            sourceLabel: 'userData/mcp/config.v1.json',
+            enabled: true,
+            transport: 'stdio' as const,
+            state: 'connected' as const
+          }
+        ],
+        shadowed: [
+          {
+            id: 'alpha',
+            sourceKind: 'workspace' as const,
+            sourceLabel: '.studiumx/mcp.json',
+            shadowedBy: {
+              id: 'alpha',
+              sourceKind: 'user' as const,
+              sourceLabel: 'userData/mcp/config.v1.json'
+            }
+          }
+        ],
+        warnings: []
+      }
+    }))
+    installTeachingSystem({
+      mcpGetConfig: vi.fn(async () => ({ ok: true as const, config: config([server('alpha')]) })),
+      mcpUpdateConfig: vi.fn(),
+      mcpListRuntime: vi.fn(async () => ({
+        ok: true as const,
+        servers: [{ id: 'alpha', state: 'connected' as const, toolCount: 1 }]
+      })),
+      mcpTestServer: vi.fn(),
+      mcpGetEffectiveView
+    })
+    const user = userEvent.setup()
+
+    render(<UserMcpSettingsSection workspaceRoot={null} />)
+
+    await screen.findByText('alpha server')
+    expect(mcpGetEffectiveView).toHaveBeenCalled()
+    expect(screen.getByTestId('mcp-sources-section')).toBeInTheDocument()
+    expect(screen.getByTestId('mcp-server-source-badge')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('mcp-sources-toggle'))
+    expect(screen.getByTestId('mcp-sources-body')).toBeInTheDocument()
+    expect(screen.getByTestId('mcp-source-winner-alpha')).toBeInTheDocument()
+    expect(screen.getByTestId('mcp-sources-shadowed')).toBeInTheDocument()
+  })
+
+  it('refreshes a server only from the explicit action without using test-server', async () => {
+    const mcpListRuntime = vi.fn(async () => ({
+      ok: true as const,
+      servers: [
+        {
+          id: 'alpha',
+          state: 'connected' as const,
+          toolCount: 2,
+          inventory: {
+            generation: 4,
+            stale: true,
+            discoveredToolCount: 2,
+            registeredToolCount: 2,
+            rejectedToolCount: 0
+          }
+        }
+      ]
+    }))
+    const mcpTestServer = vi.fn()
+    const mcpRefreshServer = vi.fn(async ({ serverId }: { serverId: string }) => ({
+      ok: true as const,
+      serverId,
+      tools: []
+    }))
+    installTeachingSystem({
+      mcpGetConfig: vi.fn(async () => ({ ok: true as const, config: config([server('alpha')]) })),
+      mcpUpdateConfig: vi.fn(),
+      mcpListRuntime,
+      mcpTestServer,
+      mcpRefreshServer
+    })
+    const user = userEvent.setup()
+
+    render(<UserMcpSettingsSection workspaceRoot="/tmp/course" />)
+    await screen.findByText('alpha server')
+    expect(screen.getByTestId('mcp-inventory-summary')).toHaveTextContent(
+      /2 discovered.*2 registered.*0 rejected|已发现 2.*已注册 2.*已拒绝 0/i
+    )
+    expect(screen.getByTestId('mcp-inventory-summary')).toHaveTextContent(
+      /inventory changed|工具清单已变更/i
+    )
+
+    expect(mcpRefreshServer).not.toHaveBeenCalled()
+    expect(mcpTestServer).not.toHaveBeenCalled()
+
+    await user.click(screen.getByTestId('mcp-refresh-server'))
+
+    await waitFor(() =>
+      expect(mcpRefreshServer).toHaveBeenCalledWith({
+        serverId: 'alpha',
+        workspaceRoot: '/tmp/course'
+      })
+    )
+    expect(mcpTestServer).not.toHaveBeenCalled()
+    expect(mcpListRuntime).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('mcp-status')).toHaveTextContent(/工具已刷新|tools refreshed/i)
   })
 
   it('keeps add cancellable and saves standard whitespace-separated arguments immediately', async () => {
@@ -380,8 +509,13 @@ describe('UserMcpSettingsSection', () => {
     await user.click(rootSwitch)
 
     await waitFor(() => expect(harness.mcpUpdateConfig).toHaveBeenCalledTimes(1))
-    const submitted = harness.mcpUpdateConfig.mock.calls[0]?.[0].config as { enabled: boolean }
+    const submitted = harness.mcpUpdateConfig.mock.calls[0]?.[0].config as {
+      enabled: boolean
+      autoConnect: boolean
+    }
     expect(submitted.enabled).toBe(true)
+    // ADR-0141: enabling root defaults smart-connect on.
+    expect(submitted.autoConnect).toBe(true)
     expect(screen.queryByTestId('mcp-enable-confirm')).not.toBeInTheDocument()
     await waitFor(() => expect(rootSwitch).toHaveAttribute('aria-checked', 'true'))
     expect(screen.queryByTestId('mcp-status')).not.toBeInTheDocument()
@@ -390,8 +524,10 @@ describe('UserMcpSettingsSection', () => {
     await waitFor(() => expect(harness.mcpUpdateConfig).toHaveBeenCalledTimes(2))
     const disabledSubmission = harness.mcpUpdateConfig.mock.calls[1]?.[0].config as {
       enabled: boolean
+      autoConnect: boolean
     }
     expect(disabledSubmission.enabled).toBe(false)
+    expect(disabledSubmission.autoConnect).toBe(false)
     await waitFor(() => expect(rootSwitch).toHaveAttribute('aria-checked', 'false'))
     expect(screen.queryByTestId('mcp-status')).not.toBeInTheDocument()
   })

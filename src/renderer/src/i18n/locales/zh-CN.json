@@ -595,7 +595,38 @@
     "aria": "设置",
     "close": "关闭设置",
     "navAria": "设置分类",
-    "navHeading": "Settings"
+    "navHeading": "Settings",
+    "mcpMarketplace": {
+      "title": "MCP 市场",
+      "subtitle": "本地目录条目。安装会启用用户 MCP 服务器；工具调用仍需审批。",
+      "safetyNote": "安装不会授予工具审批或 YOLO。密钥仅保留在主进程。",
+      "loading": "正在加载市场…",
+      "empty": "尚无目录条目。StudiumX 不预置官方目录。可在下方填写可选 HTTPS 目录 URL，或在 MCP 设置中手动添加服务器。",
+      "unavailable": "当前运行时不可用市场 API。",
+      "install": "安装",
+      "installConnect": "安装并连接",
+      "uninstall": "卸载",
+      "installed": "已安装",
+      "connected": "已连接",
+      "sourceRemote": "远程",
+      "emergencyBanner": "市场紧急禁用已开启。禁止新安装。",
+      "catalogUrlsLabel": "远程目录 URL",
+      "catalogUrlsHint": "可选。每行一个 HTTPS URL。不预置官方目录。留空表示不联网。不用于产品遥测。",
+      "catalogUrlsPlaceholder": "https://example.com/mcp-catalog.json",
+      "saveCatalogUrls": "保存目录 URL",
+      "refreshCatalog": "刷新目录",
+      "status": {
+        "loadFail": "无法加载市场目录。",
+        "installOk": "已安装 {{name}} {{connected}}",
+        "installFail": "安装失败：{{message}}",
+        "uninstallOk": "已卸载市场条目。",
+        "uninstallFail": "卸载失败：{{message}}",
+        "catalogUrlsSaved": "已保存 {{count}} 个目录 URL。",
+        "catalogUrlsSaveFail": "无法保存目录 URL：{{message}}",
+        "refreshOk": "目录刷新：拉取 {{fetched}}，合并 {{merged}}，错误 {{errors}}。",
+        "refreshFail": "目录刷新失败：{{message}}"
+      }
+    }
   },
   "settingsSection": {
     "general": {
@@ -1291,6 +1322,31 @@
       "label": "启用 MCP",
       "detail": "关闭时不连接任何 MCP 服务器。"
     },
+    "autoConnect": {
+      "label": "智能连接",
+      "detail": "启用 MCP 后，自动对符合条件的服务器做工具发现连接。不会授予工具调用审批；可随时关闭。"
+    },
+    "honorRemoteReadOnlyHint": {
+      "label": "信任远程 readOnlyHint 映射为只读 effect",
+      "detail": "开启后，声明 readOnlyHint 且非 destructiveHint 的工具可在覆盖之后映射为 read。默认关闭；不会跳过权限审批。"
+    },
+    "sources": {
+      "heading": "配置来源",
+      "detail": "多源优先级（cli → environment → user → workspace → plugin → system）。仅获胜定义可连接。",
+      "summary": "{{winners}} 个生效 · {{shadowed}} 个被遮蔽",
+      "empty": "尚无多源获胜项。用户配置仍会在连接准备后单独生效。",
+      "enabled": "已启用",
+      "disabled": "已禁用",
+      "shadowedNote": "来自 {{source}} 的 {{id}} 被 {{winner}}（{{winnerSource}}）遮蔽。",
+      "kind": {
+        "cli": "CLI",
+        "environment": "环境变量",
+        "user": "用户",
+        "workspace": "工作区",
+        "plugin": "插件",
+        "system": "系统"
+      }
+    },
     "servers": {
       "heading": "MCP 服务器",
       "count": "已配置 {{count}} 个",
@@ -1331,7 +1387,21 @@
       "envHint": "使用 JSON 对象。密钥类字段会加密保存，已保存的值显示为 <configured>。",
       "headers": "请求头",
       "headersHint": "使用 JSON 对象。Authorization、token 等密钥类字段会加密保存。",
-      "cwdPlaceholder": "可选绝对路径"
+      "cwdPlaceholder": "可选绝对路径",
+      "refresh": "刷新工具",
+      "refreshDisabledHint": "请先启用 MCP 总开关和该服务器，再刷新。",
+      "refreshAria": "刷新 {{name}}",
+      "inventorySummary": "已发现 {{discovered}} · 已注册 {{registered}} · 已拒绝 {{rejected}}",
+      "retrySummary": "重连 {{attempt}}/{{max}}{{when}}",
+      "retryAtSuffix": " · 下次 {{time}}",
+      "diagnosticsSummary": "本地诊断",
+      "inventoryStale": "工具清单已变更，请刷新后应用。",
+      "import": "导入",
+      "export": "导出",
+      "importAria": "从 JSON 导入 MCP 服务器",
+      "exportAria": "导出脱敏后的 MCP 配置",
+      "workspaceRootInjection": "允许注入当前工作区根路径",
+      "workspaceRootInjectionHint": "启用后，连接时会将当前工作区根路径追加到 stdio 参数（仅一次）。默认关闭。"
     },
     "editor": {
       "createTitle": "添加 MCP 服务器",
@@ -1386,20 +1456,81 @@
       "casConflict": "配置已被其他写入更新，现已重新加载最新版本；请复核后重试。",
       "invalid": "MCP 配置无效。",
       "testOk": "已连接，列出 {{count}} 个工具。",
-      "testFail": "试连失败：{{message}}"
+      "testFail": "试连失败：{{message}}",
+      "refreshing": "正在刷新 {{name}}…",
+      "refreshOk": "MCP 工具已刷新。",
+      "refreshFail": "无法刷新 MCP 工具。请检查服务器状态后重试。",
+      "authorizing": "正在为 {{name}} 打开授权…",
+      "authorizeOpened": "已为 {{name}} 打开授权页面，请在浏览器中完成登录。",
+      "authorizeOk": "{{name}} 授权已完成。",
+      "authorizeFail": "授权失败：{{message}}",
+      "revoking": "正在撤销 {{name}} 的授权…",
+      "revokeOk": "已撤销 {{name}} 的授权。",
+      "revokeFail": "撤销失败：{{message}}",
+      "importing": "正在导入 MCP 服务器…",
+      "exporting": "正在导出 MCP 配置…"
     },
     "runtimeState": {
       "disabled": "已禁用",
       "idle": "空闲",
       "connecting": "连接中",
       "connected": "已连接",
-      "error": "错误"
+      "error": "错误",
+      "disconnected": "已断开",
+      "retry_wait": "等待重试",
+      "failed": "失败"
     },
     "toolsSummary": {
       "heading": "上次试连工具",
       "registered": "已注册",
       "skipped": "未注册",
-      "effect": "Effect"
+      "effect": "StudiumX effect（覆盖 / 可选 readOnlyHint 策略 / 默认 privileged）",
+      "annotationsHint": "远端 annotations 用于界面提示。除非开启「信任 readOnlyHint」或设置 overrides，effect 默认为 privileged。",
+      "annotationsTitle": "远端协议提示（非 effect 权威）"
+    },
+    "import": {
+      "title": "导入 MCP 服务器",
+      "detail": "粘贴 Claude/Cursor 的 mcpServers JSON 或 StudiumX 导出文件。核对风险后确认所选服务器。在您之后手动试连之前不会建立连接。",
+      "pasteLabel": "JSON 配置",
+      "pastePlaceholder": "{ \"mcpServers\": { ... } }",
+      "chooseFile": "选择文件",
+      "parse": "预览",
+      "cancel": "取消",
+      "confirm": "导入所选",
+      "confirming": "导入中…",
+      "selectAll": "全选",
+      "selectNone": "全不选",
+      "emptySelection": "请至少选择一个要导入的服务器。",
+      "parsed": "已从 {{shape}} 解析 {{count}} 个服务器。",
+      "skipped": "跳过 {{count}} 个",
+      "conflicts": "{{count}} 个 ID 冲突",
+      "warnings": "{{count}} 条警告",
+      "risk": {
+        "secret_present": "含密钥",
+        "command_execution": "会执行命令",
+        "remote_url": "远程 URL",
+        "id_conflict": "ID 冲突",
+        "invalid_partial": "部分无效"
+      },
+      "sourceShape": {
+        "studiumx_user_mcp_v1": "StudiumX 配置",
+        "claude_cursor_mcpServers": "Claude/Cursor mcpServers",
+        "mcp_servers_nested": "mcp.servers",
+        "unsupported": "不支持"
+      },
+      "parseError": "无法解析导入文档：{{reason}}",
+      "success": "已导入 {{count}} 个服务器。不会自动连接；如有密钥请重新填写并试连。",
+      "noteConflict": "将导入为 {{id}}（与现有冲突）",
+      "mcpSyncConflictsSkipped": "McpSync：已跳过 {{count}} 个冲突 ID：{{ids}}。预览仅含无冲突服务器。",
+      "mcpSyncAllConflicts": "McpSync：全部 {{count}} 个服务器与本地 ID 冲突（{{ids}}）。不覆盖则无可导入。"
+    },
+    "export": {
+      "success": "已复制脱敏后的 MCP 配置。",
+      "downloadSuccess": "已下载脱敏后的 MCP 配置。",
+      "fail": "无法导出 MCP 配置。",
+      "mcpSync": "导出 McpSync",
+      "mcpSyncAria": "导出为 McpSync 信封 JSON",
+      "mcpSyncSuccess": "已下载 McpSync 信封（无密钥）。"
     }
   }
 }

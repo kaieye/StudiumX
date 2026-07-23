@@ -9,7 +9,7 @@ StudiumX is a **local teaching workspace**. This document states the product tru
 3. **Provider egress** — model and optional web tools only leave the machine through configured provider endpoints. Privacy redaction applies to logs and support material where implemented.
 4. **Logs and support bundles** — support bundles require explicit user consent and redaction (ADR-0034). History redaction applies to newly persisted conversation/history projections (ADR-0007).
 5. **Tool effect authorization** — tools are classified (`read` | `workspace_write` | `external_write` | `privileged`) and fail closed for unknown tools (ADR-0024). Capability catalog remains fail-closed (ADR-0022).
-6. **User-configured MCP (policy; not shipped by this doc alone)** — product policy **allows** users to opt-in and configure **user-specified** MCP servers (ADR-0127 design gate + ADR-0128 implementation contract). **Default remains off** (no auto-connect, no marketplace). MCP tool calls must enter the same effect lattice and interactive approval path; MCP outputs are **not** LearningSession / Evidence / Outcome settlement authority. Users trust the servers they enable; StudiumX does **not** endorse third-party MCP servers as audited. Implementation requires a follow-up implementation ADR and security checks before product paths merge.
+6. **MCP lifecycle and trust** — ADR-0132 + **ADR-0141 product experience**: multi-source, auto-connect, OAuth, workspace-root injection, plugin MCP, and marketplace are **product capabilities** (not permanently “manual-only”). Hard invariants unchanged: secrets/tokens never enter renderer/Doctor/support bundle/logs; MCP results are not LearningSession/Evidence/Outcome authority; settlement sole-writer unchanged; tool calls still pass effect lattice + approval (no YOLO). Catalog fetch is not product telemetry. Emergency disable / revoke remain required.
 
 Executable gates: `pnpm run check:security`, `pnpm run check:provider-privacy`, `pnpm run check:settings-secret-storage`.
 
@@ -26,7 +26,7 @@ Bypassing a heuristic **does not automatically** constitute a CVE unless it cros
 ## Explicit non-claims
 
 - StudiumX currently **does not** expose a general shell / arbitrary code execution product path.
-- **MCP marketplace** and **default auto-connect** remain non-goals. User-configured MCP is **policy-approved** under ADR-0127 but **not** claimed as implemented until ADR-0128 phases A–D land; when implemented, default remains off and YOLO / always-approve remain forbidden.
+- **MCP multi-source / auto-connect / workspace-root / plugin / marketplace** are authorized product surfaces under ADR-0132 + ADR-0141 (parity with mainstream MCP clients). Prefer clear toggles and revoke/emergency paths over permanent feature bans. Auto-connect discovers tools; tool invocation still uses effect/approval. YOLO / always-approve labels remain forbidden.
 - We **do not** claim Docker-class OS sandbox isolation for model actions.
 - Memory and workspace durable I/O default to **trusted-root pathname** persistence (`temp → write → optional fsync → rename`; ADR-0131). This is **non-CAS**, **not** descriptor-strict, and **not** an OS sandbox claim. Historical dual-profile inventory (ADR-0126) remains documentation only; descriptor-strict is **not** the full-platform default (see also ADR-0004 / ADR-0035).
 - LearningSession ledger / outcome settlement authority is **not** owned by the agent controller (ADR-0008, ADR-0021, ADR-0023).
@@ -46,6 +46,14 @@ Do not open public issues that contain API keys, learner answers, or unredacted 
 - ADR index: `docs/adr/README.md`
 - User-configurable MCP design gate: `docs/adr/0127-user-configurable-mcp-design-gate.md`
 - User-configurable MCP implementation contract: `docs/adr/0128-user-configurable-mcp-implementation.md`
+- MCP Zcode parity / trust lifecycle (phased): `docs/adr/0132-mcp-zcode-parity-and-trust-lifecycle.md`
+- MCP Phase A runtime reliability: `docs/adr/0133-mcp-runtime-reliability-implementation.md`
+- MCP Phase B result safety / artifacts: `docs/adr/0134-mcp-result-safety-and-local-artifacts.md`
+- MCP Phase C OAuth PKCE / token lifecycle: `docs/adr/0135-mcp-oauth-pkce-and-secret-token-lifecycle.md`
+- MCP Phase D config import/export / McpSync wire: `docs/adr/0136-mcp-config-import-export-and-sync-contract.md`
+- MCP Phase E multi-source / auto-connect: `docs/adr/0137-mcp-multi-source-precedence-and-auto-connect.md`
+- MCP Phase F workspace-root injection: `docs/adr/0138-mcp-filesystem-workspace-root-injection.md`
+- MCP Phase H local marketplace catalog: `docs/adr/0140-mcp-marketplace-local-catalog.md`
 - Tool contract: `docs/tools/TOOL_CONTRACT.md`
 - Config paths: `docs/CONFIG_PATHS.md`
 - Contributor checks: `CONTRIBUTING.md`

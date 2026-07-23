@@ -101,6 +101,11 @@ export type TeachingConversationRuntimeDeps = {
    * Null/omitted → no MCP tools on this turn (default-off path).
    */
   mcpSessionManager?: McpSessionManager | null
+  /**
+   * Optional MCP host for multi-source effective config + controlled auto-connect
+   * before registry inject (ADR-0137). Preferred when present.
+   */
+  mcpHost?: import('./mcp/host').McpHost | null
 }
 
 export async function runTeachingConversationTurn(
@@ -379,6 +384,9 @@ async function runTeachingConversationTurnActive(
     deny: conversation.capabilityPolicy.deniedToolNames
   })
   if (settings.tools.enabled && deps.mcpSessionManager) {
+    if (deps.mcpHost) {
+      await deps.mcpHost.prepareForWorkspace(conversation.workspaceRoot ?? null)
+    }
     await injectMcpToolsIntoRegistry({
       registry: projected,
       sessionManager: deps.mcpSessionManager,

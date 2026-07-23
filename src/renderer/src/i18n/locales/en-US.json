@@ -595,7 +595,38 @@
     "aria": "Settings",
     "close": "Close settings",
     "navAria": "Settings categories",
-    "navHeading": "Settings"
+    "navHeading": "Settings",
+    "mcpMarketplace": {
+      "title": "MCP Marketplace",
+      "subtitle": "Local catalog entries. Install enables a user MCP server; tool calls still require approval.",
+      "safetyNote": "Install never grants tool approval or YOLO. Secrets stay in the main process.",
+      "loading": "Loading marketplace…",
+      "empty": "No catalog entries yet. StudiumX ships without an official catalog. Paste optional HTTPS catalog URLs below, or add servers in MCP settings.",
+      "unavailable": "Marketplace API is unavailable in this runtime.",
+      "install": "Install",
+      "installConnect": "Install & connect",
+      "uninstall": "Uninstall",
+      "installed": "Installed",
+      "connected": "connected",
+      "sourceRemote": "remote",
+      "emergencyBanner": "Marketplace emergency disable is active. New installs are blocked.",
+      "catalogUrlsLabel": "Remote catalog URLs",
+      "catalogUrlsHint": "Optional. One HTTPS URL per line. No official StudiumX catalog is preconfigured. Empty means no network. Not product telemetry.",
+      "catalogUrlsPlaceholder": "https://example.com/mcp-catalog.json",
+      "saveCatalogUrls": "Save catalog URLs",
+      "refreshCatalog": "Refresh catalog",
+      "status": {
+        "loadFail": "Unable to load marketplace catalog.",
+        "installOk": "Installed {{name}} {{connected}}",
+        "installFail": "Install failed: {{message}}",
+        "uninstallOk": "Uninstalled marketplace entry.",
+        "uninstallFail": "Uninstall failed: {{message}}",
+        "catalogUrlsSaved": "Saved {{count}} catalog URL(s).",
+        "catalogUrlsSaveFail": "Could not save catalog URLs: {{message}}",
+        "refreshOk": "Catalog refresh: fetched {{fetched}}, merged {{merged}}, errors {{errors}}.",
+        "refreshFail": "Catalog refresh failed: {{message}}"
+      }
+    }
   },
   "settingsSection": {
     "general": {
@@ -1291,6 +1322,31 @@
       "label": "Enable MCP",
       "detail": "No MCP servers connect while this is off."
     },
+    "autoConnect": {
+      "label": "Smart connect",
+      "detail": "When MCP is enabled, automatically discover tools for eligible servers. Never grants tool approval; you can turn this off anytime."
+    },
+    "honorRemoteReadOnlyHint": {
+      "label": "Trust remote readOnlyHint for read effect",
+      "detail": "When on, tools that advertise readOnlyHint (and not destructiveHint) may be classified as read after your overrides. Off by default; never skips permission gates."
+    },
+    "sources": {
+      "heading": "Configuration sources",
+      "detail": "Multi-source precedence (cli → environment → user → workspace → plugin → system). Only the winning definition is connectable.",
+      "summary": "{{winners}} active · {{shadowed}} shadowed",
+      "empty": "No multi-source winners yet. User config alone still applies after connect preparation.",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "shadowedNote": "{{id}} from {{source}} is shadowed by {{winner}} ({{winnerSource}}).",
+      "kind": {
+        "cli": "CLI",
+        "environment": "Environment",
+        "user": "User",
+        "workspace": "Workspace",
+        "plugin": "Plugin",
+        "system": "System"
+      }
+    },
     "servers": {
       "heading": "MCP servers",
       "count": "{{count}} configured",
@@ -1331,7 +1387,21 @@
       "envHint": "Use a JSON object. Secret-shaped fields are encrypted; saved values appear as <configured>.",
       "headers": "Headers",
       "headersHint": "Use a JSON object. Authorization, token, and other secret-shaped fields are encrypted.",
-      "cwdPlaceholder": "Optional absolute path"
+      "cwdPlaceholder": "Optional absolute path",
+      "refresh": "Refresh tools",
+      "refreshDisabledHint": "Enable the MCP root switch and this server before refreshing.",
+      "refreshAria": "Refresh {{name}}",
+      "inventorySummary": "{{discovered}} discovered · {{registered}} registered · {{rejected}} rejected",
+      "retrySummary": "Reconnect attempt {{attempt}}/{{max}}{{when}}",
+      "retryAtSuffix": " · next {{time}}",
+      "diagnosticsSummary": "Local diagnostics",
+      "inventoryStale": "Tool inventory changed — refresh to apply.",
+      "import": "Import",
+      "export": "Export",
+      "importAria": "Import MCP servers from JSON",
+      "exportAria": "Export redacted MCP configuration",
+      "workspaceRootInjection": "Allow injecting the current workspace root path",
+      "workspaceRootInjectionHint": "When enabled, the active workspace root is appended once to stdio arguments on connect. Default is off."
     },
     "editor": {
       "createTitle": "Add MCP server",
@@ -1386,20 +1456,81 @@
       "casConflict": "Configuration changed elsewhere. The latest version was reloaded; review it before trying again.",
       "invalid": "Invalid MCP configuration.",
       "testOk": "Connected. {{count}} tool(s) listed.",
-      "testFail": "Test failed: {{message}}"
+      "testFail": "Test failed: {{message}}",
+      "refreshing": "Refreshing {{name}}…",
+      "refreshOk": "MCP tools refreshed.",
+      "refreshFail": "Unable to refresh MCP tools. Check the server status and try again.",
+      "authorizing": "Opening authorization for {{name}}…",
+      "authorizeOpened": "Authorization page opened for {{name}}. Complete sign-in in the browser.",
+      "authorizeOk": "Authorization completed for {{name}}.",
+      "authorizeFail": "Authorization failed: {{message}}",
+      "revoking": "Revoking authorization for {{name}}…",
+      "revokeOk": "Authorization revoked for {{name}}.",
+      "revokeFail": "Revoke failed: {{message}}",
+      "importing": "Importing MCP servers…",
+      "exporting": "Exporting MCP configuration…"
     },
     "runtimeState": {
       "disabled": "Disabled",
       "idle": "Idle",
       "connecting": "Connecting",
       "connected": "Connected",
-      "error": "Error"
+      "error": "Error",
+      "disconnected": "Disconnected",
+      "retry_wait": "Retry waiting",
+      "failed": "Failed"
     },
     "toolsSummary": {
       "heading": "Tools from last test",
       "registered": "Registered",
       "skipped": "Not registered",
-      "effect": "Effect"
+      "effect": "StudiumX effect (overrides / optional readOnlyHint policy / default privileged)",
+      "annotationsHint": "Remote annotations are shown for UX. Effect stays privileged unless you enable Trust readOnlyHint or set overrides.",
+      "annotationsTitle": "Remote protocol hints (not effect authority)"
+    },
+    "import": {
+      "title": "Import MCP servers",
+      "detail": "Paste Claude/Cursor mcpServers JSON or a StudiumX export. Review risks, then confirm selected servers. Nothing connects until you test later.",
+      "pasteLabel": "JSON configuration",
+      "pastePlaceholder": "{ \"mcpServers\": { ... } }",
+      "chooseFile": "Choose file",
+      "parse": "Preview",
+      "cancel": "Cancel",
+      "confirm": "Import selected",
+      "confirming": "Importing…",
+      "selectAll": "Select all",
+      "selectNone": "Select none",
+      "emptySelection": "Select at least one server to import.",
+      "parsed": "Parsed {{count}} server(s) from {{shape}}.",
+      "skipped": "{{count}} skipped",
+      "conflicts": "{{count}} id conflict(s)",
+      "warnings": "{{count}} warning(s)",
+      "risk": {
+        "secret_present": "Secrets present",
+        "command_execution": "Runs a command",
+        "remote_url": "Remote URL",
+        "id_conflict": "ID conflict",
+        "invalid_partial": "Partial / invalid"
+      },
+      "sourceShape": {
+        "studiumx_user_mcp_v1": "StudiumX config",
+        "claude_cursor_mcpServers": "Claude/Cursor mcpServers",
+        "mcp_servers_nested": "mcp.servers",
+        "unsupported": "Unsupported"
+      },
+      "parseError": "Could not parse import document: {{reason}}",
+      "success": "Imported {{count}} server(s). Secrets were not auto-connected; re-enter secrets if needed and test connection.",
+      "noteConflict": "Will import as {{id}} (conflicts with existing)",
+      "mcpSyncConflictsSkipped": "McpSync: skipped {{count}} conflicting id(s): {{ids}}. Preview shows non-conflicting servers only.",
+      "mcpSyncAllConflicts": "McpSync: all {{count}} server(s) conflict with local ids ({{ids}}). Nothing to import without overwriting."
+    },
+    "export": {
+      "success": "Redacted MCP configuration copied.",
+      "downloadSuccess": "Redacted MCP configuration downloaded.",
+      "fail": "Unable to export MCP configuration.",
+      "mcpSync": "Export McpSync",
+      "mcpSyncAria": "Export as McpSync envelope JSON",
+      "mcpSyncSuccess": "McpSync envelope downloaded (secret-free)."
     }
   }
 }

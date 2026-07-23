@@ -1445,12 +1445,73 @@
 
 .mcp-tool-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto minmax(0, auto);
   align-items: center;
   gap: 10px;
   min-width: 0;
   color: var(--text-muted);
   font-size: 10.5px;
+}
+
+.mcp-tools-hint {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.mcp-tool-annotations {
+  overflow: hidden;
+  max-width: 180px;
+  color: var(--text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.mcp-import-risks {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.mcp-risk-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 90, 40, 0.22);
+  background: rgba(250, 220, 150, 0.28);
+  color: #6b4f12;
+  font-size: 10px;
+  font-weight: 680;
+  white-space: nowrap;
+}
+
+.mcp-risk-badge.risk-secret_present {
+  border-color: rgba(140, 50, 50, 0.28);
+  background: rgba(250, 180, 180, 0.28);
+  color: #7a2a2a;
+}
+
+.mcp-risk-badge.risk-command_execution {
+  border-color: rgba(90, 70, 140, 0.28);
+  background: rgba(210, 200, 250, 0.32);
+  color: #3f3570;
+}
+
+.mcp-risk-badge.risk-remote_url {
+  border-color: rgba(40, 100, 140, 0.28);
+  background: rgba(180, 220, 250, 0.32);
+  color: #1f4f6b;
+}
+
+.mcp-risk-badge.risk-id_conflict,
+.mcp-risk-badge.risk-invalid_partial {
+  border-color: rgba(120, 90, 40, 0.28);
+  background: rgba(250, 230, 180, 0.35);
+  color: #6b4f12;
 }
 
 .mcp-tool-row code {

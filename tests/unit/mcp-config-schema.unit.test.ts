@@ -30,6 +30,8 @@ function sampleServer(overrides: Record<string, unknown> = {}) {
     headersPlain: {},
     timeoutMs: null,
     toolEffectOverrides: {},
+        workspaceRootInjection: 'off' as const,
+        injectionIdentity: null,
     createdAt: '2026-07-22T00:00:00.000Z',
     updatedAt: '2026-07-22T00:00:00.000Z',
     ...overrides
@@ -50,7 +52,41 @@ describe('UserMcpConfig parse (ADR-0128)', () => {
     expect(config.enabled).toBe(false)
     expect(config.servers).toEqual([])
     expect(config.schemaVersion).toBe(1)
+    expect(config.honorRemoteReadOnlyHint).toBe(false)
     expect(config.fingerprint).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it('parses honorRemoteReadOnlyHint opt-in and projects public false by default', () => {
+    const omitted = parseUserMcpConfig({
+      schemaVersion: 1,
+      enabled: true,
+      servers: []
+    })
+    expect(omitted.ok).toBe(true)
+    if (!omitted.ok) return
+    expect(omitted.config.honorRemoteReadOnlyHint).toBeUndefined()
+    expect(toPublicMcpConfig(omitted.config).honorRemoteReadOnlyHint).toBe(false)
+
+    const on = parseUserMcpConfig({
+      schemaVersion: 1,
+      enabled: true,
+      honorRemoteReadOnlyHint: true,
+      servers: []
+    })
+    expect(on.ok).toBe(true)
+    if (!on.ok) return
+    expect(on.config.honorRemoteReadOnlyHint).toBe(true)
+    expect(toPublicMcpConfig(on.config).honorRemoteReadOnlyHint).toBe(true)
+
+    const coerced = parseUserMcpConfig({
+      schemaVersion: 1,
+      enabled: true,
+      honorRemoteReadOnlyHint: 'yes',
+      servers: []
+    })
+    expect(coerced.ok).toBe(true)
+    if (!coerced.ok) return
+    expect(coerced.config.honorRemoteReadOnlyHint).toBe(false)
   })
 
   it('rejects unknown schema versions fail-closed', () => {
