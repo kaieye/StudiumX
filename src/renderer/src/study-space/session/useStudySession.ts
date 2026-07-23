@@ -360,7 +360,8 @@ export function useStudySession({
   const [activeTimerSession, setActiveTimerSession] = useState<TimerSessionRecord | null>(null)
   // After activeTimerSession: countup exam dual-write stores elapsed in remainingSeconds.
   const viewModel = createStudySpaceViewModel(snapshot, presence, roomCycleNow, {
-    timerClockMode: activeTimerSession?.clockMode === 'countup' ? 'countup' : 'countdown'
+    timerClockMode: activeTimerSession?.clockMode === 'countup' ? 'countup' : 'countdown',
+    timerTargetSeconds: activeTimerSession?.targetSeconds ?? null
   })
   /** STC-206: avoid re-opening reconcile sheet while host Promise is pending. */
   const reconcilePromptInFlightRef = useRef(false)

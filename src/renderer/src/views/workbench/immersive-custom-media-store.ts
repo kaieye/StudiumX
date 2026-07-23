@@ -37,6 +37,7 @@ const SCENE_PREF_KEY = 'studiumx:workbench:immersive-scene:v1'
 
 export type BuiltInImmersiveScenePreference =
   | 'clock'
+  | 'focus-timer'
   | 'girl'
   | 'cloud-glow'
   | 'summer-lakeside'
@@ -291,6 +292,7 @@ export function isBuiltInImmersiveScene(
 ): value is BuiltInImmersiveScenePreference {
   return (
     value === 'clock' ||
+    value === 'focus-timer' ||
     value === 'girl' ||
     value === 'cloud-glow' ||
     value === 'summer-lakeside'

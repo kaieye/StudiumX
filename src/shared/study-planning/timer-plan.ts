@@ -126,6 +126,8 @@ export const BUILTIN_TIMER_PLAN_CATALOG: readonly TimerPlanV2[] = [
     name: '考场模拟',
     kind: 'continuous',
     clockMode: 'countup',
+    // Default morning exam window 09:00–12:00 = 180 minutes (ring + session target).
+    focusMinutes: 180,
     breakPolicy: 'reminder_only',
     windowFillPolicy: 'adaptive_final_focus',
     minimumFinalFocusMinutes: 15,
@@ -485,9 +487,35 @@ export function createClassicPomodoroPlan(overrides?: Partial<TimerPlanV2>): Tim
 /** Create continuous open countup seed plan (readonly catalog entry clone). */
 export function createContinuousCountupPlan(overrides?: Partial<TimerPlanV2>): TimerPlanV2 {
   const base = BUILTIN_TIMER_PLAN_CATALOG.find((p) => p.id === 'continuous_countup') ?? BUILTIN_TIMER_PLAN_CATALOG[2]
-  const result = normalizeTimerPlanV2({ ...base, ...overrides, id: overrides?.id ?? base.id })
+  const id = overrides?.id ?? base.id
+  // Catalog seeds exam focusMinutes (180). Do not inherit that onto open continuous
+  // shells (id != continuous_countup / explicit open without focusMinutes).
+  const { focusMinutes: catalogFocus, ...baseWithoutFocus } = base
+  const hasFocusOverride = overrides != null && Object.prototype.hasOwnProperty.call(overrides, 'focusMinutes')
+  const focusMinutes = hasFocusOverride
+    ? overrides!.focusMinutes
+    : id === 'continuous_countup'
+      ? (catalogFocus ?? 180)
+      : undefined
+  const result = normalizeTimerPlanV2({
+    ...baseWithoutFocus,
+    ...overrides,
+    id,
+    // Re-apply resolved focus so a stripped open plan stays without focusMinutes
+    // even when base catalog carries an exam default.
+    ...(focusMinutes !== undefined ? { focusMinutes } : { focusMinutes: undefined })
+  })
   if (!result.ok) {
-    return { ...base }
+    return {
+      ...baseWithoutFocus,
+      id,
+      ...(focusMinutes !== undefined ? { focusMinutes } : {})
+    }
+  }
+  // normalize may omit undefined optional fields — ensure open plans stay open.
+  if (focusMinutes === undefined && result.plan.focusMinutes != null && id !== 'continuous_countup') {
+    const { focusMinutes: _drop, ...rest } = result.plan
+    return rest
   }
   return result.plan
 }

@@ -146,6 +146,12 @@ export function createStudySpaceViewModel(
      * Progress must fill clockwise rather than deplete remaining.
      */
     timerClockMode?: 'countdown' | 'countup'
+    /**
+     * Prefer frozen TimerSession targetSeconds over snapshot.focusMinutes
+     * so exam / continuous rings use the real segment length (e.g. 180 min),
+     * not a stale classic 25-minute shell.
+     */
+    timerTargetSeconds?: number | null
   }
 ): StudySpaceViewModel {
   const activeRoom = studyRooms.find((room) => room.id === snapshot.roomId) ?? studyRooms[0]
@@ -164,8 +170,17 @@ export function createStudySpaceViewModel(
   const remoteOnline = presenceOnline ? activePeers.length : 0
   const roomCapacityPercent = Math.min(100, Math.round((online / activeRoom.capacity) * 100))
   const localSeatLabel = presenceOnline ? `${spaceOnline} 人在 ${snapshot.spaceCode}` : `本机席位 · ${snapshot.spaceCode}`
-  const timerTotalSeconds = (snapshot.timerMode === 'focus' ? snapshot.focusMinutes : snapshot.breakMinutes) * 60
   const timerClockMode = options?.timerClockMode === 'countup' ? 'countup' : 'countdown'
+  const fromTarget =
+    options?.timerTargetSeconds != null && options.timerTargetSeconds > 0
+      ? Math.floor(options.timerTargetSeconds)
+      : null
+  // Prefer frozen session target (exam window total, long continuous goal, …)
+  // so the ring is not stuck on a classic 25-minute snapshot shell.
+  const timerTotalSeconds =
+    snapshot.timerMode === 'break'
+      ? (fromTarget ?? Math.max(0, snapshot.breakMinutes * 60))
+      : (fromTarget ?? Math.max(0, snapshot.focusMinutes * 60))
   // Countup dual-write stores elapsed in remainingSeconds (see projectFocusTimerUi).
   // Only invert while live so idle shells that still seed remaining=target stay at 0%.
   const liveCountup =

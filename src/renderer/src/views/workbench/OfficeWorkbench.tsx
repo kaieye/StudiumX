@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, StickyNote, Trash2, Upload, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
 import cloudGlowScene from '../../assets/images/workbench/scenes/cloud-glow.png'
 import summerLakesideScene from '../../assets/images/workbench/scenes/summer-lakeside.png'
@@ -8,6 +8,13 @@ import {
   formatStudyDuration,
   formatStudySeatLabel
 } from '../../study-space/domain'
+import {
+  formatDurationClockParts,
+  formatExamWallClock,
+  formatExamWallClockParts,
+  projectWorkbenchTimerFaceClock
+} from '../../study-space/planning-timer-face-clock-ui'
+import { resolveTimerPlanShellForCatalog } from '../../study-space/planning-timer-plan-catalog-ui'
 import { useStudySession } from '../../study-space/session/useStudySession'
 import {
   createOfficeSceneRuntime,
@@ -86,7 +93,7 @@ const workbenchSeatCount = 12
 const immersiveCloseFallbackDurationMs = 1_200
 const clockRefreshIntervalMs = 60_000
 type ImmersivePhase = 'closed' | 'open' | 'closing'
-type BuiltInImmersiveSceneId = 'clock' | 'girl' | 'cloud-glow' | 'summer-lakeside'
+type BuiltInImmersiveSceneId = 'clock' | 'focus-timer' | 'girl' | 'cloud-glow' | 'summer-lakeside'
 type ImmersiveSceneId = BuiltInImmersiveSceneId | `custom:${string}`
 type ImmersiveCustomMedia = {
   id: string
@@ -873,6 +880,67 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     }
   }, [adoptCustomImmersiveMediaList])
 
+  /** Large immersive dial: same face projection as WorkbenchPomodoro (live remaining / exam wall). */
+  const immersiveFocusTimerFace = useMemo(() => {
+    const timerPlans = snapshot.timerPlans ?? []
+    const planId = defaultTimerPlanId ?? timerPlans[0]?.id ?? null
+    const appliedPlan =
+      planId && typeof resolveTimerPlanShellForCatalog === 'function'
+        ? resolveTimerPlanShellForCatalog(planId, timerPlans)
+        : null
+    const timerState = snapshot.timerState ?? 'idle'
+    const timerMode = snapshot.timerMode === 'break' ? 'break' : 'focus'
+    const remainingSeconds =
+      typeof snapshot.remainingSeconds === 'number' ? snapshot.remainingSeconds : 0
+    const focusMinutes = typeof snapshot.focusMinutes === 'number' ? snapshot.focusMinutes : 25
+    const breakMinutes = typeof snapshot.breakMinutes === 'number' ? snapshot.breakMinutes : 5
+    const faceClock = projectWorkbenchTimerFaceClock({
+      timerState,
+      timerMode,
+      selectedMode: timerMode,
+      remainingSeconds,
+      focusMinutes,
+      breakMinutes,
+      simulationStartTime: snapshot.simulationStartTime,
+      simulationEndTime: snapshot.simulationEndTime,
+      appliedPlan,
+      activeSessionClockMode: activeTimerSession?.clockMode ?? null
+    })
+    const displaySeconds = faceClock.displaySeconds
+    const isExamFace = faceClock.wallBaseSeconds != null
+    const timeParts = isExamFace
+      ? formatExamWallClockParts(faceClock.wallBaseSeconds!, displaySeconds)
+      : formatDurationClockParts(displaySeconds)
+    const remainingTime = isExamFace
+      ? formatExamWallClock(faceClock.wallBaseSeconds!, displaySeconds, {
+          alwaysSeconds: timerState === 'running' || timerState === 'paused'
+        })
+      : formatStudyDuration(displaySeconds)
+    const progress = Math.min(100, Math.max(0, viewModel.timerProgress ?? 0))
+    const ringStyle = { '--timer-ring-offset': `${100 - progress}` } as CSSProperties
+    const secondValue = Number.parseInt(timeParts.seconds, 10)
+    const secondAngleDeg = (Number.isFinite(secondValue) ? secondValue : 0) * 6
+    return {
+      remainingTime,
+      timeParts,
+      ringStyle,
+      secondAngleDeg,
+      timerState
+    }
+  }, [
+    activeTimerSession?.clockMode,
+    defaultTimerPlanId,
+    snapshot.breakMinutes,
+    snapshot.focusMinutes,
+    snapshot.remainingSeconds,
+    snapshot.simulationEndTime,
+    snapshot.simulationStartTime,
+    snapshot.timerMode,
+    snapshot.timerPlans,
+    snapshot.timerState,
+    viewModel.timerProgress
+  ])
+
   useEffect(
     () => () => {
       revokeAllCustomImmersiveMedia()
@@ -1357,6 +1425,68 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
               <div className="workbench-immersive-clock-scene workbench-clock" aria-hidden="true">
                 <ClockDisplay time={clockTime} previousTime={clockState.previous} />
               </div>
+            ) : immersiveScene === 'focus-timer' ? (
+              <div
+                className="workbench-immersive-focus-timer-scene"
+                data-timer-state={immersiveFocusTimerFace.timerState}
+                data-timer-mode={snapshot.timerMode}
+                aria-label={`专注计时 ${immersiveFocusTimerFace.remainingTime}`}
+              >
+                <div className="workbench-immersive-focus-timer-scene__glow" aria-hidden="true" />
+                <div className="workbench-immersive-focus-timer-scene__face">
+                  <div
+                    className="workbench-timer-ring workbench-immersive-focus-timer-scene__ring"
+                    style={
+                      {
+                        ...immersiveFocusTimerFace.ringStyle,
+                        '--second-hand-angle': `${immersiveFocusTimerFace.secondAngleDeg}deg`
+                      } as CSSProperties
+                    }
+                    aria-hidden="true"
+                  >
+                    <svg className="workbench-timer-ring__dial" viewBox="0 0 120 120" focusable="false">
+                      <circle className="workbench-timer-ring__track" cx="60" cy="60" r="56" pathLength="100" />
+                      <circle
+                        className="workbench-timer-ring__progress"
+                        cx="60"
+                        cy="60"
+                        r="56"
+                        pathLength="100"
+                        transform="rotate(-90 60 60)"
+                      />
+                    </svg>
+                    <div className="workbench-pomodoro-time workbench-immersive-focus-timer-scene__time">
+                      <strong className="workbench-pomodoro-time__primary">
+                        {immersiveFocusTimerFace.timeParts.primary}
+                      </strong>
+                      <span className="visually-hidden">{immersiveFocusTimerFace.remainingTime}</span>
+                    </div>
+                    <div
+                      className={`workbench-immersive-focus-timer-scene__seconds-clock${
+                        immersiveFocusTimerFace.timerState === 'running' ? ' is-running' : ''
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <span className="workbench-immersive-focus-timer-scene__seconds-clock-face">
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="0" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="1" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="2" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="3" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="4" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="5" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="6" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="7" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="8" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="9" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="10" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-clock-tick" data-tick="11" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-hand" />
+                        <span className="workbench-immersive-focus-timer-scene__seconds-hub" />
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             ) : immersiveScene === 'girl' ? (
               <video
                 className="workbench-immersive-video"
@@ -1579,6 +1709,43 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                     <strong>翻页时钟</strong>
                   </span>
                   {immersiveScene === 'clock' ? <span className="workbench-scene-picker__selected-mark">当前</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className={`workbench-scene-picker__preset workbench-scene-picker__preset--focus-timer${immersiveScene === 'focus-timer' ? ' is-selected' : ''}`}
+                  onClick={() => selectImmersiveScene('focus-timer')}
+                  aria-label="专注计时"
+                  aria-pressed={immersiveScene === 'focus-timer'}
+                >
+                  <div className="workbench-scene-picker__focus-timer-preview" aria-hidden="true">
+                    <div
+                      className="workbench-timer-ring workbench-scene-picker__focus-timer-ring"
+                      style={immersiveFocusTimerFace.ringStyle}
+                    >
+                      <svg className="workbench-timer-ring__dial" viewBox="0 0 120 120" focusable="false">
+                        <circle className="workbench-timer-ring__track" cx="60" cy="60" r="56" pathLength="100" />
+                        <circle
+                          className="workbench-timer-ring__progress"
+                          cx="60"
+                          cy="60"
+                          r="56"
+                          pathLength="100"
+                          transform="rotate(-90 60 60)"
+                        />
+                      </svg>
+                      <div className="workbench-pomodoro-time">
+                        <strong className="workbench-pomodoro-time__primary">
+                          {immersiveFocusTimerFace.timeParts.primary}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="workbench-scene-picker__preset-copy">
+                    <strong>专注计时</strong>
+                  </span>
+                  {immersiveScene === 'focus-timer' ? (
+                    <span className="workbench-scene-picker__selected-mark">当前</span>
+                  ) : null}
                 </button>
                 <button
                   type="button"

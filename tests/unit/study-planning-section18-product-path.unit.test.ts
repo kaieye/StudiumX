@@ -303,9 +303,11 @@ describe('§18 #3 product-path: timer modes + planSnapshot continuity (partial)'
   })
 
   it('continuous open countup starts with null target and frozen continuous plan', () => {
-    const plan = createContinuousCountupPlan()
+    // Open continuous is not the catalog exam seed (which freezes 180 min target).
+    const plan = createContinuousCountupPlan({ id: 'open-continuous', focusMinutes: undefined })
     expect(plan.kind).toBe('continuous')
     expect(plan.clockMode).toBe('countup')
+    expect(plan.focusMinutes).toBeUndefined()
     const started = startTimerSession({
       id: 's-cu',
       nowMs: t0,
@@ -318,6 +320,20 @@ describe('§18 #3 product-path: timer modes + planSnapshot continuity (partial)'
     expect(started.session!.targetSeconds).toBeNull()
     expect(started.session!.planSnapshot?.kind).toBe('continuous')
     expect(started.session!.attributionReason).toBe('unattributed')
+  })
+
+  it('catalog exam continuous_countup freezes 180 min target for the ring', () => {
+    const plan = createContinuousCountupPlan()
+    expect(plan.id).toBe('continuous_countup')
+    expect(plan.focusMinutes).toBe(180)
+    const started = startTimerSession({
+      id: 's-exam',
+      nowMs: t0,
+      plan,
+      taskId: null,
+      attributionReason: 'unattributed'
+    })
+    expect(started.session!.targetSeconds).toBe(180 * 60)
   })
 
   it('continuous countdown target freezes focusMinutes into targetSeconds', () => {

@@ -533,6 +533,20 @@ describe('OfficeWorkbench immersive fullscreen lifecycle', () => {
     expect(screen.getByRole('button', { name: '室内自习' })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  it('switches immersive plane to the focus-timer dial scene', async () => {
+    const user = userEvent.setup()
+    renderWorkbench()
+    await user.click(screen.getByRole('button', { name: '进入沉浸模式' }))
+    fireEvent.pointerEnter(document.querySelector('.workbench-immersive-controls')!)
+    await user.click(screen.getByRole('button', { name: '选择场景' }))
+
+    await user.click(screen.getByRole('button', { name: '专注计时' }))
+
+    expect(screen.getByRole('button', { name: '专注计时' })).toHaveAttribute('aria-pressed', 'true')
+    expect(document.querySelector('.workbench-immersive-focus-timer-scene')).toBeTruthy()
+    expect(document.querySelector('.workbench-immersive-clock-scene')).toBeNull()
+  })
+
   it('edits the custom scene name on double click and persists it', async () => {
     const user = userEvent.setup()
     const blob = new Blob([new Uint8Array([9, 8, 7])], { type: 'image/png' })

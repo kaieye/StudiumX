@@ -238,12 +238,29 @@ export function normalizeStudySnapshot(
   const modeId = normalizeStudyModeId(raw.modeId)
   const roomId = normalizeStudyRoomId(raw.roomId)
   const timerMode = raw.timerMode === 'break' ? 'break' : 'focus'
-  const focusMinutes = Math.floor(clampNumber(raw.focusMinutes, 5, 120, defaultStudySnapshot.focusMinutes))
-  const breakMinutes = Math.floor(clampNumber(raw.breakMinutes, 1, 45, defaultStudySnapshot.breakMinutes))
   const simulationStartTime = normalizeStudyTime(raw.simulationStartTime, defaultStudySnapshot.simulationStartTime)
   const simulationEndTime = normalizeStudyTime(raw.simulationEndTime, defaultStudySnapshot.simulationEndTime)
   const timerPlans = normalizeStudyTimerPlans(raw.timerPlans)
-  const maxRemaining = (timerMode === 'focus' ? focusMinutes : breakMinutes) * 60
+  // Exam / continuous shells may store 3h+ focus targets (simulation window).
+  // Detect continuous plans or a multi-hour window so we do not clamp 180 → 120.
+  const hasContinuousPlan = timerPlans.some((plan) => plan.kind === 'continuous')
+  const windowMinutesHint = (() => {
+    const m = /^(?:[01]\d|2[0-3]):[0-5]\d$/.exec(simulationStartTime)
+    const n = /^(?:[01]\d|2[0-3]):[0-5]\d$/.exec(simulationEndTime)
+    if (!m || !n) return null
+    const [sh, sm] = simulationStartTime.split(':').map(Number)
+    const [eh, em] = simulationEndTime.split(':').map(Number)
+    const total = eh * 60 + em - (sh * 60 + sm)
+    return total > 0 ? total : null
+  })()
+  const focusMax =
+    hasContinuousPlan || (windowMinutesHint != null && windowMinutesHint > 120) ? 240 : 120
+  const focusMinutes = Math.floor(clampNumber(raw.focusMinutes, 5, focusMax, defaultStudySnapshot.focusMinutes))
+  // Continuous / exam may store breakMinutes 0.
+  const breakMin = hasContinuousPlan ? 0 : 1
+  const breakMinutes = Math.floor(clampNumber(raw.breakMinutes, breakMin, 45, defaultStudySnapshot.breakMinutes))
+  // Countup elapsed can exceed target during open continuous; cap remaining by focusMax window.
+  const maxRemaining = (timerMode === 'focus' ? focusMinutes : Math.max(1, breakMinutes)) * 60
   const lastStudyDate = typeof raw.lastStudyDate === 'string' ? raw.lastStudyDate : ''
   const isToday = lastStudyDate === localTodayKey()
   const seatIndex = normalizeStudySeatIndex(raw.seatIndex, roomId, clientId)

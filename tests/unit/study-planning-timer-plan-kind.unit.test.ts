@@ -237,13 +237,14 @@ describe('formatTimerPlanKindSummary', () => {
 })
 
 describe('resolvePlanV2ForStart / createContinuousCountupPlan', () => {
-  it('resolves continuous_countup builtin', () => {
+  it('resolves continuous_countup builtin as exam-style target (09:00–12:00 = 180)', () => {
     const plan = resolvePlanV2ForStart({ planId: 'continuous_countup' })
     expect(plan.id).toBe('continuous_countup')
     expect(plan.kind).toBe('continuous')
     expect(plan.clockMode).toBe('countup')
-    expect(plan.focusMinutes).toBeUndefined()
-    expect(resolveStartTargetSeconds(plan)).toBeNull()
+    // Product: 考场模拟 freezes a morning-window target so the ring is 3h, not open-ended.
+    expect(plan.focusMinutes).toBe(180)
+    expect(resolveStartTargetSeconds(plan)).toBe(180 * 60)
   })
 
   it('resolves user continuous plan from V1 cache', () => {

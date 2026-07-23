@@ -5793,14 +5793,17 @@
 }
 
 /* Keep the timer at the top-right and anchor the collapsed task list to the
-   bottom-right. The explicit-height reveal makes its expansion travel upward. */
+   bottom-right. Task expand grows upward via margin-top:auto + reveal order;
+   when both cards are open and exceed the rail height, scroll instead of
+   painting over each other (overflow:visible previously allowed overlap). */
 .office-workbench-stage .workbench-tools {
   /* Match the music dock bottom: layout height already equals stage height minus
      top and bottom block insets (office-scene-runtime: visibleHeight - 2*top). */
   height: var(--workbench-tools-layout-height);
   max-height: var(--workbench-tools-layout-height);
   padding-bottom: 0;
-  overflow: visible;
+  overflow-x: visible;
+  overflow-y: auto;
 }
 
 .office-workbench-stage .workbench-tools > .workbench-task-card {
@@ -6461,6 +6464,233 @@
   height: clamp(6px, 0.45vw, 9px);
 }
 
+/* Full-viewport focus-timer dial (pomodoro face, enlarged). */
+.workbench-immersive-focus-timer-scene {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: clamp(20px, 5vh, 64px) clamp(16px, 5vw, 80px);
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 42%, color-mix(in srgb, var(--pomodoro-accent, #5b8def) 18%, transparent), transparent 70%),
+    radial-gradient(circle at 50% 100%, color-mix(in srgb, #0b1220 88%, transparent), #05080f 72%);
+  color: #f4f7fb;
+}
+
+.workbench-immersive-focus-timer-scene__glow {
+  position: absolute;
+  inset: 18% 22%;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--pomodoro-accent, #5b8def) 22%, transparent), transparent 68%);
+  filter: blur(28px);
+  pointer-events: none;
+}
+
+.workbench-immersive-focus-timer-scene__face {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: min(100%, 720px);
+}
+
+.workbench-immersive-focus-timer-scene__ring.workbench-timer-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(72vmin, 520px);
+  height: min(72vmin, 520px);
+  border-radius: 50%;
+  aspect-ratio: 1;
+  container-type: size;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-immersive-focus-timer-scene__ring.workbench-timer-ring::before {
+  content: '';
+  position: absolute;
+  inset: clamp(14px, 3.5cqi, 28px);
+  z-index: 0;
+  border: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(28, 38, 58, 0.92), rgba(8, 12, 22, 0.96)),
+    radial-gradient(130% 80% at 18% 0%, rgba(255, 255, 255, 0.14), transparent 55%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -12px 28px rgba(0, 0, 0, 0.35);
+}
+
+/* Primary minutes alone on the geometric center of the ring. */
+.workbench-immersive-focus-timer-scene__time.workbench-pomodoro-time {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Analogue seconds sub-dial; angle via --second-hand-angle on the ring. */
+.workbench-immersive-focus-timer-scene__seconds-clock {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 50%;
+  width: clamp(52px, 18cqi, 88px);
+  height: clamp(52px, 18cqi, 88px);
+  /* Nudge below the primary minutes so the dial doesn't crowd the type. */
+  transform: translate(-50%, 78%);
+  pointer-events: none;
+}
+
+.workbench-immersive-focus-timer-scene__seconds-clock-face {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, #ffffff 28%, transparent);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(40, 52, 78, 0.95), rgba(10, 14, 24, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.workbench-immersive-focus-timer-scene__seconds-clock-tick {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1.5px;
+  height: 18%;
+  margin-left: -0.75px;
+  background: color-mix(in srgb, #ffffff 38%, transparent);
+  border-radius: 1px;
+  transform-origin: 50% 0;
+  transform: rotate(calc(var(--tick) * 30deg)) translateY(-48%);
+}
+
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='0'] { --tick: 0; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='1'] { --tick: 1; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='2'] { --tick: 2; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='3'] { --tick: 3; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='4'] { --tick: 4; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='5'] { --tick: 5; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='6'] { --tick: 6; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='7'] { --tick: 7; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='8'] { --tick: 8; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='9'] { --tick: 9; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='10'] { --tick: 10; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='11'] { --tick: 11; }
+
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='0'],
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='3'],
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='6'],
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='9'] {
+  width: 2px;
+  margin-left: -1px;
+  height: 22%;
+  background: color-mix(in srgb, #ffffff 62%, transparent);
+}
+
+.workbench-immersive-focus-timer-scene__seconds-hand {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  width: 2px;
+  height: 38%;
+  margin-left: -1px;
+  border-radius: 2px 2px 1px 1px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pomodoro-accent, #5b8def) 92%, #ffffff),
+    color-mix(in srgb, var(--pomodoro-accent, #5b8def) 70%, #172034)
+  );
+  box-shadow: 0 0 6px color-mix(in srgb, var(--pomodoro-accent, #5b8def) 45%, transparent);
+  transform-origin: 50% 100%;
+  transform: rotate(var(--second-hand-angle, 0deg));
+  will-change: transform;
+}
+
+.workbench-immersive-focus-timer-scene__seconds-clock.is-running
+  .workbench-immersive-focus-timer-scene__seconds-hand {
+  transition: transform 0.95s linear;
+}
+
+.workbench-immersive-focus-timer-scene__seconds-hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f4f7fb;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pomodoro-accent, #5b8def) 55%, transparent);
+  transform: translate(-50%, -50%);
+}
+
+.workbench-immersive-focus-timer-scene .workbench-timer-ring__track {
+  stroke: color-mix(in srgb, #ffffff 16%, transparent);
+}
+
+.workbench-immersive-focus-timer-scene .workbench-timer-ring__progress {
+  stroke-width: 3.2;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--pomodoro-accent, #5b8def) 55%, transparent));
+}
+
+.workbench-scene-picker__focus-timer-preview {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--pomodoro-accent, #5b8def) 28%, transparent), transparent 68%),
+    #05080f;
+}
+
+.workbench-scene-picker__focus-timer-ring.workbench-timer-ring {
+  position: relative;
+  width: min(72%, 120px);
+  height: min(72%, 120px);
+  border-radius: 50%;
+  aspect-ratio: 1;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-scene-picker__focus-timer-ring.workbench-timer-ring::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  z-index: 0;
+  border: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(28, 38, 58, 0.9), rgba(8, 12, 22, 0.95)),
+    radial-gradient(130% 80% at 18% 0%, rgba(255, 255, 255, 0.12), transparent 55%);
+}
+
+.workbench-scene-picker__focus-timer-ring .workbench-pomodoro-time {
+  margin: 0;
+}
+
+.workbench-scene-picker__focus-timer-ring .workbench-pomodoro-time strong,
+.workbench-scene-picker__focus-timer-ring .workbench-pomodoro-time__primary {
+  color: #f7fafc;
+  font-size: clamp(14px, 4.2vw, 22px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+}
+
 .workbench-scene-picker-backdrop {
   position: absolute;
   inset: 0;
@@ -6481,10 +6711,11 @@
   box-sizing: border-box;
   width: min(760px, calc(100% - 24px));
   max-height: min(760px, calc(100% - 24px));
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   padding: 14px 14px 12px;
-  overflow: auto;
+  overflow: hidden;
   color: var(--text);
   border: 1px solid var(--workbench-quick-note-line);
   border-radius: 20px;
@@ -6492,11 +6723,16 @@
   box-shadow:
     var(--workbench-quick-note-shadow),
     inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+  /*
+   * Opacity-only enter: scale/translate on this box used to fight grid
+   * aspect-ratio layout on first paint (cards stacked until a reflow).
+   */
   animation: workbench-scene-picker-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .workbench-scene-picker__header {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -6539,14 +6775,30 @@
 
 .workbench-scene-picker__grid {
   display: grid;
+  /* Do not flex-shrink: shrinking + aspect-ratio cards collapses rows into overlap. */
+  flex: 0 0 auto;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /*
+   * Cap the viewport to ~3 rows × 4 cols (12 cards). Cards use aspect-ratio 4/3.
+   * Content width ≈ min(732px, 100vw − chrome): picker max 760 − 28px padding,
+   * backdrop padding ~40px, outer margins ~24px → 100vw − 92px.
+   * cardWidth = (contentWidth − 3×10px gaps) / 4
+   * maxHeight = 3 × cardHeight + 2 × 10px row gaps
+   */
+  max-height: calc(3 * (((min(732px, 100vw - 92px) - 30px) / 4) * 3 / 4) + 20px);
 }
 
 .workbench-scene-picker__preset {
   position: relative;
   aspect-ratio: 4 / 3;
-  min-height: 0;
+  width: 100%;
+  height: auto;
+  min-height: auto;
   display: flex;
   align-items: flex-end;
   overflow: hidden;
@@ -6641,6 +6893,7 @@
 .workbench-scene-picker__upload {
   position: relative;
   display: grid;
+  flex: 0 0 auto;
   justify-items: center;
   gap: 6px;
   padding: 16px 14px;
@@ -6754,12 +7007,16 @@
 @media (max-width: 720px) {
   .workbench-scene-picker__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    /* 3 visible rows × 2 cols; one col gap of 10px */
+    max-height: calc(3 * (((min(732px, 100vw - 92px) - 10px) / 2) * 3 / 4) + 20px);
   }
 }
 
 @media (max-width: 420px) {
   .workbench-scene-picker__grid {
     grid-template-columns: minmax(0, 1fr);
+    /* 3 visible rows × 1 col */
+    max-height: calc(3 * (min(732px, 100vw - 92px) * 3 / 4) + 20px);
   }
 }
 
@@ -6778,8 +7035,8 @@
 }
 
 @keyframes workbench-scene-picker-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes workbench-clock-page-out {
@@ -9658,5 +9915,30 @@
   .office-workbench-stage .workbench-pomodoro-mode-arrow svg {
     width: 16px;
     height: 16px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Immersive focus-timer face type (must stay after all WorkbenchPomodoro dial
+   rules so side-card 0.8rem seconds / short-viewport media cannot win).
+   --------------------------------------------------------------------------- */
+.office-workbench-stage .workbench-immersive-focus-timer-scene__time.workbench-pomodoro-time strong,
+.office-workbench-stage .workbench-immersive-focus-timer-scene__time .workbench-pomodoro-time__primary {
+  color: #f7fafc;
+  /* Primary minutes: large and centered; seconds live in the analogue sub-dial. */
+  font-size: clamp(72px, 22cqi, 140px);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.12),
+    0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-immersive-focus-timer-scene__time.workbench-pomodoro-time strong,
+  .office-workbench-stage .workbench-immersive-focus-timer-scene__time .workbench-pomodoro-time__primary {
+    font-size: clamp(60px, 18cqi, 120px);
   }
 }
