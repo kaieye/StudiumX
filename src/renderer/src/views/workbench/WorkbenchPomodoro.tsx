@@ -183,6 +183,8 @@ export function WorkbenchPomodoro({
   const settingsTitleId = useId()
   const [settingsPortalHost, setSettingsPortalHost] = useState<HTMLElement | null>(null)
   const [selectedCatalogPlanId, setSelectedCatalogPlanId] = useState<string | null>(null)
+  /** Catalog plan id last applied to the live timer preset (left-nav / 应用). */
+  const [appliedCatalogPlanId, setAppliedCatalogPlanId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   
@@ -240,9 +242,8 @@ export function WorkbenchPomodoro({
     : isModePreview ? `开始${selectedMode === 'focus' ? '专注' : '休息'}`
       : snapshot.timerState === 'paused' ? '继续' : '开始'
   const draftKind: StudyTimerPlanKind = draft.kind === 'continuous' ? 'continuous' : 'pomodoro'
-  // Primary CTA: 添加 only while composing a blank draft; 应用 otherwise.
-  // Note: isAddingPlanMode is defined with catalog selection helpers below when available.
-  const primaryActionLabel = selectedCatalogPlanId === '' ? '添加' : '应用'
+  // Primary CTA: 添加 only while composing a blank draft; 已应用 when viewing the active plan; 应用 otherwise.
+  // Note: isAddingPlanMode / selectedCatalogRow are defined with catalog selection helpers below.
   const continuousTotalMinutes =
     totalMinutesFromSimulationWindow(draft.simulationStartTime, draft.simulationEndTime)
     ?? (
@@ -326,6 +327,7 @@ export function WorkbenchPomodoro({
 
   const handleAddPlan = (): void => {
     setSelectedCatalogPlanId('')
+    setAppliedCatalogPlanId(null)
     setDraft(createTimerPlanDraft(snapshot))
   }
 
@@ -346,6 +348,7 @@ export function WorkbenchPomodoro({
 
   const selectCatalogPlan = (planId: string): void => {
     setSelectedCatalogPlanId(planId)
+    setAppliedCatalogPlanId(planId)
     // Always apply the preset shell so left-nav clicks are never no-ops.
     onApplyTimerPlan(planId)
     const row = catalogRows.find((r) => r.id === planId)
@@ -386,6 +389,7 @@ export function WorkbenchPomodoro({
             : (catalogRows.find((row) => row.isDefault)?.id ?? catalogRows[0]?.id ?? null)
         if (openId) {
           setSelectedCatalogPlanId(openId)
+          setAppliedCatalogPlanId((current) => current ?? openId)
           const plan = snapshot.timerPlans.find((p) => p.id === openId)
           const row = catalogRows.find((r) => r.id === openId)
           if (plan) {
@@ -436,6 +440,23 @@ export function WorkbenchPomodoro({
     selectedCatalogRow && !selectedCatalogRow.readonly && selectedCatalogRow.canDelete
   )
   const isAddingPlanMode = selectedCatalogPlanId === ''
+  // Applied = viewing the catalog plan currently driving the live timer preset.
+  const isViewingAppliedPlan = Boolean(
+    !isAddingPlanMode
+    && selectedCatalogRow
+    && appliedCatalogPlanId != null
+    && selectedCatalogRow.id === appliedCatalogPlanId
+  )
+  const primaryActionLabel = isAddingPlanMode
+    ? '添加'
+    : isViewingAppliedPlan
+      ? '已应用'
+      : '应用'
+  const primaryActionDisabled = isAddingPlanMode
+    ? !hasValidDraft
+    : isViewingAppliedPlan
+      ? true
+      : !hasValidDraft
 
   const isDraftPayloadValid = (next: TimerPlanDraft): boolean => {
     const kind: StudyTimerPlanKind = next.kind === 'continuous' ? 'continuous' : 'pomodoro'
@@ -555,13 +576,14 @@ export function WorkbenchPomodoro({
   }
 
   const handleApplyPlan = (): void => {
-    if (!hasValidDraft) return
+    if (!hasValidDraft || isViewingAppliedPlan) return
     const payload = buildPlanPayload(draft)
     if (isAddingPlanMode) {
       // 添加: create new catalog entry and stay on that plan (do not reset draft shell).
       const newId = onSaveTimerPlan(payload)
       if (typeof newId === 'string' && newId) {
         setSelectedCatalogPlanId(newId)
+        setAppliedCatalogPlanId(newId)
         setDraft(draftFromPlan({ ...payload, name: payload.name }))
       } else {
         // Host may not return id (legacy void); leave add mode via null selection.
@@ -572,12 +594,14 @@ export function WorkbenchPomodoro({
     if (isEditingCustomPlan && selectedCatalogRow) {
       // Explicit 应用: re-upsert current custom plan id (also covered by live commits).
       onSaveTimerPlan({ ...payload, id: selectedCatalogRow.id })
+      setAppliedCatalogPlanId(selectedCatalogRow.id)
       return
     }
     // Builtin / new-name path: save as new custom plan from current draft.
     const newId = onSaveTimerPlan(payload)
     if (typeof newId === 'string' && newId) {
       setSelectedCatalogPlanId(newId)
+      setAppliedCatalogPlanId(newId)
       setDraft(draftFromPlan({ ...payload, name: payload.name }))
     }
   }
@@ -709,18 +733,18 @@ export function WorkbenchPomodoro({
                         </div>
                       )
                     })}
-                    <div className="workbench-pomodoro-settings-nav-add" role="listitem">
-                      <button
-                        type="button"
-                        className="workbench-pomodoro-settings-nav-add-btn"
-                        onClick={handleAddPlan}
-                        aria-label="添加方案"
-                        title="添加方案"
-                      >
-                        <Plus size={15} aria-hidden="true" />
-                        添加方案
-                      </button>
-                    </div>
+                  </div>
+                  <div className="workbench-pomodoro-settings-nav-add">
+                    <button
+                      type="button"
+                      className="workbench-pomodoro-settings-nav-add-btn"
+                      onClick={handleAddPlan}
+                      aria-label="添加方案"
+                      title="添加方案"
+                    >
+                      <Plus size={15} aria-hidden="true" />
+                      添加方案
+                    </button>
                   </div>
                 </aside>
 
@@ -1069,13 +1093,14 @@ export function WorkbenchPomodoro({
                           ) : null}
                         </div>
                         <button
-                          className="ghost-button strong workbench-pomodoro-apply-plan"
+                          className={`ghost-button workbench-pomodoro-apply-plan${isViewingAppliedPlan ? ' is-applied' : ' strong'}`}
                           type="button"
                           onClick={handleApplyPlan}
-                          disabled={!hasValidDraft}
+                          disabled={primaryActionDisabled}
                           aria-label={primaryActionLabel}
                           title={primaryActionLabel}
                         >
+                          {isViewingAppliedPlan ? <Check size={15} aria-hidden="true" /> : null}
                           {primaryActionLabel}
                         </button>
                       </div>

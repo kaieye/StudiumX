@@ -479,12 +479,15 @@
 }.workspace-conversation-row:hover,
 .workspace-conversation-row:focus-within {
   color: #22324b;
-}.workspace-conversation-row:focus-within {
   background: rgba(20, 47, 95, 0.055);
 }.workspace-conversation-row.is-selected {
   color: #22324b;
-  background: rgb(241, 243, 245);
+  background: rgba(20, 47, 95, 0.09);
   box-shadow: none;
+}.workspace-conversation-row.is-selected:hover,
+.workspace-conversation-row.is-selected:focus-within {
+  color: #22324b;
+  background: rgba(20, 47, 95, 0.09);
 }.workspace-conversation-row.is-pending {
   color: #2e405d;
 }.workspace-conversation-row.is-fork .workspace-conversation-main svg {
@@ -503,6 +506,11 @@
   background: transparent;
   font: inherit;
   text-align: left;
+  outline: none;
+}
+.workspace-conversation-main:focus,
+.workspace-conversation-main:focus-visible {
+  outline: none;
 }.workspace-conversation-main svg {
   flex: 0 0 auto;
   color: #8b98aa;

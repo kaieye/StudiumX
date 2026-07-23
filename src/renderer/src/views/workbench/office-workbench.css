@@ -7186,13 +7186,13 @@
 
 .workbench-pomodoro-settings-nav {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   align-content: stretch;
   gap: 6px;
   min-width: 0;
   min-height: 0;
   height: 100%;
-  padding: 22px 12px;
+  padding: 22px 12px 14px;
   border: 0;
   border-right: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
   background: color-mix(in srgb, var(--surface-muted, #eaf2ff) 42%, transparent);
@@ -7212,16 +7212,18 @@
 .workbench-pomodoro-settings-nav-list {
   display: grid;
   align-content: start;
-  gap: 4px;
+  gap: 6px;
   min-height: 0;
   overflow: auto;
-  padding-right: 2px;
+  /* Room for elevated selected-item shadow so it is not clipped. */
+  padding: 2px 4px 6px 2px;
 }
 
 .workbench-pomodoro-settings-nav-add {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
+  flex: 0 0 auto;
 }
 
 .workbench-pomodoro-settings-nav-add-btn {
@@ -7251,12 +7253,16 @@
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 2px;
+  border: 1px solid transparent;
   border-radius: 10px;
 }
 
 .workbench-pomodoro-settings-nav-plan.is-active {
-  background: color-mix(in srgb, var(--surface-solid, #fff) 88%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent);
+  background: color-mix(in srgb, var(--surface-solid, #fff) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 55%, transparent);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .workbench-pomodoro-settings-nav-plan .workbench-pomodoro-settings-nav-item {
@@ -7296,6 +7302,12 @@
   border-bottom: 0;
 }
 
+/* Prefer full row paint at the scroll bottom (avoid half-visible 空启动归类). */
+.workbench-pomodoro-settings-card .workbench-study-planning-prefs--row .settings-row {
+  min-height: 56px;
+  align-items: center;
+}
+
 .workbench-pomodoro-settings-nav-item {
   display: flex;
   align-items: center;
@@ -7311,11 +7323,16 @@
   cursor: pointer;
 }
 
-.workbench-pomodoro-settings-nav-item:hover,
-.workbench-pomodoro-settings-nav-item.is-active {
+.workbench-pomodoro-settings-nav-item:hover {
   color: var(--text, #17202b);
-  background: color-mix(in srgb, var(--surface-solid, #fff) 88%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent);
+  background: color-mix(in srgb, var(--surface-solid, #fff) 58%, transparent);
+}
+
+.workbench-pomodoro-settings-nav-item.is-active,
+.workbench-pomodoro-settings-nav-plan.is-active .workbench-pomodoro-settings-nav-item {
+  color: var(--text, #17202b);
+  background: transparent;
+  box-shadow: none;
 }
 
 .workbench-pomodoro-settings-nav-item span {
@@ -7353,10 +7370,12 @@
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding-right: 4px;
-  padding-bottom: 4px;
+  /* Keep the last settings row (空启动归类) fully reachable above the footer. */
+  padding-bottom: 28px;
   display: grid;
   align-content: start;
   gap: 12px;
+  scroll-padding-bottom: 28px;
 }
 
 .workbench-pomodoro-settings-footer {
@@ -7397,6 +7416,25 @@
   background: var(--text, #17202b);
   border-color: var(--text, #17202b);
   color: #fff;
+}
+
+/* Active/applied plan: light surface + soft check, not the dark primary CTA. */
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied,
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied:disabled {
+  color: color-mix(in srgb, var(--text, #17202b) 72%, #667085 28%);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 86%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 92%, transparent), color-mix(in srgb, var(--surface-muted, #eaf2ff) 55%, #fff));
+  box-shadow:
+    0 6px 16px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 80%, transparent);
+  opacity: 1;
+  cursor: default;
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied svg {
+  color: color-mix(in srgb, #5b8def 70%, #667085 30%);
+  stroke-width: 2.2;
 }
 
 .workbench-pomodoro-settings-panel-heading h2 {
@@ -7483,6 +7521,8 @@
 /* Settings-card list form (align with 设置 · 外观) */
 .workbench-pomodoro-settings-card {
   margin: 0;
+  /* Allow the last row (空启动归类) to fully paint; parent scroll owns clipping. */
+  overflow: visible;
 }
 
 .workbench-pomodoro-settings-card .settings-row-control .settings-input,

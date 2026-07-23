@@ -466,13 +466,18 @@ body.is-sidebar-resizing .sidebar-resizer::before {
     transform 160ms ease;
 }.workspace-node-row:hover {
   color: #22324b;
-  background: rgba(79, 124, 245, 0.1);
+  background: rgba(20, 47, 95, 0.055);
 }.workspace-node-row.is-selected.is-html-file,
 .workspace-node-row.is-selected.is-markdown-file,
 .workspace-node-row.is-selected.is-conversation {
   color: #22324b;
-  background: rgb(241, 243, 245);
+  background: rgba(20, 47, 95, 0.09);
   box-shadow: none;
+}.workspace-node-row.is-selected.is-html-file:hover,
+.workspace-node-row.is-selected.is-markdown-file:hover,
+.workspace-node-row.is-selected.is-conversation:hover {
+  color: #22324b;
+  background: rgba(20, 47, 95, 0.09);
 }.workspace-node-row.is-workspace-folder,
 .workspace-node-row.is-course-folder {
   min-height: 32px;
@@ -533,6 +538,11 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   font-size: 12px;
   font-weight: 560;
   text-align: left;
+  outline: none;
+}
+.workspace-node-button:focus,
+.workspace-node-button:focus-visible {
+  outline: none;
 }.workspace-node-row.is-directory .workspace-node-button {
   flex: 1 1 auto;
   max-width: none;
