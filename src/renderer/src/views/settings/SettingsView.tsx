@@ -518,8 +518,10 @@ export function SettingsView({
         )}
 
         {section === 'mcp' && (
-          <UserMcpSettingsSection workspaceRoot={activeWorkspace?.rootPath ?? null} />
-          <UserMcpMarketplaceSection workspaceRoot={activeWorkspace?.rootPath ?? null} />
+          <>
+            <UserMcpSettingsSection workspaceRoot={activeWorkspace?.rootPath ?? null} />
+            <UserMcpMarketplaceSection workspaceRoot={activeWorkspace?.rootPath ?? null} />
+          </>
         )}
 
         {section === 'connectors' && (
