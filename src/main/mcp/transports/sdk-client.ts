@@ -75,7 +75,7 @@ export function createSdkMcpTransport(options: SdkMcpTransportOptions): McpTrans
       nextClient.onclose = emitClose
       nextClient.onerror = () => emitError()
       const transport = createClientTransport(options)
-      attachStdioStderrDiagnostics(transport, pushDiagnostic)
+      attachStdioStderrDiagnostics(transport as { stderr?: NodeJS.ReadableStream | null }, pushDiagnostic)
       try {
         await nextClient.connect(transport, {
           signal,

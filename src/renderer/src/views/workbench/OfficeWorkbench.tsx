@@ -19,6 +19,7 @@ import {
   type ImmersivePhase
 } from './immersive-scene-types'
 import { useImmersiveCustomMedia } from './useImmersiveCustomMedia'
+import { useDialogAsk } from './useDialogAsk'
 import { ImmersiveScenePicker } from './ImmersiveScenePicker'
 import { ClockDisplay } from './immersive-clock-display'
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
@@ -94,61 +95,49 @@ const WorkbenchAnalyticsPage = StudyAnalyticsPage
 export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const petAppearance = useAppStore((state) => state.settings.pet.appearance)
   const workspaceRoot = useAppStore((state) => state.appState.activeWorkspace?.rootPath ?? null)
-  const [emptyStartOpen, setEmptyStartOpen] = useState(false)
-  const emptyStartResolverRef = useRef<((result: EmptyStartSheetResult) => void) | null>(null)
-  const [futureBlocksOpen, setFutureBlocksOpen] = useState(false)
-  const [futureBlocksPayload, setFutureBlocksPayload] = useState<{
-    taskId: string
-    taskTitle: string
-    futureBlockIds: string[]
-  } | null>(null)
-  const futureBlocksResolverRef = useRef<((result: FutureBlocksDecisionSheetResult) => void) | null>(null)
-  const [classificationOpen, setClassificationOpen] = useState(false)
-  const [classificationPayload, setClassificationPayload] = useState<{
-    taskId: string
-    taskTitle: string
-  } | null>(null)
-  const classificationResolverRef = useRef<((result: ClassificationPromptSheetResult) => void) | null>(null)
-  const [phasePromptOpen, setPhasePromptOpen] = useState(false)
-  const [phasePromptCompleted, setPhasePromptCompleted] = useState<TimerSessionRecord | null>(null)
-  const phasePromptResolverRef = useRef<((result: PhasePromptSheetResult) => void) | null>(null)
-  const [breakEndPromptOpen, setBreakEndPromptOpen] = useState(false)
-  const [breakEndPromptCompleted, setBreakEndPromptCompleted] = useState<TimerSessionRecord | null>(null)
-  const breakEndPromptResolverRef = useRef<((result: BreakEndPromptSheetResult) => void) | null>(null)
-  const [reconcileOpen, setReconcileOpen] = useState(false)
-  const [reconcileSession, setReconcileSession] = useState<TimerSessionRecord | null>(null)
-  const [reconcileGapSeconds, setReconcileGapSeconds] = useState(0)
-  const reconcileResolverRef = useRef<((result: ReconcileSheetResult) => void) | null>(null)
+  const emptyStartDialog = useDialogAsk<EmptyStartPolicy | null, EmptyStartSheetResult>()
+  const futureBlocksDialog = useDialogAsk<
+    { taskId: string; taskTitle: string; futureBlockIds: string[] },
+    FutureBlocksDecisionSheetResult
+  >()
+  const classificationDialog = useDialogAsk<
+    { taskId: string; taskTitle: string },
+    ClassificationPromptSheetResult
+  >()
+  const phasePromptDialog = useDialogAsk<{ completed: TimerSessionRecord }, PhasePromptSheetResult>()
+  const breakEndPromptDialog = useDialogAsk<
+    { completed: TimerSessionRecord },
+    BreakEndPromptSheetResult
+  >()
+  const reconcileDialog = useDialogAsk<
+    { session: TimerSessionRecord; gapSeconds: number },
+    ReconcileSheetResult
+  >()
   const [batchClassifyOpen, setBatchClassifyOpen] = useState(false)
   const [batchClassifyTaskIds, setBatchClassifyTaskIds] = useState<string[]>([])
 
   const askEmptyStart = useCallback((policy: EmptyStartPolicy): Promise<EmptyStartAskAnswer | null> => {
     void policy
-    return new Promise((resolve) => {
-      emptyStartResolverRef.current = (result) => {
-        emptyStartResolverRef.current = null
-        setEmptyStartOpen(false)
-        if (result.choice === 'cancel') {
-          resolve(null)
-          return
-        }
-        if (result.choice === 'pick_task') {
-          resolve({ choice: 'pick_task', taskId: result.taskId })
-          return
-        }
-        if (result.choice === 'quick_start') {
-          resolve({ choice: 'quick_start', title: result.title })
-          return
-        }
-        resolve({ choice: 'unattributed' })
+    return emptyStartDialog.ask(policy).then((result) => {
+      if (result.choice === 'cancel') {
+        return null
       }
-      setEmptyStartOpen(true)
+      if (result.choice === 'pick_task') {
+        return { choice: 'pick_task', taskId: result.taskId }
+      }
+      if (result.choice === 'quick_start') {
+        return { choice: 'quick_start', title: result.title }
+      }
+      return { choice: 'unattributed' }
     })
-  }, [])
+  }, [emptyStartDialog.ask])
 
-  const handleEmptyStartResolve = useCallback((result: EmptyStartSheetResult) => {
-    emptyStartResolverRef.current?.(result)
-  }, [])
+  const handleEmptyStartResolve = useCallback(
+    (result: EmptyStartSheetResult) => {
+      emptyStartDialog.resolve(result)
+    },
+    [emptyStartDialog.resolve]
+  )
 
   const askFutureBlocks = useCallback(
     (input: {
@@ -156,125 +145,96 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       taskTitle: string
       futureBlockIds: string[]
     }): Promise<FutureBlocksAskAnswer | null> => {
-      return new Promise((resolve) => {
-        futureBlocksResolverRef.current = (result) => {
-          futureBlocksResolverRef.current = null
-          setFutureBlocksOpen(false)
-          setFutureBlocksPayload(null)
-          if (result.choice === 'dismiss') {
-            resolve({ decision: 'dismiss' })
-            return
-          }
-          resolve({
-            decision: result.choice,
-            ...(result.choice === 'reassign' && result.reassignTaskId
-              ? { reassignTaskId: result.reassignTaskId }
-              : {})
-          })
+      return futureBlocksDialog.ask(input).then((result) => {
+        if (result.choice === 'dismiss') {
+          return { decision: 'dismiss' }
         }
-        setFutureBlocksPayload(input)
-        setFutureBlocksOpen(true)
+        return {
+          decision: result.choice,
+          ...(result.choice === 'reassign' && result.reassignTaskId
+            ? { reassignTaskId: result.reassignTaskId }
+            : {})
+        }
       })
     },
-    []
+    [futureBlocksDialog.ask]
   )
 
-  const handleFutureBlocksResolve = useCallback((result: FutureBlocksDecisionSheetResult) => {
-    futureBlocksResolverRef.current?.(result)
-  }, [])
+  const handleFutureBlocksResolve = useCallback(
+    (result: FutureBlocksDecisionSheetResult) => {
+      futureBlocksDialog.resolve(result)
+    },
+    [futureBlocksDialog.resolve]
+  )
 
   const askClassificationPrompt = useCallback(
     (input: { taskId: string; taskTitle: string }): Promise<ClassificationPromptAskAnswer | null> => {
-      return new Promise((resolve) => {
-        classificationResolverRef.current = (result) => {
-          classificationResolverRef.current = null
-          setClassificationOpen(false)
-          setClassificationPayload(null)
-          if (result.action === 'classify') {
-            resolve({ action: 'classify', categoryId: result.categoryId })
-            return
-          }
-          resolve({ action: result.action })
+      return classificationDialog.ask(input).then((result) => {
+        if (result.action === 'classify') {
+          return { action: 'classify', categoryId: result.categoryId }
         }
-        setClassificationPayload(input)
-        setClassificationOpen(true)
+        return { action: result.action }
       })
     },
-    []
+    [classificationDialog.ask]
   )
 
-  const handleClassificationPromptResolve = useCallback((result: ClassificationPromptSheetResult) => {
-    classificationResolverRef.current?.(result)
-  }, [])
+  const handleClassificationPromptResolve = useCallback(
+    (result: ClassificationPromptSheetResult) => {
+      classificationDialog.resolve(result)
+    },
+    [classificationDialog.resolve]
+  )
 
   const askPhasePrompt = useCallback(
     (input: { completed: TimerSessionRecord }): Promise<PhasePromptAskAnswer | null> => {
-      return new Promise((resolve) => {
-        phasePromptResolverRef.current = (result) => {
-          phasePromptResolverRef.current = null
-          setPhasePromptOpen(false)
-          setPhasePromptCompleted(null)
-          if (result.action === 'extend_and_start') {
-            resolve({ action: 'extend_and_start', extendMinutes: result.extendMinutes })
-            return
-          }
-          resolve({ action: result.action })
+      return phasePromptDialog.ask(input).then((result) => {
+        if (result.action === 'extend_and_start') {
+          return { action: 'extend_and_start', extendMinutes: result.extendMinutes }
         }
-        setPhasePromptCompleted(input.completed)
-        setPhasePromptOpen(true)
+        return { action: result.action }
       })
     },
-    []
+    [phasePromptDialog.ask]
   )
 
-  const handlePhasePromptResolve = useCallback((result: PhasePromptSheetResult) => {
-    phasePromptResolverRef.current?.(result)
-  }, [])
+  const handlePhasePromptResolve = useCallback(
+    (result: PhasePromptSheetResult) => {
+      phasePromptDialog.resolve(result)
+    },
+    [phasePromptDialog.resolve]
+  )
 
   const askBreakEndPrompt = useCallback(
     (input: { completed: TimerSessionRecord }): Promise<BreakEndPromptAskAnswer | null> => {
-      return new Promise((resolve) => {
-        breakEndPromptResolverRef.current = (result) => {
-          breakEndPromptResolverRef.current = null
-          setBreakEndPromptOpen(false)
-          setBreakEndPromptCompleted(null)
-          resolve({ action: result.action })
-        }
-        setBreakEndPromptCompleted(input.completed)
-        setBreakEndPromptOpen(true)
-      })
+      return breakEndPromptDialog.ask(input).then((result) => ({ action: result.action }))
     },
-    []
+    [breakEndPromptDialog.ask]
   )
 
-  const handleBreakEndPromptResolve = useCallback((result: BreakEndPromptSheetResult) => {
-    breakEndPromptResolverRef.current?.(result)
-  }, [])
+  const handleBreakEndPromptResolve = useCallback(
+    (result: BreakEndPromptSheetResult) => {
+      breakEndPromptDialog.resolve(result)
+    },
+    [breakEndPromptDialog.resolve]
+  )
 
   const askReconcile = useCallback(
     (input: {
       session: TimerSessionRecord
       gapSeconds: number
     }): Promise<ReconcileAskAnswer | null> => {
-      return new Promise((resolve) => {
-        reconcileResolverRef.current = (result) => {
-          reconcileResolverRef.current = null
-          setReconcileOpen(false)
-          setReconcileSession(null)
-          setReconcileGapSeconds(0)
-          resolve({ action: result.action })
-        }
-        setReconcileSession(input.session)
-        setReconcileGapSeconds(input.gapSeconds)
-        setReconcileOpen(true)
-      })
+      return reconcileDialog.ask(input).then((result) => ({ action: result.action }))
     },
-    []
+    [reconcileDialog.ask]
   )
 
-  const handleReconcileResolve = useCallback((result: ReconcileSheetResult) => {
-    reconcileResolverRef.current?.(result)
-  }, [])
+  const handleReconcileResolve = useCallback(
+    (result: ReconcileSheetResult) => {
+      reconcileDialog.resolve(result)
+    },
+    [reconcileDialog.resolve]
+  )
 
   // STC-601/605 live signals for lifecycle notifications (read by getter at dispatch time).
   const notificationHostLiveRef = useRef({
@@ -943,7 +903,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           />
         </div>
         <EmptyStartSheet
-          open={emptyStartOpen}
+          open={emptyStartDialog.open}
           policy={emptyStartPolicy}
           openTasks={snapshot.tasks.filter((task) => !task.done).map((task) => ({
             id: task.id,
@@ -953,20 +913,20 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         />
 
       <FutureBlocksDecisionSheet
-        open={futureBlocksOpen}
-        taskId={futureBlocksPayload?.taskId ?? ''}
-        taskTitle={futureBlocksPayload?.taskTitle ?? ''}
-        futureBlockIds={futureBlocksPayload?.futureBlockIds ?? []}
+        open={futureBlocksDialog.open}
+        taskId={futureBlocksDialog.payload?.taskId ?? ''}
+        taskTitle={futureBlocksDialog.payload?.taskTitle ?? ''}
+        futureBlockIds={futureBlocksDialog.payload?.futureBlockIds ?? []}
         reassignCandidates={snapshot.tasks
-          .filter((t) => !t.done && t.id !== futureBlocksPayload?.taskId)
+          .filter((t) => !t.done && t.id !== futureBlocksDialog.payload?.taskId)
           .map((t) => ({ id: t.id, title: t.title }))}
         onResolve={handleFutureBlocksResolve}
       />
 
       <ClassificationPromptSheet
-        open={classificationOpen}
-        taskId={classificationPayload?.taskId ?? ''}
-        taskTitle={classificationPayload?.taskTitle ?? ''}
+        open={classificationDialog.open}
+        taskId={classificationDialog.payload?.taskId ?? ''}
+        taskTitle={classificationDialog.payload?.taskTitle ?? ''}
         categories={listStudyTaskCategories().map((c) => ({
           id: c.id,
           name: c.name,
@@ -976,21 +936,21 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       />
 
       <PhasePromptSheet
-        open={phasePromptOpen}
-        completed={phasePromptCompleted}
+        open={phasePromptDialog.open}
+        completed={phasePromptDialog.payload?.completed ?? null}
         onResolve={handlePhasePromptResolve}
       />
 
       <BreakEndPromptSheet
-        open={breakEndPromptOpen}
-        completed={breakEndPromptCompleted}
+        open={breakEndPromptDialog.open}
+        completed={breakEndPromptDialog.payload?.completed ?? null}
         onResolve={handleBreakEndPromptResolve}
       />
 
       <ReconcileSheet
-        open={reconcileOpen}
-        session={reconcileSession}
-        gapSeconds={reconcileGapSeconds}
+        open={reconcileDialog.open}
+        session={reconcileDialog.payload?.session ?? null}
+        gapSeconds={reconcileDialog.payload?.gapSeconds ?? 0}
         onResolve={handleReconcileResolve}
       />
 

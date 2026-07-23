@@ -155,6 +155,27 @@ export const BUILTIN_TIMER_PLAN_CATALOG: readonly TimerPlanV2[] = [
   }
 ] as const
 
+/** Open continuous seed shell — independent of exam continuous_countup (no 180 focus). */
+export const OPEN_CONTINUOUS_SHELL: TimerPlanV2 = {
+  id: 'open_continuous',
+  name: '连续专注',
+  kind: 'continuous',
+  clockMode: 'countup',
+  continuousMode: 'open',
+  breakPolicy: TIMER_PLAN_SEED_DEFAULTS.continuousBreakPolicy,
+  windowFillPolicy: TIMER_PLAN_SEED_DEFAULTS.windowFillPolicy,
+  minimumFinalFocusMinutes: TIMER_PLAN_SEED_DEFAULTS.minimumFinalFocusMinutes,
+  wrapUpMinutes: TIMER_PLAN_SEED_DEFAULTS.wrapUpMinutes,
+  notificationPolicy: {
+    sound: true,
+    systemNotification: true,
+    focusEnd: true,
+    breakEnd: true
+  },
+  revision: 1
+}
+
+
 const KIND_SET = new Set<TimerPlanKind>(['pomodoro', 'continuous', 'custom_rhythm'])
 const CLOCK_SET = new Set<TimerClockMode>(['countdown', 'countup'])
 const CONTINUOUS_MODE_SET = new Set<ContinuousMode>(['open', 'target', 'exam'])
@@ -582,30 +603,28 @@ export function createExamSimulationPlan(overrides?: Partial<TimerPlanV2>): Time
   return result.plan
 }
 
-/** Open continuous countup: no focusMinutes target (never inherits exam 180). */
+/** Open continuous countup: no focusMinutes target (uses OPEN_CONTINUOUS_SHELL, never exam 180). */
 export function createOpenContinuousPlan(overrides?: Partial<TimerPlanV2>): TimerPlanV2 {
-  const base = BUILTIN_TIMER_PLAN_CATALOG.find((p) => p.id === 'continuous_countup') ?? BUILTIN_TIMER_PLAN_CATALOG[2]
-  const { focusMinutes: _dropFocus, continuousMode: _dropMode, ...baseShell } = base
-  const id = overrides?.id ?? 'open_continuous'
+  const base = OPEN_CONTINUOUS_SHELL
+  const id = overrides?.id ?? base.id
   const result = normalizeTimerPlanV2({
-    ...baseShell,
+    ...base,
     ...overrides,
     id,
     kind: 'continuous',
     clockMode: overrides?.clockMode === 'countdown' ? 'countdown' : 'countup',
     continuousMode: 'open',
     focusMinutes: undefined,
-    name: overrides?.name ?? '连续专注'
+    name: overrides?.name ?? base.name
   })
   if (!result.ok) {
     return {
-      ...baseShell,
+      ...base,
       id,
       kind: 'continuous',
       clockMode: 'countup',
       continuousMode: 'open',
-      name: overrides?.name ?? '连续专注',
-      breakPolicy: base.breakPolicy
+      name: overrides?.name ?? base.name
     }
   }
   // Ensure open stays without focusMinutes even if normalize invents one.
@@ -617,82 +636,66 @@ export function createOpenContinuousPlan(overrides?: Partial<TimerPlanV2>): Time
 }
 
 /**
- * @deprecated Prefer createExamSimulationPlan / createOpenContinuousPlan.
- * Compat wrapper: catalog id continuous_countup or continuousMode exam → exam seed;
- * explicit open (no focus / continuousMode open) → open; else target continuous.
+ * Continuous cycle / focus target (continuousMode target).
+ * Defaults focusMinutes to classic seed when not provided; never freezes exam 180.
+ */
+export function createTargetContinuousPlan(overrides?: Partial<TimerPlanV2>): TimerPlanV2 {
+  const base = OPEN_CONTINUOUS_SHELL
+  const hasFocus =
+    overrides != null && Object.prototype.hasOwnProperty.call(overrides, 'focusMinutes')
+  const focus = hasFocus ? overrides!.focusMinutes : TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes
+  const id = overrides?.id ?? 'continuous_target'
+  const result = normalizeTimerPlanV2({
+    ...base,
+    ...overrides,
+    id,
+    kind: 'continuous',
+    continuousMode: 'target',
+    name: overrides?.name ?? '连续目标',
+    ...(focus === undefined ? { focusMinutes: undefined } : { focusMinutes: focus })
+  })
+  if (!result.ok) {
+    return {
+      ...base,
+      id,
+      kind: 'continuous',
+      clockMode: overrides?.clockMode === 'countdown' ? 'countdown' : 'countup',
+      continuousMode: 'target',
+      name: overrides?.name ?? '连续目标',
+      ...(typeof focus === 'number' ? { focusMinutes: focus } : {})
+    }
+  }
+  return { ...result.plan, continuousMode: 'target' }
+}
+
+/**
+ * @deprecated Prefer createExamSimulationPlan / createOpenContinuousPlan / createTargetContinuousPlan.
+ * Thin router only:
+ * - continuousMode open → open
+ * - continuousMode target → target
+ * - continuousMode exam, or catalog id continuous_countup / missing id without mode → exam seed
+ * - no mode + no focus (non-catalog id) → open
+ * - no mode + focusMinutes → target (never invent exam for random ids)
  */
 export function createContinuousCountupPlan(overrides?: Partial<TimerPlanV2>): TimerPlanV2 {
   const id = overrides?.id
   const mode = overrides?.continuousMode
+
+  if (mode === 'open') return createOpenContinuousPlan(overrides)
+  if (mode === 'target') return createTargetContinuousPlan(overrides)
+  if (mode === 'exam') return createExamSimulationPlan(overrides)
+
+  // Legacy: bare factory / catalog continuous_countup without mode → exam seed
+  if (id == null || id === 'continuous_countup') {
+    return createExamSimulationPlan(overrides)
+  }
+
   const hasFocus =
     overrides != null && Object.prototype.hasOwnProperty.call(overrides, 'focusMinutes')
   const focus = hasFocus ? overrides!.focusMinutes : undefined
-
-  // Exam: explicit mode, or default catalog seed (no overrides / only cosmetic overrides).
-  if (mode === 'exam') {
-    return createExamSimulationPlan(overrides)
-  }
-  if (mode === 'open') {
-    return createOpenContinuousPlan(overrides)
-  }
-  if (mode === 'target') {
-    const base = BUILTIN_TIMER_PLAN_CATALOG.find((p) => p.id === 'continuous_countup') ?? BUILTIN_TIMER_PLAN_CATALOG[2]
-    const { focusMinutes: _cf, continuousMode: _cm, ...baseShell } = base
-    const result = normalizeTimerPlanV2({
-      ...baseShell,
-      ...overrides,
-      id: overrides?.id ?? 'continuous_target',
-      kind: 'continuous',
-      continuousMode: 'target',
-      ...(hasFocus
-        ? focus === undefined
-          ? { focusMinutes: undefined }
-          : { focusMinutes: focus }
-        : { focusMinutes: TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes })
-    })
-    if (!result.ok) {
-      return createOpenContinuousPlan(overrides)
-    }
-    return result.plan
-  }
-
-  // No continuousMode: legacy heuristics without id-only exam for non-catalog shells.
-  if (!hasFocus && (id == null || id === 'continuous_countup')) {
-    return createExamSimulationPlan(overrides)
-  }
   if (!hasFocus || focus === undefined) {
     return createOpenContinuousPlan(overrides)
   }
-  // Has focusMinutes → target continuous (not exam unless mode/id catalog handled above)
-  if (id === 'continuous_countup') {
-    return createExamSimulationPlan(overrides)
-  }
-  const base = BUILTIN_TIMER_PLAN_CATALOG.find((p) => p.id === 'continuous_countup') ?? BUILTIN_TIMER_PLAN_CATALOG[2]
-  const { focusMinutes: _cf, continuousMode: _cm, ...baseShell } = base
-  const result = normalizeTimerPlanV2({
-    ...baseShell,
-    ...overrides,
-    id: overrides?.id ?? 'continuous_target',
-    kind: 'continuous',
-    continuousMode: 'target',
-    focusMinutes: focus
-  })
-  if (!result.ok) {
-    return {
-      ...baseShell,
-      id: overrides?.id ?? 'continuous_target',
-      kind: 'continuous',
-      clockMode: overrides?.clockMode === 'countdown' ? 'countdown' : 'countup',
-      continuousMode: 'target',
-      focusMinutes: focus,
-      breakPolicy: base.breakPolicy,
-      windowFillPolicy: base.windowFillPolicy,
-      minimumFinalFocusMinutes: base.minimumFinalFocusMinutes,
-      wrapUpMinutes: base.wrapUpMinutes,
-      notificationPolicy: base.notificationPolicy,
-      revision: 1,
-      name: overrides?.name ?? base.name
-    }
-  }
-  return result.plan
+  return createTargetContinuousPlan(overrides)
 }
+

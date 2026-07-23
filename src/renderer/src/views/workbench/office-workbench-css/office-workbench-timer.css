@@ -1,0 +1,2438 @@
+/* Partial of office-workbench.css — do not import directly; use ../office-workbench.css aggregator. */
+/* Section: timer (source lines 7510-9944) */
+
+/* Focus timer dial -----------------------------------------------------------
+   The original conic fill read as a heavy pie wedge. This replaces it with a
+   slim, precise SVG dial and keeps the timer value on a calm glass face. */
+.workbench-timer-face {
+  padding: 16px 0 12px;
+}
+
+.workbench-timer-ring {
+  display: grid;
+  place-items: center;
+  width: 192px;
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, #ffffff 52%, var(--line));
+  background:
+    radial-gradient(circle at 32% 21%, color-mix(in srgb, #ffffff 50%, transparent), transparent 28%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface-solid) 72%, transparent), color-mix(in srgb, var(--surface-solid) 38%, transparent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 72%, transparent),
+    inset 0 -16px 30px color-mix(in srgb, var(--pomodoro-accent) 7%, transparent),
+    0 16px 34px color-mix(in srgb, var(--pomodoro-accent) 13%, transparent);
+}
+
+.workbench-timer-ring::before {
+  inset: 12px;
+  z-index: 0;
+  border-color: color-mix(in srgb, #ffffff 58%, var(--line));
+  background:
+    radial-gradient(circle at 50% 43%, color-mix(in srgb, var(--surface-solid) 80%, transparent), color-mix(in srgb, var(--surface-solid) 43%, transparent)),
+    var(--liquid-glass-sheen, radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.6), transparent 56%));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 78%, transparent),
+    inset 0 -8px 18px color-mix(in srgb, var(--pomodoro-accent) 5%, transparent);
+}
+
+.workbench-timer-ring__dial {
+  position: absolute;
+  inset: 4px;
+  z-index: 1;
+  width: calc(100% - 8px);
+  height: calc(100% - 8px);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.workbench-timer-ring__track,
+.workbench-timer-ring__progress {
+  fill: none;
+  stroke-width: 4;
+}
+
+.workbench-timer-ring__track {
+  stroke: color-mix(in srgb, var(--text) 11%, transparent);
+}
+
+.workbench-timer-ring__progress {
+  stroke: var(--pomodoro-accent);
+  stroke-dasharray: 100;
+  stroke-dashoffset: var(--timer-ring-offset);
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--pomodoro-accent) 56%, transparent));
+  transition: stroke-dashoffset 320ms ease, stroke 180ms ease;
+}
+
+.workbench-pomodoro-time {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  margin: 0;
+  text-align: center;
+}
+
+.workbench-pomodoro-time__status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 17px;
+  padding: 0 7px;
+  color: color-mix(in srgb, var(--pomodoro-accent) 78%, var(--text));
+  border: 1px solid color-mix(in srgb, var(--pomodoro-accent) 23%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pomodoro-accent) 9%, transparent);
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.035em;
+  line-height: 1;
+}
+
+.workbench-pomodoro-time strong {
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 3.1rem;
+  font-weight: 740;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.055em;
+  line-height: 0.86;
+  text-shadow: 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+}
+
+.workbench-pomodoro-time__meta {
+  display: block;
+  margin-top: 10px;
+  color: color-mix(in srgb, var(--text-muted) 86%, transparent);
+  font-size: 0.59375rem;
+  font-weight: 690;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-actions {
+  grid-template-columns: 40px 52px 40px;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.workbench-pomodoro-actions button {
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.workbench-pomodoro-actions .workbench-pomodoro-start {
+  width: 52px;
+  min-height: 52px;
+  color: var(--workbench-accent-contrast, #ffffff);
+  border-color: color-mix(in srgb, var(--pomodoro-accent) 44%, #ffffff);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 30%, transparent), transparent 48%),
+    var(--pomodoro-accent);
+  box-shadow:
+    0 10px 22px color-mix(in srgb, var(--pomodoro-accent) 30%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 46%, transparent);
+}
+
+.workbench-pomodoro-actions .workbench-pomodoro-start svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (hover: hover) {
+  .workbench-pomodoro-actions .workbench-pomodoro-start:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-timer-face {
+    padding: 8px 0 6px;
+  }
+
+  .office-workbench-stage .workbench-timer-ring {
+    width: 138px;
+  }
+
+  .office-workbench-stage .workbench-timer-ring::before {
+    inset: 9px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time strong {
+    margin-top: 5px;
+    font-size: 2.35rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time__status {
+    min-height: 14px;
+    padding-inline: 5px;
+    font-size: 0.5rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time__meta {
+    margin-top: 6px;
+    font-size: 0.5rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions {
+    grid-template-columns: 34px 44px 34px;
+    gap: 10px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions button {
+    width: 34px;
+    min-height: 34px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions .workbench-pomodoro-start {
+    width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Typography follows the visual reference: only the time and the concise
+   focus/rest cadence remain inside the dial. */
+.workbench-pomodoro-time strong {
+  margin-top: 0;
+  font-size: 3.35rem;
+  font-weight: 710;
+  letter-spacing: -0.045em;
+  line-height: 0.92;
+}
+
+/* Seconds sit under HH:MM (or minutes) as a quiet secondary line. */
+.workbench-pomodoro-time__seconds {
+  display: block;
+  margin-top: 6px;
+  color: color-mix(in srgb, var(--text-muted, #667085) 92%, transparent);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  opacity: 0.78;
+}
+
+.workbench-pomodoro-time .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.workbench-pomodoro-time__status,
+.workbench-pomodoro-time__meta {
+  display: none;
+}
+
+.workbench-pomodoro-time__settings {
+  display: block;
+  margin-top: 10px;
+  color: color-mix(in srgb, var(--text-muted) 86%, transparent);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-pomodoro-time strong {
+    margin-top: 0;
+    font-size: 2.55rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time__seconds {
+    margin-top: 4px;
+    font-size: 0.6875rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time__settings {
+    margin-top: 7px;
+    font-size: 0.5625rem;
+  }
+}
+
+/* Keep a single visual dial: the SVG track carries both the neutral and the
+   active progress states, so the decorative outer glass perimeter is removed. */
+.workbench-timer-ring {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-timer-ring::before {
+  inset: 6px;
+  border: 0;
+  background:
+    radial-gradient(circle at 50% 43%, color-mix(in srgb, var(--surface-solid) 78%, transparent), color-mix(in srgb, var(--surface-solid) 38%, transparent)),
+    var(--liquid-glass-sheen, radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.6), transparent 56%));
+  box-shadow: inset 0 -8px 18px color-mix(in srgb, var(--pomodoro-accent) 4%, transparent);
+}
+
+.workbench-pomodoro-time strong {
+  font-size: 3.15rem;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-timer-ring::before {
+    inset: 5px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time strong {
+    font-size: 2.4rem;
+  }
+}
+
+/* Keep the focus/rest selector on the same continuous segmented rail as the
+   music player's 播放 / 搜索 tabs. The highlight is a single moving blue pill,
+   rather than two separate blue buttons. */
+.workbench-pomodoro-mode {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(184px, 100%);
+  margin-inline: auto;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, #ffffff 46%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 30%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 44%, transparent);
+}
+
+.workbench-pomodoro-mode::before {
+  position: absolute;
+  z-index: 0;
+  inset-block: 0;
+  left: 0;
+  width: 50%;
+  border-radius: 999px;
+  background: color-mix(in srgb, #007aff 13%, transparent);
+  pointer-events: none;
+  content: '';
+  transform: translateX(0);
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.workbench-pomodoro-mode[data-active-mode='break']::before {
+  transform: translateX(100%);
+}
+
+.workbench-pomodoro-mode button,
+.workbench-pomodoro-mode button.is-active {
+  position: relative;
+  z-index: 1;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: color-mix(in srgb, var(--text, #17202b) 62%, transparent);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 720;
+  cursor: pointer;
+  transition: color 180ms ease;
+}
+
+.workbench-pomodoro-mode button:hover,
+.workbench-pomodoro-mode button.is-active {
+  color: #007aff;
+}
+
+.workbench-pomodoro-mode button:focus-visible {
+  outline: 2px solid color-mix(in srgb, #007aff 66%, transparent);
+  outline-offset: -2px;
+}
+
+/* The dial is now drawn directly against a transparent outer edge. This
+   removes the white decorative perimeter outside the blue progress stroke. */
+.workbench-timer-ring {
+  width: 192px;
+}
+
+.workbench-timer-ring__dial {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.workbench-timer-ring__track {
+  stroke: transparent;
+}
+
+/* Bring the circular action cluster up toward the dial and give every action
+   the same circular footprint; the blue primary action still carries emphasis. */
+.workbench-pomodoro-actions {
+  grid-template-columns: repeat(3, 44px);
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: -10px;
+  margin-bottom: 12px;
+}
+
+.workbench-pomodoro-actions button,
+.workbench-pomodoro-actions .workbench-pomodoro-start {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-timer-ring {
+    width: 138px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions {
+    grid-template-columns: repeat(3, 36px);
+    gap: 10px;
+    margin-top: -7px;
+    margin-bottom: 8px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions button,
+  .office-workbench-stage .workbench-pomodoro-actions .workbench-pomodoro-start {
+    width: 36px;
+    min-height: 36px;
+    height: 36px;
+  }
+}
+
+/* The disclosure measures this inner element. Padding it (rather than using a
+   trailing button margin) guarantees visible breathing room below the actions. */
+.workbench-pomodoro-reveal-inner {
+  padding-bottom: 18px;
+}
+
+.workbench-pomodoro-actions {
+  margin-top: -13px;
+  margin-bottom: 0;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-pomodoro-reveal-inner {
+    padding-bottom: 12px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-actions {
+    margin-top: -9px;
+    margin-bottom: 0;
+  }
+}
+
+/* Timer-plan settings ---------------------------------------------------------
+   Landscape settings shell: left nav (like app settings) + right content.
+   Wider than tall so the plan editor can breathe beside the catalog. */
+.workbench-pomodoro-settings-panel {
+  position: relative;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  width: min(920px, calc(100vw - 48px));
+  height: min(620px, calc(100vh - 48px));
+  max-height: min(620px, calc(100vh - 48px));
+  overflow: hidden;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  color: var(--text, #17202b);
+  border: 1px solid color-mix(in srgb, #ffffff 72%, var(--line, #d6deeb) 28%);
+  border-radius: 24px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #ffffff 48%, transparent), transparent 40%),
+    color-mix(in srgb, var(--surface-solid, #fff) 92%, transparent);
+  box-shadow:
+    0 28px 80px color-mix(in srgb, #142a4a 22%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent);
+  backdrop-filter: blur(36px) saturate(180%);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
+}
+
+.workbench-pomodoro-settings-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: var(--text-muted, #667085);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 86%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 88%, transparent);
+}
+
+.workbench-pomodoro-settings-close:hover {
+  color: var(--text, #17202b);
+}
+
+.workbench-pomodoro-settings-nav {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: stretch;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 22px 12px 14px;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-muted, #eaf2ff) 42%, transparent);
+  overflow: hidden;
+}
+
+.workbench-pomodoro-settings-nav-heading {
+  padding: 0 12px 16px;
+  color: var(--text-muted, #667085);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+
+.workbench-pomodoro-settings-nav-list {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 4px 6px 2px;
+}
+
+.workbench-pomodoro-settings-nav-add {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
+  flex: 0 0 auto;
+}
+
+.workbench-pomodoro-settings-nav-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text, #17202b);
+  font-size: 12.5px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.workbench-pomodoro-settings-nav-add-btn:hover {
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.055);
+}
+
+
+.workbench-pomodoro-settings-nav-plan {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  border-radius: 9px;
+  /* Match app sidebar conversation/session row highlight. */
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.workbench-pomodoro-settings-nav-plan:hover {
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.055);
+}
+
+.workbench-pomodoro-settings-nav-plan.is-active,
+.workbench-pomodoro-settings-nav-plan.is-active:hover {
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.09);
+  box-shadow: none;
+}
+
+.workbench-pomodoro-settings-nav-plan .workbench-pomodoro-settings-nav-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-pomodoro-settings-nav-plan .workbench-pomodoro-rename-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  min-width: 0;
+}
+
+.workbench-pomodoro-settings-nav-plan .workbench-pomodoro-rename-row input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 86%, transparent);
+  border-radius: 8px;
+}
+
+/* Empty-start row lives inside SettingsCard — no nested card chrome. */
+.workbench-study-planning-prefs--row {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-study-planning-prefs--row:last-child .settings-row {
+  border-bottom: 0;
+}
+
+/* Prefer full row paint at the scroll bottom (avoid half-visible 空启动归类). */
+.workbench-pomodoro-settings-card .workbench-study-planning-prefs--row .settings-row {
+  min-height: 56px;
+  align-items: center;
+}
+
+.workbench-pomodoro-settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 8px 12px;
+  color: inherit;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+/* Idle rows: muted label; hover/active color comes from parent plan row. */
+.workbench-pomodoro-settings-nav-plan:not(:hover):not(.is-active) .workbench-pomodoro-settings-nav-item {
+  color: var(--text-muted, #667085);
+}
+
+/* Paint only on the plan row — avoid double-layer hover fill on the button. */
+.workbench-pomodoro-settings-nav-item:hover,
+.workbench-pomodoro-settings-nav-item.is-active,
+.workbench-pomodoro-settings-nav-plan.is-active .workbench-pomodoro-settings-nav-item {
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-pomodoro-settings-nav-item span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.workbench-pomodoro-settings-nav-item strong {
+  font-size: 0.8125rem;
+  font-weight: 750;
+}
+
+.workbench-pomodoro-settings-nav-item small {
+  display: none;
+}
+
+.workbench-pomodoro-settings-content {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  padding: 22px 48px 16px 24px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: stretch;
+  gap: 12px;
+}
+
+.workbench-pomodoro-settings-scroll {
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+  /* Keep the last settings row (空启动归类) fully reachable above the footer. */
+  padding-bottom: 28px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  scroll-padding-bottom: 28px;
+}
+
+.workbench-pomodoro-settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
+}
+
+.workbench-pomodoro-settings-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.workbench-pomodoro-settings-footer-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-save-plan,
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 112px;
+  width: 112px;
+  min-height: 36px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-save-plan svg,
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.workbench-pomodoro-settings-footer .ghost-button {
+  min-height: 34px;
+  height: auto;
+  padding: 0 12px;
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.workbench-pomodoro-settings-footer .ghost-button.strong {
+  min-width: 112px;
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan {
+  width: auto;
+  margin-top: 0;
+  box-shadow: none;
+  /* Use solid accent/ink that stays high-contrast in both themes (not --text on dark). */
+  background: var(--btn-primary-bg, #17202b);
+  border-color: var(--btn-primary-border, var(--btn-primary-bg, #17202b));
+  color: var(--btn-primary-fg, #fff);
+}
+
+:root[data-resolved-theme='dark'] .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan:not(.is-applied) {
+  background: color-mix(in srgb, var(--accent, #7aa2ff) 78%, #1a2332 22%);
+  border-color: color-mix(in srgb, var(--accent, #7aa2ff) 70%, transparent);
+  color: #0b1220;
+}
+
+/* Active/applied plan: muted surface + soft check (theme-aware). */
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied,
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied:disabled {
+  color: color-mix(in srgb, var(--text, #17202b) 72%, var(--text-muted, #667085) 28%);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 86%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-solid, #fff) 92%, transparent),
+      color-mix(in srgb, var(--surface-muted, #eaf2ff) 55%, var(--surface-solid, #fff))
+    );
+  box-shadow:
+    0 6px 16px color-mix(in srgb, var(--text, #0f172a) 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--surface-solid, #fff) 80%, transparent);
+  opacity: 1;
+  cursor: default;
+}
+
+:root[data-resolved-theme='dark'] .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied,
+:root[data-resolved-theme='dark'] .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied:disabled {
+  color: color-mix(in srgb, var(--text, #e8eef9) 78%, var(--text-muted, #9aa8bd) 22%);
+  border-color: color-mix(in srgb, var(--line, #3a4558) 88%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-solid, #1c2433) 88%, transparent),
+      color-mix(in srgb, var(--surface-muted, #243044) 70%, var(--surface-solid, #1c2433))
+    );
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 6%, transparent);
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan svg {
+  stroke-width: 2.2;
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied svg {
+  color: color-mix(in srgb, var(--accent, #5b8def) 70%, var(--text-muted, #667085) 30%);
+}
+
+.workbench-pomodoro-settings-panel-heading h2 {
+  margin: 0;
+  color: var(--text, #17202b);
+  font-size: 1.35rem;
+  font-weight: 780;
+  line-height: 1.2;
+}
+
+.workbench-pomodoro-settings-panel-heading p {
+  max-width: 42rem;
+  margin: 6px 0 0;
+  color: var(--text-muted, #667085);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.workbench-pomodoro-saved-plans > span {
+  display: block;
+  color: var(--text-muted, #667085);
+  font-size: 0.66rem;
+  font-weight: 720;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 720px) {
+  .workbench-pomodoro-settings-panel {
+    grid-template-columns: 1fr;
+    width: min(100%, calc(100vw - 24px));
+    height: min(640px, calc(100vh - 24px));
+    max-height: min(640px, calc(100vh - 24px));
+  }
+
+  .workbench-pomodoro-settings-nav {
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line, #d6deeb) 70%, transparent);
+    padding: 14px 12px 10px;
+  }
+
+  .workbench-pomodoro-settings-nav-heading {
+    padding-bottom: 10px;
+  }
+
+  .workbench-pomodoro-settings-nav-item small {
+    display: none;
+  }
+
+  .workbench-pomodoro-settings-content {
+    padding: 16px 18px 14px;
+  }
+
+  .workbench-pomodoro-settings-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .workbench-pomodoro-settings-footer-actions {
+    width: 100%;
+  }
+
+  .workbench-pomodoro-settings-footer-primary {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .workbench-pomodoro-settings-footer .workbench-pomodoro-save-plan,
+  .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan {
+    flex: 1 1 auto;
+  }
+}
+
+
+.workbench-pomodoro-remove-plan {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted, #667085);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 76%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 46%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 58%, transparent);
+}
+
+/* Settings-card list form (align with 设置 · 外观) */
+.workbench-pomodoro-settings-card {
+  margin: 0;
+  /* Allow the last row (空启动归类) to fully paint; parent scroll owns clipping. */
+  overflow: visible;
+}
+
+.workbench-pomodoro-settings-card .settings-row-control .settings-input,
+.workbench-pomodoro-settings-card .settings-row-control .settings-number {
+  width: min(220px, 100%);
+  min-width: 0;
+}
+
+
+.workbench-pomodoro-settings-dual-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 16px;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-muted, color-mix(in srgb, var(--line, #d6deeb) 70%, transparent));
+}
+
+.workbench-pomodoro-settings-dual-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.workbench-pomodoro-settings-dual-label {
+  color: var(--text, #17202b);
+  font-size: 13.5px;
+  font-weight: 730;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-settings-dual-row .workbench-pomodoro-settings-control-inline .settings-number {
+  width: 72px;
+}
+
+@media (max-width: 720px) {
+  .workbench-pomodoro-settings-dual-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.workbench-pomodoro-settings-control-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workbench-pomodoro-settings-control-inline .settings-number {
+  width: 88px;
+}
+
+.workbench-pomodoro-settings-unit {
+  color: var(--text-muted, #667085);
+  font-size: 12px;
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-settings-rhythm-row {
+  padding: 10px 14px 14px;
+  border-bottom: 1px solid var(--line-muted, color-mix(in srgb, var(--line, #d6deeb) 70%, transparent));
+}
+
+.workbench-pomodoro-time-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.workbench-pomodoro-time-range--settings {
+  width: min(260px, 100%);
+}
+
+.workbench-pomodoro-time-range input {
+  padding-inline: 7px;
+  font-size: 0.7rem;
+}
+
+.workbench-pomodoro-time-range i {
+  color: var(--text-muted, #667085);
+  font-size: 0.68rem;
+  font-style: normal;
+}
+
+
+.workbench-custom-rhythm-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 80%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel, #fff) 92%, #eef4ff);
+}
+
+.workbench-custom-rhythm-editor__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.72rem;
+  font-weight: 720;
+  color: var(--text, #1f2937);
+}
+
+.workbench-custom-rhythm-editor__head em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-muted, #667085);
+  font-size: 0.66rem;
+}
+
+.workbench-custom-rhythm-editor__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workbench-custom-rhythm-editor__row {
+  display: grid;
+  grid-template-columns: 18px minmax(72px, 1fr) minmax(88px, 0.9fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.workbench-custom-rhythm-editor__index {
+  font-size: 0.66rem;
+  color: var(--text-muted, #667085);
+  text-align: center;
+}
+
+.workbench-custom-rhythm-editor__moves {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.workbench-custom-rhythm-editor__moves button,
+.workbench-custom-rhythm-editor__actions button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 88%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel, #fff) 96%, #f5f7fb);
+  color: var(--text, #1f2937);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.workbench-custom-rhythm-editor__moves button:disabled,
+.workbench-custom-rhythm-editor__actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.workbench-custom-rhythm-editor__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workbench-custom-rhythm-editor__actions span,
+.workbench-custom-rhythm-editor__issues {
+  margin: 0;
+  padding: 0;
+  color: #b45c34;
+  font-size: 0.64rem;
+  line-height: 1.4;
+  list-style: none;
+}
+
+.workbench-custom-rhythm-editor__issues {
+  display: grid;
+  gap: 2px;
+}
+
+.workbench-pomodoro-apply-plan:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.workbench-pomodoro-settings-hint,
+.workbench-pomodoro-saved-plans > p {
+  margin: 8px 0 0;
+  color: var(--text-muted, #667085);
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
+
+.workbench-pomodoro-settings-hint {
+  color: #b45c34;
+}
+
+.workbench-pomodoro-saved-plans {
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid color-mix(in srgb, var(--line, #d6deeb) 76%, transparent);
+}
+
+.workbench-pomodoro-saved-plans ul {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workbench-pomodoro-saved-plans li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 7px;
+  align-items: center;
+}
+
+.workbench-pomodoro-saved-plan {
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--text, #17202b);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 76%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 45%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 52%, transparent);
+  text-align: left;
+}
+
+.workbench-pomodoro-saved-plan strong,
+.workbench-pomodoro-saved-plan small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-saved-plan strong {
+  font-size: 0.72rem;
+  font-weight: 760;
+}
+
+.workbench-pomodoro-saved-plan small {
+  margin-top: 3px;
+  color: var(--text-muted, #667085);
+  font-size: 0.6rem;
+  font-weight: 620;
+}
+
+.workbench-pomodoro-remove-plan:hover,
+/* Plans catalog depth (STC-501/502): multi-action rows + badges */
+.workbench-pomodoro-plan-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+}
+
+.workbench-pomodoro-plan-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workbench-pomodoro-plan-action,
+.workbench-pomodoro-copy-plan {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted, #667085);
+  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 76%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 46%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 58%, transparent);
+}
+
+.workbench-pomodoro-plan-action:hover,
+.workbench-pomodoro-copy-plan:hover {
+  color: #007aff;
+  border-color: color-mix(in srgb, #007aff 36%, transparent);
+}
+
+
+.workbench-pomodoro-plan-row.is-builtin .workbench-pomodoro-saved-plan {
+  background: color-mix(in srgb, var(--surface-muted, #eaf2ff) 40%, transparent);
+}
+
+.workbench-pomodoro-rename-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 6px;
+  align-items: center;
+}
+
+.workbench-pomodoro-rename-row input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  color: var(--text, #17202b);
+  border: 1px solid color-mix(in srgb, var(--accent, #007aff) 46%, transparent);
+  border-radius: 10px;
+  outline: none;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 70%, transparent);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+/* Override legacy single-delete column for multi-action rows */
+.workbench-pomodoro-saved-plans li.workbench-pomodoro-plan-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.workbench-pomodoro-settings.is-active {
+  color: #007aff;
+  border-color: color-mix(in srgb, #007aff 36%, var(--line, #d6deeb));
+  background: color-mix(in srgb, #007aff 13%, transparent);
+}
+
+
+
+/* Focus-task attribution chip on the pomodoro face */
+.workbench-pomodoro-time__task {
+  display: block;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 0 10px;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 78%, #163b2d);
+  font-size: 0.5625rem;
+  font-weight: 740;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-time__settings {
+  display: block;
+}
+
+/* Empty-start sheet (STC-401 cutover C) — reuses scene-picker visual language */
+.workbench-empty-start-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 32;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(3, 7, 15, 0.46);
+  backdrop-filter: blur(16px) saturate(135%);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+}
+
+.workbench-empty-start-sheet {
+  box-sizing: border-box;
+  width: min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  color: var(--text);
+  border: 1px solid var(--workbench-quick-note-line);
+  border-radius: 22px;
+  background: var(--workbench-quick-note-surface);
+  box-shadow:
+    var(--workbench-quick-note-shadow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+  animation: workbench-scene-picker-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  outline: none;
+}
+
+.workbench-empty-start-sheet__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.workbench-empty-start-sheet__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.workbench-empty-start-sheet__header h2 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.workbench-empty-start-sheet__header p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.workbench-empty-start-sheet__close {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  color: var(--text-muted);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-solid) 54%, transparent);
+  cursor: pointer;
+}
+
+.workbench-empty-start-sheet__actions {
+  display: grid;
+  gap: 10px;
+}
+
+.workbench-empty-start-sheet__action {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.workbench-empty-start-sheet__action strong {
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.workbench-empty-start-sheet__action small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workbench-empty-start-sheet__action.is-recommended {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.workbench-empty-start-sheet__action:focus-visible,
+.workbench-empty-start-sheet__close:focus-visible,
+.workbench-empty-start-sheet__primary:focus-visible,
+.workbench-empty-start-sheet__secondary:focus-visible,
+.workbench-empty-start-sheet__cancel:focus-visible,
+.workbench-empty-start-sheet__task:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.workbench-empty-start-sheet__cancel {
+  margin-top: 2px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.workbench-empty-start-sheet__task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.workbench-empty-start-sheet__task {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 58%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.workbench-empty-start-sheet__task.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-solid));
+}
+
+.workbench-empty-start-sheet__field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.workbench-empty-start-sheet__field input {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.workbench-empty-start-sheet__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.workbench-empty-start-sheet__primary,
+.workbench-empty-start-sheet__secondary {
+  padding: 9px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workbench-empty-start-sheet__primary {
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-solid));
+  color: var(--text);
+}
+
+.workbench-empty-start-sheet__primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.workbench-empty-start-sheet__secondary {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.workbench-empty-start-sheet__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+
+/* STC-404 Study planning prefs — settings-row only (no nested cards). */
+.workbench-study-planning-prefs {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* STC-406/407 Classification prompt (extends empty-start sheet chrome) */
+.workbench-classification-prompt-sheet {
+  width: min(440px, 100%);
+}
+
+.workbench-classification-prompt-pick {
+  display: grid;
+  gap: 10px;
+}
+
+.workbench-classification-prompt-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #ffffff 50%, transparent);
+  vertical-align: middle;
+}
+
+.workbench-empty-start-sheet__task .workbench-classification-prompt-swatch {
+  margin-top: -1px;
+}
+
+/* Slice B migration banner (extends empty-start sheet chrome) */
+.workbench-migration-banner-meta {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workbench-migration-banner-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workbench-migration-banner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  font-size: 13px;
+}
+
+.workbench-migration-banner-row.is-hint {
+  opacity: 0.86;
+  border-style: dashed;
+}
+
+.workbench-migration-banner-label {
+  color: var(--text-muted);
+}
+
+.workbench-migration-banner-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.workbench-migration-banner-error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #c0392b 32%, var(--line));
+  background: color-mix(in srgb, #c0392b 10%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workbench-migration-banner-busy {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* STC-304 task detail stats (estimate / planned / actual + block buckets) */
+.study-schedule-detail-stats {
+  display: grid;
+  gap: 10px;
+  margin: 2px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #ffffff 40%, var(--line) 60%);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel, #fff) 88%, transparent);
+}
+
+.study-schedule-detail-stats__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.study-schedule-detail-stat {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.study-schedule-detail-stat > span {
+  font-size: 0.6875rem;
+  font-weight: 680;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+
+.study-schedule-detail-stat > strong {
+  font-size: 0.9375rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.study-schedule-detail-stat input[type='number'] {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
+  border-radius: 10px;
+  background: color-mix(in srgb, #ffffff 58%, transparent);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.study-schedule-detail-block-group {
+  display: grid;
+  gap: 6px;
+}
+
+.study-schedule-detail-block-group__head {
+  font-size: 0.75rem;
+  font-weight: 720;
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+}
+
+.study-schedule-detail-block-empty {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
+}
+
+.study-schedule-detail-block-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+  max-height: min(22vh, 160px);
+  overflow: auto;
+}
+
+.study-schedule-detail-block-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #ffffff 40%, var(--line) 60%);
+  background: color-mix(in srgb, #ffffff 52%, transparent);
+  font-size: 0.75rem;
+}
+
+.study-schedule-detail-block-row.is-current {
+  border-color: color-mix(in srgb, var(--accent, #4a7) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent, #4a7) 10%, #ffffff);
+}
+
+.study-schedule-detail-block-row.is-cancelled {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.study-schedule-detail-block-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 680;
+  color: var(--ink);
+}
+
+.study-schedule-detail-block-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.study-schedule-detail-block-meta em {
+  font-style: normal;
+  font-size: 0.6875rem;
+  font-weight: 680;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #4a7) 12%, transparent);
+}
+
+.study-schedule-detail-block-meta strong {
+  font-weight: 720;
+  color: var(--ink);
+}
+
+
+
+/* STC-408 batch classify entry + sheet preview */
+.workbench-task-batch-classify-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.workbench-task-batch-classify-button:hover {
+  border-color: color-mix(in srgb, var(--accent, #8197aa) 45%, var(--line));
+}
+
+.workbench-batch-classify-task-preview {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  list-style: none;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 60%, transparent);
+  max-height: 140px;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.workbench-batch-classify-task-preview__more {
+  font-style: italic;
+}
+
+/* STC-503 Active vs next timer plan snapshot (pomodoro settings strip) */
+.workbench-active-vs-next-plan {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-solid) 68%, transparent);
+}
+
+.workbench-active-vs-next-plan.is-diverged {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.workbench-active-vs-next-plan__header strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.workbench-active-vs-next-plan__hint {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workbench-active-vs-next-plan__hint.is-diverged {
+  color: color-mix(in srgb, var(--accent) 78%, var(--text));
+  font-weight: 600;
+}
+
+.workbench-active-vs-next-plan__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.workbench-active-vs-next-plan__side {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 58%, transparent);
+  min-width: 0;
+}
+
+.workbench-active-vs-next-plan__side.is-diverged {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
+.workbench-active-vs-next-plan__side.is-empty {
+  opacity: 0.78;
+}
+
+.workbench-active-vs-next-plan__side-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.workbench-active-vs-next-plan__name {
+  font-size: 13px;
+  font-weight: 720;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-active-vs-next-plan__summary {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.workbench-active-vs-next-plan__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .workbench-active-vs-next-plan__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* STC-205: phase-prompt extend presets */
+.workbench-phase-prompt-extend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.workbench-phase-prompt-extend__hint {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0 0.15rem;
+}
+
+.workbench-phase-prompt-extend__hint strong {
+  font-size: 0.9rem;
+}
+
+.workbench-phase-prompt-extend__hint small {
+  opacity: 0.75;
+  font-size: 0.8rem;
+}
+
+.workbench-phase-prompt-extend__buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.workbench-phase-prompt-extend__btn {
+  min-height: 0;
+}
+
+/* STC-205: mid-break +1 min control shares action chrome */
+.workbench-pomodoro-actions .workbench-pomodoro-extend {
+  /* inherit button chrome from .workbench-pomodoro-actions button */
+}
+
+/* STC-703 recurrence min editor + series edit sheet */
+.study-schedule-recurrence {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
+}
+
+.study-schedule-recurrence-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.study-schedule-recurrence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  font-size: 13px;
+}
+
+.study-schedule-recurrence-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.study-schedule-recurrence-weekdays,
+.study-recurrence-series-window {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.study-recurrence-series-window > span {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.study-schedule-recurrence-day {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.study-schedule-recurrence-day.is-on {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: color-mix(in srgb, var(--accent) 88%, #fff);
+}
+
+.study-schedule-recurrence-times,
+.study-recurrence-series-bounds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.study-schedule-recurrence-times label,
+.study-recurrence-series-bounds label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.study-schedule-recurrence-times select,
+.study-recurrence-series-bounds input {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 80%, transparent);
+  color: var(--text);
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.study-schedule-recurrence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.study-schedule-recurrence-preview,
+.study-recurrence-series-preview {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+}
+
+.study-schedule-recurrence-summary {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.study-schedule-recurrence-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.study-schedule-recurrence-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.study-schedule-recurrence-list li {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.study-schedule-recurrence-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  color: color-mix(in srgb, var(--accent) 88%, #fff);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.study-schedule-recurrence-warnings {
+  margin: 8px 0 0;
+  padding-left: 1.15em;
+  font-size: 12px;
+  color: color-mix(in srgb, #d4a017 80%, var(--text));
+}
+
+.study-recurrence-series-sheet {
+  max-width: min(560px, calc(100vw - 32px));
+  max-height: min(88vh, 820px);
+  overflow: auto;
+}
+
+.study-recurrence-series-meta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.study-recurrence-series-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.study-recurrence-series-locked-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.study-recurrence-series-calendar {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.study-recurrence-series-day-group {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 50%, transparent);
+  padding: 8px 10px;
+}
+
+.study-recurrence-series-day-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 650;
+  margin-bottom: 6px;
+}
+
+.study-recurrence-series-day-count {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: color-mix(in srgb, var(--accent) 90%, #fff);
+}
+
+.study-recurrence-series-day-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.study-recurrence-series-day-rows li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  padding: 4px 2px;
+}
+
+.study-recurrence-series-delete-confirm {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #d44 30%, var(--line));
+  background: color-mix(in srgb, #d44 8%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.study-recurrence-series-delete-confirm strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.study-recurrence-series-delete-confirm p {
+  margin: 0 0 8px;
+}
+
+.study-recurrence-series-delete-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.study-recurrence-series-delete {
+  color: color-mix(in srgb, #d44 80%, var(--text));
+}
+
+/* Dark mode: no white top-left sheen on workbench cards or schedule chrome */
+:root[data-resolved-theme='dark'] .workbench-pomodoro-card::before,
+:root[data-resolved-theme='dark'] .workbench-task-card::before,
+:root[data-resolved-theme='dark'] .workbench-music-card::before,
+:root[data-resolved-theme='dark'] .workbench-room-switcher::before,
+:root[data-resolved-theme='dark'] .workbench-leaderboard-panel::before,
+:root[data-resolved-theme='dark'] .workbench-tools .workbench-leaderboard-toggle::before,
+:root[data-resolved-theme='dark'] .workbench-space-join::before,
+:root[data-resolved-theme='dark'] .office-workbench-stage > .workbench-leaderboard::before {
+  background: none;
+  opacity: 0;
+}
+
+:root[data-resolved-theme='dark'] .office-workbench-stage .workbench-pomodoro-card::after,
+:root[data-resolved-theme='dark'] .office-workbench-stage .workbench-task-card::after,
+:root[data-resolved-theme='dark'] .office-workbench-stage .workbench-music-card::after,
+:root[data-resolved-theme='dark'] .office-workbench-stage > .workbench-leaderboard::after {
+  background: none;
+  opacity: 0;
+}
+
+:root[data-resolved-theme='dark'] .office-workbench-page {
+  --liquid-glass-sheen: none;
+  --workbench-glass-surface: color-mix(in srgb, var(--surface-solid) 78%, transparent);
+  --workbench-glass-surface-strong: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+}
+
+:root[data-resolved-theme='dark'] .workbench-tools {
+  background: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+  border-left-color: var(--line);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .workbench-pomodoro-card,
+:root[data-resolved-theme='dark'] .workbench-task-card,
+:root[data-resolved-theme='dark'] .workbench-music-card,
+:root[data-resolved-theme='dark'] .workbench-room-switcher,
+:root[data-resolved-theme='dark'] .workbench-space-join,
+:root[data-resolved-theme='dark'] .workbench-tools .workbench-leaderboard-toggle,
+:root[data-resolved-theme='dark'] .office-workbench-stage > .workbench-leaderboard {
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* Nested panel is flat content inside the outer glass card — never a second surface. */
+:root[data-resolved-theme='dark'] .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel {
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-page {
+  background: var(--app-shell-main-bg);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-header,
+:root[data-resolved-theme='dark'] .study-schedule-form,
+:root[data-resolved-theme='dark'] .study-schedule-editor-panel,
+:root[data-resolved-theme='dark'] .study-schedule-board,
+:root[data-resolved-theme='dark'] .study-schedule-month-board {
+  background: var(--surface-solid);
+  border-color: var(--line);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-view-toggle {
+  background: var(--surface-muted);
+  border-color: var(--line);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-calendar-nav-button,
+:root[data-resolved-theme='dark'] .study-schedule-calendar-today-button {
+  background: var(--surface-muted);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-month-weekday,
+:root[data-resolved-theme='dark'] .study-schedule-month-cell {
+  background: var(--surface-solid);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-month-board {
+  background: var(--line);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-back,
+:root[data-resolved-theme='dark'] .study-schedule-form button {
+  background: var(--surface-muted);
+  border-color: var(--line);
+  box-shadow: none;
+}
+/* Dark mode: schedule grid chrome flat (no top/left white sheen) */
+:root[data-resolved-theme='dark'] .study-schedule-corner,
+:root[data-resolved-theme='dark'] .study-schedule-day-head,
+:root[data-resolved-theme='dark'] .study-schedule-time-rail {
+  background: var(--surface-solid);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-day-column {
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(4.166667% - 1px),
+      color-mix(in srgb, var(--line) 70%, transparent) calc(4.166667% - 1px),
+      color-mix(in srgb, var(--line) 70%, transparent) 4.166667%
+    ),
+    var(--surface-muted);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-board {
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-selection {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface-solid));
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-selection span,
+:root[data-resolved-theme='dark'] .study-schedule-drag-preview span {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-drag-preview {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 24%, var(--surface-solid));
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-event,
+:root[data-resolved-theme='dark'] .study-schedule-drag-float {
+  border-color: color-mix(in srgb, var(--event-color) 55%, var(--line));
+  background: color-mix(in srgb, var(--event-color) 72%, var(--surface-solid));
+  box-shadow: 0 10px 22px color-mix(in srgb, #000000 28%, transparent);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-day-head strong {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-context-menu {
+  background: var(--surface-solid);
+  border-color: var(--line);
+  box-shadow: var(--shadow-float);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-editor-close,
+:root[data-resolved-theme='dark'] .study-schedule-draft-actions button,
+:root[data-resolved-theme='dark'] .study-schedule-event-status button {
+  background: var(--surface-muted);
+  border-color: var(--line);
+  box-shadow: none;
+}
+/* Dark mode: schedule form/editor controls without white inset sheen */
+:root[data-resolved-theme='dark'] .study-schedule-form input,
+:root[data-resolved-theme='dark'] .study-schedule-form select,
+:root[data-resolved-theme='dark'] .study-schedule-draft-card input,
+:root[data-resolved-theme='dark'] .study-schedule-category-option {
+  background: var(--surface-muted);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-form input:focus,
+:root[data-resolved-theme='dark'] .study-schedule-form select:focus {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-hour-label {
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-corner,
+:root[data-resolved-theme='dark'] .study-schedule-day-head,
+:root[data-resolved-theme='dark'] .study-schedule-time-rail {
+  border-color: var(--line);
+}
+
+/* Focus timer: top task title + side mode arrows (replaces segmented focus/break switch). */
+.workbench-pomodoro-title {
+  display: block;
+  margin: 0 4px 2px;
+  padding: 0 8px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 720;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-timer-face {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  justify-items: center;
+  gap: 2px;
+  padding: 8px 0 10px;
+}
+
+.workbench-pomodoro-mode-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 40px;
+  margin: 0;
+  padding: 0;
+  color: color-mix(in srgb, var(--text-muted) 88%, transparent);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  transition: color 160ms ease, opacity 160ms ease;
+}
+
+.workbench-pomodoro-mode-arrow:hover:not(:disabled),
+.workbench-pomodoro-mode-arrow:active:not(:disabled) {
+  color: #007aff;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-pomodoro-mode-arrow:focus-visible {
+  outline: none;
+  color: #007aff;
+}
+
+.workbench-pomodoro-mode-arrow:disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.workbench-pomodoro-mode-arrow svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
+/* Hide legacy segmented focus/rest rail if any host CSS still targets it. */
+.workbench-pomodoro-mode {
+  display: none;
+}
+
+.workbench-pomodoro-card .workbench-timer-ring {
+  justify-self: center;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-pomodoro-title {
+    font-size: 0.75rem;
+  }
+
+  .office-workbench-stage .workbench-timer-face {
+    grid-template-columns: 24px minmax(0, 1fr) 24px;
+    padding: 4px 0 6px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-mode-arrow {
+    width: 24px;
+    min-height: 34px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-mode-arrow svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Immersive focus-timer face type (must stay after all WorkbenchPomodoro dial
+   rules so side-card 0.8rem seconds / short-viewport media cannot win).
+   --------------------------------------------------------------------------- */
+.office-workbench-stage .workbench-immersive-focus-timer-scene__time.workbench-pomodoro-time strong,
+.office-workbench-stage .workbench-immersive-focus-timer-scene__time .workbench-pomodoro-time__primary {
+  color: #f7fafc;
+  /* Primary minutes: large and centered; seconds live in the analogue sub-dial. */
+  font-size: clamp(72px, 22cqi, 140px);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.12),
+    0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-immersive-focus-timer-scene__time.workbench-pomodoro-time strong,
+  .office-workbench-stage .workbench-immersive-focus-timer-scene__time .workbench-pomodoro-time__primary {
+    font-size: clamp(60px, 18cqi, 120px);
+  }
+}

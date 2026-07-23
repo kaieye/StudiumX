@@ -254,6 +254,7 @@ export async function dualWriteRenameTimerPlan(
     breakPolicy?: StudyTimerPlan['breakPolicy']
     kind?: StudyTimerPlan['kind']
     clockMode?: StudyTimerPlan['clockMode']
+    continuousMode?: StudyTimerPlan['continuousMode']
     continuousTarget?: boolean
     rhythmSequence?: StudyTimerPlan['rhythmSequence']
     simulationStartTime?: string
@@ -273,7 +274,7 @@ export async function dualWriteRenameTimerPlan(
       }
     }
   }
-  // Use full V1→V2 map so rename does not wipe long break / breakPolicy / sequence.
+  // Use full V1→V2 map so rename does not wipe long break / breakPolicy / sequence / continuousMode.
   let v2: TimerPlanV2
   try {
     v2 = v1TimerPlanToV2({
@@ -292,6 +293,9 @@ export async function dualWriteRenameTimerPlan(
       ...(input.breakPolicy !== undefined ? { breakPolicy: input.breakPolicy } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
       ...(input.clockMode !== undefined ? { clockMode: input.clockMode } : {}),
+      ...(input.continuousMode !== undefined
+        ? { continuousMode: input.continuousMode }
+        : {}),
       ...(input.continuousTarget !== undefined
         ? { continuousTarget: input.continuousTarget }
         : {}),

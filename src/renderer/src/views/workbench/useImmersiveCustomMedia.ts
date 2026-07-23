@@ -86,51 +86,79 @@ export function useImmersiveCustomMedia(): UseImmersiveCustomMediaResult {
     [revokeAllCustomImmersiveMedia]
   )
 
-  const applyCustomImmersiveMedia = useCallback((file: File): boolean => {
-    const kind = classifyImmersiveMediaFile(file)
-    if (!kind) return false
-    if (file.size > IMMERSIVE_MEDIA_MAX_BYTES) return false
-    const sceneName = sceneNameFromFileName(file.name)
-    const provisionalId =
-      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-    const url = URL.createObjectURL(file)
-    customMediaUrlsRef.current.set(provisionalId, url)
-    setCustomImmersiveMediaList((current) => [
-      ...current,
-      { id: provisionalId, kind, url, name: sceneName }
-    ])
-    const sceneId = customScenePreference(provisionalId)
-    setImmersiveScene(sceneId)
-    writeImmersiveScenePreference(sceneId)
-    setIsSceneDropActive(false)
-    void (async () => {
-      const persistedId = await addImmersiveCustomMedia({
-        id: provisionalId,
-        kind,
-        name: sceneName,
-        mimeType: file.type,
-        blob: file
-      })
-      if (!persistedId || persistedId === provisionalId) return
-      const oldUrl = customMediaUrlsRef.current.get(provisionalId)
-      if (oldUrl) {
-        customMediaUrlsRef.current.delete(provisionalId)
-        customMediaUrlsRef.current.set(persistedId, oldUrl)
-      }
-      setCustomImmersiveMediaList((current) =>
-        current.map((item) => (item.id === provisionalId ? { ...item, id: persistedId } : item))
-      )
-      setImmersiveScene((current) =>
-        current === customScenePreference(provisionalId)
-          ? customScenePreference(persistedId)
-          : current
-      )
-      writeImmersiveScenePreference(customScenePreference(persistedId))
-    })()
-    return true
-  }, [])
+  const rehydrateCustomImmersiveMediaList = useCallback(async (): Promise<void> => {
+    const stored = await listImmersiveCustomMedia()
+    adoptCustomImmersiveMediaList(
+      stored.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        name: item.name,
+        blob: item.blob
+      }))
+    )
+  }, [adoptCustomImmersiveMediaList])
+
+  const applyCustomImmersiveMedia = useCallback(
+    (file: File): boolean => {
+      const kind = classifyImmersiveMediaFile(file)
+      if (!kind) return false
+      if (file.size > IMMERSIVE_MEDIA_MAX_BYTES) return false
+      const sceneName = sceneNameFromFileName(file.name)
+      const provisionalId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+      // Optimistic preview: provisional list + scene switch; durable only after IDB add.
+      const previousScene = immersiveScene
+      const url = URL.createObjectURL(file)
+      customMediaUrlsRef.current.set(provisionalId, url)
+      setCustomImmersiveMediaList((current) => [
+        ...current,
+        { id: provisionalId, kind, url, name: sceneName }
+      ])
+      const sceneId = customScenePreference(provisionalId)
+      setImmersiveScene(sceneId)
+      writeImmersiveScenePreference(sceneId)
+      setIsSceneDropActive(false)
+      void (async () => {
+        const persistedId = await addImmersiveCustomMedia({
+          id: provisionalId,
+          kind,
+          name: sceneName,
+          mimeType: file.type,
+          blob: file
+        })
+        if (!persistedId) {
+          // Rollback provisional UI if durable write failed.
+          revokeCustomImmersiveMediaById(provisionalId)
+          setCustomImmersiveMediaList((current) => current.filter((item) => item.id !== provisionalId))
+          setImmersiveScene((current) => {
+            if (current !== customScenePreference(provisionalId)) return current
+            writeImmersiveScenePreference(previousScene)
+            return previousScene
+          })
+          return
+        }
+        if (persistedId === provisionalId) return
+        const oldUrl = customMediaUrlsRef.current.get(provisionalId)
+        if (oldUrl) {
+          customMediaUrlsRef.current.delete(provisionalId)
+          customMediaUrlsRef.current.set(persistedId, oldUrl)
+        }
+        setCustomImmersiveMediaList((current) =>
+          current.map((item) => (item.id === provisionalId ? { ...item, id: persistedId } : item))
+        )
+        setImmersiveScene((current) =>
+          current === customScenePreference(provisionalId)
+            ? customScenePreference(persistedId)
+            : current
+        )
+        writeImmersiveScenePreference(customScenePreference(persistedId))
+      })()
+      return true
+    },
+    [immersiveScene, revokeCustomImmersiveMediaById]
+  )
 
   const selectImmersiveScene = useCallback(
     (scene: ImmersiveSceneId): void => {
@@ -148,19 +176,37 @@ export function useImmersiveCustomMedia(): UseImmersiveCustomMediaResult {
 
   const removeCustomImmersiveMedia = useCallback(
     (id: string): void => {
+      const removedItem = customImmersiveMediaList.find((item) => item.id === id)
+      const previousScene = immersiveScene
+      const wasSelected = previousScene === customScenePreference(id)
       revokeCustomImmersiveMediaById(id)
       setCustomImmersiveMediaList((current) => current.filter((item) => item.id !== id))
       if (editingCustomSceneId === id) {
         setEditingCustomSceneId(null)
         setCustomSceneNameDraft('')
       }
-      if (immersiveScene === customScenePreference(id)) {
+      if (wasSelected) {
         setImmersiveScene('clock')
         writeImmersiveScenePreference('clock')
       }
-      void deleteImmersiveCustomMedia(id)
+      void (async () => {
+        const ok = await deleteImmersiveCustomMedia(id)
+        if (ok) return
+        // Durable delete failed — re-list from IDB so UI matches store.
+        await rehydrateCustomImmersiveMediaList()
+        if (wasSelected && removedItem) {
+          setImmersiveScene(previousScene)
+          writeImmersiveScenePreference(previousScene)
+        }
+      })()
     },
-    [editingCustomSceneId, immersiveScene, revokeCustomImmersiveMediaById]
+    [
+      customImmersiveMediaList,
+      editingCustomSceneId,
+      immersiveScene,
+      rehydrateCustomImmersiveMediaList,
+      revokeCustomImmersiveMediaById
+    ]
   )
 
   const startCustomSceneNameEditing = useCallback(
@@ -180,10 +226,18 @@ export function useImmersiveCustomMedia(): UseImmersiveCustomMediaResult {
     if (!id || !name) return
     const current = customImmersiveMediaList.find((item) => item.id === id)
     if (!current || name === current.name) return
+    const previousName = current.name
     setCustomImmersiveMediaList((list) =>
       list.map((item) => (item.id === id ? { ...item, name } : item))
     )
-    void renameImmersiveCustomMedia(id, name)
+    void (async () => {
+      const ok = await renameImmersiveCustomMedia(id, name)
+      if (ok) return
+      // Rename failed — revert optimistic label from last known name.
+      setCustomImmersiveMediaList((list) =>
+        list.map((item) => (item.id === id ? { ...item, name: previousName } : item))
+      )
+    })()
   }, [customImmersiveMediaList, customSceneNameDraft, editingCustomSceneId])
 
   // Restore durable custom scenes + last scene preference after restart.

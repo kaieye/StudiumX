@@ -661,7 +661,37 @@ export class TeachingWorkspaceService {
     throw new Error(`Temporary conversation ${id} was not found.`)
   }
 
-  async listWorkspaceChangesForAnalytics(
+  async listWorkspaceSummariesForAnalytics(): Promise<AnalyticsWorkspaceScanResult[]> {
+    const registry = await this.ensureRegistry()
+    const results = await Promise.all(
+      registry.workspaces.map(async (workspace): Promise<AnalyticsWorkspaceScanResult> => {
+        try {
+          const summary = await this.summarizeWorkspace(workspace)
+          return {
+            workspaceId: workspace.id,
+            workspaceName: summary.name ?? workspace.id,
+            rootPath: workspace.rootPath,
+            summary
+          }
+        } catch (error) {
+          return {
+            workspaceId: workspace.id,
+            workspaceName: workspace.id,
+            rootPath: workspace.rootPath,
+            error: error instanceof Error ? error.message : 'summarize failed'
+          }
+        }
+      })
+    )
+    return results
+  }
+
+  async listTemporaryConversationSummariesForAnalytics(): Promise<AgentConversationSummary[]> {
+    const registry = await this.ensureRegistry()
+    return this.listTemporaryConversations(registry)
+  }
+
+    async listWorkspaceChangesForAnalytics(
     workspaceId: string
   ): Promise<TeachingWorkspaceChangeSummary[]> {
     return this.changeAudit.listSummaries(workspaceId)

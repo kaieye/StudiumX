@@ -1,0 +1,1342 @@
+/* Partial of office-workbench.css — do not import directly; use ../office-workbench.css aggregator. */
+/* Section: shell (source lines 1-1339) */
+
+.office-workbench-page {
+  --workbench-tools-scale: 1;
+  --workbench-tools-layout-height: 100%;
+  --workbench-accent-contrast: #ffffff;
+  --workbench-glass-surface:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--surface-solid) 82%, transparent),
+      color-mix(in srgb, var(--surface-solid) 56%, transparent)
+    ),
+    color-mix(in srgb, var(--surface) 44%, transparent);
+  --workbench-glass-surface-strong:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--surface-solid) 90%, transparent),
+      color-mix(in srgb, var(--surface-solid) 68%, transparent)
+    ),
+    color-mix(in srgb, var(--surface) 54%, transparent);
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  padding: 0;
+  background: var(--app-shell-main-bg);
+}
+
+.office-workbench-stage {
+  position: relative;
+  flex: 1 1 auto;
+  width: auto;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  /* White study-room surface. */
+  background: #ffffff;
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .office-workbench-stage {
+  /* Flat dark study-room surface. */
+  background: #101010;
+}
+
+.office-workbench-canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  aspect-ratio: 1088 / 896;
+}
+
+.office-workbench-canvas:focus-visible {
+  outline: 3px solid rgba(0, 122, 255, 0.72);
+  outline-offset: 4px;
+}
+
+.workbench-tools {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: auto;
+  z-index: 5;
+  box-sizing: border-box;
+  flex: none;
+  width: clamp(270px, 22vw, 316px);
+  height: var(--workbench-tools-layout-height);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 32px 20px 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: transparent;
+  transform: scale(var(--workbench-tools-scale));
+  transform-origin: top right;
+}
+
+.workbench-space-join {
+  --pomodoro-accent-rgb: 0, 122, 255;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 278px;
+  min-height: 42px;
+  padding: 4px 5px 4px 12px;
+  color: rgba(33, 44, 58, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.4)),
+    rgba(255, 255, 255, 0.24);
+  box-shadow:
+    0 12px 28px rgba(64, 83, 111, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+}
+
+.workbench-space-join svg {
+  color: #007aff;
+}
+
+.workbench-space-join input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  color: #17202b;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+
+.workbench-space-join input::placeholder {
+  color: rgba(47, 57, 69, 0.38);
+  text-transform: none;
+}
+
+.workbench-space-join input:focus {
+  color: #111923;
+}
+
+.workbench-space-join button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 11px;
+  color: #ffffff;
+  border: 1px solid rgba(0, 122, 255, 0.28);
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(0, 122, 255, 0.82), #007aff);
+  box-shadow:
+    0 7px 16px rgba(0, 122, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.workbench-pomodoro-card,
+.workbench-task-card {
+  --pomodoro-accent: #007aff;
+  --pomodoro-accent-rgb: 0, 122, 255;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 278px;
+  overflow: hidden;
+  padding: 20px;
+  color: #17202b;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 28px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.34)),
+    rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 28px 68px rgba(64, 83, 111, 0.17),
+    0 8px 22px rgba(64, 83, 111, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+}
+
+.workbench-pomodoro-card.is-break {
+  --pomodoro-accent: #ff9f0a;
+  --pomodoro-accent-rgb: 255, 159, 10;
+}
+.workbench-pomodoro-card.is-wrap_up {
+  --pomodoro-accent: #af52de;
+  --pomodoro-accent-rgb: 175, 82, 222;
+}
+
+.workbench-pomodoro-time__task--wrap-up {
+  color: rgba(95, 52, 130, 0.82);
+  font-weight: 700;
+}
+
+
+/* STC-604: non-color state chip (text + data attrs; not color-only). */
+.workbench-pomodoro-state-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  color: var(--text);
+  font-size: 0.6875rem;
+  font-weight: 720;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+.workbench-pomodoro-card.is-state-running .workbench-pomodoro-state-chip::before,
+.workbench-pomodoro-card.is-state-paused .workbench-pomodoro-state-chip::before,
+.workbench-pomodoro-card.is-state-needs_reconcile .workbench-pomodoro-state-chip::before,
+.workbench-pomodoro-card.is-state-idle .workbench-pomodoro-state-chip::before {
+  content: '';
+  display: inline-block;
+  width: 0.45em;
+  height: 0.45em;
+  margin-right: 0.4em;
+  border-radius: 50%;
+  background: currentColor;
+  /* Shape/opacity differ by state — not hue-only. */
+  opacity: 0.55;
+}
+.workbench-pomodoro-card.is-state-running .workbench-pomodoro-state-chip::before {
+  opacity: 1;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent);
+}
+.workbench-pomodoro-card.is-state-paused .workbench-pomodoro-state-chip::before {
+  border-radius: 2px;
+  opacity: 0.85;
+}
+.workbench-pomodoro-card.is-state-needs_reconcile .workbench-pomodoro-state-chip::before {
+  border-radius: 0;
+  transform: rotate(45deg);
+  opacity: 0.9;
+}
+.workbench-pomodoro-card.is-overtime .workbench-pomodoro-state-chip {
+  border-style: dashed;
+  font-weight: 780;
+}
+/* STC-604: snap transitions when reduced-motion class is set on card. */
+.workbench-pomodoro-card.is-reduced-motion .workbench-pomodoro-progress span,
+.workbench-pomodoro-card.is-reduced-motion .workbench-timer-ring,
+.workbench-pomodoro-card.is-reduced-motion .workbench-timer-ring__progress {
+  transition: none !important;
+  animation: none !important;
+}
+
+
+
+.workbench-pomodoro-card::before,
+.workbench-task-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(255, 255, 255, 0.9), transparent 32%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.2), transparent 42%);
+  opacity: 0.76;
+  pointer-events: none;
+}
+
+.workbench-pomodoro-card > *,
+.workbench-task-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.workbench-tools button {
+  border: 0;
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 140ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+  cursor: pointer;
+}
+
+.workbench-tools button:focus-visible {
+  outline: 3px solid rgba(var(--pomodoro-accent-rgb), 0.28);
+  outline-offset: 2px;
+}
+
+.workbench-leaderboard {
+  --pomodoro-accent-rgb: 0, 122, 255;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 278px;
+}
+
+.workbench-tools .workbench-leaderboard-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 13px;
+  color: rgba(33, 44, 58, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.4)),
+    rgba(255, 255, 255, 0.24);
+  box-shadow:
+    0 12px 28px rgba(64, 83, 111, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+}
+
+.workbench-leaderboard-toggle svg {
+  color: #c28a16;
+}
+
+.workbench-leaderboard-toggle span {
+  overflow: hidden;
+  font-size: 0.6875rem;
+  font-weight: 680;
+  text-align: left;
+  text-overflow: ellipsis;
+  /* Label is a multi-item flex row (icon + title + status + room code).
+     Do not force nowrap on the whole span — that collides title/code into one ellipsis blob. */
+  white-space: normal;
+}
+
+.workbench-leaderboard-toggle strong {
+  flex: 0 0 auto;
+  color: #17202b;
+  font-size: 0.75rem;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.workbench-leaderboard-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workbench-heartbeat-dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #24a16c;
+  box-shadow:
+    0 0 0 3px rgba(36, 161, 108, 0.12),
+    0 0 10px rgba(36, 161, 108, 0.28);
+}
+
+.workbench-heartbeat-dot.is-connecting {
+  background: #ff9f0a;
+  box-shadow:
+    0 0 0 3px rgba(255, 159, 10, 0.12),
+    0 0 10px rgba(255, 159, 10, 0.22);
+}
+
+.workbench-heartbeat-dot.is-offline {
+  background: rgba(111, 125, 144, 0.62);
+  box-shadow: 0 0 0 3px rgba(111, 125, 144, 0.1);
+}
+
+.workbench-leaderboard.is-open .workbench-leaderboard-toggle {
+  border-color: rgba(194, 138, 22, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 12px 28px rgba(64, 83, 111, 0.12),
+    0 0 0 3px rgba(194, 138, 22, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+.workbench-leaderboard-panel {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  color: #17202b;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5)),
+    rgba(255, 255, 255, 0.3);
+  box-shadow:
+    0 18px 38px rgba(64, 83, 111, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+}
+
+.workbench-leaderboard-list {
+  display: grid;
+  gap: 5px;
+  max-height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.workbench-leaderboard-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+}
+
+.workbench-leaderboard-row > span {
+  color: rgba(47, 57, 69, 0.42);
+  font-size: 0.625rem;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+
+.workbench-leaderboard-row > div {
+  min-width: 0;
+}
+
+.workbench-leaderboard-row strong,
+.workbench-leaderboard-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-leaderboard-row strong {
+  font-size: 0.625rem;
+  font-weight: 680;
+}
+
+.workbench-leaderboard-row small {
+  margin-top: 2px;
+  color: rgba(47, 57, 69, 0.46);
+  font-size: 0.5rem;
+  font-weight: 620;
+}
+
+.workbench-leaderboard-row em {
+  color: rgba(47, 57, 69, 0.62);
+  font-size: 0.625rem;
+  font-style: normal;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+
+.workbench-leaderboard-row.is-me {
+  border-color: rgba(0, 122, 255, 0.12);
+  background: rgba(0, 122, 255, 0.07);
+}
+
+.workbench-leaderboard-row.is-me > span,
+.workbench-leaderboard-row.is-me em {
+  color: #007aff;
+}
+
+/* STC-603: non-ticking status for screen readers (not visual chrome). */
+.workbench-pomodoro-status-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.workbench-pomodoro-panel {
+  position: relative;
+  outline: none;
+}
+
+.workbench-pomodoro-panel:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(0, 122, 255, 0.35);
+}
+
+.workbench-pomodoro-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin-top: 0;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  border-radius: 12px;
+  background: rgba(85, 97, 115, 0.1);
+  box-shadow: inset 0 1px 2px rgba(46, 57, 73, 0.06);
+}
+
+.workbench-pomodoro-mode button {
+  min-height: 30px;
+  color: rgba(44, 54, 67, 0.56);
+  border-radius: 9px;
+  background: transparent;
+  font-size: 0.6875rem;
+  font-weight: 650;
+}
+
+.workbench-pomodoro-mode button.is-active {
+  color: #17202b;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow:
+    0 3px 10px rgba(54, 70, 94, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.workbench-pomodoro-time {
+  margin: 28px 0 17px;
+  text-align: center;
+}
+
+.workbench-pomodoro-time strong {
+  display: block;
+  color: #111923;
+  font-family: inherit;
+  font-size: 3.5rem;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  line-height: 0.96;
+  letter-spacing: 0;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.workbench-pomodoro-time span {
+  display: block;
+  margin-top: 10px;
+  color: rgba(48, 57, 70, 0.52);
+  font-size: 0.5625rem;
+  font-weight: 620;
+}
+
+.workbench-pomodoro-progress {
+  height: 5px;
+  padding: 1px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  border-radius: 999px;
+  background: rgba(71, 84, 101, 0.1);
+  box-shadow: inset 0 1px 2px rgba(47, 59, 76, 0.08);
+}
+
+.workbench-pomodoro-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(var(--pomodoro-accent-rgb), 0.72), var(--pomodoro-accent));
+  box-shadow: 0 0 10px rgba(var(--pomodoro-accent-rgb), 0.34);
+  transition: width 240ms ease;
+}
+
+.workbench-pomodoro-actions {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.workbench-pomodoro-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  margin: 0;
+  padding: 0 9px;
+  color: rgba(47, 57, 69, 0.5);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.6875rem;
+  font-weight: 620;
+}
+
+.workbench-pomodoro-actions button.is-active {
+  color: var(--pomodoro-accent);
+  border-color: rgba(255, 255, 255, 0.48);
+  background: rgba(var(--pomodoro-accent-rgb), 0.09);
+}
+
+.workbench-pomodoro-actions button:active,
+.workbench-pomodoro-presets button:active {
+  transform: scale(0.98);
+}
+
+.workbench-pomodoro-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 11px;
+}
+
+.workbench-pomodoro-presets button {
+  min-height: 29px;
+  color: rgba(47, 57, 69, 0.54);
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.3);
+  font-size: 0.5625rem;
+  font-weight: 680;
+}
+
+.workbench-pomodoro-presets button.is-active {
+  color: var(--pomodoro-accent);
+  background: rgba(var(--pomodoro-accent-rgb), 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.workbench-pomodoro-presets button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+
+.workbench-task-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.workbench-task-head-title {
+  min-width: 0;
+  justify-self: start;
+}
+
+.workbench-task-head > .workbench-task-analytics-button {
+  display: inline-grid;
+  grid-template-columns: 14px auto;
+  place-items: center;
+  gap: 5px;
+  justify-self: center;
+  width: auto;
+  height: 30px;
+  min-width: 62px;
+  padding: 0 9px;
+  color: var(--accent);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.6875rem;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.workbench-task-head > .workbench-task-analytics-button span {
+  display: inline;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+}
+
+.workbench-task-head > .workbench-task-analytics-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 48%, transparent);
+  outline-offset: 2px;
+}
+
+/* Keep the analytics label stationary on pointer interaction; unlike a
+   prominent CTA, it is a utility action alongside "详情". The generic
+   `.workbench-task-head > button:hover` rule paints a dark wash — cancel it. */
+.workbench-task-head > .workbench-task-analytics-button:not(:disabled):hover,
+.workbench-task-head > .workbench-task-analytics-button:active {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+
+.workbench-task-head > div {
+  min-width: 0;
+}
+
+.workbench-task-head span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(47, 57, 69, 0.5);
+  font-size: 0.5625rem;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+.workbench-task-head strong {
+  display: block;
+  margin-top: 7px;
+  overflow: hidden;
+  color: #17202b;
+  font-size: 0.8125rem;
+  font-weight: 680;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-task-head > button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: auto;
+  height: 30px;
+  color: rgba(47, 57, 69, 0.48);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-task-head > button:disabled,
+.workbench-task-form button:disabled {
+  cursor: default;
+  opacity: 0.36;
+}
+
+.workbench-task-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 15px;
+}
+
+.workbench-task-summary span {
+  min-width: 0;
+  padding: 8px 9px;
+  color: rgba(47, 57, 69, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  border-radius: 10px;
+  background: rgba(85, 97, 115, 0.07);
+  box-shadow: inset 0 1px 2px rgba(46, 57, 73, 0.04);
+  font-size: 0.5625rem;
+  font-weight: 620;
+  text-align: center;
+}
+
+.workbench-task-summary strong {
+  margin-right: 3px;
+  color: var(--pomodoro-accent);
+  font-size: 0.8125rem;
+  font-weight: 720;
+}
+
+.workbench-task-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.workbench-task-form input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  color: #17202b;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  outline: 0;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow:
+    inset 0 1px 2px rgba(46, 57, 73, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  font: inherit;
+  font-size: 0.625rem;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.workbench-task-form input::placeholder {
+  color: rgba(47, 57, 69, 0.38);
+}
+
+.workbench-task-form input:focus {
+  border-color: rgba(var(--pomodoro-accent-rgb), 0.35);
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: 0 0 0 3px rgba(var(--pomodoro-accent-rgb), 0.1);
+}
+
+.workbench-task-form button {
+  display: inline-grid;
+  place-items: center;
+  color: #ffffff;
+  border: 1px solid rgba(var(--pomodoro-accent-rgb), 0.3);
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(var(--pomodoro-accent-rgb), 0.82), var(--pomodoro-accent));
+  box-shadow:
+    0 7px 16px rgba(var(--pomodoro-accent-rgb), 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36);
+}
+
+/* STC-302 task timeline view tabs (thin WorkbenchTasks adapter) */
+.workbench-task-view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0 2px;
+}
+
+.workbench-task-view-tab {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.workbench-task-view-tab:hover {
+  border-color: color-mix(in srgb, var(--pomodoro-accent, #5b8def) 35%, var(--line));
+  color: var(--text);
+}
+
+.workbench-task-view-tab.is-active {
+  border-color: color-mix(in srgb, var(--pomodoro-accent, #5b8def) 55%, var(--line));
+  background: color-mix(in srgb, var(--pomodoro-accent, #5b8def) 16%, var(--surface-solid));
+  color: var(--text);
+}
+
+.workbench-task-view-tab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--pomodoro-accent, #5b8def) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.workbench-task-list {
+  display: grid;
+  gap: 2px;
+  max-height: 150px;
+  margin-top: 11px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.workbench-task-row {
+  display: grid;
+  grid-template-columns: 19px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 9px;
+  color: #17202b;
+  /* Flat list rows (match music queue): no glass pill wrapper. */
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease;
+}
+
+.workbench-task-row > span {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  color: #ffffff;
+  border: 1px solid rgba(47, 57, 69, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.workbench-task-row strong {
+  overflow: hidden;
+  font-size: 0.625rem;
+  font-weight: 640;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-task-row.is-done {
+  color: rgba(47, 57, 69, 0.38);
+}
+
+.workbench-task-row.is-done > span {
+  border-color: rgba(var(--pomodoro-accent-rgb), 0.34);
+  background: var(--pomodoro-accent);
+}
+
+.workbench-task-row.is-done strong {
+  text-decoration: line-through;
+}
+
+.workbench-task-category {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--task-category-ink, rgba(47, 57, 69, 0.72));
+  background: color-mix(in srgb, var(--task-category-color, #8197aa) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--task-category-color, #8197aa) 40%, transparent);
+  font-size: 0.5625rem;
+  font-weight: 740;
+  line-height: 1.2;
+}
+
+
+.workbench-task-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 52px;
+  color: rgba(47, 57, 69, 0.42);
+  border: 1px dashed rgba(47, 57, 69, 0.14);
+  border-radius: 12px;
+  font-size: 0.625rem;
+  font-weight: 620;
+}
+
+@media (hover: hover) {
+  .workbench-pomodoro-actions button:hover,
+  .workbench-pomodoro-presets button:not(:disabled):hover,
+  .workbench-task-head > button:not(:disabled):hover,
+  .workbench-task-form button:not(:disabled):hover,
+  .workbench-space-join button:hover,
+  .workbench-task-row:hover {
+    background: rgba(20, 47, 95, 0.055);
+  }
+}
+
+@media (max-width: 720px) {
+  .office-workbench-page {
+    width: 100vw;
+    max-width: 100vw;
+    height: auto;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .office-workbench-stage {
+    min-height: 0;
+    border-radius: 0;
+  }
+
+  .workbench-tools {
+    width: 228px;
+    padding: 24px 12px 18px;
+  }
+
+  .workbench-space-join {
+    min-height: 38px;
+  }
+
+  .workbench-pomodoro-card,
+  .workbench-task-card {
+    padding: 16px;
+    border-radius: 24px;
+  }
+
+  .workbench-pomodoro-time {
+    margin: 22px 0 14px;
+  }
+
+  .workbench-pomodoro-time strong {
+    font-size: 2.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-tools button,
+  .workbench-space-join input,
+  .workbench-task-form input,
+  .workbench-pomodoro-progress span {
+    transition: none;
+  }
+}
+
+/* Keep the pixel-art scene intact while the overlaid study controls follow app settings. */
+.workbench-tools {
+  color: var(--text);
+  font-family: inherit;
+}
+
+.workbench-space-join,
+.workbench-tools .workbench-leaderboard-toggle,
+.workbench-pomodoro-card,
+.workbench-task-card,
+.workbench-music-card,
+.workbench-leaderboard-panel {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--workbench-glass-surface);
+  box-shadow: var(--shadow-card), inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.workbench-leaderboard-panel,
+.workbench-leaderboard.is-open .workbench-leaderboard-toggle {
+  background: var(--workbench-glass-surface-strong);
+}
+
+.workbench-space-join,
+.workbench-tools .workbench-leaderboard-toggle {
+  color: var(--text-muted);
+}
+
+.workbench-space-join svg,
+.workbench-leaderboard-row.is-me > span,
+.workbench-leaderboard-row.is-me em {
+  color: var(--accent);
+}
+
+.workbench-space-join input,
+.workbench-space-join input:focus,
+.workbench-leaderboard-toggle strong,
+.workbench-pomodoro-card,
+.workbench-task-card,
+.workbench-music-card,
+.workbench-task-head strong,
+.workbench-task-form input,
+.workbench-task-row {
+  color: var(--text);
+}
+
+.workbench-space-join input::placeholder,
+.workbench-task-form input::placeholder {
+  color: var(--text-soft);
+}
+
+.workbench-space-join button,
+.workbench-task-form button,
+.workbench-task-row.is-done > span {
+  color: var(--workbench-accent-contrast);
+  border-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 36%, var(--line));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 82%, white),
+    var(--pomodoro-accent, var(--accent))
+  );
+  box-shadow:
+    0 7px 18px color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 24%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.workbench-pomodoro-card,
+.workbench-task-card {
+  --pomodoro-accent: var(--accent);
+}
+
+.workbench-pomodoro-card.is-break {
+  --pomodoro-accent: var(--amber);
+}
+
+.workbench-tools button:focus-visible {
+  outline-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 38%, transparent);
+}
+
+.workbench-leaderboard-toggle svg {
+  color: var(--amber);
+}
+
+.workbench-leaderboard.is-open .workbench-leaderboard-toggle {
+  border-color: color-mix(in srgb, var(--amber) 32%, var(--line));
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 3px color-mix(in srgb, var(--amber) 10%, transparent);
+}
+
+.workbench-leaderboard-row > span,
+.workbench-leaderboard-row small,
+.workbench-leaderboard-row em,
+.workbench-pomodoro-mode button,
+.workbench-pomodoro-time span,
+.workbench-pomodoro-actions button,
+.workbench-pomodoro-presets button,
+.workbench-task-head span,
+.workbench-task-head > button,
+.workbench-task-summary span,
+.workbench-task-empty {
+  color: var(--text-muted);
+}
+
+.workbench-leaderboard-row.is-me {
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--line));
+  background: var(--accent-soft);
+}
+
+.workbench-pomodoro-mode,
+.workbench-pomodoro-progress,
+.workbench-task-summary span,
+.workbench-task-empty {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.workbench-pomodoro-mode button.is-active,
+.workbench-pomodoro-presets button,
+.workbench-task-form input,
+.workbench-task-row {
+  color: var(--text);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-pomodoro-time strong {
+  color: var(--text);
+  text-shadow: none;
+}
+
+.workbench-pomodoro-progress span {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pomodoro-accent) 72%, transparent),
+    var(--pomodoro-accent)
+  );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--pomodoro-accent) 34%, transparent);
+}
+
+.workbench-pomodoro-presets button.is-active,
+
+.workbench-task-summary strong {
+  color: var(--pomodoro-accent);
+}
+
+.workbench-task-form input:focus {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--pomodoro-accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pomodoro-accent) 12%, transparent);
+}
+
+.workbench-task-row > span {
+  color: transparent;
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+}
+
+.workbench-task-row.is-done {
+  color: var(--text-soft);
+}
+
+.workbench-heartbeat-dot {
+  background: var(--green);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--green) 12%, transparent),
+    0 0 10px color-mix(in srgb, var(--green) 28%, transparent);
+}
+
+.workbench-heartbeat-dot.is-connecting {
+  background: var(--amber);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--amber) 12%, transparent),
+    0 0 10px color-mix(in srgb, var(--amber) 24%, transparent);
+}
+
+.workbench-heartbeat-dot.is-offline {
+  background: var(--text-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-soft) 10%, transparent);
+}
+
+@media (hover: hover) {
+  .workbench-pomodoro-actions button:hover,
+  .workbench-pomodoro-presets button:not(:disabled):hover,
+  .workbench-task-head > button:not(:disabled):hover,
+  .workbench-task-form button:not(:disabled):hover,
+  .workbench-space-join button:hover,
+  .workbench-task-row:hover {
+    background: rgba(20, 47, 95, 0.055);
+  }
+}
+
+:root[data-resolved-theme='dark'] .office-workbench-page {
+  --workbench-accent-contrast: #10131a;
+}
+
+:root[data-resolved-theme='dark'] .workbench-pomodoro-card::before,
+:root[data-resolved-theme='dark'] .workbench-task-card::before {
+  opacity: 0.16;
+}
+
+.workbench-room-switcher {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 278px;
+  padding: 12px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--workbench-glass-surface-strong);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+.workbench-room-code span {
+  min-width: 0;
+}
+
+.workbench-room-code small,
+.workbench-room-code strong {
+  display: block;
+  overflow-x: hidden;
+  overflow-y: auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-room-code small {
+  color: var(--text-soft);
+  font-size: 0.5625rem;
+  font-weight: 640;
+}
+
+.workbench-room-code {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
+  padding: 7px 7px 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
+}
+
+.workbench-room-code strong {
+  color: var(--accent);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.workbench-room-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.workbench-room-code button,
+.workbench-room-join button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  color: var(--text-muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+  font-size: 0.625rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.workbench-room-code button.is-random {
+  gap: 4px;
+  padding: 0 9px;
+  color: var(--workbench-accent-contrast);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+  background: var(--accent);
+}
+
+.workbench-room-code button.is-copy {
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.workbench-room-join {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--text-muted);
+}
+
+.workbench-room-join input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: 0;
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+  font: inherit;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+}
+
+.workbench-room-join input:focus {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.workbench-room-join button {
+  padding: 0 9px;
+  color: var(--workbench-accent-contrast);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+  background: var(--accent);
+}
+
+.workbench-room-join button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+

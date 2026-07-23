@@ -647,6 +647,99 @@ describe('OfficeWorkbench immersive fullscreen lifecycle', () => {
     expect(screen.queryByRole('button', { name: /删除自定义场景/ })).toBeNull()
   })
 
+  it('rolls back provisional custom media when durable add fails', async () => {
+    const user = userEvent.setup()
+    immersiveMediaStore.addImmersiveCustomMedia.mockResolvedValue(null)
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' })
+    const file = new File([blob], 'wall.png', { type: 'image/png' })
+    renderWorkbench()
+    await user.click(screen.getByRole('button', { name: '进入沉浸模式' }))
+    fireEvent.pointerEnter(document.querySelector('.workbench-immersive-controls')!)
+    await user.click(screen.getByRole('button', { name: '选择场景' }))
+
+    const input = document.querySelector('.workbench-scene-picker__file-input') as HTMLInputElement
+    expect(input).toBeTruthy()
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } })
+    })
+
+    await waitFor(() => {
+      expect(immersiveMediaStore.addImmersiveCustomMedia).toHaveBeenCalled()
+    })
+    // Provisional tile removed after IDB failure; preference reverted off custom.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /删除自定义场景/ })).toBeNull()
+    })
+    expect(immersiveMediaStore.writeImmersiveScenePreference).toHaveBeenCalledWith('clock')
+  })
+
+  it('re-lists custom media when durable delete fails', async () => {
+    const user = userEvent.setup()
+    const blob = new Blob([new Uint8Array([9, 8, 7])], { type: 'image/png' })
+    const row = {
+      id: 'custom-1',
+      kind: 'image' as const,
+      name: 'wall.png',
+      mimeType: 'image/png',
+      blob,
+      updatedAt: Date.now(),
+      createdAt: Date.now()
+    }
+    immersiveMediaStore.listImmersiveCustomMedia.mockResolvedValue([row])
+    immersiveMediaStore.deleteImmersiveCustomMedia.mockResolvedValue(false)
+
+    renderWorkbench()
+    await user.click(screen.getByRole('button', { name: '进入沉浸模式' }))
+    fireEvent.pointerEnter(document.querySelector('.workbench-immersive-controls')!)
+    await user.click(screen.getByRole('button', { name: '选择场景' }))
+
+    await user.click(await screen.findByRole('button', { name: /删除自定义场景/ }))
+
+    await waitFor(() => {
+      expect(immersiveMediaStore.deleteImmersiveCustomMedia).toHaveBeenCalledWith('custom-1')
+    })
+    // Rehydrate from list restores the delete control.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /删除自定义场景/ })).toBeVisible()
+    })
+    expect(immersiveMediaStore.listImmersiveCustomMedia.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('reverts custom scene name when durable rename fails', async () => {
+    const user = userEvent.setup()
+    const blob = new Blob([new Uint8Array([9, 8, 7])], { type: 'image/png' })
+    immersiveMediaStore.listImmersiveCustomMedia.mockResolvedValue([{
+      id: 'custom-1',
+      kind: 'image',
+      name: 'wall.png',
+      mimeType: 'image/png',
+      blob,
+      updatedAt: Date.now(),
+      createdAt: Date.now()
+    }])
+    immersiveMediaStore.renameImmersiveCustomMedia.mockResolvedValue(false)
+
+    renderWorkbench()
+    await user.click(screen.getByRole('button', { name: '进入沉浸模式' }))
+    fireEvent.pointerEnter(document.querySelector('.workbench-immersive-controls')!)
+    await user.click(screen.getByRole('button', { name: '选择场景' }))
+
+    await user.dblClick(await screen.findByRole('button', { name: 'wall.png' }))
+    const nameInput = screen.getByRole('textbox', { name: '编辑自定义场景名称' })
+    await user.clear(nameInput)
+    await user.type(nameInput, '我的自习室{Enter}')
+
+    await waitFor(() => {
+      expect(immersiveMediaStore.renameImmersiveCustomMedia).toHaveBeenCalledWith(
+        'custom-1',
+        '我的自习室'
+      )
+    })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'wall.png' })).toBeVisible()
+    })
+  })
+
   it('renders scene picker close control without an outer bordered plate class contract', async () => {
     const user = userEvent.setup()
     renderWorkbench()

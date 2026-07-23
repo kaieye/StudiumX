@@ -1,4 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import {
+  createContinuousCountupPlan,
+  createExamSimulationPlan,
+  createOpenContinuousPlan,
+  createTargetContinuousPlan,
+  OPEN_CONTINUOUS_SHELL
+} from '../../src/shared/study-planning'
 import { defaultStudySnapshot } from '@renderer/study-space/constants'
 import { normalizeStudySnapshot } from '@renderer/study-space/session/session-snapshot'
 import {
@@ -80,7 +87,6 @@ describe('study timer plans', () => {
     expect(running.breakMinutes).toBe(10)
   })
 
-
   it('updates an existing plan without reordering the catalog list', () => {
     const first = {
       id: 'plan-a',
@@ -135,8 +141,6 @@ describe('study timer plans', () => {
     })
   })
 
-})
-
   it('restores applied plan fields via applyStudyTimerPlan (restart memory path)', () => {
     // Cold start loads defaultTimerPlanId then projects plan fields onto idle snapshot.
     const host = {
@@ -154,4 +158,41 @@ describe('study timer plans', () => {
     expect(restored.simulationEndTime).toBe('10:30')
     expect(restored.remainingSeconds).toBe(45 * 60)
   })
+})
 
+describe('timer-plan continuous factories (shared)', () => {
+  it('OPEN_CONTINUOUS_SHELL has no exam 180 focus', () => {
+    expect(OPEN_CONTINUOUS_SHELL.id).toBe('open_continuous')
+    expect(OPEN_CONTINUOUS_SHELL.continuousMode).toBe('open')
+    expect(OPEN_CONTINUOUS_SHELL.focusMinutes).toBeUndefined()
+    expect(OPEN_CONTINUOUS_SHELL.breakPolicy).toBe('reminder_only')
+  })
+
+  it('createOpenContinuousPlan uses open shell not exam catalog', () => {
+    const plan = createOpenContinuousPlan()
+    expect(plan.id).toBe('open_continuous')
+    expect(plan.continuousMode).toBe('open')
+    expect(plan.focusMinutes).toBeUndefined()
+  })
+
+  it('createTargetContinuousPlan is target with default classic focus', () => {
+    const plan = createTargetContinuousPlan()
+    expect(plan.continuousMode).toBe('target')
+    expect(plan.focusMinutes).toBe(25)
+    expect(plan.id).toBe('continuous_target')
+  })
+
+  it('createContinuousCountupPlan preserves exam seed continuous_countup', () => {
+    const bare = createContinuousCountupPlan()
+    expect(bare.continuousMode).toBe('exam')
+    expect(bare.focusMinutes).toBe(180)
+    expect(bare.id).toBe('continuous_countup')
+    const catalog = createContinuousCountupPlan({ id: 'continuous_countup', name: 'exam' })
+    expect(catalog.continuousMode).toBe('exam')
+    expect(catalog.focusMinutes).toBe(180)
+  })
+
+  it('createExamSimulationPlan still freezes 180', () => {
+    expect(createExamSimulationPlan().focusMinutes).toBe(180)
+  })
+})

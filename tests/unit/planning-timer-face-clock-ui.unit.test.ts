@@ -1,6 +1,7 @@
 /**
  * Pure face-clock projection: idle/preview dial follows applied plan (not hard-coded 25:00).
  * Exam continuous paints wall start (e.g. 09:00) and counts up.
+ * continuousMode is preferred over continuousTarget for exam detection.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -9,9 +10,11 @@ import {
   formatExamWallClockParts,
   parseSimulationTimeToSeconds,
   projectPlanPreviewSeconds,
+  projectTimerFacePresentation,
   projectWorkbenchTimerFaceClock,
   projectWorkbenchTimerFaceMeta
 } from '../../src/renderer/src/study-space/planning-timer-face-clock-ui'
+import { buildImmersiveFocusTimerFace } from '../../src/renderer/src/views/workbench/ImmersiveFocusTimerScene'
 
 describe('projectPlanPreviewSeconds', () => {
   it('uses focus minutes for classic pomodoro', () => {
@@ -38,6 +41,48 @@ describe('projectPlanPreviewSeconds', () => {
         breakMinutes: 0
       }
     })).toBe(0)
+  })
+
+  it('seeds exam via continuousMode without continuousTarget', () => {
+    expect(projectPlanPreviewSeconds({
+      selectedMode: 'focus',
+      focusMinutes: 180,
+      breakMinutes: 0,
+      simulationStartTime: '09:00',
+      simulationEndTime: '12:00',
+      appliedPlan: {
+        kind: 'continuous',
+        clockMode: 'countup',
+        continuousMode: 'exam',
+        continuousTarget: false,
+        focusMinutes: 180,
+        breakMinutes: 0
+      }
+    })).toBe(0)
+  })
+
+  it('does not treat continuousMode target as exam even if continuousTarget true is absent', () => {
+    // continuousMode target + countup with focus → preview 0 (countup) but not exam wall
+    const model = projectWorkbenchTimerFaceClock({
+      timerState: 'idle',
+      timerMode: 'focus',
+      selectedMode: 'focus',
+      remainingSeconds: 0,
+      focusMinutes: 90,
+      breakMinutes: 0,
+      simulationStartTime: '09:00',
+      appliedPlan: {
+        kind: 'continuous',
+        clockMode: 'countup',
+        continuousMode: 'target',
+        continuousTarget: false,
+        focusMinutes: 90,
+        breakMinutes: 0
+      }
+    })
+    expect(model.clockMode).toBe('countup')
+    expect(model.wallBaseSeconds ?? null).toBeNull()
+    expect(model.displaySeconds).toBe(0)
   })
 
   it('seeds open countup at 0 instead of focusMinutes cache', () => {
@@ -142,6 +187,29 @@ describe('projectWorkbenchTimerFaceClock', () => {
     })
   })
 
+  it('detects exam via continuousMode exam without continuousTarget', () => {
+    const model = projectWorkbenchTimerFaceClock({
+      timerState: 'idle',
+      timerMode: 'focus',
+      selectedMode: 'focus',
+      remainingSeconds: 0,
+      focusMinutes: 180,
+      breakMinutes: 0,
+      simulationStartTime: '09:00',
+      simulationEndTime: '12:00',
+      appliedPlan: {
+        kind: 'continuous',
+        clockMode: 'countup',
+        continuousMode: 'exam',
+        continuousTarget: false,
+        focusMinutes: 180,
+        breakMinutes: 0
+      }
+    })
+    expect(model.wallBaseSeconds).toBe(9 * 3600)
+    expect(model.clockMode).toBe('countup')
+  })
+
   it('counts up from wall start while exam session is running', () => {
     const model = projectWorkbenchTimerFaceClock({
       timerState: 'running',
@@ -167,5 +235,115 @@ describe('projectWorkbenchTimerFaceClock', () => {
       primary: '09:02',
       seconds: '05'
     })
+  })
+})
+
+describe('projectTimerFacePresentation', () => {
+  it('unifies pomodoro and immersive dial labels for classic countdown', () => {
+    const model = projectTimerFacePresentation({
+      timerState: 'running',
+      timerMode: 'focus',
+      selectedMode: 'focus',
+      remainingSeconds: 65,
+      focusMinutes: 25,
+      breakMinutes: 5,
+      appliedPlan: { kind: 'pomodoro', clockMode: 'countdown', focusMinutes: 25, breakMinutes: 5 },
+      timerProgress: 40
+    })
+    expect(model.timeParts).toEqual({ primary: '01', seconds: '05' })
+    expect(model.remainingTime).toBe('01:05')
+    expect(model.isExamFace).toBe(false)
+    expect(model.displayedProgress).toBe(40)
+    expect(model.ringStyle['--timer-ring-offset']).toBe('60')
+  })
+
+  it('zeros progress on mode preview when requested', () => {
+    const model = projectTimerFacePresentation({
+      timerState: 'running',
+      timerMode: 'focus',
+      selectedMode: 'break',
+      remainingSeconds: 100,
+      focusMinutes: 25,
+      breakMinutes: 5,
+      appliedPlan: { kind: 'pomodoro', clockMode: 'countdown', focusMinutes: 25, breakMinutes: 5 },
+      timerProgress: 50,
+      modePreviewZerosProgress: true
+    })
+    expect(model.displayedProgress).toBe(0)
+    expect(model.displaySeconds).toBe(5 * 60)
+  })
+
+  it('formats exam wall presentation with continuousMode', () => {
+    const model = projectTimerFacePresentation({
+      timerState: 'idle',
+      timerMode: 'focus',
+      selectedMode: 'focus',
+      remainingSeconds: 0,
+      focusMinutes: 180,
+      breakMinutes: 0,
+      simulationStartTime: '09:00',
+      simulationEndTime: '12:00',
+      appliedPlan: {
+        kind: 'continuous',
+        clockMode: 'countup',
+        continuousMode: 'exam',
+        continuousTarget: false,
+        focusMinutes: 180,
+        breakMinutes: 0
+      },
+      timerProgress: 0
+    })
+    expect(model.isExamFace).toBe(true)
+    expect(model.timeParts).toEqual({ primary: '09:00', seconds: '00' })
+    expect(model.remainingTime).toBe('09:00')
+  })
+})
+
+describe('buildImmersiveFocusTimerFace parity', () => {
+  it('matches projectTimerFacePresentation for exam continuousMode', () => {
+    const plan = {
+      id: 'exam_sim',
+      name: 'Exam',
+      focusMinutes: 180,
+      breakMinutes: 0,
+      simulationStartTime: '09:00',
+      simulationEndTime: '12:00',
+      kind: 'continuous' as const,
+      clockMode: 'countup' as const,
+      continuousMode: 'exam' as const,
+      continuousTarget: false
+    }
+    const snapshot = {
+      timerPlans: [plan],
+      timerState: 'idle',
+      timerMode: 'focus',
+      remainingSeconds: 0,
+      focusMinutes: 180,
+      breakMinutes: 0,
+      simulationStartTime: '09:00',
+      simulationEndTime: '12:00'
+    }
+    const face = buildImmersiveFocusTimerFace({
+      snapshot,
+      defaultTimerPlanId: 'exam_sim',
+      activeTimerSession: null,
+      timerProgress: 12
+    })
+    const presentation = projectTimerFacePresentation({
+      timerState: 'idle',
+      timerMode: 'focus',
+      selectedMode: 'focus',
+      remainingSeconds: 0,
+      focusMinutes: 180,
+      breakMinutes: 0,
+      simulationStartTime: '09:00',
+      simulationEndTime: '12:00',
+      appliedPlan: plan,
+      timerProgress: 12
+    })
+    expect(face.remainingTime).toBe(presentation.remainingTime)
+    expect(face.timeParts).toEqual(presentation.timeParts)
+    expect(face.ringStyle).toEqual(presentation.ringStyle)
+    expect(face.timerState).toBe('idle')
   })
 })

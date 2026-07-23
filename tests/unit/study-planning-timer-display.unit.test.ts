@@ -222,6 +222,23 @@ describe('planning-timer-display (focus sole-read)', () => {
     ).toBe(0)
   })
 
+  it('projectTimerProgressPercent open continuous countup has no fake focusMinutes ring', () => {
+    // Without positive targetSeconds, progress is indeterminate (0) in every state.
+    for (const timerState of ['idle', 'running', 'paused'] as const) {
+      expect(
+        projectTimerProgressPercent({
+          remainingSeconds: 600,
+          targetSeconds: null,
+          focusMinutes: 25,
+          breakMinutes: 0,
+          timerMode: 'focus',
+          clockMode: 'countup',
+          timerState
+        })
+      ).toBe(0)
+    }
+  })
+
   it('pickActiveFocusTimerSession prefers running over paused', () => {
     const paused = baseSession({ id: 'p', state: 'paused' })
     const running = baseSession({ id: 'r', state: 'running' })

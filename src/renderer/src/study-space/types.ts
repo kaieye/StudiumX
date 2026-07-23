@@ -19,8 +19,16 @@ export type StudyTimerPlan = {
   /** STC-504: clock mode (continuous default countup). */
   clockMode?: 'countdown' | 'countup'
   /**
-   * STC-504: when kind=continuous + countup, true means focusMinutes is a target;
-   * false/absent means open-ended countup (focusMinutes is display-only cache).
+   * STC-504 / continuousMode dual-write:
+   * Prefer continuousMode when set. continuousTarget is exam-only compat:
+   * continuousTarget === (continuousMode === 'exam').
+   * focusMinutes on open is display-only cache (classic default or last value);
+   * continuousMode 'open' is authoritative so V1→V2 ignores focus for open.
+   */
+  continuousMode?: 'open' | 'target' | 'exam'
+  /**
+   * Legacy exam flag (compat): true when continuousMode is exam.
+   * Do not use alone to mean target countup.
    */
   continuousTarget?: boolean
   /**

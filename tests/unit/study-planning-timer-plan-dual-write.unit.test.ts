@@ -166,6 +166,7 @@ describe('timer plan dual-write mapping', () => {
       simulationEndTime: '12:00',
       kind: 'continuous',
       clockMode: 'countup',
+      continuousMode: 'open',
       continuousTarget: false,
       breakPolicy: 'none'
     }
@@ -189,7 +190,8 @@ describe('timer plan dual-write mapping', () => {
       simulationEndTime: '12:00',
       kind: 'continuous',
       clockMode: 'countup',
-      continuousTarget: true,
+      continuousMode: 'target',
+      continuousTarget: false,
       breakPolicy: 'ask'
     })
     expect(v2.focusMinutes).toBe(120)
@@ -206,6 +208,7 @@ describe('timer plan dual-write mapping', () => {
       simulationEndTime: '12:00',
       kind: 'continuous',
       clockMode: 'countup',
+      continuousMode: 'open',
       continuousTarget: false,
       breakPolicy: 'reminder_only'
     }
@@ -218,6 +221,7 @@ describe('timer plan dual-write mapping', () => {
       kind: 'continuous',
       clockMode: 'countup',
       continuousTarget: false,
+      continuousMode: 'open',
       breakPolicy: 'reminder_only'
     })
   })

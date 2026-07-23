@@ -321,19 +321,28 @@ export function projectTimerProgressPercent(input: {
   /**
    * When countup and idle, progress stays 0 even if remainingSeconds was
    * seeded to total (or left at 0). Running/paused countup fill from value.
+   *
+   * Open continuous (countup without a positive targetSeconds) has
+   * **indeterminate** progress until product defines a soft cap — do not
+   * fall back to focusMinutes*60 (that paints a fake ring). All states
+   * return 0 when there is no positive target.
    */
   timerState?: 'idle' | 'running' | 'paused'
 }): number {
+  if (input.clockMode === 'countup') {
+    // Open continuous / missing target: no determinate ring (avoid fake focusMinutes total).
+    if (input.targetSeconds == null || input.targetSeconds <= 0) return 0
+    if (input.timerState === 'idle') return 0
+    const total = input.targetSeconds
+    const value = Math.max(0, input.remainingSeconds)
+    return Math.min(100, Math.max(0, Math.round((value / total) * 100)))
+  }
   const total =
     input.targetSeconds != null && input.targetSeconds > 0
       ? input.targetSeconds
       : (input.timerMode === 'focus' ? input.focusMinutes : input.breakMinutes) * 60
   if (total <= 0) return 0
   const value = Math.max(0, input.remainingSeconds)
-  if (input.clockMode === 'countup') {
-    if (input.timerState === 'idle') return 0
-    return Math.min(100, Math.max(0, Math.round((value / total) * 100)))
-  }
   return Math.min(100, Math.max(0, Math.round(((total - value) / total) * 100)))
 }
 

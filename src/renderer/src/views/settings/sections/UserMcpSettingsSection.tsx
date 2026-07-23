@@ -1,7 +1,7 @@
 /**
- * User MCP settings — product surface modeled on Zcode Settings → MCP:
- * list + status, add/edit, optional external-agent import, OAuth authorize.
- * Secrets never enter the renderer. No marketplace / smart-connect / export chrome.
+ * User MCP settings: list + status, add/edit, optional import, OAuth authorize.
+ * Public config DTOs stay secret-free (refs / placeholders only).
+ * No marketplace UI (product surface stays list/editor only).
  */
 
 import { Plus, RefreshCw, Search, Upload } from 'lucide-react'
@@ -349,7 +349,7 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
       setStatus({
         kind: 'success',
         text:
-          result.opened === true
+          'opened' in result && (result as { opened?: boolean }).opened === true
             ? t('mcp.status.authorizeOpened', { name: server.label })
             : t('mcp.status.authorizeOk', { name: server.label })
       })

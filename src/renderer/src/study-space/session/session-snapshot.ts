@@ -178,10 +178,18 @@ export function normalizeStudyTimerPlans(input: unknown): StudyTimerPlan[] {
     .filter((item): item is Partial<StudyTimerPlan> => Boolean(item) && typeof item === 'object')
     .map((item, index) => {
       // STC-502: preserve optional long break / breakPolicy when present in cache.
-      // STC-504: preserve kind / clockMode / continuousTarget when present.
+      // STC-504: preserve kind / clockMode / continuousMode / continuousTarget when present.
       const advanced = pickOptionalAdvancedFields(item as Record<string, unknown>)
       const kindFields = pickOptionalKindFields(item as Record<string, unknown>)
+      const continuousModeRaw = (item as { continuousMode?: unknown }).continuousMode
+      let continuousMode: StudyTimerPlan['continuousMode']
+      if (continuousModeRaw === 'open' || continuousModeRaw === 'target' || continuousModeRaw === 'exam') {
+        continuousMode = continuousModeRaw
+      } else {
+        continuousMode = undefined
+      }
       const continuousTarget =
+        continuousMode === 'exam' ||
         (item as { continuousTarget?: unknown }).continuousTarget === true
       // Continuous / exam open plans may store breakMinutes 0; widen clamp via shared seeds.
       // Treat kind 'exam' like continuous if another agent lands TimerPlanKind exam.
@@ -223,6 +231,7 @@ export function normalizeStudyTimerPlans(input: unknown): StudyTimerPlan[] {
         ...(advanced.breakPolicy !== undefined ? { breakPolicy: advanced.breakPolicy } : {}),
         ...(kindFields.kind !== undefined ? { kind: kindFields.kind } : {}),
         ...(kindFields.clockMode !== undefined ? { clockMode: kindFields.clockMode } : {}),
+        ...(continuousMode ? { continuousMode } : {}),
         ...(continuousTarget ? { continuousTarget: true } : {})
       }
     })

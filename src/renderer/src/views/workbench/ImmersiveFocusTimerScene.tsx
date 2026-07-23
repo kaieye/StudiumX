@@ -1,11 +1,5 @@
 import { useMemo, type CSSProperties, type ReactElement } from 'react'
-import { formatStudyDuration } from '../../study-space/domain'
-import {
-  formatDurationClockParts,
-  formatExamWallClock,
-  formatExamWallClockParts,
-  projectWorkbenchTimerFaceClock
-} from '../../study-space/planning-timer-face-clock-ui'
+import { projectTimerFacePresentation } from '../../study-space/planning-timer-face-clock-ui'
 import { resolveTimerPlanShellForCatalog } from '../../study-space/planning-timer-plan-catalog-ui'
 import type { TimerSessionRecord } from '../../../../shared/study-planning'
 import type { StudyTimerPlan } from '../../study-space/types'
@@ -38,17 +32,14 @@ export function buildImmersiveFocusTimerFace(input: {
   const { snapshot, defaultTimerPlanId, activeTimerSession, timerProgress } = input
   const timerPlans = snapshot.timerPlans ?? []
   const planId = defaultTimerPlanId ?? timerPlans[0]?.id ?? null
-  const appliedPlan =
-    planId && typeof resolveTimerPlanShellForCatalog === 'function'
-      ? resolveTimerPlanShellForCatalog(planId, timerPlans)
-      : null
+  const appliedPlan = planId ? resolveTimerPlanShellForCatalog(planId, timerPlans) : null
   const timerState = snapshot.timerState ?? 'idle'
   const timerMode = snapshot.timerMode === 'break' ? 'break' : 'focus'
   const remainingSeconds =
     typeof snapshot.remainingSeconds === 'number' ? snapshot.remainingSeconds : 0
   const focusMinutes = typeof snapshot.focusMinutes === 'number' ? snapshot.focusMinutes : 25
   const breakMinutes = typeof snapshot.breakMinutes === 'number' ? snapshot.breakMinutes : 5
-  const faceClock = projectWorkbenchTimerFaceClock({
+  const presentation = projectTimerFacePresentation({
     timerState,
     timerMode,
     selectedMode: timerMode,
@@ -58,26 +49,15 @@ export function buildImmersiveFocusTimerFace(input: {
     simulationStartTime: snapshot.simulationStartTime,
     simulationEndTime: snapshot.simulationEndTime,
     appliedPlan,
-    activeSessionClockMode: activeTimerSession?.clockMode ?? null
+    activeSessionClockMode: activeTimerSession?.clockMode ?? null,
+    timerProgress
   })
-  const displaySeconds = faceClock.displaySeconds
-  const isExamFace = faceClock.wallBaseSeconds != null
-  const timeParts = isExamFace
-    ? formatExamWallClockParts(faceClock.wallBaseSeconds!, displaySeconds)
-    : formatDurationClockParts(displaySeconds)
-  const remainingTime = isExamFace
-    ? formatExamWallClock(faceClock.wallBaseSeconds!, displaySeconds, {
-        alwaysSeconds: timerState === 'running' || timerState === 'paused'
-      })
-    : formatStudyDuration(displaySeconds)
-  const progress = Math.min(100, Math.max(0, timerProgress ?? 0))
-  const ringStyle = { '--timer-ring-offset': `${100 - progress}` } as CSSProperties
-  const secondValue = Number.parseInt(timeParts.seconds, 10)
+  const secondValue = Number.parseInt(presentation.timeParts.seconds, 10)
   const secondAngleDeg = (Number.isFinite(secondValue) ? secondValue : 0) * 6
   return {
-    remainingTime,
-    timeParts,
-    ringStyle,
+    remainingTime: presentation.remainingTime,
+    timeParts: presentation.timeParts,
+    ringStyle: presentation.ringStyle as CSSProperties,
     secondAngleDeg,
     timerState
   }

@@ -13,6 +13,8 @@ export {
   createContinuousCountupPlan,
   createExamSimulationPlan,
   createOpenContinuousPlan,
+  createTargetContinuousPlan,
+  OPEN_CONTINUOUS_SHELL,
   normalizeTimerPlanV2,
   validateTimerPlanV2,
   type BreakPolicy,

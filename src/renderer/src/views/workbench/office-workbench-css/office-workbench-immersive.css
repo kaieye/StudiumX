@@ -1,0 +1,1508 @@
+/* Partial of office-workbench.css — do not import directly; use ../office-workbench.css aggregator. */
+/* Section: immersive (source lines 6005-7509) */
+
+/* Immersive study-room depth transition --------------------------------------
+   The fixed flip-clock plane begins deep behind the room, then travels toward
+   the viewer until it becomes the full-size focus surface. */
+.office-workbench-stage {
+  isolation: isolate;
+  perspective: 1500px;
+  perspective-origin: 50% 48%;
+}
+
+.workbench-immersive-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  transform: translate3d(0, 112%, 0);
+  transform-style: preserve-3d;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+  transition:
+    transform 520ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 220ms ease-in;
+}
+
+.workbench-immersive-layer.is-open {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+  pointer-events: auto;
+  animation: workbench-immersive-rise 580ms cubic-bezier(0.2, 0.72, 0.25, 1) both;
+}
+
+.workbench-immersive-layer.is-closing {
+  transform: translate3d(0, 112%, 0);
+  opacity: 0;
+  pointer-events: auto;
+  animation: workbench-immersive-rise-reverse 580ms cubic-bezier(0.2, 0.72, 0.25, 1) 500ms reverse both;
+}
+
+/* The fixed clock scene sits below the room controls. */
+.office-workbench-stage.is-immersive .workbench-tools,
+.office-workbench-stage.is-immersive .workbench-music-dock,
+.office-workbench-stage.is-immersive > .workbench-leaderboard {
+  z-index: 14;
+}
+
+.office-workbench-stage.is-immersive .workbench-immersive-toggle {
+  z-index: 15;
+}
+
+/* Keep the floating tools legible over the immersive clock. The
+   material remains glass through its rim, sheen and backdrop blur, while the
+   surface tint is now dense enough to keep the content's contrast independent
+   of a bright or dark frame behind it. */
+.office-workbench-stage {
+  --workbench-readable-glass-surface:
+    linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--surface-solid) 68%, transparent),
+      color-mix(in srgb, var(--surface-solid) 48%, transparent)
+    );
+  --workbench-readable-glass-line: color-mix(in srgb, var(--surface-solid) 38%, var(--liquid-glass-line));
+  --workbench-readable-glass-blur: blur(44px) saturate(140%) contrast(1.04);
+}
+
+.office-workbench-stage.is-immersive {
+  --workbench-readable-glass-surface:
+    linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--surface-solid) 76%, transparent),
+      color-mix(in srgb, var(--surface-solid) 58%, transparent)
+    );
+  --workbench-readable-glass-line: color-mix(in srgb, var(--surface-solid) 48%, var(--liquid-glass-line));
+  --workbench-readable-glass-blur: blur(52px) saturate(135%) contrast(1.06);
+}
+
+.office-workbench-stage .workbench-pomodoro-card,
+.office-workbench-stage .workbench-task-card,
+.office-workbench-stage .workbench-music-card,
+.office-workbench-stage > .workbench-leaderboard {
+  color: var(--text);
+  border-color: var(--workbench-readable-glass-line);
+  background: var(--workbench-readable-glass-surface);
+  backdrop-filter: var(--workbench-readable-glass-blur);
+  -webkit-backdrop-filter: var(--workbench-readable-glass-blur);
+}
+
+.office-workbench-stage .workbench-pomodoro-time strong,
+.office-workbench-stage .workbench-task-head strong,
+.office-workbench-stage .workbench-leaderboard-header > strong,
+.office-workbench-stage .workbench-leaderboard-row strong {
+  text-shadow: 0 1px 2px color-mix(in srgb, var(--surface-solid) 70%, transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .office-workbench-stage .workbench-pomodoro-card,
+  .office-workbench-stage .workbench-task-card,
+  .office-workbench-stage .workbench-music-card,
+  .office-workbench-stage > .workbench-leaderboard {
+    background: var(--surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+.workbench-immersive-plane {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #07090e;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 34px;
+  transform: translate3d(0, 0, -1150px) scale(0.82) rotateX(4deg);
+  transform-origin: center center;
+  transform-style: preserve-3d;
+  filter: brightness(0.72) saturate(0.78) blur(1.4px);
+  box-shadow: 0 36px 90px rgba(3, 7, 15, 0.42);
+  backface-visibility: hidden;
+  will-change: transform, filter, border-radius, box-shadow;
+  transition:
+    transform 520ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-radius 500ms cubic-bezier(0.4, 0, 0.2, 1),
+    filter 500ms ease-in,
+    box-shadow 500ms ease-in;
+}
+
+.workbench-immersive-layer.is-open .workbench-immersive-plane {
+  border-color: transparent;
+  border-radius: 0;
+  transform: translate3d(0, 0, 0) scale(1) rotateX(0);
+  filter: brightness(1) saturate(1) blur(0);
+  box-shadow: 0 0 0 rgba(3, 7, 15, 0);
+  animation: workbench-immersive-approach 720ms cubic-bezier(0.4, 0, 0.2, 1) 320ms both;
+}
+
+.workbench-immersive-layer.is-closing .workbench-immersive-plane {
+  border-color: rgba(255, 255, 255, 0.34);
+  border-radius: 34px;
+  transform: translate3d(0, 0, -1150px) scale(0.82) rotateX(4deg);
+  filter: brightness(0.72) saturate(0.78) blur(1.4px);
+  box-shadow: 0 36px 90px rgba(3, 7, 15, 0.42);
+  animation: workbench-immersive-approach-reverse 720ms cubic-bezier(0.4, 0, 0.2, 1) 55ms reverse both;
+}
+
+@keyframes workbench-immersive-rise {
+  0% {
+    transform: translate3d(0, 112%, 0);
+    opacity: 0;
+  }
+
+  22% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+/* Separate names restart the timeline when switching from the filled opening animation. */
+@keyframes workbench-immersive-rise-reverse {
+  0% {
+    transform: translate3d(0, 112%, 0);
+    opacity: 0;
+  }
+
+  22% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes workbench-immersive-approach {
+  0% {
+    border-color: rgba(255, 255, 255, 0.34);
+    border-radius: 34px;
+    transform: translate3d(0, 0, -1150px) scale(0.82) rotateX(4deg);
+    filter: brightness(0.72) saturate(0.78) blur(1.4px);
+    box-shadow: 0 36px 90px rgba(3, 7, 15, 0.42);
+  }
+
+  100% {
+    border-color: transparent;
+    border-radius: 0;
+    transform: translate3d(0, 0, 0) scale(1) rotateX(0);
+    filter: brightness(1) saturate(1) blur(0);
+    box-shadow: 0 0 0 rgba(3, 7, 15, 0);
+  }
+}
+
+@keyframes workbench-immersive-approach-reverse {
+  0% {
+    border-color: rgba(255, 255, 255, 0.34);
+    border-radius: 34px;
+    transform: translate3d(0, 0, -1150px) scale(0.82) rotateX(4deg);
+    filter: brightness(0.72) saturate(0.78) blur(1.4px);
+    box-shadow: 0 36px 90px rgba(3, 7, 15, 0.42);
+  }
+
+  100% {
+    border-color: transparent;
+    border-radius: 0;
+    transform: translate3d(0, 0, 0) scale(1) rotateX(0);
+    filter: brightness(1) saturate(1) blur(0);
+    box-shadow: 0 0 0 rgba(3, 7, 15, 0);
+  }
+}
+
+.workbench-immersive-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(4, 7, 12, 0.08), transparent 24%, transparent 70%, rgba(4, 7, 12, 0.3)),
+    radial-gradient(circle at 50% 46%, transparent 44%, rgba(3, 5, 10, 0.22) 100%);
+}
+
+/* The lower arrow is the anchor for contextual controls. In immersive mode,
+   hovering or keyboard-focusing it opens a compact arc without blocking the video. */
+.workbench-immersive-controls {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  z-index: 13;
+  width: 196px;
+  height: 180px;
+  transform: translateX(-50%);
+}
+
+/* The true hit box covers the arrow and the entire fan. Unlike a pseudo-element
+   enabled by :hover, it cannot keep the menu latched after the pointer leaves. */
+.workbench-immersive-controls::before {
+  display: none;
+}
+
+.workbench-immersive-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  z-index: 2;
+  width: 72px;
+  height: 66px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: color-mix(in srgb, var(--text) 82%, #ffffff);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transform: translateX(-50%);
+  transition:
+    color 180ms ease,
+    transform 160ms ease-out,
+    filter 180ms ease;
+}
+
+.workbench-immersive-toggle svg {
+  filter: drop-shadow(0 3px 8px rgba(25, 35, 56, 0.24));
+}
+
+.workbench-immersive-controls.is-open .workbench-immersive-toggle {
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.workbench-immersive-toggle:active {
+  transform: translateX(-50%) scale(0.86);
+}
+
+:root:not([data-resolved-theme='dark']) {
+  --workbench-clock-digit: #c1c1c1;
+  --workbench-clock-line: rgba(0, 0, 0, 0.94);
+  --workbench-quick-note-surface:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(243, 248, 255, 0.9));
+  --workbench-quick-note-line: rgba(186, 204, 232, 0.9);
+  --workbench-quick-note-shadow: 0 24px 62px rgba(36, 62, 106, 0.18);
+  --workbench-quick-note-input: rgba(248, 251, 255, 0.86);
+  --workbench-quick-note-input-line: rgba(187, 204, 231, 0.84);
+  --workbench-quick-note-placeholder: #8090a8;
+  --workbench-quick-note-close: rgba(79, 124, 245, 0.08);
+  --workbench-quick-note-close-hover: rgba(79, 124, 245, 0.15);
+  --workbench-immersive-action-shadow: 0 12px 30px rgba(36, 62, 106, 0.2);
+}
+
+:root[data-resolved-theme='dark'] {
+  --workbench-clock-digit: #c9c9c9;
+  --workbench-clock-line: rgba(0, 0, 0, 0.94);
+  --workbench-quick-note-surface:
+    linear-gradient(145deg, rgba(38, 45, 61, 0.94), rgba(19, 24, 34, 0.94));
+  --workbench-quick-note-line: rgba(176, 199, 255, 0.25);
+  --workbench-quick-note-shadow: 0 26px 70px rgba(0, 0, 0, 0.48);
+  --workbench-quick-note-input: rgba(8, 13, 23, 0.46);
+  --workbench-quick-note-input-line: rgba(193, 211, 255, 0.18);
+  --workbench-quick-note-placeholder: rgba(226, 234, 248, 0.56);
+  --workbench-quick-note-close: rgba(255, 255, 255, 0.08);
+  --workbench-quick-note-close-hover: rgba(255, 255, 255, 0.16);
+  --workbench-immersive-action-shadow: 0 12px 30px rgba(0, 0, 0, 0.34);
+}
+
+.workbench-immersive-toggle:focus-visible,
+.workbench-immersive-arc-action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 64%, #ffffff);
+  outline-offset: 3px;
+}
+
+.workbench-clock {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--workbench-clock-digit);
+  background: #000;
+  isolation: isolate;
+}
+
+.workbench-clock__display {
+  width: min(100%, 520px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(28px, 5vw, 58px);
+  color: inherit;
+  font-family: 'Arial Black', Arial, Helvetica, sans-serif;
+  font-size: clamp(88px, 16vw, 144px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  letter-spacing: -0.075em;
+  line-height: 0.94;
+  text-shadow: none;
+  transform: scaleX(0.88);
+}
+
+.workbench-clock__pair {
+  display: flex;
+  align-items: center;
+  gap: clamp(9px, 1.3vw, 18px);
+}
+
+.workbench-clock__digit {
+  position: relative;
+  width: 0.68em;
+  height: 1.16em;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform-style: preserve-3d;
+}
+
+.workbench-clock__digit::before {
+  position: absolute;
+  z-index: 8;
+  inset: calc(50% - 2px) 0 auto;
+  height: 4px;
+  background: var(--workbench-clock-line);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
+  content: '';
+  pointer-events: none;
+}
+
+.workbench-clock__face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: inherit;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  will-change: transform, filter, opacity;
+}
+
+.workbench-clock__face-value {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  line-height: 1;
+  text-align: center;
+  transform: translateY(0.025em);
+}
+
+.workbench-clock__face--current-top,
+.workbench-clock__face--previous-top {
+  clip-path: inset(0 0 50% 0);
+}
+
+.workbench-clock__face--current-bottom,
+.workbench-clock__face--previous-bottom,
+.workbench-clock__face--next-bottom {
+  clip-path: inset(50% 0 0 0);
+}
+
+.workbench-clock__face--current-top {
+  z-index: 1;
+}
+
+.workbench-clock__face--current-bottom {
+  z-index: 1;
+}
+
+.workbench-clock__face--previous-top {
+  z-index: 5;
+  transform-origin: 50% 100%;
+}
+
+.workbench-clock__face--previous-bottom {
+  z-index: 4;
+}
+
+.workbench-clock__face--next-bottom {
+  z-index: 6;
+  transform: perspective(900px) rotateX(90deg);
+  transform-origin: 50% 0%;
+}
+
+.workbench-clock__digit.is-flipping .workbench-clock__face--previous-top {
+  animation: workbench-clock-page-out 360ms cubic-bezier(0.55, 0.05, 0.67, 0.19) both;
+}
+
+.workbench-clock__digit.is-flipping .workbench-clock__face--previous-bottom {
+  animation: workbench-clock-previous-bottom 680ms steps(1, end) both;
+}
+
+.workbench-clock__digit.is-flipping .workbench-clock__face--next-bottom {
+  animation: workbench-clock-page-in 680ms cubic-bezier(0.18, 0.79, 0.25, 1) both;
+}
+
+.workbench-clock__digit.is-flipping .workbench-clock__face--current-bottom {
+  opacity: 0;
+  animation: workbench-clock-reveal-current 1ms linear 680ms both;
+}
+
+.workbench-immersive-clock-scene {
+  position: absolute;
+  inset: 0;
+  padding: clamp(22px, 6vh, 72px) clamp(18px, 7vw, 110px);
+  container-type: inline-size;
+}
+
+.workbench-immersive-clock-scene .workbench-clock__display {
+  width: min(100%, 1540px);
+  gap: clamp(32px, 5cqw, 76px);
+  font-size: clamp(150px, min(35cqw, 72vh), 500px);
+  transform: scaleX(0.88);
+}
+
+.workbench-immersive-clock-scene .workbench-clock__pair {
+  gap: clamp(10px, 1.4cqw, 22px);
+}
+
+.workbench-immersive-clock-scene .workbench-clock__digit::before {
+  inset: calc(50% - clamp(3px, 0.25vw, 5px)) 0 auto;
+  height: clamp(6px, 0.45vw, 9px);
+}
+
+/* Full-viewport focus-timer dial (pomodoro face, enlarged). */
+.workbench-immersive-focus-timer-scene {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: clamp(20px, 5vh, 64px) clamp(16px, 5vw, 80px);
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 42%, color-mix(in srgb, var(--pomodoro-accent, #5b8def) 18%, transparent), transparent 70%),
+    radial-gradient(circle at 50% 100%, color-mix(in srgb, #0b1220 88%, transparent), #05080f 72%);
+  color: #f4f7fb;
+}
+
+.workbench-immersive-focus-timer-scene__glow {
+  position: absolute;
+  inset: 18% 22%;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--pomodoro-accent, #5b8def) 22%, transparent), transparent 68%);
+  filter: blur(28px);
+  pointer-events: none;
+}
+
+.workbench-immersive-focus-timer-scene__face {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: min(100%, 720px);
+}
+
+.workbench-immersive-focus-timer-scene__ring.workbench-timer-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(72vmin, 520px);
+  height: min(72vmin, 520px);
+  border-radius: 50%;
+  aspect-ratio: 1;
+  container-type: size;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-immersive-focus-timer-scene__ring.workbench-timer-ring::before {
+  content: '';
+  position: absolute;
+  inset: clamp(14px, 3.5cqi, 28px);
+  z-index: 0;
+  border: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(28, 38, 58, 0.92), rgba(8, 12, 22, 0.96)),
+    radial-gradient(130% 80% at 18% 0%, rgba(255, 255, 255, 0.14), transparent 55%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -12px 28px rgba(0, 0, 0, 0.35);
+}
+
+/* Primary minutes alone on the geometric center of the ring. */
+.workbench-immersive-focus-timer-scene__time.workbench-pomodoro-time {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Analogue seconds sub-dial; angle via --second-hand-angle on the ring. */
+.workbench-immersive-focus-timer-scene__seconds-clock {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 50%;
+  width: clamp(52px, 18cqi, 88px);
+  height: clamp(52px, 18cqi, 88px);
+  /* Nudge below the primary minutes so the dial doesn't crowd the type. */
+  transform: translate(-50%, 78%);
+  pointer-events: none;
+}
+
+.workbench-immersive-focus-timer-scene__seconds-clock-face {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, #ffffff 28%, transparent);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(40, 52, 78, 0.95), rgba(10, 14, 24, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.workbench-immersive-focus-timer-scene__seconds-clock-tick {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1.5px;
+  height: 18%;
+  margin-left: -0.75px;
+  background: color-mix(in srgb, #ffffff 38%, transparent);
+  border-radius: 1px;
+  transform-origin: 50% 0;
+  transform: rotate(calc(var(--tick) * 30deg)) translateY(-48%);
+}
+
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='0'] { --tick: 0; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='1'] { --tick: 1; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='2'] { --tick: 2; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='3'] { --tick: 3; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='4'] { --tick: 4; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='5'] { --tick: 5; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='6'] { --tick: 6; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='7'] { --tick: 7; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='8'] { --tick: 8; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='9'] { --tick: 9; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='10'] { --tick: 10; }
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='11'] { --tick: 11; }
+
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='0'],
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='3'],
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='6'],
+.workbench-immersive-focus-timer-scene__seconds-clock-tick[data-tick='9'] {
+  width: 2px;
+  margin-left: -1px;
+  height: 22%;
+  background: color-mix(in srgb, #ffffff 62%, transparent);
+}
+
+.workbench-immersive-focus-timer-scene__seconds-hand {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  width: 2px;
+  height: 38%;
+  margin-left: -1px;
+  border-radius: 2px 2px 1px 1px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pomodoro-accent, #5b8def) 92%, #ffffff),
+    color-mix(in srgb, var(--pomodoro-accent, #5b8def) 70%, #172034)
+  );
+  box-shadow: 0 0 6px color-mix(in srgb, var(--pomodoro-accent, #5b8def) 45%, transparent);
+  transform-origin: 50% 100%;
+  transform: rotate(var(--second-hand-angle, 0deg));
+  will-change: transform;
+}
+
+.workbench-immersive-focus-timer-scene__seconds-clock.is-running
+  .workbench-immersive-focus-timer-scene__seconds-hand {
+  transition: transform 0.95s linear;
+}
+
+.workbench-immersive-focus-timer-scene__seconds-hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f4f7fb;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pomodoro-accent, #5b8def) 55%, transparent);
+  transform: translate(-50%, -50%);
+}
+
+.workbench-immersive-focus-timer-scene .workbench-timer-ring__track {
+  stroke: color-mix(in srgb, #ffffff 16%, transparent);
+}
+
+.workbench-immersive-focus-timer-scene .workbench-timer-ring__progress {
+  stroke-width: 3.2;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--pomodoro-accent, #5b8def) 55%, transparent));
+}
+
+.workbench-scene-picker__focus-timer-preview {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--pomodoro-accent, #5b8def) 28%, transparent), transparent 68%),
+    #05080f;
+}
+
+.workbench-scene-picker__focus-timer-ring.workbench-timer-ring {
+  position: relative;
+  width: min(72%, 120px);
+  height: min(72%, 120px);
+  border-radius: 50%;
+  aspect-ratio: 1;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-scene-picker__focus-timer-ring.workbench-timer-ring::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  z-index: 0;
+  border: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(28, 38, 58, 0.9), rgba(8, 12, 22, 0.95)),
+    radial-gradient(130% 80% at 18% 0%, rgba(255, 255, 255, 0.12), transparent 55%);
+}
+
+.workbench-scene-picker__focus-timer-ring .workbench-pomodoro-time {
+  margin: 0;
+}
+
+.workbench-scene-picker__focus-timer-ring .workbench-pomodoro-time strong,
+.workbench-scene-picker__focus-timer-ring .workbench-pomodoro-time__primary {
+  color: #f7fafc;
+  font-size: clamp(14px, 4.2vw, 22px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+}
+
+.workbench-scene-picker-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(3, 7, 15, 0.46);
+  backdrop-filter: blur(16px) saturate(135%);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+}
+
+.workbench-scene-picker-backdrop.is-drop-active {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.workbench-scene-picker {
+  box-sizing: border-box;
+  width: min(760px, calc(100% - 24px));
+  max-height: min(760px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  overflow: hidden;
+  color: var(--text);
+  border: 1px solid var(--workbench-quick-note-line);
+  border-radius: 20px;
+  background: var(--workbench-quick-note-surface);
+  box-shadow:
+    var(--workbench-quick-note-shadow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+  /*
+   * Opacity-only enter: scale/translate on this box used to fight grid
+   * aspect-ratio layout on first paint (cards stacked until a reflow).
+   */
+  animation: workbench-scene-picker-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.workbench-scene-picker__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.workbench-scene-picker__title {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+/* Icon-only close: no outer ring / bordered plate. */
+.workbench-scene-picker__close {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  color: var(--text-muted);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.workbench-scene-picker__close:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+}
+
+.workbench-scene-picker__close:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 64%, #ffffff);
+  outline-offset: 2px;
+}
+
+.workbench-scene-picker__grid {
+  display: grid;
+  /* Do not flex-shrink: shrinking + aspect-ratio cards collapses rows into overlap. */
+  flex: 0 0 auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /*
+   * Cap the viewport to ~3 rows × 4 cols (12 cards). Cards use aspect-ratio 4/3.
+   * Content width ≈ min(732px, 100vw − chrome): picker max 760 − 28px padding,
+   * backdrop padding ~40px, outer margins ~24px → 100vw − 92px.
+   * cardWidth = (contentWidth − 3×10px gaps) / 4
+   * maxHeight = 3 × cardHeight + 2 × 10px row gaps
+   */
+  max-height: calc(3 * (((min(732px, 100vw - 92px) - 30px) / 4) * 3 / 4) + 20px);
+}
+
+.workbench-scene-picker__preset {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  height: auto;
+  min-height: auto;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  padding: 10px;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 12px;
+  background: #030303;
+  box-shadow: none;
+  cursor: pointer;
+  isolation: isolate;
+}
+
+.workbench-scene-picker__preset.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 68%, #ffffff 32%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 23%, transparent);
+}
+
+.workbench-scene-picker__preset:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 64%, #ffffff);
+  outline-offset: 3px;
+}
+
+.workbench-scene-picker__preset::after {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(8, 14, 24, 0.02) 30%, rgba(7, 12, 22, 0.9) 100%);
+  content: '';
+}
+
+.workbench-scene-picker__delete {
+  position: absolute;
+  z-index: 2;
+  right: 8px;
+  bottom: 8px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  color: #ffffff;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.workbench-scene-picker__delete:hover {
+  color: #ffb4b4;
+}
+
+.workbench-scene-picker__delete:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.workbench-scene-picker__name-input {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  color: #ffffff;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+}
+
+.workbench-immersive-video,
+.workbench-scene-picker__video-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.workbench-immersive-video {
+  position: absolute;
+  inset: 0;
+}
+
+.workbench-scene-picker__video-preview {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+}
+
+.workbench-scene-picker__upload {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: center;
+  gap: 6px;
+  padding: 16px 14px;
+  color: var(--text-muted);
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+  text-align: center;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.workbench-scene-picker__upload strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.workbench-scene-picker__upload span {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workbench-scene-picker__upload.is-drop-active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 72%, #ffffff);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-solid));
+}
+
+.workbench-scene-picker__file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.workbench-scene-picker__upload-btn {
+  margin-top: 6px;
+  padding: 9px 16px;
+  color: #ffffff;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 86%, #172034);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.workbench-scene-picker__upload-btn:hover {
+  background: color-mix(in srgb, var(--accent) 94%, #172034);
+}
+
+.workbench-scene-picker__upload-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 64%, #ffffff);
+  outline-offset: 3px;
+}
+
+.workbench-scene-picker__clock-preview {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  padding: 8px 10px;
+  container-type: inline-size;
+}
+
+.workbench-scene-picker__clock-preview .workbench-clock__display {
+  width: 100%;
+  gap: clamp(6px, 5cqw, 12px);
+  font-size: clamp(28px, 18cqw, 44px);
+  transform: scaleX(0.88);
+}
+
+.workbench-scene-picker__clock-preview .workbench-clock__pair {
+  gap: clamp(3px, 2.4cqw, 7px);
+}
+
+.workbench-scene-picker__clock-preview .workbench-clock__digit::before {
+  inset: calc(50% - 1px) 0 auto;
+  height: 2px;
+}
+
+.workbench-scene-picker__preset-copy,
+.workbench-scene-picker__selected-mark {
+  position: relative;
+  z-index: 1;
+}
+
+.workbench-scene-picker__preset-copy {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.workbench-scene-picker__preset-copy strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.workbench-scene-picker__preset-copy small {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+@media (max-width: 720px) {
+  .workbench-scene-picker__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    /* 3 visible rows × 2 cols; one col gap of 10px */
+    max-height: calc(3 * (((min(732px, 100vw - 92px) - 10px) / 2) * 3 / 4) + 20px);
+  }
+}
+
+@media (max-width: 420px) {
+  .workbench-scene-picker__grid {
+    grid-template-columns: minmax(0, 1fr);
+    /* 3 visible rows × 1 col */
+    max-height: calc(3 * (min(732px, 100vw - 92px) * 3 / 4) + 20px);
+  }
+}
+
+.workbench-scene-picker__selected-mark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 3px 6px;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 76%, #172034);
+  font-size: 9px;
+  font-weight: 760;
+  line-height: 1;
+}
+
+@keyframes workbench-scene-picker-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes workbench-clock-page-out {
+  0% {
+    opacity: 1;
+    filter: brightness(1);
+    transform: perspective(900px) rotateX(0deg);
+  }
+
+  100% {
+    opacity: 0;
+    filter: brightness(0.32);
+    transform: perspective(900px) rotateX(-90deg);
+  }
+}
+
+@keyframes workbench-clock-previous-bottom {
+  0%, 47% {
+    opacity: 1;
+  }
+
+  48%, 100% {
+    opacity: 0;
+  }
+}
+
+@keyframes workbench-clock-page-in {
+  0%, 43% {
+    filter: brightness(0.3);
+    transform: perspective(900px) rotateX(90deg);
+  }
+
+  100% {
+    filter: brightness(1);
+    transform: perspective(900px) rotateX(0deg);
+  }
+}
+
+@keyframes workbench-clock-reveal-current {
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-clock__digit.is-flipping .workbench-clock__face--previous-top,
+  .workbench-clock__digit.is-flipping .workbench-clock__face--previous-bottom,
+  .workbench-clock__digit.is-flipping .workbench-clock__face--next-bottom {
+    display: none;
+    animation: none;
+  }
+
+  .workbench-clock__digit.is-flipping .workbench-clock__face--current-bottom {
+    opacity: 1;
+    animation: none;
+  }
+}
+
+/* Shortcut icons remain at their final positions and scale into view together. */
+.workbench-immersive-arc-menu {
+  position: absolute;
+  left: 50%;
+  bottom: 33px;
+  z-index: 1;
+  width: 196px;
+  height: 146px;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: visibility 0s linear 220ms;
+}
+
+.workbench-immersive-arc-menu.is-active {
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+/* Fullscreen no longer pins the exit control open — the whole fan (including
+   enter/exit fullscreen) follows hover/focus via .is-active only. */
+
+.workbench-immersive-arc-action {
+  --arc-x: 0px;
+  --arc-y: -108px;
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: var(--text);
+  border: 1px solid var(--workbench-readable-glass-line);
+  border-radius: 50%;
+  background: var(--workbench-readable-glass-surface);
+  box-shadow:
+    var(--workbench-immersive-action-shadow),
+    inset 0 1px 0 color-mix(in srgb, var(--surface-solid) 26%, transparent);
+  backdrop-filter: var(--workbench-readable-glass-blur);
+  -webkit-backdrop-filter: var(--workbench-readable-glass-blur);
+  cursor: pointer;
+  opacity: 0;
+  transform: translate(
+      calc(-50% + var(--arc-x)),
+      calc(50% + var(--arc-y))
+    ) scale(0.5);
+  transform-origin: center;
+  transition:
+    opacity 240ms ease-out,
+    transform 360ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.workbench-immersive-arc-menu.is-active > .workbench-immersive-arc-action {
+  opacity: 1;
+  transform: translate(
+      calc(-50% + var(--arc-x)),
+      calc(50% + var(--arc-y))
+    ) scale(1);
+  animation: workbench-immersive-arc-action-in 360ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+/* Pressed/active style for fullscreen uses aria-pressed + optional hover;
+   do not force the control visible while the fan is collapsed. */
+.workbench-immersive-arc-menu.is-active > .workbench-immersive-arc-action--fullscreen[aria-pressed='true'] {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--accent) 64%, #ffffff);
+  background: color-mix(in srgb, var(--accent) 68%, var(--surface-solid));
+  box-shadow:
+    0 14px 34px color-mix(in srgb, var(--accent) 34%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+@keyframes workbench-immersive-arc-action-in {
+  from {
+    opacity: 0;
+    transform: translate(
+        calc(-50% + var(--arc-x)),
+        calc(50% + var(--arc-y))
+      ) scale(0.4);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(
+        calc(-50% + var(--arc-x)),
+        calc(50% + var(--arc-y))
+      ) scale(1);
+  }
+}
+
+.workbench-immersive-arc-action--hide {
+  --arc-x: -61px;
+  --arc-y: -35px;
+}
+
+.workbench-immersive-arc-action--note {
+  --arc-x: -24px;
+  --arc-y: -66px;
+}
+
+.workbench-immersive-arc-action--scene {
+  --arc-x: 24px;
+  --arc-y: -66px;
+}
+
+.workbench-immersive-arc-action--fullscreen {
+  --arc-x: 61px;
+  --arc-y: -35px;
+}
+
+.workbench-immersive-arc-action.is-active {
+  color: var(--accent);
+}
+
+.workbench-quick-note {
+  position: absolute;
+  left: 50%;
+  bottom: 142px;
+  z-index: 16;
+  width: min(390px, calc(100% - 32px));
+  min-height: 240px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px;
+  color: var(--text);
+  border: 1px solid var(--workbench-quick-note-line);
+  border-radius: 26px;
+  background: var(--workbench-quick-note-surface);
+  box-shadow:
+    var(--workbench-quick-note-shadow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+  backdrop-filter: blur(28px) saturate(145%);
+  -webkit-backdrop-filter: blur(28px) saturate(145%);
+  transform: translateX(-50%);
+  animation: workbench-quick-note-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.workbench-quick-note__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workbench-quick-note__header > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workbench-quick-note__header strong {
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.workbench-quick-note__close {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: inherit;
+  border: 1px solid var(--workbench-quick-note-input-line);
+  border-radius: 50%;
+  background: var(--workbench-quick-note-close);
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.workbench-quick-note__close:hover {
+  background: var(--workbench-quick-note-close-hover);
+  transform: scale(1.06);
+}
+
+.workbench-quick-note__close:focus-visible,
+.workbench-quick-note__input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 68%, #ffffff);
+  outline-offset: 2px;
+}
+
+.workbench-quick-note__input {
+  width: 100%;
+  min-height: 178px;
+  resize: vertical;
+  padding: 13px 14px;
+  color: inherit;
+  font: inherit;
+  line-height: 1.6;
+  border: 1px solid var(--workbench-quick-note-input-line);
+  border-radius: 17px;
+  background: var(--workbench-quick-note-input);
+  box-sizing: border-box;
+}
+
+.workbench-quick-note__input::placeholder {
+  color: var(--workbench-quick-note-placeholder);
+}
+
+@keyframes workbench-quick-note-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@media (max-width: 560px) {
+  .workbench-immersive-arc-action--hide {
+    --arc-x: -48px;
+    --arc-y: -20px;
+  }
+
+  .workbench-immersive-arc-action--note {
+    --arc-x: -18px;
+    --arc-y: -58px;
+  }
+
+  .workbench-immersive-arc-action--scene {
+    --arc-x: 18px;
+    --arc-y: -58px;
+  }
+
+  .workbench-immersive-arc-action--fullscreen {
+    --arc-x: 48px;
+    --arc-y: -20px;
+  }
+
+  .workbench-quick-note {
+    bottom: 132px;
+    min-height: 210px;
+  }
+
+  .workbench-quick-note__input {
+    min-height: 145px;
+  }
+}
+
+.office-workbench-stage.are-room-cards-hidden .workbench-pomodoro-card,
+.office-workbench-stage.are-room-cards-hidden .workbench-task-card,
+.office-workbench-stage.are-room-cards-hidden .workbench-music-dock,
+.office-workbench-stage.are-room-cards-hidden > .workbench-leaderboard {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(12px) scale(0.97);
+  transition:
+    visibility 0s linear 200ms,
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (hover: hover) {
+  .workbench-immersive-controls.is-open .workbench-immersive-toggle:hover {
+    color: #ffffff;
+    filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.32));
+    transform: translateX(-50%) translateY(-3px);
+  }
+
+  .workbench-immersive-arc-action:hover {
+    color: var(--accent);
+    border-color: color-mix(in srgb, #ffffff 48%, var(--workbench-readable-glass-line));
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.08)),
+      var(--workbench-readable-glass-surface);
+    box-shadow:
+      0 16px 34px rgba(0, 0, 0, 0.26),
+      inset 0 1px 0 rgba(255, 255, 255, 0.36);
+    transform: translate(
+        calc(-50% + var(--arc-x)),
+        calc(50% + var(--arc-y) - 4px)
+      ) scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-immersive-arc-action,
+  .workbench-immersive-toggle,
+  .workbench-quick-note,
+  .workbench-quick-note__close,
+  .office-workbench-stage.are-room-cards-hidden .workbench-pomodoro-card,
+  .office-workbench-stage.are-room-cards-hidden .workbench-task-card,
+  .office-workbench-stage.are-room-cards-hidden .workbench-music-dock,
+  .office-workbench-stage.are-room-cards-hidden > .workbench-leaderboard {
+    transition-duration: 1ms;
+  }
+}
+
+
+/* Disclosure cards use their full compact surface as the activation target.
+   The former card padding sat outside each button, leaving only its text row
+   clickable. Keep the visual footprint unchanged while moving that padding
+   onto the actual controls. */
+.office-workbench-stage .workbench-tools > .workbench-pomodoro-card,
+.office-workbench-stage .workbench-tools > .workbench-task-card,
+.office-workbench-stage > .workbench-leaderboard {
+  --workbench-disclosure-toggle-padding: 14px;
+  padding: 0;
+}
+
+.workbench-pomodoro-toggle,
+.workbench-task-toggle-card,
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle {
+  min-height: 46px;
+  padding: 0 var(--workbench-disclosure-toggle-padding);
+}
+
+.workbench-pomodoro-reveal-inner {
+  padding: 10px var(--workbench-disclosure-toggle-padding) 0;
+}
+
+.workbench-task-reveal-inner {
+  /* Keep header actions clear of the card top rim. */
+  padding: 12px var(--workbench-disclosure-toggle-padding) 10px;
+}
+
+.office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-reveal-inner {
+  padding: 0 var(--workbench-disclosure-toggle-padding) var(--workbench-disclosure-toggle-padding);
+}
+
+/* The task card should retain its glass rim without a dark lower edge beside
+   the right-hand scrollbar. */
+.office-workbench-stage .workbench-tools > .workbench-task-card {
+  box-shadow: inset 0 1px 0 var(--liquid-glass-rim, rgba(255, 255, 255, 0.7));
+}
+
+/* Expanded task header: learning analytics now occupies the left-hand slot
+   formerly used by the redundant "清单管理" label. */
+.workbench-task-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.workbench-task-head > .workbench-task-analytics-button {
+  justify-self: start;
+}
+
+/* Flat text/icon actions: no glass pill chrome around header controls. */
+.workbench-task-head > .workbench-task-analytics-button,
+.workbench-task-actions > button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Add-task editor is displayed above the study room instead of navigating to
+   the task-details route. Keep this transient dialog compact and remove the
+   extra bottom shadow that read as a scrollbar shadow. */
+.office-workbench-task-add-overlay,
+.office-workbench-timer-settings-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+}
+
+.office-workbench-task-add-overlay .study-schedule-editor-backdrop,
+.office-workbench-timer-settings-overlay .study-schedule-editor-backdrop {
+  position: absolute;
+  padding: 16px;
+}
+
+.office-workbench-task-add-overlay .study-schedule-editor-panel {
+  width: min(500px, 100%);
+  max-height: min(560px, 100%);
+  gap: 10px;
+  padding: 14px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.office-workbench-task-add-overlay .study-schedule-editor-panel::-webkit-scrollbar-track {
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-tools > .workbench-pomodoro-card,
+  .office-workbench-stage .workbench-tools > .workbench-task-card,
+  .office-workbench-stage > .workbench-leaderboard {
+    --workbench-disclosure-toggle-padding: 8px;
+  }
+
+  .workbench-pomodoro-toggle,
+  .workbench-task-toggle-card,
+  .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-toggle {
+    min-height: 34px;
+  }
+
+  .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel,
+  .office-workbench-stage > .workbench-leaderboard.is-open .workbench-leaderboard-panel {
+    height: 220px;
+    min-height: 220px;
+    max-height: 220px;
+  }
+
+  .office-workbench-task-add-overlay .study-schedule-editor-panel {
+    max-height: min(520px, 100%);
+  }
+}
+

@@ -102,7 +102,7 @@ describe('WorkbenchPomodoro a11y (STC-603)', () => {
     expect(callbacks.onToggleTimer).toHaveBeenCalledTimes(1)
   })
 
-  it('r resets and mode keys switch tabs', async () => {
+  it('r resets and mode keys switch focus/break via face arrows', async () => {
     const user = userEvent.setup()
     const callbacks = baseCallbacks()
     render(
@@ -117,10 +117,20 @@ describe('WorkbenchPomodoro a11y (STC-603)', () => {
     await user.keyboard('r')
     expect(callbacks.onResetTimer).toHaveBeenCalledTimes(1)
 
+    // Mode tabs were peeled to side arrows; keyboard still maps b/f + arrows.
     await user.keyboard('b')
-    expect(screen.getByRole('tab', { name: '休息' })).toHaveAttribute('aria-selected', 'true')
+    const face = document.querySelector('.workbench-timer-face')
+    expect(face).toHaveAttribute('data-active-mode', 'break')
+    expect(screen.getByTestId('workbench-pomodoro-mode-prev')).toHaveAttribute(
+      'aria-label',
+      '切换到专注'
+    )
     await user.keyboard('{ArrowLeft}')
-    expect(screen.getByRole('tab', { name: '专注' })).toHaveAttribute('aria-selected', 'true')
+    expect(face).toHaveAttribute('data-active-mode', 'focus')
+    expect(screen.getByTestId('workbench-pomodoro-mode-prev')).toHaveAttribute(
+      'aria-label',
+      '切换到休息'
+    )
   })
 
   it('+ extends break only when extend control is available', async () => {
@@ -167,6 +177,7 @@ describe('WorkbenchPomodoro a11y (STC-603)', () => {
     await user.click(screen.getByRole('button', { name: '计时设置' }))
     const nameInput = screen.getByLabelText('方案名称')
     await user.click(nameInput)
+    await user.clear(nameInput)
     await user.keyboard('r')
     expect(callbacks.onResetTimer).not.toHaveBeenCalled()
     expect(nameInput).toHaveValue('r')

@@ -3,6 +3,7 @@ import {
   createContinuousCountupPlan,
   createExamSimulationPlan,
   createOpenContinuousPlan,
+  createTargetContinuousPlan,
   createClassicPomodoroPlan
 } from '../../src/shared/study-planning'
 import {
@@ -60,19 +61,21 @@ describe('project continuous open / target', () => {
       ...window,
       kind: 'continuous',
       clockMode: 'countup',
+      continuousMode: 'open',
       continuousTarget: false,
       breakPolicy: 'reminder_only'
     }
     const v2 = projectV1TimerPlanToV2(v1)
     expect(v2.kind).toBe('continuous')
     expect(v2.clockMode).toBe('countup')
+    expect(v2.continuousMode).toBe('open')
     expect(v2.focusMinutes).toBeUndefined()
     expect(v2.breakPolicy).toBe('reminder_only')
     expect(isOpenContinuousPlanV2(v2)).toBe(true)
     expect(resolveStartTargetSeconds(v2)).toBeNull()
   })
 
-  it('projects target continuous with focusMinutes', () => {
+  it('projects target continuous with focusMinutes (not exam via continuousTarget alone)', () => {
     const v1: StudyTimerPlan = {
       id: 'cont-target',
       name: 'Target',
@@ -81,14 +84,34 @@ describe('project continuous open / target', () => {
       ...window,
       kind: 'continuous',
       clockMode: 'countup',
-      continuousTarget: true,
+      continuousMode: 'target',
+      continuousTarget: false,
       breakPolicy: 'none'
     }
     const v2 = projectV1TimerPlanToV2(v1)
     expect(v2.focusMinutes).toBe(90)
+    expect(v2.continuousMode).toBe('target')
     expect(v2.breakPolicy).toBe('none')
     expect(isOpenContinuousPlanV2(v2)).toBe(false)
     expect(resolveStartTargetSeconds(v2)).toBe(90 * 60)
+  })
+
+  it('legacy: continuous + countup + focus + continuousTarget false is target not open', () => {
+    const v1: StudyTimerPlan = {
+      id: 'legacy-target',
+      name: 'Legacy target',
+      focusMinutes: 90,
+      breakMinutes: 0,
+      ...window,
+      kind: 'continuous',
+      clockMode: 'countup',
+      continuousTarget: false,
+      breakPolicy: 'none'
+    }
+    const v2 = projectV1TimerPlanToV2(v1)
+    expect(v2.continuousMode).toBe('target')
+    expect(v2.focusMinutes).toBe(90)
+    expect(isOpenContinuousPlanV2(v2)).toBe(false)
   })
 
   it('preserves freeze #6 continuous none and reminder_only (no pomodoro coerce)', () => {
@@ -101,10 +124,12 @@ describe('project continuous open / target', () => {
         ...window,
         kind: 'continuous',
         clockMode: 'countup',
+        continuousMode: 'open',
         continuousTarget: false,
         breakPolicy: policy
       })
       expect(v2.breakPolicy).toBe(policy)
+      expect(v2.continuousMode).toBe('open')
     }
   })
 
@@ -117,6 +142,7 @@ describe('project continuous open / target', () => {
       ...window,
       kind: 'continuous',
       clockMode: 'countup',
+      continuousMode: 'open',
       continuousTarget: false,
       breakPolicy: 'reminder_only'
     }
@@ -126,6 +152,7 @@ describe('project continuous open / target', () => {
       name: '连续',
       kind: 'continuous',
       clockMode: 'countup',
+      continuousMode: 'open',
       continuousTarget: false,
       breakPolicy: 'reminder_only'
     })
@@ -140,20 +167,63 @@ describe('project continuous open / target', () => {
       ...window,
       kind: 'continuous',
       clockMode: 'countup',
-      continuousTarget: true,
+      continuousMode: 'target',
+      continuousTarget: false,
       breakPolicy: 'ask'
     }
     const back = projectV2TimerPlanToV1(projectV1TimerPlanToV2(original), window)
     expect(back).toMatchObject({
       id: 'cont-rt-t',
       kind: 'continuous',
-      continuousTarget: true,
+      continuousMode: 'target',
+      continuousTarget: false,
       focusMinutes: 120,
       breakPolicy: 'ask'
     })
   })
-})
 
+  it('V2 target countup → V1 → V2 preserves continuousMode target and focusMinutes', () => {
+    const v2 = createContinuousCountupPlan({
+      id: 'v2-target',
+      name: 'Target RT',
+      continuousMode: 'target',
+      focusMinutes: 75,
+      clockMode: 'countup'
+    })
+    const v1 = projectV2TimerPlanToV1(v2, window)
+    expect(v1).toMatchObject({
+      continuousMode: 'target',
+      continuousTarget: false,
+      focusMinutes: 75
+    })
+    const back = projectV1TimerPlanToV2(v1)
+    expect(back.continuousMode).toBe('target')
+    expect(back.focusMinutes).toBe(75)
+    expect(isOpenContinuousPlanV2(back)).toBe(false)
+  })
+
+  it('V2 open → V1 → V2 stays open without exam 180', () => {
+    const v2 = createOpenContinuousPlan({ id: 'v2-open', name: 'Open RT' })
+    const v1 = projectV2TimerPlanToV1(v2, window)
+    expect(v1.continuousMode).toBe('open')
+    expect(v1.continuousTarget).toBe(false)
+    expect(v1.focusMinutes).not.toBe(180)
+    const back = projectV1TimerPlanToV2(v1)
+    expect(back.continuousMode).toBe('open')
+    expect(back.focusMinutes).toBeUndefined()
+    expect(isOpenContinuousPlanV2(back)).toBe(true)
+  })
+
+  it('V2 exam → V1 continuousTarget true → V2 exam', () => {
+    const v2 = createExamSimulationPlan({ id: 'v2-exam', focusMinutes: 150 })
+    const v1 = projectV2TimerPlanToV1(v2, window)
+    expect(v1.continuousMode).toBe('exam')
+    expect(v1.continuousTarget).toBe(true)
+    expect(v1.focusMinutes).toBe(150)
+    const back = projectV1TimerPlanToV2(v1)
+    expect(back.continuousMode).toBe('exam')
+    expect(back.focusMinutes).toBe(150)
+  })
 
   it('does not label continuous cycle countdown as exam (countup toggle off)', () => {
     const original: StudyTimerPlan = {
@@ -164,18 +234,21 @@ describe('project continuous open / target', () => {
       ...window,
       kind: 'continuous',
       clockMode: 'countdown',
+      continuousMode: 'target',
       continuousTarget: false,
       breakPolicy: 'ask'
     }
     const v2 = projectV1TimerPlanToV2(original)
     expect(v2.kind).toBe('continuous')
     expect(v2.clockMode).toBe('countdown')
+    expect(v2.continuousMode).toBe('target')
     expect(v2.focusMinutes).toBe(50)
     const back = projectV2TimerPlanToV1(v2, window)
     expect(back).toMatchObject({
       id: 'cont-cycle-cd',
       kind: 'continuous',
       clockMode: 'countdown',
+      continuousMode: 'target',
       continuousTarget: false,
       focusMinutes: 50,
       breakMinutes: 10
@@ -202,6 +275,7 @@ describe('project continuous open / target', () => {
       'countdown'
     )
   })
+})
 
 describe('formatTimerPlanKindSummary', () => {
   it('labels open continuous', () => {
@@ -211,6 +285,7 @@ describe('formatTimerPlanKindSummary', () => {
         clockMode: 'countup',
         focusMinutes: 25,
         breakMinutes: 0,
+        continuousMode: 'open',
         continuousTarget: false
       })
     ).toBe('连续专注 · 正计时')
@@ -223,7 +298,8 @@ describe('formatTimerPlanKindSummary', () => {
         clockMode: 'countup',
         focusMinutes: 90,
         breakMinutes: 0,
-        continuousTarget: true
+        continuousMode: 'target',
+        continuousTarget: false
       })
     ).toBe('连续专注 · 目标 90 分钟')
   })
@@ -262,12 +338,14 @@ describe('resolvePlanV2ForStart / createContinuousCountupPlan', () => {
           ...window,
           kind: 'continuous',
           clockMode: 'countup',
-          continuousTarget: true,
+          continuousMode: 'target',
+          continuousTarget: false,
           breakPolicy: 'none'
         }
       ]
     })
     expect(plan.focusMinutes).toBe(60)
+    expect(plan.continuousMode).toBe('target')
     expect(plan.breakPolicy).toBe('none')
   })
 
@@ -293,9 +371,33 @@ describe('resolvePlanV2ForStart / createContinuousCountupPlan', () => {
     expect(plan.id).toBe('open-x')
   })
 
+  it('createTargetContinuousPlan defaults focus and never freezes exam 180', () => {
+    const plan = createTargetContinuousPlan({ id: 'target-x', name: 'Target' })
+    expect(plan.continuousMode).toBe('target')
+    expect(plan.focusMinutes).toBe(25)
+    expect(plan.id).toBe('target-x')
+    expect(plan.focusMinutes).not.toBe(180)
+  })
+
+  it('createContinuousCountupPlan routes open / target / exam without inventing exam for random ids', () => {
+    expect(createContinuousCountupPlan({ continuousMode: 'open', id: 'r-open' }).continuousMode).toBe('open')
+    expect(
+      createContinuousCountupPlan({ continuousMode: 'target', id: 'r-target', focusMinutes: 40 }).focusMinutes
+    ).toBe(40)
+    expect(createContinuousCountupPlan({ continuousMode: 'exam' }).id).toBe('continuous_countup')
+    expect(createContinuousCountupPlan().continuousMode).toBe('exam')
+    expect(createContinuousCountupPlan({ id: 'continuous_countup' }).continuousMode).toBe('exam')
+    const randomTarget = createContinuousCountupPlan({ id: 'user-xyz', focusMinutes: 90 })
+    expect(randomTarget.continuousMode).toBe('target')
+    expect(randomTarget.focusMinutes).toBe(90)
+    expect(createContinuousCountupPlan({ id: 'user-open' }).continuousMode).toBe('open')
+  })
+
+
   it('V2→V1 exam uses continuousMode not catalog id heuristics for non-catalog ids', () => {
     const exam = createExamSimulationPlan({ id: 'user-exam', focusMinutes: 120 })
     const v1 = projectV2TimerPlanToV1(exam)
+    expect(v1.continuousMode).toBe('exam')
     expect(v1.continuousTarget).toBe(true)
     expect(v1.focusMinutes).toBe(120)
     const target = createContinuousCountupPlan({
@@ -305,6 +407,7 @@ describe('resolvePlanV2ForStart / createContinuousCountupPlan', () => {
       clockMode: 'countup'
     })
     const v1t = projectV2TimerPlanToV1(target)
+    expect(v1t.continuousMode).toBe('target')
     expect(v1t.continuousTarget).toBe(false)
     expect(v1t.focusMinutes).toBe(90)
   })

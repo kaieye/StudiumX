@@ -1,8 +1,6 @@
 import type { ReactElement, ReactNode } from 'react'
-import cloudGlowScene from '../../assets/images/workbench/scenes/cloud-glow.png'
-import summerLakesideScene from '../../assets/images/workbench/scenes/summer-lakeside.png'
-import girlVideo from '../../assets/videos/workbench/girl.mp4'
 import { parseCustomSceneId } from './immersive-custom-media-store'
+import { getBuiltInImmersiveScene } from './immersive-scene-catalog'
 import {
   ImmersiveFocusTimerScene,
   type ImmersiveFocusTimerFaceModel
@@ -53,19 +51,23 @@ export function ImmersiveScenePlane(props: {
   } = props
 
   let content: ReactNode
-  if (immersiveScene === 'clock') {
+  const builtIn = !immersiveScene.startsWith('custom:')
+    ? getBuiltInImmersiveScene(immersiveScene as Parameters<typeof getBuiltInImmersiveScene>[0])
+    : undefined
+
+  if (builtIn?.kind === 'clock') {
     content = (
       <div className="workbench-immersive-clock-scene workbench-clock" aria-hidden="true">
         {renderClock(clockTime, previousClockTime)}
       </div>
     )
-  } else if (immersiveScene === 'focus-timer') {
+  } else if (builtIn?.kind === 'focus-timer') {
     content = <ImmersiveFocusTimerScene face={focusTimerFace} timerMode={timerMode} />
-  } else if (immersiveScene === 'girl') {
+  } else if (builtIn?.kind === 'video' && builtIn.src) {
     content = (
       <video
         className="workbench-immersive-video"
-        src={girlVideo}
+        src={builtIn.src}
         autoPlay
         loop
         muted
@@ -73,18 +75,9 @@ export function ImmersiveScenePlane(props: {
         aria-hidden="true"
       />
     )
-  } else if (immersiveScene === 'cloud-glow') {
+  } else if (builtIn?.kind === 'image' && builtIn.src) {
     content = (
-      <img className="workbench-immersive-video" src={cloudGlowScene} alt="" aria-hidden="true" />
-    )
-  } else if (immersiveScene === 'summer-lakeside') {
-    content = (
-      <img
-        className="workbench-immersive-video"
-        src={summerLakesideScene}
-        alt=""
-        aria-hidden="true"
-      />
+      <img className="workbench-immersive-video" src={builtIn.src} alt="" aria-hidden="true" />
     )
   } else {
     const activeCustom = immersiveScene.startsWith('custom:')

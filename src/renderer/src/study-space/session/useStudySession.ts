@@ -1889,6 +1889,7 @@ export function useStudySession({
         breakPolicy: input.breakPolicy,
         kind: input.kind,
         clockMode: input.clockMode,
+        continuousMode: input.continuousMode,
         continuousTarget: input.continuousTarget,
         rhythmSequence: input.rhythmSequence
       }
@@ -1911,6 +1912,7 @@ export function useStudySession({
       breakPolicy: input.breakPolicy,
       kind: input.kind,
       clockMode: input.clockMode,
+      continuousMode: input.continuousMode,
       continuousTarget: input.continuousTarget,
       rhythmSequence: input.rhythmSequence,
       id
@@ -1994,7 +1996,9 @@ export function useStudySession({
       breakPolicy: plan.breakPolicy,
       kind: plan.kind,
       clockMode: plan.clockMode,
+      continuousMode: plan.continuousMode,
       continuousTarget: plan.continuousTarget,
+      rhythmSequence: plan.rhythmSequence,
       simulationStartTime: plan.simulationStartTime,
       simulationEndTime: plan.simulationEndTime
     }).then(reportPlanningWrite)

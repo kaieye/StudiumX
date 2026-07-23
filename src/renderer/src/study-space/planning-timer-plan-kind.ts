@@ -2,7 +2,7 @@
  * Continuous TimerPlan kind helpers (STC-504 product path remainder).
  *
  * Pure projection between V1 StudyTimerPlan cache fields (kind / clockMode /
- * continuousTarget) and TimerPlanV2 continuous countup shells.
+ * continuousMode / continuousTarget) and TimerPlanV2 continuous shells.
  * Freeze #6: continuous may use breakPolicy none | reminder_only | ask | automatic;
  * pomodoro path continues to coerce none/reminder_only via advanced normalize.
  *
@@ -141,9 +141,12 @@ export const TIMER_PLAN_KIND_OPTIONS: readonly {
 /** Map stored plan fields → top-level kind select value. */
 export function timerPlanKindToUi(
   kind: StudyTimerPlanKind | string | undefined,
-  continuousTarget?: boolean
+  continuousTarget?: boolean,
+  continuousMode?: ContinuousMode | string | null
 ): StudyTimerPlanKindUi {
-  if (kind === 'continuous' && continuousTarget === true) return 'exam'
+  const exam =
+    continuousMode === 'exam' || continuousTarget === true
+  if (kind === 'continuous' && exam) return 'exam'
   if (kind === 'continuous') return 'continuous'
   if (kind === 'custom_rhythm') return 'custom_rhythm'
   return 'pomodoro'
@@ -155,14 +158,16 @@ export function defaultContinuousBreakPolicy(): ContinuousBreakPolicy {
 
 /**
  * Validate continuous draft for save.
- * Open countup: continuousTarget false / focusMinutes ignored as target.
- * Target countup: continuousTarget true + integer focusMinutes in range.
+ * Exam UI path: continuousTarget true (or continuousMode exam) — total minutes only
+ * (no separate focus target field).
+ * Continuous cycle / target: continuousTarget false + integer focusMinutes in range.
  */
 export function isValidContinuousPlanDraft(draft: {
   name?: string
   focusMinutes?: number | null
   breakMinutes?: number | null
   continuousTarget?: boolean
+  continuousMode?: ContinuousMode | string | null
   breakPolicy?: string
   /**
    * Total session minutes for continuous cycle / exam (encoded via simulation window in V1 cache).
@@ -192,12 +197,14 @@ export function isValidContinuousPlanDraft(draft: {
     if (start && end && start >= end) return false
   }
 
-  if (draft.continuousTarget === true) {
-    // Exam / open continuous: only total minutes required (no separate focus target field).
+  const isExam =
+    draft.continuousMode === 'exam' || draft.continuousTarget === true
+  if (isExam) {
+    // Exam UI: only total minutes required (no separate focus target field).
     return total != null || Boolean(draft.simulationStartTime && draft.simulationEndTime && draft.simulationStartTime < draft.simulationEndTime)
   }
 
-  // Continuous cycle: focus + break segment minutes.
+  // Continuous cycle / target: focus + break segment minutes.
   if (draft.focusMinutes == null || !Number.isInteger(draft.focusMinutes)) return false
   if (
     draft.focusMinutes < TIMER_PLAN_SEED_DEFAULTS.focusMinutesMin ||
@@ -217,12 +224,56 @@ export function isValidContinuousPlanDraft(draft: {
   return total != null || Boolean(draft.simulationStartTime && draft.simulationEndTime)
 }
 
-function isOpenContinuous(plan: Pick<StudyTimerPlan, 'kind' | 'clockMode' | 'continuousTarget'>): boolean {
+const CONTINUOUS_MODE_SET = new Set<ContinuousMode>(['open', 'target', 'exam'])
+
+/**
+ * Decode continuousMode from V1 StudyTimerPlan cache.
+ * Prefers continuousMode when valid; else legacy continuousTarget / focus heuristics.
+ *
+ * Legacy (no continuousMode):
+ * - continuousTarget true → exam
+ * - continuous + countup + focusMinutes absent or 0 → open
+ * - continuous + countup + focusMinutes present + continuousTarget false → target (not open)
+ * - continuous + countdown → target (cycle)
+ */
+export function continuousModeFromV1(
+  plan: Pick<
+    StudyTimerPlan,
+    'kind' | 'clockMode' | 'continuousTarget' | 'continuousMode' | 'focusMinutes'
+  >
+): ContinuousMode {
+  const raw = plan.continuousMode
+  if (typeof raw === 'string' && CONTINUOUS_MODE_SET.has(raw as ContinuousMode)) {
+    return raw as ContinuousMode
+  }
+  if (plan.continuousTarget === true) return 'exam'
+
   const { kind, clockMode } = normalizeTimerPlanKindFields({
     kind: plan.kind,
     clockMode: plan.clockMode
   })
-  return kind === 'continuous' && clockMode === 'countup' && plan.continuousTarget !== true
+  if (kind !== 'continuous') return 'target'
+
+  const focus = plan.focusMinutes
+  const hasFocusTarget =
+    typeof focus === 'number' && Number.isFinite(focus) && focus > 0
+
+  if (clockMode === 'countup' && !hasFocusTarget) return 'open'
+  // countup + focus present + non-exam → target (must not collapse to open)
+  return 'target'
+}
+
+function isOpenContinuous(
+  plan: Pick<
+    StudyTimerPlan,
+    'kind' | 'clockMode' | 'continuousTarget' | 'continuousMode' | 'focusMinutes'
+  >
+): boolean {
+  const { kind } = normalizeTimerPlanKindFields({
+    kind: plan.kind,
+    clockMode: plan.clockMode
+  })
+  return kind === 'continuous' && continuousModeFromV1(plan) === 'open'
 }
 
 /**
@@ -241,17 +292,7 @@ export function projectV1TimerPlanToV2(plan: StudyTimerPlan): TimerPlanV2 {
         ? breakRaw
         : defaultContinuousBreakPolicy()
 
-    const open = isOpenContinuous({
-      kind,
-      clockMode,
-      continuousTarget: plan.continuousTarget
-    })
-    // V1 continuousTarget true → exam; open countup → open; else target (cycle).
-    const continuousMode: ContinuousMode = open
-      ? 'open'
-      : plan.continuousTarget === true
-        ? 'exam'
-        : 'target'
+    const continuousMode = continuousModeFromV1(plan)
 
     if (continuousMode === 'exam') {
       return createExamSimulationPlan({
@@ -348,20 +389,30 @@ export function projectV2TimerPlanToV1(
   if (plan.kind === 'continuous') {
     // Prefer durable continuousMode; legacy: open = countup without focus; exam only when mode is exam.
     const clockMode = plan.clockMode === 'countdown' ? 'countdown' : 'countup'
-    let continuousMode = plan.continuousMode
-    if (continuousMode !== 'open' && continuousMode !== 'target' && continuousMode !== 'exam') {
-      if (clockMode === 'countup' && plan.focusMinutes == null) continuousMode = 'open'
-      else if (plan.id === 'continuous_countup') continuousMode = 'exam'
-      else continuousMode = 'target'
-    }
+    let continuousMode: ContinuousMode =
+      plan.continuousMode === 'open' ||
+      plan.continuousMode === 'target' ||
+      plan.continuousMode === 'exam'
+        ? plan.continuousMode
+        : clockMode === 'countup' && plan.focusMinutes == null
+          ? 'open'
+          : plan.id === 'continuous_countup'
+            ? 'exam'
+            : 'target'
     const isExam = continuousMode === 'exam'
     const openCountup = continuousMode === 'open'
+    // Open: keep V2 focus if any, else classic as display cache only (continuousMode is authority).
+    // Do not invent exam 180 focus for open.
+    const focusMinutes = openCountup
+      ? (plan.focusMinutes != null && plan.focusMinutes > 0
+          ? plan.focusMinutes
+          : TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes)
+      : (plan.focusMinutes
+        ?? (isExam ? 180 : TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes))
     return {
       id: plan.id,
       name: plan.name,
-      focusMinutes:
-        plan.focusMinutes
-        ?? (isExam ? 180 : TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes),
+      focusMinutes,
       breakMinutes:
         plan.shortBreakMinutes
         ?? (isExam || openCountup ? 0 : TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes),
@@ -369,6 +420,7 @@ export function projectV2TimerPlanToV1(
       simulationEndTime: window?.simulationEndTime ?? '12:00',
       kind: 'continuous',
       clockMode: isExam ? 'countup' : clockMode,
+      continuousMode,
       continuousTarget: isExam,
       breakPolicy: plan.breakPolicy
     }
@@ -422,6 +474,7 @@ export function formatTimerPlanKindSummary(
     | 'focusMinutes'
     | 'breakMinutes'
     | 'continuousTarget'
+    | 'continuousMode'
     | 'breakPolicy'
     | 'rhythmSequence'
   >
@@ -432,6 +485,9 @@ export function formatTimerPlanKindSummary(
     clockMode: plan.clockMode
   })
   if (kind === 'continuous') {
+    if (continuousModeFromV1(plan) === 'exam') {
+      return `考场模拟 · ${plan.focusMinutes} 分钟`
+    }
     if (clockMode === 'countup') return `连续专注 · 目标 ${plan.focusMinutes} 分钟`
     return `连续专注 · 倒计时 ${plan.focusMinutes} 分钟`
   }

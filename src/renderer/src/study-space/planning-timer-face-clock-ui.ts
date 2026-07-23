@@ -1,12 +1,15 @@
 /**
- * Pure face-clock projection for WorkbenchPomodoro.
+ * Pure face-clock projection for WorkbenchPomodoro + ImmersiveFocusTimer.
  *
  * Idle / mode-preview must follow the **applied** plan (pomodoro, continuous cycle,
  * exam window, open countup) — not a hard-coded 25:00 + "25 / 5 · 09:00–12:00" chrome.
  * Exam continuous: dial shows the simulation start wall-clock (e.g. 09:00) and counts up.
+ * Exam detection prefers continuousMode (via continuousModeFromV1), not only continuousTarget.
  * No I/O, no React.
  */
 
+import { formatStudyDuration } from './domain'
+import { continuousModeFromV1 } from './planning-timer-plan-kind'
 import type { StudyTimerMode, StudyTimerPlan, StudyTimerState } from './types'
 
 export type WorkbenchTimerFaceClockModel = {
@@ -26,6 +29,12 @@ export type WorkbenchTimerFaceClockModel = {
   wallBaseSeconds?: number | null
 }
 
+/** Plan fields needed for face kind / exam / countup projection. */
+export type TimerFaceAppliedPlan = Pick<
+  StudyTimerPlan,
+  'kind' | 'clockMode' | 'continuousTarget' | 'continuousMode' | 'focusMinutes' | 'breakMinutes'
+> | null | undefined
+
 export type ProjectWorkbenchTimerFaceClockInput = {
   timerState: StudyTimerState | string
   timerMode: StudyTimerMode | string
@@ -35,11 +44,8 @@ export type ProjectWorkbenchTimerFaceClockInput = {
   breakMinutes: number
   simulationStartTime?: string | null
   simulationEndTime?: string | null
-  /** Applied / default plan shell when known (kind + continuousTarget + clockMode). */
-  appliedPlan?: Pick<
-    StudyTimerPlan,
-    'kind' | 'clockMode' | 'continuousTarget' | 'focusMinutes' | 'breakMinutes'
-  > | null
+  /** Applied / default plan shell when known (kind + continuousMode + clockMode). */
+  appliedPlan?: TimerFaceAppliedPlan
   activeSessionClockMode?: 'countdown' | 'countup' | null
 }
 
@@ -48,7 +54,7 @@ function asMode(value: string | StudyTimerMode): StudyTimerMode {
 }
 
 function planKind(
-  plan: ProjectWorkbenchTimerFaceClockInput['appliedPlan']
+  plan: TimerFaceAppliedPlan
 ): 'pomodoro' | 'continuous' | 'custom_rhythm' {
   if (!plan) return 'pomodoro'
   if (plan.kind === 'continuous') return 'continuous'
@@ -56,16 +62,25 @@ function planKind(
   return 'pomodoro'
 }
 
-function isExamContinuous(
-  plan: ProjectWorkbenchTimerFaceClockInput['appliedPlan']
-): boolean {
-  return planKind(plan) === 'continuous' && plan?.continuousTarget === true
+/**
+ * Exam continuous face: prefer continuousMode / continuousModeFromV1 over
+ * continuousTarget-only (target countup must not paint wall clock).
+ */
+function isExamContinuous(plan: TimerFaceAppliedPlan): boolean {
+  if (!plan || planKind(plan) !== 'continuous') return false
+  return (
+    continuousModeFromV1({
+      kind: plan.kind,
+      clockMode: plan.clockMode,
+      continuousTarget: plan.continuousTarget,
+      continuousMode: plan.continuousMode,
+      focusMinutes: plan.focusMinutes
+    }) === 'exam'
+  )
 }
 
 /** Non-exam countup dial (pomodoro countup or continuous open/cycle countup). */
-function isCountupFace(
-  plan: ProjectWorkbenchTimerFaceClockInput['appliedPlan']
-): boolean {
+function isCountupFace(plan: TimerFaceAppliedPlan): boolean {
   if (isExamContinuous(plan)) return false
   return plan?.clockMode === 'countup'
 }
@@ -153,7 +168,7 @@ export function projectPlanPreviewSeconds(input: {
   breakMinutes: number
   simulationStartTime?: string | null
   simulationEndTime?: string | null
-  appliedPlan?: ProjectWorkbenchTimerFaceClockInput['appliedPlan']
+  appliedPlan?: TimerFaceAppliedPlan
 }): number {
   const plan = input.appliedPlan ?? null
   const focusMin = Number.isFinite(input.focusMinutes)
@@ -188,7 +203,7 @@ export function projectWorkbenchTimerFaceMeta(_input: {
   breakMinutes: number
   simulationStartTime?: string | null
   simulationEndTime?: string | null
-  appliedPlan?: ProjectWorkbenchTimerFaceClockInput['appliedPlan']
+  appliedPlan?: TimerFaceAppliedPlan
 }): string | null {
   return null
 }
@@ -253,5 +268,68 @@ export function projectWorkbenchTimerFaceClock(
     clockMode: liveClockMode,
     faceMeta,
     wallBaseSeconds
+  }
+}
+
+/** Shared dial presentation for WorkbenchPomodoro + immersive focus timer. */
+export type ProjectTimerFacePresentationInput = ProjectWorkbenchTimerFaceClockInput & {
+  /** 0–100 host progress; clamped. */
+  timerProgress?: number | null
+  /**
+   * When true (WorkbenchPomodoro), mode-tab preview zeros the ring.
+   * Immersive has no mode tabs — leave false/undefined.
+   */
+  modePreviewZerosProgress?: boolean
+}
+
+export type TimerFacePresentationModel = {
+  faceClock: WorkbenchTimerFaceClockModel
+  displaySeconds: number
+  isExamFace: boolean
+  /** Dial primary + SS parts (wall or duration). */
+  timeParts: FaceClockTimeParts
+  /** Single-line a11y / compact label (MM:SS or wall HH:MM[:SS]). */
+  remainingTime: string
+  displayedProgress: number
+  /** CSS custom property for the progress ring. */
+  ringStyle: { '--timer-ring-offset': string }
+}
+
+/**
+ * Project dial clock + formatted labels + ring progress for any workbench face.
+ * Both WorkbenchPomodoro and ImmersiveFocusTimerScene should call this with the
+ * same snapshot/plan/session slice so exam/countup paint identically.
+ */
+export function projectTimerFacePresentation(
+  input: ProjectTimerFacePresentationInput
+): TimerFacePresentationModel {
+  const faceClock = projectWorkbenchTimerFaceClock(input)
+  const displaySeconds = faceClock.displaySeconds
+  const isExamFace = faceClock.wallBaseSeconds != null
+  const timerState = String(input.timerState || 'idle')
+  const timeParts = isExamFace
+    ? formatExamWallClockParts(faceClock.wallBaseSeconds!, displaySeconds)
+    : formatDurationClockParts(displaySeconds)
+  const remainingTime = isExamFace
+    ? formatExamWallClock(faceClock.wallBaseSeconds!, displaySeconds, {
+        alwaysSeconds: timerState === 'running' || timerState === 'paused'
+      })
+    : formatStudyDuration(displaySeconds)
+
+  const selectedMode = asMode(input.selectedMode)
+  const isModePreview = selectedMode !== asMode(String(input.timerMode || 'focus'))
+  const zeroProgress = Boolean(input.modePreviewZerosProgress) && isModePreview
+  const displayedProgress = zeroProgress
+    ? 0
+    : Math.min(100, Math.max(0, input.timerProgress ?? 0))
+
+  return {
+    faceClock,
+    displaySeconds,
+    isExamFace,
+    timeParts,
+    remainingTime,
+    displayedProgress,
+    ringStyle: { '--timer-ring-offset': `${100 - displayedProgress}` }
   }
 }

@@ -34,11 +34,11 @@ describe('study space timer progress (exam / countup)', () => {
     })
     // 15 / 180 = 8.333… → 8%
     expect(vm.timerProgress).toBe(8)
-    // Without target override, stale 25-minute shell would claim 60%
-    const wrong = createStudySpaceViewModel(snapshot, offlinePresence, Date.now(), {
+    // Open continuous / missing target: indeterminate — no fake focusMinutes ring
+    const openContinuous = createStudySpaceViewModel(snapshot, offlinePresence, Date.now(), {
       timerClockMode: 'countup'
     })
-    expect(wrong.timerProgress).toBe(60)
+    expect(openContinuous.timerProgress).toBe(0)
   })
 
   it('projectTimerProgressPercent uses targetSeconds for countup', () => {
@@ -53,7 +53,42 @@ describe('study space timer progress (exam / countup)', () => {
       })
     ).toBe(8)
   })
-})
+
+  it('open continuous countup returns 0% without positive target (no focusMinutes fake ring)', () => {
+    expect(
+      projectTimerProgressPercent({
+        remainingSeconds: 15 * 60,
+        targetSeconds: null,
+        focusMinutes: 25,
+        breakMinutes: 0,
+        timerMode: 'focus',
+        clockMode: 'countup',
+        timerState: 'running'
+      })
+    ).toBe(0)
+    expect(
+      projectTimerProgressPercent({
+        remainingSeconds: 15 * 60,
+        targetSeconds: 0,
+        focusMinutes: 25,
+        breakMinutes: 0,
+        timerMode: 'focus',
+        clockMode: 'countup',
+        timerState: 'paused'
+      })
+    ).toBe(0)
+    expect(
+      projectTimerProgressPercent({
+        remainingSeconds: 0,
+        targetSeconds: undefined,
+        focusMinutes: 25,
+        breakMinutes: 0,
+        timerMode: 'focus',
+        clockMode: 'countup',
+        timerState: 'idle'
+      })
+    ).toBe(0)
+  })
 
   it('idle countup stays 0% when remainingSeconds is seeded to total', () => {
     const snapshot = {
@@ -86,4 +121,5 @@ describe('study space timer progress (exam / countup)', () => {
     })
     expect(vm.timerProgress).toBe(8)
   })
+})
 
