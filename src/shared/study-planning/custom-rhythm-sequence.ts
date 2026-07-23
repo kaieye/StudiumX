@@ -613,9 +613,8 @@ export function advanceCustomRhythmOnPhaseComplete(input: {
 }
 
 /**
- * Pure coexistence check: builtin classic_25_5 / deep_50_10 semantics
- * must not be rewritten when a custom_rhythm plan exists in the catalog.
- * (Catalog entries are identity-keyed; this asserts seed shapes.)
+ * Pure coexistence check: classic_25_5 / deep_50_10 identity rows must stay
+ * pomodoro-shaped (not custom_rhythm). Focus/break minutes may be user-edited.
  */
 export function assertBuiltinPomodoroSemanticsIntact(plans: readonly {
   id: string
@@ -629,13 +628,7 @@ export function assertBuiltinPomodoroSemanticsIntact(plans: readonly {
     if (classic.kind && classic.kind !== 'pomodoro') {
       return { ok: false, code: 'classic_kind_rewritten', planId: 'classic_25_5' }
     }
-    if (classic.focusMinutes !== undefined && classic.focusMinutes !== 25) {
-      return { ok: false, code: 'classic_focus_rewritten', planId: 'classic_25_5' }
-    }
-    if (classic.shortBreakMinutes !== undefined && classic.shortBreakMinutes !== 5) {
-      return { ok: false, code: 'classic_break_rewritten', planId: 'classic_25_5' }
-    }
-    if (Array.isArray(classic.rhythmSequence)) {
+    if (Array.isArray(classic.rhythmSequence) && classic.rhythmSequence.length > 0) {
       return { ok: false, code: 'classic_has_rhythm_sequence', planId: 'classic_25_5' }
     }
   }
@@ -644,28 +637,13 @@ export function assertBuiltinPomodoroSemanticsIntact(plans: readonly {
     if (deep.kind && deep.kind !== 'pomodoro') {
       return { ok: false, code: 'deep_kind_rewritten', planId: 'deep_50_10' }
     }
-    if (deep.focusMinutes !== undefined && deep.focusMinutes !== 50) {
-      return { ok: false, code: 'deep_focus_rewritten', planId: 'deep_50_10' }
-    }
-    if (deep.shortBreakMinutes !== undefined && deep.shortBreakMinutes !== 10) {
-      return { ok: false, code: 'deep_break_rewritten', planId: 'deep_50_10' }
-    }
-    if (Array.isArray(deep.rhythmSequence)) {
+    if (Array.isArray(deep.rhythmSequence) && deep.rhythmSequence.length > 0) {
       return { ok: false, code: 'deep_has_rhythm_sequence', planId: 'deep_50_10' }
     }
   }
   return { ok: true }
 }
 
-/**
- * Active-session freeze: returns true when the live planSnapshot sequence
- * is independent of a catalog/editor draft (catalog may differ or match;
- * freeze is violated only if caller mutates the snapshot reference in place —
- * pure helper documents expected non-mutation contract for product-path tests).
- *
- * Product rule: editing sequence while timer running only affects next plan /
- * new session; active planSnapshot + rhythmStepIndex path stays stable.
- */
 export function isActivePlanSnapshotFrozenAgainstCatalogEdit(input: {
   activePlanSnapshot:
     | { kind?: string; rhythmSequence?: readonly CustomRhythmStep[] | null }

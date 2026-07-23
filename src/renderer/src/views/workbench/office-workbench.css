@@ -2400,7 +2400,6 @@
 .workbench-pomodoro-actions button.is-primary,
 .workbench-task-form button {
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 46%),
     linear-gradient(180deg, color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 78%, #ffffff), var(--pomodoro-accent, var(--accent)));
   box-shadow:
     0 13px 30px color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 27%, transparent),
@@ -3021,9 +3020,7 @@
   padding: 24px;
   overflow: hidden;
   color: var(--text);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface-solid) 28%, transparent), transparent 42%),
-    var(--app-shell-main-bg);
+  background: var(--app-shell-main-bg);
 }
 
 .study-schedule-header,
@@ -3031,14 +3028,10 @@
 .study-schedule-editor-panel,
 .study-schedule-board {
   border: 1px solid var(--liquid-glass-line, color-mix(in srgb, #ffffff 42%, var(--line) 58%));
-  background:
-    linear-gradient(145deg, color-mix(in srgb, #ffffff 44%, transparent), transparent 36%),
-    linear-gradient(315deg, color-mix(in srgb, var(--surface-solid) 30%, transparent), transparent 54%),
-    color-mix(in srgb, var(--surface-solid) 48%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
   box-shadow:
     0 24px 70px color-mix(in srgb, var(--text) 11%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent);
+    inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent);
   backdrop-filter: blur(36px) saturate(200%) contrast(1.08);
   -webkit-backdrop-filter: blur(36px) saturate(200%) contrast(1.08);
 }
@@ -3062,9 +3055,7 @@
   color: var(--text);
   border: 1px solid color-mix(in srgb, #ffffff 46%, var(--line) 54%);
   border-radius: 12px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 34%, transparent), transparent 54%),
-    color-mix(in srgb, var(--surface-solid) 46%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent),
     0 9px 24px color-mix(in srgb, var(--text) 8%, transparent);
@@ -3316,7 +3307,6 @@
   outline: 0;
   border-radius: 12px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 28%, transparent), transparent 58%),
     color-mix(in srgb, var(--surface-solid) 42%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 48%, transparent);
   font: inherit;
@@ -3340,7 +3330,6 @@
   color: #ffffff;
   border-color: color-mix(in srgb, var(--accent) 36%, transparent);
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 46%),
     linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, #ffffff), var(--accent));
   font-size: 0.8125rem;
   font-weight: 760;
@@ -3372,9 +3361,7 @@
 .study-schedule-corner,
 .study-schedule-day-head,
 .study-schedule-time-rail {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 34%, transparent), transparent 72%),
-    color-mix(in srgb, var(--surface-solid) 60%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
   backdrop-filter: blur(26px) saturate(180%);
   -webkit-backdrop-filter: blur(26px) saturate(180%);
 }
@@ -3472,7 +3459,7 @@
       color-mix(in srgb, var(--line) 48%, transparent) calc(4.166667% - 1px),
       color-mix(in srgb, var(--line) 48%, transparent) 4.166667%
     ),
-    color-mix(in srgb, var(--surface-solid) 28%, transparent);
+    color-mix(in srgb, var(--surface-muted) 55%, var(--surface-solid));
 }
 
 .study-schedule-event {
@@ -3492,12 +3479,8 @@
   color: var(--event-ink);
   border: 1px solid color-mix(in srgb, #ffffff 34%, var(--event-color) 66%);
   border-radius: 12px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, #ffffff 28%, transparent), transparent 44%),
-    linear-gradient(180deg, color-mix(in srgb, var(--event-color) 88%, #ffffff), color-mix(in srgb, var(--event-color) 92%, #111111 8%));
-  box-shadow:
-    0 10px 22px color-mix(in srgb, var(--event-color) 22%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 44%, transparent);
+  background: color-mix(in srgb, var(--event-color) 86%, var(--surface-solid));
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--event-color) 22%, transparent);
   text-align: center;
 }
 
@@ -3558,13 +3541,10 @@
   color: var(--event-ink);
   border: 1px solid color-mix(in srgb, #ffffff 40%, var(--event-color) 60%);
   border-radius: 12px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, #ffffff 32%, transparent), transparent 44%),
-    linear-gradient(180deg, color-mix(in srgb, var(--event-color) 90%, #ffffff), color-mix(in srgb, var(--event-color) 92%, #111111 8%));
+  background: color-mix(in srgb, var(--event-color) 88%, var(--surface-solid));
   box-shadow:
     0 24px 46px color-mix(in srgb, var(--event-color) 34%, transparent),
-    0 10px 24px color-mix(in srgb, var(--text) 18%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 50%, transparent);
+    0 10px 24px color-mix(in srgb, var(--text) 18%, transparent);
   text-align: center;
   transform: translateY(-4px) scale(1.025);
   pointer-events: none;
@@ -3631,7 +3611,6 @@
   color: var(--text);
   border: 1px solid color-mix(in srgb, #ffffff 48%, var(--line) 52%);
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 36%, transparent), transparent 58%),
     color-mix(in srgb, var(--surface-solid) 48%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent);
 }
@@ -3700,7 +3679,7 @@
   padding: 6px;
   color: var(--accent);
   border: 1px dashed color-mix(in srgb, var(--accent) 74%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-solid));
   pointer-events: none;
 }
 
@@ -3719,13 +3698,9 @@
   place-items: center;
   padding: 6px;
   color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 62%, #ffffff 20%);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, #ffffff 42%, transparent), transparent 48%),
-    color-mix(in srgb, var(--accent) 16%, transparent);
-  box-shadow:
-    0 16px 28px color-mix(in srgb, var(--accent) 16%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 52%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 62%, var(--line) 20%);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-solid));
+  box-shadow: 0 16px 28px color-mix(in srgb, var(--accent) 16%, transparent);
   pointer-events: none;
 }
 
@@ -3749,9 +3724,7 @@
   overflow: hidden;
   color: var(--text);
   border: 1px solid color-mix(in srgb, var(--accent) 44%, #ffffff 24%);
-  background:
-    linear-gradient(145deg, color-mix(in srgb, #ffffff 50%, transparent), transparent 44%),
-    color-mix(in srgb, var(--surface-solid) 82%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
   box-shadow:
     0 18px 34px color-mix(in srgb, var(--accent) 20%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 64%, transparent);
@@ -3913,7 +3886,6 @@
   border: 1px solid color-mix(in srgb, #ffffff 48%, var(--line) 52%);
   border-radius: 12px;
   background:
-    linear-gradient(145deg, color-mix(in srgb, #ffffff 46%, transparent), transparent 42%),
     color-mix(in srgb, var(--surface-solid) 88%, transparent);
   box-shadow:
     0 20px 42px color-mix(in srgb, var(--text) 16%, transparent),
@@ -4023,7 +3995,6 @@
   outline: 0;
   border-radius: 12px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 28%, transparent), transparent 58%),
     color-mix(in srgb, var(--surface-solid) 42%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 48%, transparent);
   font: inherit;
@@ -4070,7 +4041,6 @@
   border: 1px solid color-mix(in srgb, #ffffff 42%, var(--line) 58%);
   border-radius: 12px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 30%, transparent), transparent 58%),
     color-mix(in srgb, var(--surface-solid) 45%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 52%, transparent);
   transition:
@@ -4192,7 +4162,6 @@
   border: 1px solid color-mix(in srgb, #ffffff 52%, var(--line) 48%);
   border-radius: 14px;
   background:
-    linear-gradient(145deg, color-mix(in srgb, #ffffff 34%, transparent), transparent 42%),
     color-mix(in srgb, var(--surface-solid) 92%, var(--app-shell-main-bg));
   box-shadow:
     0 22px 48px color-mix(in srgb, var(--text) 18%, transparent),
@@ -4314,9 +4283,7 @@
   color: var(--text);
   border: 1px solid color-mix(in srgb, var(--category-swatch-color) 32%, var(--line));
   border-radius: 12px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 58%),
-    color-mix(in srgb, var(--category-swatch-color) 10%, var(--surface-solid));
+  background: color-mix(in srgb, var(--category-swatch-color) 10%, var(--surface-solid));
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, filter 160ms ease;
 }
@@ -4324,7 +4291,6 @@
 .study-schedule-category-option.is-selected {
   border-color: color-mix(in srgb, var(--category-swatch-color) 76%, #ffffff 12%);
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 34%, transparent), transparent 56%),
     color-mix(in srgb, var(--category-swatch-color) 24%, var(--surface-solid));
   box-shadow:
     0 8px 18px color-mix(in srgb, var(--category-swatch-color) 18%, transparent),
@@ -4508,9 +4474,7 @@
   color: color-mix(in srgb, var(--text-muted) 80%, transparent);
   border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
   border-radius: 50%;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 58%),
-    color-mix(in srgb, var(--surface-solid) 50%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent);
   cursor: pointer;
   transition: transform 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
@@ -4519,9 +4483,7 @@
 .study-schedule-editor-completion > button.is-complete {
   color: #ffffff;
   border-color: color-mix(in srgb, var(--accent) 52%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 48%),
-    var(--accent);
+  background: var(--accent);
   box-shadow:
     0 9px 20px color-mix(in srgb, var(--accent) 24%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
@@ -4684,7 +4646,6 @@
   color: #ffffff;
   border-color: color-mix(in srgb, var(--accent) 36%, transparent);
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 38%, transparent), transparent 46%),
     linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, #ffffff), var(--accent));
 }
 
@@ -6932,6 +6893,31 @@
   line-height: 0.92;
 }
 
+/* Seconds sit under HH:MM (or minutes) as a quiet secondary line. */
+.workbench-pomodoro-time__seconds {
+  display: block;
+  margin-top: 6px;
+  color: color-mix(in srgb, var(--text-muted, #667085) 92%, transparent);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  opacity: 0.78;
+}
+
+.workbench-pomodoro-time .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .workbench-pomodoro-time__status,
 .workbench-pomodoro-time__meta {
   display: none;
@@ -6952,6 +6938,11 @@
   .office-workbench-stage .workbench-pomodoro-time strong {
     margin-top: 0;
     font-size: 2.55rem;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-time__seconds {
+    margin-top: 4px;
+    font-size: 0.6875rem;
   }
 
   .office-workbench-stage .workbench-pomodoro-time__settings {
@@ -7212,10 +7203,9 @@
 .workbench-pomodoro-settings-nav-list {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: 2px;
   min-height: 0;
   overflow: auto;
-  /* Room for elevated selected-item shadow so it is not clipped. */
   padding: 2px 4px 6px 2px;
 }
 
@@ -7244,7 +7234,8 @@
 }
 
 .workbench-pomodoro-settings-nav-add-btn:hover {
-  background: color-mix(in srgb, var(--surface-solid, #fff) 72%, transparent);
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.055);
 }
 
 
@@ -7253,16 +7244,25 @@
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 2px;
-  border: 1px solid transparent;
-  border-radius: 10px;
+  border: 0;
+  border-radius: 9px;
+  /* Match app sidebar conversation/session row highlight. */
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
 }
 
-.workbench-pomodoro-settings-nav-plan.is-active {
-  background: color-mix(in srgb, var(--surface-solid, #fff) 90%, transparent);
-  border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 55%, transparent);
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+.workbench-pomodoro-settings-nav-plan:hover {
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.055);
+}
+
+.workbench-pomodoro-settings-nav-plan.is-active,
+.workbench-pomodoro-settings-nav-plan.is-active:hover {
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.09);
+  box-shadow: none;
 }
 
 .workbench-pomodoro-settings-nav-plan .workbench-pomodoro-settings-nav-item {
@@ -7312,25 +7312,30 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  min-height: 42px;
+  min-height: 36px;
   padding: 8px 12px;
-  color: var(--text-muted, #667085);
+  color: inherit;
   border: 0;
-  border-radius: 10px;
+  border-radius: 9px;
   background: transparent;
   text-align: left;
   font: inherit;
   cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
 }
 
-.workbench-pomodoro-settings-nav-item:hover {
-  color: var(--text, #17202b);
-  background: color-mix(in srgb, var(--surface-solid, #fff) 58%, transparent);
+/* Idle rows: muted label; hover/active color comes from parent plan row. */
+.workbench-pomodoro-settings-nav-plan:not(:hover):not(.is-active) .workbench-pomodoro-settings-nav-item {
+  color: var(--text-muted, #667085);
 }
 
+/* Paint only on the plan row — avoid double-layer hover fill on the button. */
+.workbench-pomodoro-settings-nav-item:hover,
 .workbench-pomodoro-settings-nav-item.is-active,
 .workbench-pomodoro-settings-nav-plan.is-active .workbench-pomodoro-settings-nav-item {
-  color: var(--text, #17202b);
+  color: inherit;
   background: transparent;
   box-shadow: none;
 }
@@ -7396,6 +7401,39 @@
   min-width: 0;
 }
 
+.workbench-pomodoro-settings-footer-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-save-plan,
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 112px;
+  width: 112px;
+  min-height: 36px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-save-plan svg,
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
 .workbench-pomodoro-settings-footer .ghost-button {
   min-height: 34px;
   height: auto;
@@ -7413,28 +7451,57 @@
   width: auto;
   margin-top: 0;
   box-shadow: none;
-  background: var(--text, #17202b);
-  border-color: var(--text, #17202b);
-  color: #fff;
+  /* Use solid accent/ink that stays high-contrast in both themes (not --text on dark). */
+  background: var(--btn-primary-bg, #17202b);
+  border-color: var(--btn-primary-border, var(--btn-primary-bg, #17202b));
+  color: var(--btn-primary-fg, #fff);
 }
 
-/* Active/applied plan: light surface + soft check, not the dark primary CTA. */
+:root[data-resolved-theme='dark'] .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan:not(.is-applied) {
+  background: color-mix(in srgb, var(--accent, #7aa2ff) 78%, #1a2332 22%);
+  border-color: color-mix(in srgb, var(--accent, #7aa2ff) 70%, transparent);
+  color: #0b1220;
+}
+
+/* Active/applied plan: muted surface + soft check (theme-aware). */
 .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied,
 .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied:disabled {
-  color: color-mix(in srgb, var(--text, #17202b) 72%, #667085 28%);
+  color: color-mix(in srgb, var(--text, #17202b) 72%, var(--text-muted, #667085) 28%);
   border: 1px solid color-mix(in srgb, var(--line, #d6deeb) 86%, transparent);
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 92%, transparent), color-mix(in srgb, var(--surface-muted, #eaf2ff) 55%, #fff));
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-solid, #fff) 92%, transparent),
+      color-mix(in srgb, var(--surface-muted, #eaf2ff) 55%, var(--surface-solid, #fff))
+    );
   box-shadow:
-    0 6px 16px rgba(15, 23, 42, 0.08),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 80%, transparent);
+    0 6px 16px color-mix(in srgb, var(--text, #0f172a) 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--surface-solid, #fff) 80%, transparent);
   opacity: 1;
   cursor: default;
 }
 
-.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied svg {
-  color: color-mix(in srgb, #5b8def 70%, #667085 30%);
+:root[data-resolved-theme='dark'] .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied,
+:root[data-resolved-theme='dark'] .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied:disabled {
+  color: color-mix(in srgb, var(--text, #e8eef9) 78%, var(--text-muted, #9aa8bd) 22%);
+  border-color: color-mix(in srgb, var(--line, #3a4558) 88%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-solid, #1c2433) 88%, transparent),
+      color-mix(in srgb, var(--surface-muted, #243044) 70%, var(--surface-solid, #1c2433))
+    );
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 6%, transparent);
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan svg {
   stroke-width: 2.2;
+}
+
+.workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan.is-applied svg {
+  color: color-mix(in srgb, var(--accent, #5b8def) 70%, var(--text-muted, #667085) 30%);
 }
 
 .workbench-pomodoro-settings-panel-heading h2 {
@@ -7496,8 +7563,14 @@
     width: 100%;
   }
 
-  .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan {
+  .workbench-pomodoro-settings-footer-primary {
     width: 100%;
+    margin-left: 0;
+  }
+
+  .workbench-pomodoro-settings-footer .workbench-pomodoro-save-plan,
+  .workbench-pomodoro-settings-footer .workbench-pomodoro-apply-plan {
+    flex: 1 1 auto;
   }
 }
 
@@ -8311,109 +8384,6 @@
 
 
 
-/* STC-408 remainder: multi-select complete entry + toolbar */
-.workbench-task-multi-select-enter-button,
-.workbench-task-multi-select-exit-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
-  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
-  color: var(--text);
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.workbench-task-multi-select-enter-button:hover,
-.workbench-task-multi-select-exit-button:hover {
-  border-color: color-mix(in srgb, var(--accent, #8197aa) 45%, var(--line));
-}
-
-.workbench-task-multi-select-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 0 8px;
-  padding: 6px 8px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  background: color-mix(in srgb, var(--surface-solid) 60%, transparent);
-}
-
-.workbench-task-multi-select-count {
-  color: var(--text-soft, rgba(47, 57, 69, 0.62));
-  font-size: 12px;
-  font-weight: 680;
-}
-
-.workbench-task-multi-select-toolbar-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.workbench-task-multi-select-all-button,
-.workbench-task-multi-select-clear-button,
-.workbench-task-multi-select-complete-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
-  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 680;
-  cursor: pointer;
-}
-
-.workbench-task-multi-select-complete-button {
-  border-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent, #007aff)) 42%, var(--line));
-  background: color-mix(in srgb, var(--pomodoro-accent, var(--accent, #007aff)) 16%, transparent);
-  color: var(--text);
-  font-weight: 740;
-}
-
-.workbench-task-multi-select-all-button:disabled,
-.workbench-task-multi-select-clear-button:disabled,
-.workbench-task-multi-select-complete-button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.workbench-task-row.is-multi-selected {
-  border-color: color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 46%, var(--line));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pomodoro-accent, #2f9e78) 22%, transparent);
-}
-
-.workbench-task-row.is-selection-mode {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.workbench-task-multi-select-check {
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  color: #ffffff;
-  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--surface-solid) 44%, transparent);
-}
-
-.workbench-task-multi-select-check.is-checked {
-  border-color: color-mix(in srgb, var(--pomodoro-accent, var(--accent, #007aff)) 42%, var(--line));
-  background: var(--pomodoro-accent, var(--accent, #007aff));
-}
-
 /* STC-408 batch classify entry + sheet preview */
 .workbench-task-batch-classify-button {
   display: inline-flex;
@@ -8846,4 +8816,259 @@
 
 .study-recurrence-series-delete {
   color: color-mix(in srgb, #d44 80%, var(--text));
+}
+
+/* Dark mode: no white top-left sheen on workbench cards or schedule chrome */
+:root[data-resolved-theme='dark'] .workbench-pomodoro-card::before,
+:root[data-resolved-theme='dark'] .workbench-task-card::before,
+:root[data-resolved-theme='dark'] .workbench-music-card::before,
+:root[data-resolved-theme='dark'] .workbench-room-switcher::before,
+:root[data-resolved-theme='dark'] .workbench-leaderboard-panel::before,
+:root[data-resolved-theme='dark'] .workbench-tools .workbench-leaderboard-toggle::before,
+:root[data-resolved-theme='dark'] .workbench-space-join::before,
+:root[data-resolved-theme='dark'] .office-workbench-stage > .workbench-leaderboard::before {
+  background: none;
+  opacity: 0;
+}
+
+:root[data-resolved-theme='dark'] .office-workbench-stage .workbench-pomodoro-card::after,
+:root[data-resolved-theme='dark'] .office-workbench-stage .workbench-task-card::after,
+:root[data-resolved-theme='dark'] .office-workbench-stage .workbench-music-card::after,
+:root[data-resolved-theme='dark'] .office-workbench-stage > .workbench-leaderboard::after {
+  background: none;
+  opacity: 0;
+}
+
+:root[data-resolved-theme='dark'] .office-workbench-page {
+  --liquid-glass-sheen: none;
+  --workbench-glass-surface: color-mix(in srgb, var(--surface-solid) 78%, transparent);
+  --workbench-glass-surface-strong: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+}
+
+:root[data-resolved-theme='dark'] .workbench-tools {
+  background: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+  border-left-color: var(--line);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .workbench-pomodoro-card,
+:root[data-resolved-theme='dark'] .workbench-task-card,
+:root[data-resolved-theme='dark'] .workbench-music-card,
+:root[data-resolved-theme='dark'] .workbench-room-switcher,
+:root[data-resolved-theme='dark'] .workbench-leaderboard-panel,
+:root[data-resolved-theme='dark'] .workbench-space-join,
+:root[data-resolved-theme='dark'] .workbench-tools .workbench-leaderboard-toggle {
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-page {
+  background: var(--app-shell-main-bg);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-header,
+:root[data-resolved-theme='dark'] .study-schedule-form,
+:root[data-resolved-theme='dark'] .study-schedule-editor-panel,
+:root[data-resolved-theme='dark'] .study-schedule-board {
+  background: var(--surface-solid);
+  border-color: var(--line);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-back,
+:root[data-resolved-theme='dark'] .study-schedule-form button {
+  background: var(--surface-muted);
+  border-color: var(--line);
+  box-shadow: none;
+}
+/* Dark mode: schedule grid chrome flat (no top/left white sheen) */
+:root[data-resolved-theme='dark'] .study-schedule-corner,
+:root[data-resolved-theme='dark'] .study-schedule-day-head,
+:root[data-resolved-theme='dark'] .study-schedule-time-rail {
+  background: var(--surface-solid);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-day-column {
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(4.166667% - 1px),
+      color-mix(in srgb, var(--line) 70%, transparent) calc(4.166667% - 1px),
+      color-mix(in srgb, var(--line) 70%, transparent) 4.166667%
+    ),
+    var(--surface-muted);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-board {
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-selection {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface-solid));
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-selection span,
+:root[data-resolved-theme='dark'] .study-schedule-drag-preview span {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-drag-preview {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 24%, var(--surface-solid));
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-event,
+:root[data-resolved-theme='dark'] .study-schedule-drag-float {
+  border-color: color-mix(in srgb, var(--event-color) 55%, var(--line));
+  background: color-mix(in srgb, var(--event-color) 72%, var(--surface-solid));
+  box-shadow: 0 10px 22px color-mix(in srgb, #000000 28%, transparent);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-day-head strong {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-context-menu {
+  background: var(--surface-solid);
+  border-color: var(--line);
+  box-shadow: var(--shadow-float);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-editor-close,
+:root[data-resolved-theme='dark'] .study-schedule-draft-actions button,
+:root[data-resolved-theme='dark'] .study-schedule-event-status button {
+  background: var(--surface-muted);
+  border-color: var(--line);
+  box-shadow: none;
+}
+/* Dark mode: schedule form/editor controls without white inset sheen */
+:root[data-resolved-theme='dark'] .study-schedule-form input,
+:root[data-resolved-theme='dark'] .study-schedule-form select,
+:root[data-resolved-theme='dark'] .study-schedule-draft-card input,
+:root[data-resolved-theme='dark'] .study-schedule-category-option {
+  background: var(--surface-muted);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-form input:focus,
+:root[data-resolved-theme='dark'] .study-schedule-form select:focus {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-hour-label {
+  color: var(--text-muted);
+}
+
+:root[data-resolved-theme='dark'] .study-schedule-corner,
+:root[data-resolved-theme='dark'] .study-schedule-day-head,
+:root[data-resolved-theme='dark'] .study-schedule-time-rail {
+  border-color: var(--line);
+}
+
+/* Focus timer: top task title + side mode arrows (replaces segmented focus/break switch). */
+.workbench-pomodoro-title {
+  display: block;
+  margin: 0 4px 2px;
+  padding: 0 8px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 720;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-timer-face {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  justify-items: center;
+  gap: 2px;
+  padding: 8px 0 10px;
+}
+
+.workbench-pomodoro-mode-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 40px;
+  margin: 0;
+  padding: 0;
+  color: color-mix(in srgb, var(--text-muted) 88%, transparent);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  transition: color 160ms ease, opacity 160ms ease;
+}
+
+.workbench-pomodoro-mode-arrow:hover:not(:disabled),
+.workbench-pomodoro-mode-arrow:active:not(:disabled) {
+  color: #007aff;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workbench-pomodoro-mode-arrow:focus-visible {
+  outline: none;
+  color: #007aff;
+}
+
+.workbench-pomodoro-mode-arrow:disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.workbench-pomodoro-mode-arrow svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
+/* Hide legacy segmented focus/rest rail if any host CSS still targets it. */
+.workbench-pomodoro-mode {
+  display: none;
+}
+
+.workbench-pomodoro-card .workbench-timer-ring {
+  justify-self: center;
+}
+
+@media (max-height: 760px) {
+  .office-workbench-stage .workbench-pomodoro-title {
+    font-size: 0.75rem;
+  }
+
+  .office-workbench-stage .workbench-timer-face {
+    grid-template-columns: 24px minmax(0, 1fr) 24px;
+    padding: 4px 0 6px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-mode-arrow {
+    width: 24px;
+    min-height: 34px;
+  }
+
+  .office-workbench-stage .workbench-pomodoro-mode-arrow svg {
+    width: 16px;
+    height: 16px;
+  }
 }

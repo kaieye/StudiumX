@@ -90,47 +90,92 @@
 .workbench-music-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 10px;
 }
 
-.workbench-music-head > div:first-child span {
+/* Segmented surface switch — mirrors dialog-mode-switch (对话/教学). */
+.workbench-music-surface-switch {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  padding: 3px;
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto;
+  border: 1px solid rgba(20, 20, 20, 0.04);
+  border-radius: var(--radius-full, 999px);
+  background: rgba(20, 20, 20, 0.045);
+}
+
+.workbench-music-surface-switch-indicator {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 1px;
+  width: calc((100% - 2px) / 3);
+  border-radius: var(--radius-full, 999px);
+  background: var(--surface-solid, #fff);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 3px 8px rgba(0, 0, 0, 0.06);
+  transform: translateX(0);
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+  pointer-events: none;
+}
+
+.workbench-music-surface-switch[data-active-surface='netease'] .workbench-music-surface-switch-indicator {
+  transform: translateX(0);
+}
+
+.workbench-music-surface-switch[data-active-surface='studiumx'] .workbench-music-surface-switch-indicator {
+  transform: translateX(100%);
+}
+
+.workbench-music-surface-switch[data-active-surface='qq'] .workbench-music-surface-switch-indicator {
+  transform: translateX(200%);
+}
+
+.workbench-music-surface-switch-btn {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: color-mix(in srgb, var(--text, #17202b) 72%, transparent);
-  font-size: 0.72rem;
-  font-weight: 740;
-  letter-spacing: 0.04em;
-}
-
-.workbench-music-provider-switch {
-  display: inline-flex;
+  justify-content: center;
   gap: 4px;
-  padding: 3px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-solid, #fff) 42%, transparent);
-  border: 1px solid color-mix(in srgb, #ffffff 55%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 55%, transparent);
-}
-
-.workbench-music-provider-switch button {
-  min-height: 24px;
-  padding: 0 9px;
+  min-height: 26px;
+  padding: 0 8px;
+  color: var(--text-muted, color-mix(in srgb, var(--text, #17202b) 62%, transparent));
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full, 999px);
   background: transparent;
-  color: color-mix(in srgb, var(--text, #17202b) 62%, transparent);
   font: inherit;
   font-size: 0.6875rem;
   font-weight: 720;
   cursor: pointer;
+  transition: color 180ms ease;
+  white-space: nowrap;
 }
 
-.workbench-music-provider-switch button.is-active {
-  color: #fff;
-  background: linear-gradient(180deg, rgba(0, 122, 255, 0.88), #007aff);
-  box-shadow: 0 6px 14px rgba(0, 122, 255, 0.22);
+.workbench-music-surface-switch-btn:hover {
+  color: var(--text, #17202b);
+}
+
+.workbench-music-surface-switch-btn.is-active {
+  color: var(--text, #17202b);
+}
+
+.workbench-music-studiumx {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+}
+
+.workbench-music-row-static {
+  cursor: default;
+  pointer-events: none;
 }
 
 .workbench-music-now {
@@ -484,80 +529,86 @@
    surface while every tab touches the next one with no individual card shell.
    The highlight is a single moving pill, so both of its ends stay round while
    the selection glides between tabs. */
-.workbench-music-tabs {
+/* Panel switch (播放/搜索/曲库/账号) — same segmented chrome as surface switch. */
+.workbench-music-panel-switch {
   position: relative;
-  isolation: isolate;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  overflow: hidden;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, #ffffff 46%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-solid, #fff) 30%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 44%, transparent);
+  align-items: center;
+  padding: 3px;
+  width: 100%;
+  border: 1px solid rgba(20, 20, 20, 0.04);
+  border-radius: var(--radius-full, 999px);
+  background: rgba(20, 20, 20, 0.045);
 }
 
-.workbench-music-tabs::before {
+.workbench-music-panel-switch-indicator {
   position: absolute;
-  z-index: 0;
-  inset-block: 0;
-  left: 0;
-  width: 25%;
-  border-radius: 999px;
-  background: color-mix(in srgb, #007aff 13%, transparent);
-  pointer-events: none;
-  content: '';
+  top: 1px;
+  bottom: 1px;
+  left: 1px;
+  width: calc((100% - 2px) / 4);
+  border-radius: var(--radius-full, 999px);
+  background: var(--surface-solid, #fff);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 3px 8px rgba(0, 0, 0, 0.06);
   transform: translateX(0);
-  transition:
-    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    background-color 180ms ease;
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+  pointer-events: none;
 }
 
-.workbench-music-tabs[data-active-tab='search']::before {
+.workbench-music-panel-switch[data-active-tab='player'] .workbench-music-panel-switch-indicator {
+  transform: translateX(0);
+}
+
+.workbench-music-panel-switch[data-active-tab='search'] .workbench-music-panel-switch-indicator {
   transform: translateX(100%);
 }
 
-.workbench-music-tabs[data-active-tab='library']::before {
+.workbench-music-panel-switch[data-active-tab='library'] .workbench-music-panel-switch-indicator {
   transform: translateX(200%);
 }
 
-.workbench-music-tabs[data-active-tab='account']::before {
+.workbench-music-panel-switch[data-active-tab='account'] .workbench-music-panel-switch-indicator {
   transform: translateX(300%);
 }
 
-.workbench-music-tabs button {
+.workbench-music-panel-switch-btn {
   position: relative;
   z-index: 1;
-  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 6px;
+  color: var(--text-muted, color-mix(in srgb, var(--text, #17202b) 62%, transparent));
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-full, 999px);
   background: transparent;
-  color: color-mix(in srgb, var(--text, #17202b) 62%, transparent);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   font-weight: 720;
   cursor: pointer;
   transition: color 180ms ease;
+  white-space: nowrap;
 }
 
-.workbench-music-tabs button:hover,
-.workbench-music-tabs button.is-active {
-  color: #007aff;
+.workbench-music-panel-switch-btn:hover {
+  color: var(--text, #17202b);
 }
 
-.workbench-music-tabs button.is-active {
-  background: transparent;
-  box-shadow: none;
+.workbench-music-panel-switch-btn.is-active {
+  color: var(--text, #17202b);
 }
 
-.workbench-music-tabs button:focus-visible {
-  z-index: 1;
-  outline: 2px solid color-mix(in srgb, #007aff 66%, transparent);
-  outline-offset: -2px;
+.workbench-music-panel-switch-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text, #17202b) 28%, transparent);
+  outline-offset: 1px;
 }
 
-/* Compact one-line rows: track title and artist are kept on the same baseline. */
 .workbench-music-list {
   --scrollbar-track: transparent;
   max-height: 168px;
@@ -587,14 +638,19 @@
   margin: 0;
   padding: 8px 11px;
   text-align: left;
-  border: 1px solid color-mix(in srgb, #ffffff 42%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-solid, #fff) 28%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 55%, transparent);
+  color: var(--text-muted, color-mix(in srgb, var(--text, #17202b) 68%, transparent));
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
   cursor: pointer;
   overflow: hidden;
   appearance: none;
   -webkit-appearance: none;
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease;
 }
 
 .workbench-music-row-meta {
@@ -634,10 +690,23 @@
   line-height: 1.25;
 }
 
+/* Match left session list (.workspace-conversation-row): muted fill, no blue chrome. */
 .workbench-music-row:hover,
+.workbench-music-row:focus-visible {
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.055);
+}
+
 .workbench-music-row.is-current {
-  border-color: rgba(0, 122, 255, 0.22);
-  background: color-mix(in srgb, #007aff 10%, transparent);
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.09);
+  box-shadow: none;
+}
+
+.workbench-music-row.is-current:hover,
+.workbench-music-row.is-current:focus-visible {
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.09);
 }
 
 .workbench-music-empty,
@@ -663,11 +732,11 @@
 
 .workbench-music-search-form {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 32px;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   margin-bottom: 8px;
-  padding: 6px 8px 6px 10px;
+  padding: 4px 4px 4px 12px;
   border: 1px solid color-mix(in srgb, #ffffff 55%, transparent);
   border-radius: 14px;
   background: color-mix(in srgb, var(--surface-solid, #fff) 42%, transparent);
@@ -687,7 +756,40 @@
   font-weight: 650;
 }
 
-.workbench-music-search-form button,
+.workbench-music-search-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  color: color-mix(in srgb, var(--text, #17202b) 62%, transparent);
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    background 140ms ease;
+}
+
+.workbench-music-search-submit:hover:not(:disabled) {
+  color: var(--text, #17202b);
+  background: rgba(20, 47, 95, 0.055);
+}
+
+.workbench-music-search-submit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.workbench-music-search-submit:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text, #17202b) 28%, transparent);
+  outline-offset: 1px;
+}
+
 .workbench-music-library-actions button,
 .workbench-music-account-card button {
   display: inline-flex;
@@ -933,8 +1035,6 @@
   color: color-mix(in srgb, var(--text) 96%, #ffffff);
 }
 
-:root[data-resolved-theme='dark'] .workbench-music-provider-switch,
-:root[data-resolved-theme='dark'] .workbench-music-tabs,
 :root[data-resolved-theme='dark'] .workbench-music-row,
 :root[data-resolved-theme='dark'] .workbench-music-search-form,
 :root[data-resolved-theme='dark'] .workbench-music-account-card,
@@ -950,14 +1050,6 @@
   background: transparent;
 }
 
-:root[data-resolved-theme='dark'] .workbench-music-tabs::before {
-  background: rgba(0, 122, 255, 0.28);
-}
-
-:root[data-resolved-theme='dark'] .workbench-music-tabs button.is-active {
-  color: #68adff;
-  background: transparent;
-}
 
 :root[data-resolved-theme='dark'] .workbench-music-library-actions button {
   background: rgba(255, 255, 255, 0.08);
@@ -1035,4 +1127,70 @@
 
 .workbench-music-reveal-inner {
   padding: 14px 10px 10px 12px;
+}
+
+
+:root[data-resolved-theme='dark'] .workbench-music-surface-switch {
+  border-color: var(--line, rgba(255, 255, 255, 0.08));
+  background: var(--surface-muted, rgba(255, 255, 255, 0.06));
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-surface-switch-indicator {
+  background: var(--surface-solid, #1c1c1e);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.26),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-surface-switch-btn.is-active {
+  color: var(--text, #f5f5f7);
+}
+
+
+:root[data-resolved-theme='dark'] .workbench-music-row {
+  color: var(--text-muted);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-row:hover,
+:root[data-resolved-theme='dark'] .workbench-music-row:focus-visible {
+  color: var(--text);
+  background: var(--surface-hover);
+  box-shadow: none;
+}
+
+/* Fill-only selection like conversation sessions (no blue ring / blue wash). */
+:root[data-resolved-theme='dark'] .workbench-music-row.is-current,
+:root[data-resolved-theme='dark'] .workbench-music-row.is-current:hover,
+:root[data-resolved-theme='dark'] .workbench-music-row.is-current:focus-visible {
+  color: var(--text);
+  background: rgba(138, 180, 255, 0.14);
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-panel-switch {
+  border-color: var(--line, rgba(255, 255, 255, 0.08));
+  background: var(--surface-muted, rgba(255, 255, 255, 0.06));
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-panel-switch-indicator {
+  background: var(--surface-solid, #1c1c1e);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.26),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-panel-switch-btn.is-active {
+  color: var(--text, #f5f5f7);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-search-submit {
+  color: color-mix(in srgb, var(--text) 72%, #ffffff);
+}
+
+:root[data-resolved-theme='dark'] .workbench-music-search-submit:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
 }

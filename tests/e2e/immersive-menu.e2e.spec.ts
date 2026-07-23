@@ -60,10 +60,14 @@ test('music dock keeps its compact controls fixed while its panel expands', asyn
   await expect(mainWindow.getByRole('button', { name: /播放模式：.+，点击切换/ })).toBeVisible()
   await expect(mainWindow.getByRole('slider', { name: '播放进度' })).toHaveCSS('height', '14px')
 
-  const musicTabs = musicCard.locator('.workbench-music-tabs')
+  const musicTabs = musicCard.locator('.workbench-music-panel-switch')
   await expect(musicTabs).toHaveAttribute('data-active-tab', 'player')
   const tabHighlight = await musicTabs.evaluate((element) => {
-    const style = getComputedStyle(element, '::before')
+    const indicator = element.querySelector('.workbench-music-panel-switch-indicator')
+    if (!(indicator instanceof HTMLElement)) {
+      return { borderRadius: '', transition: '' }
+    }
+    const style = getComputedStyle(indicator)
     return { borderRadius: style.borderRadius, transition: style.transition }
   })
   expect(tabHighlight.borderRadius).toBe('999px')

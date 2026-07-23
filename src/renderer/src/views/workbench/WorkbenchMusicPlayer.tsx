@@ -50,6 +50,9 @@ import './music/workbench-music-player.css'
 
 type PanelTab = 'player' | 'search' | 'library' | 'account'
 
+/** UI surface for the music card: external providers are isolated; StudiumX is local playlists only. */
+type MusicSurface = MusicProvider | 'studiumx'
+
 const WORKBENCH_MUSIC_REVEAL_HEIGHT = 436
 
 const playbackModeOrder: MusicPlaybackMode[] = ['sequence', 'shuffle', 'loop']
@@ -97,6 +100,47 @@ const PROVIDER_LABEL: Record<MusicProvider, string> = {
   netease: '网易云',
   qq: 'QQ 音乐'
 }
+
+const SURFACE_OPTIONS: Array<{ id: MusicSurface; label: string }> = [
+  { id: 'netease', label: '网易云' },
+  { id: 'studiumx', label: 'StudiumX' },
+  { id: 'qq', label: 'QQ 音乐' }
+]
+
+const emptyProviderUi = () => ({
+  tab: 'player' as PanelTab,
+  searchQuery: '',
+  searchResults: [] as MusicSong[],
+  playlists: [] as MusicPlaylistSummary[],
+  librarySongs: [] as MusicSong[],
+  libraryTitle: '歌单',
+  statusText: ''
+})
+
+/** Built-in StudiumX playlists (local catalog — no external account). */
+const STUDIUMX_PLAYLISTS: MusicPlaylistSummary[] = [
+  {
+    provider: 'netease',
+    id: 'studiumx-focus',
+    name: '专注自习',
+    cover: '',
+    trackCount: 0
+  },
+  {
+    provider: 'netease',
+    id: 'studiumx-lofi',
+    name: 'Lo-fi 背景',
+    cover: '',
+    trackCount: 0
+  },
+  {
+    provider: 'netease',
+    id: 'studiumx-white-noise',
+    name: '白噪音',
+    cover: '',
+    trackCount: 0
+  }
+]
 
 function emptyAccount(provider: MusicProvider): MusicAccountStatus {
   return { provider, loggedIn: false, userId: null, nickname: '' }
@@ -164,8 +208,10 @@ export function WorkbenchMusicPlayer() {
     async () => undefined
   )
 
-  const [tab, setTab] = useState<PanelTab>('player')
-  const [provider, setProvider] = useState<MusicProvider>('netease')
+  const [surface, setSurface] = useState<MusicSurface>('netease')
+  const provider: MusicProvider = surface === 'studiumx' ? 'netease' : surface
+  const isStudiumxSurface = surface === 'studiumx'
+
   const [accounts, setAccounts] = useState<{ netease: MusicAccountStatus; qq: MusicAccountStatus }>({
     netease: emptyAccount('netease'),
     qq: emptyAccount('qq')
@@ -184,14 +230,76 @@ export function WorkbenchMusicPlayer() {
     () => initialPlaybackRef.current.playbackMode
   )
   const [isVolumeOpen, setIsVolumeOpen] = useState(false)
-  const [statusText, setStatusText] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<MusicSong[]>([])
-  const [playlists, setPlaylists] = useState<MusicPlaylistSummary[]>([])
-  const [librarySongs, setLibrarySongs] = useState<MusicSong[]>([])
-  const [libraryTitle, setLibraryTitle] = useState('歌单')
+  // Per-provider UI isolation: search/library/tab/status do not leak across 网易云 / QQ.
+  const [providerUi, setProviderUi] = useState<
+    Record<MusicProvider, ReturnType<typeof emptyProviderUi>>
+  >(() => ({
+    netease: emptyProviderUi(),
+    qq: emptyProviderUi()
+  }))
+  const activeUi = providerUi[provider]
+  const tab = isStudiumxSurface ? ('library' as PanelTab) : activeUi.tab
+  const searchQuery = activeUi.searchQuery
+  // Never show another platform's search / playlists / tracks on this surface.
+  const searchResults = isStudiumxSurface
+    ? []
+    : activeUi.searchResults.filter((song) => song.provider === provider)
+  const playlists = isStudiumxSurface
+    ? STUDIUMX_PLAYLISTS
+    : activeUi.playlists.filter((item) => item.provider === provider)
+  const librarySongs = isStudiumxSurface
+    ? []
+    : activeUi.librarySongs.filter((song) => song.provider === provider)
+  const libraryTitle = isStudiumxSurface ? 'StudiumX 歌单' : activeUi.libraryTitle
+  const statusText = isStudiumxSurface ? '' : activeUi.statusText
+  // Player queue is shared for audio; the 播放 list is scoped to this surface with absolute indices.
+  const surfaceQueueEntries = useMemo(() => {
+    if (isStudiumxSurface) return [] as Array<{ song: MusicSong; queueIndex: number }>
+    return queue
+      .map((song, queueIndex) => ({ song, queueIndex }))
+      .filter((entry) => entry.song.provider === provider)
+  }, [isStudiumxSurface, provider, queue])
+
+  /** Always write to an explicit provider so async loads cannot leak across surfaces. */
+  const patchProviderUi = useCallback(
+    (target: MusicProvider, patch: Partial<ReturnType<typeof emptyProviderUi>>) => {
+      setProviderUi((prev) => ({
+        ...prev,
+        [target]: { ...prev[target], ...patch }
+      }))
+    },
+    []
+  )
+
+  const setTab = useCallback(
+    (next: PanelTab) => {
+      if (isStudiumxSurface) return
+      patchProviderUi(provider, { tab: next })
+    },
+    [isStudiumxSurface, patchProviderUi, provider]
+  )
+
+  const setSearchQuery = useCallback(
+    (next: string) => {
+      patchProviderUi(provider, { searchQuery: next })
+    },
+    [patchProviderUi, provider]
+  )
+
+  const setStatusText = useCallback(
+    (next: string) => {
+      if (isStudiumxSurface) return
+      patchProviderUi(provider, { statusText: next })
+    },
+    [isStudiumxSurface, patchProviderUi, provider]
+  )
+
+  const switchSurface = useCallback((next: MusicSurface) => {
+    setIsVolumeOpen(false)
+    setSurface(next)
+  }, [])
 
   useEffect(() => {
     if (!isVolumeOpen) return
@@ -228,6 +336,10 @@ export function WorkbenchMusicPlayer() {
 
   const currentSong = currentIndex >= 0 ? queue[currentIndex] ?? null : null
   const activeAccount = accounts[provider]
+  const surfaceCurrentIndex = useMemo(() => {
+    if (isStudiumxSurface || currentIndex < 0) return -1
+    return surfaceQueueEntries.findIndex((entry) => entry.queueIndex === currentIndex)
+  }, [currentIndex, isStudiumxSurface, surfaceQueueEntries])
 
   useEffect(() => {
     queueRef.current = queue
@@ -332,14 +444,19 @@ export function WorkbenchMusicPlayer() {
     song: MusicSong,
     options: { resumeAt?: number; shouldPlay?: boolean } = {}
   ): Promise<boolean> => {
-    const audio = audioRef.current
-    if (!audio) return false
+    // Prefer the session singleton — do not depend on a mount-timed audioRef.
+    const audio = getMusicPlaybackAudio()
+    audioRef.current = audio
     setBusy(true)
-    setStatusText('正在获取播放地址…')
+    const report = (message: string): void => {
+      patchProviderUi(song.provider, { statusText: message })
+    }
+    report('正在获取播放地址…')
     try {
       const result = await musicGetPlaybackUrl(song)
       if (!result.playable || !result.url) {
-        setStatusText(result.message || '无法播放该歌曲')
+        report(result.message || '无法播放该歌曲')
+        updateMusicPlaybackSnapshot({ wasPlaying: false })
         return false
       }
       audio.src = result.url
@@ -368,16 +485,20 @@ export function WorkbenchMusicPlayer() {
         // its media event; the session subscription updates every mounted UI.
         updateMusicPlaybackSnapshot({ wasPlaying: true })
       }
-      updateMusicPlaybackSnapshot({ currentTime: audio.currentTime || resumeAt, wasPlaying: options.shouldPlay !== false })
-      setStatusText('')
+      updateMusicPlaybackSnapshot({
+        currentTime: audio.currentTime || resumeAt,
+        wasPlaying: options.shouldPlay !== false
+      })
+      report('')
       return true
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : '播放失败')
+      report(error instanceof Error ? error.message : '播放失败')
+      updateMusicPlaybackSnapshot({ wasPlaying: false })
       return false
     } finally {
       setBusy(false)
     }
-  }, [])
+  }, [patchProviderUi])
 
   useEffect(() => {
     if (restorePlaybackRef.current) return
@@ -407,10 +528,21 @@ export function WorkbenchMusicPlayer() {
         updateMusicPlaybackSnapshot({ wasPlaying: false })
         return
       }
+      setQueue(sourceQueue)
+      queueRef.current = sourceQueue
       setCurrentIndex(index)
       currentIndexRef.current = index
-      updateMusicPlaybackSnapshot({ queue: sourceQueue, currentIndex: index, currentTime: 0, duration: 0 })
+      updateMusicPlaybackSnapshot({
+        queue: sourceQueue,
+        currentIndex: index,
+        currentTime: 0,
+        duration: 0
+      })
       const song = sourceQueue[index]
+      if (!song) {
+        updateMusicPlaybackSnapshot({ wasPlaying: false })
+        return
+      }
       const ok = await loadAndPlay(song)
       if (!ok && index + 1 < sourceQueue.length) {
         await playAtIndex(index + 1, sourceQueue)
@@ -484,24 +616,30 @@ export function WorkbenchMusicPlayer() {
   }, [])
 
   const handleSearch = useCallback(async (): Promise<void> => {
+    if (isStudiumxSurface) return
+    const target = provider
     const keywords = searchQuery.trim()
     if (!keywords) {
-      setStatusText('请输入搜索关键词')
+      patchProviderUi(target, { statusText: '请输入搜索关键词' })
       return
     }
     setBusy(true)
-    setStatusText('搜索中…')
+    patchProviderUi(target, { statusText: '搜索中…' })
     try {
-      const result = await musicSearch(provider, keywords, 24)
-      setSearchResults(result.songs)
-      setStatusText(result.songs.length === 0 ? '未找到相关歌曲' : `找到 ${result.songs.length} 首`)
-      setTab('search')
+      const result = await musicSearch(target, keywords, 24)
+      patchProviderUi(target, {
+        searchResults: result.songs,
+        statusText: result.songs.length === 0 ? '未找到相关歌曲' : `找到 ${result.songs.length} 首`,
+        tab: 'search'
+      })
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : '搜索失败')
+      patchProviderUi(target, {
+        statusText: error instanceof Error ? error.message : '搜索失败'
+      })
     } finally {
       setBusy(false)
     }
-  }, [provider, searchQuery])
+  }, [isStudiumxSurface, patchProviderUi, provider, searchQuery])
 
   const handleLogin = useCallback(
     async (target: MusicProvider): Promise<void> => {
@@ -511,7 +649,7 @@ export function WorkbenchMusicPlayer() {
         const result = await musicOpenLogin(target)
         await refreshAccounts()
         if (result.ok) {
-          setProvider(target)
+          setSurface(target)
           setStatusText(
             result.reused
               ? `${PROVIDER_LABEL[target]} 已登录`
@@ -550,74 +688,102 @@ export function WorkbenchMusicPlayer() {
   )
 
   const loadLibraryPlaylists = useCallback(async (): Promise<void> => {
+    if (isStudiumxSurface) return
+    const target = provider
     setBusy(true)
-    setStatusText('加载歌单…')
+    patchProviderUi(target, { statusText: '加载歌单…' })
     try {
-      const result = await musicGetUserPlaylists(provider)
-      setPlaylists(result.playlists)
-      setLibrarySongs([])
-      setLibraryTitle('我的歌单')
-      setStatusText(result.message || (result.playlists.length === 0 ? '暂无歌单' : ''))
-      setTab('library')
+      const result = await musicGetUserPlaylists(target)
+      patchProviderUi(target, {
+        playlists: result.playlists.filter((item) => item.provider === target),
+        librarySongs: [],
+        libraryTitle: '我的歌单',
+        statusText: result.message || (result.playlists.length === 0 ? '暂无歌单' : ''),
+        tab: 'library'
+      })
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : '歌单加载失败')
+      patchProviderUi(target, {
+        statusText: error instanceof Error ? error.message : '歌单加载失败'
+      })
     } finally {
       setBusy(false)
     }
-  }, [provider])
+  }, [isStudiumxSurface, patchProviderUi, provider])
 
   const openPlaylist = useCallback(
     async (playlist: MusicPlaylistSummary): Promise<void> => {
+      if (isStudiumxSurface) return
+      const target = provider
+      if (playlist.provider !== target) {
+        patchProviderUi(target, { statusText: '该歌单属于其他平台，请切换后再打开' })
+        return
+      }
       setBusy(true)
-      setStatusText(`加载「${playlist.name}」…`)
+      patchProviderUi(target, { statusText: `加载「${playlist.name}」…` })
       try {
-        const result = await musicGetPlaylistTracks(provider, playlist.id, 100)
-        setLibrarySongs(result.songs)
-        setLibraryTitle(playlist.name)
-        setStatusText(result.message || `${result.songs.length} 首`)
-        setTab('library')
+        const result = await musicGetPlaylistTracks(target, playlist.id, 100)
+        patchProviderUi(target, {
+          librarySongs: result.songs.filter((song) => song.provider === target),
+          libraryTitle: playlist.name,
+          statusText: result.message || `${result.songs.length} 首`,
+          tab: 'library'
+        })
       } catch (error) {
-        setStatusText(error instanceof Error ? error.message : '歌单加载失败')
+        patchProviderUi(target, {
+          statusText: error instanceof Error ? error.message : '歌单加载失败'
+        })
       } finally {
         setBusy(false)
       }
     },
-    [provider]
+    [isStudiumxSurface, patchProviderUi, provider]
   )
 
   const openDaily = useCallback(async (): Promise<void> => {
+    if (isStudiumxSurface || provider !== 'netease') return
+    const target: MusicProvider = 'netease'
     setBusy(true)
-    setStatusText('加载每日推荐…')
+    patchProviderUi(target, { statusText: '加载每日推荐…' })
     try {
-      const result = await musicGetDailyRecommend(provider)
-      setLibrarySongs(result.songs)
-      setPlaylists([])
-      setLibraryTitle('每日推荐')
-      setStatusText(result.message || `${result.songs.length} 首`)
-      setTab('library')
+      const result = await musicGetDailyRecommend(target)
+      patchProviderUi(target, {
+        librarySongs: result.songs.filter((song) => song.provider === target),
+        playlists: [],
+        libraryTitle: '每日推荐',
+        statusText: result.message || `${result.songs.length} 首`,
+        tab: 'library'
+      })
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : '加载失败')
+      patchProviderUi(target, {
+        statusText: error instanceof Error ? error.message : '加载失败'
+      })
     } finally {
       setBusy(false)
     }
-  }, [provider])
+  }, [isStudiumxSurface, patchProviderUi, provider])
 
   const openLiked = useCallback(async (): Promise<void> => {
+    if (isStudiumxSurface) return
+    const target = provider
     setBusy(true)
-    setStatusText('加载喜欢的音乐…')
+    patchProviderUi(target, { statusText: '加载喜欢的音乐…' })
     try {
-      const result = await musicGetLikedSongs(provider)
-      setLibrarySongs(result.songs)
-      setPlaylists([])
-      setLibraryTitle('喜欢的音乐')
-      setStatusText(result.message || `${result.songs.length} 首`)
-      setTab('library')
+      const result = await musicGetLikedSongs(target)
+      patchProviderUi(target, {
+        librarySongs: result.songs.filter((song) => song.provider === target),
+        playlists: [],
+        libraryTitle: '喜欢的音乐',
+        statusText: result.message || `${result.songs.length} 首`,
+        tab: 'library'
+      })
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : '加载失败')
+      patchProviderUi(target, {
+        statusText: error instanceof Error ? error.message : '加载失败'
+      })
     } finally {
       setBusy(false)
     }
-  }, [provider])
+  }, [isStudiumxSurface, patchProviderUi, provider])
 
   const progressRatio = duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0
   const progressStyle = { '--music-progress': `${progressRatio * 100}%` } as CSSProperties
@@ -626,9 +792,10 @@ export function WorkbenchMusicPlayer() {
     playbackMode === 'shuffle' ? Shuffle : playbackMode === 'loop' ? Repeat : ListMusic
   const collapsedMeta = useMemo(() => {
     if (currentSong) return currentSong.name
+    if (isStudiumxSurface) return 'StudiumX 歌单'
     if (activeAccount.loggedIn) return `${PROVIDER_LABEL[provider]} · 已登录`
     return '搜索 / 登录'
-  }, [activeAccount.loggedIn, currentSong, provider])
+  }, [activeAccount.loggedIn, currentSong, isStudiumxSurface, provider])
 
   return (
     <section
@@ -648,328 +815,369 @@ export function WorkbenchMusicPlayer() {
         <div ref={revealInnerRef} className="workbench-disclosure-reveal-inner workbench-music-reveal-inner">
           <div id="workbench-music-panel" className="workbench-disclosure-panel workbench-music-panel">
             <div className="workbench-music-head">
-              <div>
-                <span>
-                  <Music2 size={13} aria-hidden="true" />
-                  平台
-                </span>
-              </div>
-              <div className="workbench-music-provider-switch" role="group" aria-label="音乐平台">
-                {(['netease', 'qq'] as MusicProvider[]).map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    className={provider === item ? 'is-active' : undefined}
-                    onClick={() => setProvider(item)}
-                  >
-                    {PROVIDER_LABEL[item]}
-                  </button>
-                ))}
+              <div
+                className="workbench-music-surface-switch"
+                data-active-surface={surface}
+                role="tablist"
+                aria-label="音乐平台"
+              >
+                <span className="workbench-music-surface-switch-indicator" aria-hidden="true" />
+                {SURFACE_OPTIONS.map((option) => {
+                  const isActive = surface === option.id
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      className={`workbench-music-surface-switch-btn${isActive ? ' is-active' : ''}`}
+                      onClick={() => switchSurface(option.id)}
+                    >
+                      <span>{option.label}</span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
-            <div className="workbench-music-now">
-              <div className="workbench-music-cover" aria-hidden="true">
-                <span className={`workbench-music-cover-disc${isPlaying ? ' is-playing' : ''}`}>
-                  {currentSong?.cover ? (
-                    <img src={currentSong.cover} alt="" />
-                  ) : (
-                    <Disc3 size={28} />
-                  )}
-                </span>
-              </div>
-              <div className="workbench-music-now-meta">
-                <div className="workbench-music-now-title-row">
-                  <strong>
-                    <MusicTitleMarquee title={currentSong?.name || '尚未播放'} />
-                  </strong>
-                  <div className="workbench-music-now-actions">
-                    <button
-                      type="button"
-                      className="workbench-music-now-action"
-                      onClick={() => {
-                        setPlaybackMode((mode) => {
-                          const index = playbackModeOrder.indexOf(mode)
-                          return playbackModeOrder[(index + 1) % playbackModeOrder.length]
-                        })
-                      }}
-                      aria-label={`播放模式：${playbackModeLabel[playbackMode]}，点击切换`}
-                      title={`播放模式：${playbackModeLabel[playbackMode]}`}
+            {isStudiumxSurface ? (
+              <div className="workbench-music-studiumx">
+                <div className="workbench-music-section-title">StudiumX 歌单</div>
+                <div className="workbench-music-list" role="list" aria-label="StudiumX 歌单">
+                  {STUDIUMX_PLAYLISTS.map((playlist) => (
+                    <div
+                      key={`studiumx:${playlist.id}`}
+                      className="workbench-music-row workbench-music-row-static"
                     >
-                      <PlaybackModeIcon size={15} />
-                    </button>
-                    <div ref={volumeControlRef} className="workbench-music-volume-control">
+                      <span className="workbench-music-row-meta">
+                        <strong>{playlist.name}</strong>
+                        <small>StudiumX</small>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <>
+              <div className="workbench-music-now">
+                <div className="workbench-music-cover" aria-hidden="true">
+                  <span className={`workbench-music-cover-disc${isPlaying ? ' is-playing' : ''}`}>
+                    {currentSong?.cover ? (
+                      <img src={currentSong.cover} alt="" />
+                    ) : (
+                      <Disc3 size={28} />
+                    )}
+                  </span>
+                </div>
+                <div className="workbench-music-now-meta">
+                  <div className="workbench-music-now-title-row">
+                    <strong>
+                      <MusicTitleMarquee title={currentSong?.name || '尚未播放'} />
+                    </strong>
+                    <div className="workbench-music-now-actions">
                       <button
                         type="button"
                         className="workbench-music-now-action"
-                        onClick={() => setIsVolumeOpen((value) => !value)}
-                        aria-label="调节音量"
-                        aria-controls="workbench-music-volume-popover"
-                        aria-expanded={isVolumeOpen}
-                        title="调节音量"
+                        onClick={() => {
+                          setPlaybackMode((mode) => {
+                            const index = playbackModeOrder.indexOf(mode)
+                            return playbackModeOrder[(index + 1) % playbackModeOrder.length]
+                          })
+                        }}
+                        aria-label={`播放模式：${playbackModeLabel[playbackMode]}，点击切换`}
+                        title={`播放模式：${playbackModeLabel[playbackMode]}`}
                       >
-                        {volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                        <PlaybackModeIcon size={15} />
                       </button>
-                      {isVolumeOpen ? (
-                        <div
-                          id="workbench-music-volume-popover"
-                          className="workbench-music-volume-popover"
-                          role="dialog"
-                          aria-label="音量调节"
+                      <div ref={volumeControlRef} className="workbench-music-volume-control">
+                        <button
+                          type="button"
+                          className="workbench-music-now-action"
+                          onClick={() => setIsVolumeOpen((value) => !value)}
+                          aria-label="调节音量"
+                          aria-controls="workbench-music-volume-popover"
+                          aria-expanded={isVolumeOpen}
+                          title="调节音量"
                         >
-                          <input
-                            type="range"
-                            min={0}
-                            max={1}
-                            step={0.01}
-                            value={volume}
-                            style={volumeStyle}
-                            className="workbench-music-volume-slider"
-                            aria-label="音量"
-                            onChange={(event) => setVolume(Number(event.target.value))}
-                          />
-                          <output className="workbench-music-volume-value" aria-live="polite">
-                            {Math.round(volume * 100)}%
-                          </output>
-                          <button
-                            type="button"
-                            className="workbench-music-mute-button"
-                            onClick={toggleMute}
-                            aria-label={volume === 0 ? '取消静音' : '静音'}
-                            title={volume === 0 ? '取消静音' : '静音'}
+                          {volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                        </button>
+                        {isVolumeOpen ? (
+                          <div
+                            id="workbench-music-volume-popover"
+                            className="workbench-music-volume-popover"
+                            role="dialog"
+                            aria-label="音量调节"
                           >
-                            {volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                          </button>
-                        </div>
-                      ) : null}
+                            <input
+                              type="range"
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              value={volume}
+                              style={volumeStyle}
+                              className="workbench-music-volume-slider"
+                              aria-label="音量"
+                              onChange={(event) => setVolume(Number(event.target.value))}
+                            />
+                            <output className="workbench-music-volume-value" aria-live="polite">
+                              {Math.round(volume * 100)}%
+                            </output>
+                            <button
+                              type="button"
+                              className="workbench-music-mute-button"
+                              onClick={toggleMute}
+                              aria-label={volume === 0 ? '取消静音' : '静音'}
+                              title={volume === 0 ? '取消静音' : '静音'}
+                            >
+                              {volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
+                  <small>
+                    {currentSong
+                      ? `${currentSong.artist}${currentSong.album ? ` · ${currentSong.album}` : ''}`
+                      : '搜索歌曲，或登录后打开歌单'}
+                  </small>
                 </div>
-                <small>
-                  {currentSong
-                    ? `${currentSong.artist}${currentSong.album ? ` · ${currentSong.album}` : ''}`
-                    : '搜索歌曲，或登录后打开歌单'}
-                </small>
               </div>
-            </div>
 
-            <div className="workbench-music-progress">
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.001}
-                value={progressRatio}
-                style={progressStyle}
-                aria-label="播放进度"
-                onChange={(event) => seekTo(Number(event.target.value))}
-              />
-              <div className="workbench-music-time">
-                <span>{formatMusicDuration(currentTime)}</span>
-                <span>{formatMusicDuration(duration)}</span>
+              <div className="workbench-music-progress">
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.001}
+                  value={progressRatio}
+                  style={progressStyle}
+                  aria-label="播放进度"
+                  onChange={(event) => seekTo(Number(event.target.value))}
+                />
+                <div className="workbench-music-time">
+                  <span>{formatMusicDuration(currentTime)}</span>
+                  <span>{formatMusicDuration(duration)}</span>
+                </div>
               </div>
-            </div>
 
-            <div
-              className="workbench-music-tabs"
-              role="tablist"
-              aria-label="音乐面板"
-              data-active-tab={tab}
-            >
-              {(
-                [
-                  ['player', '播放'],
-                  ['search', '搜索'],
-                  ['library', '曲库'],
-                  ['account', '账号']
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === id}
-                  className={tab === id ? 'is-active' : undefined}
-                  onClick={() => {
-                    setIsVolumeOpen(false)
-                    setTab(id)
-                    if (id === 'library' && playlists.length === 0 && librarySongs.length === 0) {
-                      void loadLibraryPlaylists()
-                    }
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {tab === 'player' ? (
-              <div className="workbench-music-list" role="list" aria-label="当前队列">
-                {queue.length === 0 ? (
-                  <div className="workbench-music-empty">队列为空，去搜索或打开歌单吧</div>
-                ) : (
-                  queue.map((song, index) => (
+              <div
+                className="workbench-music-panel-switch"
+                data-active-tab={tab}
+                role="tablist"
+                aria-label="音乐面板"
+              >
+                <span className="workbench-music-panel-switch-indicator" aria-hidden="true" />
+                {(
+                  [
+                    ['player', '播放'],
+                    ['search', '搜索'],
+                    ['library', '曲库'],
+                    ['account', '账号']
+                  ] as const
+                ).map(([id, label]) => {
+                  const isActive = tab === id
+                  return (
                     <button
-                      key={`${songKey(song)}:${index}`}
+                      key={id}
                       type="button"
-                      className={`workbench-music-row${index === currentIndex ? ' is-current' : ''}`}
-                      onClick={() => void playAtIndex(index, queue)}
+                      role="tab"
+                      aria-selected={isActive}
+                      className={`workbench-music-panel-switch-btn${isActive ? ' is-active' : ''}`}
+                      onClick={() => {
+                        setIsVolumeOpen(false)
+                        setTab(id)
+                        if (id === 'library' && playlists.length === 0 && librarySongs.length === 0) {
+                          void loadLibraryPlaylists()
+                        }
+                      }}
                     >
-                      <span className="workbench-music-row-meta">
-                        <strong>{song.name}</strong>
-                        <small>· {song.artist}</small>
-                      </span>
+                      <span>{label}</span>
                     </button>
-                  ))
-                )}
+                  )
+                })}
               </div>
-            ) : null}
 
-            {tab === 'search' ? (
-              <div>
-                <form
-                  className="workbench-music-search-form"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    void handleSearch()
-                  }}
-                >
-                  <Search size={16} aria-hidden="true" />
-                  <input
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder={`搜索${PROVIDER_LABEL[provider]}歌曲`}
-                    aria-label="搜索歌曲"
-                  />
-                  <button type="submit" disabled={busy}>
-                    搜索
-                  </button>
-                </form>
-                <div className="workbench-music-list" role="list" aria-label="搜索结果">
-                  {searchResults.length === 0 ? (
-                    <div className="workbench-music-empty">输入关键词搜索歌曲</div>
+              {tab === 'player' ? (
+                <div className="workbench-music-list" role="list" aria-label="当前队列">
+                  {surfaceQueueEntries.length === 0 ? (
+                    <div className="workbench-music-empty">
+                      本平台队列为空，去搜索或打开歌单吧
+                    </div>
                   ) : (
-                    searchResults.map((song, index) => (
+                    surfaceQueueEntries.map((entry, index) => (
                       <button
-                        key={songKey(song)}
+                        key={`${songKey(entry.song)}:${entry.queueIndex}`}
                         type="button"
-                        className="workbench-music-row"
-                        onClick={() => void playQueue(searchResults, index)}
+                        className={`workbench-music-row${index === surfaceCurrentIndex ? ' is-current' : ''}`}
+                        onClick={() => void playAtIndex(entry.queueIndex, queue)}
                       >
                         <span className="workbench-music-row-meta">
-                          <strong>{song.name}</strong>
-                          <small>
-                            {song.artist}
-                            {song.album ? ` · ${song.album}` : ''}
-                          </small>
+                          <strong>{entry.song.name}</strong>
+                          <small> · {entry.song.artist}</small>
                         </span>
                       </button>
                     ))
                   )}
                 </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            {tab === 'library' ? (
-              <div>
-                <div className="workbench-music-library-actions">
-                  <button type="button" onClick={() => void loadLibraryPlaylists()} disabled={busy}>
-                    我的歌单
-                  </button>
-                  <button type="button" onClick={() => void openLiked()} disabled={busy}>
-                    喜欢
-                  </button>
-                  {provider === 'netease' ? (
-                    <button type="button" onClick={() => void openDaily()} disabled={busy}>
-                      每日推荐
+              {tab === 'search' ? (
+                <div>
+                  <form
+                    className="workbench-music-search-form"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void handleSearch()
+                    }}
+                  >
+                    <input
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder={`搜索${PROVIDER_LABEL[provider]}歌曲`}
+                      aria-label="搜索歌曲"
+                    />
+                    <button
+                      type="submit"
+                      className="workbench-music-search-submit"
+                      disabled={busy}
+                      aria-label="搜索"
+                      title="搜索"
+                    >
+                      <Search size={16} aria-hidden="true" />
                     </button>
-                  ) : null}
-                </div>
-                {librarySongs.length > 0 ? (
-                  <>
-                    <div className="workbench-music-section-title">{libraryTitle}</div>
-                    <div className="workbench-music-list" role="list" aria-label={libraryTitle}>
-                      {librarySongs.map((song, index) => (
+                  </form>
+                  <div className="workbench-music-list" role="list" aria-label="搜索结果">
+                    {searchResults.length === 0 ? (
+                      <div className="workbench-music-empty">输入关键词搜索歌曲</div>
+                    ) : (
+                      searchResults.map((song, index) => (
                         <button
                           key={songKey(song)}
                           type="button"
                           className="workbench-music-row"
-                          onClick={() => void playQueue(librarySongs, index)}
+                          onClick={() => void playQueue(searchResults, index)}
                         >
                           <span className="workbench-music-row-meta">
                             <strong>{song.name}</strong>
-                            <small>· {song.artist}</small>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="workbench-music-list" role="list" aria-label="歌单列表">
-                    {playlists.length === 0 ? (
-                      <div className="workbench-music-empty">
-                        {activeAccount.loggedIn ? '暂无歌单' : '登录后可查看歌单'}
-                      </div>
-                    ) : (
-                      playlists.map((playlist) => (
-                        <button
-                          key={`${playlist.provider}:${playlist.id}`}
-                          type="button"
-                          className="workbench-music-row"
-                          onClick={() => void openPlaylist(playlist)}
-                        >
-                          <span className="workbench-music-row-meta">
-                            <strong>{playlist.name}</strong>
                             <small>
-                              {playlist.trackCount > 0 ? `${playlist.trackCount} 首` : '歌单'}
+                              {song.artist}
+                              {song.album ? ` · ${song.album}` : ''}
                             </small>
                           </span>
                         </button>
                       ))
                     )}
                   </div>
-                )}
-              </div>
-            ) : null}
+                </div>
+              ) : null}
 
-            {tab === 'account' ? (
-              <div className="workbench-music-account">
-                {(['netease', 'qq'] as MusicProvider[]).map((item) => {
-                  const account = accounts[item]
-                  return (
-                    <div key={item} className="workbench-music-account-card">
-                      <div className="workbench-music-account-meta">
-                        <UserRound size={16} aria-hidden="true" />
-                        <div>
-                          <strong>{PROVIDER_LABEL[item]}</strong>
-                          <small>
-                            {account.loggedIn
-                              ? account.nickname || account.userId || '已登录'
-                              : '未登录'}
-                          </small>
-                        </div>
+              {tab === 'library' ? (
+                <div>
+                  <div className="workbench-music-library-actions">
+                    <button type="button" onClick={() => void loadLibraryPlaylists()} disabled={busy}>
+                      我的歌单
+                    </button>
+                    <button type="button" onClick={() => void openLiked()} disabled={busy}>
+                      喜欢
+                    </button>
+                    {provider === 'netease' ? (
+                      <button type="button" onClick={() => void openDaily()} disabled={busy}>
+                        每日推荐
+                      </button>
+                    ) : null}
+                  </div>
+                  {librarySongs.length > 0 ? (
+                    <>
+                      <div className="workbench-music-section-title">{libraryTitle}</div>
+                      <div className="workbench-music-list" role="list" aria-label={libraryTitle}>
+                        {librarySongs.map((song, index) => (
+                          <button
+                            key={songKey(song)}
+                            type="button"
+                            className="workbench-music-row"
+                            onClick={() => void playQueue(librarySongs, index)}
+                          >
+                            <span className="workbench-music-row-meta">
+                              <strong>{song.name}</strong>
+                              <small>· {song.artist}</small>
+                            </span>
+                          </button>
+                        ))}
                       </div>
-                      {account.loggedIn ? (
-                        <button type="button" onClick={() => void handleLogout(item)} disabled={busy}>
-                          <LogOut size={14} />
-                          退出
-                        </button>
+                    </>
+                  ) : (
+                    <div className="workbench-music-list" role="list" aria-label="歌单列表">
+                      {playlists.length === 0 ? (
+                        <div className="workbench-music-empty">
+                          {activeAccount.loggedIn ? '暂无歌单' : '登录后可查看歌单'}
+                        </div>
                       ) : (
-                        <button type="button" onClick={() => void handleLogin(item)} disabled={busy}>
-                          <LogIn size={14} />
-                          扫码登录
-                        </button>
+                        playlists.map((playlist) => (
+                          <button
+                            key={`${playlist.provider}:${playlist.id}`}
+                            type="button"
+                            className="workbench-music-row"
+                            onClick={() => void openPlaylist(playlist)}
+                          >
+                            <span className="workbench-music-row-meta">
+                              <strong>{playlist.name}</strong>
+                              <small>
+                                {playlist.trackCount > 0 ? `${playlist.trackCount} 首` : '歌单'}
+                              </small>
+                            </span>
+                          </button>
+                        ))
                       )}
                     </div>
-                  )
-                })}
-                <p className="workbench-music-account-hint">
-                  Cookie 仅保存在本机，用于获取歌单与播放地址。不要分享登录状态。
-                </p>
-              </div>
-            ) : null}
+                  )}
+                </div>
+              ) : null}
 
-            {statusText ? (
+              {tab === 'account' ? (
+                <div className="workbench-music-account">
+                  <div className="workbench-music-account-card">
+                    <div className="workbench-music-account-meta">
+                      <UserRound size={16} aria-hidden="true" />
+                      <div>
+                        <strong>{PROVIDER_LABEL[provider]}</strong>
+                        <small>
+                          {activeAccount.loggedIn
+                            ? activeAccount.nickname || activeAccount.userId || '已登录'
+                            : '未登录'}
+                        </small>
+                      </div>
+                    </div>
+                    {activeAccount.loggedIn ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleLogout(provider)}
+                        disabled={busy}
+                      >
+                        <LogOut size={14} />
+                        退出
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleLogin(provider)}
+                        disabled={busy}
+                      >
+                        <LogIn size={14} />
+                        扫码登录
+                      </button>
+                    )}
+                  </div>
+                  <p className="workbench-music-account-hint">
+                    当前仅管理 {PROVIDER_LABEL[provider]} 账号。Cookie 仅保存在本机，用于获取歌单与播放地址。不要分享登录状态。
+                  </p>
+                </div>
+              ) : null}
+
+              </>
+            )}
+
+            {!isStudiumxSurface && statusText ? (
               <div className="workbench-music-status" role="status">
                 {busy ? <Loader2 size={12} className="is-spinning" /> : null}
                 <span>{statusText}</span>

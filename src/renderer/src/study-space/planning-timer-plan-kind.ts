@@ -83,10 +83,11 @@ export function normalizeTimerPlanKindFields(
     clockMode = 'countdown'
   }
 
-  if ((kind === 'pomodoro' || kind === 'custom_rhythm') && clockMode === 'countup') {
+  // custom_rhythm is always countdown; pomodoro may opt into countup (product UI toggle).
+  if (kind === 'custom_rhythm' && clockMode === 'countup') {
     warnings.push({
-      code: 'pomodoro_clock_mode_coerced',
-      message: 'pomodoro/custom_rhythm plans use countdown; clockMode coerced',
+      code: 'custom_rhythm_clock_mode_coerced',
+      message: 'custom_rhythm plans use countdown; clockMode coerced',
       field: 'clockMode'
     })
     clockMode = 'countdown'
@@ -122,13 +123,28 @@ export const CONTINUOUS_BREAK_POLICY_OPTIONS: readonly {
   { value: 'automatic', label: '自动休息' }
 ] as const
 
+/** Product UI: exam simulation is a top-level plan type (stored as continuous + continuousTarget). */
+export type StudyTimerPlanKindUi = StudyTimerPlanKind | 'exam'
+
 export const TIMER_PLAN_KIND_OPTIONS: readonly {
-  value: StudyTimerPlanKind
+  value: StudyTimerPlanKindUi
   label: string
 }[] = [
   { value: 'pomodoro', label: '番茄循环' },
-  { value: 'continuous', label: '连续专注' }
+  { value: 'continuous', label: '连续专注' },
+  { value: 'exam', label: '考场模拟' }
 ] as const
+
+/** Map stored plan fields → top-level kind select value. */
+export function timerPlanKindToUi(
+  kind: StudyTimerPlanKind | string | undefined,
+  continuousTarget?: boolean
+): StudyTimerPlanKindUi {
+  if (kind === 'continuous' && continuousTarget === true) return 'exam'
+  if (kind === 'continuous') return 'continuous'
+  if (kind === 'custom_rhythm') return 'custom_rhythm'
+  return 'pomodoro'
+}
 
 export function defaultContinuousBreakPolicy(): ContinuousBreakPolicy {
   return TIMER_PLAN_SEED_DEFAULTS.continuousBreakPolicy
@@ -289,7 +305,7 @@ export function projectV1TimerPlanToV2(plan: StudyTimerPlan): TimerPlanV2 {
     longBreakEvery: advanced.longBreakEvery,
     breakPolicy: advanced.breakPolicy,
     kind: 'pomodoro',
-    clockMode: 'countdown'
+    clockMode: clockMode === 'countup' ? 'countup' : 'countdown'
   })
 }
 
@@ -307,18 +323,23 @@ export function projectV2TimerPlanToV1(
   }).fields
 
   if (plan.kind === 'continuous') {
+    // Builtin continuous_countup is the product 考场模拟 seed (wall window + countup).
+    const isExamSeed =
+      plan.id === 'continuous_countup' || plan.focusMinutes != null
     return {
       id: plan.id,
       name: plan.name,
       focusMinutes:
-        plan.focusMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes,
+        plan.focusMinutes
+        ?? (plan.id === 'continuous_countup' ? 180 : TIMER_PLAN_SEED_DEFAULTS.classicFocusMinutes),
       breakMinutes:
-        plan.shortBreakMinutes ?? TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes,
+        plan.shortBreakMinutes
+        ?? (isExamSeed ? 0 : TIMER_PLAN_SEED_DEFAULTS.classicShortBreakMinutes),
       simulationStartTime: window?.simulationStartTime ?? '09:00',
       simulationEndTime: window?.simulationEndTime ?? '12:00',
       kind: 'continuous',
-      clockMode: plan.clockMode,
-      continuousTarget: plan.focusMinutes != null,
+      clockMode: plan.clockMode === 'countdown' ? 'countdown' : 'countup',
+      continuousTarget: isExamSeed,
       breakPolicy: plan.breakPolicy
     }
   }
@@ -355,7 +376,7 @@ export function projectV2TimerPlanToV1(
     simulationStartTime: window?.simulationStartTime ?? '09:00',
     simulationEndTime: window?.simulationEndTime ?? '12:00',
     kind: 'pomodoro',
-    clockMode: 'countdown',
+    clockMode: plan.clockMode === 'countup' ? 'countup' : 'countdown',
     longBreakMinutes: advanced.longBreakMinutes,
     longBreakEvery: advanced.longBreakEvery,
     breakPolicy: advanced.breakPolicy
@@ -412,7 +433,7 @@ export function resolvePlanV2ForStart(input: {
   if (planId === 'deep_50_10') {
     return createClassicPomodoroPlan({
       id: 'deep_50_10',
-      name: '深度 50/10',
+      name: '深度专注',
       focusMinutes: 50,
       shortBreakMinutes: 10
     })

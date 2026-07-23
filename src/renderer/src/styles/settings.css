@@ -42,7 +42,7 @@
   height: 34px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #fff;
+  background: var(--surface-solid);
   color: var(--text-muted);
 }
 
@@ -88,7 +88,7 @@
 .settings-nav-item:hover,
 .settings-nav-item.is-active {
   color: var(--text);
-  background: #fff;
+  background: var(--surface-solid);
   box-shadow: none;
 }
 
@@ -120,7 +120,7 @@
 
 .settings-panel-heading h2 {
   margin: 0;
-  color: #1f2d44;
+  color: var(--text);
   font-size: 28px;
   font-weight: 780;
 }
@@ -142,7 +142,7 @@
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: #fff;
+  background: var(--surface-solid);
   box-shadow: var(--shadow-card);
 }
 
@@ -219,7 +219,7 @@
 
 .segmented-control button.is-active {
   color: var(--text);
-  background: #fff;
+  background: var(--surface-solid);
   box-shadow: var(--shadow-card);
 }
 
@@ -229,7 +229,7 @@
   height: 26px;
   border: 0;
   border-radius: var(--radius-full);
-  background: #d7dfeb;
+  background: var(--line-strong);
   transition: background 160ms ease;
 }
 
@@ -240,7 +240,7 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--surface-solid);
   box-shadow: 0 4px 10px rgba(20, 47, 95, 0.18);
   transition: transform 160ms ease;
 }
@@ -269,7 +269,7 @@
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 11px;
-  background: #fff;
+  background: var(--surface-solid);
 }
 
 .settings-number {
@@ -409,7 +409,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #21314a;
+  color: var(--text);
   font-size: 13px;
   font-weight: 650;
 }
@@ -463,21 +463,21 @@
   gap: 6px;
   padding: 0 8px 0 12px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface-solid);
   box-shadow: none;
   font-size: 13px;
 }
 
 .settings-select--item-aligned .settings-select-trigger:hover {
   border-color: var(--line);
-  background: #fff;
+  background: var(--surface-solid);
   box-shadow: none;
 }
 
 .settings-select--item-aligned .settings-select-trigger:focus-visible,
 .settings-select--item-aligned.is-open .settings-select-trigger {
   border-color: var(--line);
-  background: #fff;
+  background: var(--surface-solid);
   box-shadow: none;
 }
 
@@ -597,7 +597,7 @@
 
 .settings-select-option:hover,
 .settings-select-option.is-highlighted {
-  color: #22314a;
+  color: var(--text);
   background: rgba(79, 124, 245, 0.08);
 }
 
@@ -618,34 +618,34 @@
   color: var(--accent);
   border: 1px solid #dce7ff;
   border-radius: var(--radius-full);
-  background: #f5f8ff;
+  background: var(--accent-soft);
   font-size: 12px;
   font-weight: 750;
 }
 
 .settings-status-badge[data-state="available"] {
-  color: #157347;
+  color: var(--green);
   border-color: #cdebd8;
-  background: #f1fbf4;
+  background: var(--green-soft);
 }
 
 .settings-status-badge[data-state="disabled"] {
   color: #6a7280;
   border-color: #e0e5ec;
-  background: #f7f9fc;
+  background: var(--surface-muted);
 }
 
 .settings-status-badge[data-state="missing_config"],
 .settings-status-badge[data-state="missing_dependency"] {
   color: #9a5a00;
   border-color: #f3dfb8;
-  background: #fff8e8;
+  background: var(--amber-soft);
 }
 
 .settings-status-badge[data-state="failed"] {
   color: #b42318;
   border-color: #f3c8c3;
-  background: #fff4f2;
+  background: var(--rose-soft);
 }
 
 .settings-connector-refresh-copy {
@@ -720,7 +720,7 @@
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: #fff;
+  background: var(--surface-solid);
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 700;
@@ -729,7 +729,7 @@
 .settings-filter-group button.is-active {
   color: var(--text);
   background: var(--accent-soft);
-  border-color: #d8e4ff;
+  border-color: var(--line-strong);
 }
 
 .settings-list-row {
@@ -969,7 +969,7 @@
   color: var(--text-muted);
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: #fff;
+  background: var(--surface-solid);
 }
 
 .mcp-toolbar-button:hover:not(:disabled),
@@ -1210,7 +1210,7 @@
   color: var(--text-muted);
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface-solid);
 }
 
 .mcp-search:focus-within {
@@ -1341,7 +1341,7 @@
 .mcp-status-spinner {
   color: var(--accent);
   border: 0;
-  background: #fff;
+  background: var(--surface-solid);
 }
 
 .mcp-server-copy {
@@ -1504,7 +1504,7 @@
 .mcp-risk-badge.risk-remote_url {
   border-color: rgba(40, 100, 140, 0.28);
   background: rgba(180, 220, 250, 0.32);
-  color: #1f4f6b;
+  color: var(--text);
 }
 
 .mcp-risk-badge.risk-id_conflict,
@@ -1805,7 +1805,7 @@
 .mcp-editor-format button.is-active,
 .mcp-transport-control button.is-active {
   color: var(--text);
-  background: #fff;
+  background: var(--surface-solid);
   box-shadow: 0 1px 4px rgba(34, 49, 79, 0.12);
 }
 

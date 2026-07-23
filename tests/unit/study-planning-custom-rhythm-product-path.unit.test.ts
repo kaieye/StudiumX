@@ -100,7 +100,7 @@ describe('STC-702 product-path: pomodoro coexistence', () => {
     const classic = createClassicPomodoroPlan()
     const deep = createClassicPomodoroPlan({
       id: 'deep_50_10',
-      name: '深度 50/10',
+      name: '深度专注',
       focusMinutes: 50,
       shortBreakMinutes: 10
     })
@@ -159,7 +159,7 @@ describe('STC-702 product-path: pomodoro coexistence', () => {
   it('rhythmSequence on pomodoro is ignored (no silent rewrite to custom)', () => {
     const r = normalizeTimerPlanV2({
       id: 'classic_25_5',
-      name: '经典番茄 25/5',
+      name: '经典番茄',
       kind: 'pomodoro',
       clockMode: 'countdown',
       focusMinutes: 25,

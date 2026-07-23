@@ -1,8 +1,9 @@
 /**
  * Pure TimerPlan catalog UI model (STC-501/502 product path depth).
  *
- * Builtins are always listed as readonly (copy-only). User plans support
- * rename / set-default / delete. No I/O.
+ * Builtins are always listed (seed defaults). Timer fields may be overridden
+ * via host userPlans with the same id. Builtins cannot be deleted; rename/edit ok.
+ * No I/O.
  */
 
 import {
@@ -67,7 +68,8 @@ export function normalizeTimerPlanRename(name: string, maxLen = 24):
 }
 
 /**
- * Whether a plan id is a system builtin (read-only identity).
+ * Whether a plan id is a system seed that cannot be deleted from the catalog.
+ * (Fields and name may still be edited and dual-written under the same id.)
  */
 export function isReadonlyTimerPlanId(planId: string): boolean {
   return isBuiltinTimerPlanId(planId)
@@ -102,7 +104,9 @@ export function listTimerPlanCatalogRows(
   const pushRow = (plan: StudyTimerPlan, kind: TimerPlanCatalogRowKind): void => {
     if (seen.has(plan.id)) return
     seen.add(plan.id)
-    const readonly = kind === 'builtin' || isBuiltinTimerPlanId(plan.id)
+    const isBuiltin = kind === 'builtin' || isBuiltinTimerPlanId(plan.id)
+    // System seeds stay non-deletable; fields/name are editable (overrides live in userPlans).
+    const readonly = false
     const isDefault =
       (input.defaultTimerPlanId ?? null) === plan.id ||
       (!input.defaultTimerPlanId && plan.id === 'classic_25_5')
@@ -119,13 +123,13 @@ export function listTimerPlanCatalogRows(
       breakMinutes: plan.breakMinutes,
       simulationStartTime: plan.simulationStartTime,
       simulationEndTime: plan.simulationEndTime,
-      kind: readonly ? 'builtin' : 'custom',
+      kind: isBuiltin ? 'builtin' : 'custom',
       planKind,
       summary: formatTimerPlanKindSummary(plan),
       readonly,
       isDefault,
-      canRename: !readonly,
-      canDelete: !readonly,
+      canRename: true,
+      canDelete: !isBuiltin,
       canSetDefault: true,
       canCopy: true
     })
@@ -134,9 +138,8 @@ export function listTimerPlanCatalogRows(
   if (includeBuiltins) {
     for (const builtin of listBuiltinTimerPlans()) {
       const host = userById.get(builtin.id)
-      // Prefer host window cache when user already has the seed classic row.
+      // Prefer saved override (same id) when the user has edited a system plan.
       const shell = host ?? v2ToRowShell(builtin)
-      // Builtin identity always readonly even if present in user list.
       pushRow(shell, 'builtin')
     }
   }
@@ -179,22 +182,26 @@ export function renameTimerPlanInV1List(
 ):
   | { ok: true; plans: StudyTimerPlan[] }
   | { ok: false; code: 'not_found' | 'builtin_readonly' | 'invalid'; message: string } {
-  if (isBuiltinTimerPlanId(planId)) {
-    return {
-      ok: false,
-      code: 'builtin_readonly',
-      message: 'Rename a copy of the builtin plan instead'
-    }
-  }
   const normalized = normalizeTimerPlanRename(name)
   if (!normalized.ok) {
     return { ok: false, code: 'invalid', message: normalized.message }
   }
-  if (!plans.some((p) => p.id === planId)) {
-    return { ok: false, code: 'not_found', message: `plan ${planId}` }
+  if (plans.some((p) => p.id === planId)) {
+    return {
+      ok: true,
+      plans: plans.map((p) => (p.id === planId ? { ...p, name: normalized.name } : p))
+    }
   }
-  return {
-    ok: true,
-    plans: plans.map((p) => (p.id === planId ? { ...p, name: normalized.name } : p))
+  // Builtin seed not yet in user list: materialize a renamed override under the same id.
+  if (isBuiltinTimerPlanId(planId)) {
+    const shell = resolveTimerPlanShellForCatalog(planId, plans)
+    if (!shell) {
+      return { ok: false, code: 'not_found', message: `plan ${planId}` }
+    }
+    return {
+      ok: true,
+      plans: [...plans, { ...shell, name: normalized.name }]
+    }
   }
+  return { ok: false, code: 'not_found', message: `plan ${planId}` }
 }

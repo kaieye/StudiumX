@@ -1,14 +1,28 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const css = await readFile('src/renderer/src/styles.css', 'utf8')
+// styles.css is an @import graph; resolve the modules this check needs.
+const css = (
+  await Promise.all([
+    readFile('src/renderer/src/styles/base.css', 'utf8'),
+    readFile('src/renderer/src/styles/messages.css', 'utf8'),
+    readFile('src/renderer/src/styles/overview.css', 'utf8')
+  ])
+).join('\n')
 const app = await readFile('src/renderer/src/App.tsx', 'utf8')
 
 function ruleFor(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = css.match(new RegExp(`${escaped}\\s*\\{([\\s\\S]*?)\\n\\}`, 'm'))
-  assert.ok(match, `missing CSS rule for ${selector}`)
-  return match[1]
+  // Prefer the most complete rule when the same selector appears more than once.
+  const re = new RegExp(`${escaped}\\s*\\{([\\s\\S]*?)\\n\\}`, 'gm')
+  let match
+  let best = null
+  while ((match = re.exec(css))) {
+    const body = match[1]
+    if (!best || body.length > best.length) best = body
+  }
+  assert.ok(best, `missing CSS rule for ${selector}`)
+  return best
 }
 
 for (const selector of [
@@ -24,8 +38,16 @@ for (const selector of [
 }
 
 assert.match(ruleFor('::selection'), /background:\s*rgba\(79,\s*124,\s*245,\s*0\.26\);/, 'selected text should have a visible highlight')
-assert.match(ruleFor('.overview-dialog-message.is-user > .markdown-message'), /background:\s*#f3f3f4;/i, 'user message capsule should use #F3F3F4')
-assert.match(ruleFor('.overview-dialog-message.is-user > .markdown-message'), /color:\s*#24324a;/i, 'user message capsule should use readable dark text')
+assert.match(
+  ruleFor('.overview-dialog-message.is-user > .markdown-message'),
+  /background:\s*(?:#f3f3f4|var\(--surface-muted\));/i,
+  'user message capsule should use muted surface'
+)
+assert.match(
+  ruleFor('.overview-dialog-message.is-user > .markdown-message'),
+  /color:\s*(?:#24324a|var\(--text\));/i,
+  'user message capsule should use readable text color'
+)
 
 const assistantRule = ruleFor('.overview-dialog-message.is-assistant > .markdown-message')
 assert.match(assistantRule, /background:\s*transparent;/, 'assistant content should not be in a bubble')

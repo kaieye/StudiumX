@@ -4,14 +4,12 @@ import {
   Check,
   CheckCircle2,
   ChevronUp,
-  ListChecks,
   Plus,
   Tags,
   Target,
-  Trash2,
-  X
+  Trash2
 } from 'lucide-react'
-import { useEffect, useMemo, useState, type CSSProperties, type RefObject } from 'react'
+import { useMemo, useState, type CSSProperties, type RefObject } from 'react'
 import type { StudyTask } from '../../study-space/types'
 import {
   getReadableCategoryInk,
@@ -25,13 +23,6 @@ import {
   type ActiveTimerHint,
   type TaskListViewId
 } from '../../study-space/planning-task-timeline-adapter'
-import {
-  buildMultiSelectCompleteToolbarModel,
-  pruneMultiSelectTaskIds,
-  resolveMultiSelectCompletePayload,
-  selectAllVisibleOpenTaskIds,
-  toggleMultiSelectTaskId
-} from '../../study-space/planning-multi-select-complete-ui'
 import { useWorkbenchDisclosureReveal } from './useWorkbenchDisclosureReveal'
 
 type WorkbenchTasksProps = {
@@ -53,11 +44,6 @@ type WorkbenchTasksProps = {
   defaultView?: TaskListViewId
   /** STC-408: open batch classify for current inbox (or selected subset). */
   onOpenBatchClassify?: (taskIds: string[]) => void
-  /**
-   * STC-408 remainder: complete many open tasks without classification prompt storm.
-   * Host should call session `completeTasksBatch`.
-   */
-  onCompleteTasksBatch?: (taskIds: string[]) => void
 }
 
 function formatTaskMinutes(minutes: number): string {
@@ -89,15 +75,12 @@ export function WorkbenchTasks({
   defaultOpen = false,
   activeTimer = null,
   defaultView = 'today',
-  onOpenBatchClassify,
-  onCompleteTasksBatch
+  onOpenBatchClassify
 }: WorkbenchTasksProps) {
   const { open, isClosing, revealHeight, revealRef, revealInnerRef, toggle } = useWorkbenchDisclosureReveal({
     defaultOpen
   })
   const [view, setView] = useState<TaskListViewId>(defaultView)
-  const [selectionMode, setSelectionMode] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const categories = listStudyTaskCategories()
   const taskCount = openTasks + completedTasks
   const completedRatio = taskCount > 0 ? Math.round((completedTasks / taskCount) * 100) : 0
@@ -123,61 +106,6 @@ export function WorkbenchTasks({
     [tasks]
   )
 
-  // Drop completed/removed ids so toolbar count stays honest.
-  useEffect(() => {
-    if (!selectionMode) return
-    setSelectedIds((prev) => pruneMultiSelectTaskIds({ selectedIds: prev, tasks }))
-  }, [tasks, selectionMode])
-
-  const multiSelectModel = useMemo(
-    () =>
-      buildMultiSelectCompleteToolbarModel({
-        tasks,
-        selectedIds
-      }),
-    [tasks, selectedIds]
-  )
-
-  const exitSelectionMode = (): void => {
-    setSelectionMode(false)
-    setSelectedIds([])
-  }
-
-  const enterSelectionMode = (): void => {
-    setSelectionMode(true)
-    setSelectedIds([])
-  }
-
-  const handleToggleSelected = (taskId: string): void => {
-    setSelectedIds((prev) =>
-      toggleMultiSelectTaskId({
-        selectedIds: prev,
-        taskId,
-        tasks
-      })
-    )
-  }
-
-  const handleSelectAllVisible = (): void => {
-    setSelectedIds(
-      selectAllVisibleOpenTaskIds({
-        visibleTasks,
-        selectedIds,
-        mode: 'replace'
-      })
-    )
-  }
-
-  const handleCompleteSelected = (): void => {
-    if (!onCompleteTasksBatch) return
-    const ids = resolveMultiSelectCompletePayload({
-      tasks,
-      selectedIds
-    })
-    if (ids.length === 0) return
-    onCompleteTasksBatch(ids)
-    exitSelectionMode()
-  }
 
   return (
     <section className={`workbench-disclosure-card workbench-task-card${open ? ' is-open' : ''}${isClosing ? ' is-closing' : ''}`} aria-label="任务清单">
@@ -203,32 +131,7 @@ export function WorkbenchTasks({
                 <span>学习分析</span>
               </button>
               <div className="workbench-task-actions">
-                {onCompleteTasksBatch && openTasks > 0 ? (
-                  selectionMode ? (
-                    <button
-                      type="button"
-                      className="workbench-task-multi-select-exit-button"
-                      onClick={exitSelectionMode}
-                      aria-label={multiSelectModel.copy.exitLabel}
-                      title={multiSelectModel.copy.exitLabel}
-                    >
-                      <X size={14} aria-hidden="true" />
-                      <span>取消</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="workbench-task-multi-select-enter-button"
-                      onClick={enterSelectionMode}
-                      aria-label={multiSelectModel.copy.enterLabel}
-                      title={multiSelectModel.copy.enterLabel}
-                    >
-                      <ListChecks size={14} aria-hidden="true" />
-                      <span>多选</span>
-                    </button>
-                  )
-                ) : null}
-                {onOpenBatchClassify && inboxTaskIds.length > 0 && !selectionMode ? (
+                {onOpenBatchClassify && inboxTaskIds.length > 0 ? (
                   <button
                     type="button"
                     className="workbench-task-batch-classify-button"
@@ -255,29 +158,25 @@ export function WorkbenchTasks({
                     <span>归类</span>
                   </button>
                 ) : null}
-                {!selectionMode ? (
-                  <button
-                    type="button"
-                    className="workbench-task-add-button"
-                    onClick={onOpenAddTask}
-                    aria-label="添加任务"
-                    title="添加任务"
-                  >
-                    <Plus size={16} aria-hidden="true" />
-                  </button>
-                ) : null}
-                {!selectionMode ? (
-                  <button
-                    type="button"
-                    className="workbench-task-detail-button"
-                    onClick={onOpenSchedule}
-                    aria-label="查看任务详情"
-                    title="任务详情"
-                  >
-                    <CalendarDays size={14} />
-                    <span>详情</span>
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  className="workbench-task-add-button"
+                  onClick={onOpenAddTask}
+                  aria-label="添加任务"
+                  title="添加任务"
+                >
+                  <Plus size={16} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="workbench-task-detail-button"
+                  onClick={onOpenSchedule}
+                  aria-label="查看任务详情"
+                  title="任务详情"
+                >
+                  <CalendarDays size={14} />
+                  <span>详情</span>
+                </button>
               </div>
             </div>
 
@@ -311,52 +210,6 @@ export function WorkbenchTasks({
               })}
             </div>
 
-            {selectionMode && onCompleteTasksBatch ? (
-              <div
-                className="workbench-task-multi-select-toolbar"
-                role="toolbar"
-                aria-label="批量完成"
-              >
-                <span className="workbench-task-multi-select-count" aria-live="polite">
-                  {multiSelectModel.copy.selectedCountLabel}
-                </span>
-                <div className="workbench-task-multi-select-toolbar-actions">
-                  <button
-                    type="button"
-                    className="workbench-task-multi-select-all-button"
-                    onClick={handleSelectAllVisible}
-                    aria-label={multiSelectModel.copy.selectAllVisibleLabel}
-                    title={multiSelectModel.copy.selectAllVisibleLabel}
-                  >
-                    全选
-                  </button>
-                  <button
-                    type="button"
-                    className="workbench-task-multi-select-clear-button"
-                    onClick={() => setSelectedIds([])}
-                    disabled={multiSelectModel.selectedCount === 0}
-                    aria-label={multiSelectModel.copy.clearLabel}
-                    title={multiSelectModel.copy.clearLabel}
-                  >
-                    清空
-                  </button>
-                  <button
-                    type="button"
-                    className="workbench-task-multi-select-complete-button"
-                    onClick={handleCompleteSelected}
-                    disabled={!multiSelectModel.canComplete}
-                    aria-label={multiSelectModel.copy.completeLabel}
-                    title={
-                      multiSelectModel.canComplete
-                        ? multiSelectModel.copy.completeLabel
-                        : multiSelectModel.copy.emptySelectionHint
-                    }
-                  >
-                    {multiSelectModel.copy.completeLabel}
-                  </button>
-                </div>
-              </div>
-            ) : null}
 
             <div
               id="workbench-task-list"
@@ -381,85 +234,47 @@ export function WorkbenchTasks({
                     }
                   : undefined
                 const isFocusTask = selectedTaskId === task.id
-                const isMultiSelected = selectionMode && selectedIds.includes(task.id)
-                const multiSelectDisabled = selectionMode && task.done
                 return (
                   <div
                     key={task.id}
-                    className={`workbench-task-row${task.done ? ' is-done' : ''}${isFocusTask ? ' is-focus-task' : ''}${isMultiSelected ? ' is-multi-selected' : ''}${selectionMode ? ' is-selection-mode' : ''}`}
+                    className={`workbench-task-row${task.done ? ' is-done' : ''}${isFocusTask ? ' is-focus-task' : ''}`}
                   >
-                    {selectionMode ? (
+                    <button
+                      type="button"
+                      className="workbench-task-toggle"
+                      onClick={() => onToggleTask(task.id)}
+                      aria-pressed={task.done}
+                    >
+                      <span className="workbench-task-check">{task.done ? <Check size={11} /> : null}</span>
+                      <strong>{task.title}</strong>
+                      {category ? (
+                        <small className="workbench-task-category" style={categoryStyle}>
+                          {category.name}
+                        </small>
+                      ) : null}
+                      {scheduleLabel ? <small className="workbench-task-schedule">{scheduleLabel}</small> : null}
+                    </button>
+                    {onSelectTask && !task.done ? (
                       <button
                         type="button"
-                        className="workbench-task-toggle workbench-task-multi-select-row"
-                        onClick={() => {
-                          if (!task.done) handleToggleSelected(task.id)
-                        }}
-                        aria-pressed={isMultiSelected}
-                        aria-disabled={multiSelectDisabled || undefined}
-                        disabled={multiSelectDisabled}
-                        aria-label={
-                          task.done
-                            ? `已完成任务不可多选：${task.title}`
-                            : isMultiSelected
-                              ? `取消选择：${task.title}`
-                              : `选择：${task.title}`
-                        }
+                        className={`workbench-task-focus${isFocusTask ? ' is-active' : ''}`}
+                        onClick={() => onSelectTask(isFocusTask ? null : task.id)}
+                        aria-pressed={isFocusTask}
+                        aria-label={isFocusTask ? `取消专注任务：${task.title}` : `设为专注任务：${task.title}`}
+                        title={isFocusTask ? '取消专注' : '设为专注'}
                       >
-                        <span
-                          className={`workbench-task-multi-select-check${isMultiSelected ? ' is-checked' : ''}`}
-                          aria-hidden="true"
-                        >
-                          {isMultiSelected ? <Check size={11} /> : null}
-                        </span>
-                        <strong>{task.title}</strong>
-                        {category ? (
-                          <small className="workbench-task-category" style={categoryStyle}>
-                            {category.name}
-                          </small>
-                        ) : null}
-                        {scheduleLabel ? <small className="workbench-task-schedule">{scheduleLabel}</small> : null}
+                        <Target size={13} aria-hidden="true" />
                       </button>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          className="workbench-task-toggle"
-                          onClick={() => onToggleTask(task.id)}
-                          aria-pressed={task.done}
-                        >
-                          <span className="workbench-task-check">{task.done ? <Check size={11} /> : null}</span>
-                          <strong>{task.title}</strong>
-                          {category ? (
-                            <small className="workbench-task-category" style={categoryStyle}>
-                              {category.name}
-                            </small>
-                          ) : null}
-                          {scheduleLabel ? <small className="workbench-task-schedule">{scheduleLabel}</small> : null}
-                        </button>
-                        {onSelectTask && !task.done ? (
-                          <button
-                            type="button"
-                            className={`workbench-task-focus${isFocusTask ? ' is-active' : ''}`}
-                            onClick={() => onSelectTask(isFocusTask ? null : task.id)}
-                            aria-pressed={isFocusTask}
-                            aria-label={isFocusTask ? `取消专注任务：${task.title}` : `设为专注任务：${task.title}`}
-                            title={isFocusTask ? '取消专注' : '设为专注'}
-                          >
-                            <Target size={13} aria-hidden="true" />
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="workbench-task-delete"
-                          onClick={() => onRemoveTask(task.id)}
-                          aria-label={`删除任务：${task.title}`}
-                          title="删除任务"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </>
-                    )}
+                    ) : null}
+                    <button
+                      type="button"
+                      className="workbench-task-delete"
+                      onClick={() => onRemoveTask(task.id)}
+                      aria-label={`删除任务：${task.title}`}
+                      title="删除任务"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                 )
               })}

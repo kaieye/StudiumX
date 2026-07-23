@@ -26,7 +26,7 @@ const custom: StudyTimerPlan = {
 }
 
 describe('timer plan catalog UI model (STC-501/502)', () => {
-  it('lists builtins as readonly and custom as editable', () => {
+  it('lists system seeds as editable (non-deletable) with product names', () => {
     const rows = listTimerPlanCatalogRows({
       userPlans: [custom],
       defaultTimerPlanId: 'plan-user-1'
@@ -35,19 +35,21 @@ describe('timer plan catalog UI model (STC-501/502)', () => {
     const deep = rows.find((r) => r.id === 'deep_50_10')
     const cont = rows.find((r) => r.id === 'continuous_countup')
     const user = rows.find((r) => r.id === 'plan-user-1')
-    expect(classic?.readonly).toBe(true)
+    expect(classic?.name).toBe('经典番茄')
+    expect(deep?.name).toBe('深度专注')
+    expect(cont?.name).toBe('考场模拟')
+    expect(classic?.readonly).toBe(false)
     expect(classic?.canDelete).toBe(false)
-    expect(classic?.canRename).toBe(false)
+    expect(classic?.canRename).toBe(true)
     expect(classic?.canCopy).toBe(true)
-    expect(deep?.readonly).toBe(true)
-    expect(cont?.readonly).toBe(true)
+    expect(deep?.readonly).toBe(false)
+    expect(cont?.readonly).toBe(false)
     expect(user?.readonly).toBe(false)
     expect(user?.canDelete).toBe(true)
     expect(user?.canRename).toBe(true)
     expect(user?.isDefault).toBe(true)
     expect(classic?.isDefault).toBe(false)
     expect(cont?.planKind).toBe('continuous')
-    expect(cont?.summary).toBe('连续专注 · 正计时')
     expect(classic?.planKind).toBe('pomodoro')
     expect(classic?.summary).toMatch(/25 \/ 5/)
   })
@@ -66,13 +68,29 @@ describe('timer plan catalog UI model (STC-501/502)', () => {
     expect(resolveTimerPlanShellForCatalog('missing', [])).toBeNull()
   })
 
-  it('normalizes rename and renames V1 list; refuses builtins', () => {
+  it('materializes builtin rename when seed is not yet in user list', () => {
+    const renamed = renameTimerPlanInV1List([], 'classic_25_5', '我的番茄')
+    expect(renamed.ok).toBe(true)
+    if (!renamed.ok) return
+    expect(renamed.plans).toHaveLength(1)
+    expect(renamed.plans[0]?.id).toBe('classic_25_5')
+    expect(renamed.plans[0]?.name).toBe('我的番茄')
+  })
+
+
+  it('normalizes rename and renames V1 list including system seed ids when present', () => {
     expect(normalizeTimerPlanRename('  晨间  ').ok).toBe(true)
     expect(normalizeTimerPlanRename('   ').ok).toBe(false)
+    // Delete protection only — rename of system seeds is allowed once materialized.
     expect(isReadonlyTimerPlanId('classic_25_5')).toBe(true)
-    const refused = renameTimerPlanInV1List([custom], 'classic_25_5', 'X')
-    expect(refused.ok).toBe(false)
-    const ok = renameTimerPlanInV1List([custom], 'plan-user-1', '  新名字  ')
+    const withClassic = renameTimerPlanInV1List(
+      [{ ...custom, id: 'classic_25_5', name: '经典番茄' }],
+      'classic_25_5',
+      '我的番茄'
+    )
+    expect(withClassic.ok).toBe(true)
+    if (withClassic.ok) expect(withClassic.plans[0]?.name).toBe('我的番茄')
+    const ok = renameTimerPlanInV1List([custom], 'plan-user-1', '  新名字 ')
     expect(ok.ok).toBe(true)
     if (!ok.ok) return
     expect(ok.plans[0]?.name).toBe('新名字')
@@ -115,6 +133,16 @@ function mockApi(options?: {
     })
   }
 }
+
+
+  it('materializes builtin rename when seed is not yet in user list', () => {
+    const renamed = renameTimerPlanInV1List([], 'classic_25_5', '我的番茄')
+    expect(renamed.ok).toBe(true)
+    if (!renamed.ok) return
+    expect(renamed.plans).toHaveLength(1)
+    expect(renamed.plans[0]?.id).toBe('classic_25_5')
+    expect(renamed.plans[0]?.name).toBe('我的番茄')
+  })
 
 describe('timer plan dual-write rename / set default', () => {
   it('builds set_preferences envelope for default plan', () => {
@@ -166,8 +194,8 @@ describe('timer plan dual-write rename / set default', () => {
   })
 })
 
-describe('store save refuses builtin identity (STC-501)', () => {
-  it('save_timer_plan on classic_25_5 fails', () => {
+describe('store save allows system seed overrides', () => {
+  it('save_timer_plan on classic_25_5 upserts override under same id', () => {
     const store = new StudyPlanningStore({ nowMs: () => 1 })
     const r = store.applyCommand(
       {
@@ -176,11 +204,11 @@ describe('store save refuses builtin identity (STC-501)', () => {
         payload: {
           plan: {
             id: 'classic_25_5',
-            name: 'Hacked',
+            name: '经典番茄',
             kind: 'pomodoro',
             clockMode: 'countdown',
-            focusMinutes: 99,
-            shortBreakMinutes: 1,
+            focusMinutes: 30,
+            shortBreakMinutes: 5,
             breakPolicy: 'ask',
             windowFillPolicy: 'adaptive_final_focus',
             minimumFinalFocusMinutes: 15,
@@ -197,7 +225,11 @@ describe('store save refuses builtin identity (STC-501)', () => {
       },
       1
     )
-    expect(r.ok).toBe(false)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const saved = r.snapshot.timerPlans.find((p) => p.id === 'classic_25_5')
+    expect(saved?.focusMinutes).toBe(30)
+    expect(saved?.name).toBe('经典番茄')
   })
 
   it('set_preferences defaultTimerPlanId', () => {

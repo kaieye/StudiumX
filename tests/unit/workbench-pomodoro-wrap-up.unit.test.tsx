@@ -55,14 +55,15 @@ describe('WorkbenchPomodoro wrap_up chrome (STC-205)', () => {
 
     await user.click(screen.getByRole('button', { name: /收尾计时/ }))
     expect(screen.getByTestId('workbench-pomodoro-wrap-up-badge')).toHaveTextContent(/收尾/)
+    expect(screen.getByTestId('workbench-pomodoro-title')).toHaveTextContent(/收尾/)
     expect(container.querySelector('.workbench-pomodoro-card')).toHaveClass('is-wrap_up')
     expect(container.querySelector('.workbench-pomodoro-card')).toHaveAttribute(
       'data-timer-surface-phase',
       'wrap_up'
     )
-    // Mode tabs disabled during wrap_up (not focus/break).
-    expect(screen.getByRole('tab', { name: '专注' })).toBeDisabled()
-    expect(screen.getByRole('tab', { name: '休息' })).toBeDisabled()
+    // Mode arrows disabled during wrap_up (not focus/break).
+    expect(screen.getByTestId('workbench-pomodoro-mode-prev')).toBeDisabled()
+    expect(screen.getByTestId('workbench-pomodoro-mode-next')).toBeDisabled()
   })
 
   it('keeps rest chrome for short_break sessions', async () => {
@@ -92,6 +93,7 @@ describe('WorkbenchPomodoro wrap_up chrome (STC-205)', () => {
     expect(screen.getByRole('button', { name: /休息计时/ })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /休息计时/ }))
     expect(screen.queryByTestId('workbench-pomodoro-wrap-up-badge')).not.toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: '休息' })).not.toBeDisabled()
+    expect(screen.getByTestId('workbench-pomodoro-mode-next')).not.toBeDisabled()
+    expect(screen.getByTestId('workbench-pomodoro-title')).toHaveTextContent(/休息计时/)
   })
 })

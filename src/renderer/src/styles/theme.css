@@ -331,3 +331,153 @@
 }:root[data-resolved-theme="dark"] *::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
+/* ================================================================
+   Dark theme: cards, menus, pickers, teaching panels (token-backed)
+   ================================================================ */
+
+:root[data-resolved-theme="dark"] .overview-picker-menu,
+:root[data-resolved-theme="dark"] .overview-file-access-menu,
+:root[data-resolved-theme="dark"] .skill-slash-menu,
+:root[data-resolved-theme="dark"] .row-context-menu-dropdown,
+:root[data-resolved-theme="dark"] .teaching-turn-panel,
+:root[data-resolved-theme="dark"] .agent-process-panel,
+:root[data-resolved-theme="dark"] .ask-card,
+:root[data-resolved-theme="dark"] .settings-card,
+:root[data-resolved-theme="dark"] .mcp-tools-panel {
+  border-color: var(--line);
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-resolved-theme="dark"] .skill-slash-menu__item.is-active,
+:root[data-resolved-theme="dark"] .overview-file-access-option:hover,
+:root[data-resolved-theme="dark"] .overview-file-access-option:focus-visible,
+:root[data-resolved-theme="dark"] .overview-picker-option:hover,
+:root[data-resolved-theme="dark"] .overview-picker-option:focus-visible,
+:root[data-resolved-theme="dark"] .overview-picker-option.is-active,
+:root[data-resolved-theme="dark"] .row-context-menu-item:hover,
+:root[data-resolved-theme="dark"] .row-context-menu-item:focus-visible {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+:root[data-resolved-theme="dark"] .skill-slash-menu__copy strong,
+:root[data-resolved-theme="dark"] .overview-picker-option strong,
+:root[data-resolved-theme="dark"] .overview-file-access-option strong {
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .skill-slash-menu__copy span,
+:root[data-resolved-theme="dark"] .skill-slash-menu__item small,
+:root[data-resolved-theme="dark"] .skill-slash-menu__empty,
+:root[data-resolved-theme="dark"] .skill-slash-menu__head,
+:root[data-resolved-theme="dark"] .overview-picker-option span,
+:root[data-resolved-theme="dark"] .overview-file-access-option span,
+:root[data-resolved-theme="dark"] .row-context-menu-item svg {
+  color: var(--text-soft);
+}
+
+:root[data-resolved-theme="dark"] .row-context-menu-item.is-danger:hover,
+:root[data-resolved-theme="dark"] .row-context-menu-item.is-danger:focus-visible {
+  color: var(--red);
+  background: var(--rose-soft);
+}
+
+:root[data-resolved-theme="dark"] .row-context-menu-item.is-danger:hover svg,
+:root[data-resolved-theme="dark"] .row-context-menu-item.is-danger:focus-visible svg {
+  color: var(--red);
+}
+
+:root[data-resolved-theme="dark"] .mcp-editor-format button.is-active,
+:root[data-resolved-theme="dark"] .mcp-transport-control button.is-active {
+  color: var(--text);
+  background: var(--surface-solid);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+
+:root[data-resolved-theme="dark"] .tool-pills button {
+  color: var(--text-muted);
+  border-color: var(--line);
+  background: var(--surface-solid);
+}
+
+:root[data-resolved-theme="dark"] .tool-pills button:hover,
+:root[data-resolved-theme="dark"] .tool-pills button.is-active {
+  color: var(--text);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-resolved-theme="dark"] .tool-pills button.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+:root[data-resolved-theme="dark"] .inline-alert[data-severity="error"],
+:root[data-resolved-theme="dark"] .error-boundary-card {
+  color: var(--rose);
+  border-color: rgba(232, 137, 161, 0.28);
+  background: var(--rose-soft);
+}
+
+:root[data-resolved-theme="dark"] .inline-alert[data-severity="warning"] {
+  color: var(--amber);
+  border-color: rgba(225, 169, 90, 0.28);
+  background: var(--amber-soft);
+}
+
+:root[data-resolved-theme="dark"] .inline-alert[data-severity="info"] {
+  color: var(--accent);
+  border-color: rgba(138, 180, 255, 0.28);
+  background: var(--accent-soft);
+}
+
+:root[data-resolved-theme="dark"] .error-boundary-card h2,
+:root[data-resolved-theme="dark"] .error-boundary-card p,
+:root[data-resolved-theme="dark"] .error-boundary-card button {
+  color: var(--rose);
+}
+
+:root[data-resolved-theme="dark"] .error-boundary-card button {
+  border-color: rgba(232, 137, 161, 0.28);
+  background: var(--surface-solid);
+}
+
+:root[data-resolved-theme="dark"] .error-boundary-card button:hover {
+  background: var(--rose-soft);
+}
+
+:root[data-resolved-theme="dark"] .inline-alert .alert-dismiss:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-resolved-theme="dark"] .app-frame {
+  background: #0f0f10;
+}
+
+:root[data-resolved-theme="dark"] .ghost-button,
+:root[data-resolved-theme="dark"] .icon-button:hover,
+:root[data-resolved-theme="dark"] .search-box:focus-within {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--surface-solid);
+}
+
+:root[data-resolved-theme="dark"] .dialog-mode-switch-indicator {
+  background: var(--surface-solid);
+}
+
+:root[data-resolved-theme="dark"] .markdown-message pre,
+:root[data-resolved-theme="dark"] .markdown-message--user pre,
+:root[data-resolved-theme="dark"] .tool-call-section pre {
+  border-color: var(--line);
+  background: #0b0b0c;
+  color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .markdown-message :not(pre) > code,
+:root[data-resolved-theme="dark"] .markdown-message--user :not(pre) > code {
+  background: rgba(231, 237, 247, 0.1);
+  color: #dce7ff;
+}

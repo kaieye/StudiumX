@@ -72,7 +72,6 @@ import {
   dualWriteSetSimulationWindow
 } from '../planning-preferences-dual-write'
 import type { RecurrenceRule } from '../../../../shared/study-planning'
-import { shouldSuppressClassificationPromptStorm } from '../../../../shared/study-planning'
 import {
   normalizeEmptyStartCategoryId,
   normalizeEmptyStartPolicy
@@ -394,8 +393,6 @@ export function useStudySession({
   emptyStartCategoryIdRef.current = emptyStartCategoryId
   const classificationPromptOptOutRef = useRef(classificationPromptOptOut)
   classificationPromptOptOutRef.current = classificationPromptOptOut
-  /** STC-408: suppress per-task classification prompts during batch complete. */
-  const batchCompleteInFlightRef = useRef(false)
   /**
    * Slice B UX: offer migration when hydrate keeps V1 and canonical is empty (or missing path).
    * Host shows MigrationBannerSheet; confirm runs migrateV1 with skipConfirm.
@@ -1164,7 +1161,7 @@ export function useStudySession({
       if (hydrate.kind === 'applied') {
         setScheduleBlocks(hydrate.scheduleBlocks.slice())
         setTimerSessions(hydrate.timerSessions.slice())
-        setDefaultTimerPlanId(hydrate.defaultTimerPlanId)
+        setDefaultTimerPlanId(hydrate.defaultTimerPlanId ?? 'classic_25_5')
         setEmptyStartPolicy(hydrate.emptyStartPolicy)
         setEmptyStartCategoryId(hydrate.emptyStartCategoryId)
         setClassificationPromptOptOut(hydrate.classificationPromptOptOut)
@@ -1527,7 +1524,9 @@ export function useStudySession({
       // Always refresh blocks + timerSessions + prefs on successful read (even if task list race-skips).
       setScheduleBlocks(result.scheduleBlocks.slice())
       setTimerSessions(result.timerSessions.slice())
-      setDefaultTimerPlanId(result.defaultTimerPlanId)
+      // Fall back to classic only when preference is unset; keep last applied id when present.
+      const resolvedDefaultId = result.defaultTimerPlanId ?? 'classic_25_5'
+      setDefaultTimerPlanId(resolvedDefaultId)
       setEmptyStartPolicy(result.emptyStartPolicy)
       setEmptyStartCategoryId(result.emptyStartCategoryId)
       setClassificationPromptOptOut(result.classificationPromptOptOut)
@@ -1577,7 +1576,7 @@ export function useStudySession({
       const next = result.snapshot
       // Preserve host shell fields that advanced during the await (timer etc.).
       // Sole-read tasks always; overlay timerPlans when canonical projected any.
-      const merged: StudySnapshot = {
+      const mergedBase: StudySnapshot = {
         ...current,
         tasks: next.tasks,
         ...(result.timerPlansProjected > 0 ? { timerPlans: next.timerPlans } : {}),
@@ -1588,16 +1587,32 @@ export function useStudySession({
             }
           : {})
       }
+      // Cold start: when idle, re-apply default plan fields so restart restores last applied plan.
+      // Skip when a live timer session is running/paused (planSnapshot is frozen for the run).
+      let merged: StudySnapshot = mergedBase
+      const idleForDefault =
+        mergedBase.timerState !== 'running'
+        && mergedBase.timerState !== 'paused'
+        && !canonicalFocusSessionRef.current
+      if (idleForDefault) {
+        const defaultId = resolvedDefaultId
+        const defaultPlan = resolveTimerPlanShellForCatalog(defaultId, mergedBase.timerPlans)
+        if (defaultPlan) {
+          merged = applyStudyTimerPlan(mergedBase, defaultPlan)
+        }
+      }
       const tasksUnchanged = studyTasksEqual(current.tasks, merged.tasks)
       const plansUnchanged =
         result.timerPlansProjected === 0 ||
         JSON.stringify(current.timerPlans) === JSON.stringify(merged.timerPlans)
       const simUnchanged =
-        !result.simulationStartTime ||
-        !result.simulationEndTime ||
-        (current.simulationStartTime === merged.simulationStartTime &&
-          current.simulationEndTime === merged.simulationEndTime)
-      if (tasksUnchanged && plansUnchanged && simUnchanged) return
+        current.simulationStartTime === merged.simulationStartTime &&
+        current.simulationEndTime === merged.simulationEndTime
+      const presetUnchanged =
+        current.focusMinutes === merged.focusMinutes
+        && current.breakMinutes === merged.breakMinutes
+        && current.remainingSeconds === merged.remainingSeconds
+      if (tasksUnchanged && plansUnchanged && simUnchanged && presetUnchanged) return
       if (!tasksUnchanged) {
         recordTaskMutation(current, merged)
       }
@@ -1911,6 +1926,12 @@ export function useStudySession({
     const plan = resolveTimerPlanShellForCatalog(planId, snapshotRef.current.timerPlans)
     if (!plan) return
     commitSnapshot(applyStudyTimerPlan(snapshotRef.current, plan))
+    // Persist as default so cold start restores the last applied plan (not classic seed).
+    const id = plan.id.trim()
+    if (id) {
+      setDefaultTimerPlanId(id)
+      void dualWriteSetDefaultTimerPlan(resolvePlanningContext(), id).then(reportPlanningWrite)
+    }
     // Apply selects local preset; also dual-write active simulation window preferences.
     void dualWriteSetSimulationWindow(resolvePlanningContext(), {
       simulationStartTime: plan.simulationStartTime,
@@ -1952,7 +1973,7 @@ export function useStudySession({
    * Returns false when refused so UI can keep rename draft open.
    */
   const renameTimerPlan = (planId: string, name: string): boolean => {
-    if (isReadonlyTimerPlanId(planId)) return false
+    // System seeds may be renamed (materialized under the same id); only delete is blocked.
     const current = snapshotRef.current
     const renamed = renameTimerPlanInV1List(current.timerPlans, planId, name)
     if (!renamed.ok) return false
@@ -2723,10 +2744,6 @@ export function useStudySession({
     commitSnapshot(next)
     if (completing) {
       const title = task?.title ?? taskId
-      // Capture storm-suppress at schedule time (STC-408 batch complete).
-      const suppressClassificationStorm = shouldSuppressClassificationPromptStorm({
-        isBatchComplete: batchCompleteInFlightRef.current
-      })
       void dualWriteCompleteTask(resolvePlanningContext(), taskId).then(async (result) => {
         reportPlanningWrite(result)
         if (result.kind !== 'canonical_ok') return
@@ -2756,7 +2773,6 @@ export function useStudySession({
         }
 
         // STC-406/407: classification is non-blocking; never rolls back complete.
-        // STC-408: batch complete captures suppress at schedule time (no prompt storm).
         const classifyNeed = effects.find(
           (e): e is { type: 'classification_prompt_suggested'; taskId: string } =>
             e.type === 'classification_prompt_suggested'
@@ -2764,8 +2780,7 @@ export function useStudySession({
         if (
           classifyNeed &&
           onClassificationPromptAsk &&
-          !classificationPromptOptOutRef.current &&
-          !suppressClassificationStorm
+          !classificationPromptOptOutRef.current
         ) {
           const classAnswer = await onClassificationPromptAsk({
             taskId,
@@ -2865,27 +2880,6 @@ export function useStudySession({
     }).then(reportPlanningWrite)
   }
 
-  /**
-   * STC-408: complete many open tasks without per-task classification prompt storm.
-   * Future-blocks still asked per task when host provides handler (order-preserving).
-   */
-  const completeTasksBatch = (taskIds: readonly string[]): void => {
-    const ids = taskIds
-      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-      .map((id) => id.trim())
-    if (ids.length === 0) return
-    batchCompleteInFlightRef.current = true
-    try {
-      for (const id of ids) {
-        const task = snapshotRef.current.tasks.find((t) => t.id === id)
-        if (!task || task.done) continue
-        // toggleTask captures suppressClassificationStorm at schedule time.
-        toggleTask(id)
-      }
-    } finally {
-      batchCompleteInFlightRef.current = false
-    }
-  }
 
   const removeTask = (taskId: string): void => {
     const current = snapshotRef.current
@@ -3142,8 +3136,6 @@ export function useStudySession({
     removeDoneTasks,
     /** STC-408: batch classify inbox tasks (one category, no prompt storm). */
     batchClassifyTasks,
-    /** STC-408: complete many tasks without per-task classification prompts. */
-    completeTasksBatch,
     /** STC-307 multi-block week: canonical ScheduleBlock cache (hydrate / dual-write). */
     scheduleBlocks,
     canonicalCategories,

@@ -89,7 +89,7 @@
   color: #9c384e;
   border: 1px solid #ffd4de;
   border-radius: var(--radius-full);
-  background: #fff;
+  background: var(--surface-solid);
   font-size: 13px;
   font-weight: 650;
   transition:

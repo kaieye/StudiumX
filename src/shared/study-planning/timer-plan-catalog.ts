@@ -1,6 +1,6 @@
 /**
  * Timer plan catalog + TimeWindow templates (Phase 5 pure / STC-501..508).
- * Builtin plans are read-only; custom copies get new ids. Window templates ≠ TimerPlan.
+ * Builtin seed ids cannot be deleted; field/name overrides may be saved under the same id.
  */
 
 import {
@@ -81,25 +81,30 @@ export function renameTimerPlanInCatalog(input: {
   planId: string
   name: string
 }): TimerPlanCatalogOpResult {
-  if (isBuiltinTimerPlanId(input.planId) && !input.plans.some((p) => p.id === input.planId && p.revision > 0)) {
-    // If only builtin catalog identity, refuse
-  }
-  if (isBuiltinTimerPlanId(input.planId)) {
-    return {
-      ok: false,
-      code: 'builtin_readonly',
-      message: 'Rename a copy of the builtin plan instead'
-    }
-  }
   const name = input.name.trim()
   if (!name) return { ok: false, code: 'invalid', message: 'name required' }
-  const plans = input.plans.map((p) =>
-    p.id === input.planId ? { ...p, name, revision: p.revision + 1 } : p
-  )
-  if (!input.plans.some((p) => p.id === input.planId)) {
-    return { ok: false, code: 'not_found', message: `plan ${input.planId}` }
+  const existing = input.plans.find((p) => p.id === input.planId)
+  if (existing) {
+    return {
+      ok: true,
+      plans: input.plans.map((p) =>
+        p.id === input.planId ? { ...p, name, revision: p.revision + 1 } : p
+      )
+    }
   }
-  return { ok: true, plans }
+  // Builtin seed not yet in user list: materialize a renamed override under the same id.
+  if (isBuiltinTimerPlanId(input.planId)) {
+    const seed = BUILTIN_TIMER_PLAN_CATALOG.find((p) => p.id === input.planId)
+    if (!seed) {
+      return { ok: false, code: 'not_found', message: `plan ${input.planId}` }
+    }
+    const normalized = normalizeTimerPlanV2({ ...seed, name, revision: seed.revision + 1 })
+    if (!normalized.ok) {
+      return { ok: false, code: 'invalid', message: normalized.issues.map((i) => i.message).join('; ') }
+    }
+    return { ok: true, plans: [...input.plans, normalized.plan] }
+  }
+  return { ok: false, code: 'not_found', message: `plan ${input.planId}` }
 }
 
 /**

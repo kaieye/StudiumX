@@ -10,7 +10,7 @@
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: #f7f9fe;
+  background: var(--surface-subtle);
 }.app-frame.platform-win32 {
   --window-chrome-height: 32px;
   --window-control-overlay-width: 138px;

@@ -582,13 +582,7 @@ export class StudyPlanningStore {
           if (!isObject(p) || !isObject(p.plan)) throw fail('invalid_command', 'save_timer_plan.plan required')
           const rawPlan = p.plan as TimerPlanV2
           if (!rawPlan.id?.trim()) throw fail('invalid_command', 'plan.id required')
-          // STC-501: system builtin identity is read-only; force copy path for edits.
-          if (isBuiltinTimerPlanId(rawPlan.id)) {
-            throw fail(
-              'invariant_violation',
-              'System builtin plans are read-only; copy then edit the custom copy'
-            )
-          }
+          // System seed ids may be upserted (user overrides); delete remains blocked.
           // STC-702: fail-closed normalize (custom_rhythm sequence + primary fields).
           const normalized = normalizeTimerPlanV2(rawPlan)
           if (!normalized.ok) {
@@ -627,7 +621,7 @@ export class StudyPlanningStore {
                     : sourceId === 'deep_50_10'
                       ? {
                           id: 'deep_50_10',
-                          name: '深度 50/10',
+                          name: '深度专注',
                           focusMinutes: 50,
                           shortBreakMinutes: 10
                         }

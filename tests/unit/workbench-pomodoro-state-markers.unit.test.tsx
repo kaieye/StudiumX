@@ -47,7 +47,7 @@ describe('WorkbenchPomodoro state markers (STC-604)', () => {
     vi.restoreAllMocks()
   })
 
-  it('shows non-color state chip for running focus', async () => {
+  it('keeps non-color card state tokens for running focus (chip text is face-only when overtime)', async () => {
     const user = userEvent.setup()
     const { container } = render(
       <WorkbenchPomodoro
@@ -62,17 +62,17 @@ describe('WorkbenchPomodoro state markers (STC-604)', () => {
       />
     )
     await user.click(screen.getByRole('button', { name: /专注计时/ }))
-    const chip = screen.getByTestId('workbench-pomodoro-state-chip')
-    expect(chip).toHaveTextContent(/运行中/)
-    expect(chip).toHaveTextContent(/专注/)
+    // Status line "已暂停 · 专注" removed from dial; a11y live region + card tokens remain.
+    expect(screen.queryByTestId('workbench-pomodoro-state-chip')).not.toBeInTheDocument()
     expect(container.querySelector('.workbench-pomodoro-card')).toHaveClass('is-state-running')
     expect(container.querySelector('.workbench-pomodoro-card')).toHaveAttribute(
       'data-timer-state',
       'running'
     )
+    expect(screen.getByTestId('workbench-pomodoro-status-live')).toBeInTheDocument()
   })
 
-  it('labels wrap_up session chip without relying on rest color alone', async () => {
+  it('labels wrap_up session on card without relying on rest color alone', async () => {
     const user = userEvent.setup()
     const plan = createClassicPomodoroPlan()
     const started = startTimerSession({
@@ -96,11 +96,9 @@ describe('WorkbenchPomodoro state markers (STC-604)', () => {
       />
     )
     await user.click(screen.getByRole('button', { name: /收尾计时/ }))
-    const chip = screen.getByTestId('workbench-pomodoro-state-chip')
-    expect(chip).toHaveTextContent(/运行中/)
-    expect(chip).toHaveTextContent(/收尾/)
     expect(container.querySelector('.workbench-pomodoro-card')).toHaveClass('is-wrap_up')
     expect(container.querySelector('.workbench-pomodoro-card')).toHaveClass('is-state-running')
+    expect(screen.getByTestId('workbench-pomodoro-title')).toHaveTextContent(/收尾/)
   })
 
   it('adds is-reduced-motion class when matchMedia prefers reduce', async () => {

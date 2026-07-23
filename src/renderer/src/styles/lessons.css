@@ -47,7 +47,7 @@
   font-weight: 650;
 }.section-title-row h2 {
   margin: 3px 0 0;
-  color: #1f2d44;
+  color: var(--text);
   font-size: 22px;
   line-height: 1.25;
   font-weight: 760;
@@ -65,7 +65,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 0 4px;
-  color: #7f8ca0;
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 650;
 }.course-group-title {
@@ -91,10 +91,10 @@
     box-shadow 180ms ease;
 }.lesson-card:hover {
   transform: translateY(-1px);
-  border-color: #d7e1f1;
+  border-color: var(--line-strong);
   box-shadow: var(--shadow-card-hover);
 }.lesson-card.is-selected {
-  border-color: #c9d9ff;
+  border-color: var(--line-strong);
   box-shadow: 0 14px 38px rgba(79, 124, 245, 0.1);
 }.lesson-id {
   display: grid;
@@ -102,9 +102,9 @@
   width: 44px;
   height: 44px;
   flex: 0 0 auto;
-  color: #60708a;
+  color: var(--text-muted);
   border-radius: 13px;
-  background: #f5f7fb;
+  background: var(--surface-muted);
   font-size: 12px;
   font-weight: 800;
 }.lesson-icon {
@@ -122,7 +122,7 @@
 }.lesson-body h3 {
   margin: 0;
   overflow-wrap: anywhere;
-  color: #24324a;
+  color: var(--text);
   font-size: 15px;
   line-height: 1.35;
   font-weight: 740;
@@ -170,7 +170,7 @@
   min-width: 0;
   margin-top: 3px;
   overflow-wrap: anywhere;
-  color: #26344b;
+  color: var(--text);
   font-size: 14px;
   line-height: 1.45;
   font-weight: 700;
@@ -194,7 +194,7 @@
   min-height: 380px;
   border: 0;
   border-radius: 16px;
-  background: #fff;
+  background: var(--surface-solid);
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04);
 }.main-area[data-view='lessons'] .preview-frame {
   min-height: 0;
@@ -636,14 +636,14 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface-solid);
 }.lesson-reader-frame {
   width: 100%;
   height: 100%;
   flex: 1 1 auto;
   min-height: 0;
   border: 0;
-  background: #fff;
+  background: var(--surface-solid);
 }
 
 /* ----- Markdown document reader/editor ----- */
@@ -1028,7 +1028,7 @@
   min-width: 0;
 }.empty-state h3 {
   margin: 0;
-  color: #24324a;
+  color: var(--text);
   font-size: 14px;
   font-weight: 700;
 }.empty-state p {

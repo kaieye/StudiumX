@@ -25,7 +25,7 @@
 }.hero-copy h1 {
   max-width: 680px;
   margin: 0;
-  color: #162033;
+  color: var(--text);
   font-size: 24px;
   line-height: 1.2;
   font-weight: 760;
@@ -71,7 +71,7 @@
   min-width: 0;
   margin-top: 4px;
   overflow-wrap: anywhere;
-  color: #26344b;
+  color: var(--text);
   font-size: 14px;
   line-height: 1.45;
   font-weight: 700;
@@ -112,11 +112,11 @@
 }.workflow-card span {
   min-width: 0;
   flex: 1;
-  color: #6d7b91;
+  color: var(--text-muted);
   font-size: 13px;
   font-weight: 650;
 }.workflow-card strong {
-  color: #25354f;
+  color: var(--text);
   font-size: 13px;
   font-weight: 750;
 }.tone-green .workflow-icon {
@@ -168,7 +168,7 @@
   font-weight: 700;
 }.overview-copy h1 {
   margin: 0;
-  color: #162033;
+  color: var(--text);
   font-size: 24px;
   line-height: 1.2;
   font-weight: 760;
@@ -199,7 +199,7 @@
   min-width: 0;
   margin-top: 3px;
   overflow-wrap: anywhere;
-  color: #26344b;
+  color: var(--text);
   font-size: 14px;
   line-height: 1.45;
   font-weight: 700;
@@ -209,7 +209,7 @@
   height: 72px;
   resize: none;
   padding: 4px 2px;
-  color: #25354f;
+  color: var(--text);
   border: 0;
   outline: 0;
   background: transparent;
@@ -242,10 +242,10 @@
   height: 32px;
   gap: 7px;
   padding: 0 11px;
-  color: #5f6f86;
+  color: var(--text-muted);
   border: 1px solid var(--line);
   border-radius: var(--radius-full);
-  background: #fff;
+  background: var(--surface-solid);
   font-size: 12px;
   font-weight: 650;
   transition:
@@ -254,13 +254,13 @@
     box-shadow 160ms ease;
 }.tool-pills button:hover,
 .tool-pills button.is-active {
-  border-color: #cfdaf0;
-  color: #25354f;
+  border-color: var(--line-strong);
+  color: var(--text);
   box-shadow: var(--shadow-card);
 }.tool-pills button.is-active {
-  border-color: #c8d8ff;
+  border-color: var(--line-strong);
   color: var(--accent);
-  background: #f5f8ff;
+  background: var(--accent-soft);
 }.send-button {
   display: inline-grid;
   place-items: center;

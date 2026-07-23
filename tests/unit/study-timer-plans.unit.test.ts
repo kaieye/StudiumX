@@ -136,3 +136,22 @@ describe('study timer plans', () => {
   })
 
 })
+
+  it('restores applied plan fields via applyStudyTimerPlan (restart memory path)', () => {
+    // Cold start loads defaultTimerPlanId then projects plan fields onto idle snapshot.
+    const host = {
+      ...defaultStudySnapshot,
+      focusMinutes: 25,
+      breakMinutes: 5,
+      remainingSeconds: 25 * 60,
+      timerState: 'idle' as const,
+      timerPlans: [plan]
+    }
+    const restored = applyStudyTimerPlan(host, plan)
+    expect(restored.focusMinutes).toBe(45)
+    expect(restored.breakMinutes).toBe(10)
+    expect(restored.simulationStartTime).toBe('08:30')
+    expect(restored.simulationEndTime).toBe('10:30')
+    expect(restored.remainingSeconds).toBe(45 * 60)
+  })
+

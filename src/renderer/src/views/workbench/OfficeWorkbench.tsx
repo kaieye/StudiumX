@@ -383,7 +383,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     toggleTask,
     removeTask,
     batchClassifyTasks,
-    completeTasksBatch,
     scheduleBlocks,
     canonicalCategories,
     activeTimerSession,
@@ -993,7 +992,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
                 : null
             }
             onOpenBatchClassify={openBatchClassify}
-            onCompleteTasksBatch={completeTasksBatch}
           />
         </div>
         <EmptyStartSheet

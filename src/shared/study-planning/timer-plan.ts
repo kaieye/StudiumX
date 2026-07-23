@@ -81,7 +81,7 @@ export const TIMER_PLAN_SEED_DEFAULTS = {
 export const BUILTIN_TIMER_PLAN_CATALOG: readonly TimerPlanV2[] = [
   {
     id: 'classic_25_5',
-    name: '经典番茄 25/5',
+    name: '经典番茄',
     kind: 'pomodoro',
     clockMode: 'countdown',
     focusMinutes: 25,
@@ -102,7 +102,7 @@ export const BUILTIN_TIMER_PLAN_CATALOG: readonly TimerPlanV2[] = [
   },
   {
     id: 'deep_50_10',
-    name: '深度 50/10',
+    name: '深度专注',
     kind: 'pomodoro',
     clockMode: 'countdown',
     focusMinutes: 50,
@@ -123,7 +123,7 @@ export const BUILTIN_TIMER_PLAN_CATALOG: readonly TimerPlanV2[] = [
   },
   {
     id: 'continuous_countup',
-    name: '连续专注',
+    name: '考场模拟',
     kind: 'continuous',
     clockMode: 'countup',
     breakPolicy: 'reminder_only',

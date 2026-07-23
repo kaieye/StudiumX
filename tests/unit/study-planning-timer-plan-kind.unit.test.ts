@@ -35,10 +35,16 @@ describe('normalizeTimerPlanKindFields', () => {
     })
   })
 
-  it('coerces pomodoro + countup to countdown', () => {
+  it('allows pomodoro + countup (product 正计时 toggle)', () => {
     const r = normalizeTimerPlanKindFields({ kind: 'pomodoro', clockMode: 'countup' })
+    expect(r.clockMode).toBe('countup')
+    expect(r.warnings).toHaveLength(0)
+  })
+
+  it('coerces custom_rhythm + countup to countdown', () => {
+    const r = normalizeTimerPlanKindFields({ kind: 'custom_rhythm', clockMode: 'countup' })
     expect(r.clockMode).toBe('countdown')
-    expect(r.warnings.some((w) => w.code === 'pomodoro_clock_mode_coerced')).toBe(true)
+    expect(r.warnings.some((w) => w.code === 'custom_rhythm_clock_mode_coerced')).toBe(true)
   })
 })
 

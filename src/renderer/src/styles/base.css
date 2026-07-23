@@ -23,7 +23,7 @@ body,
   margin: 0;
   overflow: hidden;
 }body {
-  background: #f7f9fe;
+  background: var(--surface-subtle);
   color: var(--text);
 }button,
 input,
