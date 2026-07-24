@@ -288,24 +288,19 @@
   border-color: rgba(102, 194, 154, 0.24);
   background: var(--green-soft);
   color: var(--green);
-}:root[data-resolved-theme="dark"] .remove-dialog-option {
-  border-color: var(--line);
-  background: var(--surface-muted);
+}:root[data-resolved-theme="dark"] .remove-dialog-cancel-button {
+  color: var(--text-muted);
+}:root[data-resolved-theme="dark"] .remove-dialog-cancel-button:hover,
+:root[data-resolved-theme="dark"] .remove-dialog-cancel-button:focus-visible {
   color: var(--text);
-}:root[data-resolved-theme="dark"] .remove-dialog-option:hover,
-:root[data-resolved-theme="dark"] .remove-dialog-option:focus-visible {
-  border-color: var(--line-strong);
-  background: #252528;
-}:root[data-resolved-theme="dark"] .remove-dialog-option.is-danger:hover,
-:root[data-resolved-theme="dark"] .remove-dialog-option.is-danger:focus-visible {
-  border-color: rgba(255, 122, 112, 0.32);
-  background: rgba(255, 122, 112, 0.1);
-}:root[data-resolved-theme="dark"] .remove-dialog-option-icon {
-  color: var(--accent);
-  background: var(--accent-soft);
-}:root[data-resolved-theme="dark"] .remove-dialog-option.is-danger .remove-dialog-option-icon {
-  color: var(--red);
+  background: rgba(255, 255, 255, 0.08);
+}:root[data-resolved-theme="dark"] .remove-dialog-confirm-button {
+  color: #ff9a96;
   background: rgba(255, 122, 112, 0.14);
+}:root[data-resolved-theme="dark"] .remove-dialog-confirm-button:hover,
+:root[data-resolved-theme="dark"] .remove-dialog-confirm-button:focus-visible {
+  color: #ffb0ac;
+  background: rgba(255, 122, 112, 0.22);
 }:root[data-resolved-theme="dark"] .primary-button,
 :root[data-resolved-theme="dark"] .overview-dialog-send {
   color: #111111;

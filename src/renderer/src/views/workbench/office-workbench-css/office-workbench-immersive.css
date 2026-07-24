@@ -113,7 +113,7 @@
   border-radius: 34px;
   transform: translate3d(0, 0, -1150px) scale(0.82) rotateX(4deg);
   transform-origin: center center;
-  transform-style: preserve-3d;
+  /* No preserve-3d here — it would flatten the flip-clock rotateX under overflow/filter. */
   filter: brightness(0.72) saturate(0.78) blur(1.4px);
   box-shadow: 0 36px 90px rgba(3, 7, 15, 0.42);
   backface-visibility: hidden;
@@ -129,7 +129,11 @@
   border-color: transparent;
   border-radius: 0;
   transform: translate3d(0, 0, 0) scale(1) rotateX(0);
-  filter: brightness(1) saturate(1) blur(0);
+  /*
+   * filter:none (not identity filters). Any non-none filter creates a containing
+   * group that flattens 3D descendants — flip-clock rotateX would snap.
+   */
+  filter: none;
   box-shadow: 0 0 0 rgba(3, 7, 15, 0);
   animation: workbench-immersive-approach 720ms cubic-bezier(0.4, 0, 0.2, 1) 320ms both;
 }
@@ -189,7 +193,7 @@
     border-color: transparent;
     border-radius: 0;
     transform: translate3d(0, 0, 0) scale(1) rotateX(0);
-    filter: brightness(1) saturate(1) blur(0);
+    filter: none;
     box-shadow: 0 0 0 rgba(3, 7, 15, 0);
   }
 }
@@ -207,7 +211,7 @@
     border-color: transparent;
     border-radius: 0;
     transform: translate3d(0, 0, 0) scale(1) rotateX(0);
-    filter: brightness(1) saturate(1) blur(0);
+    filter: none;
     box-shadow: 0 0 0 rgba(3, 7, 15, 0);
   }
 }
@@ -315,62 +319,75 @@
   position: relative;
   display: grid;
   place-items: center;
-  overflow: hidden;
+  overflow: visible;
   color: var(--workbench-clock-digit);
   background: #000;
-  isolation: isolate;
 }
 
 /*
- * Flip clock — CSS structure aligned 1:1 with D:\2.html
- * (class names namespaced under workbench-clock__).
+ * Flip clock — structure 1:1 with D:/2.html, motion via WAAPI rotateX on .flap.
+ * Ref px (digit font-size 120): 100x140, half 70, gap 8, pair-gap 32, radius 8, seam 3
  *
- * Proportions (ref px → em of face font-size 120):
- *   digit 100×140, half 70, gap 8, pair-gap 32, radius 8, seam 3
+ * DOM per digit:
+ *   .flap
+ *     .face--next  (flap back, next lower half, rotateX(-180))
+ *     .face--curr  (flap front, curr upper half)
+ *   .face--next    (static top, next upper half)
+ *   .face--curr    (static bottom, curr lower half)
  */
 .workbench-clock__display {
   display: flex;
   justify-content: center;
   align-items: center;
-  width: min(100%, 920px);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   gap: 0.0667em; /* 8/120 */
   color: inherit;
   font-family: 'Arial Black', Arial, Helvetica, sans-serif;
-  font-size: clamp(64px, 11vw, 120px); /* face font-size base (= 120 in ref) */
+  /* Fallback when not inside the immersive scene container. */
+  font-size: clamp(28px, 8vw, 120px);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1;
   text-shadow: none;
+  /* No row-level perspective: it skews off-center digits during rotateX (looks like X shift). */
 }
 
-/* Digit card — .clock-digit */
+/*
+ * Digit card: clip + local perspective only.
+ * Do NOT set preserve-3d on this node (overflow + preserve-3d flattens children).
+ * Perspective is per-digit so each plate rotates on its own axis without row foreshortening.
+ */
 .workbench-clock__digit {
   position: relative;
+  display: block;
   width: 0.8333em; /* 100/120 */
   height: 1.1667em; /* 140/120 */
   flex: 0 0 auto;
   border-radius: 0.0667em; /* 8/120 */
   overflow: hidden;
   background: #1a1a1a;
+  perspective: 3.5em;
+  -webkit-perspective: 3.5em;
+  perspective-origin: 50% 50%;
+  -webkit-perspective-origin: 50% 50%;
+  /* Pin layout so subpixel reflow from digit glyph changes cannot nudge the card. */
+  contain: layout style;
 }
 
-/* Pair spacing — .clock-digit:nth-child(3), :nth-child(5) { margin-left: 32px } */
 .workbench-clock__digit:nth-child(3),
 .workbench-clock__digit:nth-child(5) {
   margin-left: 0.2667em; /* 32/120 */
 }
 
-/*
- * Half faces — .digit-face / .digit-face-next
- * Static next + curr stack in normal flow (top then bottom).
- * Flap faces live inside the absolute flap.
- */
+/* Half faces — static stack in flow; flap faces absolute inside the plate. */
 .workbench-clock__face {
   position: relative;
   display: block;
   width: 100%;
-  height: 50%; /* 70/140 */
+  height: 50%;
   font-size: 1em;
   background: #1a1a1a;
   border-radius: 0.0667em;
@@ -379,99 +396,118 @@
   box-sizing: border-box;
 }
 
-/* Glyph — full digit tall, clipped by half face */
 .workbench-clock__flap .workbench-clock__face::before,
 .workbench-clock__digit > .workbench-clock__face::before {
   position: absolute;
   content: attr(data-t);
-  line-height: 1.1667em; /* 140/120 */
+  line-height: 1.1667em;
   text-align: center;
   height: 1.1667em;
+  width: 100%;
   left: 0;
   right: 0;
+  /* Keep glyph box full-width so 1 vs 0 never shift the card optically. */
+  box-sizing: border-box;
   color: inherit;
   font-weight: inherit;
   font-family: inherit;
-  font-variant-numeric: inherit;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }
 
-/*
- * Flap front (.digit-face) & static top (.digit-face-next): glyph top-aligned
- * → shows UPPER half of the digit.
- */
+/* Flap front + static top → upper half of glyph */
 .workbench-clock__flap .workbench-clock__face--curr::before,
 .workbench-clock__digit > .workbench-clock__face--next::before {
   top: 0;
 }
 
-/*
- * Flap back (.digit-face-next) & static bottom (.digit-face): glyph bottom-aligned
- * → shows LOWER half of the digit.
- */
+/* Flap back + static bottom → lower half of glyph */
 .workbench-clock__flap .workbench-clock__face--next::before,
 .workbench-clock__digit > .workbench-clock__face--curr::before {
   bottom: 0;
 }
 
-/* Seam — flap front + static top: border-bottom */
+/* Seam */
 .workbench-clock__flap .workbench-clock__face--curr,
 .workbench-clock__digit > .workbench-clock__face--next {
-  border-bottom: 0.025em solid #000; /* ~3/120 */
+  border-bottom: 0.025em solid #000;
 }
 
-/* Seam — flap back + static bottom: border-top */
 .workbench-clock__flap .workbench-clock__face--next,
 .workbench-clock__digit > .workbench-clock__face--curr {
   border-top: 0.025em solid #000;
 }
 
-/* Flap back — pre-rotated so it faces out after the plate hits -180 */
+/* Flap back (next lower half), pre-rotated — pin Z so projection stays on-axis */
 .workbench-clock__flap .workbench-clock__face--next {
-  transform: rotateX(-180deg);
+  transform: translateZ(0) rotateX(-180deg);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
 }
 
-/* Flap front — absolute top half of the plate */
+/* Flap front (current upper half) */
 .workbench-clock__flap .workbench-clock__face--curr {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
+  height: 50%;
+  transform: translateZ(0);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
 }
 
-/* Flipping plate — full card, hinges at geometric center */
+/* Double-sided plate — WAAPI drives rotateX only; translateZ(0) kills perspective X drift */
 .workbench-clock__flap {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 1;
+  z-index: 2;
+  display: block;
   width: 100%;
   height: 100%;
   transform-style: preserve-3d;
-  /* Quiet reset when is-flipping is removed after the animation. */
-  transition: transform 0s;
-  transform: rotateX(0deg);
+  -webkit-transform-style: preserve-3d;
+  transform-origin: 50% 50%;
+  transform: translate3d(0, 0, 0) rotateX(0deg);
+  will-change: transform;
+  /* Avoid subpixel antialiasing shift when the plate resets after a flip. */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
+/* State marker only — do not change layout/z that could reflow the digit */
+.workbench-clock__digit.is-flipping .workbench-clock__flap,
 .workbench-clock__flap.is-flipping {
-  transition: all 0.5s ease-in-out;
-  transform: rotateX(-180deg);
+  /* keep z-index stable to avoid paint-order / layer reparent jitter */
 }
 
-/* Immersive full-scene scale */
 .workbench-immersive-clock-scene {
   position: absolute;
   inset: 0;
-  padding: clamp(22px, 6vh, 72px) clamp(18px, 7vw, 110px);
-  container-type: inline-size;
+  display: grid;
+  place-items: center;
+  /* Tight padding; font-size scaling keeps all 6 digits on-screen. */
+  padding: clamp(6px, 1.5vmin, 24px);
+  box-sizing: border-box;
+  /* size → cqw + cqh so the clock can fit both narrow and short windows. */
+  container-type: size;
+  container-name: immersive-clock;
+  overflow: hidden;
+  /* No scene-level perspective: would foreshorten off-center digits during flip. */
 }
 
 .workbench-immersive-clock-scene .workbench-clock__display {
-  width: min(100%, 1540px);
-  font-size: clamp(72px, min(12cqw, 22vh), 160px);
+  /*
+   * Fit six HHmmss digits into the scene:
+   *   6×0.8333em + 5×0.0667em gaps + 2×0.2667em pair gaps ≈ 5.87em wide
+   *   digit height ≈ 1.167em tall
+   * → font-size ≤ width/5.87 ≈ 17cqw, ≤ height/1.25 ≈ 80cqh (with margin).
+   * Soft floor for readability; never high enough to clip a digit off-screen.
+   */
+  width: 100%;
+  max-width: 100%;
+  font-size: clamp(18px, min(15.1cqw, 65cqh), 360px);
 }
 
 /* Full-viewport focus-timer dial (pomodoro face, enlarged). */
@@ -967,12 +1003,30 @@
   outline-offset: 3px;
 }
 
+/* Clock card preview */
+.workbench-scene-picker__preset--clock {
+  isolation: auto;
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
 .workbench-scene-picker__clock-preview {
   position: absolute;
-  z-index: -1;
+  z-index: 1;
   inset: 0;
-  padding: 8px 10px;
+  display: grid;
+  place-items: center;
+  padding: 10px 8px 28px;
   container-type: inline-size;
+  /* Perspective is per-digit; keep the preview free of a second frustum. */
+  pointer-events: none;
+}
+
+/* Soften the card gradient over the clock so the flap motion is readable. */
+.workbench-scene-picker__preset--clock::after {
+  z-index: 0;
+  background: linear-gradient(180deg, rgba(8, 14, 24, 0) 55%, rgba(7, 12, 22, 0.78) 100%);
+  pointer-events: none;
 }
 
 .workbench-scene-picker__clock-preview .workbench-clock__display {
@@ -988,16 +1042,6 @@
 .workbench-scene-picker__clock-preview .workbench-clock__digit:nth-child(3),
 .workbench-scene-picker__clock-preview .workbench-clock__digit:nth-child(5) {
   margin-left: 0.2667em;
-}
-
-.workbench-scene-picker__clock-preview .workbench-clock__flap .workbench-clock__face--curr,
-.workbench-scene-picker__clock-preview .workbench-clock__digit > .workbench-clock__face--next {
-  border-bottom-width: 0.025em;
-}
-
-.workbench-scene-picker__clock-preview .workbench-clock__flap .workbench-clock__face--next,
-.workbench-scene-picker__clock-preview .workbench-clock__digit > .workbench-clock__face--curr {
-  border-top-width: 0.025em;
 }
 .workbench-scene-picker__preset-copy,
 .workbench-scene-picker__selected-mark {
@@ -1058,9 +1102,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workbench-clock__flap,
-  .workbench-clock__flap.is-flipping {
-    transition: none !important;
+  /* Flip keeps motion (signature scene); no forced animation:none on flaps. */
+  .workbench-clock__flap {
+    will-change: transform;
   }
 }
 

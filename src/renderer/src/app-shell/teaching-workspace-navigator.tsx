@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, Archive, ArrowUpRight, ChevronDown, ChevronRight, FileText,
+  Archive, ArrowUpRight, ChevronDown, ChevronRight, FileText,
   Folder, FolderOpen, GitFork, Loader2, MessageSquare, MoreHorizontal, Pencil, Pin, PinOff,
   Plus, Trash2, Upload, X
 } from 'lucide-react'
@@ -278,12 +278,10 @@ function RenameConversationDialog({ conversationName, onClose, onRename }: {
   </div>, document.body)
 }
 
-function RemoveWorkspaceItemDialog({ itemName, itemKind, onClose, onRemoveFromList, onRemoveFromDisk }: {
+function RemoveWorkspaceItemDialog({ itemName, onClose, onConfirm }: {
   itemName: string
-  itemKind: WorkspaceItemKind
   onClose: () => void
-  onRemoveFromList: () => void
-  onRemoveFromDisk: () => void
+  onConfirm: () => void
 }) {
   const { t } = useTranslation()
   const titleId = useId()
@@ -293,13 +291,16 @@ function RemoveWorkspaceItemDialog({ itemName, itemKind, onClose, onRemoveFromLi
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
   }, [onClose])
-  const kindLabel = itemKind === 'conversation' ? t('sidebar.removeDialog.kindConversation') : itemKind === 'directory' ? t('sidebar.removeDialog.kindFolder') : t('sidebar.removeDialog.kindFile')
   return createPortal(<div className="remove-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="remove-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
-      <div className="remove-dialog-header"><span className="remove-dialog-icon" aria-hidden="true"><AlertTriangle size={18} /></span><div><span>{kindLabel}</span><h2 id={titleId}>{t('sidebar.removeDialog.title', { name: itemName })}</h2></div><button type="button" className="settings-close-button" onClick={onClose} aria-label={t('sidebar.removeDialog.close')}><X size={16} /></button></div>
+    <section className="remove-dialog remove-dialog-confirmation" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+      <div className="remove-dialog-header">
+        <h2 id={titleId}>{t('sidebar.removeDialog.title', { name: itemName })}</h2>
+      </div>
       <p id={descriptionId} className="remove-dialog-detail">{t('sidebar.removeDialog.detail')}</p>
-      <div className="remove-dialog-options"><button type="button" className="remove-dialog-option" onClick={onRemoveFromList}><span className="remove-dialog-option-icon"><Archive size={17} /></span><span><strong>{t('sidebar.removeDialog.listTitle')}</strong><small>{t('sidebar.removeDialog.listDetail')}</small></span></button><button type="button" className="remove-dialog-option is-danger" onClick={onRemoveFromDisk}><span className="remove-dialog-option-icon"><Trash2 size={17} /></span><span><strong>{t('sidebar.removeDialog.diskTitle')}</strong><small>{t('sidebar.removeDialog.diskDetail')}</small></span></button></div>
-      <div className="remove-dialog-footer"><button className="ghost-button" type="button" onClick={onClose}>{t('common.cancel')}</button></div>
+      <div className="remove-dialog-footer">
+        <button className="remove-dialog-cancel-button" type="button" onClick={onClose}>{t('common.cancel')}</button>
+        <button className="remove-dialog-confirm-button" type="button" onClick={onConfirm}>{t('sidebar.removeDialog.confirm')}</button>
+      </div>
     </section>
   </div>, document.body)
 }
@@ -318,9 +319,9 @@ function ConversationListRow({ conversation, isActiveConversation, onOpen, onSet
   const updateMeta = (pinned?: boolean, archived?: boolean): void => {
     void onSetWorkspaceItemMeta({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, ...(pinned === undefined ? {} : { pinned }), ...(archived === undefined ? {} : { archived }) })
   }
-  const remove = (mode: 'list' | 'disk'): void => {
+  const remove = (): void => {
     setRemoveDialogOpen(false)
-    void onRemoveWorkspaceItem({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, kind: 'conversation', mode })
+    void onRemoveWorkspaceItem({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, kind: 'conversation', mode: 'list' })
   }
   const isForkedBranch = Boolean(conversation.branch?.parentBranchId)
   const rename = (title: string): void => {
@@ -339,7 +340,7 @@ function ConversationListRow({ conversation, isActiveConversation, onOpen, onSet
     </button>
     {!conversation.pending ? <RowContextMenu pinned={!!conversation.pinned} onRename={() => setRenameDialogOpen(true)} onTogglePin={() => updateMeta(!conversation.pinned)} onArchive={() => updateMeta(undefined, true)} onRemove={() => setRemoveDialogOpen(true)} /> : null}
     {renameDialogOpen ? <RenameConversationDialog conversationName={conversation.title} onClose={() => setRenameDialogOpen(false)} onRename={rename} /> : null}
-    {removeDialogOpen ? <RemoveWorkspaceItemDialog itemName={conversation.title} itemKind="conversation" onClose={() => setRemoveDialogOpen(false)} onRemoveFromList={() => remove('list')} onRemoveFromDisk={() => remove('disk')} /> : null}
+    {removeDialogOpen ? <RemoveWorkspaceItemDialog itemName={conversation.title} onClose={() => setRemoveDialogOpen(false)} onConfirm={remove} /> : null}
   </div>
 }
 
@@ -447,12 +448,12 @@ function WorkspaceFileNodeRow({
       await onRenameAgentConversation({ workspaceId: workspace.id, conversationId: conversation.id, title, scope: 'workspace', ...(conversation.branch ? { expectedRevision: conversation.branch.revision } : {}) })
     })()
   }
-  const remove = (mode: 'list' | 'disk'): void => {
+  const remove = (): void => {
     setRemoveDialogOpen(false)
-    if (isWorkspaceFolder) { void onRemoveWorkspace({ workspaceId: workspace.id, mode }); return }
+    if (isWorkspaceFolder) { void onRemoveWorkspace({ workspaceId: workspace.id, mode: 'list' }); return }
     void (async () => {
       await onEnsureWorkspaceSelected()
-      await onRemoveWorkspaceItem({ workspaceId: workspace.id, relativePath: node.relativePath, kind: itemKind, mode })
+      await onRemoveWorkspaceItem({ workspaceId: workspace.id, relativePath: node.relativePath, kind: itemKind, mode: 'list' })
     })()
   }
 
@@ -467,7 +468,7 @@ function WorkspaceFileNodeRow({
       </button>
       {!isPendingConversation ? <RowContextMenu pinned={!!node.pinned} {...(conversation ? { onRename: () => setRenameDialogOpen(true) } : {})} onTogglePin={() => setMeta(!node.pinned)} onArchive={() => setMeta(undefined, true)} onRemove={() => setRemoveDialogOpen(true)} /> : null}
       {renameDialogOpen && conversation ? <RenameConversationDialog conversationName={conversation.title} onClose={() => setRenameDialogOpen(false)} onRename={rename} /> : null}
-      {removeDialogOpen ? <RemoveWorkspaceItemDialog itemName={itemLabel} itemKind={itemKind} onClose={() => setRemoveDialogOpen(false)} onRemoveFromList={() => remove('list')} onRemoveFromDisk={() => remove('disk')} /> : null}
+      {removeDialogOpen ? <RemoveWorkspaceItemDialog itemName={itemLabel} onClose={() => setRemoveDialogOpen(false)} onConfirm={remove} /> : null}
     </div>
     {isDirectory && node.children?.length ? <div className={`workspace-node-children${isExpanded ? ' is-open' : ''}${isWorkspaceFolder || isCourseFolder ? ' is-course-children' : ''}`} aria-hidden={!isExpanded} inert={!isExpanded ? true : undefined}>
       <div className="workspace-node-children-inner">{node.children.map((child) => <WorkspaceFileNodeRow

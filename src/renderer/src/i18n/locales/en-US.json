@@ -53,16 +53,9 @@
       "close": "Close rename dialog"
     },
     "removeDialog": {
-      "title": "Delete \"{{name}}\"",
-      "detail": "Choose the removal scope. Removing from the list keeps local files; removing from disk deletes the matching file or folder.",
-      "close": "Close delete confirmation",
-      "kindConversation": "Conversation",
-      "kindFolder": "Folder",
-      "kindFile": "File",
-      "listTitle": "Remove from list only",
-      "listDetail": "Hide this item while keeping files on disk.",
-      "diskTitle": "Remove from disk",
-      "diskDetail": "Delete local files. This cannot be undone in StudiumX."
+      "title": "Remove \"{{name}}\"?",
+      "detail": "This will remove the item from StudiumX. Files on disk will not be deleted.",
+      "confirm": "Remove"
     }
   },
   "sidebarResizer": {

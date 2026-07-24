@@ -187,6 +187,20 @@ function createWindow(
 
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    // Dev-only: F12 / Ctrl+Shift+I open Chromium DevTools (menu bar is auto-hidden).
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return
+      const isF12 = input.key === 'F12'
+      const isDevToolsChord =
+        input.control && input.shift && (input.key === 'I' || input.key === 'i')
+      if (!isF12 && !isDevToolsChord) return
+      event.preventDefault()
+      if (mainWindow.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools()
+      } else {
+        mainWindow.webContents.openDevTools({ mode: 'detach' })
+      }
+    })
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
