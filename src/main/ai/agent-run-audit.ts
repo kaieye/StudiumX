@@ -7,11 +7,16 @@ import type {
   AgentCompactionMetadata,
   AgentContextEstimateMetadata,
   AgentContextHygieneMetadata,
+  AgentFileTouchMetadata,
   AgentSourceMetadata,
   AgentToolResultDiagnostic,
   AgentTurnMetadata,
   AgentRunUsageAggregate
 } from '../../shared/teaching-types'
+import {
+  buildAgentFileTouchMetadata,
+  rebuildFileTouchLedgerFromToolCalls
+} from '../../shared/context-file-touch-projection'
 import type { AgentLoopEvent } from './agent-loop'
 
 const MAX_SOURCES = 20
@@ -154,7 +159,24 @@ export function buildAgentTurnAuditMetadata(
   if (contextEstimate) metadata.contextEstimate = contextEstimate
   if (diagnosticList.length) metadata.toolResults = diagnosticList
   if (usage) metadata.runUsage = normalizeRunUsage(usage)
+  const fileTouches = buildFileTouchMetadataFromToolCalls(toolCalls)
+  if (fileTouches) metadata.fileTouches = fileTouches
   return hasAgentTurnMetadataContent(metadata) ? metadata : undefined
+}
+
+/** Reference projection only — not teaching evidence. */
+function buildFileTouchMetadataFromToolCalls(
+  toolCalls: AgentChatToolCallView[] | undefined
+): AgentFileTouchMetadata | undefined {
+  const built = buildAgentFileTouchMetadata(rebuildFileTouchLedgerFromToolCalls(toolCalls), {
+    maxEntries: MAX_FILES_READ
+  })
+  if (!built) return undefined
+  // Widen readonly projection DTO to durable AgentFileTouchMetadata.
+  return {
+    role: 'reference_projection',
+    files: built.files.map((file) => ({ path: file.path, kind: file.kind }))
+  }
 }
 
 function collectToolResultAudit(
@@ -369,6 +391,7 @@ function mergeAgentTurnMetadata(
     contextEstimate: incoming.contextEstimate ?? existing.contextEstimate,
     toolResults: nonEmpty(mergeBy(existing.toolResults, incoming.toolResults, (tool) => `${tool.toolCallId}:${tool.toolName}`).slice(-MAX_TOOL_DIAGNOSTICS)),
     runUsage: incoming.runUsage ?? existing.runUsage,
+    fileTouches: incoming.fileTouches ?? existing.fileTouches,
     runId: incoming.runId ?? existing.runId,
     parentTurnProof: incoming.parentTurnProof ?? existing.parentTurnProof
   })
@@ -394,6 +417,7 @@ function hasAgentTurnMetadataContent(metadata: AgentTurnMetadata): boolean {
     metadata.contextEstimate ||
     metadata.toolResults?.length ||
     metadata.runUsage ||
+    metadata.fileTouches?.files?.length ||
     metadata.runId ||
     metadata.parentTurnProof
   )

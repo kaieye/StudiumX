@@ -1079,11 +1079,13 @@ function redactTurnMetadata(metadata: AgentTurnMetadata | undefined): AgentTurnM
   const childRuns = metadata.childRuns?.map((child) => redactChildRunMetadata(child as AgentChildRunWithArchive))
   const compactions = metadata.compactions?.map(redactCompactionMetadata)
   const toolResults = metadata.toolResults?.map(redactToolResultDiagnostic)
+  const fileTouches = redactFileTouchMetadata(metadata.fileTouches)
   const changed = Boolean(
     sources?.some((source, index) => source !== metadata.sources?.[index]) ||
     childRuns?.some((child, index) => child !== metadata.childRuns?.[index]) ||
     compactions?.some((compaction, index) => compaction !== metadata.compactions?.[index]) ||
-    toolResults?.some((diagnostic, index) => diagnostic !== metadata.toolResults?.[index])
+    toolResults?.some((diagnostic, index) => diagnostic !== metadata.toolResults?.[index]) ||
+    fileTouches !== metadata.fileTouches
   )
   if (!changed) return metadata
   return {
@@ -1091,8 +1093,21 @@ function redactTurnMetadata(metadata: AgentTurnMetadata | undefined): AgentTurnM
     ...(sources === undefined ? {} : { sources }),
     ...(childRuns === undefined ? {} : { childRuns }),
     ...(compactions === undefined ? {} : { compactions }),
-    ...(toolResults === undefined ? {} : { toolResults })
+    ...(toolResults === undefined ? {} : { toolResults }),
+    ...(fileTouches === undefined ? {} : { fileTouches })
   }
+}
+
+function redactFileTouchMetadata(
+  fileTouches: AgentTurnMetadata['fileTouches']
+): AgentTurnMetadata['fileTouches'] {
+  if (!fileTouches) return fileTouches
+  const files = fileTouches.files.map((file) => {
+    const path = redactAgentSecretText(file.path)
+    return path === file.path ? file : { ...file, path }
+  })
+  const changed = files.some((file, index) => file !== fileTouches.files[index])
+  return changed ? { role: 'reference_projection', files } : fileTouches
 }
 
 function redactSourceMetadata(source: AgentSourceMetadata): AgentSourceMetadata {

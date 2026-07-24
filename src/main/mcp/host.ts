@@ -42,6 +42,7 @@ import {
   type McpMarketplaceUninstallResultV1
 } from '../../shared/mcp'
 import { staticTeachingToolNameSet } from '../../shared/mcp/static-tool-names'
+import type { McpSettingsOp } from '../../shared/mcp/mcp-ops'
 import {
   MCP_ERROR_CODES,
   mcpUserMessage,
@@ -250,6 +251,14 @@ export class McpHost {
     return this.configStore.getPublic()
   }
 
+  /**
+   * Live Settings getter: current store projection (not a turn-level snapshot).
+   * Secret-free public DTO only.
+   */
+  async getMcpSettings(): Promise<McpGetConfigResult> {
+    return this.configStore.getMcpSettings()
+  }
+
   async updateConfig(
     nextDocument: unknown,
     expectedFingerprint: string,
@@ -258,6 +267,22 @@ export class McpHost {
     const result = await this.configStore.update(nextDocument, expectedFingerprint, secretChanges)
     if (result.ok) {
       // Re-resolve multi-source effective view so workspace/plugin layers stay visible.
+      await this.applyEffectiveConfig(this.lastWorkspaceRoot)
+    }
+    return result
+  }
+
+  /**
+   * CAS apply of pure id-level ops (worth-learning §3.3). Prefer over whole-document
+   * updateConfig when Settings mutates individual servers concurrently.
+   */
+  async applyMcpOps(
+    ops: readonly McpSettingsOp[],
+    expectedFingerprint: string,
+    secretChanges?: McpSecretInputChanges
+  ): Promise<McpConfigUpdateResult> {
+    const result = await this.configStore.applyOps(ops, expectedFingerprint, secretChanges)
+    if (result.ok) {
       await this.applyEffectiveConfig(this.lastWorkspaceRoot)
     }
     return result

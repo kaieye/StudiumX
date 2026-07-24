@@ -6,6 +6,7 @@
  * only after the user confirms via the existing CAS updateConfig path.
  */
 
+import { SECRET_FIELD_KEY_RE } from '../secret-presence'
 import { resolveFilesystemInjectionDefaults } from './filesystem-mcp-defaults'
 import {
   MCP_CONFIG_SCHEMA_VERSION,
@@ -178,7 +179,8 @@ export type McpSyncEnvelopeV1 = Readonly<{
   conflicts?: readonly McpSyncConflictV1[]
 }>
 
-const SECRET_KEY_RE = /api[_-]?key|token|secret|password|authorization/i
+/** @deprecated Prefer SECRET_FIELD_KEY_RE from secret-presence (ADR-0148). */
+const SECRET_KEY_RE = SECRET_FIELD_KEY_RE
 const MCP_SERVER_ID_RE = /^[a-z][a-z0-9_-]{0,63}$/
 const MAX_WARNINGS = 40
 

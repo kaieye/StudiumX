@@ -12,6 +12,7 @@
  * - no session/outcome/source/catalog FS collectors
  */
 
+import { isSecretConfigured } from '../../shared/secret-presence'
 import type { TeachingDoctorConfigFacts, TeachingDoctorFacts } from '../../shared/teaching-types/teaching-doctor'
 import type { TeachingDoctorFactsCollector } from './teaching-doctor-facts-assemble'
 
@@ -157,7 +158,8 @@ function providerHasCredentialsOrModels(provider: unknown): boolean {
   const record = asRecord(provider)
   if (!record) return false
 
-  if (typeof record.apiKey === 'string' && record.apiKey.trim().length > 0) {
+  // Presence-only (ADR-0148): never retain or return key material.
+  if (isSecretConfigured(record.apiKey)) {
     return true
   }
 

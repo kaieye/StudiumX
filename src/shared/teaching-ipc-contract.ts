@@ -105,7 +105,11 @@ export const teachingInvokeChannels = {
   readStudyPlanning: 'teach:read-study-planning',
   applyStudyPlanning: 'teach:apply-study-planning',
   mcpGetConfig: 'teach:mcp-get-config',
+  /** Live settings getter (ADR-0147); current store, not turn snapshot. */
+  mcpGetMcpSettings: 'teach:mcp-get-settings',
   mcpUpdateConfig: 'teach:mcp-update-config',
+  /** Id-level CAS ops write (ADR-0147). */
+  mcpApplyMcpOps: 'teach:mcp-apply-ops',
   mcpTestServer: 'teach:mcp-test-server',
   mcpRefreshServer: 'teach:mcp-refresh-server',
   mcpAuthorizeServer: 'teach:mcp-authorize-server',

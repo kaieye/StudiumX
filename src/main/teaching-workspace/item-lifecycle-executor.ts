@@ -70,6 +70,47 @@ export class TeachingWorkspaceItemLifecycleExecutor<State> {
     return this.removeFromDisk(input.workspace, target, temporaryConversation)
   }
 
+  /** Removes every branch artifact in an exhausted conversation session, then rebuilds once. */
+  async removeConversationSessionFromDisk(input: {
+    workspace: RegistryWorkspace
+    relativePaths: readonly string[]
+  }): Promise<State> {
+    const targets = input.relativePaths.map((relativePath) => validateTarget(input.workspace, {
+      relativePath,
+      kind: 'conversation'
+    }))
+    if (targets.length === 0) throw new Error('Conversation session contains no removable branches.')
+
+    const temporaryFlags = await Promise.all(targets.map((target) => this.findTemporaryConversation(target)))
+    if (temporaryFlags.some((temporary) => temporary !== temporaryFlags[0])) {
+      throw new Error('Conversation session branches must use one storage representation.')
+    }
+
+    if (temporaryFlags[0]) {
+      const index = await this.options.loadTemporaryConversationIndex()
+      await removePlannedPaths(mergeRemovalPlans(targets.map((target) => (
+        planTemporaryConversationDiskRemoval(this.options.appDataRoot, target.relativePath)
+      ))))
+      let pathMeta = index.pathMeta
+      for (const target of targets) pathMeta = pruneWorkspacePathMetaForItemRemoval(pathMeta, target)
+      await this.options.saveTemporaryConversationIndex({ ...index, pathMeta })
+      return this.options.rebuildState(input.workspace)
+    }
+
+    const index = await this.options.loadWorkspaceIndex(input.workspace)
+    await removePlannedPaths(mergeRemovalPlans(targets.map((target) => (
+      planWorkspaceItemDiskRemoval(input.workspace.rootPath, index, target)
+    ))))
+    let next: Pick<WorkspaceIndex, 'lessons' | 'pathMeta'> = { lessons: index.lessons, pathMeta: index.pathMeta }
+    for (const target of targets) next = pruneWorkspaceIndexForItemRemoval({ ...index, ...next }, target)
+    await this.options.saveWorkspaceIndex(input.workspace.rootPath, {
+      ...index,
+      ...next,
+      updatedAt: new Date().toISOString()
+    })
+    return this.options.rebuildState(input.workspace)
+  }
+
   private async setMeta(
     workspace: RegistryWorkspace,
     target: WorkspaceItemTarget,
@@ -165,6 +206,13 @@ function validateTarget(workspace: RegistryWorkspace, target: WorkspaceItemTarge
   }
 
   return { ...target, relativePath }
+}
+
+function mergeRemovalPlans(plans: readonly { files: string[]; directories: string[] }[]): { files: string[]; directories: string[] } {
+  return {
+    files: [...new Set(plans.flatMap((plan) => plan.files))],
+    directories: [...new Set(plans.flatMap((plan) => plan.directories))]
+  }
 }
 
 async function removePlannedPaths(plan: { files: string[]; directories: string[] }): Promise<void> {

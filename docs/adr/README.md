@@ -92,6 +92,8 @@
 | Agent stream presentation 如何适配多回调且异常不回灌 loop | ADR-0062 |
 | 声明式 tool-policy（allow/prompt/forbidden，按工具名/effect/路径前缀，禁 shell argv / YOLO） | ADR-0063 |
 | ContextCompactor 切点、不足缩减守卫与审计字段 | ADR-0064 |
+| LiveAgent Phase A（研究索引 → ADR，非第二套 ADOPTION backlog） | [ADR-0143](0143-context-file-touch-ledger.md) / [0144](0144-ask-authoritative-deadline.md) / [0145](0145-compaction-pressure-single-flight.md)（**已实施**）；候选清单见 [liveagent-worth-learning.md](../improvements/liveagent-worth-learning.md)（研究索引，**不**重建 ADR-0121 backlog） |
+| [ADR-0146](0146-optional-fuzzy-edit-workspace-file.md) | 可选 fuzzy `edit_workspace_file`（LiveAgent Phase B） | **已实施**（2026-07-24）：`edit-match.ts` + `workspace-edit.ts`（从 `workspace.ts` peel，ADR-0075）；Exact→EOL/BOM→尾空白→缩进；`matchStrategy`；同 path 围栏 / write-policy / 三态审批 / write-rewind；无 Shell/apply_patch。 |
 | Busy 输入有界队列、steer≠abort、revision / toolsReplayed / 无启动自动 memory 契约 | ADR-0055 |
 | AgentSessionFacade 有状态门面与 busy 队列 drain | ADR-0058 |
 | Cancel 时 tool 成对闭合与 renderer busy-ack 入队 banner | ADR-0067 |
@@ -251,6 +253,14 @@
 | [ADR-0139](0139-mcp-plugin-lifecycle.md) | MCP plugin trust / lifecycle（Phase G） | **已实施 foundation**：声明解析、namespace id、allowlist 模板、`PluginMcpRegistry` trust/revoke/cleanup；无远程下载。 |
 | [ADR-0140](0140-mcp-marketplace-local-catalog.md) | MCP marketplace 本地目录 foundation（Phase H） | **已实施 foundation**（store/IPC/types）；**Settings 无市场 UI**（[ADR-0142](0142-mcp-product-surface-settings-only.md)）。远程 catalog 产品页非当前 shipping。 |
 | [ADR-0141](0141-mcp-product-experience-parity-policy.md) | MCP 产品体验边界政策 | **已采纳硬安全 + foundation 授权**；**Settings 产品面收窄**见 [ADR-0142](0142-mcp-product-surface-settings-only.md)（list/editor only，无 marketplace 页）。 |
+| [ADR-0142](0142-mcp-product-surface-settings-only.md) | MCP 产品面收窄（Settings 仅 list/editor） | **已采纳**：Settings MCP = list/editor/import/OAuth；marketplace 无 Settings UI；A–H foundation 可保留；硬安全不变。 |
+| [ADR-0143](0143-context-file-touch-ledger.md) | 确定性 context file-touch ledger（LiveAgent Phase A） | **已实施**（core ledger，2026-07-24）：`context-file-ledger.ts` + agent-loop / projection 接线；失败剔除、`modified` 粘性、超预算丢弃；注入为 data not instructions；不进 summarizer；非 teaching-evidence / 不取代 LearningSessionLedger；learner UI residual。 |
+| [ADR-0144](0144-ask-authoritative-deadline.md) | Ask 权威 deadline + 超时落定（LiveAgent Phase A） | **已实施**（2026-07-23）：权威 __deadlineAt；超时 → recommended/first；取消 → abort；超时禁止 auto-approve write/privileged/turn-review。 |
+| [ADR-0145](0145-compaction-pressure-single-flight.md) | 压缩 pressure / 单飞 / mid-run 保护（LiveAgent Phase A） | **已实施**（2026-07-24）：pressure controller + compactor 接线；pre_send/post_tool + **mid_stream 标签**；single-flight **join 复用首次结果**；pressure ladder；reference-only；硬 budget 优先。真 mid-token overflow 拦截未交付。 |
+| [ADR-0147](0147-mcp-id-level-ops-and-live-getter.md) | MCP id 级 ops + live getter（LiveAgent Phase B） | **已实施**（2026-07-24）：`mcp-ops.ts` + config-store CAS + IPC getMcpSettings/applyMcpOps；secret-free public DTO；无 marketplace Settings 页。 |
+| [ADR-0148](0148-presence-only-secret-boundary-sweep.md) | Presence-only 密钥边界扫尾（LiveAgent Phase B） | **已实施**（2026-07-24）：`secret-presence.ts` + MCP public DTO + Doctor facts + support-bundle deny（含 environment 走私字段）；presence 布尔保留；无默认远程 telemetry。 |
+| [ADR-0149](0149-provider-custom-headers-reserved-blacklist.md) | Provider custom headers + 保留键黑名单（LiveAgent Phase B） | **已实施**（2026-07-24）：有序 customHeaders；Authorization/x-api-key/User-Agent 等保留键不可覆盖；诚实 StudiumX UA；CLI 伪装头拒绝；日志脱敏；settings normalize + request-builder/probe 接线。 |
+| [ADR-0150](0150-skills-install-stage-then-swap.md) | Skills 安装 stage-then-swap（LiveAgent Phase B） | **已实施**（2026-07-24）：`skill-install-stage-swap.ts` + `installSkill`；`.staging` + rename + write guard；半成品不可见；仍 allowlist/verifier；无无校验市场。 |
 | [ADR-0053](0053-agents-md-security-suite-and-testing-doctrine.md) | 根 AGENTS.md + security suite + 测试教条 | SECURITY_CHECKS 纳入 external-content boundary；根 AGENTS 命令图/红线/改哪测哪；testing.md L0/L1/L2/L4；不替代 ADR、不扩 Blocking CI。 |
 | [ADR-0072](0072-node-engines-and-source-rev-build-identity.md) | Node engines / .nvmrc + SOURCE_REV 构建身份 | `.nvmrc`=22；`engines.node` `>=22 <25`；`readBuildIdentity` fail-closed；doctor 非阻塞展示；非 SBOM / 非签名 / 无 phone-home。 |
 | [ADR-0073](0073-teaching-feature-registry.md) | Teaching FeatureRegistry（薄元数据） | 纯 `features.ts` stage 生命周期；非 CapabilityCatalog/Ladder 替换；禁止 shell/code_mode/YOLO bypass。 |

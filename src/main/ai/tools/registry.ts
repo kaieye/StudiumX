@@ -25,6 +25,7 @@ import {
   workspaceReadTools,
   writeWorkspaceFileTool
 } from './workspace'
+import { editWorkspaceFileTool } from './workspace-edit'
 import {
   isForcedHumanMemoryApprovalTool,
   recordForcedHumanApprovalReceipt,
@@ -319,6 +320,7 @@ export function buildDefaultRegistry(
     // execution time. Read-only workspace tools stay available.
     if (options.workspaceWrite === true && getWorkspaceWriteToolAvailability().available) {
       registry.register(writeWorkspaceFileTool)
+      registry.register(editWorkspaceFileTool)
     }
   }
   if (settings.tools.webSearch) registry.register(webSearchTool)

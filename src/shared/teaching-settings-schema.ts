@@ -20,6 +20,7 @@ import {
   type AgentApprovalMode
 } from './teaching-types'
 import { DEFAULT_LESSON_STYLE_ID, normalizeLessonStyleId } from './lesson-styles'
+import { normalizeProviderCustomHeaders } from './provider-custom-headers'
 
 const DEFAULT_UI_FONT_SCALE = 1
 const MIN_UI_FONT_SCALE = 0.8
@@ -429,6 +430,7 @@ function normalizeProviderProfile(input: unknown): TeachingModelProviderProfile 
     }),
     apiKey: ''
   }
+  const customHeaders = normalizeProviderCustomHeaders(input.customHeaders)
   return {
     ...base,
     name: normalizeString(input.name) || base.name,
@@ -437,7 +439,8 @@ function normalizeProviderProfile(input: unknown): TeachingModelProviderProfile 
     endpointFormat: normalizeEndpointFormat(input.endpointFormat, base.endpointFormat),
     models: normalizeModels(input.models, base.models),
     docsUrl: isCustomProvider ? '' : normalizeString(input.docsUrl) || base.docsUrl,
-    apiKeyUrl: isCustomProvider ? '' : normalizeString(input.apiKeyUrl) || base.apiKeyUrl
+    apiKeyUrl: isCustomProvider ? '' : normalizeString(input.apiKeyUrl) || base.apiKeyUrl,
+    ...(customHeaders.length > 0 ? { customHeaders } : {})
   }
 }
 

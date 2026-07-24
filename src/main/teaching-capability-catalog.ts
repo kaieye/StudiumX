@@ -796,8 +796,9 @@ function buildCacheKey(request: TeachingCapabilityCatalogRequest): string {
       generatorModel: settings.generator.model,
       providers: settings.provider.providers.map((provider) => ({
         id: provider.id,
-        hasApiKey: Boolean(provider.apiKey.trim()),
-        hasBaseUrl: Boolean(provider.baseUrl.trim()),
+        // Presence-only (ADR-0148): never hash or embed the key material.
+        hasApiKey: provider.apiKey.trim().length > 0,
+        hasBaseUrl: provider.baseUrl.trim().length > 0,
         endpointFormat: provider.endpointFormat
       }))
     }

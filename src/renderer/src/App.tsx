@@ -120,6 +120,7 @@ import {
 } from './teaching/learning-outcome-commit-client'
 import { LearningOutcomeCommitStatusBanner } from './teaching/learning-outcome-commit-status-banner'
 import { sanitizeAgentTurnContent } from '../../shared/agent-conversation-turns'
+import { formatAskRemainingLabel } from '../../shared/ask-deadline'
 import {
   type AgentChatTurn,
   type AgentToolPermissionRequest,
@@ -2157,7 +2158,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           kind: 'ask',
           streamId: pendingAsk.streamId,
           toolCallId: pendingAsk.toolCallId,
-          questions: pendingAsk.questions
+          questions: pendingAsk.questions,
+          deadlineAt: pendingAsk.deadlineAt
         }
       : pendingPermission
         ? {
@@ -2462,6 +2464,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         interruption={blockedAsk ? (
           <AskCard
             questions={blockedAsk.questions}
+            deadlineAt={blockedAsk.deadlineAt}
             onSubmit={answerAsk}
             onDismiss={() => answerAsk([])}
             onCancel={() => void cancelAgentChat()}
@@ -2708,11 +2711,13 @@ function ToolPermissionCard({
 
 function AskCard({
   questions,
+  deadlineAt,
   onSubmit,
   onDismiss,
   onCancel
 }: {
   questions: AskQuestion[]
+  deadlineAt?: string | null
   onSubmit: (answers: AskAnswer[]) => void
   onDismiss: () => void
   onCancel?: () => void
@@ -2722,6 +2727,20 @@ function AskCard({
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   const [custom, setCustom] = useState<Record<string, string>>({})
   const [customOpen, setCustomOpen] = useState<Record<string, boolean>>({})
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!deadlineAt || !Number.isFinite(Date.parse(deadlineAt))) return
+    setNowMs(Date.now())
+    const handle = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(handle)
+  }, [deadlineAt])
+
+  const remainingMs =
+    deadlineAt && Number.isFinite(Date.parse(deadlineAt))
+      ? Date.parse(deadlineAt) - nowMs
+      : null
+  const remainingLabel = formatAskRemainingLabel(remainingMs)
 
   const total = questions.length
   const question = questions[Math.min(active, total - 1)]
@@ -2784,6 +2803,12 @@ function AskCard({
       <div className="ask-card__head">
         <MessageSquare size={15} />
         <strong>{t('ask.title')}</strong>
+        {remainingLabel ? (
+          <span className="ask-card__deadline" title={deadlineAt ?? undefined}>
+            <Clock3 size={12} />
+            {t('ask.remaining', { time: remainingLabel })}
+          </span>
+        ) : null}
         {total > 1 && (
           <span className="ask-card__progress">
             {t('ask.questionProgress', { current: active + 1, total })}

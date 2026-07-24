@@ -139,6 +139,7 @@
   "ask": {
     "title": "需要你的决定",
     "questionProgress": "第 {{current}}/{{total}} 题",
+    "remaining": "剩余 {{time}}",
     "customAnswer": "其他答案",
     "customPlaceholder": "输入你的回答…",
     "justChat": "跳过，继续聊",

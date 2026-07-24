@@ -78,7 +78,7 @@ type DeskId = `desk-${number}`
 // OfficeSceneRuntime owns browser asset loading: new URL('../../assets/images/workbench/ref.png', import.meta.url).
 // Its canvas draw loop renders every desk with drawDeskImage(ctx, assets.deskImage, slot).
 const workbenchSeatCount = 12
-const clockRefreshIntervalMs = 60_000
+const clockRefreshIntervalMs = 1_000
 
 function deskIdForSeatIndex(seatIndex: number): DeskId {
   return `desk-${seatIndex + 1}`
@@ -447,12 +447,12 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     const refreshClock = (): void => {
       setClockState((clock) => ({ current: new Date(), previous: clock.current }))
     }
-    const millisecondsUntilNextMinute = clockRefreshIntervalMs - (Date.now() % clockRefreshIntervalMs)
+    const millisecondsUntilNextTick = clockRefreshIntervalMs - (Date.now() % clockRefreshIntervalMs)
     let intervalId: number | undefined
     const timeoutId = window.setTimeout(() => {
       refreshClock()
       intervalId = window.setInterval(refreshClock, clockRefreshIntervalMs)
-    }, millisecondsUntilNextMinute)
+    }, millisecondsUntilNextTick)
 
     return () => {
       window.clearTimeout(timeoutId)

@@ -132,8 +132,20 @@ export type TeachingModelProviderPreset = {
 
 export const TEACHING_MODEL_PROVIDER_PRESETS = TEACHING_MODEL_PROVIDER_PRESETS_FROM_CATALOG
 
+/** Ordered custom HTTP headers for provider requests (ADR-0149). */
+export type TeachingProviderCustomHeader = {
+  name: string
+  value: string
+}
+
 export type TeachingModelProviderProfile = TeachingModelProviderPreset & {
   apiKey: string
+  /**
+   * User-configured headers merged after format auth headers.
+   * Reserved keys (Authorization, x-api-key, User-Agent, …) are stripped at normalize
+   * and again at request build time.
+   */
+  customHeaders?: TeachingProviderCustomHeader[]
 }
 
 export type PetNotificationPreferences = {

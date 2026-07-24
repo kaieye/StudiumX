@@ -999,6 +999,136 @@ describe('McpConfigStore CAS', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('applyOps merges by server id under CAS and returns secret-free public DTO', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'mcp-cfg-ops-'))
+    try {
+      const store = new McpConfigStore({ userDataPath: dir })
+      const base = await store.load()
+      const seed = await store.update(
+        {
+          schemaVersion: 1 as const,
+          enabled: true,
+          autoConnect: true,
+          servers: [
+            {
+              id: 'keep-me',
+              label: 'Keep',
+              enabled: true,
+              scope: 'user' as const,
+              workspaceRoot: null,
+              transport: 'stdio' as const,
+              command: 'npx',
+              args: [],
+              cwd: null,
+              envSecretRefs: {},
+              envPlain: {},
+              url: null,
+              headersSecretRefs: {},
+              headersPlain: {},
+              timeoutMs: null,
+              toolEffectOverrides: {},
+              oauth: null,
+              workspaceRootInjection: 'off' as const,
+              injectionIdentity: null,
+              createdAt: '2026-07-22T00:00:00.000Z',
+              updatedAt: '2026-07-22T00:00:00.000Z'
+            },
+            {
+              id: 'touch-me',
+              label: 'Old',
+              enabled: true,
+              scope: 'user' as const,
+              workspaceRoot: null,
+              transport: 'stdio' as const,
+              command: 'npx',
+              args: [],
+              cwd: null,
+              envSecretRefs: {},
+              envPlain: { VISIBLE: 'ok' },
+              url: null,
+              headersSecretRefs: {},
+              headersPlain: {},
+              timeoutMs: null,
+              toolEffectOverrides: {},
+              oauth: null,
+              workspaceRootInjection: 'off' as const,
+              injectionIdentity: null,
+              createdAt: '2026-07-22T00:00:00.000Z',
+              updatedAt: '2026-07-22T00:00:00.000Z'
+            }
+          ]
+        },
+        base.fingerprint!
+      )
+      expect(seed.ok).toBe(true)
+      if (!seed.ok) return
+
+      const liveBefore = await store.getMcpSettings()
+      expect(liveBefore.ok).toBe(true)
+      if (!liveBefore.ok) return
+      expect(JSON.stringify(liveBefore)).not.toContain('envSecretRefs')
+
+      const conflict = await store.applyOps(
+        [{ op: 'setEnabled', enabled: false }],
+        'stale-fingerprint'
+      )
+      expect(conflict.ok).toBe(false)
+      if (!conflict.ok) expect(conflict.code).toBe(MCP_ERROR_CODES.mcp_cas_conflict)
+
+      const applied = await store.applyOps(
+        [
+          {
+            op: 'patchServer',
+            id: 'touch-me',
+            patch: { label: 'Touched', updatedAt: '2026-07-24T00:00:00.000Z' }
+          },
+          {
+            op: 'upsertServer',
+            server: {
+              id: 'new-a',
+              label: 'New A',
+              enabled: true,
+              scope: 'user' as const,
+              workspaceRoot: null,
+              transport: 'stdio' as const,
+              command: 'npx',
+              args: ['-y', 'new-a'],
+              cwd: null,
+              envSecretRefs: {},
+              envPlain: {},
+              url: null,
+              headersSecretRefs: {},
+              headersPlain: {},
+              timeoutMs: null,
+              toolEffectOverrides: {},
+              oauth: null,
+              workspaceRootInjection: 'off' as const,
+              injectionIdentity: null,
+              createdAt: '2026-07-24T00:00:00.000Z',
+              updatedAt: '2026-07-24T00:00:00.000Z'
+            }
+          }
+        ],
+        liveBefore.config.fingerprint
+      )
+      expect(applied.ok).toBe(true)
+      if (!applied.ok) return
+      expect(applied.config.servers.map((s) => s.id).sort()).toEqual(['keep-me', 'new-a', 'touch-me'])
+      expect(applied.config.servers.find((s) => s.id === 'touch-me')!.label).toBe('Touched')
+      expect(applied.config.servers.find((s) => s.id === 'keep-me')!.label).toBe('Keep')
+      const pub = JSON.stringify(applied.config)
+      expect(pub).not.toContain('envSecretRefs')
+
+      const liveAfter = await store.getMcpSettings()
+      expect(liveAfter.ok).toBe(true)
+      if (!liveAfter.ok) return
+      expect(liveAfter.config.fingerprint).toBe(applied.config.fingerprint)
+      expect(liveAfter.config.servers.find((s) => s.id === 'touch-me')!.label).toBe('Touched')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('MCP bridge settlement isolation', () => {

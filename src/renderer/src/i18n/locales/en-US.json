@@ -139,6 +139,7 @@
   "ask": {
     "title": "Need your decision",
     "questionProgress": "Question {{current}}/{{total}}",
+    "remaining": "{{time}} left",
     "customAnswer": "Other answer",
     "customPlaceholder": "Type your answer…",
     "justChat": "Skip, just chat",

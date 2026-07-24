@@ -43,6 +43,7 @@ const WORKSPACE_READ_TOOL_NAMES = [
 ] as const
 const WORKSPACE_WRITE_TOOL_NAMES = [
   'write_workspace_file',
+  'edit_workspace_file',
   'remember_teaching_memory',
   'forget_teaching_memory'
 ] as const

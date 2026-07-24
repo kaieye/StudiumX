@@ -297,15 +297,18 @@ export function applyAgentChatToolEventToPending({
   const existingIdx = existing.findIndex((toolCall) =>
     toolCall.id === toolCallId && toolCall.name === event.toolCall.name
   )
-  if (existingIdx >= 0 && event.result !== undefined) {
+  if (existingIdx >= 0) {
     const updated = [...existing]
+    // Refresh arguments when host re-publishes (e.g. ask __deadlineAt stamp, ADR-0144).
     updated[existingIdx] = {
       ...updated[existingIdx],
-      result: event.result,
-      isError: event.isError
+      arguments: event.toolCall.arguments || updated[existingIdx].arguments,
+      ...(event.result !== undefined
+        ? { result: event.result, isError: event.isError }
+        : {})
     }
     turns[idx] = { ...turns[idx], toolCalls: updated }
-  } else if (existingIdx < 0) {
+  } else {
     turns[idx] = {
       ...turns[idx],
       toolCalls: [
@@ -321,11 +324,16 @@ export function applyAgentChatToolEventToPending({
     }
   }
 
-  turns[idx] = {
-    ...turns[idx],
-    processEvents: event.result !== undefined
-      ? resolveAgentToolProcessEvent(turns[idx].processEvents, event)
-      : appendAgentProcessEvent(turns[idx].processEvents, createAgentToolCallProcessEvent(event))
+  // Only append process events for first projection or terminal result.
+  // Host re-stamp of ask arguments must not duplicate elicitation_request.
+  const shouldUpdateProcessEvents = existingIdx < 0 || event.result !== undefined
+  if (shouldUpdateProcessEvents) {
+    turns[idx] = {
+      ...turns[idx],
+      processEvents: event.result !== undefined
+        ? resolveAgentToolProcessEvent(turns[idx].processEvents, event)
+        : appendAgentProcessEvent(turns[idx].processEvents, createAgentToolCallProcessEvent(event))
+    }
   }
 
   return syncPendingAgentConversation({
@@ -652,7 +660,7 @@ function createAgentToolCallProcessEvent(event: AgentChatStreamToolEvent): Agent
     }
   }
   if (name === 'ask') {
-    const questions = parseAskArguments(event.toolCall.arguments)
+    const questions = parseAskArgumentsEnvelope(event.toolCall.arguments)?.questions
     const firstQuestion = questions?.[0]?.prompt
     return {
       id: createAgentProcessEventId('elicitation-request'),
@@ -954,6 +962,8 @@ export type PendingAsk = {
   streamId: string
   toolCallId: string
   questions: AskQuestion[]
+  /** Host-authoritative ISO deadline (ADR-0144); null when parameters incomplete. */
+  deadlineAt: string | null
 }
 
 export type PendingToolPermission = {
@@ -967,16 +977,23 @@ export type PendingToolPermission = {
  *  multiple sequential ask calls, so selection must scan newest-first. */
 export function parseAskToolCall(
   turn: AgentChatTurn | undefined | null
-): { toolCallId: string; questions: AskQuestion[]; result?: string; isError?: boolean } | null {
+): {
+  toolCallId: string
+  questions: AskQuestion[]
+  deadlineAt: string | null
+  result?: string
+  isError?: boolean
+} | null {
   if (!turn?.toolCalls) return null
   for (let index = turn.toolCalls.length - 1; index >= 0; index -= 1) {
     const toolCall = turn.toolCalls[index]
     if (toolCall.name !== 'ask') continue
-    const questions = parseAskArguments(toolCall.arguments)
-    if (!questions) continue
+    const parsed = parseAskArgumentsEnvelope(toolCall.arguments)
+    if (!parsed) continue
     return {
       toolCallId: toolCall.id,
-      questions,
+      questions: parsed.questions,
+      deadlineAt: parsed.deadlineAt,
       result: toolCall.result,
       isError: toolCall.isError
     }
@@ -994,7 +1011,12 @@ export function selectPendingAsk(
     if (turn.role !== 'assistant') continue
     const parsed = parseAskToolCall(turn)
     if (parsed && parsed.result === undefined) {
-      return { streamId, toolCallId: parsed.toolCallId, questions: parsed.questions }
+      return {
+        streamId,
+        toolCallId: parsed.toolCallId,
+        questions: parsed.questions,
+        deadlineAt: parsed.deadlineAt
+      }
     }
     break
   }
@@ -1036,7 +1058,9 @@ export function selectPendingToolPermission(
   return null
 }
 
-function parseAskArguments(argumentsJson: string): AskQuestion[] | null {
+function parseAskArgumentsEnvelope(
+  argumentsJson: string
+): { questions: AskQuestion[]; deadlineAt: string | null } | null {
   if (!argumentsJson) return null
   let parsed: unknown
   try {
@@ -1044,7 +1068,7 @@ function parseAskArguments(argumentsJson: string): AskQuestion[] | null {
   } catch {
     return null
   }
-  const raw = parsed as { questions?: unknown }
+  const raw = parsed as { questions?: unknown; __deadlineAt?: unknown }
   const rawQuestions = Array.isArray(raw?.questions) ? raw.questions : []
   if (rawQuestions.length === 0) return null
   const out: AskQuestion[] = []
@@ -1061,9 +1085,17 @@ function parseAskArguments(argumentsJson: string): AskQuestion[] | null {
       const label = typeof o.label === 'string' ? o.label.trim() : ''
       if (!label) continue
       const description = typeof o.description === 'string' ? o.description.trim() : ''
-      options.push(description ? { label, description } : { label })
+      const recommended = o.recommended === true
+      options.push({
+        label,
+        ...(description ? { description } : {}),
+        ...(recommended ? { recommended: true } : {})
+      })
     }
     if (options.length < 2) return
+    if (!options.some((option) => option.recommended === true) && options[0]) {
+      options[0] = { ...options[0], recommended: true }
+    }
     out.push({
       id: typeof q.id === 'string' ? q.id : `q${index + 1}`,
       header: typeof q.header === 'string' && q.header.trim() ? q.header.trim() : undefined,
@@ -1072,7 +1104,12 @@ function parseAskArguments(argumentsJson: string): AskQuestion[] | null {
       options
     })
   })
-  return out.length > 0 ? out : null
+  if (out.length === 0) return null
+  const deadlineAt =
+    typeof raw.__deadlineAt === 'string' && Number.isFinite(Date.parse(raw.__deadlineAt))
+      ? new Date(Date.parse(raw.__deadlineAt)).toISOString()
+      : null
+  return { questions: out, deadlineAt }
 }
 
 function parsePermissionArguments(argumentsJson: string): AgentToolPermissionRequest | null {

@@ -46,6 +46,11 @@ import { budgetStopReasonFromError } from './agent-loop-budget-reason'
 import { closeOpenToolCalls } from './close-open-tool-calls'
 import { TOOL_CANCELED_MESSAGE } from './tools/tool-arguments'
 import { stripDsmlToolCallBlocks } from './provider-adapter/dsml-tool-calls'
+import {
+  emptyContextFileLedger,
+  recordFileTouchesFromToolBatch,
+  type ContextFileLedger
+} from './context-file-ledger'
 
 export type AgentLoopStopReason = 'final_answer' | 'max_iterations' | 'budget_exhausted' | 'error' | 'degraded' | 'canceled'
 
@@ -165,11 +170,14 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
   const hasIterationLimit = maxIter > 0
   const transcript: ChatMessage[] = [...opts.messages]
   const emit = (event: AgentLoopEvent): void => execution.emit(event)
+  /** Live deterministic file-touch ledger (projection floor; not settlement). */
+  let fileTouchLedger: ContextFileLedger = emptyContextFileLedger()
   const requestContext = new RequestContextProjector({
     modelId: opts.settings.generator.model,
     provider: opts.provider,
     compaction: opts.contextCompaction,
     onTrace: emit,
+    fileTouchLedger: () => fileTouchLedger,
     summarize: async (request) => {
       const summarySettings: TeachingSettingsV1 = {
         ...opts.settings,
@@ -213,11 +221,27 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
   })
   const initialMessageCount = opts.messages.length
   const initialMessageTurnIds = opts.messageTurnIds?.slice(0, initialMessageCount)
-  const prepareMessagesForProvider = async (messages: ChatMessage[], tools: ToolDefinition[]): Promise<ChatMessage[]> => {
+  const prepareMessagesForProvider = async (
+    messages: ChatMessage[],
+    tools: ToolDefinition[],
+    projection?: {
+      compactionTriggerPoint?: 'pre_send' | 'mid_stream' | 'post_tool'
+      hardBudgetExhausted?: boolean
+      runBudgetStopPending?: boolean
+    }
+  ): Promise<ChatMessage[]> => {
     const messageTurnIds = messages.map((_, index) =>
       index < initialMessageCount ? initialMessageTurnIds?.[index] : undefined
     )
-    return (await requestContext.project(messages, tools, messageTurnIds)).messages
+    // Hard budget remains sole authority when already exhausted; skip compaction work.
+    const hardBudgetExhausted = projection?.hardBudgetExhausted === true || Boolean(execution.budgetStop('provider'))
+    return (
+      await requestContext.project(messages, tools, messageTurnIds, {
+        compactionTriggerPoint: projection?.compactionTriggerPoint ?? 'pre_send',
+        hardBudgetExhausted,
+        runBudgetStopPending: projection?.runBudgetStopPending
+      })
+    ).messages
   }
   const toolsSchemaGuard = createToolsSchemaGuardState()
   let degradedReason: string | undefined
@@ -276,7 +300,9 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       const preStop = execution.budgetStop('provider')
       if (preStop) return exhaustedResult(false, preStop)
       let answerStarted = false
-      const request = legacyRequestFromMessages(await prepareMessagesForProvider(transcript, []))
+      const request = legacyRequestFromMessages(
+        await prepareMessagesForProvider(transcript, [], { compactionTriggerPoint: 'pre_send' })
+      )
       const result = await invokeProviderWithRetry({
         execution,
         emit,
@@ -336,7 +362,9 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     let result: ChatAdapterResult
     const bufferedAnswerDeltas: string[] = []
     try {
-      const messages = await prepareMessagesForProvider(transcript, opts.tools)
+      const messages = await prepareMessagesForProvider(transcript, opts.tools, {
+        compactionTriggerPoint: index === 0 ? 'pre_send' : 'post_tool'
+      })
       const afterCompactionStop = execution.budgetStop('provider')
       if (afterCompactionStop) {
         exhausted = afterCompactionStop
@@ -467,6 +495,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     if (batchOutcome.durationExhausted) return exhaustedResult(true, 'duration')
     if (batchOutcome.exhausted) exhausted = batchOutcome.exhausted
     const turnToolResults = batchOutcome.results
+    fileTouchLedger = recordFileTouchesFromToolBatch({
+      ledger: fileTouchLedger,
+      calls: result.toolCalls,
+      results: turnToolResults
+    })
     const budgetedTurnResults = await applyTurnToolResultBudget(turnToolResults, opts)
     for (const toolResult of budgetedTurnResults) {
       transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
@@ -507,7 +540,9 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
           ...transcript,
           { role: 'user', content: recovery.instruction }
         ]
-        const messages = await prepareMessagesForProvider(recoveryMessages, recovery.tools)
+        const messages = await prepareMessagesForProvider(recoveryMessages, recovery.tools, {
+          compactionTriggerPoint: 'mid_stream'
+        })
         const afterCompactionStop = execution.budgetStop('provider')
         if (afterCompactionStop) {
           exhausted = afterCompactionStop
@@ -634,6 +669,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       if (recoveryBatch.durationExhausted) return exhaustedResult(true, 'duration')
       if (recoveryBatch.exhausted) exhausted = recoveryBatch.exhausted
       const recoveryTurnResults = recoveryBatch.results
+      fileTouchLedger = recordFileTouchesFromToolBatch({
+        ledger: fileTouchLedger,
+        calls: recoveryResult.toolCalls,
+        results: recoveryTurnResults
+      })
       const budgetedRecoveryResults = await applyTurnToolResultBudget(recoveryTurnResults, opts)
       for (const toolResult of budgetedRecoveryResults) {
         transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
@@ -667,7 +707,9 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         : '达到工具调用上限，生成最终答复。'
   })
   try {
-    const messages = await prepareMessagesForProvider(transcript, [])
+    const messages = await prepareMessagesForProvider(transcript, [], {
+      compactionTriggerPoint: 'mid_stream'
+    })
     const afterCompactionStop = execution.budgetStop('provider')
     if (afterCompactionStop) return exhaustedResult(true, afterCompactionStop)
     let answerStarted = false

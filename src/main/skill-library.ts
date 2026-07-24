@@ -10,6 +10,7 @@ import type {
   SkillPackManifest,
   SkillSummary
 } from '../shared/teaching-types'
+import { stageThenSwapSkillPack } from './skill-library/skill-install-stage-swap'
 import {
   readVerifiedLegacySkillFile, SKILL_PACK_MANIFEST,
   type SkillFrontmatter, type VerifiedSkillPack, verifySkillPack
@@ -82,8 +83,29 @@ export class SkillLibraryService {
     const source = await this.findBuiltInSkillPack(skillId)
     if (!source) throw new Error(`Built-in skill "${skillId}" was not found.`)
     const target = join(this.personalRoot, skillId)
-    const existing = await readVerifiedLegacySkillFile(target, this.personalRoot)
-    if (!existing) await cp(source.realDirectory, target, { recursive: true, errorOnExist: true, force: false })
+    // Prefer full pack verification when present; fall back to legacy SKILL.md probe.
+    const existingPack = await verifySkillPack(target, {
+      containingRoot: this.personalRoot,
+      expectedId: skillId,
+      manifestRequired: false,
+      requireCompleteResourceList: true
+    }).catch(() => null)
+    const existingLegacy = existingPack ? null : await readVerifiedLegacySkillFile(target, this.personalRoot)
+    if (!existingPack && !existingLegacy) {
+      // Stage-then-swap (ADR-0150): build under .staging, verify, then promote so
+      // catalog readers never observe a half-built final skill tree.
+      await stageThenSwapSkillPack({
+        installRoot: this.personalRoot,
+        skillId,
+        stageBuild: async (stagingSkillDir) => {
+          await cp(source.realDirectory, stagingSkillDir, { recursive: true, errorOnExist: true, force: false })
+        }
+        // Shared resources resolve under personalRoot/_shared (sibling of the
+        // final skill dir), not under .staging — full verifySkillPack (incl.
+        // shared) runs after promote + copyDeclaredSharedResources below.
+        // Source pack is already allowlisted + verified by findBuiltInSkillPack.
+      })
+    }
     await copyDeclaredSharedResources(source, this.personalRoot)
 
     const targetManifest = await lstat(join(target, SKILL_PACK_MANIFEST)).catch(() => null)

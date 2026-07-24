@@ -62,7 +62,13 @@ export function AgentConversationReader({
       />
     )
   }
-  if (!presentation || (presentation.items.length === 0 && presentation.answeredAsks.length === 0)) return null
+  const hasFileTouches = Boolean(presentation?.fileTouches && !presentation.fileTouches.empty)
+  if (
+    !presentation ||
+    (presentation.items.length === 0 && presentation.answeredAsks.length === 0 && !hasFileTouches)
+  ) {
+    return null
+  }
   return <AgentProcessReader presentation={presentation} compact={compact} />
 }
 
@@ -162,6 +168,7 @@ function AgentProcessReader({ presentation, compact }: {
 }) {
   const rows = groupRepeatedProcessDescriptions(presentation.items)
   const header = processHeaderFor(presentation.status?.kind, presentation.active)
+    const fileTouches = presentation.fileTouches
   return (
     <section className={`agent-process-panel${compact ? ' is-compact' : ''}`} aria-label="AI 处理过程">
       <header className="agent-process-header">
@@ -174,10 +181,32 @@ function AgentProcessReader({ presentation, compact }: {
           ? <RepeatedProcessRow key={`${presentation.turnId}:${row.id}`} items={row.items} />
           : <AgentProcessRow key={row.id} item={row.item} />)}
       </div>
+      {fileTouches && !fileTouches.empty ? (
+        <aside
+          className="agent-process-files-touched"
+          aria-label={fileTouches.title}
+          data-role={fileTouches.role}
+          data-not-teaching-evidence="true"
+        >
+          <header className="agent-process-files-touched__header">
+            <FileText size={compact ? 12 : 13} />
+            <strong>{fileTouches.title}</strong>
+            <span className="agent-process-files-touched__badge">参考投影</span>
+          </header>
+          <p className="agent-process-files-touched__caption">{fileTouches.caption}</p>
+          <ul className="agent-process-files-touched__list">
+            {fileTouches.rows.map((row) => (
+              <li key={row.id} data-kind={row.kind}>
+                <span className="agent-process-files-touched__kind">{row.kindLabel}</span>
+                <code className="agent-process-files-touched__path">{row.displayPath}</code>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      ) : null}
     </section>
   )
 }
-
 function processHeaderFor(status: unknown, active: boolean): {
   title: string
   label: string

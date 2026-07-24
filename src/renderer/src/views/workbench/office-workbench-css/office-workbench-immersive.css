@@ -321,125 +321,147 @@
   isolation: isolate;
 }
 
+/*
+ * Flip clock — CSS structure aligned 1:1 with D:\2.html
+ * (class names namespaced under workbench-clock__).
+ *
+ * Proportions (ref px → em of face font-size 120):
+ *   digit 100×140, half 70, gap 8, pair-gap 32, radius 8, seam 3
+ */
 .workbench-clock__display {
-  width: min(100%, 520px);
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: clamp(28px, 5vw, 58px);
+  align-items: center;
+  width: min(100%, 920px);
+  gap: 0.0667em; /* 8/120 */
   color: inherit;
   font-family: 'Arial Black', Arial, Helvetica, sans-serif;
-  font-size: clamp(88px, 16vw, 144px);
+  font-size: clamp(64px, 11vw, 120px); /* face font-size base (= 120 in ref) */
   font-variant-numeric: tabular-nums;
-  font-weight: 900;
-  letter-spacing: -0.075em;
-  line-height: 0.94;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
   text-shadow: none;
-  transform: scaleX(0.88);
 }
 
-.workbench-clock__pair {
-  display: flex;
-  align-items: center;
-  gap: clamp(9px, 1.3vw, 18px);
-}
-
+/* Digit card — .clock-digit */
 .workbench-clock__digit {
   position: relative;
-  width: 0.68em;
-  height: 1.16em;
+  width: 0.8333em; /* 100/120 */
+  height: 1.1667em; /* 140/120 */
   flex: 0 0 auto;
+  border-radius: 0.0667em; /* 8/120 */
   overflow: hidden;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  transform-style: preserve-3d;
+  background: #1a1a1a;
 }
 
-.workbench-clock__digit::before {
-  position: absolute;
-  z-index: 8;
-  inset: calc(50% - 2px) 0 auto;
-  height: 4px;
-  background: var(--workbench-clock-line);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
-  content: '';
-  pointer-events: none;
+/* Pair spacing — .clock-digit:nth-child(3), :nth-child(5) { margin-left: 32px } */
+.workbench-clock__digit:nth-child(3),
+.workbench-clock__digit:nth-child(5) {
+  margin-left: 0.2667em; /* 32/120 */
 }
 
+/*
+ * Half faces — .digit-face / .digit-face-next
+ * Static next + curr stack in normal flow (top then bottom).
+ * Flap faces live inside the absolute flap.
+ */
 .workbench-clock__face {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 50%; /* 70/140 */
+  font-size: 1em;
+  background: #1a1a1a;
+  border-radius: 0.0667em;
   color: inherit;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Glyph — full digit tall, clipped by half face */
+.workbench-clock__flap .workbench-clock__face::before,
+.workbench-clock__digit > .workbench-clock__face::before {
+  position: absolute;
+  content: attr(data-t);
+  line-height: 1.1667em; /* 140/120 */
+  text-align: center;
+  height: 1.1667em;
+  left: 0;
+  right: 0;
+  color: inherit;
+  font-weight: inherit;
+  font-family: inherit;
+  font-variant-numeric: inherit;
+}
+
+/*
+ * Flap front (.digit-face) & static top (.digit-face-next): glyph top-aligned
+ * → shows UPPER half of the digit.
+ */
+.workbench-clock__flap .workbench-clock__face--curr::before,
+.workbench-clock__digit > .workbench-clock__face--next::before {
+  top: 0;
+}
+
+/*
+ * Flap back (.digit-face-next) & static bottom (.digit-face): glyph bottom-aligned
+ * → shows LOWER half of the digit.
+ */
+.workbench-clock__flap .workbench-clock__face--next::before,
+.workbench-clock__digit > .workbench-clock__face--curr::before {
+  bottom: 0;
+}
+
+/* Seam — flap front + static top: border-bottom */
+.workbench-clock__flap .workbench-clock__face--curr,
+.workbench-clock__digit > .workbench-clock__face--next {
+  border-bottom: 0.025em solid #000; /* ~3/120 */
+}
+
+/* Seam — flap back + static bottom: border-top */
+.workbench-clock__flap .workbench-clock__face--next,
+.workbench-clock__digit > .workbench-clock__face--curr {
+  border-top: 0.025em solid #000;
+}
+
+/* Flap back — pre-rotated so it faces out after the plate hits -180 */
+.workbench-clock__flap .workbench-clock__face--next {
+  transform: rotateX(-180deg);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  will-change: transform, filter, opacity;
 }
 
-.workbench-clock__face-value {
-  display: grid;
+/* Flap front — absolute top half of the plate */
+.workbench-clock__flap .workbench-clock__face--curr {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Flipping plate — full card, hinges at geometric center */
+.workbench-clock__flap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
-  place-items: center;
-  line-height: 1;
-  text-align: center;
-  transform: translateY(0.025em);
+  transform-style: preserve-3d;
+  /* Quiet reset when is-flipping is removed after the animation. */
+  transition: transform 0s;
+  transform: rotateX(0deg);
 }
 
-.workbench-clock__face--current-top,
-.workbench-clock__face--previous-top {
-  clip-path: inset(0 0 50% 0);
+.workbench-clock__flap.is-flipping {
+  transition: all 0.5s ease-in-out;
+  transform: rotateX(-180deg);
 }
 
-.workbench-clock__face--current-bottom,
-.workbench-clock__face--previous-bottom,
-.workbench-clock__face--next-bottom {
-  clip-path: inset(50% 0 0 0);
-}
-
-.workbench-clock__face--current-top {
-  z-index: 1;
-}
-
-.workbench-clock__face--current-bottom {
-  z-index: 1;
-}
-
-.workbench-clock__face--previous-top {
-  z-index: 5;
-  transform-origin: 50% 100%;
-}
-
-.workbench-clock__face--previous-bottom {
-  z-index: 4;
-}
-
-.workbench-clock__face--next-bottom {
-  z-index: 6;
-  transform: perspective(900px) rotateX(90deg);
-  transform-origin: 50% 0%;
-}
-
-.workbench-clock__digit.is-flipping .workbench-clock__face--previous-top {
-  animation: workbench-clock-page-out 360ms cubic-bezier(0.55, 0.05, 0.67, 0.19) both;
-}
-
-.workbench-clock__digit.is-flipping .workbench-clock__face--previous-bottom {
-  animation: workbench-clock-previous-bottom 680ms steps(1, end) both;
-}
-
-.workbench-clock__digit.is-flipping .workbench-clock__face--next-bottom {
-  animation: workbench-clock-page-in 680ms cubic-bezier(0.18, 0.79, 0.25, 1) both;
-}
-
-.workbench-clock__digit.is-flipping .workbench-clock__face--current-bottom {
-  opacity: 0;
-  animation: workbench-clock-reveal-current 1ms linear 680ms both;
-}
-
+/* Immersive full-scene scale */
 .workbench-immersive-clock-scene {
   position: absolute;
   inset: 0;
@@ -449,18 +471,7 @@
 
 .workbench-immersive-clock-scene .workbench-clock__display {
   width: min(100%, 1540px);
-  gap: clamp(32px, 5cqw, 76px);
-  font-size: clamp(150px, min(35cqw, 72vh), 500px);
-  transform: scaleX(0.88);
-}
-
-.workbench-immersive-clock-scene .workbench-clock__pair {
-  gap: clamp(10px, 1.4cqw, 22px);
-}
-
-.workbench-immersive-clock-scene .workbench-clock__digit::before {
-  inset: calc(50% - clamp(3px, 0.25vw, 5px)) 0 auto;
-  height: clamp(6px, 0.45vw, 9px);
+  font-size: clamp(72px, min(12cqw, 22vh), 160px);
 }
 
 /* Full-viewport focus-timer dial (pomodoro face, enlarged). */
@@ -966,20 +977,28 @@
 
 .workbench-scene-picker__clock-preview .workbench-clock__display {
   width: 100%;
-  gap: clamp(6px, 5cqw, 12px);
-  font-size: clamp(28px, 18cqw, 44px);
-  transform: scaleX(0.88);
+  font-size: clamp(18px, 11cqw, 28px);
+  gap: 0.0667em;
 }
 
-.workbench-scene-picker__clock-preview .workbench-clock__pair {
-  gap: clamp(3px, 2.4cqw, 7px);
+.workbench-scene-picker__clock-preview .workbench-clock__digit {
+  border-radius: 0.0667em;
 }
 
-.workbench-scene-picker__clock-preview .workbench-clock__digit::before {
-  inset: calc(50% - 1px) 0 auto;
-  height: 2px;
+.workbench-scene-picker__clock-preview .workbench-clock__digit:nth-child(3),
+.workbench-scene-picker__clock-preview .workbench-clock__digit:nth-child(5) {
+  margin-left: 0.2667em;
 }
 
+.workbench-scene-picker__clock-preview .workbench-clock__flap .workbench-clock__face--curr,
+.workbench-scene-picker__clock-preview .workbench-clock__digit > .workbench-clock__face--next {
+  border-bottom-width: 0.025em;
+}
+
+.workbench-scene-picker__clock-preview .workbench-clock__flap .workbench-clock__face--next,
+.workbench-scene-picker__clock-preview .workbench-clock__digit > .workbench-clock__face--curr {
+  border-top-width: 0.025em;
+}
 .workbench-scene-picker__preset-copy,
 .workbench-scene-picker__selected-mark {
   position: relative;
@@ -1038,59 +1057,10 @@
   to { opacity: 1; }
 }
 
-@keyframes workbench-clock-page-out {
-  0% {
-    opacity: 1;
-    filter: brightness(1);
-    transform: perspective(900px) rotateX(0deg);
-  }
-
-  100% {
-    opacity: 0;
-    filter: brightness(0.32);
-    transform: perspective(900px) rotateX(-90deg);
-  }
-}
-
-@keyframes workbench-clock-previous-bottom {
-  0%, 47% {
-    opacity: 1;
-  }
-
-  48%, 100% {
-    opacity: 0;
-  }
-}
-
-@keyframes workbench-clock-page-in {
-  0%, 43% {
-    filter: brightness(0.3);
-    transform: perspective(900px) rotateX(90deg);
-  }
-
-  100% {
-    filter: brightness(1);
-    transform: perspective(900px) rotateX(0deg);
-  }
-}
-
-@keyframes workbench-clock-reveal-current {
-  to {
-    opacity: 1;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .workbench-clock__digit.is-flipping .workbench-clock__face--previous-top,
-  .workbench-clock__digit.is-flipping .workbench-clock__face--previous-bottom,
-  .workbench-clock__digit.is-flipping .workbench-clock__face--next-bottom {
-    display: none;
-    animation: none;
-  }
-
-  .workbench-clock__digit.is-flipping .workbench-clock__face--current-bottom {
-    opacity: 1;
-    animation: none;
+  .workbench-clock__flap,
+  .workbench-clock__flap.is-flipping {
+    transition: none !important;
   }
 }
 

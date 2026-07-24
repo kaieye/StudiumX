@@ -1,7 +1,10 @@
 /**
- * MCP doctor / support-bundle redaction (ADR-0128 §11).
+ * MCP doctor / support-bundle redaction (ADR-0128 §11 / ADR-0148 presence-only).
+ *
+ * Never returns env/header secret values — only scrubbed command/args/cwd labels.
  */
 
+import { projectSecretPresenceMap } from '../../shared/secret-presence'
 import { redactPath, redactSecrets } from '../observability/redact'
 
 export function redactMcpCommandLine(
@@ -24,6 +27,16 @@ export function redactMcpCwd(
 ): string | null {
   if (cwd == null || cwd === '') return null
   return redactPath(cwd, workspaceRoot)
+}
+
+/**
+ * Presence-only map for MCP secret refs (doctor / public views).
+ * Re-export of shared helper so MCP main stays one import for presence.
+ */
+export function projectMcpSecretPresence(
+  refs: Readonly<Record<string, unknown>> | null | undefined
+): Record<string, boolean> {
+  return projectSecretPresenceMap(refs)
 }
 
 function looksLikeAbs(value: string): boolean {

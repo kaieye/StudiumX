@@ -13,10 +13,21 @@ import {
   effectiveMaxOutputTokens
 } from '../../../shared/model-provider-catalog'
 import type { AdapterRequest, ChatAdapterRequest } from '../provider-adapter'
+import { mergeProviderRequestHeaders } from '../../../shared/provider-custom-headers'
 import { anthropicGenerationOptions, reasoningRequestOptions } from './capabilities'
 import { adapterAuthHeaders } from './formats'
 
 export { adapterAuthHeaders } from './formats'
+
+function providerRequestHeaders(
+  format: ModelEndpointFormat,
+  provider: TeachingModelProviderProfile
+): Record<string, string> {
+  return mergeProviderRequestHeaders(
+    adapterAuthHeaders(format, provider.apiKey),
+    provider.customHeaders
+  )
+}
 
 export function buildRequest(
   format: ModelEndpointFormat,
@@ -35,7 +46,7 @@ export function buildRequest(
         url: upstreamOpenAiChatCompletionsUrl(provider.baseUrl),
         init: {
           method: 'POST',
-          headers: adapterAuthHeaders(format, provider.apiKey),
+          headers: providerRequestHeaders(format, provider),
           body: JSON.stringify({
             model: generator.model,
             messages: [
@@ -56,7 +67,7 @@ export function buildRequest(
         url: upstreamOpenAiResponsesUrl(provider.baseUrl),
         init: {
           method: 'POST',
-          headers: adapterAuthHeaders(format, provider.apiKey),
+          headers: providerRequestHeaders(format, provider),
           body: JSON.stringify({
             model: generator.model,
             instructions: request.systemPrompt,
@@ -73,7 +84,7 @@ export function buildRequest(
         url: upstreamAnthropicMessagesUrl(provider.baseUrl),
         init: {
           method: 'POST',
-          headers: adapterAuthHeaders(format, provider.apiKey),
+          headers: providerRequestHeaders(format, provider),
           body: JSON.stringify({
             model: generator.model,
             max_tokens: maxOutputTokens,
@@ -89,7 +100,7 @@ export function buildRequest(
         url: upstreamOpenAiCustomEndpointUrl(provider.baseUrl),
         init: {
           method: 'POST',
-          headers: adapterAuthHeaders('chat_completions', provider.apiKey),
+          headers: providerRequestHeaders('chat_completions', provider),
           body: JSON.stringify({
             model: generator.model,
             messages: [
@@ -150,7 +161,7 @@ export function buildChatRequest(
     url,
     init: {
       method: 'POST',
-      headers: adapterAuthHeaders('chat_completions', provider.apiKey),
+      headers: providerRequestHeaders('chat_completions', provider),
       body: JSON.stringify(body)
     }
   }

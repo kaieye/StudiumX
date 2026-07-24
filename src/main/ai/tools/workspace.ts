@@ -18,7 +18,7 @@ import { readToolPathArg, requireToolPathArg } from './tool-arguments'
 
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_READ_CHARS = 24_000
-const MAX_WRITE_BYTES = 1024 * 1024
+export const MAX_WRITE_BYTES = 1024 * 1024
 const DEFAULT_READ_LIMIT = 240
 const MAX_READ_LIMIT = 800
 const MAX_LIST_ENTRIES = 500
@@ -103,7 +103,7 @@ function clampInteger(value: unknown, min: number, max: number, fallback: number
   return Math.min(max, Math.max(min, Math.round(parsed)))
 }
 
-function jsonResult(value: unknown): string {
+export function jsonResult(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
 
@@ -129,7 +129,7 @@ function isSensitiveFileName(name: string): boolean {
   )
 }
 
-function isProtectedWorkspaceRelativePath(relativePath: string): boolean {
+export function isProtectedWorkspaceRelativePath(relativePath: string): boolean {
   if (!relativePath || relativePath === '.') return false
   const parts = toPosixWorkspacePath(relativePath)
     .split('/')
@@ -145,12 +145,12 @@ function isProtectedWorkspaceRelativePath(relativePath: string): boolean {
  * HTML through a single tool call is also the most fragile spot for weaker
  * providers' tool-call serialization.
  */
-function isLessonHtmlRelativePath(relativePath: string): boolean {
+export function isLessonHtmlRelativePath(relativePath: string): boolean {
   const posix = toPosixWorkspacePath(relativePath).replace(/^\.\//, '').toLowerCase()
   return posix.startsWith('lessons/') && /\.html?$/.test(posix)
 }
 
-function isLikelyTextPath(path: string): boolean {
+export function isLikelyTextPath(path: string): boolean {
   const ext = extname(path).toLowerCase()
   return !ext || TEXT_EXTENSIONS.has(ext)
 }
@@ -159,7 +159,7 @@ function isBinaryBuffer(buffer: Buffer): boolean {
   return buffer.subarray(0, Math.min(buffer.length, 8192)).includes(0)
 }
 
-async function readTextFile(path: string, maxBytes = MAX_FILE_BYTES): Promise<string> {
+export async function readTextFile(path: string, maxBytes = MAX_FILE_BYTES): Promise<string> {
   const info = await stat(path)
   if (!info.isFile()) throw new Error('目标不是文件。')
   if (info.size > maxBytes) {
@@ -393,7 +393,7 @@ export const readWorkspaceFileTool: ToolEntry = {
   }
 }
 
-type WorkspaceWriteStableError =
+export type WorkspaceWriteStableError =
   | 'request_rejected'
   | 'path_rejected'
   | 'containment_unavailable'
@@ -424,13 +424,13 @@ export type WorkspaceWriteDurableDependencies = {
   }) => Promise<boolean>
 }
 
-const defaultWorkspaceWriteDurableDependencies: WorkspaceWriteDurableDependencies = {
+export const defaultWorkspaceWriteDurableDependencies: WorkspaceWriteDurableDependencies = {
   createNoOverwrite: createNoOverwriteAtWorkspacePath,
   overwriteExistingRestricted: overwriteExistingRestrictedAtWorkspacePath,
   readExact: pathnameWorkspaceReadIsExact
 }
 
-const workspaceWriteErrorMessages: Record<WorkspaceWriteStableError, string> = {
+export const workspaceWriteErrorMessages: Record<WorkspaceWriteStableError, string> = {
   request_rejected: '写入请求不符合工作区文件写入策略。',
   path_rejected: '工作区相对路径或目标类型不可用于安全写入（包括符号链接）。',
   containment_unavailable: '无法安全绑定工作区目标。',
@@ -460,11 +460,11 @@ function isWorkspaceWriteDurableProtocolError(error: unknown): error is Workspac
   return typeof error === 'object' && error !== null && 'kind' in error && typeof error.kind === 'string'
 }
 
-function isPossiblyPublishedWorkspaceWriteError(error: unknown): boolean {
+export function isPossiblyPublishedWorkspaceWriteError(error: unknown): boolean {
   return isWorkspaceWriteDurableProtocolError(error) && error.kind === 'possibly_published'
 }
 
-function stableErrorForDurablePublicationFailure(
+export function stableErrorForDurablePublicationFailure(
   error: unknown,
   publication: WorkspaceWritePublication
 ): WorkspaceWriteStableError {
@@ -522,7 +522,7 @@ function selectOverwritePublicationTarget(input: {
     .catch(() => 'containment_unavailable')
 }
 
-const workspaceWritePermissionDescriptionError = '无法安全确定工作区文件写入目标。'
+export const workspaceWritePermissionDescriptionError = '无法安全确定工作区文件写入目标。'
 
 /**
  * Product-facing availability for the controlled workspace writer. Pathname
@@ -582,7 +582,7 @@ async function describeWorkspaceWritePermission(args: unknown, ctx: ToolContext)
  * One bounded-path exact read confirms requested bytes when publication may
  * already have been visible.
  */
-async function canonicalWorkspaceWriteReadIsExact(input: {
+export async function canonicalWorkspaceWriteReadIsExact(input: {
   workspaceRootPath: string
   relativePath: string
   expectedBytes: Buffer

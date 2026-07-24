@@ -3,6 +3,28 @@ import { ContextEstimator, type TokenEstimate } from './context-estimator'
 import {
   modelContextWindowTokens
 } from '../../shared/model-provider-catalog'
+import {
+  CompactionPressureController,
+  shouldSkipCompactionForHardBudget,
+  type CompactionPressureOptionOverrides,
+  type CompactionTriggerPoint
+} from './compaction-pressure-controller'
+
+export {
+  COMPACTION_HARD_BUDGET_AUTHORITY,
+  CompactionPressureController,
+  CompactionSingleFlight,
+  createCompactionPressureState,
+  nextPressureState,
+  pressureOptionOverrides,
+  shouldSkipCompactionForHardBudget
+} from './compaction-pressure-controller'
+export type {
+  CompactionPressureLevel,
+  CompactionPressureOptionOverrides,
+  CompactionPressureState,
+  CompactionTriggerPoint
+} from './compaction-pressure-controller'
 
 export type ContextCompactionMode = 'normal' | 'aggressive' | 'manual'
 export type ContextCompactionReason = 'soft_threshold' | 'hard_threshold' | 'manual'
@@ -79,6 +101,11 @@ export type ContextCompactionOptions = {
    * `before > 0`. Defaults to 5%. Either this or `minTokenSavings` may trip the guard.
    */
   minTokenReductionRatio?: number
+  /**
+   * Optional shared pressure controller (single-flight + ladder).
+   * When omitted, the compactor owns a private controller for this instance.
+   */
+  pressureController?: CompactionPressureController
 }
 
 export type ContextCompactionCutAudit = {
@@ -162,7 +189,10 @@ export type ContextCompactionResult = {
 export type ContextCompactorSummarizer = (request: ContextCompactionSummaryRequest) => Promise<string>
 
 type NormalizedContextCompactionOptions = Required<
-  Omit<ContextCompactionOptions, 'softThresholdTokens' | 'hardThresholdTokens'>
+  Omit<
+    ContextCompactionOptions,
+    'softThresholdTokens' | 'hardThresholdTokens' | 'pressureController'
+  >
 > & {
   softThresholdTokens?: number
   hardThresholdTokens?: number
@@ -205,6 +235,7 @@ export class ContextCompactor {
   private readonly options: NormalizedContextCompactionOptions
   private readonly summarize: ContextCompactorSummarizer
   private readonly summaries = new Map<string, string>()
+  private readonly pressure: CompactionPressureController
   private failureCooldownUntil = 0
 
   constructor(options: ContextCompactionOptions & {
@@ -214,14 +245,52 @@ export class ContextCompactor {
     this.estimator = options.estimator ?? new ContextEstimator()
     this.summarize = options.summarize
     this.options = normalizeOptions(options)
+    this.pressure = options.pressureController ?? new CompactionPressureController()
   }
 
+  /** Run-scoped pressure ladder state (read-only snapshot). */
+  get pressureState() {
+    return this.pressure.pressure
+  }
+
+  get isCompactionInFlight(): boolean {
+    return this.pressure.isCompactionInFlight
+  }
+
+  /**
+   * Project-only compaction entry. Call sites may label pre_send / mid_stream /
+   * post_tool for audit; labels do **not** change algorithm or start a second flight.
+   * Concurrent callers join the first in-flight compact (see CompactionSingleFlight).
+   * Shipping mid_stream is a trigger label only — not a true mid-token overflow
+   * interceptor. Hard run budget remains authoritative: exhausted/pending → no-op.
+   */
   async compactIfNeeded(input: {
     messages: ChatMessage[]
     tools?: ToolDefinition[]
     estimate?: TokenEstimate
     /** IDs aligned with messages, used only for persisted conversation lineage. */
     messageTurnIds?: readonly (string | undefined)[]
+    /**
+     * Optional multi-point trigger label for audit / call-site classification.
+     * Currently unused by the compact body (join + ladder are label-agnostic).
+     */
+    triggerPoint?: CompactionTriggerPoint
+    /** When true, skip compaction (hard run budget / durable-success authority). */
+    hardBudgetExhausted?: boolean
+    runBudgetStopPending?: boolean
+  }): Promise<ContextCompactionResult> {
+    // Label retained for future policy / audit; body is trigger-agnostic today.
+    void input.triggerPoint
+    return this.pressure.runSingleFlight(() => this.compactIfNeededExclusive(input))
+  }
+
+  private async compactIfNeededExclusive(input: {
+    messages: ChatMessage[]
+    tools?: ToolDefinition[]
+    estimate?: TokenEstimate
+    messageTurnIds?: readonly (string | undefined)[]
+    hardBudgetExhausted?: boolean
+    runBudgetStopPending?: boolean
   }): Promise<ContextCompactionResult> {
     const estimateBefore = input.estimate ?? this.estimator.estimateRequest(input.messages, { tools: input.tools })
     const unchanged = (): ContextCompactionResult => ({
@@ -233,9 +302,18 @@ export class ContextCompactor {
     })
 
     if (!this.options.enabled) return unchanged()
+    if (
+      shouldSkipCompactionForHardBudget({
+        hardBudgetExhausted: input.hardBudgetExhausted,
+        runBudgetStopPending: input.runBudgetStopPending
+      })
+    ) {
+      return unchanged()
+    }
     if (!this.options.force && this.options.now() < this.failureCooldownUntil) return unchanged()
 
-    const plan = this.plan(input.messages, input.tools, estimateBefore, input.messageTurnIds)
+    const pressureOverrides = this.pressure.optionOverrides()
+    const plan = this.plan(input.messages, input.tools, estimateBefore, input.messageTurnIds, pressureOverrides)
     if (!plan) return unchanged()
 
     const cutAudit = cutAuditFromPlan(plan)
@@ -264,6 +342,7 @@ export class ContextCompactor {
       })
       const cleanSummary = cleanSummaryText(summary)
       if (!cleanSummary) {
+        this.pressure.recordOutcome({ stillOverThreshold: true, compacted: false })
         return this.failClosed({
           inputMessages: input.messages,
           estimateBefore,
@@ -301,6 +380,7 @@ export class ContextCompactor {
         minTokenReductionRatio: this.options.minTokenReductionRatio
       })) {
         // Do not cache a summary that produced insufficient reduction.
+        this.pressure.recordOutcome({ stillOverThreshold: true, compacted: false })
         return this.failClosed({
           inputMessages: input.messages,
           estimateBefore,
@@ -317,6 +397,13 @@ export class ContextCompactor {
       }
 
       this.summaries.set(plan.sourceDigest, cleanSummary)
+      // Ladder uses soft threshold: if we would still trigger on the next projection,
+      // escalate prune pressure (avoid thrash via single-flight + consecutive only-on-compact).
+      const softThreshold =
+        this.options.softThresholdTokens ??
+        Math.floor(this.options.contextWindowTokens * this.options.softThresholdRatio)
+      const stillOverThreshold = afterTokens >= softThreshold
+      this.pressure.recordOutcome({ stillOverThreshold, compacted: true })
       events.push({
         type: 'context_compaction_completed',
         reason: plan.reason,
@@ -348,6 +435,7 @@ export class ContextCompactor {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
+      this.pressure.recordOutcome({ stillOverThreshold: true, compacted: false })
       return this.failClosed({
         inputMessages: input.messages,
         estimateBefore,
@@ -410,7 +498,8 @@ export class ContextCompactor {
     messages: ChatMessage[],
     tools: ToolDefinition[] | undefined,
     estimate: TokenEstimate,
-    messageTurnIds: readonly (string | undefined)[] | undefined
+    messageTurnIds: readonly (string | undefined)[] | undefined,
+    pressureOverrides: CompactionPressureOptionOverrides
   ): CompactionPlan | null {
     const contextWindowTokens = this.options.contextWindowTokens
     const softThreshold = this.options.softThresholdTokens ?? Math.floor(contextWindowTokens * this.options.softThresholdRatio)
@@ -419,18 +508,20 @@ export class ContextCompactor {
       estimate,
       force: this.options.force,
       softThreshold,
-      hardThreshold
+      hardThreshold,
+      preferAggressive: pressureOverrides.preferAggressive
     })
     if (!trigger) return null
 
     const systemCount = leadingSystemMessageCount(messages)
-    const tailBudget = Math.max(
-      256,
-      Math.floor(contextWindowTokens * (trigger.mode === 'aggressive' ? this.options.aggressiveTailRatio : this.options.normalTailRatio))
-    )
+    const baseTailRatio =
+      trigger.mode === 'aggressive' ? this.options.aggressiveTailRatio : this.options.normalTailRatio
+    const scaledTailRatio = Math.min(0.95, Math.max(0.05, baseTailRatio * pressureOverrides.tailRatioScale))
+    const tailBudget = Math.max(256, Math.floor(contextWindowTokens * scaledTailRatio))
+    const minTailMessages = Math.max(1, this.options.minTailMessages + pressureOverrides.minTailMessagesDelta)
     const boundary = repairToolPairBoundary(
       messages,
-      chooseTailBoundary(messages, systemCount, tailBudget, this.options.minTailMessages, this.estimator),
+      chooseTailBoundary(messages, systemCount, tailBudget, minTailMessages, this.estimator),
       systemCount
     )
     if (boundary <= systemCount) return null
@@ -496,6 +587,8 @@ export function buildSummaryRequestMessages(input: {
   sourceDigest: string
   toolSchemaTokens: number
 }): ChatMessage[] {
+  // File-touch ledger is never part of this payload: callers pass only
+  // rendered compacted transcript text (ledger is injected post-compaction).
   return [
     {
       role: 'system',
@@ -632,13 +725,16 @@ function triggerForEstimate(input: {
   force: boolean
   softThreshold: number
   hardThreshold: number
+  /** Pressure ladder: escalate soft triggers to aggressive prune. */
+  preferAggressive?: boolean
 }): { mode: ContextCompactionMode; reason: ContextCompactionReason; thresholdTokens: number } | null {
   if (input.force) return { mode: 'manual', reason: 'manual', thresholdTokens: input.softThreshold }
   if (input.estimate.totalTokens >= input.hardThreshold) {
     return { mode: 'aggressive', reason: 'hard_threshold', thresholdTokens: input.hardThreshold }
   }
   if (input.estimate.totalTokens >= input.softThreshold) {
-    return { mode: 'normal', reason: 'soft_threshold', thresholdTokens: input.softThreshold }
+    const mode: ContextCompactionMode = input.preferAggressive ? 'aggressive' : 'normal'
+    return { mode, reason: 'soft_threshold', thresholdTokens: input.softThreshold }
   }
   return null
 }

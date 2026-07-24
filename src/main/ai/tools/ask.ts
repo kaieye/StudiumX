@@ -1,6 +1,11 @@
 import type { ToolDefinition } from '../provider-adapter'
 import type { ToolCallContext, ToolContext, ToolEntry } from './registry'
 import { registerAskPending, rejectAskPending } from '../ask-pending'
+import {
+  ASK_DEADLINE_AT_KEY,
+  DEFAULT_ASK_TIMEOUT_MS,
+  stampAskArguments
+} from '../../../shared/ask-deadline'
 import type { AskAnswer, AskOption, AskQuestion } from '../../../shared/teaching-types'
 
 /**
@@ -12,6 +17,11 @@ import type { AskAnswer, AskOption, AskQuestion } from '../../../shared/teaching
  * The question content itself rides on the existing `tool_call` event's
  * `arguments` field — the frontend parses it directly, so no extra stream
  * event is needed. Only the *answer* needs a reverse IPC channel.
+ *
+ * Host stamps authoritative `__deadlineAt` (ADR-0144) and re-publishes the
+ * tool projection so all UI surfaces share one countdown. Timeout settles
+ * to recommended/first option; cancel aborts. Timeout never auto-approves
+ * write / privileged / turn-review.
  */
 export const ASK_TOOL_DEFINITION: ToolDefinition = {
   type: 'function',
@@ -55,7 +65,11 @@ export const ASK_TOOL_DEFINITION: ToolDefinition = {
                   type: 'object',
                   properties: {
                     label: { type: 'string', description: '选项标签（也是选中后返回给模型的值）' },
-                    description: { type: 'string', description: '可选的单行补充说明' }
+                    description: { type: 'string', description: '可选的单行补充说明' },
+                    recommended: {
+                      type: 'boolean',
+                      description: '是否为推荐项；超时未答时会选推荐项（否则选第一项）'
+                    }
                   },
                   required: ['label']
                 }
@@ -75,8 +89,9 @@ type RawAskArgs = {
     header?: unknown
     question?: unknown
     multiSelect?: unknown
-    options?: Array<{ label?: unknown; description?: unknown }>
+    options?: Array<{ label?: unknown; description?: unknown; recommended?: unknown }>
   }>
+  [ASK_DEADLINE_AT_KEY]?: unknown
 }
 
 type AskHandlerDeps = {
@@ -84,6 +99,13 @@ type AskHandlerDeps = {
   signal?: AbortSignal
   onWaiting?: (toolCallId: string) => Promise<void> | void
   onResolved?: (toolCallId: string) => Promise<void> | void
+  /**
+   * Publish stamped ask arguments so renderer surfaces share the authoritative
+   * deadline. Called after register + onWaiting (same pattern as tool_permission).
+   */
+  publishWaiting?: (payload: { toolCallId: string; argumentsJson: string }) => void
+  nowMs?: () => number
+  timeoutMs?: number
 }
 
 /** Build a ToolEntry whose handler blocks on the pending-ask registry.
@@ -96,11 +118,25 @@ export function createAskToolEntry(deps: AskHandlerDeps): ToolEntry {
       if (!callCtx) {
         throw new Error('ask 工具缺少 callCtx（toolCallId），无法关联用户回答。')
       }
-      const questions = parseAndValidateAskArgs(args)
-      const pendingPromise = registerAskPending(deps.streamId, callCtx.toolCallId)
+      const nowMs = deps.nowMs?.() ?? Date.now()
+      const stamped = stampAskArguments(args, {
+        nowMs,
+        timeoutMs: deps.timeoutMs ?? DEFAULT_ASK_TIMEOUT_MS
+      })
+      const questions = parseAndValidateAskArgs(stamped.args)
+      const argumentsJson = JSON.stringify(stamped.args)
+      const pendingPromise = registerAskPending(deps.streamId, callCtx.toolCallId, {
+        questions,
+        deadlineAt: stamped.deadlineAt,
+        nowMs: deps.nowMs
+      })
       void pendingPromise.catch(() => undefined)
       try {
         await deps.onWaiting?.(callCtx.toolCallId)
+        deps.publishWaiting?.({
+          toolCallId: callCtx.toolCallId,
+          argumentsJson
+        })
         const answers = await waitForAnswers(deps, pendingPromise)
         return formatAskAnswers(questions, answers)
       } catch (error) {
@@ -183,7 +219,16 @@ function parseAndValidateAskArgs(args: unknown): AskQuestion[] {
       }
       seenLabels.add(label)
       const description = cleanString(rawOption.description)
-      options.push(description ? { label, description } : { label })
+      const recommended = rawOption.recommended === true
+      options.push({
+        label,
+        ...(description ? { description } : {}),
+        ...(recommended ? { recommended: true } : {})
+      })
+    }
+    // Convention: first option is recommended when none marked.
+    if (!options.some((option) => option.recommended === true) && options[0]) {
+      options[0] = { ...options[0], recommended: true }
     }
     const header = cleanString(rawQuestion.header)
     const multiSelect = rawQuestion.multiSelect === true

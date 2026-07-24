@@ -5,6 +5,7 @@
 
 import { ipcMain } from 'electron'
 import { mcpInvokeChannels } from '../../shared/mcp/ipc-contract'
+import type { McpSettingsOp } from '../../shared/mcp/mcp-ops'
 import { MCP_SERVER_ID_RE } from '../../shared/mcp/tool-name'
 import {
   mcpUserMessage,
@@ -22,7 +23,9 @@ export function registerMcpIpcGateway(options: RegisterMcpIpcGatewayOptions): vo
   const { host } = options
 
   ipcMain.removeHandler(mcpInvokeChannels.getConfig)
+  ipcMain.removeHandler(mcpInvokeChannels.getMcpSettings)
   ipcMain.removeHandler(mcpInvokeChannels.updateConfig)
+  ipcMain.removeHandler(mcpInvokeChannels.applyMcpOps)
   ipcMain.removeHandler(mcpInvokeChannels.testServer)
   ipcMain.removeHandler(mcpInvokeChannels.refreshServer)
   ipcMain.removeHandler(mcpInvokeChannels.authorizeServer)
@@ -38,6 +41,9 @@ export function registerMcpIpcGateway(options: RegisterMcpIpcGatewayOptions): vo
 
   ipcMain.handle(mcpInvokeChannels.getConfig, async () => host.getPublicConfig())
 
+  // Live Settings path: always current store (alias of getPublicConfig).
+  ipcMain.handle(mcpInvokeChannels.getMcpSettings, async () => host.getMcpSettings())
+
   ipcMain.handle(mcpInvokeChannels.updateConfig, async (_event, payload: unknown) => {
     const record =
       payload && typeof payload === 'object' && !Array.isArray(payload)
@@ -47,6 +53,28 @@ export function registerMcpIpcGateway(options: RegisterMcpIpcGatewayOptions): vo
       typeof record.expectedFingerprint === 'string' ? record.expectedFingerprint : ''
     return host.updateConfig(
       record.config,
+      expectedFingerprint,
+      parseSecretChanges(record.secretChanges)
+    )
+  })
+
+  ipcMain.handle(mcpInvokeChannels.applyMcpOps, async (_event, payload: unknown) => {
+    const record =
+      payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : {}
+    const expectedFingerprint =
+      typeof record.expectedFingerprint === 'string' ? record.expectedFingerprint : ''
+    const ops = Array.isArray(record.ops) ? record.ops : null
+    if (!ops) {
+      return {
+        ok: false as const,
+        code: 'mcp_invalid_config' as const,
+        message: 'ops must be an array'
+      }
+    }
+    return host.applyMcpOps(
+      ops as readonly McpSettingsOp[],
       expectedFingerprint,
       parseSecretChanges(record.secretChanges)
     )

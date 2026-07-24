@@ -5,11 +5,19 @@ import type {
   ProbeProviderResult
 } from '../shared/teaching-types'
 import { fetchWithOptionalProxy } from './proxy-fetch'
+import { mergeProviderRequestHeaders } from '../shared/provider-custom-headers'
 import { providerFormatAdapter, providerProbeHeaders } from '../shared/provider-format'
 import { validateProviderRequestUrl } from '../shared/provider-url-policy'
 import { redactProviderErrorText } from '../shared/provider-error'
 
 export { providerProbeHeaders } from '../shared/provider-format'
+
+function probeRequestHeaders(request: ProbeProviderPayload): Record<string, string> {
+  return mergeProviderRequestHeaders(
+    providerProbeHeaders(request.endpointFormat, request.apiKey),
+    request.customHeaders
+  )
+}
 
 const PROBE_TIMEOUT_MS = 10_000
 const DIRECT_PROBE_TIMEOUT_MS = 5_000
@@ -45,7 +53,7 @@ export async function probeModelProvider(
       url,
       {
         method: 'GET',
-        headers: providerProbeHeaders(request.endpointFormat, request.apiKey),
+        headers: probeRequestHeaders(request),
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
       },
       proxyUrl

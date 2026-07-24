@@ -1,10 +1,15 @@
 /** MCP IPC channels (ADR-0128 §8) — registered with teaching IPC. */
 
+import type { McpSettingsOp } from './mcp-ops'
 import type { McpSecretInputChanges } from './types'
 
 export const mcpInvokeChannels = {
   getConfig: 'teach:mcp-get-config',
+  /** Live settings getter alias of getConfig (current store, not turn snapshot). */
+  getMcpSettings: 'teach:mcp-get-settings',
   updateConfig: 'teach:mcp-update-config',
+  /** Id-level ops CAS write (worth-learning §3.3 / Phase B). */
+  applyMcpOps: 'teach:mcp-apply-ops',
   testServer: 'teach:mcp-test-server',
   refreshServer: 'teach:mcp-refresh-server',
   authorizeServer: 'teach:mcp-authorize-server',
@@ -35,6 +40,14 @@ export type McpUpdateConfigPayload = Readonly<{
   expectedFingerprint: string
   /** Full UserMcpConfigV1-shaped document. Secret fields contain transient markers only. */
   config: unknown
+  /** Plaintext travels renderer → main only and is never echoed back. */
+  secretChanges?: McpSecretInputChanges
+}>
+
+/** Id-level CAS ops payload; merge is by server id against current durable config. */
+export type McpApplyOpsPayload = Readonly<{
+  expectedFingerprint: string
+  ops: readonly McpSettingsOp[]
   /** Plaintext travels renderer → main only and is never echoed back. */
   secretChanges?: McpSecretInputChanges
 }>

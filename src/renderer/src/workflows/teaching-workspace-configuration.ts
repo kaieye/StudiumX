@@ -497,7 +497,12 @@ function emptyMemoryDraft(): TeachingMemoryDraft {
 }
 
 function toProbePayload(provider: TeachingModelProviderProfile): ProbeProviderPayload {
-  return { baseUrl: provider.baseUrl, apiKey: provider.apiKey, endpointFormat: provider.endpointFormat }
+  return {
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    endpointFormat: provider.endpointFormat,
+    ...(provider.customHeaders?.length ? { customHeaders: provider.customHeaders } : {})
+  }
 }
 
 function errorMessage(error: unknown): string {

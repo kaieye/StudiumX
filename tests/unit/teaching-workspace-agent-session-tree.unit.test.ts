@@ -231,4 +231,64 @@ describe('TeachingWorkspaceService agent conversation branch lifecycle', () => {
     expect(opened.conversation.id).toBe(forked.conversation.id)
     expect(opened.tree.openBranchId).toBe(forked.conversation.branch?.branchId)
   })
+
+  it('removes the whole session when its final active branch is deleted after a sibling tombstone', async () => {
+    const runtime = await runtimeScope.create('delete-final-active-branch-session')
+    const managedRoot = join(runtime.paths.workspace, 'managed')
+    const service = new TeachingWorkspaceService({
+      registryPath: join(runtime.paths.appData, 'teaching-workspaces.json'),
+      defaultRoot: managedRoot,
+      settingsProvider: async () => defaultSettings(managedRoot)
+    })
+    const workspace = (await service.createWorkspace({
+      name: 'Delete exhausted session',
+      prompt: 'Delete the final active branch and its sibling tombstone.'
+    })).activeWorkspace!
+    const saved = await service.saveAgentConversation({
+      workspaceId: workspace.id,
+      mode: 'temporary',
+      turns: [
+        { id: 'turn-1', role: 'user', content: 'Question', createdAt: '2026-07-16T11:00:00.000Z' },
+        { id: 'turn-2', role: 'assistant', content: 'Answer', createdAt: '2026-07-16T11:01:00.000Z' }
+      ]
+    })
+    const forked = await service.forkAgentConversationBranch({
+      workspaceId: workspace.id,
+      conversationId: saved.conversation.id,
+      scope: 'temporary',
+      sourceTurnId: 'turn-2',
+      expectedRevision: saved.conversation.branch!.revision
+    })
+
+    await service.removeWorkspaceItem({
+      workspaceId: workspace.id,
+      relativePath: saved.conversation.relativePath,
+      kind: 'conversation',
+      mode: 'disk'
+    })
+    const state = await service.removeWorkspaceItem({
+      workspaceId: workspace.id,
+      relativePath: forked.conversation.relativePath,
+      kind: 'conversation',
+      mode: 'disk'
+    })
+
+    expect(state.activeWorkspace?.conversations).not.toContainEqual(
+      expect.objectContaining({ id: saved.conversation.id })
+    )
+    expect(state.activeWorkspace?.conversations).not.toContainEqual(
+      expect.objectContaining({ id: forked.conversation.id })
+    )
+    await expect(service.readAgentConversation({
+      workspaceId: workspace.id,
+      conversationId: saved.conversation.id,
+      scope: 'temporary'
+    })).rejects.toThrow('Conversation not found.')
+    await expect(service.readAgentConversation({
+      workspaceId: workspace.id,
+      conversationId: forked.conversation.id,
+      scope: 'temporary'
+    })).rejects.toThrow('Conversation not found.')
+  })
+
 })

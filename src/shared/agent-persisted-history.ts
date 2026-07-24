@@ -236,19 +236,34 @@ function sanitizePersistedTurnMetadata(metadata: AgentTurnMetadata | undefined):
     const archive = sanitizePersistedArtifactPreview(diagnostic.archive)
     return archive === diagnostic.archive ? diagnostic : { ...diagnostic, ...(archive === undefined ? {} : { archive }) }
   })
+  const fileTouches = sanitizePersistedFileTouches(metadata.fileTouches)
   const changed = Boolean(
     sources?.some((source, index) => source !== metadata.sources?.[index]) ||
     childRuns?.some((child, index) => child !== metadata.childRuns?.[index]) ||
     compactions?.some((compaction, index) => compaction !== metadata.compactions?.[index]) ||
-    toolResults?.some((diagnostic, index) => diagnostic !== metadata.toolResults?.[index])
+    toolResults?.some((diagnostic, index) => diagnostic !== metadata.toolResults?.[index]) ||
+    fileTouches !== metadata.fileTouches
   )
   return changed ? {
     ...metadata,
     ...(sources === undefined ? {} : { sources }),
     ...(childRuns === undefined ? {} : { childRuns }),
     ...(compactions === undefined ? {} : { compactions }),
-    ...(toolResults === undefined ? {} : { toolResults })
+    ...(toolResults === undefined ? {} : { toolResults }),
+    ...(fileTouches === undefined ? {} : { fileTouches })
   } : metadata
+}
+
+function sanitizePersistedFileTouches(
+  fileTouches: AgentTurnMetadata['fileTouches']
+): AgentTurnMetadata['fileTouches'] {
+  if (!fileTouches || fileTouches.role !== 'reference_projection') return fileTouches
+  const files = fileTouches.files.map((file) => {
+    const path = redactAgentSecretText(file.path)
+    return path === file.path ? file : { ...file, path }
+  })
+  const changed = files.some((file, index) => file !== fileTouches.files[index])
+  return changed ? { role: 'reference_projection', files } : fileTouches
 }
 
 function sanitizePersistedArtifactPreview<T extends { preview?: string }>(artifact: T | undefined): T | undefined {

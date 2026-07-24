@@ -302,10 +302,24 @@ export type TeachingSystemApi = {
   }) => Promise<import('../study-planning').ApplyResult & { path?: string }>
   /** Secret-free user MCP config (ADR-0128). */
   mcpGetConfig: () => Promise<import('../mcp/types').McpGetConfigResult>
+  /**
+   * Live Settings getter (ADR-0147): current store public projection.
+   * Same secret-free DTO as mcpGetConfig; not a turn-level snapshot.
+   */
+  mcpGetMcpSettings: () => Promise<import('../mcp/types').McpGetConfigResult>
   /** CAS update of user MCP config (secret refs only). */
   mcpUpdateConfig: (payload: {
     expectedFingerprint: string
     config: unknown
+    secretChanges?: import('../mcp/types').McpSecretInputChanges
+  }) => Promise<import('../mcp/types').McpConfigUpdateResult>
+  /**
+   * CAS id-level ops apply (ADR-0147). Prefer over whole-document update when
+   * mutating individual servers concurrently. Secret plaintext only via secretChanges.
+   */
+  mcpApplyMcpOps: (payload: {
+    expectedFingerprint: string
+    ops: readonly import('../mcp/mcp-ops').McpSettingsOp[]
     secretChanges?: import('../mcp/types').McpSecretInputChanges
   }) => Promise<import('../mcp/types').McpConfigUpdateResult>
   /** Temporary test-connect + tools/list for one server. */

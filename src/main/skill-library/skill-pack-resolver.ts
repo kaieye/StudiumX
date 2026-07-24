@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import { isSafeSkillId } from '../../shared/skill-command'
 import { isPathInsideRoot } from '../path-access'
+import { isSkillInstallWriteGuardName } from './skill-install-stage-swap'
 
 export type SkillPackDirectory = {
   id: string
@@ -27,7 +28,9 @@ export async function resolveUniqueSkillPackDirectories(
 
     const entries = await readdir(configuredRoot, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.isSymbolicLink() || !isSafeSkillId(entry.name)) continue
+      // Write guard: never surface .staging / dot-dirs / unsafe leaf names as skill packs.
+      if (!entry.isDirectory() || entry.isSymbolicLink() || isSkillInstallWriteGuardName(entry.name)) continue
+      if (!isSafeSkillId(entry.name)) continue
       const id = entry.name.toLocaleLowerCase()
       if (!acceptsId(id)) continue
       const directory = join(configuredRoot, entry.name)

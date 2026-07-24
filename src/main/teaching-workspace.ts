@@ -1766,11 +1766,11 @@ export class TeachingWorkspaceService {
         const branch = inferAgentConversationBranchMetadata(location.record)
         const tree = await readAgentConversationSessionTreeAtRoot(location.rootPath, branch.sessionId)
         await invalidateAgentHistoryIndex(location.rootPath)
-        // A multi-branch Session must keep a tombstone so its lineage remains
-        // valid. A single-branch Session has no surviving lineage to protect and
-        // must fall through to the workspace item lifecycle for physical removal;
-        // routing it through branch deletion violates the last-active-branch guard.
-        if (tree.branches.length > 1) {
+        // Keep a tombstone while another active branch still needs the Session's
+        // lineage. Once this is the final active branch, remove the entire
+        // exhausted Session (including prior tombstones) as one physical operation.
+        const activeBranches = tree.branches.filter((candidate) => candidate.status === 'active')
+        if (activeBranches.length > 1) {
           await updateAgentConversationBranchStatusAtRoot(
             { ...workspace, rootPath: location.rootPath },
             id,
@@ -1779,6 +1779,12 @@ export class TeachingWorkspaceService {
           )
           await openAgentConversationBranchAtRoot(location.rootPath, branch.sessionId)
           return this.buildState(registry, workspace.id, null)
+        }
+        if (activeBranches.length === 1 && activeBranches[0].conversationId === id) {
+          return this.createItemLifecycleExecutor(registry).removeConversationSessionFromDisk({
+            workspace,
+            relativePaths: tree.branches.map((candidate) => candidate.relativePath)
+          })
         }
       }
     }

@@ -5,6 +5,7 @@
 
 import { createHash } from 'node:crypto'
 
+import { SECRET_FIELD_KEY_RE, projectSecretPresenceMap } from '../secret-presence'
 import { validateToolEffectOverrides } from './effect-map'
 import { MCP_SERVER_ID_RE } from './tool-name'
 import {
@@ -21,7 +22,8 @@ import {
   type UserMcpConfigPublicV1
 } from './types'
 
-const SECRET_KEY_RE = /api[_-]?key|token|secret|password|authorization/i
+/** @deprecated Prefer SECRET_FIELD_KEY_RE from secret-presence (ADR-0148). */
+const SECRET_KEY_RE = SECRET_FIELD_KEY_RE
 
 export type ParseMcpConfigResult =
   | { ok: true; config: UserMcpConfigV1 }
@@ -201,14 +203,16 @@ export function toPublicMcpConfig(config: UserMcpConfigV1): UserMcpConfigPublicV
 }
 
 export function toPublicServer(server: UserMcpServerV1): UserMcpServerPublicV1 {
-  const envSecretConfigured: Record<string, boolean> = {}
-  for (const key of Object.keys(server.envSecretRefs)) {
-    envSecretConfigured[key] = Boolean(server.envSecretRefs[key])
-  }
-  const headersSecretConfigured: Record<string, boolean> = {}
-  for (const key of Object.keys(server.headersSecretRefs)) {
-    headersSecretConfigured[key] = Boolean(server.headersSecretRefs[key])
-  }
+  // Presence-only secret maps (ADR-0148): never project ref ids or plaintext.
+  const envSecretConfigured = projectSecretPresenceMap(server.envSecretRefs)
+  const headersSecretConfigured = projectSecretPresenceMap(server.headersSecretRefs)
+  // Command/args may embed credentials; scrub assignment-shaped tokens on public view.
+  // Paths stay as configured (editor needs them); free-text secret scrub only.
+  const command =
+    server.command != null && server.command !== ''
+      ? redactPublicCommandText(server.command)
+      : server.command
+  const args = server.args.map((arg) => redactPublicCommandText(arg))
   return {
     id: server.id,
     label: server.label,
@@ -216,8 +220,8 @@ export function toPublicServer(server: UserMcpServerV1): UserMcpServerPublicV1 {
     scope: server.scope,
     workspaceRoot: server.workspaceRoot,
     transport: server.transport,
-    command: server.command,
-    args: server.args,
+    command,
+    args,
     cwd: server.cwd,
     envSecretConfigured,
     envPlain: sortRecord(server.envPlain),
@@ -233,6 +237,29 @@ export function toPublicServer(server: UserMcpServerV1): UserMcpServerPublicV1 {
     createdAt: server.createdAt,
     updatedAt: server.updatedAt
   }
+}
+
+/**
+ * Light public scrub for command/args on MCP public DTO.
+ * Uses agent-secret patterns without path rewriting (path rewrite is doctor/support only).
+ */
+function redactPublicCommandText(value: string): string {
+  // Lazy import avoided: pure shared module must stay free of main-process deps.
+  // Inline minimal assignment/Bearer scrub aligned with agent-secret-redaction.
+  return value
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+\/-]{12,}/gi, '$1[redacted]')
+    .replace(
+      /([?&#](?:api[_-]?key|token|secret|password|authorization|credential)=)([^&#\s]*)/gi,
+      '$1[redacted]'
+    )
+    .replace(
+      /(["']?\b(?:api[_-]?key|token|secret|password|authorization|access[_-]?token|refresh[_-]?token)\b["']?\s*[:=]\s*)("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&}\r\n]+)/gi,
+      (_m, prefix: string, secretValue: string) => {
+        const quote = secretValue[0] === '"' || secretValue[0] === "'" ? secretValue[0] : ''
+        return `${prefix}${quote}[redacted]${quote}`
+      }
+    )
+    .replace(/\b(?:sk-proj-|sk-live-|sk-test-|sk-)[A-Za-z0-9_-]{16,}\b/g, '[redacted]')
 }
 
 function parseServer(

@@ -43,6 +43,7 @@ import type {
   AgentConversationSummary,
   AgentContextEstimateMetadata,
   AgentContextHygieneMetadata,
+  AgentFileTouchMetadata,
   AgentSourceMetadata,
   AgentToolResultDiagnostic,
   AgentTurnMetadata,
@@ -615,6 +616,7 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
   const contextEstimate = normalizeContextEstimate(record.contextEstimate)
   const toolResults = normalizeToolResults(record.toolResults)
   const runUsage = normalizeRunUsage(record.runUsage)
+  const fileTouches = normalizeFileTouches(record.fileTouches)
   const runId = typeof record.runId === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(record.runId) ? record.runId : undefined
   // Legacy raw parent-turn digests are intentionally discarded while
   // normalizing durable input: they allow offline equality checks against a
@@ -630,6 +632,7 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     contextEstimate,
     toolResults: toolResults.length > 0 ? toolResults : undefined,
     runUsage,
+    fileTouches,
     runId,
     parentTurnProof,
     provenance
@@ -641,6 +644,7 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     metadata.contextEstimate ||
     metadata.toolResults ||
     metadata.runUsage ||
+    metadata.fileTouches ||
     metadata.runId ||
     metadata.parentTurnProof ||
     metadata.provenance
@@ -770,6 +774,30 @@ function normalizeContextEstimate(value: unknown): AgentContextEstimateMetadata 
     totalTokens,
     source: textValue(record.source, MAX_SHORT_TEXT) ?? 'local'
   }
+}
+
+/** Reference projection only — drop absolute paths / secrets; never teaching evidence. */
+function normalizeFileTouches(value: unknown): AgentFileTouchMetadata | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (record.role !== 'reference_projection') return undefined
+  if (!Array.isArray(record.files)) return undefined
+  const files: Array<{ path: string; kind: 'read' | 'modified' }> = []
+  for (const item of record.files) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as Record<string, unknown>
+    const path = textValue(row.path, MAX_SHORT_TEXT)
+    const kind = row.kind === 'modified' ? 'modified' : row.kind === 'read' ? 'read' : null
+    if (!path || !kind) continue
+    // Durable boundary: reject absolute / breakout shapes (same product floor as ledger).
+    if (path.startsWith('/') || path.startsWith('\\') || /^[a-zA-Z]:[\\/]/.test(path) || path.includes('..')) {
+      continue
+    }
+    files.push({ path, kind })
+    if (files.length >= MAX_METADATA_FILES) break
+  }
+  if (files.length === 0) return undefined
+  return { role: 'reference_projection', files }
 }
 
 function normalizeToolResults(value: unknown): AgentToolResultDiagnostic[] {

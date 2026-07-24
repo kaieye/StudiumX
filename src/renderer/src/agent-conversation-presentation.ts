@@ -5,6 +5,11 @@ import type {
   AgentTurnMetadata,
   AskQuestion
 } from '../../shared/teaching-types'
+import {
+  projectFileTouchesForLearner,
+  rebuildFileTouchLedgerFromToolCalls,
+  type FileTouchPresentation
+} from '../../shared/context-file-touch-projection'
 import { buildAgentProcessTimeline } from './agent-process-timeline'
 
 const INLINE_RESULT_LIMIT = 12_000
@@ -83,6 +88,11 @@ export type AgentConversationTurnPresentation = {
   items: AgentConversationProvenanceItem[]
   answeredAsks: AgentConversationAnsweredAsk[]
   sources: AgentConversationSourceReference[]
+  /**
+   * Learner-facing files-touched reference projection (ADR-0143).
+   * Not teaching outcome evidence / settlement authority.
+   */
+  fileTouches?: FileTouchPresentation
 }
 
 export type AgentConversationCommandDescriptor =
@@ -103,6 +113,7 @@ export type AgentConversationBlockedState =
       title: string
       detail?: string
       questions: AskQuestion[]
+      deadlineAt?: string | null
       command: Extract<AgentConversationCommandDescriptor, { kind: 'answer_ask' }>
     }
   | {
@@ -119,6 +130,7 @@ export type AgentConversationInterruption =
       streamId: string
       toolCallId: string
       questions: AskQuestion[]
+      deadlineAt?: string | null
     }
   | {
       kind: 'tool_permission'
@@ -158,7 +170,8 @@ function presentTurn(turn: AgentChatTurn, active: boolean): AgentConversationTur
       status: { kind: 'completed' },
       items: [],
       answeredAsks: [],
-      sources: []
+      sources: [],
+      fileTouches: undefined
     }
   }
 
@@ -207,8 +220,22 @@ function presentTurn(turn: AgentChatTurn, active: boolean): AgentConversationTur
     status,
     items,
     answeredAsks,
-    sources: presentSourceReferences(turn.metadata)
+    sources: presentSourceReferences(turn.metadata),
+    fileTouches: presentFileTouches(turn)
   }
+}
+
+/**
+ * Prefer durable metadata.fileTouches; fall back to rebuilding from toolCalls
+ * so live streams still show files-touched before audit metadata attaches.
+ */
+function presentFileTouches(turn: AgentChatTurn): FileTouchPresentation | undefined {
+  const fromMetadata = turn.metadata?.fileTouches
+  const ledger = fromMetadata?.files?.length
+    ? fromMetadata
+    : rebuildFileTouchLedgerFromToolCalls(turn.toolCalls)
+  const presentation = projectFileTouchesForLearner(ledger)
+  return presentation.empty ? undefined : presentation
 }
 
 function statusForTurn(turn: AgentChatTurn, active: boolean): AgentConversationTurnStatus {
@@ -252,6 +279,7 @@ function blockedStateForInterruption(interruption: AgentConversationInterruption
       title: '等待用户选择',
       detail: compactText(interruption.questions[0]?.prompt, 180),
       questions: interruption.questions,
+      deadlineAt: interruption.deadlineAt ?? null,
       command: commandForInterruption(interruption) as Extract<AgentConversationCommandDescriptor, { kind: 'answer_ask' }>
     }
   }

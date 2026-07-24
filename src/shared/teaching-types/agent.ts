@@ -201,6 +201,15 @@ export type AgentPersistedParentTurnProof = {
   digest: string
 }
 
+/**
+ * Compact file-touch reference projection (ADR-0143 learner surface).
+ * Not teaching-evidence; not settlement authority.
+ */
+export type AgentFileTouchMetadata = {
+  role: 'reference_projection'
+  files: Array<{ path: string; kind: 'read' | 'modified' }>
+}
+
 export type AgentTurnMetadata = {
   version: 1
   sources?: AgentSourceMetadata[]
@@ -210,6 +219,11 @@ export type AgentTurnMetadata = {
   contextEstimate?: AgentContextEstimateMetadata
   toolResults?: AgentToolResultDiagnostic[]
   runUsage?: AgentRunUsageAggregate
+  /**
+   * Deterministic workspace file-touch projection for learner transparency.
+   * Reference data only — not teaching outcome evidence / settlement.
+   */
+  fileTouches?: AgentFileTouchMetadata
   /** Durable run marker used to settle a pending parent turn without duplicating it after restart. */
   runId?: string
   /**
@@ -518,6 +532,8 @@ export type ReplayAgentChatEventsPayload = {
 export type AskOption = {
   label: string
   description?: string
+  /** When true, timeout settlement prefers this option (ADR-0144). */
+  recommended?: boolean
 }
 
 export type AskQuestion = {

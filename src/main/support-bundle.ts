@@ -20,6 +20,7 @@ import {
   type SupportBundleSectionPreview
 } from '../shared/teaching-types/support-bundle'
 import { redactAgentSecretText } from '../shared/agent-secret-redaction'
+import { isSecretFieldKey } from '../shared/secret-presence'
 import {
   REDACTED_ABSOLUTE_PATH,
   redactExportString,
@@ -705,7 +706,9 @@ function buildEnvironmentSection(
   input: SupportBundleEnvironmentInput,
   workspaceRoot: string | null
 ): SupportBundleSectionPreview {
-  const payload: Record<string, string | null> = {
+  // Allowlisted product fields first; then any smuggled own-keys so deepRedactJson
+  // can deny secret-shaped values while keeping presence booleans (ADR-0148).
+  const payload: Record<string, unknown> = {
     platform: redactText(String(input.platform ?? '')),
     appVersion: redactText(String(input.appVersion ?? ''))
   }
@@ -717,6 +720,12 @@ function buildEnvironmentSection(
   }
   if (input.arch != null) {
     payload.arch = redactText(String(input.arch))
+  }
+
+  const known = new Set(['platform', 'appVersion', 'electronVersion', 'nodeVersion', 'arch'])
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (known.has(key)) continue
+    payload[key] = value
   }
 
   return section('environment', deepRedactJson(payload, workspaceRoot), [])
@@ -876,20 +885,63 @@ const DENIED_FIELD_NAMES = new Set(
     'recordbodies',
     'conversationbodies',
     'memorybodies',
-    // MCP secret material must never ship in support bundles (ADR-0128 §11.4).
+    // MCP secret material must never ship in support bundles (ADR-0128 §11.4 / ADR-0148).
     'envsecrets',
     'envsecretrefs',
     'headerssecretrefs',
     'headers',
+    'headersplain',
     'rawcommand',
     'rawargs',
     'secretrefs',
-    'envplain'
+    'envplain',
+    'clientsecret',
+    'oauthclientsecret',
+    'bearertoken',
+    'sessiontoken',
+    'privatekey',
+    'mcpsecretrefs'
   ].map((name) => name.toLowerCase())
 )
 
 function isDeniedFieldName(name: string): boolean {
-  return DENIED_FIELD_NAMES.has(name.toLowerCase())
+  const lower = name.toLowerCase()
+  if (DENIED_FIELD_NAMES.has(lower)) return true
+  // Presence-only (ADR-0148): deny whole secret-bearing key names without
+  // collapsing lifecycle labels like authorizationState / authorizationCode (codes only).
+  // Boolean presence flags (hasApiKey, apiKeyConfigured, *SecretConfigured) must survive.
+  const compact = lower.replace(/[_-]/g, '')
+  if (
+    compact.startsWith('has') ||
+    compact.endsWith('configured') ||
+    compact.includes('presence') ||
+    compact.includes('configured')
+  ) {
+    return false
+  }
+  // Shared secret field detector (ADR-0148) for smuggled customApiKey etc.
+  if (isSecretFieldKey(name) || isSecretFieldKey(compact)) {
+    return true
+  }
+  if (
+    compact === 'apikey' ||
+    compact.endsWith('apikey') ||
+    compact === 'clientsecret' ||
+    compact.endsWith('clientsecret') ||
+    compact === 'accesstoken' ||
+    compact === 'refreshtoken' ||
+    compact === 'bearertoken' ||
+    compact === 'sessiontoken' ||
+    compact === 'privatekey' ||
+    compact === 'password' ||
+    compact.endsWith('password') ||
+    compact === 'authorization' ||
+    compact === 'secret' ||
+    compact.endsWith('secret')
+  ) {
+    return true
+  }
+  return false
 }
 
 function compact(value: string, max: number): string {

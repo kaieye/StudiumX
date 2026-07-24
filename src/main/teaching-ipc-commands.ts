@@ -33,6 +33,7 @@ import type { CommitLearningOutcomeRequest } from '../shared/teaching-types/syst
 import { normalizePreviewLessonInteractionIntent, type PreviewLessonInteractionIntent } from '../shared/teaching-types/lesson-interaction'
 import { isLessonStyleId } from '../shared/lesson-styles'
 import { isLearningSessionId } from '../shared/teaching-placement'
+import { normalizeProviderCustomHeaders } from '../shared/provider-custom-headers'
 
 const SAFE_CONVERSATION_ID = /^[a-z0-9][a-z0-9-]{0,99}$/
 const SAFE_OUTCOME_COMMIT_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?$/
@@ -488,16 +489,24 @@ export function parseReadWorkspaceChangeDiffPayload(payload: unknown): ReadWorks
 
 export function parseProbeProviderPayload(payload: unknown): ProbeProviderPayload {
   const record = requireRecord(payload)
+  const customHeaders = normalizeProviderCustomHeaders(record.customHeaders)
   return {
     baseUrl: requireString(record.baseUrl, 'baseUrl'),
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : '',
-    endpointFormat: requireEndpointFormat(record.endpointFormat)
+    endpointFormat: requireEndpointFormat(record.endpointFormat),
+    ...(customHeaders.length > 0 ? { customHeaders } : {})
   }
 }
 
 export function parseListUpstreamModelsPayload(
   payload: unknown,
-  providers: Array<{ id: string; baseUrl: string; apiKey: string; endpointFormat: ModelEndpointFormat }>
+  providers: Array<{
+    id: string
+    baseUrl: string
+    apiKey: string
+    endpointFormat: ModelEndpointFormat
+    customHeaders?: Array<{ name: string; value: string }>
+  }>
 ): ProbeProviderPayload | null {
   const providerIdPayload = payload && typeof payload === 'object'
     ? payload as { providerId?: unknown }
@@ -510,10 +519,12 @@ export function parseListUpstreamModelsPayload(
   if (providerId) {
     const provider = providers.find((item) => item.id === providerId)
     if (!provider) return null
+    const customHeaders = normalizeProviderCustomHeaders(provider.customHeaders)
     return {
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
-      endpointFormat: provider.endpointFormat
+      endpointFormat: provider.endpointFormat,
+      ...(customHeaders.length > 0 ? { customHeaders } : {})
     }
   }
   return parseProbeProviderPayload(payload)

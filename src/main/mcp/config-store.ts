@@ -12,6 +12,7 @@ import {
   toPublicMcpConfig,
   type ParseMcpConfigResult
 } from '../../shared/mcp/config-schema'
+import { applyMcpOps, type McpSettingsOp } from '../../shared/mcp/mcp-ops'
 import {
   MCP_ERROR_CODES,
   mcpUserMessage,
@@ -89,6 +90,47 @@ export class McpConfigStore {
         message: mcpUserMessage(MCP_ERROR_CODES.mcp_invalid_config)
       }
     }
+  }
+
+  /**
+   * Live settings getter: always reads the current store (cache/disk), never a
+   * frozen turn-level snapshot. Secret-free public projection only.
+   */
+  async getMcpSettings(): Promise<McpGetConfigResult> {
+    return this.getPublic()
+  }
+
+  /**
+   * CAS write via pure id-level ops reduction. Concurrent Settings updates that
+   * touch different server ids compose when each load-then-applyOps against the
+   * latest fingerprint (whole-document clobber is avoided at the merge layer).
+   */
+  async applyOps(
+    ops: readonly McpSettingsOp[],
+    expectedFingerprint: string,
+    secretChanges?: McpSecretInputChanges
+  ): Promise<McpConfigUpdateResult> {
+    const current = await this.load()
+    const currentFp = current.fingerprint ?? fingerprintUserMcpConfig(current)
+    if (!expectedFingerprint || expectedFingerprint !== currentFp) {
+      return {
+        ok: false,
+        code: MCP_ERROR_CODES.mcp_cas_conflict,
+        message: mcpUserMessage(MCP_ERROR_CODES.mcp_cas_conflict)
+      }
+    }
+
+    const applied = applyMcpOps(current, ops)
+    if (!applied.ok) {
+      return {
+        ok: false,
+        code: MCP_ERROR_CODES.mcp_invalid_config,
+        message: `${mcpUserMessage(MCP_ERROR_CODES.mcp_invalid_config)} ${applied.reason}`
+      }
+    }
+
+    const { fingerprint: _fp, ...document } = applied.config
+    return this.update(document, expectedFingerprint, secretChanges)
   }
 
   /**

@@ -14,6 +14,7 @@ export const STATIC_TEACHING_TOOL_NAMES: readonly string[] = [
   'glob_workspace',
   'memory_search',
   'write_workspace_file',
+  'edit_workspace_file',
   'remember_teaching_memory',
   'forget_teaching_memory',
   'delegate_task',

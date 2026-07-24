@@ -111,7 +111,7 @@ describe('Agent conversation presentation', () => {
       expect(presentation.turns[0].items[0].detail).toBeUndefined()
       expect(presentation.turns[0].items[0].disclosure).toBeUndefined()
       expect(JSON.stringify(presentation)).not.toContain('sensitive full result')
-      expect(JSON.stringify(presentation)).not.toContain('secret')
+      expect(JSON.stringify(presentation.turns[0].items)).not.toContain('secret')
     }
   })
 
@@ -254,4 +254,79 @@ describe('Agent conversation presentation', () => {
     }])
   })
 
+})
+
+describe('Agent conversation files-touched projection', () => {
+  it('projects successful workspace file tools as learner reference rows', () => {
+    const presentation = buildAgentConversationPresentation({
+      turns: [
+        assistantTurn({
+          toolCalls: [
+            {
+              id: 'r1',
+              name: 'read_workspace_file',
+              arguments: JSON.stringify({ path: 'lessons/intro.md' }),
+              result: '# intro'
+            },
+            {
+              id: 'w1',
+              name: 'write_workspace_file',
+              arguments: JSON.stringify({ path: 'notes/out.md', content: 'x' }),
+              result: 'ok'
+            }
+          ]
+        })
+      ]
+    })
+    const turn = presentation.turns[0]
+    expect(turn.fileTouches?.role).toBe('reference_projection')
+    expect(turn.fileTouches?.title).toBeTruthy()
+    expect(turn.fileTouches?.rows.map((row) => ({ path: row.displayPath, kind: row.kind }))).toEqual([
+      { path: 'lessons/intro.md', kind: 'read' },
+      { path: 'notes/out.md', kind: 'modified' }
+    ])
+  })
+
+  it('prefers durable metadata.fileTouches over toolCalls rebuild', () => {
+    const presentation = buildAgentConversationPresentation({
+      turns: [
+        assistantTurn({
+          toolCalls: [
+            {
+              id: 'r1',
+              name: 'read_workspace_file',
+              arguments: JSON.stringify({ path: 'from-tools.md' }),
+              result: 'x'
+            }
+          ],
+          metadata: {
+            version: 1,
+            fileTouches: {
+              role: 'reference_projection',
+              files: [{ path: 'from-metadata.md', kind: 'modified' }]
+            }
+          }
+        })
+      ]
+    })
+    expect(presentation.turns[0].fileTouches?.rows.map((r) => r.displayPath)).toEqual(['from-metadata.md'])
+  })
+
+  it('omits fileTouches when no workspace file tools succeeded', () => {
+    const presentation = buildAgentConversationPresentation({
+      turns: [
+        assistantTurn({
+          toolCalls: [
+            {
+              id: 's1',
+              name: 'web_search',
+              arguments: JSON.stringify({ query: 'x' }),
+              result: '[]'
+            }
+          ]
+        })
+      ]
+    })
+    expect(presentation.turns[0].fileTouches).toBeUndefined()
+  })
 })

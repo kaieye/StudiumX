@@ -319,6 +319,17 @@ async function runTeachingConversationTurnActive(
           status: 'running',
           pendingElicitationId: undefined
         }).catch(() => undefined)
+      },
+      // ADR-0144: re-publish stamped ask args (incl. __deadlineAt) so all UI
+      // surfaces share the host-authoritative countdown. Does not auto-approve writes.
+      publishWaiting: ({ toolCallId, argumentsJson }) => {
+        eventBus.publishTool({
+          toolCall: {
+            id: toolCallId,
+            name: 'ask',
+            arguments: argumentsJson
+          }
+        })
       }
     }))
   }

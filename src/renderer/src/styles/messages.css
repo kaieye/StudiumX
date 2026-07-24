@@ -176,6 +176,73 @@
   display: grid;
   gap: 6px;
   padding: 8px 10px 10px;
+}
+.agent-process-files-touched {
+  margin: 0 10px 10px;
+  padding: 8px 10px 10px;
+  border-top: 1px dashed var(--line);
+  border-radius: 0 0 10px 10px;
+  background: var(--surface-muted, rgba(20, 47, 95, 0.03));
+}
+.agent-process-files-touched__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.agent-process-files-touched__header svg {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.agent-process-files-touched__badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(20, 47, 95, 0.08);
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 650;
+}
+.agent-process-files-touched__caption {
+  margin: 4px 0 6px;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.agent-process-files-touched__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.agent-process-files-touched__list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.agent-process-files-touched__kind {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.agent-process-files-touched__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 500;
+}
+.agent-process-files-touched li[data-kind="modified"] .agent-process-files-touched__kind {
+  color: var(--accent);
 }.agent-process-event {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
@@ -408,6 +475,20 @@
   color: var(--accent);
 }
 
+.ask-card__deadline {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
 .ask-card__progress {
   margin-left: auto;
   padding: 2px 9px;
@@ -416,6 +497,14 @@
   color: var(--accent);
   font-size: 11px;
   font-weight: 700;
+}
+
+.ask-card__head .ask-card__progress {
+  margin-left: 0;
+}
+
+.ask-card__head:not(:has(.ask-card__deadline)) .ask-card__progress {
+  margin-left: auto;
 }
 
 .ask-card__crumbs {

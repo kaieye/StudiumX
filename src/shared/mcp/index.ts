@@ -11,6 +11,8 @@ export * from './static-tool-names'
 export * from './import-export'
 // McpSync pure parse / merge preview (ADR-0136 + ADR-0141 product path; no network)
 export * from './mcp-sync'
+// Id-level settings ops reduction (worth-learning §3.3 / Phase B)
+export * from './mcp-ops'
 export * from './filesystem-mcp-defaults'
 export * from './oauth-types'
 export * from './result-types'

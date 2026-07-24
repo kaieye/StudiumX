@@ -7,6 +7,8 @@ export type ProbeProviderPayload = {
   baseUrl: string
   apiKey: string
   endpointFormat: ModelEndpointFormat
+  /** Optional custom headers (same rules as provider profile; ADR-0149). */
+  customHeaders?: Array<{ name: string; value: string }>
 }
 
 export type ProbeProviderResult =

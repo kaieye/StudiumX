@@ -33,6 +33,7 @@ const WORKSPACE_READ_TOOLS = new Set([
 
 const WORKSPACE_WRITE_TOOLS = new Set([
   'write_workspace_file',
+  'edit_workspace_file',
   'remember_teaching_memory',
   'forget_teaching_memory'
 ])
