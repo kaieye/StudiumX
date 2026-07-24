@@ -20,6 +20,14 @@ import { PREVIEW_PROTOCOL } from '../shared/preview-markdown-bridge'
 import type { TeachingSettingsV1 } from '../shared/teaching-types'
 import { createCrashMarkerStore, installLocalCrashMarkerHooks } from './observability'
 import { installSystemPowerBridge } from './system-power-bridge'
+import {
+  createWebRemoteControlManager,
+  type WebRemoteControlManager
+} from './web-remote-control'
+import {
+  registerWebRemoteControlIpc,
+  sendWebRemoteControlStatusChanged
+} from './web-remote-control/ipc'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
@@ -224,6 +232,7 @@ if (!hasSingleInstanceLock) {
   let runtime: ApplicationRuntime | undefined
   let mcpHost: McpHost | undefined
   let uninstallCrashMarkerHooks: (() => void) | undefined
+  let webRemoteControlManager: WebRemoteControlManager | undefined
 
   app.whenReady().then(async () => {
     app.setName(APP_NAME)
@@ -378,6 +387,19 @@ if (!hasSingleInstanceLock) {
 
         registerMusicIpcGateway()
         if (mcpHost) registerMcpIpcGateway({ host: mcpHost })
+
+        webRemoteControlManager = createWebRemoteControlManager({
+          settingsService,
+          workspaceService,
+          logger,
+          appVersion: app.getVersion(),
+          deviceName: APP_NAME,
+          allowUnderDevelopment: process.env.STUDIUMX_ALLOW_UNDER_DEVELOPMENT === '1',
+          onStatusChanged: (windowId, status) => {
+            sendWebRemoteControlStatusChanged(windowId, status)
+          }
+        })
+        registerWebRemoteControlIpc(webRemoteControlManager)
 },
       open: ({ settingsService, initialSettings, tray, logger }) => {
         const startHidden = initialSettings.appBehavior.startMinimized || process.argv.includes('--hidden')
@@ -391,7 +413,11 @@ if (!hasSingleInstanceLock) {
           createWindow(settingsService, tray, logger)
         }
       },
-      drain: ({ localDataIndex, logger }) => {
+      drain: async ({ localDataIndex, logger }) => {
+        if (webRemoteControlManager) {
+          await webRemoteControlManager.disposeAll()
+          webRemoteControlManager = undefined
+        }
         localDataIndex.close()
         void mcpHost?.dispose()
         return logger.shutdown()

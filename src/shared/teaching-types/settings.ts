@@ -11,6 +11,7 @@ export type SettingsSection =
   | 'search'
   | 'connectors'
   | 'mcp'
+  | 'remote'
   | 'workspace'
   | 'worktree'
   | 'memory'
@@ -262,10 +263,38 @@ export type TeachingSettingsV1 = {
     enabled: boolean
     retentionDays: number
   }
+  /**
+   * Mobile web remote control (ADR-0143). Default off.
+   * `passHash` is secret-storage protected; never put in public status DTOs.
+   */
+  webRemoteControl: {
+    enabled: boolean
+    bindMode: 'loopback' | 'lan'
+    port: number
+    relayMode: 'lan' | 'external'
+    externalRelayWsUrl: string
+    externalMobileBaseUrl: string
+    deviceSid: string
+    passHash: string
+  }
 }
 
 export type TeachingSettingsPatch = Partial<
-  Omit<TeachingSettingsV1, 'provider' | 'generator' | 'workspace' | 'worktree' | 'memory' | 'tools' | 'notifications' | 'pet' | 'privacy' | 'appBehavior' | 'log'>
+  Omit<
+    TeachingSettingsV1,
+    | 'provider'
+    | 'generator'
+    | 'workspace'
+    | 'worktree'
+    | 'memory'
+    | 'tools'
+    | 'notifications'
+    | 'pet'
+    | 'privacy'
+    | 'appBehavior'
+    | 'log'
+    | 'webRemoteControl'
+  >
 > & {
   provider?: Partial<Omit<TeachingSettingsV1['provider'], 'proxy'>> & {
     proxy?: Partial<TeachingSettingsV1['provider']['proxy']>
@@ -287,4 +316,5 @@ export type TeachingSettingsPatch = Partial<
   privacy?: Partial<TeachingSettingsV1['privacy']>
   appBehavior?: Partial<TeachingSettingsV1['appBehavior']>
   log?: Partial<TeachingSettingsV1['log']>
+  webRemoteControl?: Partial<TeachingSettingsV1['webRemoteControl']>
 }

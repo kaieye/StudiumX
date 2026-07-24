@@ -620,6 +620,39 @@
         "refreshOk": "目录刷新：拉取 {{fetched}}，合并 {{merged}}，错误 {{errors}}。",
         "refreshFail": "目录刷新失败：{{message}}"
       }
+    },
+    "remote": {
+      "title": "移动端远程控制",
+      "subtitle": "默认本机绑定；可改为局域网。不默认连接任何云服务。配对密钥经系统安全存储。",
+      "note": "功能处于开发中：开发环境可设 STUDIUMX_ALLOW_UNDER_DEVELOPMENT=1。工具调用仍须审批。",
+      "enabled": {
+        "label": "启用远程控制",
+        "detail": "允许桌面打开配对服务（侧栏手机图标）。"
+      },
+      "bindMode": {
+        "label": "绑定方式",
+        "detail": "loopback 仅本机；lan 暴露到局域网（需自行评估风险）。",
+        "loopback": "仅本机 (127.0.0.1)",
+        "lan": "局域网 (0.0.0.0)"
+      },
+      "port": {
+        "label": "端口",
+        "detail": "0 表示自动分配空闲端口。"
+      },
+      "relayMode": {
+        "label": "中继模式",
+        "detail": "默认局域网直连。外部中继需自行部署，且不会默认填写任何云地址。",
+        "lan": "局域网",
+        "external": "自建中继（高级）"
+      },
+      "externalRelayWsUrl": {
+        "label": "中继 WSS URL",
+        "detail": "仅 external 模式使用，例如 wss://relay.example.com/ws"
+      },
+      "externalMobileBaseUrl": {
+        "label": "移动页 Base URL",
+        "detail": "生成二维码用的页面根地址（可选）。"
+      }
     }
   },
   "settingsSection": {
@@ -686,6 +719,10 @@
     "mcp": {
       "label": "MCP",
       "detail": "用户配置的外部工具（默认关闭）"
+    },
+    "remote": {
+      "label": "远程控制",
+      "detail": "手机局域网配对"
     }
   },
   "general": {
@@ -1525,6 +1562,180 @@
       "mcpSync": "导出 McpSync",
       "mcpSyncAria": "导出为 McpSync 信封 JSON",
       "mcpSyncSuccess": "已下载 McpSync 信封（无密钥）。"
+    }
+  },
+  "webRemoteControl": {
+    "trigger": "移动端远程控制",
+    "eyebrow": "远程",
+    "title": "移动端远程控制",
+    "description": "在同一局域网用手机浏览器控制 StudiumX。默认仅本机绑定；可在设置中改为局域网。不默认连接任何云服务。",
+    "mobileQr": {
+      "title": "连接码",
+      "description": "用手机打开链接，或参考下方离线连接图形。也可复制链接在手机浏览器打开。"
+    },
+    "qrAlt": "远程控制连接图形",
+    "generating": "正在生成连接信息…",
+    "copyLink": {
+      "description": "同一 Wi‑Fi 下用手机浏览器打开链接，或直接扫描二维码。",
+      "copied": "链接已复制"
+    },
+    "refreshQrLabel": "刷新配对",
+    "refreshQr": {
+      "confirmDescription": "刷新会作废当前链接，已连接的手机需要重新配对。确定继续？"
+    },
+    "stop": "停止远程控制",
+    "apiMissing": "远程控制 API 不可用（preload 未暴露）。",
+    "bind": "监听 {{host}}:{{port}}",
+    "status": {
+      "idle": "未开启",
+      "starting": "启动中",
+      "running": "等待手机连接",
+      "connecting": "连接中",
+      "active": "已连接",
+      "error": "错误"
+    },
+    "statusDetail": {
+      "idle": "点击侧栏图标即可开启。",
+      "starting": "正在启动本机配对服务…",
+      "running": "手机打开链接后完成配对。",
+      "connecting": "正在建立会话…",
+      "active": "手机已配对，可进行控制。",
+      "error": "启动失败，请检查设置或日志。"
+    },
+    "statusTag": {
+      "phone": "手机已连接",
+      "ready": "就绪"
+    },
+    "copyLinkLabel": "复制链接",
+    "guide": {
+      "title": "使用说明",
+      "description": "StudiumX 远程控制默认仅本机/局域网，不默认连接任何云服务。",
+      "step1": "保持电脑与手机在同一网络（或使用本机预览）。",
+      "step2": "手机扫描左侧二维码，或复制链接在浏览器打开。",
+      "step3": "配对成功后可在手机上查看工作区与对话（能力按版本逐步开放）。",
+      "network": "监听地址",
+      "networkWaiting": "启动后显示本机地址与端口",
+      "workspace": "当前工作区",
+      "footnote": "刷新配对会作废旧链接。工具调用仍须审批，不会自动放行。"
+    },
+    "triggerStatus": {
+      "idle": "未开启",
+      "starting": "启动中",
+      "waiting": "等待手机",
+      "connecting": "连接中",
+      "connected": "手机已连接",
+      "error": "出错"
+    },
+    "botChannel": {
+      "title": "消息通道",
+      "description": "把 StudiumX 接到常用聊天平台。可先完成配置与绑定流程设计；通道运行时尚未接入。",
+      "configure": "配置",
+      "manageBots": "管理通道",
+      "manageTitle": "消息通道",
+      "manageDescription": "添加与管理远程消息通道。配置会保存在本机；第三方通道运行时仍在规划中。",
+      "addBot": "添加通道",
+      "empty": "还没有通道，点击上方添加。",
+      "emptyMain": "选择左侧通道，或添加一个新通道。",
+      "selectProviderHint": "选择一个平台开始配置。",
+      "newTitle": "选择平台",
+      "newDescription": "选择要接入的聊天平台，进入对应配置页。",
+      "createdHint": "已创建通道草稿，可继续完成绑定与选项。",
+      "connected": "已连接",
+      "unbound": "未绑定",
+      "enabled": "启用",
+      "disabled": "停用",
+      "configuredCount": "已配置 {{count}}",
+      "botToken": "机器人凭证",
+      "botTokenDescription": {
+        "weixin": "扫描注册二维码创建/绑定微信侧机器人（示意流程）。",
+        "feishu": "扫描注册二维码创建/绑定飞书应用（示意流程）。",
+        "lark": "扫描注册二维码创建/绑定 Lark 应用（示意流程）。",
+        "telegram": "在 BotFather 创建机器人后，粘贴 Bot Token。"
+      },
+      "openBotFather": "打开 BotFather",
+      "scanQrCode": "扫码注册",
+      "telegramBotFatherQrAlt": "BotFather 链接二维码",
+      "telegramBotFatherScanHint": "用手机 Telegram 扫描或搜索 BotFather，创建机器人后复制 Token。",
+      "credentialPlaceholder": "粘贴 Bot Token",
+      "saveSecret": "保存凭证",
+      "secretSavedLocal": "已在本地保存凭证掩码（完整密钥不会上传；运行时尚未接入）。",
+      "secretRemoved": "已清除本地凭证掩码。",
+      "unbind": "解除绑定",
+      "bind": "生成绑定指令",
+      "bindCommand": "绑定指令",
+      "bindCommandGuide": "在聊天窗口发送以下指令，完成与当前桌面会话的绑定。",
+      "refreshBindCode": "刷新",
+      "copyBindCommand": "复制",
+      "bindCommandCopied": "绑定指令已复制。",
+      "copyFailed": "复制失败。",
+      "bindStep": {
+        "copy": "复制绑定指令",
+        "openChat": "打开与机器人的会话",
+        "send": "发送指令完成绑定"
+      },
+      "bindCodeExpires": "将在 {{time}} 后过期",
+      "bindCodeExpired": "绑定码已过期，请刷新。",
+      "scanHint": {
+        "weixin": "使用微信扫描二维码完成注册（示意）。",
+        "feishu": "使用飞书扫描二维码完成注册（示意）。",
+        "lark": "使用 Lark 扫描二维码完成注册（示意）。",
+        "telegram": "扫描二维码完成注册（示意）。"
+      },
+      "scanQrAlt": {
+        "weixin": "微信注册二维码",
+        "feishu": "飞书注册二维码",
+        "lark": "Lark 注册二维码",
+        "telegram": "注册二维码"
+      },
+      "scanStatus": {
+        "pending": "等待扫码…",
+        "scanned": "已扫码，确认中…",
+        "success": "注册成功",
+        "failed": "注册失败"
+      },
+      "scanStarted": "已生成示意注册码。运行时接入后将轮询真实状态。",
+      "scanFootnote": "当前为界面示意，不会向任何云服务发起注册请求。",
+      "replyGranularity": "回复粒度",
+      "replyGranularityDescription": "控制通道向聊天侧推送的内容详细程度。",
+      "replyMode": {
+        "assistant_changes": "助手回复与变更",
+        "assistant_toolcalls_changes": "助手回复、工具调用与变更",
+        "summary_changes": "摘要与变更"
+      },
+      "allowedWorkspaces": "允许的工作区",
+      "allowedWorkspacesAll": "可访问全部已打开工作区。",
+      "allowedWorkspacesSelected": "已选择 {{count}} 个工作区。",
+      "workspaceMode": {
+        "all": "全部工作区",
+        "selected": "指定工作区"
+      },
+      "currentWorkspaceFallback": "当前工作区",
+      "fields": {
+        "note": "备注",
+        "noteHint": "仅保存在本机的说明文字。",
+        "notePlaceholder": "可选备注（请勿粘贴真实密钥）"
+      },
+      "delete": "删除通道",
+      "deleteDescription": "删除后需重新配置；不会影响桌面教学工作区文件。",
+      "confirmDelete": "确定删除该通道配置？",
+      "runtimeUnavailable": "配置界面已对齐常见通道产品形态；第三方消息通道运行时尚未接入，不会默认连接任何云服务。",
+      "weixin": {
+        "title": "微信",
+        "description": "通过微信侧机器人与桌面会话互动。"
+      },
+      "feishu": {
+        "title": "飞书",
+        "description": "飞书机器人与应用绑定。"
+      },
+      "lark": {
+        "title": "Lark",
+        "description": "Lark 国际版机器人接入。"
+      },
+      "telegram": {
+        "title": "Telegram",
+        "description": "Telegram Bot API 接入。"
+      },
+      "back": "返回"
     }
   }
 }

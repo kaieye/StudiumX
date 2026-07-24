@@ -620,6 +620,39 @@
         "refreshOk": "Catalog refresh: fetched {{fetched}}, merged {{merged}}, errors {{errors}}.",
         "refreshFail": "Catalog refresh failed: {{message}}"
       }
+    },
+    "remote": {
+      "title": "Mobile remote control",
+      "subtitle": "Default loopback; optional LAN bind. No default cloud service. Pairing secrets use OS secure storage.",
+      "note": "Feature is under development. Set STUDIUMX_ALLOW_UNDER_DEVELOPMENT=1 in dev. Tool calls still require approval.",
+      "enabled": {
+        "label": "Enable remote control",
+        "detail": "Allow the desktop pairing server (sidebar phone icon)."
+      },
+      "bindMode": {
+        "label": "Bind mode",
+        "detail": "loopback is local only; lan exposes the service on your network.",
+        "loopback": "Loopback (127.0.0.1)",
+        "lan": "LAN (0.0.0.0)"
+      },
+      "port": {
+        "label": "Port",
+        "detail": "0 picks a free port automatically."
+      },
+      "relayMode": {
+        "label": "Relay mode",
+        "detail": "LAN direct by default. External relay is self-hosted only — never a default cloud URL.",
+        "lan": "LAN",
+        "external": "Self-hosted relay (advanced)"
+      },
+      "externalRelayWsUrl": {
+        "label": "Relay WSS URL",
+        "detail": "Used only in external mode, e.g. wss://relay.example.com/ws"
+      },
+      "externalMobileBaseUrl": {
+        "label": "Mobile base URL",
+        "detail": "Optional base used when building the QR URL."
+      }
     }
   },
   "settingsSection": {
@@ -686,6 +719,10 @@
     "mcp": {
       "label": "MCP",
       "detail": "User-configured external tools (default off)"
+    },
+    "remote": {
+      "label": "Remote control",
+      "detail": "Phone LAN pairing"
     }
   },
   "general": {
@@ -1525,6 +1562,180 @@
       "mcpSync": "Export McpSync",
       "mcpSyncAria": "Export as McpSync envelope JSON",
       "mcpSyncSuccess": "McpSync envelope downloaded (secret-free)."
+    }
+  },
+  "webRemoteControl": {
+    "trigger": "Mobile remote control",
+    "eyebrow": "Remote",
+    "title": "Mobile remote control",
+    "description": "Control StudiumX from a phone browser on your LAN. Default bind is loopback; enable LAN bind in settings. No default cloud service.",
+    "mobileQr": {
+      "title": "Connect code",
+      "description": "Open the link on your phone, or use the offline glyph below. You can also copy the URL into the phone browser."
+    },
+    "qrAlt": "Remote control connect glyph",
+    "generating": "Generating connection info…",
+    "copyLink": {
+      "description": "On the same Wi‑Fi, open the link in a phone browser or scan the QR code.",
+      "copied": "Link copied"
+    },
+    "refreshQrLabel": "Refresh pairing",
+    "refreshQr": {
+      "confirmDescription": "Refreshing invalidates the current link; the phone must pair again. Continue?"
+    },
+    "stop": "Stop remote control",
+    "apiMissing": "Remote control API is unavailable (preload not exposed).",
+    "bind": "Listening on {{host}}:{{port}}",
+    "status": {
+      "idle": "Idle",
+      "starting": "Starting",
+      "running": "Waiting for phone",
+      "connecting": "Connecting",
+      "active": "Connected",
+      "error": "Error"
+    },
+    "statusDetail": {
+      "idle": "Open from the sidebar icon.",
+      "starting": "Starting local pairing server…",
+      "running": "Open the link on your phone to pair.",
+      "connecting": "Establishing session…",
+      "active": "Phone paired; control is available.",
+      "error": "Failed to start — check settings or logs."
+    },
+    "statusTag": {
+      "phone": "Phone connected",
+      "ready": "Ready"
+    },
+    "copyLinkLabel": "Copy link",
+    "guide": {
+      "title": "How to connect",
+      "description": "StudiumX remote control stays on your LAN by default — no default cloud service.",
+      "step1": "Keep the desktop and phone on the same network (or preview on this machine).",
+      "step2": "Scan the QR code on the left, or copy the link into the phone browser.",
+      "step3": "After pairing, browse workspaces and chats on the phone (features roll out by phase).",
+      "network": "Listening address",
+      "networkWaiting": "Host and port appear after start",
+      "workspace": "Current workspace",
+      "footnote": "Refreshing pairing invalidates the old link. Tool calls still require approval."
+    },
+    "triggerStatus": {
+      "idle": "Idle",
+      "starting": "Starting",
+      "waiting": "Waiting for phone",
+      "connecting": "Connecting",
+      "connected": "Phone connected",
+      "error": "Error"
+    },
+    "botChannel": {
+      "title": "Message channels",
+      "description": "Connect StudiumX to chat platforms. Full configuration UI is available; channel runtime is not wired yet.",
+      "configure": "Configure",
+      "manageBots": "Manage channels",
+      "manageTitle": "Message channels",
+      "manageDescription": "Add and manage remote message channels. Settings are stored locally; third-party runtimes are still planned.",
+      "addBot": "Add channel",
+      "empty": "No channels yet. Add one above.",
+      "emptyMain": "Select a channel on the left, or add a new one.",
+      "selectProviderHint": "Pick a platform to start.",
+      "newTitle": "Choose a platform",
+      "newDescription": "Select a chat platform to open its configuration page.",
+      "createdHint": "Draft channel created — continue binding and options.",
+      "connected": "Connected",
+      "unbound": "Not bound",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "configuredCount": "{{count}} configured",
+      "botToken": "Bot credentials",
+      "botTokenDescription": {
+        "weixin": "Scan the registration QR to create/bind a WeChat bot (preview flow).",
+        "feishu": "Scan the registration QR to create/bind a Feishu app (preview flow).",
+        "lark": "Scan the registration QR to create/bind a Lark app (preview flow).",
+        "telegram": "Create a bot with BotFather, then paste the bot token."
+      },
+      "openBotFather": "Open BotFather",
+      "scanQrCode": "Scan to register",
+      "telegramBotFatherQrAlt": "BotFather link QR",
+      "telegramBotFatherScanHint": "Scan or open BotFather in Telegram, create a bot, then paste the token.",
+      "credentialPlaceholder": "Paste bot token",
+      "saveSecret": "Save credential",
+      "secretSavedLocal": "Saved a local credential mask (full secrets are not uploaded; runtime not wired).",
+      "secretRemoved": "Local credential mask cleared.",
+      "unbind": "Unbind",
+      "bind": "Create bind command",
+      "bindCommand": "Bind command",
+      "bindCommandGuide": "Send the following command in chat to bind this desktop session.",
+      "refreshBindCode": "Refresh",
+      "copyBindCommand": "Copy",
+      "bindCommandCopied": "Bind command copied.",
+      "copyFailed": "Copy failed.",
+      "bindStep": {
+        "copy": "Copy the bind command",
+        "openChat": "Open the bot chat",
+        "send": "Send the command to finish binding"
+      },
+      "bindCodeExpires": "Expires in {{time}}",
+      "bindCodeExpired": "Bind code expired — refresh it.",
+      "scanHint": {
+        "weixin": "Scan with WeChat to finish registration (preview).",
+        "feishu": "Scan with Feishu to finish registration (preview).",
+        "lark": "Scan with Lark to finish registration (preview).",
+        "telegram": "Scan to finish registration (preview)."
+      },
+      "scanQrAlt": {
+        "weixin": "WeChat registration QR",
+        "feishu": "Feishu registration QR",
+        "lark": "Lark registration QR",
+        "telegram": "Registration QR"
+      },
+      "scanStatus": {
+        "pending": "Waiting for scan…",
+        "scanned": "Scanned, confirming…",
+        "success": "Registered",
+        "failed": "Registration failed"
+      },
+      "scanStarted": "Preview registration code generated. Real polling arrives with runtime wiring.",
+      "scanFootnote": "UI preview only — no registration request is sent to any cloud.",
+      "replyGranularity": "Reply granularity",
+      "replyGranularityDescription": "How much detail is pushed back to the chat channel.",
+      "replyMode": {
+        "assistant_changes": "Assistant replies & changes",
+        "assistant_toolcalls_changes": "Replies, tool calls & changes",
+        "summary_changes": "Summary & changes"
+      },
+      "allowedWorkspaces": "Allowed workspaces",
+      "allowedWorkspacesAll": "All open workspaces are allowed.",
+      "allowedWorkspacesSelected": "{{count}} workspace(s) selected.",
+      "workspaceMode": {
+        "all": "All workspaces",
+        "selected": "Selected workspaces"
+      },
+      "currentWorkspaceFallback": "Current workspace",
+      "fields": {
+        "note": "Notes",
+        "noteHint": "Stored only on this machine.",
+        "notePlaceholder": "Optional notes (do not paste real secrets)"
+      },
+      "delete": "Delete channel",
+      "deleteDescription": "Removes this channel config only — teaching workspace files are untouched.",
+      "confirmDelete": "Delete this channel configuration?",
+      "runtimeUnavailable": "Configuration UI matches common channel products; third-party message runtimes are not wired and no cloud is used by default.",
+      "weixin": {
+        "title": "WeChat",
+        "description": "Interact with desktop sessions via a WeChat bot."
+      },
+      "feishu": {
+        "title": "Feishu",
+        "description": "Feishu bot / app binding."
+      },
+      "lark": {
+        "title": "Lark",
+        "description": "Lark international bot bridge."
+      },
+      "telegram": {
+        "title": "Telegram",
+        "description": "Telegram Bot API bridge."
+      },
+      "back": "Back"
     }
   }
 }

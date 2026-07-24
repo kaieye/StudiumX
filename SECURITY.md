@@ -10,8 +10,9 @@ StudiumX is a **local teaching workspace**. This document states the product tru
 4. **Logs and support bundles** — support bundles require explicit user consent and redaction (ADR-0034). History redaction applies to newly persisted conversation/history projections (ADR-0007).
 5. **Tool effect authorization** — tools are classified (`read` | `workspace_write` | `external_write` | `privileged`) and fail closed for unknown tools (ADR-0024). Capability catalog remains fail-closed (ADR-0022).
 6. **MCP lifecycle and trust** — ADR-0132 + ADR-0141 (hard safety / foundation) + **ADR-0142 (Settings product surface)**: multi-source, auto-connect host APIs, OAuth, workspace-root injection, and plugin MCP remain available. **Marketplace is main/shared foundation only** — **no Settings marketplace UI** in current shipping. MCP Settings = list/editor/import/OAuth. Hard invariants unchanged: secrets/tokens never enter renderer/Doctor/support bundle/logs; MCP results are not LearningSession/Evidence/Outcome authority; settlement sole-writer unchanged; tool calls still pass effect lattice + approval (no YOLO). Catalog fetch is not product telemetry. Emergency disable / revoke remain required.
+7. **Mobile web remote control (opt-in)** — ADR-0143: **default off**; feature `web-remote-control` is `under_development`. Default bind is **loopback**; LAN bind is explicit. **No default cloud relay** (no `zcode.z.ai`). Pairing `passHash` uses settings secret storage; status DTOs are secret-free. Remote tool actions still use effect lattice + approval (no YOLO). Optional self-hosted WSS URL is user-configured only.
 
-Executable gates: `pnpm run check:security`, `pnpm run check:provider-privacy`, `pnpm run check:settings-secret-storage`.
+Executable gates: `pnpm run check:security`, `pnpm run check:provider-privacy`, `pnpm run check:settings-secret-storage`, `pnpm run check:web-remote-control`.
 
 ## Non-boundaries (hardening, not the OS isolation claim)
 
@@ -55,6 +56,7 @@ Do not open public issues that contain API keys, learner answers, or unredacted 
 - MCP Phase F workspace-root injection: `docs/adr/0138-mcp-filesystem-workspace-root-injection.md`
 - MCP Phase H local marketplace catalog (foundation): `docs/adr/0140-mcp-marketplace-local-catalog.md`
 - MCP Settings product surface (no marketplace UI): `docs/adr/0142-mcp-product-surface-settings-only.md`
+- Mobile web remote control (LAN + optional self-hosted relay): `docs/adr/0143-web-remote-control-lan-and-self-hosted-relay.md`
 - Tool contract: `docs/tools/TOOL_CONTRACT.md`
 - Config paths: `docs/CONFIG_PATHS.md`
 - Contributor checks: `CONTRIBUTING.md`

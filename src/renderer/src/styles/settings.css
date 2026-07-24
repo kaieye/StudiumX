@@ -1948,3 +1948,20 @@
   flex: 0 0 auto;
   pointer-events: none;
 }
+
+
+/* Remote control / shared inline note */
+.settings-inline-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line, #e8edf5);
+  background: var(--surface-muted, #f4f6fa);
+  color: var(--text-muted, #68778f);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.settings-inline-note svg { flex: 0 0 auto; margin-top: 1px; }

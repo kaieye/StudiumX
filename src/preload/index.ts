@@ -3,6 +3,14 @@ import type { TeachingSystemApi } from '../shared/teaching-types'
 import type { StudiumxMusicApi } from '../shared/music-types'
 import { musicInvokeChannels } from '../shared/music-ipc-contract'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
+import {
+  webRemoteControlEventChannels,
+  webRemoteControlInvokeChannels
+} from '../shared/web-remote-control/ipc-contract'
+import type {
+  WebRemoteControlRuntimeStatus,
+  WebRemoteControlStartPayload
+} from '../shared/web-remote-control'
 import { createAgentRealtimeDelivery } from './agent-realtime-delivery'
 import type {
   AgentRealtimeEvent,
@@ -186,6 +194,19 @@ const musicApi: StudiumxMusicApi = {
   getLikedSongs: (provider) => ipcRenderer.invoke(musicInvokeChannels.getLikedSongs, provider)
 }
 
+const webRemoteControlApi = {
+  start: (payload?: WebRemoteControlStartPayload) =>
+    ipcRenderer.invoke(webRemoteControlInvokeChannels.start, payload) as Promise<WebRemoteControlRuntimeStatus>,
+  stop: () => ipcRenderer.invoke(webRemoteControlInvokeChannels.stop) as Promise<void>,
+  resetPairing: (payload?: WebRemoteControlStartPayload) =>
+    ipcRenderer.invoke(webRemoteControlInvokeChannels.resetPairing, payload) as Promise<WebRemoteControlRuntimeStatus>,
+  getStatus: () =>
+    ipcRenderer.invoke(webRemoteControlInvokeChannels.getStatus) as Promise<WebRemoteControlRuntimeStatus>,
+  onStatusChanged: (handler: (status: WebRemoteControlRuntimeStatus) => void) =>
+    registerIpcListener<WebRemoteControlRuntimeStatus>(webRemoteControlEventChannels.statusChanged, handler)
+}
+
 contextBridge.exposeInMainWorld('teachingSystem', api)
 contextBridge.exposeInMainWorld('studiumxMusic', musicApi)
+contextBridge.exposeInMainWorld('studiumxWebRemoteControl', webRemoteControlApi)
 

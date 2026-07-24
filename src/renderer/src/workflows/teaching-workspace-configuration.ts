@@ -121,6 +121,12 @@ export type TeachingWorkspaceSettingsPath =
   | 'privacy.allowExternalLinks'
   | 'provider.proxy.enabled'
   | 'provider.proxy.url'
+  | 'webRemoteControl.enabled'
+  | 'webRemoteControl.bindMode'
+  | 'webRemoteControl.port'
+  | 'webRemoteControl.relayMode'
+  | 'webRemoteControl.externalRelayWsUrl'
+  | 'webRemoteControl.externalMobileBaseUrl'
 
 /** Builds persisted-setting patches from domain setting names, keeping patch shape out of the view. */
 export function buildTeachingWorkspaceSettingsPatch(
@@ -191,6 +197,17 @@ export function buildTeachingWorkspaceSettingsPatch(
     case 'provider.proxy.enabled':
     case 'provider.proxy.url':
       return { provider: { proxy: { [path.slice('provider.proxy.'.length)]: value } } }
+    case 'webRemoteControl.enabled':
+    case 'webRemoteControl.bindMode':
+    case 'webRemoteControl.port':
+    case 'webRemoteControl.relayMode':
+    case 'webRemoteControl.externalRelayWsUrl':
+    case 'webRemoteControl.externalMobileBaseUrl':
+      return {
+        webRemoteControl: {
+          [path.slice('webRemoteControl.'.length)]: value
+        }
+      } as TeachingSettingsPatch
   }
 }
 

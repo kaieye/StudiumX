@@ -40,6 +40,7 @@ import {
   X,
   Wrench
 } from 'lucide-react'
+import { WorkspaceWebRemoteControlTrigger } from './views/web-remote-control/WebRemoteControlDialog'
 import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Component, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -352,6 +353,12 @@ function Sidebar() {
         <button className="avatar-button" type="button" onClick={() => openSettings('general')}>
           <span className="avatar">C</span>
         </button>
+        <WorkspaceWebRemoteControlTrigger
+          compact
+          workspacePath={active?.rootPath}
+          workspaceId={active?.id}
+          initialTaskId={activeConversationId ?? undefined}
+        />
         <button
           className={`icon-button${settings.notifications.enabled ? '' : ' is-muted'}`}
           type="button"

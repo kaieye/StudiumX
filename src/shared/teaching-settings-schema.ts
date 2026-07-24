@@ -153,6 +153,16 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
     log: {
       enabled: true,
       retentionDays: 14
+    },
+    webRemoteControl: {
+      enabled: false,
+      bindMode: 'loopback',
+      port: 0,
+      relayMode: 'lan',
+      externalRelayWsUrl: '',
+      externalMobileBaseUrl: '',
+      deviceSid: '',
+      passHash: ''
     }
   }
 }
@@ -229,6 +239,10 @@ export function mergeTeachingSettings(
     log: {
       ...current.log,
       ...(patch.log ?? {})
+    },
+    webRemoteControl: {
+      ...current.webRemoteControl,
+      ...(patch.webRemoteControl ?? {})
     }
   }
 }
@@ -380,7 +394,28 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
     log: {
       enabled: logInput.enabled !== false,
       retentionDays: Math.round(clampNumber(logInput.retentionDays, 1, 90, defaults.log.retentionDays))
-    }
+    },
+    webRemoteControl: normalizeWebRemoteControlSettings(record.webRemoteControl, defaults.webRemoteControl)
+  }
+}
+
+function normalizeWebRemoteControlSettings(
+  input: unknown,
+  defaults: TeachingSettingsV1['webRemoteControl']
+): TeachingSettingsV1['webRemoteControl'] {
+  const record = isRecord(input) ? input : {}
+  const bindMode = record.bindMode === 'lan' ? 'lan' : 'loopback'
+  const relayMode = record.relayMode === 'external' ? 'external' : 'lan'
+  const portRaw = Math.round(clampNumber(record.port, 0, 65535, defaults.port))
+  return {
+    enabled: record.enabled === true,
+    bindMode,
+    port: portRaw,
+    relayMode,
+    externalRelayWsUrl: normalizeString(record.externalRelayWsUrl),
+    externalMobileBaseUrl: normalizeString(record.externalMobileBaseUrl),
+    deviceSid: normalizeString(record.deviceSid),
+    passHash: normalizeString(record.passHash)
   }
 }
 

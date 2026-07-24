@@ -210,6 +210,15 @@ export const FEATURES: readonly FeatureDefinition[] = [
       'Main/shared marketplace catalog foundation (ADR-0140). No Settings marketplace UI (ADR-0142). Tool calls still use effect/approval. Not a YOLO bypass; secrets stay in main.',
     since: '2026-07',
     footprintHint: 3
+  },
+  {
+    id: 'web-remote-control',
+    stage: 'under_development',
+    title: '移动端远程控制',
+    summary:
+      'LAN default + optional self-hosted WSS relay (ADR-0143). No default cloud relay. Pairing secrets main-only; tools still use effect lattice + approval (no YOLO).',
+    since: '2026-07',
+    footprintHint: 4
   }
 ] as const
 

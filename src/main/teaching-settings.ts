@@ -175,6 +175,14 @@ function preserveProtectedSettingsSecrets(
     const templateValue = (template as any).webSearch?.[key]
     if (!copy.webSearch?.[key] && isProtectedSecret(templateValue)) copy.webSearch[key] = templateValue
   }
+  const templatePassHash = (template as any).webRemoteControl?.passHash
+  if (
+    copy.webRemoteControl &&
+    !copy.webRemoteControl.passHash &&
+    isProtectedSecret(templatePassHash)
+  ) {
+    copy.webRemoteControl.passHash = templatePassHash
+  }
   return copy as TeachingSettingsV1
 }
 
@@ -220,6 +228,11 @@ function transformSettingsSecrets<T extends Record<string, unknown>>(
   if (webSearch && typeof webSearch === 'object') {
     for (const key of secretWebSearchKeys()) {
       if (typeof webSearch[key] === 'string') webSearch[key] = transform(webSearch[key])
+    }
+  }
+  if (copy.webRemoteControl && typeof copy.webRemoteControl === 'object') {
+    if (typeof copy.webRemoteControl.passHash === 'string') {
+      copy.webRemoteControl.passHash = transform(copy.webRemoteControl.passHash)
     }
   }
   return copy as T

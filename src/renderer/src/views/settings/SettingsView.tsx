@@ -61,6 +61,7 @@ import { ModelProviderSettingsSection } from './sections/ModelProviderSettingsSe
 import { TeachingDoctorSettingsSection } from './sections/TeachingDoctorSettingsSection'
 import { TeachingTurnReviewSettingsSection } from './sections/TeachingTurnReviewSettingsSection'
 import { UserMcpSettingsSection } from './sections/UserMcpSettingsSection'
+import { RemoteControlSettingsSection } from './sections/RemoteControlSettingsSection'
 
 export function SettingsView({
   section,
@@ -518,6 +519,13 @@ export function SettingsView({
 
         {section === 'mcp' && (
           <UserMcpSettingsSection workspaceRoot={activeWorkspace?.rootPath ?? null} />
+        )}
+
+        {section === 'remote' && (
+          <RemoteControlSettingsSection
+            settings={settings}
+            updateSetting={(path, value) => configuration.updateSetting(path, value)}
+          />
         )}
 
         {section === 'connectors' && (

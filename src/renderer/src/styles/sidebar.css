@@ -111,6 +111,13 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   opacity: 0;
   pointer-events: none;
 }
+/* Keep mobile remote control entry visible when the rail is collapsed (Zcode-like). */
+.sidebar.is-collapsed .sidebar-footer > .icon-button[data-testid='web-remote-control-trigger'] {
+  width: 36px;
+  min-width: 36px;
+  opacity: 1;
+  pointer-events: auto;
+}
 
 /* ----- Brand ----- */.brand {
   display: flex;
