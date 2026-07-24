@@ -80,10 +80,56 @@ export function clearAgentConversationContext(): AppShellTransitionPatch {
   }
 }
 
-export function openPrimaryView(view: WorkspaceView): AppShellTransitionPatch {
-  return view === 'resources'
-    ? { view, selectedResourcePreviewFile: null }
-    : { view }
+/**
+ * Clears exclusive sidebar selection chrome without aborting an in-flight agent run.
+ * Keeps pendingAgentConversation / agentChatBusy when the caller preserves them.
+ */
+export function clearSidebarSelectionChrome(
+  appState?: TeachingAppState
+): AppShellTransitionPatch {
+  return {
+    ...closeLearningAssetReaderContext(),
+    activeConversationId: null,
+    agentTurns: [],
+    agentStatus: '',
+    agentInput: '',
+    agentToolsSupported: null,
+    selectedCourseRelativePath: null,
+    selectedCourseWorkspaceId: null,
+    ...(appState
+      ? {
+          appState: {
+            ...appState,
+            selectedLessonPath: null,
+            previewUrl: ''
+          }
+        }
+      : {})
+  }
+}
+
+const PRIMARY_SHELL_VIEWS = new Set<WorkspaceView>([
+  'overview',
+  'resources',
+  'workbench',
+  'review',
+  'settings'
+])
+
+export function openPrimaryView(
+  view: WorkspaceView,
+  appState?: TeachingAppState
+): AppShellTransitionPatch {
+  // Content destinations (agent/lessons) may own conversation/file chrome.
+  // Shell destinations (top-nav primary pages) take exclusive chrome.
+  if (!PRIMARY_SHELL_VIEWS.has(view)) {
+    return { view }
+  }
+
+  return {
+    view,
+    ...clearSidebarSelectionChrome(appState)
+  }
 }
 
 export function openLessonLibrary(): AppShellTransitionPatch {
@@ -104,12 +150,14 @@ export function openTeachingConversation(): AppShellTransitionPatch {
   }
 }
 
-export function openWorkspaceTeaching(): AppShellTransitionPatch {
+export function openWorkspaceTeaching(
+  appState?: TeachingAppState
+): AppShellTransitionPatch {
+  // Clean teaching surface chrome. Callers that need to drop a non-busy pending
+  // conversation should spread clearAgentConversationContext() themselves.
   return {
-    ...clearAgentConversationContext(),
     ...openTeachingConversation(),
-    selectedCourseRelativePath: null,
-    selectedCourseWorkspaceId: null
+    ...clearSidebarSelectionChrome(appState)
   }
 }
 
@@ -184,6 +232,7 @@ export function restorePendingConversationContext(
 export function openAgentConversationContext(input: {
   conversation: AgentConversationRecord
   workspaceId: string
+  appState: TeachingAppState
   currentOverviewDialogMode: DialogMode
   currentTaskPrompt: string
 }): AppShellTransitionPatch {
@@ -196,6 +245,12 @@ export function openAgentConversationContext(input: {
     lessonReaderOpen: false,
     selectedCoursePreviewFile: null,
     ...clearMarkdownDocumentContext(),
+    // Sidebar chrome is exclusive: conversation selection clears file/lesson highlight.
+    appState: {
+      ...input.appState,
+      selectedLessonPath: null,
+      previewUrl: ''
+    },
     agentTurns: input.conversation.turns,
     activeConversationId: input.conversation.id,
     agentStatus: '',
@@ -221,6 +276,8 @@ export function openLessonReaderContext(input: {
     selectedCoursePreviewFile: input.previewFile,
     selectedResourcePreviewFile: null,
     ...clearMarkdownDocumentContext(),
+    // Sidebar chrome is exclusive: file selection clears conversation highlight.
+    activeConversationId: null,
     appState: {
       ...input.appState,
       selectedLessonPath: input.previewFile.absolutePath,
@@ -253,6 +310,8 @@ export function openWorkspaceMarkdownContext(input: {
     },
     markdownDraft: '',
     markdownSaving: false,
+    // Sidebar chrome is exclusive: file selection clears conversation highlight.
+    activeConversationId: null,
     selectedCourseRelativePath: input.courseRelativePath,
     selectedCourseWorkspaceId: input.workspace.id,
     appState: { ...input.appState, selectedLessonPath: input.file.absolutePath }

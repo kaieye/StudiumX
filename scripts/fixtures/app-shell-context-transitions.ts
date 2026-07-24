@@ -5,6 +5,7 @@ import {
   clearRemovedWorkspaceContext,
   openAgentConversationContext,
   openLessonReaderContext,
+  openPrimaryView,
   openResourceReaderContext,
   openWorkspaceTeaching,
   restorePendingConversationContext,
@@ -69,13 +70,21 @@ const appState = {
   }
 }
 
+
+const primaryResources = openPrimaryView('resources', appState)
+assert.equal(primaryResources.view, 'resources')
+assert.equal(primaryResources.activeConversationId, null)
+assert.equal(primaryResources.selectedCourseRelativePath, null)
+assert.equal(primaryResources.selectedResourcePreviewFile, null)
+assert.equal(primaryResources.appState?.selectedLessonPath, null)
+
 const workspaceTeaching = openWorkspaceTeaching()
 assert.equal(workspaceTeaching.view, 'overview')
 assert.equal(workspaceTeaching.overviewDialogMode, 'teaching')
 assert.equal(workspaceTeaching.lessonReaderOpen, false)
 assert.equal(workspaceTeaching.selectedCourseRelativePath, null)
 assert.equal(workspaceTeaching.activeConversationId, null)
-assert.equal(workspaceTeaching.pendingAgentConversation, null)
+assert.equal(workspaceTeaching.selectedCourseWorkspaceId, null)
 
 const activatedWorkspace = activateWorkspaceContext({
   appState,

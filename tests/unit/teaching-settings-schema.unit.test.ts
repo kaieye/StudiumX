@@ -27,6 +27,23 @@ describe('teaching settings schema', () => {
     expect(normalizeTeachingSettings({ pet: { size: 111.6 } }, fallbackRoot).pet.size).toBe(112)
   })
 
+
+
+
+  it('rewrites leftover TeachOS product default folders to StudiumX', () => {
+    expect(normalizeTeachingSettings({
+      workspace: { defaultRoot: 'C:\\Users\\alice\\Documents\\TeachOS Workspaces' },
+      worktree: { rootPath: 'C:\\Users\\alice\\Documents\\TeachOS Workspaces\\.worktrees' }
+    }, fallbackRoot)).toMatchObject({
+      workspace: { defaultRoot: 'C:\\Users\\alice\\Documents\\StudiumX Workspaces' },
+      worktree: { rootPath: 'C:\\Users\\alice\\Documents\\StudiumX Workspaces\\.worktrees' }
+    })
+
+    expect(normalizeTeachingSettings({
+      workspace: { defaultRoot: 'D:\\archive\\TeachOS Workspaces notes' }
+    }, fallbackRoot).workspace.defaultRoot).toBe('D:\\archive\\TeachOS Workspaces notes')
+  })
+
   it('migrates the legacy write-only permission setting into a safe unified approval mode', () => {
     expect(normalizeTeachingSettings({
       tools: { workspaceWritePermission: 'allow_for_conversation' }

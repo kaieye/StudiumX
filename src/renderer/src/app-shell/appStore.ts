@@ -790,7 +790,12 @@ export const useAppStore = create<StoreState>((set, get) => {
             selectedCourseWorkspaceId: state.selectedCourseWorkspaceId
           }
         },
-        applyPatch: (patch) => set(patch),
+        applyPatch: (patch) => set({
+          ...patch,
+          ...(patch.activeConversationId === null
+            ? { activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null }
+            : {})
+        }),
         toError: toUserError,
         loadingPreviewHtml,
         emptyPreviewHtml
@@ -896,29 +901,55 @@ export const useAppStore = create<StoreState>((set, get) => {
     set({ gitBranchesRoot: root, gitBranchesResult, gitBranchesLoading: false })
   },
   setView: (view) => {
-    set(openPrimaryView(view))
+    const current = get()
+    const patch = openPrimaryView(view, current.appState)
+    const clearsSelection = patch.activeConversationId === null
+    const preservePending = clearsSelection && Boolean(current.agentChatBusy && current.pendingAgentConversation)
+    set({
+      ...patch,
+      ...(clearsSelection
+        ? {
+            activeConversationScope: null,
+            activeConversationRevision: null,
+            activeSessionTree: null,
+            ...(preservePending
+              ? {
+                  pendingAgentConversation: current.pendingAgentConversation,
+                  agentChatBusy: true
+                }
+              : {
+                  // Only drop pending when no run is in flight.
+                  pendingAgentConversation: null,
+                  agentChatBusy: false
+                })
+          }
+        : {})
+    })
     if (view === 'review') void get().loadReviewCards()
   },
   setOverviewDialogMode: (overviewDialogMode) => set({ overviewDialogMode }),
   openLessonLibrary: () => set(openLessonLibraryContext()),
   openTeachingConversationView: () => set(openTeachingConversation()),
   openWorkspaceTeachingMode: () => {
+    // Top-nav "新对话" / workspace-folder entry: exclusive clean teaching chrome.
+    // Do not abort an in-flight run; keep pending so the sidebar can restore it.
     const current = get()
-    const pending = current.pendingAgentConversation
-    if (pending?.mode === 'teaching') {
-      set({
-        ...restorePendingConversationContext(pending, 'teaching'),
-        activeConversationScope: 'workspace',
-        activeConversationRevision: null,
-        activeSessionTree: null
-      })
-      return
-    }
-    if (current.activeConversationScope === 'workspace' && current.activeConversationId) {
-      set(openTeachingConversation())
-      return
-    }
-    set({ ...openWorkspaceTeaching(), activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null })
+    const preservePending = Boolean(current.agentChatBusy && current.pendingAgentConversation)
+    set({
+      ...openWorkspaceTeaching(current.appState),
+      ...(preservePending
+        ? {
+            pendingAgentConversation: current.pendingAgentConversation,
+            agentChatBusy: true
+          }
+        : {
+            pendingAgentConversation: null,
+            agentChatBusy: false
+          }),
+      activeConversationScope: null,
+      activeConversationRevision: null,
+      activeSessionTree: null
+    })
   },
   selectCourseFolder: (selectedCourseRelativePath, workspaceId) => {
     const targetWorkspace = workspaceId
@@ -939,7 +970,26 @@ export const useAppStore = create<StoreState>((set, get) => {
   },
   setSettingsSection: (settingsSection) => set({ settingsSection }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
-  openSettings: (section = 'general') => set({ view: 'settings', settingsSection: section }),
+  openSettings: (section = 'general') => {
+    const current = get()
+    const preservePending = Boolean(current.agentChatBusy && current.pendingAgentConversation)
+    set({
+      ...openPrimaryView('settings', current.appState),
+      settingsSection: section,
+      activeConversationScope: null,
+      activeConversationRevision: null,
+      activeSessionTree: null,
+      ...(preservePending
+        ? {
+            pendingAgentConversation: current.pendingAgentConversation,
+            agentChatBusy: true
+          }
+        : {
+            pendingAgentConversation: null,
+            agentChatBusy: false
+          })
+    })
+  },
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setTaskPrompt: (taskPrompt) => set({ taskPrompt }),
   clearError: () => set({ error: null, petNotificationErrors: [] }),
@@ -1579,14 +1629,15 @@ export const useAppStore = create<StoreState>((set, get) => {
             conversation: await api.readAgentConversation({ workspaceId: workspace.id, conversationId, scope }),
             tree: initialTree
           }
+      const nextAppState = workspace.id === get().appState.activeWorkspace?.id
+        ? get().appState
+        : await api.selectWorkspace(workspace.id)
       set({
         activeConversationScope: scope,
-        appState: workspace.id === get().appState.activeWorkspace?.id
-          ? get().appState
-          : await api.selectWorkspace(workspace.id),
         ...openAgentConversationContext({
           conversation: result.conversation,
           workspaceId: workspace.id,
+          appState: nextAppState,
           currentOverviewDialogMode: get().overviewDialogMode,
           currentTaskPrompt: get().taskPrompt
         }),
@@ -1611,6 +1662,7 @@ export const useAppStore = create<StoreState>((set, get) => {
         ...openAgentConversationContext({
           conversation: result.conversation,
           workspaceId: workspace.id,
+          appState: get().appState,
           currentOverviewDialogMode: get().overviewDialogMode,
           currentTaskPrompt: get().taskPrompt
         }),
@@ -1640,10 +1692,10 @@ export const useAppStore = create<StoreState>((set, get) => {
       })
       if (get().appState.activeWorkspace?.id !== workspace.id) return false
       set({
-        appState: result.state,
         ...openAgentConversationContext({
           conversation: result.conversation,
           workspaceId: workspace.id,
+          appState: result.state,
           currentOverviewDialogMode: get().overviewDialogMode,
           currentTaskPrompt: get().taskPrompt
         }),
@@ -1698,10 +1750,10 @@ export const useAppStore = create<StoreState>((set, get) => {
       const openBranch = result.tree.branches.find((branch) => branch.branchId === result.tree.openBranchId)
       if (status === 'active') {
         set({
-          appState: result.state,
           ...openAgentConversationContext({
             conversation: result.conversation,
             workspaceId: workspace.id,
+            appState: result.state,
             currentOverviewDialogMode: get().overviewDialogMode,
             currentTaskPrompt: get().taskPrompt
           }),
@@ -1721,10 +1773,10 @@ export const useAppStore = create<StoreState>((set, get) => {
         })
         if (get().appState.activeWorkspace?.id !== workspace.id) return
         set({
-          appState: result.state,
           ...openAgentConversationContext({
             conversation: opened.conversation,
             workspaceId: workspace.id,
+            appState: result.state,
             currentOverviewDialogMode: get().overviewDialogMode,
             currentTaskPrompt: get().taskPrompt
           }),

@@ -897,12 +897,9 @@
   },
   "workspaceImport": {
     "title": "Add project",
-    "eyebrow": "Project folder",
-    "close": "Close add project",
     "pathLabel": "Folder path",
     "pathPlaceholder": "Enter or paste a folder path",
     "choose": "Choose folder",
-    "manage": "Open file manager",
     "import": "Import"
   },
   "worktree": {

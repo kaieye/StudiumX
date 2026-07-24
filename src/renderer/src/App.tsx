@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowUpRight,
-  Bell,
   BookCopy,
   BookOpen,
   Bot,
@@ -267,6 +266,8 @@ function Sidebar() {
 
   const active = appState.activeWorkspace
   const selectedLessonPath = appState.selectedLessonPath
+  const selectedCourseRelativePath = useAppStore((s) => s.selectedCourseRelativePath)
+  const selectedCourseWorkspaceId = useAppStore((s) => s.selectedCourseWorkspaceId)
   const lessonReaderOpen = useAppStore((s) => s.lessonReaderOpen)
   const selectedMarkdownDocument = useAppStore((s) => s.selectedMarkdownDocument)
   const loading = useAppStore((s) => s.loading)
@@ -283,7 +284,6 @@ function Sidebar() {
   const openPath = useAppStore((s) => s.openPath)
   const importWorkspace = useAppStore((s) => s.importWorkspace)
   const importWorkspacePath = useAppStore((s) => s.importWorkspacePath)
-  const openImportLocation = useAppStore((s) => s.openImportLocation)
   const setWorkspaceItemMeta = useAppStore((s) => s.setWorkspaceItemMeta)
   const renameAgentConversation = useAppStore((s) => s.renameAgentConversation)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
@@ -323,6 +323,8 @@ function Sidebar() {
           activeWorkspace={active}
           temporaryConversations={appState.temporaryConversations}
           selectedLessonPath={view === 'lessons' && (lessonReaderOpen || selectedMarkdownDocument) ? selectedLessonPath : null}
+          selectedCourseRelativePath={selectedCourseRelativePath}
+          selectedCourseWorkspaceId={selectedCourseWorkspaceId}
           view={view}
           activeConversationId={activeConversationId}
           pendingAgentConversation={pendingAgentConversation}
@@ -341,7 +343,6 @@ function Sidebar() {
           onOpenPath={openPath}
           onImportWorkspace={importWorkspace}
           onImportWorkspacePath={importWorkspacePath}
-          onOpenImportLocation={openImportLocation}
           onSetWorkspaceItemMeta={setWorkspaceItemMeta}
           onRenameAgentConversation={renameAgentConversation}
           onRemoveWorkspaceItem={removeWorkspaceItem}
@@ -350,27 +351,12 @@ function Sidebar() {
       </div>
 
       <div className="sidebar-footer">
-        <button className="avatar-button" type="button" onClick={() => openSettings('general')}>
-          <span className="avatar">C</span>
-        </button>
         <WorkspaceWebRemoteControlTrigger
           compact
           workspacePath={active?.rootPath}
           workspaceId={active?.id}
           initialTaskId={activeConversationId ?? undefined}
         />
-        <button
-          className={`icon-button${settings.notifications.enabled ? '' : ' is-muted'}`}
-          type="button"
-          aria-label={t('sidebar.notifications')}
-          onClick={() => {
-            openSettings('notifications')
-            void showNotification(t('sidebar.notificationCenterTitle'), settings.notifications.enabled ? t('sidebar.notificationCenterOn') : t('sidebar.notificationCenterOff'))
-          }}
-          title={t('sidebar.notifications')}
-        >
-          <Bell size={16} />
-        </button>
         <button className="icon-button" type="button" aria-label={t('sidebar.settings')} onClick={() => openSettings('model')} title={t('sidebar.settings')}>
           <Settings size={16} />
         </button>

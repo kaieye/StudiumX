@@ -155,7 +155,7 @@ describe('critical durable JSON consumers', () => {
     await expect(readFile(`${registryPath}.bak`, 'utf8')).resolves.toBe('[]')
   })
 
-  it('reads a modern workspace index backup before legacy index data and never writes a legacy backup', async () => {
+  it('reads a modern workspace index backup when the canonical document is invalid', async () => {
     const temp = await root('workspace-index-backup')
     const rootPath = join(temp, 'workspace')
     const workspace: RegistryWorkspace = {
@@ -173,41 +173,34 @@ describe('critical durable JSON consumers', () => {
     await saveWorkspaceIndex(rootPath, index('2026-07-17T00:00:00.000Z', []))
     await saveWorkspaceIndex(rootPath, index('2026-07-17T00:01:00.000Z', []))
     const modernPath = join(rootPath, '.studiumx', 'index.json')
-    const legacyPath = join(rootPath, '.teachos', 'index.json')
-    await mkdir(join(rootPath, '.teachos'), { recursive: true })
-    await writeFile(legacyPath, JSON.stringify(index('2026-07-17T00:09:00.000Z', [])), 'utf8')
     await writeFile(modernPath, '{ invalid modern index', 'utf8')
 
     await expect(loadWorkspaceIndex(workspace)).resolves.toMatchObject({ updatedAt: '2026-07-17T00:00:00.000Z' })
     await expect(readFile(modernPath, 'utf8')).resolves.toBe('{ invalid modern index')
-    await expect(readFile(`${legacyPath}.bak`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     if (process.platform !== 'win32') expect((await stat(`${modernPath}.bak`)).mode & 0o777).toBe(0o600)
   })
 
-  it('uses legacy workspace index data only after both modern canonical and backup are invalid', async () => {
+  it('returns an empty workspace index when modern canonical and backup are both invalid', async () => {
     const temp = await root('workspace-index-invalid-both')
     const rootPath = join(temp, 'workspace')
     const workspace: RegistryWorkspace = {
       id: 'workspace-id',
-      name: 'Legacy workspace',
+      name: 'Broken workspace',
       rootPath,
       createdAt: '2026-07-17T00:00:00.000Z',
       updatedAt: '2026-07-17T00:00:00.000Z'
     }
-    const legacyIndex: WorkspaceIndex = {
-      ...workspace,
-      updatedAt: '2026-07-17T00:09:00.000Z',
-      lessons: []
-    }
     const modernPath = join(rootPath, '.studiumx', 'index.json')
-    const legacyPath = join(rootPath, '.teachos', 'index.json')
     await mkdir(join(rootPath, '.studiumx'), { recursive: true })
-    await mkdir(join(rootPath, '.teachos'), { recursive: true })
     await writeFile(modernPath, '{ invalid modern index', 'utf8')
     await writeFile(`${modernPath}.bak`, '[]', 'utf8')
-    await writeFile(legacyPath, JSON.stringify(legacyIndex), 'utf8')
 
-    await expect(loadWorkspaceIndex(workspace)).resolves.toMatchObject({ updatedAt: '2026-07-17T00:09:00.000Z' })
+    await expect(loadWorkspaceIndex(workspace)).resolves.toMatchObject({
+      id: workspace.id,
+      name: workspace.name,
+      rootPath: workspace.rootPath,
+      lessons: []
+    })
     await expect(readFile(modernPath, 'utf8')).resolves.toBe('{ invalid modern index')
     await expect(readFile(`${modernPath}.bak`, 'utf8')).resolves.toBe('[]')
   })

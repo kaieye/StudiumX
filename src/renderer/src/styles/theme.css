@@ -39,7 +39,6 @@
 :root[data-resolved-theme="dark"] .skill-slash-menu,
 :root[data-resolved-theme="dark"] .empty-state,
 :root[data-resolved-theme="dark"] .row-context-menu-dropdown,
-:root[data-resolved-theme="dark"] .import-dialog,
 :root[data-resolved-theme="dark"] .remove-dialog {
   border-color: var(--line);
   background: var(--surface-solid);
@@ -57,7 +56,6 @@
 :root[data-resolved-theme="dark"] .skill-library-card__title strong,
 :root[data-resolved-theme="dark"] .skill-slash-menu__copy strong,
 :root[data-resolved-theme="dark"] .course-group-title,
-:root[data-resolved-theme="dark"] .import-dialog-header h2,
 :root[data-resolved-theme="dark"] .import-dialog-field input,
 :root[data-resolved-theme="dark"] .overview-dialog-message.is-assistant > .markdown-message {
   color: var(--text);
@@ -72,7 +70,6 @@
 :root[data-resolved-theme="dark"] .overview-picker-trigger,
 :root[data-resolved-theme="dark"] .overview-file-access-trigger,
 :root[data-resolved-theme="dark"] .row-context-menu-item,
-:root[data-resolved-theme="dark"] .import-dialog-header span,
 :root[data-resolved-theme="dark"] .import-dialog-field span {
   color: var(--text-muted);
 }:root[data-resolved-theme="dark"] .nav-item:hover,
@@ -95,25 +92,47 @@
 :root[data-resolved-theme="dark"] .workspace-item.is-selected {
   color: var(--text);
   background: rgba(138, 180, 255, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(138, 180, 255, 0.18);
+  box-shadow: none;
 }
 /* Session / conversation rows: fill-only selection & hover (no inset ring).
    Matches light-mode .workspace-conversation-row / .workspace-node-row behavior. */
+:root[data-resolved-theme="dark"] .workspace-node-row.is-workspace-folder,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-course-folder,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-content-folder {
+  color: var(--text);
+  background: transparent;
+}
+:root[data-resolved-theme="dark"] .workspace-node-row.is-workspace-folder:hover,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-course-folder:hover,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-content-folder:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-html-file,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-markdown-file,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-conversation,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-workspace-folder,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-course-folder,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-content-folder,
 :root[data-resolved-theme="dark"] .workspace-conversation-row.is-selected,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-html-file:hover,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-markdown-file:hover,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-conversation:hover,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-workspace-folder:hover,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-course-folder:hover,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-content-folder:hover,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-html-file:focus-within,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-markdown-file:focus-within,
 :root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-conversation:focus-within,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-workspace-folder:focus-within,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-course-folder:focus-within,
+:root[data-resolved-theme="dark"] .workspace-node-row.is-selected.is-content-folder:focus-within,
 :root[data-resolved-theme="dark"] .workspace-conversation-row.is-selected:hover,
 :root[data-resolved-theme="dark"] .workspace-conversation-row.is-selected:focus-within {
   color: var(--text);
   background: rgba(138, 180, 255, 0.14);
   box-shadow: none;
+  font-weight: 500;
 }
 :root[data-resolved-theme="dark"] .workspace-node-row:hover,
 :root[data-resolved-theme="dark"] .workspace-node-row:focus-within,
@@ -129,18 +148,6 @@
 :root[data-resolved-theme="dark"] .dialog-mode-switch-indicator {
   background: rgba(138, 180, 255, 0.14);
   box-shadow: inset 0 0 0 1px rgba(138, 180, 255, 0.18);
-}:root[data-resolved-theme="dark"] .nav-item.is-active {
-  border-color: rgba(255, 255, 255, 0.07);
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.26),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-}:root[data-resolved-theme="dark"] .workspace-node-row.is-workspace-folder,
-:root[data-resolved-theme="dark"] .workspace-node-row.is-workspace-folder.is-selected,
-:root[data-resolved-theme="dark"] .workspace-node-row.is-course-folder,
-:root[data-resolved-theme="dark"] .workspace-node-row.is-course-folder.is-selected {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
 }:root[data-resolved-theme="dark"] .reader-sidebar-toggle,
 :root[data-resolved-theme="dark"] .reader-preview-back,
 :root[data-resolved-theme="dark"] .overview-dialog-statusbar,
@@ -310,6 +317,13 @@
 :root[data-resolved-theme="dark"] .overview-dialog-send:hover:not(:disabled) {
   color: #111111;
   background: #ffffff;
+}:root[data-resolved-theme="dark"] .import-dialog-confirm-button {
+  color: var(--accent) !important;
+  background: var(--accent-soft) !important;
+}:root[data-resolved-theme="dark"] .import-dialog-confirm-button:hover,
+:root[data-resolved-theme="dark"] .import-dialog-confirm-button:focus-visible {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent-soft) 75%, var(--accent) 18%) !important;
 }:root[data-resolved-theme="dark"] .import-dialog-field input {
   border-color: var(--line);
   background: #141414;

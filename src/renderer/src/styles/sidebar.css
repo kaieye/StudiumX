@@ -94,15 +94,10 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }.sidebar.is-collapsed .section-heading,
 .sidebar.is-collapsed .sidebar-footer {
   justify-content: center;
-}.sidebar.is-collapsed .avatar-button {
-  flex: 0 0 auto;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
 }.sidebar.is-collapsed .sidebar-footer {
   width: 100%;
-  gap: 0;
+  justify-content: center;
+  gap: 8px;
   padding-top: 10px;
   border-top: 0;
 }.sidebar.is-collapsed .sidebar-footer > .icon-button {
@@ -206,9 +201,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   transition:
     background 160ms ease,
     color 160ms ease,
-    box-shadow 160ms ease,
-    gap 180ms ease,
-    padding 180ms ease;
+    box-shadow 160ms ease;
 }.nav-item svg {
   flex: 0 0 auto;
   color: var(--text-muted);
@@ -218,12 +211,11 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   color: var(--text);
 }.nav-item.is-active {
   color: var(--text);
-  border-color: rgba(15, 23, 42, 0.045);
-  background: var(--surface-solid);
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.1),
-    0 2px 7px rgba(15, 23, 42, 0.06);
-  font-weight: 600;
+  border-color: transparent;
+  /* Match tree/file/conversation selected fill (not raised card chrome). */
+  background: rgba(20, 47, 95, 0.09);
+  box-shadow: none;
+  font-weight: 500;
 }.nav-item:hover svg,
 .nav-item.is-active svg {
   color: currentColor;
@@ -356,9 +348,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   overflow: hidden;
   transition:
     background 160ms ease,
-    color 160ms ease,
-    gap 180ms ease,
-    padding 180ms ease;
+    color 160ms ease;
 }.workspace-main-button,
 .workspace-toggle-button {
   display: inline-flex;
@@ -385,9 +375,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   opacity: 1;
   transition:
     background 140ms ease,
-    color 140ms ease,
-    max-width 180ms ease,
-    opacity 140ms ease;
+    color 140ms ease;
 }.workspace-toggle-button:hover {
   color: var(--text);
   background: rgba(108, 162, 221, 0.13);
@@ -400,10 +388,6 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   text-overflow: ellipsis;
   opacity: 1;
   transform: translateX(0);
-  transition:
-    max-width 180ms ease,
-    opacity 140ms ease,
-    transform 180ms ease;
 }.workspace-item:hover {
   background: rgba(108, 162, 221, 0.1);
 }.workspace-main-button span,
@@ -423,10 +407,6 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   flex: 0 0 auto;
   white-space: nowrap;
   opacity: 1;
-  transition:
-    max-width 180ms ease,
-    opacity 140ms ease,
-    flex-basis 180ms ease;
 }.workspace-item.is-selected {
   color: var(--text);
   background: var(--surface-solid);
@@ -439,8 +419,6 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   gap: 2px;
   margin-top: 6px;
   padding-left: 4px;
-  transition:
-    opacity 140ms ease;
 }.workspace-file-tree--courses {
   position: relative;
   margin-top: 4px;
@@ -474,28 +452,26 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 }.workspace-node-row:hover {
   color: var(--text);
   background: rgba(20, 47, 95, 0.055);
-}.workspace-node-row.is-selected.is-html-file,
-.workspace-node-row.is-selected.is-markdown-file,
-.workspace-node-row.is-selected.is-conversation {
-  color: var(--text);
-  background: rgba(20, 47, 95, 0.09);
-  box-shadow: none;
-}.workspace-node-row.is-selected.is-html-file:hover,
-.workspace-node-row.is-selected.is-markdown-file:hover,
-.workspace-node-row.is-selected.is-conversation:hover {
-  color: var(--text);
-  background: rgba(20, 47, 95, 0.09);
 }.workspace-node-row.is-workspace-folder,
-.workspace-node-row.is-course-folder {
-  min-height: 32px;
-  margin: 1px 0 2px;
+.workspace-node-row.is-course-folder,
+.workspace-node-row.is-content-folder {
+  min-height: 28px;
+  margin: 0;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.48);
+  background: transparent;
   box-shadow: none;
-  font-weight: 650;
-}.workspace-node-row.is-workspace-folder {
+  font-weight: 560;
+}
+/* Folders must keep the same hover fill as files; transparent base would otherwise win. */
+.workspace-node-row.is-workspace-folder:hover,
+.workspace-node-row.is-course-folder:hover,
+.workspace-node-row.is-content-folder:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(20, 47, 95, 0.055);
+}
+.workspace-node-row.is-workspace-folder {
+  color: var(--text);
+  font-weight: 650;
 }.workspace-node-row.is-course-folder::before {
   content: "";
   position: absolute;
@@ -504,14 +480,26 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   width: 8px;
   height: 1px;
   background: rgba(79, 124, 245, 0.2);
-}.workspace-node-row.is-workspace-folder.is-selected {
+}
+/* Selected folders share the exact fill used by html/md/conversation rows. */
+.workspace-node-row.is-selected.is-html-file,
+.workspace-node-row.is-selected.is-markdown-file,
+.workspace-node-row.is-selected.is-conversation,
+.workspace-node-row.is-selected.is-workspace-folder,
+.workspace-node-row.is-selected.is-course-folder,
+.workspace-node-row.is-selected.is-content-folder {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(20, 47, 95, 0.09);
   box-shadow: none;
-}.workspace-node-row.is-course-folder.is-selected {
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.48);
-  box-shadow: none;
+  font-weight: 500;
+}.workspace-node-row.is-selected.is-html-file:hover,
+.workspace-node-row.is-selected.is-markdown-file:hover,
+.workspace-node-row.is-selected.is-conversation:hover,
+.workspace-node-row.is-selected.is-workspace-folder:hover,
+.workspace-node-row.is-selected.is-course-folder:hover,
+.workspace-node-row.is-selected.is-content-folder:hover {
+  color: var(--text);
+  background: rgba(20, 47, 95, 0.09);
 }.workspace-node-chevron {
   display: inline-flex;
   align-items: center;
@@ -658,45 +646,13 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 /* ----- Sidebar Footer ----- */.sidebar-footer {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   margin-top: auto;
   padding-top: 14px;
   border-top: 1px solid var(--line-muted);
   app-region: no-drag;
   -webkit-app-region: no-drag;
-  transition:
-    gap 180ms ease,
-    border-color 180ms ease,
-    padding 180ms ease;
-}.avatar-button {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  flex: 0 0 auto;
-  justify-content: center;
-  width: 36px;
-  gap: 8px;
-  height: 36px;
-  padding: 0;
-  color: #3c4b63;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  font-size: 13px;
-  transition: background 160ms ease;
-}.avatar-button:hover {
-  background: rgba(108, 162, 221, 0.1);
-}.avatar {
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 auto;
-  color: #fff;
-  border-radius: 50%;
-  background: linear-gradient(145deg, #4f7cf5, #58a36f);
-  font-size: 11px;
-  font-weight: 750;
 }
 
 /* ----- Icon Button (reusable) ----- */.icon-button {

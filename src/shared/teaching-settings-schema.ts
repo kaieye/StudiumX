@@ -315,14 +315,20 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
       requestTimeoutMs: Math.round(clampNumber(generatorInput.requestTimeoutMs, 5_000, 300_000, defaults.generator.requestTimeoutMs))
     },
     workspace: {
-      defaultRoot: normalizeString(workspaceInput.defaultRoot) || fallbackDefaultRoot,
+      defaultRoot: migrateLegacyProductWorkspaceRoot(
+        normalizeString(workspaceInput.defaultRoot) || fallbackDefaultRoot,
+        fallbackDefaultRoot
+      ),
       confirmBeforeGenerating: workspaceInput.confirmBeforeGenerating === true,
       autoOpenGeneratedLesson: workspaceInput.autoOpenGeneratedLesson === true,
       showAllCourseFiles: workspaceInput.showAllCourseFiles === true,
       lessonStyleId: normalizeLessonStyleId(workspaceInput.lessonStyleId)
     },
     worktree: {
-      rootPath: normalizeString(worktreeInput.rootPath) || defaultWorktreeRoot(fallbackDefaultRoot)
+      rootPath: migrateLegacyProductWorkspaceRoot(
+        normalizeString(worktreeInput.rootPath) || defaultWorktreeRoot(fallbackDefaultRoot),
+        defaultWorktreeRoot(fallbackDefaultRoot)
+      )
     },
     memory: {
       enabled: memoryInput.enabled !== false,
@@ -529,6 +535,26 @@ function legacyApprovalMode(input: unknown): AgentApprovalMode | undefined {
     default:
       return undefined
   }
+}
+
+
+
+/**
+ * Rewrite leftover TeachOS product-folder names to StudiumX when the stored path
+ * still uses the product default (Documents/TeachOS Workspaces or its .worktrees child).
+ * Custom user paths that merely contain the legacy token are left untouched.
+ */
+function migrateLegacyProductWorkspaceRoot(path: string, fallbackRoot: string): string {
+  if (!path) return fallbackRoot
+  const normalized = path.replace(/\\/g, '/')
+  const rewritten = normalized
+    .replace(/(^|\/)TeachOS Workspaces(\/|$)/gi, (_match, prefix: string, suffix: string) => `${prefix}StudiumX Workspaces${suffix}`)
+    .replace(/(^|\/)Teach OS Workspaces(\/|$)/gi, (_match, prefix: string, suffix: string) => `${prefix}StudiumX Workspaces${suffix}`)
+  if (rewritten === normalized) return path
+  if (path.includes('\\') && !path.includes('/')) {
+    return rewritten.replace(/\//g, '\\')
+  }
+  return rewritten
 }
 
 function defaultWorktreeRoot(defaultRoot: string): string {

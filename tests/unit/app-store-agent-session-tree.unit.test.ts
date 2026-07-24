@@ -125,7 +125,7 @@ afterEach(() => {
 })
 
 describe('appStore Agent session lifecycle', () => {
-  it('restores an in-progress teaching conversation after leaving and reopening teaching mode', () => {
+  it('clears selection chrome from top-nav while preserving an in-flight pending teaching conversation', () => {
     const pending = {
       workspaceId: 'workspace-1',
       sourceConversationId: null,
@@ -145,20 +145,34 @@ describe('appStore Agent session lifecycle', () => {
     useAppStore.setState({
       view: 'overview', overviewDialogMode: 'teaching', agentChatBusy: true,
       pendingAgentConversation: pending, agentTurns: pending.turns,
-      activeConversationId: pending.summary.id, activeConversationScope: 'workspace'
+      activeConversationId: pending.summary.id, activeConversationScope: 'workspace',
+      activeConversationRevision: 3, activeSessionTree: null,
+      appState: {
+        ...useAppStore.getState().appState,
+        selectedLessonPath: 'D:/workspace/courses/physics/lesson.html'
+      }
     })
 
     useAppStore.getState().setOverviewDialogMode('chat')
     useAppStore.getState().openWorkspaceTeachingMode()
 
     expect(useAppStore.getState()).toMatchObject({
-      view: 'overview', overviewDialogMode: 'teaching', agentChatBusy: true,
-      activeConversationId: 'pending-teaching', activeConversationScope: 'workspace',
-      agentTurns: pending.turns, pendingAgentConversation: pending
+      view: 'overview',
+      overviewDialogMode: 'teaching',
+      activeConversationId: null,
+      activeConversationScope: null,
+      activeConversationRevision: null,
+      activeSessionTree: null,
+      agentChatBusy: true,
+      pendingAgentConversation: pending,
+      agentTurns: [],
+      appState: {
+        selectedLessonPath: null
+      }
     })
   })
 
-  it('keeps a teaching conversation visible when its response finishes while another mode is selected', () => {
+  it('clears finished teaching conversation chrome when reopening teaching mode from top-nav', () => {
     const turns = [{ id: 'assistant-complete', role: 'assistant' as const, content: 'Completed answer', createdAt }]
     useAppStore.setState({
       view: 'overview', overviewDialogMode: 'chat', agentChatBusy: false,
@@ -170,9 +184,12 @@ describe('appStore Agent session lifecycle', () => {
     useAppStore.getState().openWorkspaceTeachingMode()
 
     expect(useAppStore.getState()).toMatchObject({
-      view: 'overview', overviewDialogMode: 'teaching',
-      activeConversationId: 'conversation-complete', activeConversationScope: 'workspace',
-      activeConversationRevision: 2, agentTurns: turns
+      view: 'overview',
+      overviewDialogMode: 'teaching',
+      activeConversationId: null,
+      activeConversationScope: null,
+      activeConversationRevision: null,
+      agentTurns: []
     })
   })
 

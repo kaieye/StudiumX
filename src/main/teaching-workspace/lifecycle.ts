@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
   LESSON_FLASHCARD_CSS,
@@ -133,17 +133,7 @@ export async function loadWorkspaceIndex(workspace: RegistryWorkspace): Promise<
     validate: isWorkspaceIndexDocument
   })
   if (recovered.value) return normalizeWorkspaceIndex(workspace, recovered.value)
-
-  const legacyIndexPath = join(workspace.rootPath, '.teachos', 'index.json')
-  try {
-    const parsed = JSON.parse(await readFile(legacyIndexPath, 'utf8')) as unknown
-    return isWorkspaceIndexDocument(parsed)
-      ? normalizeWorkspaceIndex(workspace, parsed)
-      : emptyWorkspaceIndex(workspace)
-  } catch (error) {
-    if (isMissingFile(error) || error instanceof SyntaxError) return emptyWorkspaceIndex(workspace)
-    throw error
-  }
+  return emptyWorkspaceIndex(workspace)
 }
 
 export async function saveWorkspaceIndex(rootPath: string, index: WorkspaceIndex): Promise<void> {
@@ -339,9 +329,6 @@ function isWorkspaceIndexDocument(value: unknown): value is WorkspaceIndex {
 }
 
 
-function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
-}
 
 function isLessonSummary(value: unknown): value is LessonSummary {
   if (!value || typeof value !== 'object') return false

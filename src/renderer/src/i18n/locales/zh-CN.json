@@ -897,12 +897,9 @@
   },
   "workspaceImport": {
     "title": "添加项目",
-    "eyebrow": "项目目录",
-    "close": "关闭添加项目",
     "pathLabel": "文件夹路径",
     "pathPlaceholder": "输入或粘贴文件夹路径",
     "choose": "选择文件夹",
-    "manage": "打开文件管理器",
     "import": "导入"
   },
   "worktree": {

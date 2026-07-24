@@ -641,55 +641,23 @@
   background: rgba(20, 47, 95, 0.08);
 }
 
-/* ----- Workspace import dialog ----- */.import-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 175;
+/* ----- Workspace import dialog (aligned with remove-dialog chrome) ----- */
+.import-dialog {
   display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(20, 47, 95, 0.18);
-  backdrop-filter: blur(12px);
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
-}.import-dialog {
+  gap: 14px;
+  width: min(430px, calc(100vw - 32px));
+}
+/* Shared by import + rename dialogs */
+.import-dialog-field {
   display: grid;
-  width: min(480px, calc(100vw - 32px));
-  gap: 16px;
-  padding: 16px;
-  border: 1px solid rgba(20, 47, 95, 0.12);
-  border-radius: 12px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 253, 0.98)),
-    #ffffff;
-  box-shadow:
-    0 24px 70px rgba(20, 47, 95, 0.2),
-    0 2px 12px rgba(20, 47, 95, 0.08);
-}.import-dialog-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
-  align-items: start;
-  gap: 12px;
-}.import-dialog-header span {
-  display: block;
+  gap: 7px;
+}
+.import-dialog-field span {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 700;
-}.import-dialog-header h2 {
-  margin: 3px 0 0;
-  overflow-wrap: anywhere;
-  color: var(--text);
-  font-size: 20px;
-  line-height: 1.2;
-  letter-spacing: 0;
-}.import-dialog-field {
-  display: grid;
-  gap: 7px;
-}.import-dialog-field span {
-  color: #43516a;
-  font-size: 12px;
-  font-weight: 700;
-}.import-dialog-field input {
+}
+.import-dialog-field input {
   width: 100%;
   min-width: 0;
   height: 40px;
@@ -701,23 +669,52 @@
   font: inherit;
   font-size: 13px;
   outline: none;
-}.import-dialog-field input:focus {
-  border-color: rgba(63, 101, 181, 0.48);
-  box-shadow: 0 0 0 3px rgba(63, 101, 181, 0.12);
-}.import-dialog-tools,
-.import-dialog-footer {
+}
+.import-dialog .import-dialog-field input:focus {
+  border-color: var(--line);
+  box-shadow: none;
+  outline: none;
+}
+/* Equal vertical rhythm: title ↔ input ↔ actions use the same grid gap. */
+.import-dialog.remove-dialog-confirmation .remove-dialog-footer,
+.import-dialog .remove-dialog-footer {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-}.import-dialog-tools {
-  justify-content: flex-start;
-}.import-dialog-footer {
-  justify-content: flex-end;
-  padding-top: 2px;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 0;
+}
+.import-dialog-footer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.import-dialog-choose-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+}
+.import-dialog-confirm-button {
+  color: var(--accent) !important;
+  background: var(--accent-soft) !important;
+}
+.import-dialog-confirm-button:hover,
+.import-dialog-confirm-button:focus-visible {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent-soft) 80%, var(--accent) 12%) !important;
+  outline: none;
+}
+.import-dialog-confirm-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none !important;
 }
 
-/* ----- Remove confirmation dialog ----- */.remove-dialog-backdrop {
+/* Shared modal backdrop (import/WRC reuse the same chrome as remove) */
+.import-dialog-backdrop,
+.remove-dialog-backdrop {
   position: fixed;
   inset: 0;
   z-index: 180;

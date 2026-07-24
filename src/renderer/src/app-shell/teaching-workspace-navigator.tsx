@@ -1,7 +1,7 @@
 import {
-  Archive, ArrowUpRight, ChevronDown, ChevronRight, FileText,
+  Archive, ChevronDown, ChevronRight, FileText,
   Folder, FolderOpen, GitFork, Loader2, MessageSquare, MoreHorizontal, Pencil, Pin, PinOff,
-  Plus, Trash2, Upload, X
+  Plus, Trash2, X
 } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -14,7 +14,7 @@ import type {
   WorkspaceFileNode, WorkspaceItemKind, WorkspaceView
 } from '../../../shared/teaching-types'
 import {
-  initialTeachingWorkspaceNavigatorState, isSidebarCourseFolderPath,
+  initialTeachingWorkspaceNavigatorState, isSidebarContentFolderPath, isSidebarCourseFolderPath,
   isTeachingWorkspaceNavigatorNodeSelected, sameRelativePath,
   teachingWorkspaceNavigatorReducer, workspaceNodeKey,
   projectTeachingWorkspaceNavigator
@@ -25,6 +25,8 @@ export type TeachingWorkspaceNavigatorProps = {
   activeWorkspace: TeachingWorkspaceSummary | null
   temporaryConversations: AgentConversationSummary[]
   selectedLessonPath: string | null
+  selectedCourseRelativePath: string | null
+  selectedCourseWorkspaceId: string | null
   view: WorkspaceView
   activeConversationId: string | null
   pendingAgentConversation: PendingAgentConversation | null
@@ -34,7 +36,7 @@ export type TeachingWorkspaceNavigatorProps = {
   onSelectWorkspace: (workspaceId: string) => Promise<void>
   onSetOverviewDialogMode: (mode: 'teaching') => void
   onOpenWorkspaceTeachingMode: () => void
-  onSelectCourseFolder: (relativePath: string, workspaceId: string) => void
+  onSelectCourseFolder: (relativePath: string | null, workspaceId?: string | null) => void
   onLoadLesson: (lesson: LessonSummary) => Promise<void>
   onLoadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
   onLoadWorkspaceMarkdownFile: (file: CoursePreviewFile, workspaceId: string) => Promise<void>
@@ -43,7 +45,6 @@ export type TeachingWorkspaceNavigatorProps = {
   onOpenPath: (path: string) => Promise<void>
   onImportWorkspace: () => Promise<boolean>
   onImportWorkspacePath: (path: string) => Promise<boolean>
-  onOpenImportLocation: (path?: string) => Promise<void>
   onSetWorkspaceItemMeta: (payload: { workspaceId: string | null | undefined; relativePath: string; pinned?: boolean; archived?: boolean }) => Promise<void>
   onRenameAgentConversation: (payload: { workspaceId: string | null | undefined; conversationId: string; title: string; scope: AgentConversationLookupScope; expectedRevision?: number }) => Promise<void>
   onRemoveWorkspaceItem: (payload: { workspaceId: string | null | undefined; relativePath: string; kind: WorkspaceItemKind; mode: 'list' | 'disk' }) => Promise<void>
@@ -52,12 +53,13 @@ export type TeachingWorkspaceNavigatorProps = {
 
 /** Owns transient disclosure/dialog UI only; App keeps durable store and filesystem authority. */
 export function TeachingWorkspaceNavigator({
-  workspaces, activeWorkspace, temporaryConversations, selectedLessonPath, view,
+  workspaces, activeWorkspace, temporaryConversations, selectedLessonPath,
+  selectedCourseRelativePath: _selectedCourseRelativePath, selectedCourseWorkspaceId: _selectedCourseWorkspaceId, view,
   activeConversationId, pendingAgentConversation, showAllCourseFiles, defaultRoot,
   loading, onSelectWorkspace, onSetOverviewDialogMode, onOpenWorkspaceTeachingMode,
   onSelectCourseFolder, onLoadLesson, onLoadCourseHtmlFile, onLoadWorkspaceMarkdownFile,
   onLoadAgentConversation, onRestorePendingAgentConversation, onOpenPath,
-  onImportWorkspace, onImportWorkspacePath, onOpenImportLocation,
+  onImportWorkspace, onImportWorkspacePath,
   onSetWorkspaceItemMeta, onRenameAgentConversation, onRemoveWorkspaceItem, onRemoveWorkspace
 }: TeachingWorkspaceNavigatorProps) {
   const { t } = useTranslation()
@@ -66,6 +68,18 @@ export function TeachingWorkspaceNavigator({
     () => projectTeachingWorkspaceNavigator({ workspaces, activeWorkspace, temporaryConversations, pendingAgentConversation, showAllCourseFiles }),
     [activeWorkspace, pendingAgentConversation, showAllCourseFiles, temporaryConversations, workspaces]
   )
+  // Non-overview shell destinations clear local folder chrome (overview still hosts course tree selection).
+  useEffect(() => {
+    if (view === 'resources' || view === 'workbench' || view === 'review' || view === 'settings') {
+      dispatch({ type: 'clear-folder-selection' })
+    }
+  }, [view])
+  // File/conversation selection also owns exclusive chrome over folder highlight.
+  useEffect(() => {
+    if (selectedLessonPath || activeConversationId) {
+      dispatch({ type: 'clear-folder-selection' })
+    }
+  }, [selectedLessonPath, activeConversationId])
   const ensureWorkspaceSelected = async (workspaceId: string): Promise<void> => {
     if (workspaceId !== activeWorkspace?.id) await onSelectWorkspace(workspaceId)
   }
@@ -90,8 +104,11 @@ export function TeachingWorkspaceNavigator({
             {workspaceFolders.map(({ workspace, node }) => <WorkspaceFileNodeRow
               key={workspaceNodeKey(workspace.id, node.relativePath)} node={node} workspace={workspace} level={0} treeRoot="courses"
               expandedPaths={state.expandedPaths} selectedLessonPath={selectedLessonPath}
-              activeConversationId={view === 'agent' ? activeConversationId : null} loading={loading}
-                   onToggle={(workspaceId, relativePath) => dispatch({ type: 'toggle-path', workspaceId, relativePath })}
+              selectedFolderKey={state.selectedFolderKey}
+              activeConversationId={activeConversationId} loading={loading}
+              onToggle={(workspaceId, relativePath) => dispatch({ type: 'toggle-path', workspaceId, relativePath })}
+              onSelectFolder={(workspaceId, relativePath) => dispatch({ type: 'select-folder', workspaceId, relativePath })}
+              onClearFolderSelection={() => dispatch({ type: 'clear-folder-selection' })}
               onEnsureWorkspaceSelected={() => ensureWorkspaceSelected(workspace.id)}
               onSetOverviewDialogMode={onSetOverviewDialogMode} onOpenWorkspaceTeachingMode={onOpenWorkspaceTeachingMode}
               onOpenPath={onOpenPath} onOpenHtmlFile={onLoadCourseHtmlFile}
@@ -129,17 +146,16 @@ export function TeachingWorkspaceNavigator({
 
     {state.importDialogOpen ? <ImportWorkspaceDialog defaultPath={defaultRoot || activeWorkspace?.rootPath || ''} loading={loading}
       onClose={() => dispatch({ type: 'close-import-dialog' })} onImportWorkspace={onImportWorkspace}
-      onImportWorkspacePath={onImportWorkspacePath} onOpenImportLocation={onOpenImportLocation} /> : null}
+      onImportWorkspacePath={onImportWorkspacePath} /> : null}
   </>
 }
 
-function ImportWorkspaceDialog({ defaultPath, loading, onClose, onImportWorkspace, onImportWorkspacePath, onOpenImportLocation }: {
+function ImportWorkspaceDialog({ defaultPath, loading, onClose, onImportWorkspace, onImportWorkspacePath }: {
   defaultPath: string
   loading: boolean
   onClose: () => void
   onImportWorkspace: () => Promise<boolean>
   onImportWorkspacePath: (path: string) => Promise<boolean>
-  onOpenImportLocation: (path?: string) => Promise<void>
 }) {
   const { t } = useTranslation()
   const titleId = useId()
@@ -151,21 +167,32 @@ function ImportWorkspaceDialog({ defaultPath, loading, onClose, onImportWorkspac
   }, [onClose])
   const importPath = async (): Promise<void> => { if (await onImportWorkspacePath(path)) onClose() }
   return createPortal(
-    <div className="import-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <section className="import-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <div className="import-dialog-header"><div><span>{t('workspaceImport.eyebrow')}</span><h2 id={titleId}>{t('workspaceImport.title')}</h2></div>
-          <button type="button" className="settings-close-button" onClick={onClose} aria-label={t('workspaceImport.close')}><X size={16} /></button>
+    <div className="remove-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <section className="remove-dialog remove-dialog-confirmation import-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div className="remove-dialog-header">
+          <h2 id={titleId}>{t('workspaceImport.title')}</h2>
         </div>
-        <label className="import-dialog-field"><span>{t('workspaceImport.pathLabel')}</span><input autoFocus type="text" value={path}
-          placeholder={t('workspaceImport.pathPlaceholder')} onChange={(event) => setPath(event.target.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void importPath() } }} />
+        <label className="import-dialog-field">
+          <input
+            autoFocus
+            type="text"
+            value={path}
+            aria-label={t('workspaceImport.pathLabel')}
+            placeholder={t('workspaceImport.pathPlaceholder')}
+            onChange={(event) => setPath(event.target.value)}
+            onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void importPath() } }}
+          />
         </label>
-        <div className="import-dialog-tools">
-          <button type="button" className="ghost-button" onClick={() => void onImportWorkspace().then((imported) => { if (imported) onClose() })} disabled={loading}><FolderOpen size={15} />{t('workspaceImport.choose')}</button>
-          <button type="button" className="ghost-button" onClick={() => void onOpenImportLocation(path.trim() || undefined)} disabled={loading}><ArrowUpRight size={15} />{t('workspaceImport.manage')}</button>
-        </div>
-        <div className="import-dialog-footer"><button type="button" className="ghost-button" onClick={onClose}>{t('common.cancel')}</button>
-          <button type="button" className="primary-button" onClick={() => void importPath()} disabled={loading || !path.trim()}><Upload size={15} />{t('workspaceImport.import')}</button>
+        <div className="remove-dialog-footer">
+          <button type="button" className="ghost-button import-dialog-choose-button" onClick={() => void onImportWorkspace().then((imported) => { if (imported) onClose() })} disabled={loading}>
+            <FolderOpen size={15} />{t('workspaceImport.choose')}
+          </button>
+          <div className="import-dialog-footer-actions">
+            <button className="remove-dialog-cancel-button" type="button" onClick={onClose}>{t('common.cancel')}</button>
+            <button className="remove-dialog-confirm-button import-dialog-confirm-button" type="button" onClick={() => void importPath()} disabled={loading || !path.trim()}>
+              {t('workspaceImport.import')}
+            </button>
+          </div>
         </div>
       </section>
     </div>, document.body
@@ -345,8 +372,10 @@ function ConversationListRow({ conversation, isActiveConversation, onOpen, onSet
 }
 
 function WorkspaceFileNodeRow({
-  node, workspace, level, treeRoot, expandedPaths, selectedLessonPath, activeConversationId, loading,
-  onToggle, onEnsureWorkspaceSelected, onSetOverviewDialogMode, onOpenWorkspaceTeachingMode,
+  node, workspace, level, treeRoot, expandedPaths, selectedLessonPath,
+  selectedFolderKey, activeConversationId, loading,
+  onToggle, onSelectFolder, onClearFolderSelection,
+  onEnsureWorkspaceSelected, onSetOverviewDialogMode, onOpenWorkspaceTeachingMode,
   onOpenPath, onOpenHtmlFile, onOpenMarkdownFile, onOpenCourse, onOpenLesson, onOpenConversation,
   onRestorePendingConversation, onSetWorkspaceItemMeta, onRenameAgentConversation, onRemoveWorkspaceItem, onRemoveWorkspace
 }: {
@@ -356,16 +385,19 @@ function WorkspaceFileNodeRow({
   treeRoot?: 'courses'
   expandedPaths: Set<string>
   selectedLessonPath: string | null
+  selectedFolderKey: string | null
   activeConversationId: string | null
   loading: boolean
   onToggle: (workspaceId: string, relativePath: string) => void
+  onSelectFolder: (workspaceId: string, relativePath: string) => void
+  onClearFolderSelection: () => void
   onEnsureWorkspaceSelected: () => Promise<void>
   onSetOverviewDialogMode: (mode: 'teaching') => void
   onOpenWorkspaceTeachingMode: () => void
   onOpenPath: (path: string) => Promise<void>
   onOpenHtmlFile?: (file: CoursePreviewFile) => Promise<void>
   onOpenMarkdownFile?: (file: CoursePreviewFile) => Promise<void>
-  onOpenCourse?: (relativePath: string, workspaceId: string) => void
+  onOpenCourse?: (relativePath: string | null, workspaceId: string) => void
   onOpenLesson: (lesson: LessonSummary) => Promise<void>
   onOpenConversation: (conversationId: string) => Promise<void>
   onRestorePendingConversation: () => void
@@ -383,12 +415,21 @@ function WorkspaceFileNodeRow({
   const isPendingConversation = isPendingConversationSummary(conversation)
   const isWorkspaceFolder = treeRoot === 'courses' && level === 0 && isDirectory && normalizePath(node.relativePath) === ''
   const isCourseFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && isSidebarCourseFolderPath(node.relativePath)
+  const isContentFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && !isCourseFolder && isSidebarContentFolderPath(node.relativePath)
   const isHtmlFile = !isDirectory && node.name.toLowerCase().endsWith('.html')
   const isMarkdownFile = !isDirectory && node.name.toLowerCase().endsWith('.md')
   const isSelected = isTeachingWorkspaceNavigatorNodeSelected({
-    node, lessonRelativePath: selectedLessonPath, activeConversationId,
+    node,
+    lessonRelativePath: selectedLessonPath,
+    activeConversationId,
     lessonRelativePaths: workspace.lessons.map((item) => item.relativePath),
-    conversation: conversation ? { id: conversation.id } : null, courseTree: treeRoot === 'courses'
+    conversation: conversation ? { id: conversation.id } : null,
+    courseTree: treeRoot === 'courses',
+    workspaceId: workspace.id,
+    selectedFolderKey,
+    isWorkspaceFolder,
+    isCourseFolder,
+    isContentFolder
   })
   const itemKind: WorkspaceItemKind = conversation ? 'conversation' : isDirectory ? 'directory' : 'file'
   const itemLabel = conversation?.title ?? lesson?.title ?? node.name
@@ -400,13 +441,39 @@ function WorkspaceFileNodeRow({
     if (isDirectory) {
       if (isWorkspaceFolder) {
         await onEnsureWorkspaceSelected()
+        if (isExpanded) {
+          // Collapse always clears folder highlight.
+          onClearFolderSelection()
+          onToggle(workspace.id, node.relativePath)
+          return
+        }
+        // Collapsed: highlight and expand in one click.
+        onSelectFolder(workspace.id, node.relativePath)
         onOpenWorkspaceTeachingMode()
         onToggle(workspace.id, node.relativePath)
         return
       }
       if (isCourseFolder) {
         await onEnsureWorkspaceSelected()
+        if (isExpanded) {
+          onClearFolderSelection()
+          onOpenCourse?.(null, workspace.id)
+          onToggle(workspace.id, node.relativePath)
+          return
+        }
+        onSelectFolder(workspace.id, node.relativePath)
         onOpenCourse?.(node.relativePath, workspace.id)
+        onToggle(workspace.id, node.relativePath)
+        return
+      }
+      if (isContentFolder) {
+        await onEnsureWorkspaceSelected()
+        if (isExpanded) {
+          onClearFolderSelection()
+          onToggle(workspace.id, node.relativePath)
+          return
+        }
+        onSelectFolder(workspace.id, node.relativePath)
         onToggle(workspace.id, node.relativePath)
         return
       }
@@ -414,6 +481,7 @@ function WorkspaceFileNodeRow({
       return
     }
     await onEnsureWorkspaceSelected()
+    onClearFolderSelection()
     if (lesson) { await onOpenLesson(lesson); return }
     if (conversation) {
       if (isPendingConversation) onRestorePendingConversation()
@@ -458,7 +526,7 @@ function WorkspaceFileNodeRow({
   }
 
   return <div className="workspace-node">
-    <div className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${isMarkdownFile ? 'is-markdown-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''}`}
+    <div className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${isMarkdownFile ? 'is-markdown-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''} ${isContentFolder ? 'is-content-folder' : ''}`}
       style={{ paddingLeft: 4 + level * 12 }} role="treeitem" aria-expanded={isDirectory ? isExpanded : undefined}>
       <button className="workspace-node-button" type="button" title={node.absolutePath} aria-expanded={isDirectory ? isExpanded : undefined} onClick={() => void handleOpen()}>
         {isPendingConversation ? <Loader2 className="spin" size={13} /> : <Icon size={13} />}
@@ -473,8 +541,11 @@ function WorkspaceFileNodeRow({
     {isDirectory && node.children?.length ? <div className={`workspace-node-children${isExpanded ? ' is-open' : ''}${isWorkspaceFolder || isCourseFolder ? ' is-course-children' : ''}`} aria-hidden={!isExpanded} inert={!isExpanded ? true : undefined}>
       <div className="workspace-node-children-inner">{node.children.map((child) => <WorkspaceFileNodeRow
         key={workspaceNodeKey(workspace.id, child.relativePath)} node={child} workspace={workspace} level={level + 1} treeRoot={treeRoot}
-        expandedPaths={expandedPaths} selectedLessonPath={selectedLessonPath} activeConversationId={activeConversationId} loading={loading}
-        onToggle={onToggle} onEnsureWorkspaceSelected={onEnsureWorkspaceSelected} onSetOverviewDialogMode={onSetOverviewDialogMode}
+        expandedPaths={expandedPaths} selectedLessonPath={selectedLessonPath}
+        selectedFolderKey={selectedFolderKey}
+        activeConversationId={activeConversationId} loading={loading}
+        onToggle={onToggle} onSelectFolder={onSelectFolder} onClearFolderSelection={onClearFolderSelection}
+        onEnsureWorkspaceSelected={onEnsureWorkspaceSelected} onSetOverviewDialogMode={onSetOverviewDialogMode}
         onOpenWorkspaceTeachingMode={onOpenWorkspaceTeachingMode} onOpenPath={onOpenPath} onOpenHtmlFile={onOpenHtmlFile}
         onOpenMarkdownFile={onOpenMarkdownFile} onOpenCourse={onOpenCourse} onOpenLesson={onOpenLesson}
         onOpenConversation={onOpenConversation} onRestorePendingConversation={onRestorePendingConversation}
