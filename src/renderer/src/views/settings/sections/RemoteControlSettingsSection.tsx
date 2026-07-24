@@ -1,6 +1,7 @@
 import { Smartphone } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { TeachingSettingsV1 } from '../../../../../shared/teaching-types'
+import type { TeachingWorkspaceSettingsPath } from '../../../workflows/teaching-workspace-configuration'
 import {
   SettingsCard,
   SettingsPanel,
@@ -10,9 +11,11 @@ import {
   ToggleSwitch
 } from '../SettingsPrimitives'
 
+type RemoteControlSettingsPath = Extract<TeachingWorkspaceSettingsPath, `webRemoteControl.${string}`>
+
 type RemoteControlSettingsSectionProps = {
   settings: TeachingSettingsV1
-  updateSetting: (path: string, value: unknown) => Promise<void> | void
+  updateSetting: (path: RemoteControlSettingsPath, value: unknown) => Promise<void> | void
 }
 
 export function RemoteControlSettingsSection({
