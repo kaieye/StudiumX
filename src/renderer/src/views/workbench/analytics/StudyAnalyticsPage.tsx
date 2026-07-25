@@ -232,7 +232,20 @@ export function StudyAnalyticsPage({
             wide
             onRetry={() => analytics.retrySection('focus')}
           >
-            {(result) => <FocusBody {...ctx} data={result.data} />}
+            {(result) => (
+              <FocusBody
+                {...ctx}
+                data={result.data}
+                plan={
+                  bundle?.tasks &&
+                  (bundle.tasks.state === 'available' ||
+                    bundle.tasks.state === 'partial' ||
+                    bundle.tasks.state === 'empty')
+                    ? bundle.tasks.data.plan
+                    : null
+                }
+              />
+            )}
           </AnalyticsSection>
 
           <AnalyticsSection

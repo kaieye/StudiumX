@@ -400,7 +400,7 @@ export function SettingsView({
                   onChange={(workspaceRead) => void configuration.updateSetting('tools.workspaceRead', workspaceRead)}
                 />
               </SettingsRow>
-              <SettingsRow label="Agent 权限模式" detail="与对话框左下角保持一致：对齐 Codex 三态（需批准≈untrusted / 按风险≈on-request / 本课放行≈never），统一控制工作区写入与工作区命令的审批策略">
+              <SettingsRow label="Agent 权限模式" detail="与对话框左下角保持一致：对齐 Codex 三态（需批准≈untrusted / 按风险≈on-request / 完全放行≈never），统一控制工作区写入与工作区命令的审批策略">
                 <SettingsSelect
                   value={settings.tools.approvalMode}
                   options={agentApprovalModeOptions}

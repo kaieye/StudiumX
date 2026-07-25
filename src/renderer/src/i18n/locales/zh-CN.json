@@ -120,12 +120,12 @@
       "mode": {
         "request_approval": "需批准",
         "based_on_approval": "按风险",
-        "full_access": "本课放行"
+        "full_access": "完全放行"
       },
       "modeDetail": {
-        "request_approval": "创建或改写工作区文件前必须请求批准（不用 YOLO）。",
-        "based_on_approval": "按风险自动创建低风险新文件；覆盖已有文件前仍请求批准。",
-        "full_access": "本课放行：本会话可在已授权范围内创建或改写工作区文件（仍受路径拒绝与受控发布约束）。"
+        "request_approval": "写入前必须征求你的批准。",
+        "based_on_approval": "低风险新建可自动；覆盖前仍询问。",
+        "full_access": "本会话自动放行，仍受路径围栏约束。"
       }
     }
   },

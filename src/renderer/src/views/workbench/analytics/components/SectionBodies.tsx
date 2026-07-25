@@ -8,6 +8,7 @@ import type {
   PlatformAnalytics,
   ReviewAnalytics,
   TaskAnalytics,
+  TaskPlanAnalytics,
   TokenAnalytics
 } from '../types'
 import { ActiveRangeChart } from '../charts/ActiveRangeChart'
@@ -16,8 +17,7 @@ import { DonutChart, type DonutSlice } from '../charts/DonutChart'
 import { DumbbellChart } from '../charts/DumbbellChart'
 import { ProgressGauge } from '../charts/ProgressGauge'
 import { RankBarChart } from '../charts/RankBarChart'
-import { TrendChart } from '../charts/TrendChart'
-import { categoricalColor } from '../charts/palette'
+import { StackedBarChart } from '../charts/StackedBarChart'
 
 type Ctx = {
   copy: AnalyticsCopy
@@ -134,7 +134,29 @@ export function LevelBody({ data, copy, fmt }: Ctx & { data: LearningAnalyticsHe
 
 /* --------------------------------------------------------------- Focus --- */
 
-export function FocusBody({ data, copy, fmt, localToday }: Ctx & { data: FocusAnalytics }) {
+export function FocusBody({
+  data,
+  plan,
+  copy,
+  fmt,
+  localToday
+}: Ctx & {
+  data: FocusAnalytics
+  /** Plan vs execution lives with task schedule history; shown in focus for proximity to time spent. */
+  plan?: TaskPlanAnalytics | null
+}) {
+  const planItems = plan
+    ? [
+        {
+          id: 'plan-vs-exec',
+          label: copy.tasks.planVsExecLabel,
+          before: plan.plannedSeconds,
+          after: plan.attributedFocusSeconds
+        }
+      ]
+    : []
+  const hasPlanData = Boolean(plan && (plan.plannedSeconds > 0 || plan.attributedFocusSeconds > 0))
+
   return (
     <div className="analytics-focus">
       <div className="analytics-subcard analytics-focus__heatmap">
@@ -180,18 +202,81 @@ export function FocusBody({ data, copy, fmt, localToday }: Ctx & { data: FocusAn
         />
       </div>
 
+      {hasPlanData && plan ? (
+        <div className="analytics-subcard analytics-focus__plan">
+          <h3 className="analytics-subcard__title">{copy.tasks.planTitle}</h3>
+          <DumbbellChart
+            items={planItems}
+            title={copy.tasks.planTitle}
+            beforeLabel={copy.tasks.planned}
+            afterLabel={copy.tasks.executed}
+            formatValue={fmt.duration}
+            emptyLabel={copy.tasks.noPlan}
+          />
+          <dl className="analytics-keyvalue-grid analytics-keyvalue-grid--compact">
+            <KeyValue label={copy.tasks.planned} value={fmt.duration(plan.plannedSeconds)} />
+            <KeyValue label={copy.tasks.executed} value={fmt.duration(plan.attributedFocusSeconds)} />
+          </dl>
+        </div>
+      ) : null}
     </div>
   )
 }
 
+
+function buildTokenTrendDates(data: TokenAnalytics): AnalyticsLocalDate[] {
+  const dates = new Set<string>()
+  for (const row of data.byDay) dates.add(row.date)
+  for (const row of data.byDayByModel ?? []) dates.add(row.date)
+  return [...dates].sort((left, right) => left.localeCompare(right))
+}
+
+function buildTokenModelSeries(
+  data: TokenAnalytics,
+  dates: readonly AnalyticsLocalDate[],
+  unknownModelLabel: string
+): Array<{ id: string; label: string; values: number[] }> {
+  const modelRows = data.byDayByModel ?? []
+  if (modelRows.some((row) => row.totalTokens > 0)) {
+    const totals = new Map<string, number>()
+    for (const row of modelRows) {
+      totals.set(row.model, (totals.get(row.model) ?? 0) + row.totalTokens)
+    }
+    const models = [...totals.entries()]
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .map(([model]) => model)
+    return models.map((model) => {
+      const byDate = new Map<string, number>()
+      for (const row of modelRows) {
+        if (row.model !== model) continue
+        byDate.set(row.date, (byDate.get(row.date) ?? 0) + row.totalTokens)
+      }
+      return {
+        id: model,
+        label: model || unknownModelLabel,
+        values: dates.map((date) => byDate.get(date) ?? 0)
+      }
+    })
+  }
+
+  // Fallback: one total series when model attribution is unavailable.
+  const totalsByDate = new Map(data.byDay.map((row) => [row.date, row.totalTokens] as const))
+  return [
+    {
+      id: 'total',
+      label: unknownModelLabel,
+      values: dates.map((date) => totalsByDate.get(date) ?? 0)
+    }
+  ]
+}
+
 /* -------------------------------------------------------------- Tokens --- */
+
 
 export function TokenBody({ data, copy, fmt, localToday }: Ctx & { data: TokenAnalytics }) {
   const todayRow = data.byDay.find((row) => row.date === localToday)
-  const trendDates = data.byDay.map((row) => row.date)
-  const hasSplit = data.byDay.some(
-    (row) => (row.promptTokens ?? 0) > 0 || (row.completionTokens ?? 0) > 0
-  )
+  const trendDates = buildTokenTrendDates(data)
+  const modelSeries = buildTokenModelSeries(data, trendDates, copy.tokens.unknownModel)
   const workspaceItems = data.byWorkspace.map((entry) => ({
     id: entry.workspaceId,
     label: entry.name || entry.workspaceId,
@@ -207,45 +292,14 @@ export function TokenBody({ data, copy, fmt, localToday }: Ctx & { data: TokenAn
 
       <div className="analytics-subcard">
         <h3 className="analytics-subcard__title">{copy.tokens.trendTitle}</h3>
-        <TrendChart
+        <StackedBarChart
           dates={trendDates}
-          series={
-            hasSplit
-              ? [
-                  {
-                    id: 'prompt',
-                    label: copy.tokens.promptTrend,
-                    color: categoricalColor(0),
-                    values: data.byDay.map((row) => row.promptTokens ?? 0),
-                    format: fmt.integer,
-                    fill: true,
-                    sharedScale: true
-                  },
-                  {
-                    id: 'completion',
-                    label: copy.tokens.completionTrend,
-                    color: categoricalColor(1),
-                    values: data.byDay.map((row) => row.completionTokens ?? 0),
-                    format: fmt.integer,
-                    fill: true,
-                    sharedScale: true
-                  }
-                ]
-              : [
-                  {
-                    id: 'tokens',
-                    label: copy.tokens.trendTitle,
-                    color: categoricalColor(1),
-                    values: data.byDay.map((row) => row.totalTokens),
-                    format: fmt.integer,
-                    fill: true
-                  }
-                ]
-          }
+          series={modelSeries}
           title={copy.tokens.trendTitle}
           formatDate={fmt.shortDate}
+          formatValue={fmt.integer}
           emptyLabel={copy.charts.empty}
-          sharedScale={hasSplit}
+          totalLabel={copy.charts.total}
         />
       </div>
 
@@ -257,21 +311,6 @@ export function TokenBody({ data, copy, fmt, localToday }: Ctx & { data: TokenAn
           formatValue={fmt.integer}
           emptyLabel={copy.tokens.noWorkspaceShare}
         />
-      </div>
-
-      <div className="analytics-subcard">
-        <h3 className="analytics-subcard__title">{copy.tokens.efficiencyTitle}</h3>
-        <dl className="analytics-keyvalue-grid">
-          <KeyValue
-            label={copy.tokens.avgPerConversation}
-            value={fmt.integer(data.efficiency.averageTokensPerConversation)}
-          />
-          <KeyValue
-            label={copy.tokens.avgPerMessage}
-            value={fmt.integer(data.efficiency.averageTokensPerMessage)}
-          />
-          <KeyValue label={copy.tokens.toolErrorRate} value={fmt.percent(data.efficiency.toolErrorRate)} />
-        </dl>
       </div>
     </div>
   )
@@ -318,29 +357,6 @@ export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
     ? fmt.duration
     : (value: number) => `${fmt.integer(value)}${copy.tasks.completionCountUnit}`
   const emptyShareLabel = taskShareMode === 'focus' ? copy.tasks.noTopTasks : copy.tasks.noCompletionShare
-  const rankedTasks = hasFocusShare
-    ? data.topByAttributedFocus.map((task) => ({
-        id: task.taskId,
-        label: task.title,
-        value: fmt.duration(task.focusSeconds)
-      }))
-    : data.topByCompletion.map((task) => ({
-        id: task.taskId,
-        label: task.title,
-        value: `${fmt.integer(task.completionCount)}${copy.tasks.completionCountUnit}`
-      }))
-  const rankTitle = hasFocusShare ? copy.tasks.topTasksTitle : copy.tasks.topCompletionTitle
-
-  const plan = data.plan
-  const planItems = [
-    {
-      id: 'plan-vs-exec',
-      label: copy.tasks.planVsExecLabel,
-      before: plan.plannedSeconds,
-      after: plan.attributedFocusSeconds
-    }
-  ]
-  const hasPlanData = plan.plannedSeconds > 0 || plan.attributedFocusSeconds > 0
 
   return (
     <div className="analytics-tasks">
@@ -379,41 +395,6 @@ export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
           />
         </div>
       </div>
-
-      {hasPlanData ? (
-        <div className="analytics-subcard">
-          <h3 className="analytics-subcard__title">{copy.tasks.planTitle}</h3>
-          <DumbbellChart
-            items={planItems}
-            title={copy.tasks.planTitle}
-            beforeLabel={copy.tasks.planned}
-            afterLabel={copy.tasks.executed}
-            formatValue={fmt.duration}
-            emptyLabel={copy.tasks.noPlan}
-          />
-          <dl className="analytics-keyvalue-grid analytics-keyvalue-grid--compact">
-            <KeyValue label={copy.tasks.planned} value={fmt.duration(plan.plannedSeconds)} />
-            <KeyValue label={copy.tasks.executed} value={fmt.duration(plan.attributedFocusSeconds)} />
-            <KeyValue label={copy.tasks.executionRate} value={fmt.percent(plan.executionRate)} />
-          </dl>
-        </div>
-      ) : null}
-
-      <div className="analytics-subcard">
-        <h3 className="analytics-subcard__title">{rankTitle}</h3>
-        {rankedTasks.length > 0 ? (
-          <ol className="analytics-rank-list">
-            {rankedTasks.map((task) => (
-              <li key={task.id}>
-                <bdi dir="auto" className="analytics-rank-list__label">{task.label}</bdi>
-                <span className="analytics-rank-list__value">{task.value}</span>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="analytics-chart-empty">{emptyShareLabel}</p>
-        )}
-      </div>
     </div>
   )
 }
@@ -441,18 +422,6 @@ export function ReviewBody({ data, copy, fmt }: Ctx & { data: ReviewAnalytics })
         <Stat label={copy.review.answered} value={fmt.integer(data.cumulative.totalAnswered)} />
         <Stat label={copy.review.correct} value={fmt.integer(data.cumulative.correct)} tone="ok" />
         <Stat label={copy.review.cards} value={fmt.integer(data.cumulative.cardCount)} />
-      </div>
-
-      <div className="analytics-subcard analytics-review__accuracy">
-        <h3 className="analytics-subcard__title">{copy.review.accuracyGaugeTitle}</h3>
-        <ProgressGauge
-          progress={accuracy}
-          title={copy.review.accuracyGaugeTitle}
-          centerValue={fmt.percent(accuracy)}
-          centerLabel={copy.review.accuracy}
-          emptyLabel={copy.charts.empty}
-          tone={accuracyTone}
-        />
       </div>
 
       <div className="analytics-subcard">

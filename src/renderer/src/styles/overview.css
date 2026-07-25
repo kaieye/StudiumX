@@ -323,16 +323,18 @@
   cursor: progress;
   opacity: 0.65;
 }.overview-file-access-menu {
-  width: min(340px, calc(100vw - 48px));
-  padding: 8px;
+  width: max-content;
+  max-width: min(248px, calc(100vw - 48px));
+  min-width: 168px;
+  padding: 6px;
 }.overview-file-access-option {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
+  justify-content: flex-start;
   width: 100%;
   min-width: 0;
-  gap: 12px;
-  padding: 8px;
+  gap: 8px;
+  padding: 8px 10px;
   color: var(--text);
   border: 0;
   border-radius: 10px;
@@ -350,6 +352,7 @@
   opacity: 0.66;
 }.overview-file-access-option-copy {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
   gap: 2px;
 }.overview-file-access-option-copy strong {
@@ -361,6 +364,8 @@
   line-height: 1.35;
 }.overview-file-access-option > svg {
   flex: 0 0 auto;
+  margin-top: 1px;
+  margin-left: auto;
   color: var(--accent);
 }
 
@@ -1041,18 +1046,22 @@
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.045),
     0 24px 60px rgba(20, 30, 50, 0.16);
-}.overview-git-menu {
-  width: min(380px, calc(100vw - 48px));
+}
+/* Compact composer menus share the same denser width/spacing. */
+.overview-project-picker .overview-picker-menu,
+.overview-git-menu,
+.overview-model-menu,
+.overview-reasoning-menu {
+  width: max-content;
+  max-width: min(248px, calc(100vw - 48px));
+  min-width: 168px;
 }
 
-/* Model picker: open right-aligned so the menu stays inside the composer card. */.overview-model-menu {
+/* Model/reasoning open right-aligned so the menu stays inside the composer card. */
+.overview-model-menu,
+.overview-reasoning-menu {
   right: 0;
   left: auto;
-  width: min(320px, calc(100vw - 48px));
-}.overview-reasoning-menu {
-  right: 0;
-  left: auto;
-  width: min(340px, calc(100vw - 48px));
 }.overview-picker-search {
   display: flex;
   align-items: center;
@@ -1083,7 +1092,39 @@
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
-}.overview-picker-option {
+}.overview-project-picker .overview-picker-option,
+.overview-git-menu .overview-picker-option,
+.overview-model-menu .overview-picker-option,
+.overview-reasoning-menu .overview-picker-option {
+  gap: 8px;
+  padding: 8px 10px;
+}
+.overview-project-picker .overview-picker-option-title,
+.overview-git-menu .overview-picker-option-title,
+.overview-model-menu .overview-picker-option-title,
+.overview-reasoning-menu .overview-picker-option-title {
+  font-size: 12.5px;
+}
+.overview-project-picker .overview-picker-option-context,
+.overview-git-menu .overview-picker-option-context {
+  font-size: 11px;
+}
+.overview-project-picker .overview-picker-search,
+.overview-git-menu .overview-picker-search {
+  gap: 6px;
+  padding: 7px 8px;
+}
+.overview-project-picker .overview-picker-search input,
+.overview-git-menu .overview-picker-search input {
+  font-size: 12.5px;
+}
+.overview-reasoning-menu .overview-picker-option {
+  align-items: center;
+}
+.overview-reasoning-menu .overview-picker-option > svg:last-child {
+  margin-top: 0;
+}
+.overview-picker-option {
   display: flex;
   align-items: flex-start;
   gap: 10px;

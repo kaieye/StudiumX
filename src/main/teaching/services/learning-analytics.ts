@@ -50,6 +50,12 @@ import {
   discoverTokenEvidence,
   type TokenEvidenceAdapters
 } from './analytics/token-evidence'
+import {
+  readUsageLedgerSources,
+  usageLedgerActivePath,
+  usageLedgerWorkspacePath,
+  type UsageLedgerEntry
+} from '../../usage-ledger'
 
 export { aggregateTokenFacts, collectConversationTokenFacts, readLatestLedgerSnapshots } from './analytics/token-evidence'
 import {
@@ -108,6 +114,20 @@ type PlatformScanHeader = ScanHeader & {
 }
 type TokenScanResult = { section: AnalyticsSectionResult<TokenAnalytics> }
 export type AnalyticsPreparedExport = { fileName: string; content: string; manifest: AnalyticsExportManifest }
+
+function analyticsDateToLocalKey(date: Date, timeZone: string): AnalyticsLocalDate {
+  if (Number.isNaN(date.getTime())) return '0001-01-01'
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date)
+  const year = parts.find((part) => part.type === 'year')?.value
+  const month = parts.find((part) => part.type === 'month')?.value
+  const day = parts.find((part) => part.type === 'day')?.value
+  return year && month && day ? `${year}-${month}-${day}` : '0001-01-01'
+}
 
 export class LearningAnalyticsService {
   private readonly sourcePlan: LearningAnalyticsSourcePlan<AnalyticsPlanContext>
@@ -560,6 +580,7 @@ export class LearningAnalyticsService {
       adapters: indexedAdapters ? this.withCanonicalTokenEvidenceFallback(indexedAdapters, durableAdapters) : durableAdapters
     })
     const data = aggregateTokenFacts(evidence.rangedFacts, evidence.toolFacts, evidence.counters)
+    data.byDayByModel = await this.loadTokenModelDayBreakdown(query, header.selected)
     const complete = evidence.complete && header.temporaryWarnings.length === 0
     const sectionCoverage = coverage(query, true, evidence.sources, evidence.facts.map((fact) => fact.localDate), complete)
     // Component-only totals and total/prompt mismatches remain warnings; they do not
@@ -575,6 +596,62 @@ export class LearningAnalyticsService {
       ? emptySection(queryTemporal(query), sectionCoverage, data, evidence.counters.conversationsScanned === 0 ? 'scope_has_no_items' : 'no_matching_records', evidence.warnings)
       : state === 'partial' ? partialSection(queryTemporal(query), sectionCoverage, data, evidence.warnings) : availableSection(queryTemporal(query), sectionCoverage, data, evidence.warnings)
     return { section }
+  }
+
+  /**
+   * Prefer usage-ledger model_usage rows for per-model daily token bars.
+   * Best-effort only: failures return [] and the UI falls back to total bars.
+   */
+  private async loadTokenModelDayBreakdown(
+    query: LearningAnalyticsQuery,
+    selected: AnalyticsWorkspaceScanResult[]
+  ): Promise<TokenAnalytics['byDayByModel']> {
+    try {
+      const byEntryId = new Map<string, UsageLedgerEntry>()
+      const workspaceRoots = selected
+        .map((workspace) => workspace.rootPath)
+        .filter((root): root is string => Boolean(root))
+      const activePaths = [
+        usageLedgerActivePath(this.dependencies.appDataRoot),
+        ...workspaceRoots.map(usageLedgerWorkspacePath)
+      ]
+      for (const activePath of activePaths) {
+        const sources = await readUsageLedgerSources(activePath)
+        for (const source of sources) {
+          for (const entry of source.entries) {
+            if (!byEntryId.has(entry.entryId)) byEntryId.set(entry.entryId, entry)
+          }
+        }
+      }
+
+      const buckets = new Map<string, { date: string; model: string; totalTokens: number; runs: number }>()
+      for (const entry of byEntryId.values()) {
+        if (entry.kind !== 'model_usage') continue
+        const totalTokens = (entry.inputTokens ?? 0) + (entry.outputTokens ?? 0)
+          + (entry.reasoningTokens ?? 0) + (entry.cacheTokens ?? 0)
+        if (totalTokens <= 0) continue
+        const occurredAt = entry.completedAt ?? entry.startedAt ?? entry.timestamp
+        const localDate = analyticsDateToLocalKey(new Date(occurredAt), query.calendarContext.timeZone)
+        if (localDate < query.range.from || localDate > query.range.to) continue
+        const model = (entry.model ?? entry.provider ?? 'unknown').trim() || 'unknown'
+        const key = `${localDate}\0${model}`
+        const current = buckets.get(key) ?? { date: localDate, model, totalTokens: 0, runs: 0 }
+        current.totalTokens += totalTokens
+        current.runs += 1
+        buckets.set(key, current)
+      }
+
+      return [...buckets.values()]
+        .map((item) => ({
+          date: item.date as AnalyticsLocalDate,
+          model: item.model,
+          totalTokens: item.totalTokens,
+          runs: item.runs
+        }))
+        .sort((left, right) => left.date.localeCompare(right.date) || left.model.localeCompare(right.model))
+    } catch {
+      return []
+    }
   }
 
   private async scanReview(query: LearningAnalyticsQuery, generatedAt: string, selected: AnalyticsWorkspaceScanResult[], inheritedWarnings: AnalyticsWarning[]): Promise<AnalyticsSectionResult<ReviewAnalytics>> {

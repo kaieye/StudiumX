@@ -90,18 +90,13 @@ type AnalyticsCopy = {
     providerCalls: string
     toolCalls: string
     trendTitle: string
-    promptTrend: string
-    completionTrend: string
+    unknownModel: string
     byToolTitle: string
     byWorkspaceTitle: string
     noToolShare: string
     noWorkspaceShare: string
     toolCallsUnit: string
     toolErrorsUnit: string
-    efficiencyTitle: string
-    avgPerConversation: string
-    avgPerMessage: string
-    toolErrorRate: string
   }
   tasks: {
     title: string
@@ -114,8 +109,6 @@ type AnalyticsCopy = {
     created: string
     reopened: string
     deleted: string
-    topTasksTitle: string
-    topCompletionTitle: string
     noTopTasks: string
     noCompletionShare: string
     byTaskTitle: string
@@ -129,7 +122,6 @@ type AnalyticsCopy = {
     planVsExecLabel: string
     planned: string
     executed: string
-    executionRate: string
     noPlan: string
   }
   review: {
@@ -141,7 +133,6 @@ type AnalyticsCopy = {
     cards: string
     byLessonTitle: string
     noLessons: string
-    accuracyGaugeTitle: string
   }
   memory: {
     title: string
@@ -172,6 +163,7 @@ type AnalyticsCopy = {
   }
   charts: {
     empty: string
+    total: string
   }
 }
 
@@ -279,24 +271,19 @@ export const analyticsCopy: AnalyticsCopy = {
   },
   tokens: {
     title: 'Token 消耗',
-    description: '模型调用的 Token 使用与效率。',
+    description: '模型调用的 Token 使用分布。',
     total: '总 Token 量',
     today: '今日 Token 量',
     providerCalls: '模型调用',
     toolCalls: '工具调用',
     trendTitle: 'Token 使用趋势',
-    promptTrend: '输入 Token',
-    completionTrend: '输出 Token',
+    unknownModel: '未标注模型',
     byToolTitle: '工具调用排行',
     byWorkspaceTitle: '工作区消耗排行',
     noToolShare: '尚无工具调用记录。',
     noWorkspaceShare: '尚无工作区 Token 分布。',
     toolCallsUnit: '次调用',
-    toolErrorsUnit: '次错误',
-    efficiencyTitle: '效率',
-    avgPerConversation: '每次对话平均',
-    avgPerMessage: '每条消息平均',
-    toolErrorRate: '工具错误率'
+    toolErrorsUnit: '次错误'
   },
   tasks: {
     title: '任务分析',
@@ -309,8 +296,6 @@ export const analyticsCopy: AnalyticsCopy = {
     created: '新建',
     reopened: '重新打开',
     deleted: '已删除',
-    topTasksTitle: '专注投入最多的任务',
-    topCompletionTitle: '完成次数最多的任务',
     noTopTasks: '尚无带专注归属的任务。选择任务并完成专注后会出现时间占比。',
     noCompletionShare: '尚无任务完成记录。在清单中勾选任务后会出现完成占比。',
     byTaskTitle: '任务时间排行',
@@ -324,7 +309,6 @@ export const analyticsCopy: AnalyticsCopy = {
     planVsExecLabel: '计划时段',
     planned: '计划时长',
     executed: '实际专注',
-    executionRate: '执行率',
     noPlan: '尚无计划与执行对比数据。'
   },
   review: {
@@ -335,8 +319,7 @@ export const analyticsCopy: AnalyticsCopy = {
     correct: '答对',
     cards: '复习卡片',
     byLessonTitle: '按课程正确率',
-    noLessons: '暂无复习记录。',
-    accuracyGaugeTitle: '总正确率'
+    noLessons: '暂无复习记录。'
   },
   memory: {
     title: '记忆分析',
@@ -366,7 +349,8 @@ export const analyticsCopy: AnalyticsCopy = {
     kinds: { observation: '观察', warning: '提醒', action: '建议' }
   },
   charts: {
-    empty: '暂无数据'
+    empty: '暂无数据',
+    total: '合计'
   }
 }
 
@@ -454,24 +438,19 @@ const analyticsCopyEn: AnalyticsCopy = {
   },
   tokens: {
     title: 'Token usage',
-    description: 'Model token usage and efficiency.',
+    description: 'Model token usage distribution.',
     total: 'Total tokens',
     today: "Today's tokens",
     providerCalls: 'Model calls',
     toolCalls: 'Tool calls',
     trendTitle: 'Token usage trend',
-    promptTrend: 'Prompt tokens',
-    completionTrend: 'Completion tokens',
+    unknownModel: 'Unlabeled model',
     byToolTitle: 'Tool call ranking',
     byWorkspaceTitle: 'Workspace usage ranking',
     noToolShare: 'No tool calls yet.',
     noWorkspaceShare: 'No workspace token share yet.',
     toolCallsUnit: 'calls',
-    toolErrorsUnit: 'errors',
-    efficiencyTitle: 'Efficiency',
-    avgPerConversation: 'Avg. per conversation',
-    avgPerMessage: 'Avg. per message',
-    toolErrorRate: 'Tool error rate'
+    toolErrorsUnit: 'errors'
   },
   tasks: {
     title: 'Task analytics',
@@ -484,8 +463,6 @@ const analyticsCopyEn: AnalyticsCopy = {
     created: 'Created',
     reopened: 'Reopened',
     deleted: 'Deleted',
-    topTasksTitle: 'Top tasks by focus',
-    topCompletionTitle: 'Top tasks by completion',
     noTopTasks: 'No tasks with attributed focus yet. Select a task and finish a focus session to see time share.',
     noCompletionShare: 'No task completions yet. Check tasks off the list to see completion share.',
     byTaskTitle: 'Focus by task',
@@ -499,7 +476,6 @@ const analyticsCopyEn: AnalyticsCopy = {
     planVsExecLabel: 'Scheduled block',
     planned: 'Planned',
     executed: 'Executed focus',
-    executionRate: 'Execution rate',
     noPlan: 'No plan vs execution data yet.'
   },
   review: {
@@ -510,8 +486,7 @@ const analyticsCopyEn: AnalyticsCopy = {
     correct: 'Correct',
     cards: 'Review cards',
     byLessonTitle: 'Accuracy by lesson',
-    noLessons: 'No review activity yet.',
-    accuracyGaugeTitle: 'Overall accuracy'
+    noLessons: 'No review activity yet.'
   },
   memory: {
     title: 'Memory analytics',
@@ -541,7 +516,8 @@ const analyticsCopyEn: AnalyticsCopy = {
     kinds: { observation: 'Observation', warning: 'Heads up', action: 'Suggestion' }
   },
   charts: {
-    empty: 'No data'
+    empty: 'No data',
+    total: 'Total'
   }
 }
 

@@ -777,7 +777,6 @@ function OverviewModelPicker() {
   const { t } = useTranslation()
   const settings = useAppStore((s) => s.settings)
   const updateSettings = useAppStore((s) => s.updateSettings)
-  const openSettings = useAppStore((s) => s.openSettings)
   const [open, setOpen] = useState(false)
   const [acting, setActing] = useState(false)
   const wrapRef = useRef<HTMLDivElement | null>(null)
@@ -819,7 +818,6 @@ function OverviewModelPicker() {
       {open ? (
         <div className="overview-picker-menu overview-model-menu" role="listbox">
           <div className="overview-picker-list">
-            <div className="overview-picker-group-label">{provider?.name ?? t('common.modelProvider')}</div>
             {models.length === 0 ? (
               <div className="overview-picker-empty">{t('overview.modelEmpty')}</div>
             ) : (
@@ -842,20 +840,6 @@ function OverviewModelPicker() {
                 )
               })
             )}
-          </div>
-          <div className="overview-picker-footer">
-            <button
-              type="button"
-              className="overview-picker-option"
-              onClick={() => {
-                setOpen(false)
-                openSettings('model')
-              }}
-              title={t('overview.modelManage')}
-            >
-              <SlidersHorizontal size={14} strokeWidth={1.9} className="overview-picker-option-icon" />
-              <span className="overview-picker-option-title">{t('overview.modelManage')}</span>
-            </button>
           </div>
         </div>
       ) : null}
@@ -920,10 +904,8 @@ function OverviewReasoningPicker() {
                   disabled={acting || (isCurrent && settings.generator.reasoningEffort === current)}
                   title={reasoningEffortDescription(effort)}
                 >
-                  <BrainCircuit size={14} strokeWidth={1.8} className="overview-picker-option-icon" />
                   <span className="overview-picker-option-body">
                     <span className="overview-picker-option-title">{reasoningEffortLabel(effort)}</span>
-                    <span className="overview-picker-option-context">{reasoningEffortDescription(effort)}</span>
                   </span>
                   {isCurrent ? <Check size={15} /> : null}
                 </button>

@@ -457,6 +457,28 @@ function buildTokens(series: DemoDay[]): TokenAnalytics {
   )
   const lastDate = series.at(-1)?.date ?? '2026-07-25'
 
+  const models = [
+    { id: 'demo-model-pro', weight: 0.48 },
+    { id: 'demo-model-fast', weight: 0.32 },
+    { id: 'demo-model-lite', weight: 0.2 }
+  ] as const
+  const byDayByModel = series.flatMap((day) => {
+    const total = day.promptTokens + day.completionTokens
+    let assigned = 0
+    return models.map((model, index) => {
+      const share = index === models.length - 1
+        ? Math.max(0, total - assigned)
+        : Math.round(total * model.weight)
+      assigned += share
+      return {
+        date: day.date,
+        model: model.id,
+        totalTokens: share,
+        runs: Math.max(1, Math.round(day.runs * model.weight))
+      }
+    }).filter((row) => row.totalTokens > 0)
+  })
+
   return {
     totals,
     byDay: series.map((day) => ({
@@ -466,6 +488,7 @@ function buildTokens(series: DemoDay[]): TokenAnalytics {
       totalTokens: day.promptTokens + day.completionTokens,
       runs: day.runs
     })),
+    byDayByModel,
     byConversation: [
       {
         conversationKey: 'ws-algo/conv-dp',

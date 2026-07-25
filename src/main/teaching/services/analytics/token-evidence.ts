@@ -631,6 +631,9 @@ export function aggregateTokenFacts(
   return {
     totals,
     byDay,
+    // Conversation/ledger facts do not carry model labels; the learning-analytics
+    // scan merges usage-ledger model_usage rows into this field when available.
+    byDayByModel: [],
     byConversation,
     byWorkspace,
     byTool,

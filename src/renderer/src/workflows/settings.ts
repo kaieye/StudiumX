@@ -127,7 +127,7 @@ export function agentApprovalModeLabel(mode: AgentApprovalMode): string {
     case 'based_on_approval':
       return '按风险'
     case 'full_access':
-      return '本课放行'
+      return '完全放行'
   }
 }
 

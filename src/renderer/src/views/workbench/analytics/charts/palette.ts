@@ -1,17 +1,21 @@
 /**
- * Categorical series colors for multi-slice charts (donuts, stacked bars).
- * Industrial instrument palette: near-black with restrained green / amber / red
- * status accents, tuned for the white-on-white analytics dashboard.
+ * Categorical series colors for multi-slice / multi-bar charts
+ * (stacked token trends, rank bars, donuts).
+ *
+ * Morandi set provided for analytics bars:
+ * soft ice blue, powder blue, slate blue-gray, mauve gray, blush gray.
+ * Deeper echoes keep longer series readable without leaving the family.
  */
 const CATEGORICAL = [
-  '#1a1a1a',
-  '#2f9b73',
-  '#b57617',
-  '#c45772',
-  '#4a4a4a',
-  '#1f7a5a',
-  '#8a5a12',
-  '#8a3a4a'
+  '#DBEFF6',
+  '#A8D8E3',
+  '#5D7389',
+  '#C5B8BF',
+  '#E9DFE2',
+  // Slightly deeper echoes for series 6+ while staying in the same family.
+  '#9FC9D6',
+  '#7FA3B5',
+  '#6E5F68'
 ] as const
 
 export function categoricalColor(index: number, _saturation = 68, _lightness = 58): string {
@@ -21,5 +25,5 @@ export function categoricalColor(index: number, _saturation = 68, _lightness = 5
 
 export function categoricalSoftColor(index: number): string {
   const base = categoricalColor(index)
-  return `color-mix(in srgb, ${base} 18%, #ffffff)`
+  return `color-mix(in srgb, ${base} 22%, #ffffff)`
 }

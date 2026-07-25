@@ -67,6 +67,12 @@ function tokenResult(
         { date: query.range.to, promptTokens: 200, completionTokens: 50, totalTokens: 250, runs: 1 },
         { date: addDays(query.range.to, -3), promptTokens: 800, completionTokens: 200, totalTokens: 1_000, runs: 1 }
       ],
+      byDayByModel: [
+        { date: query.range.to, model: 'demo-model-pro', totalTokens: 180, runs: 1 },
+        { date: query.range.to, model: 'demo-model-fast', totalTokens: 70, runs: 1 },
+        { date: addDays(query.range.to, -3), model: 'demo-model-pro', totalTokens: 700, runs: 1 },
+        { date: addDays(query.range.to, -3), model: 'demo-model-fast', totalTokens: 300, runs: 1 }
+      ],
       byConversation: [],
       byWorkspace: [],
       byTool: [],
@@ -357,7 +363,7 @@ describe('StudyAnalyticsPage', () => {
     expect(await screen.findByRole('heading', { name: '概览' })).toBeInTheDocument()
     expect(screen.getByText('专注时长')).toBeInTheDocument()
 
-    // Token section: totals + dual-series trend + ranking/efficiency cards.
+    // Token section: totals + model-stacked trend + workspace ranking (no efficiency card).
     const tokenHeading = screen.getByRole('heading', { name: 'Token 消耗' })
     expect(tokenHeading).toBeInTheDocument()
     const tokenSection = tokenHeading.closest('section')
@@ -370,7 +376,7 @@ describe('StudyAnalyticsPage', () => {
     expect(screen.queryByText('模型调用')).not.toBeInTheDocument()
     expect(screen.queryByText('工具调用')).not.toBeInTheDocument()
     expect(screen.queryByText('工具调用排行')).not.toBeInTheDocument()
-    expect(screen.getByText('效率')).toBeInTheDocument()
+    expect(screen.queryByText('效率')).not.toBeInTheDocument()
 
     // The requested cards and standalone summary copy are removed.
     expect(screen.queryByText('汇总你的专注时段、任务节奏、模型消耗与知识沉淀。')).not.toBeInTheDocument()

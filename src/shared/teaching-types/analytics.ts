@@ -705,6 +705,16 @@ export type TokenAnalytics = {
     totalTokens: number
     runs: number
   }>
+  /**
+   * Daily totals broken down by model label (usage-ledger model_usage).
+   * When empty, the renderer falls back to total-token bars without model segments.
+   */
+  byDayByModel: Array<{
+    date: AnalyticsLocalDate
+    model: string
+    totalTokens: number
+    runs: number
+  }>
   byConversation: Array<{
     conversationKey: string
     conversationId: string

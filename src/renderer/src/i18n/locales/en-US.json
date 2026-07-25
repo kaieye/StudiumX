@@ -120,12 +120,12 @@
       "mode": {
         "request_approval": "Need approval",
         "based_on_approval": "Risk-based",
-        "full_access": "Lesson allow"
+        "full_access": "Full allow"
       },
       "modeDetail": {
-        "request_approval": "Ask before creating or overwriting workspace files (no YOLO).",
-        "based_on_approval": "Auto-create low-risk new files; ask before overwriting existing files.",
-        "full_access": "Allow for this lesson/session within granted workspace scope (path deny and durable publish still apply)."
+        "request_approval": "Ask before any workspace write.",
+        "based_on_approval": "Auto-create low-risk files; ask before overwrites.",
+        "full_access": "Auto-allow this session within path fences."
       }
     }
   },
