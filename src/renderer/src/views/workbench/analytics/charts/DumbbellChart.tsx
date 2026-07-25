@@ -15,6 +15,10 @@ export type DumbbellChartProps = {
   formatValue: (value: number) => string
   emptyLabel: string
   maxItems?: number
+  /** Hide built-in legend when the parent renders it in a header. */
+  hideLegend?: boolean
+  /** Stack category label above the track instead of beside it. */
+  stackedRows?: boolean
 }
 
 /**
@@ -28,7 +32,9 @@ export function DumbbellChart({
   afterLabel,
   formatValue,
   emptyLabel,
-  maxItems = 6
+  maxItems = 6,
+  hideLegend = false,
+  stackedRows = false
 }: DumbbellChartProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
 
@@ -49,13 +55,19 @@ export function DumbbellChart({
   }
 
   return (
-    <div className="dumbbell-chart" role="img" aria-label={title}>
-      <div className="dumbbell-chart__legend" aria-hidden="true">
-        <span className="dumbbell-chart__swatch dumbbell-chart__swatch--before" />
-        <span>{beforeLabel}</span>
-        <span className="dumbbell-chart__swatch dumbbell-chart__swatch--after" />
-        <span>{afterLabel}</span>
-      </div>
+    <div
+      className={stackedRows ? 'dumbbell-chart dumbbell-chart--stacked' : 'dumbbell-chart'}
+      role="img"
+      aria-label={title}
+    >
+      {hideLegend ? null : (
+        <div className="dumbbell-chart__legend" aria-hidden="true">
+          <span className="dumbbell-chart__swatch dumbbell-chart__swatch--before" />
+          <span>{beforeLabel}</span>
+          <span className="dumbbell-chart__swatch dumbbell-chart__swatch--after" />
+          <span>{afterLabel}</span>
+        </div>
+      )}
       <ol className="dumbbell-chart__list">
         {rows.map((row) => {
           const left = Math.min(row.before, row.after)

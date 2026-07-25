@@ -29,22 +29,22 @@ describe('demoLearningAnalyticsBundle', () => {
     expect(bundle.review.state).toBe('available')
 
     if (bundle.focus.state !== 'available') throw new Error('focus unavailable')
-    expect(bundle.focus.data.heatmap.length).toBe(365)
+    expect(bundle.focus.data.heatmap.length).toBe(180)
     expect(bundle.focus.data.trend.length).toBeGreaterThan(0)
     expect(bundle.focus.data.hourBuckets).toHaveLength(24)
     expect(bundle.focus.data.hourBuckets.reduce((sum, value) => sum + value, 0)).toBeGreaterThan(0)
     expect(bundle.focus.data.activeRanges.mode).toBe('day_of_range')
     expect(bundle.focus.data.activeRanges.yMax).toBe(24)
     expect(bundle.focus.data.activeRanges.ranges.length).toBeGreaterThan(0)
-    // Saturday localToday still shows a full Mon–Sun week axis (future Sunday is empty).
+    // week preset is the last 7 local days ending today (no future empty columns).
     expect(bundle.focus.data.activeRanges.categories).toEqual([
+      '2026-07-19',
       '2026-07-20',
       '2026-07-21',
       '2026-07-22',
       '2026-07-23',
       '2026-07-24',
-      '2026-07-25',
-      '2026-07-26'
+      '2026-07-25'
     ])
     expect(query.range.to).toBe('2026-07-25')
 

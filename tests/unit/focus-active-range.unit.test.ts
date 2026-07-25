@@ -206,26 +206,26 @@ describe('focus active ranges', () => {
       '2026-07-13'
     ])
 
-    // Mid-week query range ends at Saturday; chart categories still expand Mon–Sun.
-    const midWeek = buildPersonalStudyAnalytics({
+    // Rolling week query ends at localToday; categories match the requested window only.
+    const lastSeven = buildPersonalStudyAnalytics({
       query: {
-        ...query('2026-07-20', '2026-07-25'),
+        ...query('2026-07-19', '2026-07-25'),
         calendarContext: { localToday: '2026-07-25', timeZone: 'Asia/Shanghai', weekStartsOn: 1 }
       },
       validation,
       generatedAt: now.toISOString(),
       tokens: unavailableTokens()
     })
-    if (!('data' in midWeek.focus)) throw new Error('mid-week focus missing data')
-    expect(midWeek.focus.data.activeRanges.mode).toBe('day_of_range')
-    expect(midWeek.focus.data.activeRanges.categories).toEqual([
+    if (!('data' in lastSeven.focus)) throw new Error('last-seven focus missing data')
+    expect(lastSeven.focus.data.activeRanges.mode).toBe('day_of_range')
+    expect(lastSeven.focus.data.activeRanges.categories).toEqual([
+      '2026-07-19',
       '2026-07-20',
       '2026-07-21',
       '2026-07-22',
       '2026-07-23',
       '2026-07-24',
-      '2026-07-25',
-      '2026-07-26'
+      '2026-07-25'
     ])
   })
 })

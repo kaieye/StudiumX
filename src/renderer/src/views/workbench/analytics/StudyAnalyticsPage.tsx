@@ -244,6 +244,20 @@ export function StudyAnalyticsPage({
                     ? bundle.tasks.data.plan
                     : null
                 }
+                tasks={
+                  bundle?.tasks &&
+                  (bundle.tasks.state === 'available' ||
+                    bundle.tasks.state === 'partial' ||
+                    bundle.tasks.state === 'empty')
+                    ? bundle.tasks.data
+                    : null
+                }
+                selfPercentile={
+                  bundle?.presence &&
+                  (bundle.presence.state === 'available' || bundle.presence.state === 'partial')
+                    ? bundle.presence.data.selfPercentile
+                    : null
+                }
               />
             )}
           </AnalyticsSection>

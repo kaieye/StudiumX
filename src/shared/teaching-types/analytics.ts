@@ -14,7 +14,8 @@ export type AnalyticsInstant = string
 export type AnalyticsRangePreset = 'today' | 'week' | 'month' | 'all' | 'custom'
 
 /**
- * All date ranges include both boundary dates. A `week` always starts on Monday.
+ * All date ranges include both boundary dates.
+ * `week` means the last 7 local days ending today; `month` means the last 30 local days ending today.
  * Historical study facts are matched by their captured local date, not by UTC date.
  */
 export type AnalyticsDateRange = {

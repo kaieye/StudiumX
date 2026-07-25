@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { AnalyticsCopy } from '../analyticsCopy'
 import type { AnalyticsFormatters } from '../chartFormatters'
 import type {
@@ -16,6 +17,8 @@ import { CalendarHeatmap } from '../charts/CalendarHeatmap'
 import { DonutChart, type DonutSlice } from '../charts/DonutChart'
 import { DumbbellChart } from '../charts/DumbbellChart'
 import { ProgressGauge } from '../charts/ProgressGauge'
+import { MorphPieChart } from '../charts/MorphPieChart'
+import { TickGaugeChart } from '../charts/TickGaugeChart'
 import { RankBarChart } from '../charts/RankBarChart'
 import { StackedBarChart } from '../charts/StackedBarChart'
 
@@ -137,6 +140,8 @@ export function LevelBody({ data, copy, fmt }: Ctx & { data: LearningAnalyticsHe
 export function FocusBody({
   data,
   plan,
+  tasks,
+  selfPercentile = null,
   copy,
   fmt,
   localToday
@@ -144,7 +149,12 @@ export function FocusBody({
   data: FocusAnalytics
   /** Plan vs execution lives with task schedule history; shown in focus for proximity to time spent. */
   plan?: TaskPlanAnalytics | null
+  /** Task/category share pie sits beside the hour distribution for time-attribution context. */
+  tasks?: TaskAnalytics | null
+  /** Live peer percentile from presence snapshot (0–1). Null hides the hub card. */
+  selfPercentile?: number | null
 }) {
+  const [shareView, setShareView] = useState<'task' | 'category'>('task')
   const planItems = plan
     ? [
         {
@@ -156,6 +166,57 @@ export function FocusBody({
       ]
     : []
   const hasPlanData = Boolean(plan && (plan.plannedSeconds > 0 || plan.attributedFocusSeconds > 0))
+
+  // Prefer attributed focus-time slices; fall back to checklist completion counts so
+  // checking tasks on the list produces a visible share pie without a focus run.
+  const hasFocusShare = Boolean(tasks?.topByAttributedFocus.some((task) => task.focusSeconds > 0))
+  const taskShareMode: 'focus' | 'completion' = hasFocusShare ? 'focus' : 'completion'
+  const taskFocusItems = !tasks
+    ? []
+    : hasFocusShare
+      ? tasks.topByAttributedFocus.map((task) => ({
+          id: task.taskId,
+          label: task.title,
+          value: task.focusSeconds
+        }))
+      : tasks.topByCompletion.map((task) => ({
+          id: task.taskId,
+          label: task.title,
+          value: task.completionCount
+        }))
+  const categoryFocusItems = !tasks
+    ? []
+    : hasFocusShare
+      ? tasks.byCategoryFocus.map((entry) => ({
+          id: entry.categoryId,
+          label:
+            entry.categoryId === 'uncategorized'
+              ? copy.tasks.uncategorized
+              : entry.label || entry.categoryId,
+          value: entry.focusSeconds
+        }))
+      : tasks.byCategoryCompletion.map((entry) => ({
+          id: entry.categoryId,
+          label:
+            entry.categoryId === 'uncategorized'
+              ? copy.tasks.uncategorized
+              : entry.label || entry.categoryId,
+          value: entry.completionCount
+        }))
+  const taskChartTitle = taskShareMode === 'focus' ? copy.tasks.byTaskTitle : copy.tasks.byTaskCompletionTitle
+  const categoryChartTitle =
+    taskShareMode === 'focus' ? copy.tasks.byCategoryTitle : copy.tasks.byCategoryCompletionTitle
+  const chartTitle = shareView === 'task' ? taskChartTitle : categoryChartTitle
+  const chartItems = shareView === 'task' ? taskFocusItems : categoryFocusItems
+  const formatShareValue =
+    taskShareMode === 'focus'
+      ? fmt.duration
+      : (value: number) => `${fmt.integer(value)}${copy.tasks.completionCountUnit}`
+  const emptyShareLabel = !tasks
+    ? copy.charts.empty
+    : taskShareMode === 'focus'
+      ? copy.tasks.noTopTasks
+      : copy.tasks.noCompletionShare
 
   return (
     <div className="analytics-focus">
@@ -181,6 +242,70 @@ export function FocusBody({
         />
       </div>
 
+      {hasPlanData && plan ? (
+        <div className="analytics-subcard analytics-focus__plan">
+          <div className="analytics-focus__plan-header">
+            <h3 className="analytics-subcard__title">{copy.tasks.planTitle}</h3>
+            <div className="dumbbell-chart__legend analytics-focus__plan-legend" aria-hidden="true">
+              <span className="dumbbell-chart__swatch dumbbell-chart__swatch--before" />
+              <span>{copy.tasks.planned}</span>
+              <span className="dumbbell-chart__swatch dumbbell-chart__swatch--after" />
+              <span>{copy.tasks.executed}</span>
+            </div>
+          </div>
+          <DumbbellChart
+            items={planItems}
+            title={copy.tasks.planTitle}
+            beforeLabel={copy.tasks.planned}
+            afterLabel={copy.tasks.executed}
+            formatValue={fmt.duration}
+            emptyLabel={copy.tasks.noPlan}
+            hideLegend
+            stackedRows
+          />
+          <dl className="analytics-keyvalue-grid analytics-keyvalue-grid--compact">
+            <KeyValue label={copy.tasks.planned} value={fmt.duration(plan.plannedSeconds)} />
+            <KeyValue label={copy.tasks.executed} value={fmt.duration(plan.attributedFocusSeconds)} />
+          </dl>
+        </div>
+      ) : null}
+
+      <div className="analytics-subcard analytics-focus__share">
+        <div className="analytics-focus__share-header">
+          <h3 className="analytics-subcard__title">{chartTitle}</h3>
+        </div>
+        <MorphPieChart
+          items={chartItems}
+          title={chartTitle}
+          formatValue={formatShareValue}
+          emptyLabel={emptyShareLabel}
+        />
+        <div className="analytics-focus__share-footer">
+          <div
+            className="analytics-focus__share-toggle"
+            role="group"
+            aria-label={copy.tasks.shareViewLabel}
+          >
+            <button
+              type="button"
+              className="analytics-filter-button analytics-focus__share-button"
+              aria-pressed={shareView === 'task'}
+              onClick={() => setShareView('task')}
+            >
+              {copy.tasks.shareViewTask}
+            </button>
+            <button
+              type="button"
+              className="analytics-filter-button analytics-focus__share-button"
+              aria-pressed={shareView === 'category'}
+              onClick={() => setShareView('category')}
+            >
+              {copy.tasks.shareViewCategory}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="analytics-subcard analytics-focus__hours">
         <h3 className="analytics-subcard__title">{copy.focus.hourTitle}</h3>
         <ActiveRangeChart
@@ -202,21 +327,19 @@ export function FocusBody({
         />
       </div>
 
-      {hasPlanData && plan ? (
-        <div className="analytics-subcard analytics-focus__plan">
-          <h3 className="analytics-subcard__title">{copy.tasks.planTitle}</h3>
-          <DumbbellChart
-            items={planItems}
-            title={copy.tasks.planTitle}
-            beforeLabel={copy.tasks.planned}
-            afterLabel={copy.tasks.executed}
-            formatValue={fmt.duration}
-            emptyLabel={copy.tasks.noPlan}
+      {selfPercentile !== null && selfPercentile !== undefined && Number.isFinite(selfPercentile) ? (
+        <div className="analytics-subcard analytics-focus__percentile">
+          <h3 className="analytics-subcard__title">{copy.focus.percentileTitle}</h3>
+          <TickGaugeChart
+            progress={selfPercentile}
+            title={copy.focus.percentileTitle}
+            centerLabel={copy.focus.percentileCenterLabel}
+            remainingLabel={copy.focus.percentileRemaining(
+              Math.max(0, 100 - Math.round(Math.max(0, Math.min(1, selfPercentile)) * 100))
+            )}
+            footerLabel={copy.focus.percentileFooter}
+            emptyLabel={copy.focus.percentileEmpty}
           />
-          <dl className="analytics-keyvalue-grid analytics-keyvalue-grid--compact">
-            <KeyValue label={copy.tasks.planned} value={fmt.duration(plan.plannedSeconds)} />
-            <KeyValue label={copy.tasks.executed} value={fmt.duration(plan.attributedFocusSeconds)} />
-          </dl>
         </div>
       ) : null}
     </div>
@@ -319,45 +442,6 @@ export function TokenBody({ data, copy, fmt, localToday }: Ctx & { data: TokenAn
 /* --------------------------------------------------------------- Tasks --- */
 
 export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
-  // Prefer attributed focus-time bars; fall back to checklist completion counts so
-  // checking tasks on the list produces visible share charts without a focus run.
-  const hasFocusShare = data.topByAttributedFocus.some((task) => task.focusSeconds > 0)
-  const taskShareMode: 'focus' | 'completion' = hasFocusShare ? 'focus' : 'completion'
-  const taskFocusItems = hasFocusShare
-    ? data.topByAttributedFocus.map((task) => ({
-        id: task.taskId,
-        label: task.title,
-        value: task.focusSeconds
-      }))
-    : data.topByCompletion.map((task) => ({
-        id: task.taskId,
-        label: task.title,
-        value: task.completionCount
-      }))
-  const categoryFocusItems = hasFocusShare
-    ? data.byCategoryFocus.map((entry) => ({
-        id: entry.categoryId,
-        label:
-          entry.categoryId === 'uncategorized'
-            ? copy.tasks.uncategorized
-            : entry.label || entry.categoryId,
-        value: entry.focusSeconds
-      }))
-    : data.byCategoryCompletion.map((entry) => ({
-        id: entry.categoryId,
-        label:
-          entry.categoryId === 'uncategorized'
-            ? copy.tasks.uncategorized
-            : entry.label || entry.categoryId,
-        value: entry.completionCount
-      }))
-  const taskChartTitle = taskShareMode === 'focus' ? copy.tasks.byTaskTitle : copy.tasks.byTaskCompletionTitle
-  const categoryChartTitle = taskShareMode === 'focus' ? copy.tasks.byCategoryTitle : copy.tasks.byCategoryCompletionTitle
-  const formatShareValue = taskShareMode === 'focus'
-    ? fmt.duration
-    : (value: number) => `${fmt.integer(value)}${copy.tasks.completionCountUnit}`
-  const emptyShareLabel = taskShareMode === 'focus' ? copy.tasks.noTopTasks : copy.tasks.noCompletionShare
-
   return (
     <div className="analytics-tasks">
       <div className="analytics-stat-row">
@@ -373,27 +457,6 @@ export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
           value={fmt.percent(data.current.completionRate)}
           tone={(data.current.completionRate ?? 0) >= 0.7 ? 'ok' : (data.current.completionRate ?? 0) > 0 ? 'warn' : 'default'}
         />
-      </div>
-
-      <div className="analytics-subcard analytics-tasks__bars">
-        <div className="analytics-donut-cell">
-          <h3 className="analytics-subcard__title">{taskChartTitle}</h3>
-          <RankBarChart
-            items={taskFocusItems}
-            title={taskChartTitle}
-            formatValue={formatShareValue}
-            emptyLabel={emptyShareLabel}
-          />
-        </div>
-        <div className="analytics-donut-cell">
-          <h3 className="analytics-subcard__title">{categoryChartTitle}</h3>
-          <RankBarChart
-            items={categoryFocusItems}
-            title={categoryChartTitle}
-            formatValue={formatShareValue}
-            emptyLabel={emptyShareLabel}
-          />
-        </div>
       </div>
     </div>
   )

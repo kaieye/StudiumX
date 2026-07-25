@@ -183,20 +183,21 @@ export function buildAnalyticsDateRange(
   }
 
   if (preset === 'today') return makeRange('today', localToday, localToday)
+  if (preset === 'week') {
+    // Last 7 inclusive local days ending today (today-6 … today).
+    return makeRange('week', addLocalDays(localToday, -6), localToday)
+  }
   if (preset === 'month') {
-    const from = `${localToday.slice(0, 8)}01` as AnalyticsLocalDate
-    return makeRange('month', from, localToday)
+    // Last 30 inclusive local days ending today (today-29 … today).
+    return makeRange('month', addLocalDays(localToday, -29), localToday)
   }
   if (preset === 'all') {
     // Sentinel lower bound; personal/token sources clamp to tracking/retention.
     return makeRange('all', '0001-01-01', localToday)
   }
 
-  // week: Monday-start inclusive through localToday.
-  // The active-range chart still expands categories to a full Mon–Sun week.
-  const weekday = (today.getDay() + 6) % 7
-  const from = addLocalDays(localToday, -weekday)
-  return makeRange('week', from, localToday)
+  // Exhaustiveness guard for future presets.
+  return makeRange('today', localToday, localToday)
 }
 
 export function buildLearningAnalyticsQuery(input: BuildLearningAnalyticsQueryInput): LearningAnalyticsQuery {

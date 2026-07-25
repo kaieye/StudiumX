@@ -255,18 +255,16 @@ function buildHero(series: DemoDay[], range: AnalyticsDateRange): LearningAnalyt
 }
 
 
-/** X-axis categories for the active-range chart; week always expands Mon-Sun. */
+/** X-axis categories for the active-range chart; multi-day ranges use the requested window. */
 function focusDemoCategories(query: LearningAnalyticsQuery, series: DemoDay[]): AnalyticsLocalDate[] {
-  if (query.range.preset === 'week') {
-    return Array.from({ length: 7 }, (_, index) => addLocalDays(query.range.from, index))
-  }
   if (query.range.from === query.range.to) {
     return [query.range.from]
   }
-  if (series.length > 0) {
-    return series.map((day) => day.date)
-  }
-  return daysInclusive(query.range.from, query.range.to)
+  const raw = series.length > 0
+    ? series.map((day) => day.date)
+    : daysInclusive(query.range.from, query.range.to)
+  // Match production: bar axes never expose more than 180 day columns.
+  return raw.length > 180 ? raw.slice(-180) : raw
 }
 
 function buildDemoActiveRanges(
@@ -837,8 +835,8 @@ export function createDemoLearningAnalyticsBundle(query: LearningAnalyticsQuery)
     to: seriesFrom <= seriesTo ? seriesTo : localToday
   }
   const series = buildDailySeries(seriesRange)
-  // Fixed 365-day calendar independent of the selected range preset.
-  const heatmapStart = addLocalDays(localToday, -364)
+  // Fixed 180-day calendar independent of the selected range preset.
+  const heatmapStart = addLocalDays(localToday, -179)
   const heatmapEnd = localToday
   const dataStartDate = series[0]?.date ?? seriesRange.from
   const dataEndDate = series.at(-1)?.date ?? seriesRange.to

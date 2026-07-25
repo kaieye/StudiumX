@@ -151,10 +151,12 @@ export function createAnalyticsDateRange(
       from = localToday
       break
     case 'week':
-      from = getMondayWeekStart(localToday)
+      // Last 7 inclusive local days ending today (today-6 … today).
+      from = addLocalDays(localToday, -6)
       break
     case 'month':
-      from = `${localToday.slice(0, 8)}01`
+      // Last 30 inclusive local days ending today (today-29 … today).
+      from = addLocalDays(localToday, -29)
       break
     case 'all':
       from = '0001-01-01'

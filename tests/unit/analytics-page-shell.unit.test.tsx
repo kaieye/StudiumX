@@ -116,7 +116,7 @@ function emptyFocusResult(
   query: LearningAnalyticsQuery
 ): Extract<AnalyticsSectionResult<FocusAnalytics>, { state: 'empty' }> {
   const localToday = query.calendarContext.localToday
-  const heatmapFrom = addDays(localToday, -364)
+  const heatmapFrom = addDays(localToday, -179)
   const singleDay = query.range.from === query.range.to
   return {
     state: 'empty',
@@ -126,7 +126,7 @@ function emptyFocusResult(
     warnings: [],
     data: {
       daily: [],
-      heatmap: Array.from({ length: 365 }, (_, index) => {
+      heatmap: Array.from({ length: 180 }, (_, index) => {
         const date = addDays(heatmapFrom, index)
         return {
           date,
@@ -386,8 +386,8 @@ describe('StudyAnalyticsPage', () => {
     expect(document.querySelector('.token-consumption-card')).toBeNull()
     expect(document.querySelectorAll('.analytics-section-card')).toHaveLength(6)
 
-    // Range presets are exposed and default to "this week".
-    expect(screen.getByRole('button', { name: '本周' })).toHaveAttribute('aria-pressed', 'true')
+    // Range presets are exposed and default to the last 7 days.
+    expect(screen.getByRole('button', { name: '7天' })).toHaveAttribute('aria-pressed', 'true')
 
     await setupUser().click(screen.getByRole('button', { name: '返回自习室' }))
     expect(onBack).toHaveBeenCalledTimes(1)
@@ -459,6 +459,50 @@ describe('StudyAnalyticsPage', () => {
     // Blank skeleton still mounts the chart shells instead of only the empty message.
     expect(focusSection?.querySelector('.calendar-heatmap')).not.toBeNull()
     expect(focusSection?.querySelector('.active-range')).not.toBeNull()
+    expect(focusSection?.querySelector('.analytics-focus__share')).not.toBeNull()
+    expect(focusSection?.querySelector('.analytics-focus__hours')).not.toBeNull()
+  })
+
+  it('renders the focus percentile hub with tick-gauge when presence selfPercentile is available', async () => {
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async (query) => {
+        const emptyFocus = emptyFocusResult(query)
+        return {
+          ...bundle(query),
+          focus: {
+            ...emptyFocus,
+            state: 'available' as const
+          },
+          presence: {
+            ...sectionBase(query),
+            state: 'available' as const,
+            data: {
+              capturedAt: '2026-07-13T12:00:00.000Z',
+              spaceCode: 'demo-space',
+              online: 12,
+              roomCapacityPercent: 0.5,
+              peerFocusSecondsToday: 30_000,
+              selfPercentile: 0.73,
+              eventCounts: {}
+            }
+          }
+        }
+      })
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client', presenceSpaceCode: 'demo-space' }}
+      />
+    )
+
+    const focusSection = (await screen.findByRole('heading', { name: '专注分析' })).closest('section')
+    await waitFor(() => expect(focusSection?.querySelector('.analytics-focus__percentile')).not.toBeNull())
+    expect(focusSection?.querySelector('.tick-gauge')).not.toBeNull()
+    expect(focusSection).toHaveTextContent('专注超越')
+    expect(focusSection).toHaveTextContent('73%')
   })
 
   it('renders section-level unavailable with reason copy and retry, never as API unavailable', async () => {
@@ -705,12 +749,45 @@ describe('StudyAnalyticsPage', () => {
       resolve(process.cwd(), 'src/renderer/src/views/workbench/analytics/analytics-page.css'),
       'utf8'
     )
+    const entryCss = readFileSync(
+      resolve(process.cwd(), 'src/renderer/src/views/workbench/workbench-analytics-entry.css'),
+      'utf8'
+    )
     expect(css).toContain('.office-workbench-page.workbench-analytics-route')
     expect(css).toMatch(/\.workbench-analytics-route\s*\{[^}]*overflow:\s*hidden/s)
+    expect(css).toMatch(/\.workbench-analytics-route\s*\{[^}]*height:\s*100%/s)
+    expect(css).toMatch(/\.study-analytics-page\s*\{[^}]*flex:\s*1 1 auto/s)
     expect(css).toMatch(/\.study-analytics-scroll\s*\{[^}]*overflow-x:\s*clip[^}]*overflow-y:\s*auto/s)
     expect(css).toContain('container-type: inline-size')
+    expect(css).toContain('@container study-analytics (max-width: 980px)')
     expect(css).toContain('@container study-analytics (max-width: 820px)')
     expect(css).toContain('minmax(0, 1fr)')
+    expect(css).toContain('.analytics-focus:not(:has(.analytics-focus__plan))')
+    expect(css).toContain('--heatmap-cell: 11px')
+    expect(css).toMatch(/\.analytics-focus__plan\s*\{[^}]*grid-row:\s*1 \/ 3/s)
+    expect(css).toContain('.analytics-focus__plan-header')
+    expect(css).toContain('.analytics-focus__plan-legend')
+    expect(css).toContain('.dumbbell-chart--stacked')
+    expect(css).toMatch(/\.analytics-focus\s*\{[^}]*align-items:\s*stretch/s)
+    expect(css).toContain('--analytics-focus-hub')
+    expect(css).toContain('--analytics-focus-side')
+    expect(css).toContain('.analytics-focus__share')
+    expect(css).toContain('.analytics-focus__share-header')
+    expect(css).toContain('.analytics-focus__share-footer')
+    expect(css).toMatch(/\.analytics-focus:has\(\.analytics-focus__percentile\)\s*\{[^}]*grid-template-areas:/s)
+    expect(css).toMatch(/\.analytics-focus:has\(\.analytics-focus__percentile\)\s*\{[^}]*justify-content:\s*center/s)
+    expect(css).toMatch(/grid-template-areas:[^;]*"heat heat plan"[^;]*"share hub plan"[^;]*"share hours hours"/s)
+    expect(css).toMatch(/\.analytics-focus:has\(\.analytics-focus__percentile\) \.analytics-focus__share\s*\{[^}]*grid-area:\s*share/s)
+    expect(css).toMatch(/\.analytics-focus:has\(\.analytics-focus__percentile\) \.analytics-focus__hours\s*\{[^}]*grid-area:\s*hours/s)
+    expect(css).toMatch(/\.analytics-focus__share\s*\{[^}]*min-height:/s)
+    expect(css).toContain('.analytics-focus__percentile')
+    expect(css).toContain('.tick-gauge')
+    expect(css).toMatch(/\.analytics-focus__percentile\s*\{[^}]*grid-area:\s*hub/s)
+    expect(css).toMatch(/\.calendar-heatmap__grid\s*\{[^}]*grid-auto-columns:\s*var\(--heatmap-cell\)/s)
+    expect(css).toMatch(/\.calendar-heatmap__cell\s*\{[^}]*width:\s*var\(--heatmap-cell\)/s)
+    expect(css).not.toContain('content-visibility: auto')
+    expect(entryCss).toMatch(/\.workbench-analytics-route\s*\{[^}]*overflow:\s*hidden/s)
+    expect(entryCss).toMatch(/\.workbench-analytics-route\s*\{[^}]*height:\s*100%/s)
   })
 })
 

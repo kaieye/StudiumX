@@ -81,6 +81,12 @@ type AnalyticsCopy = {
     avgSession: string
     breakTime: string
     weekdays: readonly [string, string, string, string, string, string, string]
+    percentileTitle: string
+    percentileCenterLabel: string
+    percentileRemaining: (ticks: number) => string
+    percentileFooter: string
+    percentileEmpty: string
+    percentileTooltip: (percent: number) => string
   }
   tokens: {
     title: string
@@ -115,6 +121,9 @@ type AnalyticsCopy = {
     byCategoryTitle: string
     byTaskCompletionTitle: string
     byCategoryCompletionTitle: string
+    shareViewTask: string
+    shareViewCategory: string
+    shareViewLabel: string
     noCategoryShare: string
     completionCountUnit: string
     uncategorized: string
@@ -210,7 +219,7 @@ export const analyticsCopy: AnalyticsCopy = {
     demoLoaded: '正在展示示例数据（多日伪造学习记录）'
   },
   ranges: {
-    today: '今天', week: '本周', month: '本月', all: '全部'
+    today: '今天', week: '7天', month: '30天', all: '全部'
   },
   states: {
     loading: '正在加载',
@@ -267,7 +276,13 @@ export const analyticsCopy: AnalyticsCopy = {
     completionRate: '完成率',
     avgSession: '平均专注时长',
     breakTime: '休息时长',
-    weekdays: ['一', '二', '三', '四', '五', '六', '日']
+    weekdays: ['一', '二', '三', '四', '五', '六', '日'],
+    percentileTitle: '专注超越',
+    percentileCenterLabel: '超过同学',
+    percentileRemaining: (ticks) => (ticks <= 0 ? '已站在最前' : `还差 ${ticks} 个刻度`),
+    percentileFooter: '一格 = 1% · 上墨 = 已超过',
+    percentileEmpty: '暂无同伴对比数据',
+    percentileTooltip: (percent) => `专注时长超过 ${percent}% 的同学`
   },
   tokens: {
     title: 'Token 消耗',
@@ -302,6 +317,9 @@ export const analyticsCopy: AnalyticsCopy = {
     byCategoryTitle: '类别时间排行',
     byTaskCompletionTitle: '任务完成排行',
     byCategoryCompletionTitle: '类别完成排行',
+    shareViewTask: '按任务',
+    shareViewCategory: '按类别',
+    shareViewLabel: '排行维度',
     noCategoryShare: '尚无任务类别时间分布。',
     completionCountUnit: ' 次',
     uncategorized: '未分类',
@@ -377,7 +395,7 @@ const analyticsCopyEn: AnalyticsCopy = {
     demoLoaded: 'Showing sample multi-day analytics data'
   },
   ranges: {
-    today: 'Today', week: 'This week', month: 'This month', all: 'All time'
+    today: 'Today', week: '7 days', month: '30 days', all: 'All time'
   },
   states: {
     loading: 'Loading',
@@ -434,7 +452,13 @@ const analyticsCopyEn: AnalyticsCopy = {
     completionRate: 'Completion rate',
     avgSession: 'Avg. session',
     breakTime: 'Break time',
-    weekdays: ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+    weekdays: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
+    percentileTitle: 'Focus percentile',
+    percentileCenterLabel: 'of peers',
+    percentileRemaining: (ticks) => (ticks <= 0 ? 'At the top' : `${ticks} ticks to go`),
+    percentileFooter: 'ONE TICK = 1% · INKED = AHEAD',
+    percentileEmpty: 'No peer comparison yet',
+    percentileTooltip: (percent) => `Ahead of ${percent}% of peers in focus time`
   },
   tokens: {
     title: 'Token usage',
@@ -469,6 +493,9 @@ const analyticsCopyEn: AnalyticsCopy = {
     byCategoryTitle: 'Focus by category',
     byTaskCompletionTitle: 'Completions by task',
     byCategoryCompletionTitle: 'Completions by category',
+    shareViewTask: 'By task',
+    shareViewCategory: 'By category',
+    shareViewLabel: 'Ranking dimension',
     noCategoryShare: 'No task-category focus share yet.',
     completionCountUnit: 'x',
     uncategorized: 'Uncategorized',

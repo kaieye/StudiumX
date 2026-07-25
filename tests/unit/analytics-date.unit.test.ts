@@ -17,13 +17,20 @@ describe('analytics local calendar dates', () => {
     expect(getLocalDateKey(instant, 'America/Los_Angeles')).toBe('2026-07-12')
   })
 
-  it('uses Monday as the week start and keeps range boundaries inclusive', () => {
+  it('uses rolling last-7-day and last-30-day presets with inclusive boundaries', () => {
     expect(getMondayWeekStart('2026-07-12')).toBe('2026-07-06')
-    const range = createAnalyticsDateRange('week', '2026-07-12')
-    expect(range).toMatchObject({ from: '2026-07-06', to: '2026-07-12', fromInclusive: true, toInclusive: true })
-    expect(isLocalDateInRange('2026-07-06', range)).toBe(true)
-    expect(isLocalDateInRange('2026-07-12', range)).toBe(true)
-    expect(isLocalDateInRange('2026-07-13', range)).toBe(false)
+    const week = createAnalyticsDateRange('week', '2026-07-12')
+    expect(week).toMatchObject({ from: '2026-07-06', to: '2026-07-12', fromInclusive: true, toInclusive: true })
+    expect(isLocalDateInRange('2026-07-06', week)).toBe(true)
+    expect(isLocalDateInRange('2026-07-12', week)).toBe(true)
+    expect(isLocalDateInRange('2026-07-05', week)).toBe(false)
+    expect(isLocalDateInRange('2026-07-13', week)).toBe(false)
+    expect(countInclusiveLocalDays(week.from, week.to)).toBe(7)
+
+    const month = createAnalyticsDateRange('month', '2026-07-12')
+    expect(month).toMatchObject({ from: '2026-06-13', to: '2026-07-12', fromInclusive: true, toInclusive: true })
+    expect(countInclusiveLocalDays(month.from, month.to)).toBe(30)
+
     expect(addLocalDays('2026-03-01', -1)).toBe('2026-02-28')
     expect(addLocalDays('0001-01-01', 1)).toBe('0001-01-02')
     expect(countInclusiveLocalDays('0001-01-01', '0001-01-02')).toBe(2)

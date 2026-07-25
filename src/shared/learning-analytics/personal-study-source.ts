@@ -289,7 +289,7 @@ function projectionRows(query: LearningAnalyticsQuery, validation: Extract<Perso
   })
 }
 
-/** Always 365 local days ending today, independent of the selected range preset. */
+/** Always 180 local days ending today, independent of the selected range preset. */
 function heatmapCells(
   query: LearningAnalyticsQuery,
   validation: Extract<PersonalStudySnapshotValidation, { state: 'valid' }>,
@@ -299,8 +299,8 @@ function heatmapCells(
   const localToday = query.calendarContext.localToday
   const cutoffDate = addAnalyticsLocalDays(localToday, -399)
   const coverageStart = validation.snapshot.trackingStartedOn > cutoffDate ? validation.snapshot.trackingStartedOn : cutoffDate
-  const heatmapFrom = addAnalyticsLocalDays(localToday, -364)
-  return Array.from({ length: 365 }, (_, index) => {
+  const heatmapFrom = addAnalyticsLocalDays(localToday, -179)
+  return Array.from({ length: 180 }, (_, index) => {
     const date = addAnalyticsLocalDays(heatmapFrom, index)
     const existing = map.get(date)
     return {
@@ -351,7 +351,7 @@ export function buildFocusActiveRanges(
   categories: readonly string[]
 ): FocusActiveRangeSeries {
   // Prefer multi-day layout when the caller supplies more than one category
-  // (week preset expands Mon–Sun even when the query range ends at localToday).
+  // (rolling multi-day presets expand every day in the requested window).
   const singleDay = range.from === range.to && categories.length <= 1
   if (singleDay) {
     const hourCategories = Array.from({ length: 24 }, (_, hour) => String(hour))
@@ -411,7 +411,7 @@ export function buildFocusActiveRanges(
         const dates: string[] = []
         let cursor = range.from
         let guard = 0
-        while (cursor <= range.to && guard < 400) {
+        while (cursor <= range.to && guard < 180) {
           dates.push(cursor)
           cursor = addAnalyticsLocalDays(cursor, 1)
           guard += 1
@@ -485,19 +485,13 @@ function unavailable<T>(query: LearningAnalyticsQuery, reason: 'history_not_reco
 
 /**
  * X-axis categories for the active-range chart.
- * - `week`: always a full Monday–Sunday week (future days stay empty columns)
- * - other multi-day ranges: expand the requested window, clamped for `all`/retention
+ * Multi-day ranges expand the requested window (clamped for `all`/retention).
+ * `week`/`month` presets already resolve to the last 7/30 local days ending today.
  */
 function focusRangeCategories(query: LearningAnalyticsQuery): string[] {
   if (query.range.from === query.range.to) return [query.range.from]
   const localToday = query.calendarContext.localToday
   const cutoffDate = addAnalyticsLocalDays(localToday, -399)
-
-  if (query.range.preset === 'week') {
-    // Anchor to the Monday of the requested week (range.from is already Monday for the preset).
-    const weekStart = query.range.from
-    return Array.from({ length: 7 }, (_, index) => addAnalyticsLocalDays(weekStart, index))
-  }
 
   let from = query.range.from
   let to = query.range.to
@@ -507,8 +501,9 @@ function focusRangeCategories(query: LearningAnalyticsQuery): string[] {
   }
   if (to > localToday) to = localToday
   if (from > to) return [localToday]
-  if (countInclusiveLocalDays(from, to) > 400) {
-    from = addAnalyticsLocalDays(to, -399)
+  // Active-range bar chart (and peer day axes) cap at 180 visible days.
+  if (countInclusiveLocalDays(from, to) > 180) {
+    from = addAnalyticsLocalDays(to, -179)
   }
   return Array.from({ length: countInclusiveLocalDays(from, to) }, (_, index) => addAnalyticsLocalDays(from, index))
 }
@@ -516,13 +511,13 @@ function focusRangeCategories(query: LearningAnalyticsQuery): string[] {
 /** Blank focus payload so the page can always mount heatmap + active-range cards. */
 function emptyFocusScaffold(query: LearningAnalyticsQuery, trackingStartedOn: string | null = null): FocusAnalytics {
   const localToday = query.calendarContext.localToday
-  const heatmapFrom = addAnalyticsLocalDays(localToday, -364)
+  const heatmapFrom = addAnalyticsLocalDays(localToday, -179)
   const cutoffDate = addAnalyticsLocalDays(localToday, -399)
   const coverageStart = trackingStartedOn && trackingStartedOn > cutoffDate ? trackingStartedOn : cutoffDate
   const hasCoverage = Boolean(trackingStartedOn)
   return {
     daily: [],
-    heatmap: Array.from({ length: 365 }, (_, index) => {
+    heatmap: Array.from({ length: 180 }, (_, index) => {
       const date = addAnalyticsLocalDays(heatmapFrom, index)
       return {
         date,

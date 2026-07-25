@@ -74,7 +74,7 @@ function bundleFor(query: LearningAnalyticsQuery, generatedAt: string): Learning
 }
 
 describe('analytics query construction', () => {
-  it('uses inclusive local calendar boundaries with Monday as week start', () => {
+  it('uses inclusive local calendar boundaries with rolling 7-day and 30-day presets', () => {
     expect(buildAnalyticsDateRange('today', '2026-07-13')).toMatchObject({
       from: '2026-07-13',
       to: '2026-07-13',
@@ -82,17 +82,18 @@ describe('analytics query construction', () => {
       toInclusive: true,
       weekStartsOn: 1
     })
+    // week = last 7 inclusive local days ending today.
     expect(buildAnalyticsDateRange('week', '2026-07-13')).toMatchObject({
-      from: '2026-07-13',
+      from: '2026-07-07',
       to: '2026-07-13'
     })
-    // Saturday still starts Monday of the same calendar week; range ends at today.
     expect(buildAnalyticsDateRange('week', '2026-07-25')).toMatchObject({
-      from: '2026-07-20',
+      from: '2026-07-19',
       to: '2026-07-25'
     })
+    // month = last 30 inclusive local days ending today.
     expect(buildAnalyticsDateRange('month', '2026-07-13')).toMatchObject({
-      from: '2026-07-01',
+      from: '2026-06-14',
       to: '2026-07-13'
     })
     expect(buildAnalyticsDateRange('all', '2026-07-13')).toMatchObject({
