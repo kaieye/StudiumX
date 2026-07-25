@@ -1,43 +1,44 @@
-# Slice S07 — code-arch-improve (read-only)
+# Slice S07 — code-arch-improve (read-only re-review)
 
-**Agent:** /root (main; subagent brief-delivery failed for s07_pass1)
-**Revision:** `6ff53d849b8df3b194ff74bf80f49622bc3aec62`
-**Skill:** `$code-arch-improve` + codebase-design vocabulary
+**Agent:** Grok Build (code-arch-improve / skill gates)
+**Revision:** HEAD `d9435064` (re-review after agent shell sandbox delivery; prior close 0-cand pre-shell)
+**Skill:** `$code-arch-improve` + codebase-design vocabulary (module / interface / depth / seam / adapter / leverage / locality)
 **Mode:** read-only — **0 production edits**
 
 ---
 
 ### Slice S07
 
-`src/main/ai/tools/**` — registry, dispatcher, effect/policy, approval receipts, write policy, batch/parallel dispatch, workspace/web/memory/MCP tool handlers.
+`src/main/ai/tools/**` — registry, dispatcher, effect/policy, approval receipts, write policy, batch/parallel dispatch, workspace/web/memory handlers, **and** agent shell/sandbox cluster (ADR-0152/0153).
 
 ### Scope
 
 | Item | Value |
 | --- | --- |
-| Revision | `6ff53d849b8df3b194ff74bf80f49622bc3aec62` |
-| Primary LOC | **~7.5k** across **32** files |
-| Expansion hop | `docs/tools/TOOL_CONTRACT.md`; agent-loop callers of dispatcher/registry; MCP bridge inject (out of product shell path) |
-| ADRs | **0024** typed dispatcher + effect; **0041** annotations/budget; **0048** write policy; **0061** capabilities; **0063** declarative tool policy; 0075 size |
-| Product floor | Effect lattice `read` / `workspace_write` / `external_write` / `privileged`; **no shell product tool**; **no YOLO**; MCP tools still through effect + approval + ToolOutcome |
-| History | `b4f3c9c8` typed dispatcher; `f87209b4` parallel read; `5ed5d308` approval receipts; `cb9f33ef` write rewind / memory; policy inject landings — intentional peels, not shallow thrash |
-| Tests | `tool-dispatcher`, `tool-policy`, `tool-policy-fs`, catalog/secondary/runtime policy-inject units |
+| Slice | **S07** |
+| Primary tree | `src/main/ai/tools/**` |
+| Prior report | Good enough / **0** candidates pre-product-shell |
+| Drift since prior | Workspace shell + dual-axis sandbox delivery: `workspace-shell`, `agent-sandbox-policy`, `shell-hardline`, `shell-env-scrub`, `shell-command-safety`, `agent-shell-resolve`, `codex-sandbox-transform`; registry register shell; effect `privileged`; edit path + pure `edit-match`; ask deadline |
+| ADRs | 0024, 0041, 0048, 0061, 0063, 0144, 0146, 0152, 0153, 0075 |
+| Product floor | Effect lattice; no YOLO; shell not teaching Evidence; tools.enabled default off; workspaceShell default on once tools enabled; sandbox honesty |
 
-**Material evidence**
+**approx_lines_examined:** **~9200**  
+**candidate_count:** **0**  
+**status:** **good_enough**
 
-- **ToolOutcome + effect class** (`tool-outcome.ts:9-11`): lattice is the shared vocabulary; status is source of truth (not free-text error sniffing).
-- **Dispatcher** (`dispatcher.ts:1-6, 44-47`): deep thin orchestration — effect auth → strict args parse → handler → ToolOutcome; does **not** register shell/MCP; does not replace registry permission gates.
-- **Effect policy** (`effect-policy.ts`): orthogonal pre-execution allow for effect class / tool allow-list vs interactive permission gate.
-- **Registry** (`registry.ts`): permission descriptors, grants, tool context, policy document inject (ADR-0063), forced-human memory tools → approval receipts.
-- **Write policy** (`write-policy.ts`): pure relative-path advisory (`allow`/`ask`/`deny`); FS checks caller-owned — deletion test: path normalization + mode rules would scatter into handlers.
-- **Approval receipts** (`approval-receipt.ts`): append-only JSONL; `reusableAuthorization: false`, `oneShot: true` — receipts are not auth tokens.
-- **Batch / parallel-read dispatchers**: real concurrency seams with demonstrated variation (serial vs parallel read-safe tools).
+### Material evidence
 
-**Negative evidence**
+- **Layered shell ownership:** orchestration (`workspace-shell`) vs pure policy (`agent-sandbox-policy`) vs OS transform (`codex-sandbox-transform`) vs hardline/env scrub/safety pure modules — deletion would re-couple policy with spawn I/O.
+- **Effect lattice + registration:** shell maps to `privileged`; registry gates behind tools master switch + workspaceShell; no second YOLO path.
+- **Dispatcher depth unchanged:** thin effect auth → parse → handler → ToolOutcome.
+- **Workspace edit seam:** pure `edit-match` vs durable `workspace-edit` — legitimate variation.
+- **Honesty / floor:** non-Evidence command results; Windows helper fail-closed `notConfigured`.
 
-- Further merging of policy + dispatcher or splitting workspace.ts (~874) by size alone lacks dual independent friction signals this rev.
-- No YOLO / shell tool registration in product path observed in this slice contract surface.
-- TOOL_CONTRACT + check scripts already gate registry drift.
+### Negative evidence
+
+- Size of transform/workspace alone is not a candidate (ADR-0075).
+- Shell delivery is coordinated product work with ADRs + units — intentional peels, not dual thrash.
+- Further purity re-partition fails net-payoff gate.
 
 ### Verdict
 
@@ -47,22 +48,15 @@
 
 | Criterion | Mark | Evidence |
 | --- | --- | --- |
-| Change locality | **Healthy** | Effect auth, args parse, policy, receipts, write policy, handlers already modular; history peels land by touch |
-| Interface depth | **Healthy** | Callers use `ToolDispatcher.dispatch` / registry build + permission resolver; lattice + strictest-wins policy hidden |
-| Seam legitimacy | **Healthy** | Effect class, interactive permission, declarative document, receipt ledger, parallel-read — domain-real variation |
-| Test surface | **Healthy** | Dispatcher/policy/inject units cross the same interfaces |
-| Conceptual integrity | **Healthy** | TOOL_CONTRACT + ADR-0024/0048/0063 agree with code headers (no argv/shell prefix rules) |
-| Cost proportionality | **Healthy** | Existing lattice machinery earns its cost; purity re-partition of 7.5k without recurrence is negative NPV |
+| Change locality | **Healthy** | Shell policy / OS transform / hardline / scrub / spawn already separate |
+| Interface depth | **Healthy** | Callers use registry handlerMap / ToolDispatcher; shared OS probe |
+| Seam legitimacy | **Healthy** | Dual-axis sandbox × approval; privileged effect; hardline floor |
+| Test surface | **Healthy** | Shell lifecycle, policy, transform, hardline units |
+| Conceptual integrity | **Healthy** | TOOL_CONTRACT + ADR-0152/0153 + AGENTS floor agree |
+| Cost proportionality | **Healthy** | Lattice + dual-axis earn cost; purity peels negative NPV |
 
 ### Candidates
 
 **0 candidates** (none admitted under skill gates).
 
-**Reopen later only if:** (1) a product shell/YOLO path is proposed (reject under floor, not deepen); (2) permission + effect decisions repeatedly diverge causing dual-edit bugs; (3) workspace tool handler growth forces coordinated policy/registry changes for one product feature beyond intentional co-change.
-
-### Metrics for tracker
-
-- approx_lines_examined: **7476**
-- files_examined: **32 primary + hop samples**
-- candidate_count: **0**
-- status_for_tracker: **good_enough**
+**Reopen later only if:** permission resolve and effect auth diverge; spawn/policy/transform thrash; product claims OS isolation when notConfigured; shell becomes teaching Evidence; YOLO / silent shell when tools.enabled off reappears.
