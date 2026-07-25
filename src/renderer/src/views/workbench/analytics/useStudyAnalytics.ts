@@ -42,6 +42,12 @@ export interface LearningAnalyticsClient {
     query: LearningAnalyticsQuery,
     signal: AbortSignal
   ) => Promise<LearningAnalyticsBundle>
+  /** Optional transport for a smaller initial read of selected sections. */
+  getLearningAnalyticsSections?: (
+    query: LearningAnalyticsQuery,
+    sectionIds: readonly AnalyticsSectionId[],
+    signal: AbortSignal
+  ) => Promise<LearningAnalyticsBundle>
   /** Optional transport for a selective section retry. */
   refreshLearningAnalyticsSections?: (
     query: LearningAnalyticsQuery,
@@ -91,6 +97,8 @@ export type UseStudyAnalyticsOptions = {
   query: LearningAnalyticsQuery
   client?: LearningAnalyticsClient
   enabled?: boolean
+  /** Restricts the initial transport read when the client supports selective sections. */
+  sectionIds?: readonly AnalyticsSectionId[]
 }
 
 type AnalyticsCapableSystemApi = {
@@ -126,7 +134,7 @@ export function localDateKey(date: Date): AnalyticsLocalDate {
   return `${year}-${month}-${day}`
 }
 
-function addLocalDays(value: AnalyticsLocalDate, amount: number): AnalyticsLocalDate {
+export function addLocalDays(value: AnalyticsLocalDate, amount: number): AnalyticsLocalDate {
   const date = parseLocalDate(value)
   if (!date) throw new RangeError(`Invalid local date: ${value}`)
   date.setDate(date.getDate() + amount)
@@ -324,6 +332,9 @@ export const teachingSystemAnalyticsClient: LearningAnalyticsClient = {
   async getLearningAnalytics(query, signal) {
     return requestAnalyticsBundle(query, signal, { sectionIds: ALL_ANALYTICS_SECTION_IDS })
   },
+  async getLearningAnalyticsSections(query, sectionIds, signal) {
+    return requestAnalyticsBundle(query, signal, { sectionIds })
+  },
   async refreshLearningAnalyticsSections(query, sectionIds, signal) {
     return requestAnalyticsBundle(query, signal, { refreshSectionIds: sectionIds })
   }
@@ -374,9 +385,15 @@ function toRequestIssue(error: unknown): AnalyticsRequestIssue {
 export function useStudyAnalytics({
   query,
   client = teachingSystemAnalyticsClient,
-  enabled = true
+  enabled = true,
+  sectionIds
 }: UseStudyAnalyticsOptions): UseStudyAnalyticsResult {
   const queryKey = useMemo(() => analyticsQueryKey(query), [query])
+  const sectionIdsKey = sectionIds?.join('\u001f') ?? ''
+  const requestedSectionIds = useMemo<readonly AnalyticsSectionId[]>(
+    () => sectionIdsKey ? sectionIdsKey.split('\u001f') as AnalyticsSectionId[] : [],
+    [sectionIdsKey]
+  )
   const [refreshVersion, requestRefresh] = useReducer((value: number) => value + 1, 0)
   const [state, setState] = useState<Omit<UseStudyAnalyticsResult, 'refresh' | 'retrySection'>>({
     phase: 'loading',
@@ -430,7 +447,9 @@ export function useStudyAnalytics({
     retrySectionRef.current = null
     const request = sectionId && client.refreshLearningAnalyticsSections
       ? client.refreshLearningAnalyticsSections(queryRef.current, [sectionId], controller.signal)
-      : client.getLearningAnalytics(queryRef.current, controller.signal)
+      : requestedSectionIds.length && client.getLearningAnalyticsSections
+        ? client.getLearningAnalyticsSections(queryRef.current, requestedSectionIds, controller.signal)
+        : client.getLearningAnalytics(queryRef.current, controller.signal)
 
     const applyFailure = (error: unknown) => {
       if (controller.signal.aborted || sequence !== requestSequence.current) return
@@ -480,7 +499,7 @@ export function useStudyAnalytics({
     )
 
     return () => controller.abort()
-  }, [client, enabled, queryKey, refreshVersion])
+  }, [client, enabled, queryKey, refreshVersion, requestedSectionIds])
 
   const refresh = useCallback(() => {
     retrySectionRef.current = null

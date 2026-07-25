@@ -19,6 +19,11 @@ export type DumbbellChartProps = {
   hideLegend?: boolean
   /** Stack category label above the track instead of beside it. */
   stackedRows?: boolean
+  /**
+   * When stacked, place the before→after text on the same line as the
+   * category label (right side) instead of under the track.
+   */
+  valuesBesideLabel?: boolean
 }
 
 /**
@@ -34,7 +39,8 @@ export function DumbbellChart({
   emptyLabel,
   maxItems = 6,
   hideLegend = false,
-  stackedRows = false
+  stackedRows = false,
+  valuesBesideLabel = false
 }: DumbbellChartProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
 
@@ -54,12 +60,16 @@ export function DumbbellChart({
     return <p className="analytics-chart-empty">{emptyLabel}</p>
   }
 
+  const rootClass = [
+    'dumbbell-chart',
+    stackedRows ? 'dumbbell-chart--stacked' : '',
+    valuesBesideLabel ? 'dumbbell-chart--values-beside-label' : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div
-      className={stackedRows ? 'dumbbell-chart dumbbell-chart--stacked' : 'dumbbell-chart'}
-      role="img"
-      aria-label={title}
-    >
+    <div className={rootClass} role="img" aria-label={title}>
       {hideLegend ? null : (
         <div className="dumbbell-chart__legend" aria-hidden="true">
           <span className="dumbbell-chart__swatch dumbbell-chart__swatch--before" />
@@ -84,7 +94,18 @@ export function DumbbellChart({
               onPointerEnter={() => setActiveId(row.id)}
               onPointerLeave={() => setActiveId((current) => (current === row.id ? null : current))}
             >
-              <bdi dir="auto" className="dumbbell-chart__label">{row.label}</bdi>
+              {valuesBesideLabel ? (
+                <div className="dumbbell-chart__label-row">
+                  <bdi dir="auto" className="dumbbell-chart__label">{row.label}</bdi>
+                  <span className="dumbbell-chart__values">
+                    {formatValue(row.before)}
+                    <span aria-hidden="true"> → </span>
+                    {formatValue(row.after)}
+                  </span>
+                </div>
+              ) : (
+                <bdi dir="auto" className="dumbbell-chart__label">{row.label}</bdi>
+              )}
               <div className="dumbbell-chart__track">
                 <span
                   className="dumbbell-chart__bridge"
@@ -102,11 +123,13 @@ export function DumbbellChart({
                   title={`${afterLabel}: ${formatValue(row.after)}`}
                 />
               </div>
-              <span className="dumbbell-chart__values">
-                {formatValue(row.before)}
-                <span aria-hidden="true"> → </span>
-                {formatValue(row.after)}
-              </span>
+              {valuesBesideLabel ? null : (
+                <span className="dumbbell-chart__values">
+                  {formatValue(row.before)}
+                  <span aria-hidden="true"> → </span>
+                  {formatValue(row.after)}
+                </span>
+              )}
             </li>
           )
         })}

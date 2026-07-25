@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { categoricalColor } from './palette'
 
 export type MorphPieItem = {
@@ -164,8 +164,40 @@ export function MorphPieChart({
   maxItems = 8
 }: MorphPieChartProps) {
   const titleId = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [progress, setProgress] = useState(() => (prefersReducedMotion() ? 1 : 0))
+  /** Drawn square side in px; tracks the card so the pie scales with the window. */
+  const [sidePx, setSidePx] = useState(0)
+
+  useEffect(() => {
+    const node = rootRef.current
+    if (!node) return
+
+    const measure = () => {
+      const styles = getComputedStyle(node)
+      const padX = (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0)
+      const padY = (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0)
+      const gap = Number.parseFloat(styles.rowGap || styles.gap) || 0
+      // Leave room for the readout line under the SVG.
+      const readout = 22
+      const availableW = Math.max(0, node.clientWidth - padX)
+      const availableH = Math.max(0, node.clientHeight - padY - gap - readout)
+      // When the card height is still content-driven, height can be ~0; fall back to width.
+      const usableH = availableH > 48 ? availableH : availableW
+      const next = Math.max(0, Math.floor(Math.min(availableW, usableH)))
+      setSidePx((current) => (current === next ? current : next))
+    }
+
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
 
   const { slices, total, signature } = useMemo(() => {
     const positive = [...items]
@@ -237,12 +269,17 @@ export function MorphPieChart({
   const outerNow = R_INNER + (R_OUTER - R_INNER) * progress
 
   return (
-    <div className="morph-pie" role="img" aria-labelledby={titleId}>
+    <div className="morph-pie" ref={rootRef} role="img" aria-labelledby={titleId}>
       <span id={titleId} className="morph-pie__a11y-title">
         {title}
       </span>
 
-      <svg className="morph-pie__svg" viewBox={`0 0 ${VIEW} ${VIEW}`} aria-hidden="true">
+      <svg
+        className="morph-pie__svg"
+        viewBox={`0 0 ${VIEW} ${VIEW}`}
+        aria-hidden="true"
+        style={sidePx > 0 ? { width: sidePx, height: sidePx } : undefined}
+      >
         <g className="morph-pie__slices">
           {slices.map((slice) => {
             const isActive = activeId === slice.id

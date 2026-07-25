@@ -29,7 +29,7 @@ describe('demoLearningAnalyticsBundle', () => {
     expect(bundle.review.state).toBe('available')
 
     if (bundle.focus.state !== 'available') throw new Error('focus unavailable')
-    expect(bundle.focus.data.heatmap.length).toBe(180)
+    expect(bundle.focus.data.heatmap.length).toBe(365)
     expect(bundle.focus.data.trend.length).toBeGreaterThan(0)
     expect(bundle.focus.data.hourBuckets).toHaveLength(24)
     expect(bundle.focus.data.hourBuckets.reduce((sum, value) => sum + value, 0)).toBeGreaterThan(0)

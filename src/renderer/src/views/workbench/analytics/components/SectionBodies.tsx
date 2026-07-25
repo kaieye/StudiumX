@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import type { AnalyticsCopy } from '../analyticsCopy'
+import { addLocalDays, buildAnalyticsDateRange } from '../useStudyAnalytics'
 import type { AnalyticsFormatters } from '../chartFormatters'
 import type {
   AnalyticsLocalDate,
+  AnalyticsRangePreset,
   FocusAnalytics,
   LearningAnalyticsHero,
   MemoryAnalytics,
@@ -142,6 +144,7 @@ export function FocusBody({
   plan,
   tasks,
   selfPercentile = null,
+  rangePreset,
   copy,
   fmt,
   localToday
@@ -151,8 +154,10 @@ export function FocusBody({
   plan?: TaskPlanAnalytics | null
   /** Task/category share pie sits beside the hour distribution for time-attribution context. */
   tasks?: TaskAnalytics | null
-  /** Live peer percentile from presence snapshot (0–1). Null hides the hub card. */
+  /** Live peer percentile from presence snapshot (0–1). Null keeps the hub card in its explicit empty state. */
   selfPercentile?: number | null
+  /** The selected page range controls active-range chart density. */
+  rangePreset: AnalyticsRangePreset
 }) {
   const [shareView, setShareView] = useState<'task' | 'category'>('task')
   const planItems = plan
@@ -165,7 +170,6 @@ export function FocusBody({
         }
       ]
     : []
-  const hasPlanData = Boolean(plan && (plan.plannedSeconds > 0 || plan.attributedFocusSeconds > 0))
 
   // Prefer attributed focus-time slices; fall back to checklist completion counts so
   // checking tasks on the list produces a visible share pie without a focus run.
@@ -221,7 +225,16 @@ export function FocusBody({
   return (
     <div className="analytics-focus">
       <div className="analytics-subcard analytics-focus__heatmap">
-        <h3 className="analytics-subcard__title">{copy.focus.heatmapTitle}</h3>
+        <div className="analytics-focus__heatmap-header">
+          <h3 className="analytics-subcard__title">{copy.focus.heatmapTitle}</h3>
+          <div className="calendar-heatmap__legend analytics-focus__heatmap-legend" aria-hidden="true">
+            <span>{copy.focus.heatmapLegendLess}</span>
+            {[0, 1, 2, 3, 4].map((level) => (
+              <span key={level} className="calendar-heatmap__cell is-legend" data-level={level} />
+            ))}
+            <span>{copy.focus.heatmapLegendMore}</span>
+          </div>
+        </div>
         <CalendarHeatmap
           cells={data.heatmap.map((cell) => ({
             date: cell.date,
@@ -239,36 +252,54 @@ export function FocusBody({
           legendLess={copy.focus.heatmapLegendLess}
           legendMore={copy.focus.heatmapLegendMore}
           emptyLabel={copy.charts.empty}
+          hideLegend
         />
       </div>
 
-      {hasPlanData && plan ? (
-        <div className="analytics-subcard analytics-focus__plan">
-          <div className="analytics-focus__plan-header">
-            <h3 className="analytics-subcard__title">{copy.tasks.planTitle}</h3>
-            <div className="dumbbell-chart__legend analytics-focus__plan-legend" aria-hidden="true">
-              <span className="dumbbell-chart__swatch dumbbell-chart__swatch--before" />
-              <span>{copy.tasks.planned}</span>
-              <span className="dumbbell-chart__swatch dumbbell-chart__swatch--after" />
-              <span>{copy.tasks.executed}</span>
-            </div>
+      <div className="analytics-subcard analytics-focus__plan">
+        <div className="analytics-focus__plan-header">
+          <h3 className="analytics-subcard__title">{copy.tasks.planTitle}</h3>
+          <div className="dumbbell-chart__legend analytics-focus__plan-legend" aria-hidden="true">
+            <span className="dumbbell-chart__swatch dumbbell-chart__swatch--before" />
+            <span>{copy.tasks.planned}</span>
+            <span className="dumbbell-chart__swatch dumbbell-chart__swatch--after" />
+            <span>{copy.tasks.executed}</span>
           </div>
-          <DumbbellChart
-            items={planItems}
-            title={copy.tasks.planTitle}
-            beforeLabel={copy.tasks.planned}
-            afterLabel={copy.tasks.executed}
-            formatValue={fmt.duration}
-            emptyLabel={copy.tasks.noPlan}
-            hideLegend
-            stackedRows
-          />
+        </div>
+        <DumbbellChart
+          items={planItems}
+          title={copy.tasks.planTitle}
+          beforeLabel={copy.tasks.planned}
+          afterLabel={copy.tasks.executed}
+          formatValue={fmt.duration}
+          emptyLabel={copy.tasks.noPlan}
+          hideLegend
+          stackedRows
+          valuesBesideLabel
+        />
+        {plan ? (
           <dl className="analytics-keyvalue-grid analytics-keyvalue-grid--compact">
             <KeyValue label={copy.tasks.planned} value={fmt.duration(plan.plannedSeconds)} />
             <KeyValue label={copy.tasks.executed} value={fmt.duration(plan.attributedFocusSeconds)} />
           </dl>
-        </div>
-      ) : null}
+        ) : null}
+        {tasks ? (
+          <div className="analytics-stat-row analytics-focus__task-summary">
+            <Stat label={copy.tasks.open} value={fmt.integer(tasks.current.open)} />
+            <Stat label={copy.tasks.completed} value={fmt.integer(tasks.current.completed)} tone="ok" />
+            <Stat
+              label={copy.tasks.overdue}
+              value={fmt.integer(tasks.current.overdue)}
+              tone={tasks.current.overdue > 0 ? 'alert' : 'default'}
+            />
+            <Stat
+              label={copy.tasks.completionRate}
+              value={fmt.percent(tasks.current.completionRate)}
+              tone={(tasks.current.completionRate ?? 0) >= 0.7 ? 'ok' : (tasks.current.completionRate ?? 0) > 0 ? 'warn' : 'default'}
+            />
+          </div>
+        ) : null}
+      </div>
 
       <div className="analytics-subcard analytics-focus__share">
         <div className="analytics-focus__share-header">
@@ -310,6 +341,7 @@ export function FocusBody({
         <h3 className="analytics-subcard__title">{copy.focus.hourTitle}</h3>
         <ActiveRangeChart
           series={data.activeRanges}
+          rangePreset={rangePreset}
           title={copy.focus.hourTitle}
           formatCategory={(category, mode) =>
             mode === 'hour_of_day' ? fmt.axisHour(Number(category)) : fmt.axisDate(category)
@@ -327,31 +359,26 @@ export function FocusBody({
         />
       </div>
 
-      {selfPercentile !== null && selfPercentile !== undefined && Number.isFinite(selfPercentile) ? (
-        <div className="analytics-subcard analytics-focus__percentile">
-          <h3 className="analytics-subcard__title">{copy.focus.percentileTitle}</h3>
-          <TickGaugeChart
-            progress={selfPercentile}
-            title={copy.focus.percentileTitle}
-            centerLabel={copy.focus.percentileCenterLabel}
-            remainingLabel={copy.focus.percentileRemaining(
-              Math.max(0, 100 - Math.round(Math.max(0, Math.min(1, selfPercentile)) * 100))
-            )}
-            footerLabel={copy.focus.percentileFooter}
-            emptyLabel={copy.focus.percentileEmpty}
-          />
-        </div>
-      ) : null}
+      <div className="analytics-subcard analytics-focus__percentile">
+        <h3 className="analytics-subcard__title">{copy.focus.percentileTitle}</h3>
+        <TickGaugeChart
+          progress={selfPercentile}
+          title={copy.focus.percentileTitle}
+          emptyLabel={copy.focus.percentileEmpty}
+        />
+      </div>
     </div>
   )
 }
 
 
-function buildTokenTrendDates(data: TokenAnalytics): AnalyticsLocalDate[] {
-  const dates = new Set<string>()
-  for (const row of data.byDay) dates.add(row.date)
-  for (const row of data.byDayByModel ?? []) dates.add(row.date)
-  return [...dates].sort((left, right) => left.localeCompare(right))
+function buildTokenTrendDates(localToday: AnalyticsLocalDate): AnalyticsLocalDate[] {
+  const range = buildAnalyticsDateRange('month', localToday)
+  const dates: AnalyticsLocalDate[] = []
+  for (let date = range.from; date <= range.to; date = addLocalDays(date, 1)) {
+    dates.push(date)
+  }
+  return dates
 }
 
 function buildTokenModelSeries(
@@ -396,10 +423,16 @@ function buildTokenModelSeries(
 /* -------------------------------------------------------------- Tokens --- */
 
 
-export function TokenBody({ data, copy, fmt, localToday }: Ctx & { data: TokenAnalytics }) {
+export function TokenBody({ data, trendData, copy, fmt, localToday }: Ctx & {
+  data: TokenAnalytics
+  /** The trend is always based on the rolling 30-day token view. */
+  trendData?: TokenAnalytics
+}) {
   const todayRow = data.byDay.find((row) => row.date === localToday)
-  const trendDates = buildTokenTrendDates(data)
-  const modelSeries = buildTokenModelSeries(data, trendDates, copy.tokens.unknownModel)
+  const trendDates = trendData ? buildTokenTrendDates(localToday) : []
+  const modelSeries = trendData
+    ? buildTokenModelSeries(trendData, trendDates, copy.tokens.unknownModel)
+    : []
   const workspaceItems = data.byWorkspace.map((entry) => ({
     id: entry.workspaceId,
     label: entry.name || entry.workspaceId,
@@ -413,50 +446,29 @@ export function TokenBody({ data, copy, fmt, localToday }: Ctx & { data: TokenAn
         <Stat label={copy.tokens.today} value={todayRow ? fmt.integer(todayRow.totalTokens) : '—'} />
       </div>
 
-      <div className="analytics-subcard">
-        <h3 className="analytics-subcard__title">{copy.tokens.trendTitle}</h3>
-        <StackedBarChart
-          dates={trendDates}
-          series={modelSeries}
-          title={copy.tokens.trendTitle}
-          formatDate={fmt.shortDate}
-          formatValue={fmt.integer}
-          emptyLabel={copy.charts.empty}
-          totalLabel={copy.charts.total}
-        />
-      </div>
+      <div className="analytics-tokens__charts">
+        <div className="analytics-subcard analytics-tokens__trend">
+          <h3 className="analytics-subcard__title">{copy.tokens.trendTitle}</h3>
+          <StackedBarChart
+            dates={trendDates}
+            series={modelSeries}
+            title={copy.tokens.trendTitle}
+            formatDate={fmt.shortDate}
+            formatValue={fmt.integer}
+            emptyLabel={copy.charts.empty}
+            totalLabel={copy.charts.total}
+          />
+        </div>
 
-      <div className="analytics-subcard">
-        <h3 className="analytics-subcard__title">{copy.tokens.byWorkspaceTitle}</h3>
-        <RankBarChart
-          items={workspaceItems}
-          title={copy.tokens.byWorkspaceTitle}
-          formatValue={fmt.integer}
-          emptyLabel={copy.tokens.noWorkspaceShare}
-        />
-      </div>
-    </div>
-  )
-}
-
-/* --------------------------------------------------------------- Tasks --- */
-
-export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
-  return (
-    <div className="analytics-tasks">
-      <div className="analytics-stat-row">
-        <Stat label={copy.tasks.open} value={fmt.integer(data.current.open)} />
-        <Stat label={copy.tasks.completed} value={fmt.integer(data.current.completed)} tone="ok" />
-        <Stat
-          label={copy.tasks.overdue}
-          value={fmt.integer(data.current.overdue)}
-          tone={data.current.overdue > 0 ? 'alert' : 'default'}
-        />
-        <Stat
-          label={copy.tasks.completionRate}
-          value={fmt.percent(data.current.completionRate)}
-          tone={(data.current.completionRate ?? 0) >= 0.7 ? 'ok' : (data.current.completionRate ?? 0) > 0 ? 'warn' : 'default'}
-        />
+        <div className="analytics-subcard analytics-tokens__workspace-ranking">
+          <h3 className="analytics-subcard__title">{copy.tokens.byWorkspaceTitle}</h3>
+          <RankBarChart
+            items={workspaceItems}
+            title={copy.tokens.byWorkspaceTitle}
+            formatValue={fmt.integer}
+            emptyLabel={copy.tokens.noWorkspaceShare}
+          />
+        </div>
       </div>
     </div>
   )

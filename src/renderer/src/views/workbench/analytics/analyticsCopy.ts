@@ -263,7 +263,7 @@ export const analyticsCopy: AnalyticsCopy = {
     trendTitle: '专注趋势',
     trendFocus: '专注时长',
     trendTokens: 'Token 消耗',
-    hourTitle: '一天中的专注分布',
+    hourTitle: '专注分布',
     hourPeak: '高峰',
     hourNoPeak: '暂无高峰时段',
     activeRangeHourAxis: '今日时段',

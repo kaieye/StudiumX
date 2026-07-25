@@ -24,6 +24,8 @@ import type {
 export const PERSONAL_STUDY_SNAPSHOT_MAX_FACTS = 4_000 as const
 export const PERSONAL_STUDY_SNAPSHOT_MAX_TASKS = 500 as const
 export const PERSONAL_STUDY_SNAPSHOT_MAX_AGE_MS = 10 * 60 * 1_000
+/** Fixed GitHub-style focus calendar length ending on local today (inclusive). */
+export const FOCUS_HEATMAP_DAYS = 365 as const
 
 export type PersonalStudySnapshotValidation =
   | { state: 'missing'; cacheIdentity: 'missing'; warnings: AnalyticsWarning[] }
@@ -289,7 +291,7 @@ function projectionRows(query: LearningAnalyticsQuery, validation: Extract<Perso
   })
 }
 
-/** Always 180 local days ending today, independent of the selected range preset. */
+/** Always FOCUS_HEATMAP_DAYS local days ending today, independent of the selected range preset. */
 function heatmapCells(
   query: LearningAnalyticsQuery,
   validation: Extract<PersonalStudySnapshotValidation, { state: 'valid' }>,
@@ -299,8 +301,8 @@ function heatmapCells(
   const localToday = query.calendarContext.localToday
   const cutoffDate = addAnalyticsLocalDays(localToday, -399)
   const coverageStart = validation.snapshot.trackingStartedOn > cutoffDate ? validation.snapshot.trackingStartedOn : cutoffDate
-  const heatmapFrom = addAnalyticsLocalDays(localToday, -179)
-  return Array.from({ length: 180 }, (_, index) => {
+  const heatmapFrom = addAnalyticsLocalDays(localToday, -(FOCUS_HEATMAP_DAYS - 1))
+  return Array.from({ length: FOCUS_HEATMAP_DAYS }, (_, index) => {
     const date = addAnalyticsLocalDays(heatmapFrom, index)
     const existing = map.get(date)
     return {
@@ -511,13 +513,13 @@ function focusRangeCategories(query: LearningAnalyticsQuery): string[] {
 /** Blank focus payload so the page can always mount heatmap + active-range cards. */
 function emptyFocusScaffold(query: LearningAnalyticsQuery, trackingStartedOn: string | null = null): FocusAnalytics {
   const localToday = query.calendarContext.localToday
-  const heatmapFrom = addAnalyticsLocalDays(localToday, -179)
+  const heatmapFrom = addAnalyticsLocalDays(localToday, -(FOCUS_HEATMAP_DAYS - 1))
   const cutoffDate = addAnalyticsLocalDays(localToday, -399)
   const coverageStart = trackingStartedOn && trackingStartedOn > cutoffDate ? trackingStartedOn : cutoffDate
   const hasCoverage = Boolean(trackingStartedOn)
   return {
     daily: [],
-    heatmap: Array.from({ length: 180 }, (_, index) => {
+    heatmap: Array.from({ length: FOCUS_HEATMAP_DAYS }, (_, index) => {
       const date = addAnalyticsLocalDays(heatmapFrom, index)
       return {
         date,

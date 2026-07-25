@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
-import type { FocusActiveRangeSeries } from '../types'
+import type { AnalyticsRangePreset, FocusActiveRangeSeries } from '../types'
 
 export type ActiveRangeChartProps = {
   series: FocusActiveRangeSeries
+  /** Selected analytics window, used to keep capsule density consistent across views. */
+  rangePreset: AnalyticsRangePreset
   title: string
   formatCategory: (category: string, mode: FocusActiveRangeSeries['mode']) => string
   formatY: (value: number, unit: FocusActiveRangeSeries['yUnit']) => string
@@ -11,12 +13,45 @@ export type ActiveRangeChartProps = {
   emptyLabel: string
 }
 
+export type ActiveRangeYAxis = {
+  min: number
+  max: number
+  ticks: number[]
+}
+
+/**
+ * Fits the visible vertical scale to the current capsules, retaining a one-unit
+ * margin and the unit's natural bounds (0–24 hours or 0–60 minutes).
+ */
+export function createActiveRangeYAxis(
+  ranges: FocusActiveRangeSeries['ranges'],
+  yMax: FocusActiveRangeSeries['yMax']
+): ActiveRangeYAxis {
+  const endpoints = ranges.flatMap(({ start, end }) => [start, end])
+    .filter((value) => Number.isFinite(value))
+
+  if (endpoints.length === 0) {
+    return { min: 0, max: yMax, ticks: [0, yMax] }
+  }
+
+  const min = Math.max(0, Math.floor(Math.min(...endpoints)) - 1)
+  const max = Math.min(yMax, Math.ceil(Math.max(...endpoints)) + 1)
+  const span = Math.max(1, max - min)
+  const tickCount = Math.min(5, span + 1)
+  const ticks = Array.from({ length: tickCount }, (_, index) => (
+    Math.round(min + (span * index) / (tickCount - 1))
+  )).filter((value, index, values) => index === 0 || value !== values[index - 1])
+
+  return { min, max, ticks }
+}
+
 /**
  * Floating range capsules (lieflat Glance "Daily active range").
- * Vertical pills: X = category, Y = [start, end] on a fixed axis.
+ * Vertical pills: X = category, Y = [start, end] on a dynamic axis.
  */
 export function ActiveRangeChart({
   series,
+  rangePreset,
   title,
   formatCategory,
   formatY,
@@ -41,18 +76,19 @@ export function ActiveRangeChart({
     [series.ranges]
   )
 
-  const tickValues = useMemo(() => {
-    if (series.yUnit === 'minute') return [0, 15, 30, 45, 60]
-    return [0, 6, 12, 18, 24]
-  }, [series.yUnit])
+  const yAxis = useMemo(
+    () => createActiveRangeYAxis(series.ranges, series.yMax),
+    [series.ranges, series.yMax]
+  )
 
   const shouldShowTick = (index: number): boolean => {
     const count = series.categories.length
     if (count <= 1) return true
     if (series.mode === 'hour_of_day') {
-      // Even 0 / 6 / 12 / 18 / 23 so the final hour is included without crowding.
+      // Three-hour marks give the today view a more useful time scale without crowding.
+      // Include the final hour explicitly because 23 is not divisible by three.
       const hour = Number(series.categories[index])
-      return hour === 0 || hour === 6 || hour === 12 || hour === 18 || hour === 23
+      return hour % 3 === 0 || hour === 23
     }
     // Multi-day: show evenly spaced labels; week (7) shows every day.
     if (count <= 8) return true
@@ -61,8 +97,7 @@ export function ActiveRangeChart({
     return index % step === 0 || index === count - 1
   }
 
-  // Compact plot: card is half page width; keep multi-day a bit taller for vertical pills.
-  const plotHeight = series.mode === 'hour_of_day' ? 132 : 156
+  // Plot height is CSS-fluid (--active-range-height). Capsule floor uses % of axis.
   const isEmpty = totalSeconds <= 0 || series.ranges.length === 0
 
   // No categories at all: fall back to a plain empty label (should be rare after scaffold).
@@ -81,15 +116,22 @@ export function ActiveRangeChart({
     <div
       className="active-range"
       data-mode={series.mode}
+      data-range-preset={rangePreset}
       role="img"
       aria-label={title}
-      style={{ '--active-range-height': `${plotHeight}px`, '--active-range-cols': series.categories.length } as React.CSSProperties}
+      style={
+        {
+          // Only set column count here; height stays CSS-fluid so the chart
+          // resizes with the analytics container / card.
+          '--active-range-cols': series.categories.length
+        } as React.CSSProperties
+      }
     >
       <div className="active-range__plot">
         <div className="active-range__y" aria-hidden="true">
           <ol className="active-range__y-ticks">
-            {[...tickValues].reverse().map((value) => (
-              <li key={value} style={{ bottom: `${(value / series.yMax) * 100}%` }}>
+            {[...yAxis.ticks].reverse().map((value) => (
+              <li key={value} style={{ bottom: `${((value - yAxis.min) / (yAxis.max - yAxis.min)) * 100}%` }}>
                 <span>{formatY(value, series.yUnit)}</span>
               </li>
             ))}
@@ -105,15 +147,13 @@ export function ActiveRangeChart({
                   <div className="active-range__lane">
                     {items.map((item) => {
                       const span = Math.max(0, item.end - item.start)
-                      const rawHeightPct = (span / series.yMax) * 100
-                      // Pixel floor keeps short sessions as vertical pills on a 0–24h axis
-                      // (where 25 minutes is only ~1.7% of plot height and would read as a dash).
-                      const minHeightPx = series.mode === 'hour_of_day' ? 10 : 14
-                      const minHeightPct = (minHeightPx / plotHeight) * 100
+                      const rawHeightPct = (span / (yAxis.max - yAxis.min)) * 100
+                      // Relative floor keeps short sessions visible without a fixed plot px.
+                      const minHeightPct = series.mode === 'hour_of_day' ? 4.5 : 5.5
                       const heightPct = Math.max(rawHeightPct, minHeightPct)
                       // Prefer growing upward; clamp to the top of the plot when near yMax.
                       const bottomPct = Math.min(
-                        (item.start / series.yMax) * 100,
+                        ((item.start - yAxis.min) / (yAxis.max - yAxis.min)) * 100,
                         Math.max(0, 100 - heightPct)
                       )
                       return (

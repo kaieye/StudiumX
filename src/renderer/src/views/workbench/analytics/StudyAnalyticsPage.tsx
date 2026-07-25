@@ -11,7 +11,6 @@ import {
   HeroBody,
   LevelBody,
   ReviewBody,
-  TaskBody,
   TokenBody
 } from './components/SectionBodies'
 import { createDemoLearningAnalyticsBundle } from './demoLearningAnalyticsBundle'
@@ -100,14 +99,36 @@ export function StudyAnalyticsPage({
       : { kind: 'none' },
     presenceSpaceCode: identity.presenceSpaceCode
   }), [identity.personalClientId, identity.presenceSpaceCode, localToday, preset, workspaceIdsKey])
+  const tokenTrendQuery = useMemo(() => buildLearningAnalyticsQuery({
+    range: buildAnalyticsDateRange('month', localToday),
+    localToday,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Etc/UTC',
+    personalClientId: identity.personalClientId,
+    teaching: workspaces.length
+      ? { kind: 'all_workspaces', workspaceIds: workspaces.map((workspace) => workspace.id) }
+      : { kind: 'none' },
+    presenceSpaceCode: identity.presenceSpaceCode
+  }), [identity.personalClientId, identity.presenceSpaceCode, localToday, workspaceIdsKey])
 
   // Pause real API traffic while demo is open so the shell stays stable.
   const analytics = useStudyAnalytics({ query, client, enabled: !demoMode })
+  const tokenTrendAnalytics = useStudyAnalytics({
+    query: tokenTrendQuery,
+    client,
+    enabled: !demoMode,
+    sectionIds: ['tokens']
+  })
   const demoBundle = useMemo(
     () => (demoMode ? createDemoLearningAnalyticsBundle(query) : null),
     [demoMode, query]
   )
+  const tokenTrendDemoBundle = useMemo(
+    () => (demoMode ? createDemoLearningAnalyticsBundle(tokenTrendQuery) : null),
+    [demoMode, tokenTrendQuery]
+  )
   const bundle: LearningAnalyticsBundle | null = demoMode ? demoBundle : analytics.bundle
+  const tokenTrendResult = demoMode ? tokenTrendDemoBundle?.tokens : tokenTrendAnalytics.bundle?.tokens
+  const tokenTrendData = tokenTrendResult && 'data' in tokenTrendResult ? tokenTrendResult.data : undefined
   const phase = demoMode ? 'ready' as const : analytics.phase
   const fallbackState = fallbackStateFor(phase)
   const fallbackMessage = demoMode
@@ -236,6 +257,7 @@ export function StudyAnalyticsPage({
               <FocusBody
                 {...ctx}
                 data={result.data}
+                rangePreset={preset}
                 plan={
                   bundle?.tasks &&
                   (bundle.tasks.state === 'available' ||
@@ -271,21 +293,10 @@ export function StudyAnalyticsPage({
             wide
             onRetry={() => analytics.retrySection('tokens')}
           >
-            {(result) => <TokenBody {...ctx} data={result.data} />}
+            {(result) => <TokenBody {...ctx} data={result.data} trendData={tokenTrendData} />}
           </AnalyticsSection>
 
           <div className="analytics-grid">
-            <AnalyticsSection
-              {...shared}
-              id="analytics-section-tasks"
-              title={copy.tasks.title}
-              description={copy.tasks.description}
-              result={bundle?.tasks ?? null}
-              onRetry={() => analytics.retrySection('tasks')}
-            >
-              {(result) => <TaskBody {...ctx} data={result.data} />}
-            </AnalyticsSection>
-
             <AnalyticsSection
               {...shared}
               id="analytics-section-review"

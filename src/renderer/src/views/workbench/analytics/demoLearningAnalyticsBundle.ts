@@ -20,6 +20,7 @@ import type {
   WorkspaceAssetsAnalytics
 } from './types'
 import type { LearningAnalyticsClient } from './useStudyAnalytics'
+import { FOCUS_HEATMAP_DAYS } from '../../../../../shared/learning-analytics/personal-study-source'
 
 function parseLocalDate(value: AnalyticsLocalDate): Date {
   const [year, month, day] = value.split('-').map(Number)
@@ -835,8 +836,8 @@ export function createDemoLearningAnalyticsBundle(query: LearningAnalyticsQuery)
     to: seriesFrom <= seriesTo ? seriesTo : localToday
   }
   const series = buildDailySeries(seriesRange)
-  // Fixed 180-day calendar independent of the selected range preset.
-  const heatmapStart = addLocalDays(localToday, -179)
+  // Fixed calendar independent of the selected range preset.
+  const heatmapStart = addLocalDays(localToday, -(FOCUS_HEATMAP_DAYS - 1))
   const heatmapEnd = localToday
   const dataStartDate = series[0]?.date ?? seriesRange.from
   const dataEndDate = series.at(-1)?.date ?? seriesRange.to

@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { AnalyticsLocalDate } from '../types'
 
 export type HeatmapCell = {
@@ -23,6 +23,8 @@ export type CalendarHeatmapProps = {
   legendLess: string
   legendMore: string
   emptyLabel: string
+  /** When true, omit the bottom legend so the parent can place it in a header. */
+  hideLegend?: boolean
 }
 
 function parseLocalDate(date: AnalyticsLocalDate): Date {
@@ -59,9 +61,11 @@ export function CalendarHeatmap({
   formatValue,
   legendLess,
   legendMore,
-  emptyLabel
+  emptyLabel,
+  hideLegend = false
 }: CalendarHeatmapProps) {
   const gridRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   const sorted = useMemo(() => [...cells].sort((a, b) => a.date.localeCompare(b.date)), [cells])
   const maxValue = useMemo(
@@ -70,19 +74,83 @@ export function CalendarHeatmap({
   )
   const leadingBlanks = sorted[0] ? mondayIndex(sorted[0].date) : 0
   const columns = Math.ceil((leadingBlanks + sorted.length) / 7)
+  const [cellPx, setCellPx] = useState(12)
+
+  useEffect(() => {
+    const node = scrollRef.current
+    if (!node || columns <= 0) return
+
+    const measure = () => {
+      const styles = getComputedStyle(node)
+      const padLeft = Number.parseFloat(styles.paddingLeft) || 0
+      const padRight = Number.parseFloat(styles.paddingRight) || 0
+      // Leave room for weekday labels (22px) + body gap (4px).
+      const available = Math.max(0, node.clientWidth - padLeft - padRight - 26)
+      const gap = 3
+      const preferredCellPx = 12
+      const minCellPx = 8
+      const maxCellPx = 14
+      // Fit the real date range only. Keep the latest week flush right by
+      // growing cells instead of inventing neutral trailing week columns.
+      const rawCellPx = (available - gap * Math.max(0, columns - 1)) / columns
+      const nextCellPx = Math.min(
+        maxCellPx,
+        Math.max(minCellPx, Math.round(rawCellPx * 100) / 100)
+      )
+      // Prefer the measured size, but never collapse below the preferred size
+      // when the card is wide enough — horizontal scroll covers overflow.
+      const preferredFit = Math.max(minCellPx, Math.min(maxCellPx, preferredCellPx))
+      const resolved = available >= columns * preferredFit + gap * Math.max(0, columns - 1)
+        ? Math.max(preferredFit, nextCellPx)
+        : nextCellPx
+
+      setCellPx((current) => (Math.abs(current - resolved) < 0.05 ? current : resolved))
+      // Keep the latest week flush against the visible right edge.
+      node.scrollLeft = Math.max(0, node.scrollWidth - node.clientWidth)
+    }
+
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [columns])
 
   const monthMarkers = useMemo(() => {
-    const markers: Array<{ key: string; label: string; column: number }> = []
+    type Marker = { key: string; label: string; column: number; span: number }
+    const starts: Array<{ key: string; label: string; column: number; cellIndex: number }> = []
     let previous = ''
     sorted.forEach((cell, index) => {
       const key = cell.date.slice(0, 7)
       if (key !== previous) {
-        markers.push({ key, label: formatMonth(cell.date), column: Math.floor((leadingBlanks + index) / 7) })
+        starts.push({
+          key,
+          label: formatMonth(cell.date),
+          column: Math.floor((leadingBlanks + index) / 7),
+          cellIndex: index
+        })
         previous = key
       }
     })
-    return markers
-  }, [sorted, leadingBlanks, formatMonth])
+
+    return starts.map((start, index) => {
+      const next = starts[index + 1]
+      const endExclusive = next
+        ? Math.floor((leadingBlanks + next.cellIndex) / 7)
+        : columns
+      return {
+        key: start.key,
+        label: start.label,
+        column: start.column,
+        // Span every week owned by this month so short labels are not clipped
+        // by a single narrow week track (e.g. months that start mid-week).
+        span: Math.max(1, endExclusive - start.column)
+      } satisfies Marker
+    })
+  }, [sorted, leadingBlanks, columns, formatMonth])
 
   const initialIndex = useMemo(() => {
     const exact = sorted.findIndex((cell) => cell.date === localToday)
@@ -123,11 +191,27 @@ export function CalendarHeatmap({
 
   return (
     <div className="calendar-heatmap">
-      <div className="calendar-heatmap__scroll">
-        <div className="calendar-heatmap__inner" style={{ '--heatmap-columns': columns } as React.CSSProperties}>
+      <div className="calendar-heatmap__scroll" ref={scrollRef}>
+        <div
+          className="calendar-heatmap__inner"
+          style={
+            {
+              '--heatmap-columns': columns,
+              '--heatmap-cell': `${cellPx}px`
+            } as React.CSSProperties
+          }
+        >
           <div className="calendar-heatmap__months" aria-hidden="true">
             {monthMarkers.map((marker) => (
-              <span key={marker.key} style={{ gridColumnStart: marker.column + 1 }}>{marker.label}</span>
+              <span
+                key={marker.key}
+                style={{
+                  gridColumnStart: marker.column + 1,
+                  gridColumnEnd: `span ${marker.span}`
+                }}
+              >
+                {marker.label}
+              </span>
             ))}
           </div>
 
@@ -176,15 +260,17 @@ export function CalendarHeatmap({
         </div>
       </div>
 
-      <div className="calendar-heatmap__footer">
-        <div className="calendar-heatmap__legend" aria-hidden="true">
-          <span>{legendLess}</span>
-          {[0, 1, 2, 3, 4].map((level) => (
-            <span key={level} className="calendar-heatmap__cell is-legend" data-level={level} />
-          ))}
-          <span>{legendMore}</span>
+      {hideLegend ? null : (
+        <div className="calendar-heatmap__footer">
+          <div className="calendar-heatmap__legend" aria-hidden="true">
+            <span>{legendLess}</span>
+            {[0, 1, 2, 3, 4].map((level) => (
+              <span key={level} className="calendar-heatmap__cell is-legend" data-level={level} />
+            ))}
+            <span>{legendMore}</span>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

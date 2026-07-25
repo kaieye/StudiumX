@@ -77,8 +77,10 @@ export function createAnalyticsFormatters(locale: AnalyticsLocale) {
     month(value: AnalyticsLocalDate): string {
       const date = dateFromLocalKey(value)
       if (!date) return value
-      // Normalize to bare English abbreviation without trailing punctuation.
-      return monthFormat.format(date).replace(/\./g, '')
+      // Bare English abbreviation (Jan, Feb, …) with only the first letter capital.
+      const raw = monthFormat.format(date).replace(/\./g, '').trim()
+      if (!raw) return value
+      return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase()
     },
 
     instant(value: string): string {

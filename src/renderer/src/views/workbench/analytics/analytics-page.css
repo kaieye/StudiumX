@@ -364,6 +364,9 @@
 .analytics-section-card {
   position: relative;
   min-width: 0;
+  /* Let nested content respond to the card it lives in, not the whole page. */
+  container-type: inline-size;
+  container-name: analytics-section;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -407,6 +410,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .analytics-section-card-header > div:first-child {
@@ -495,8 +499,8 @@
 
 .analytics-hero-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(0, auto));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.25rem), 1fr));
+  grid-template-rows: none;
   gap: clamp(10px, 1.5cqi, 14px);
   min-width: 0;
 }
@@ -528,13 +532,13 @@
 
 .analytics-stat-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.25rem), 1fr));
   gap: clamp(10px, 1.5cqi, 14px);
   min-width: 0;
 }
 
 .analytics-stat-row--tokens {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr));
 }
 
 .analytics-stat {
@@ -602,6 +606,9 @@
   border: 1px solid var(--analytics-line);
   border-radius: 16px;
   background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  /* Charts inside use this card's width, not the whole page. */
+  container-type: inline-size;
+  container-name: analytics-subcard;
 }
 
 .analytics-subcard__title {
@@ -621,45 +628,61 @@
   min-width: 0;
 }
 
-.analytics-focus {
-  /* Default 2-col board when the center percentile hub is absent. */
-  --analytics-focus-hub: clamp(176px, 21cqi, 220px);
-  /* Side lanes stay near hub width so outer cards can read as portrait. */
-  --analytics-focus-side: minmax(152px, calc(var(--analytics-focus-hub) * 1.16));
-  grid-template-columns: minmax(0, 1.15fr) minmax(180px, 0.9fr);
-  grid-template-rows: auto auto;
+/* Token trend is the primary chart; workspace ranking occupies the remaining third. */
+.analytics-tokens__charts {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: clamp(12px, 1.8cqi, 18px);
+  min-width: 0;
   align-items: stretch;
 }
 
+.analytics-tokens__trend,
+.analytics-tokens__workspace-ranking {
+  min-width: 0;
+}
+
+.analytics-tokens__trend {
+  grid-column: 1;
+}
+
+.analytics-tokens__workspace-ranking {
+  grid-column: 2;
+}
+
+.analytics-focus {
+  /* Own size context so hub/side tracks follow this board, not only the page. */
+  container-type: inline-size;
+  container-name: analytics-focus;
+  /* Hub (and its dial) keep scaling with the board; avoid a low hard ceiling. */
+  --analytics-focus-hub: clamp(168px, 28cqi, 380px);
+  /* Side lanes grow with the section so the board fills width (no outer gutters). */
+  --analytics-focus-side: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
 /*
- * With the hub present, outer cards squeeze a real center hole (not overlay):
- *   heat heat plan   ← heatmap lengthens across the blank above the hub
+ * With the hub present, outer cards leave a real center hole (not overlay):
+ *   heat heat plan
  *  share  hub plan
  *  share hours hours
  *
- * Aspect intent (wrap the hub, no empty gap above it):
- *   TL heat  = longer top bar spanning left+hub (fills space above hub)
- *   TR plan  = width < height  (side lane × top+hub rows)
- *   BL share = width < height  (side lane × hub+bottom rows)
- *   BR hours = width > height  (hub+right × short bottom row)
+ * Width fills the section; row heights stay content-driven so the heatmap
+ * calendar is not stretched taller than its own cells + chrome.
  */
 .analytics-focus:has(.analytics-focus__percentile) {
-  /*
-   * Cap side tracks to ~hub width so share/plan stay portrait and the hub
-   * remains a real center cell. Heatmap spans into the hub column on the
-   * top row so there is no blank strip above “专注超越”.
-   */
-  justify-content: center;
+  justify-content: stretch;
   grid-template-columns:
-    var(--analytics-focus-side)
+    minmax(0, 1.2fr)
     var(--analytics-focus-hub)
-    var(--analytics-focus-side);
+    minmax(0, 1fr);
   grid-template-rows:
-    /* Top row tall enough for heatmap content; heat spans left+hub. */
-    minmax(calc(var(--analytics-focus-hub) * 1.12), auto)
+    auto
     var(--analytics-focus-hub)
-    /* Bottom strip stays short → BR landscape under the hub. */
-    minmax(calc(var(--analytics-focus-hub) * 0.82), auto);
+    auto;
   grid-template-areas:
     "heat heat plan"
     "share hub plan"
@@ -670,15 +693,18 @@
   grid-column: 1 / 2;
   grid-row: 1;
   min-width: 0;
-  align-self: stretch;
+  align-self: start;
   height: auto;
+  min-height: 0;
 }
 
 .analytics-focus:has(.analytics-focus__percentile) .analytics-focus__heatmap {
   grid-area: heat;
-  /* Top bar: lengthen across left + hub columns to fill the gap above the hub. */
+  /* Top bar spans left + hub, but height hugs the calendar (no forced min). */
   max-width: 100%;
-  min-height: calc(var(--analytics-focus-hub) * 1.12);
+  min-height: 0;
+  height: auto;
+  align-self: start;
   justify-self: stretch;
 }
 
@@ -689,9 +715,9 @@
 }
 
 .analytics-focus:not(:has(.analytics-focus__plan)):has(.analytics-focus__percentile) {
-  justify-content: center;
+  justify-content: stretch;
   grid-template-columns:
-    var(--analytics-focus-side)
+    minmax(0, 1fr)
     var(--analytics-focus-hub)
     minmax(0, 1.2fr);
   grid-template-rows: auto var(--analytics-focus-hub);
@@ -702,13 +728,15 @@
 
 .analytics-focus:not(:has(.analytics-focus__plan)):has(.analytics-focus__percentile) .analytics-focus__heatmap {
   grid-area: heat;
+  align-self: start;
+  min-height: 0;
 }
 
 .analytics-focus:not(:has(.analytics-focus__plan)) .analytics-focus__share {
   grid-column: 1 / 2;
   grid-row: 2;
   align-self: stretch;
-  min-height: clamp(240px, 30cqi, 320px);
+  min-height: 0;
 }
 
 .analytics-focus:not(:has(.analytics-focus__plan)):has(.analytics-focus__percentile) .analytics-focus__share {
@@ -740,7 +768,7 @@
 
 .analytics-focus:has(.analytics-focus__percentile) .analytics-focus__plan {
   grid-area: plan;
-  /* Portrait top-right: right column spanning top + hub rows (overlaps share vertically). */
+  /* Right column spanning top + hub rows. */
   min-height: 0;
   width: 100%;
 }
@@ -772,6 +800,7 @@
   flex: 1 1 auto;
   align-content: start;
   min-height: 0;
+  width: 100%;
 }
 
 .analytics-focus__plan .dumbbell-chart--stacked {
@@ -782,15 +811,56 @@
   margin-top: auto;
 }
 
-/* Heatmap card hugs its calendar; no flex-growth empty zone under the legend. */
+/* Task status belongs with the plan/execution comparison, not in a separate section. */
+.analytics-focus__task-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+/* Heatmap card: title + legend on one row; calendar fills remaining width. */
 .analytics-focus__heatmap.analytics-subcard {
-  gap: 10px;
-  padding-bottom: clamp(12px, 1.6cqi, 16px);
+  gap: 8px;
+  padding: clamp(12px, 1.5cqi, 14px);
+  padding-bottom: clamp(10px, 1.3cqi, 12px);
+}
+
+.analytics-focus__heatmap-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  min-width: 0;
+}
+
+.analytics-focus__heatmap-header .analytics-subcard__title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.analytics-focus__heatmap-legend {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  white-space: nowrap;
 }
 
 .analytics-focus__heatmap .calendar-heatmap {
-  gap: 8px;
-  flex: 0 0 auto;
+  gap: 6px;
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  align-self: stretch;
+}
+
+.analytics-focus__heatmap .calendar-heatmap__scroll {
+  width: 100%;
+  max-width: 100%;
+}
+
+.analytics-focus__heatmap .calendar-heatmap__inner {
+  width: max-content;
+  max-width: none;
+  margin-inline-start: auto;
 }
 
 .analytics-focus__share,
@@ -802,19 +872,29 @@
 .analytics-focus__share {
   grid-column: 1 / 2;
   grid-row: 2 / 3;
+  /* The pie's minimum height must track this lane, not the entire focus board. */
+  container-type: inline-size;
+  container-name: analytics-focus-share;
   display: flex;
   flex-direction: column;
   gap: 10px;
   align-self: stretch;
-  min-height: clamp(240px, 30cqi, 320px);
+  min-height: 0;
   height: auto;
 }
 
 .analytics-focus:has(.analytics-focus__percentile) .analytics-focus__share {
   grid-area: share;
-  /* Portrait bottom-left: left lane spanning hub + hours (starts under heat). */
-  min-height: calc(var(--analytics-focus-hub) * 1.82);
+  /* Bottom-left under heat: height comes from hub + hours rows, not a tall floor. */
+  min-height: 0;
   width: 100%;
+  height: 100%;
+  align-self: stretch;
+}
+
+.analytics-focus:has(.analytics-focus__percentile) .analytics-focus__share .morph-pie {
+  /* Prefer the real grid-allocated height over the content-driven floor. */
+  min-height: 0;
 }
 
 .analytics-focus__share-header {
@@ -852,27 +932,30 @@
   font-size: 0.62rem;
 }
 
-/* Pie grows inside the taller share card; toggle remains bottom-left. */
+/* Pie fills the share card; MorphPieChart measures this box and sets SVG px. */
 .analytics-focus__share .morph-pie {
   flex: 1 1 auto;
-  min-height: 0;
+  /* Floor so content-sized share cards still have a measurable drawable box. */
+  min-height: clamp(180px, 100cqi, 420px);
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   justify-content: center;
+  align-items: center;
   gap: 6px;
 }
 
 .analytics-focus__share .morph-pie__svg {
-  flex: 0 1 auto;
-  width: min(100%, 200px);
-  max-height: 200px;
+  flex: 0 0 auto;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
   min-height: 0;
   aspect-ratio: 1 / 1;
   margin-inline: auto;
-}
-
-/* Narrow portrait share column: keep the pie inside the squeezed left lane. */
-.analytics-focus:has(.analytics-focus__percentile) .analytics-focus__share .morph-pie__svg {
-  width: min(100%, 168px);
-  max-height: 168px;
+  object-fit: contain;
 }
 
 .analytics-focus__share .morph-pie__readout {
@@ -891,18 +974,23 @@
 
 .analytics-focus:has(.analytics-focus__percentile) .analytics-focus__hours {
   grid-area: hours;
-  /* Landscape bottom-right strip under the hub: wide (hub+right), deliberately short. */
+  /* Landscape bottom-right strip under the hub: wide (hub+right), content-driven height. */
   min-height: 0;
   max-height: none;
   width: 100%;
+  height: auto;
+  align-self: stretch;
 }
 
 .analytics-focus:has(.analytics-focus__percentile) .analytics-focus__hours .active-range {
-  --active-range-height: clamp(96px, 12cqi, 120px);
+  /* Height tracks the hours card width (card is a size container). */
+  --active-range-height: clamp(92px, 40cqi, 220px);
 }
 
 .analytics-focus__hours .active-range {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
   justify-content: flex-start;
 }
 
@@ -917,35 +1005,47 @@
   min-width: 0;
   min-height: 0;
   /* Hub track is already square (hub col × hub row); avoid aspect-ratio fighting the grid. */
-  gap: 2px;
-  padding: clamp(6px, 1cqi, 10px);
+  gap: 0;
+  padding: clamp(4px, 0.7cqi, 8px);
   overflow: hidden;
+
   box-shadow:
     0 8px 22px color-mix(in srgb, #1a1a1a 8%, transparent),
     0 0 0 1px color-mix(in srgb, var(--analytics-line) 80%, transparent);
 }
 
 .analytics-focus__percentile .analytics-subcard__title {
+  /* Match other analytics subcard titles (0.68rem). */
   text-align: center;
   width: 100%;
-  font-size: 0.62rem;
-  letter-spacing: 0.04em;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: normal;
+  flex: 0 0 auto;
+  line-height: 1.3;
 }
 
 .analytics-focus__percentile .tick-gauge {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
 }
 
 .analytics-focus__percentile .tick-gauge__svg {
-  width: 100%;
-  height: 100%;
+  /* TickGaugeChart measures this box and sets SVG px to fill the hub. */
+  max-width: 100%;
   max-height: 100%;
+  aspect-ratio: 400 / 320;
   object-fit: contain;
+}
+
+/* Percent value scales with the hub card width. */
+.analytics-focus__percentile .tick-gauge__value {
+  font-size: clamp(22px, 20cqi, 56px);
 }
 
 .analytics-focus__donuts {
@@ -971,7 +1071,7 @@
 
 .analytics-keyvalue-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr));
   gap: 10px;
   margin: 0;
 }
@@ -1239,9 +1339,15 @@
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  width: 100%;
   --active-range-ink: #1a1a1a;
-  --active-range-height: 140px;
+  /* Prefer card-level cqi when the parent subcard is a size container. */
+  --active-range-height: clamp(96px, 34cqi, 220px);
   --active-range-cols: 7;
+}
+
+.active-range[data-mode='day_of_range'] {
+  --active-range-height: clamp(112px, 40cqi, 240px);
 }
 
 .active-range__plot {
@@ -1327,13 +1433,14 @@
   inset: 0;
 }
 
-/* Vertical floating capsules — mono ink, full-round ends, ~32% category width */
+/* Vertical floating capsules — mono ink, full-round ends, with a stable visual weight across ranges. */
 .active-range__capsule {
   position: absolute;
   left: 50%;
-  width: 34%;
+  /* Keep seven-day pills as fine as today's hourly pills instead of scaling with wider day columns. */
+  width: 5px;
   min-width: 5px;
-  max-width: 14px;
+  max-width: 5px;
   transform: translateX(-50%);
   transform-origin: center bottom;
   border: 0;
@@ -1349,11 +1456,11 @@
   transition: opacity 140ms ease-out;
 }
 
-.active-range[data-mode='day_of_range'] .active-range__capsule {
-  /* Multi-day columns are wider; keep the pill vertical, not a horizontal dash. */
-  width: 30%;
-  min-width: 6px;
-  max-width: 16px;
+/* Long all-history ranges need a lighter mark so densely packed days do not look heavy. */
+.active-range[data-range-preset='all'] .active-range__capsule {
+  width: 4px;
+  min-width: 4px;
+  max-width: 4px;
 }
 
 .active-range__capsule[data-hover='true'] {
@@ -1770,39 +1877,52 @@
 .calendar-heatmap {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
+  height: auto;
+  align-self: stretch;
+  width: 100%;
 }
 
 .calendar-heatmap__scroll {
   min-width: 0;
   width: 100%;
+  max-width: 100%;
+  /* Keep horizontal overflow recoverable, but never invent a vertical scrollbar
+     when overflow-x is non-visible (CSS maps the other axis to auto). */
   overflow-x: auto;
+  overflow-y: hidden;
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
 }
 
 .calendar-heatmap__inner {
-  --heatmap-cell: 11px;
-  --heatmap-gap: 2px;
+  --heatmap-cell: 12px;
+  --heatmap-gap: 3px;
   display: grid;
-  gap: 6px;
-  /* Content-sized: keep cells compact; wide cards may leave air on the right. */
+  gap: 4px;
+  /* Size to the real week columns; keep the latest week flush right. */
   width: max-content;
-  max-width: 100%;
+  max-width: none;
   min-width: 0;
+  margin-inline-start: auto;
+  height: auto;
 }
 
 .calendar-heatmap__months {
   display: grid;
   grid-template-columns: repeat(var(--heatmap-columns, 1), var(--heatmap-cell));
   column-gap: var(--heatmap-gap);
-  margin-inline-start: 26px;
+  width: max-content;
+  max-width: none;
+  margin-inline-start: auto;
+  padding-inline-start: 26px;
+  box-sizing: content-box;
   color: var(--analytics-text-soft);
   font-family: var(--analytics-mono);
   font-size: 0.58rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 
 .calendar-heatmap__months span {
@@ -1811,6 +1931,7 @@
   overflow: hidden;
   text-overflow: clip;
   white-space: nowrap;
+  text-align: start;
 }
 
 .calendar-heatmap__body {
@@ -1818,8 +1939,9 @@
   grid-template-columns: 22px max-content;
   gap: 4px;
   width: max-content;
-  max-width: 100%;
+  max-width: none;
   min-width: 0;
+  margin-inline-start: auto;
 }
 
 .calendar-heatmap__weekdays {
@@ -1846,6 +1968,7 @@
 .calendar-heatmap__grid {
   display: grid;
   grid-auto-flow: column;
+  /* Fixed week tracks keep the latest week flush right without filler columns. */
   grid-auto-columns: var(--heatmap-cell);
   grid-template-rows: repeat(7, var(--heatmap-cell));
   gap: var(--heatmap-gap);
@@ -1877,10 +2000,6 @@
   opacity: 1;
 }
 
-.calendar-heatmap__cell[data-today='true'] {
-  box-shadow: 0 0 0 1.5px var(--analytics-ok);
-}
-
 .calendar-heatmap__grid:focus-visible .calendar-heatmap__cell[data-active='true'] {
   box-shadow: 0 0 0 1.5px var(--analytics-text);
 }
@@ -1905,8 +2024,8 @@
 }
 
 .calendar-heatmap__cell.is-legend {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
 }
 
 /* ------------------------------------------------------------ Dark theme --- */
@@ -2080,7 +2199,8 @@
   display: block;
   width: 100%;
   height: auto;
-  max-height: 220px;
+  max-width: 100%;
+  max-height: 100%;
   aspect-ratio: 1 / 1;
   overflow: visible;
 }
@@ -2171,7 +2291,8 @@
   display: block;
   width: 100%;
   height: auto;
-  max-height: 180px;
+  max-width: 100%;
+  max-height: 100%;
   overflow: visible;
 }
 
@@ -2207,7 +2328,7 @@
 .tick-gauge__value {
   fill: var(--tick-gauge-ink);
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
-  font-size: 34px;
+  font-size: clamp(22px, 16cqi, 48px);
   font-weight: 800;
   letter-spacing: -0.03em;
 }
@@ -2490,6 +2611,34 @@
   justify-self: start;
 }
 
+.dumbbell-chart--values-beside-label.dumbbell-chart--stacked .dumbbell-chart__row {
+  gap: 8px;
+}
+
+.dumbbell-chart__label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px 12px;
+  min-width: 0;
+}
+
+.dumbbell-chart__label-row .dumbbell-chart__label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dumbbell-chart__label-row .dumbbell-chart__values {
+  flex: 0 0 auto;
+  justify-self: auto;
+  margin-inline-start: auto;
+  text-align: end;
+}
+
+.analytics-focus__plan .dumbbell-chart--values-beside-label .dumbbell-chart__label-row {
+  width: 100%;
+}
+
 .dumbbell-chart__legend {
   display: inline-flex;
   flex-wrap: wrap;
@@ -2733,6 +2882,15 @@
     grid-template-areas: none;
   }
 
+  .analytics-tokens__charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .analytics-tokens__trend,
+  .analytics-tokens__workspace-ranking {
+    grid-column: 1;
+  }
+
   .analytics-focus__heatmap,
   .analytics-focus__plan,
   .analytics-focus__share,
@@ -2748,8 +2906,14 @@
   }
 
   .analytics-focus__percentile {
-    max-width: min(100%, 240px);
+    max-width: min(100%, clamp(220px, 60cqi, 360px));
+    width: 100%;
     justify-self: center;
+    aspect-ratio: 1 / 1;
+  }
+
+  .analytics-focus__share .morph-pie {
+    min-height: clamp(220px, 72cqi, 380px);
   }
 }
 
