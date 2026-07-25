@@ -30,6 +30,16 @@ import {
 } from './teaching-conversation-lesson-tool'
 import { createConversationPermissionResolver } from './teaching-conversation-permissions'
 import { buildSessionStablePrefix, composeTeachingUserTurn, type TemporaryChatContext } from './teaching-conversation-prompt'
+import { plan as planSkillOrchestration } from './skill-orchestration-planner'
+import {
+  buildSkillOrchestrationContextIdentity,
+  buildSkillOrchestrationPlanInput,
+  buildSkillOrchestrationReadinessFromCatalog,
+  filterSkillReferencesToActiveBodies,
+  mergeSelectedSkillIds,
+  resolveHostSkillOrchestrationMode,
+  skillIdsForBodyLoad
+} from './skill-orchestration-host'
 import { collapseConsecutiveAssistantTurns, sanitizeAgentTurnContent } from '../shared/agent-conversation-turns'
 import { buildLearnerMemoryCandidate, planLearnerMemoryCapture } from '../shared/teaching-memory-capture'
 import type { LessonBrief } from '../shared/teaching-workflow'
@@ -45,6 +55,7 @@ import type {
   CreateTeachingMemoryPayload,
   LessonSummary,
   InstalledSkillReference,
+  SkillSummary,
   TeachingMemoryRecord,
   TeachingSettingsV1
 } from '../shared/teaching-types'
@@ -80,6 +91,24 @@ export type TeachingConversationRuntimeDeps = {
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
   deleteMemory?: (memoryId: string, workspaceRoot?: string) => Promise<void>
   loadSkillReferences: (skillIds: string[], userInput: string) => Promise<InstalledSkillReference[]>
+  /**
+   * Optional skill catalog for orchestration readiness (ADR-0151).
+   * When omitted, registered builtins are treated as ready; body load remains fail-closed.
+   */
+  listSkillCatalog?: () => Promise<readonly Pick<SkillSummary, 'id' | 'installed' | 'source'>[]>
+  /**
+   * Optional allow-listed Authority Plane echoes for planner input only
+   * (next-step / readiness / artifact type names). Never settlement writes.
+   */
+  skillOrchestrationFacts?: {
+    nextStepAction?: string
+    nextStepReason?: string
+    resourceReadiness?: string
+    evidenceStatus?: string
+    availableArtifacts?: string[]
+    budgetConstrained?: boolean
+    preferArtifactProfile?: boolean
+  }
   /**
    * Execute the lesson generation pipeline for a brief the conversation agent
    * assembled. Provided only for teaching-mode conversations with an active
@@ -352,13 +381,90 @@ async function runTeachingConversationTurnActive(
   lessonTool.registerInto(baseRegistry)
 
   const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
-  const requestedSkillIds = [...new Set((payload.skillIds ?? []).map((id) => id.trim()).filter(Boolean))]
-  const activeSkillIds = conversation.isTeachingConversation
-    ? [...new Set([...requestedSkillIds, 'teach'])]
-    : requestedSkillIds
-  const skillReferences = activeSkillIds.length > 0 || /^\/[a-z0-9][a-z0-9._-]{0,63}(?:\s|$)/i.test(userInput)
-    ? await deps.loadSkillReferences(activeSkillIds, userInput)
-    : []
+  // ADR-0151: pure plan() after mode/settings known, before loading skill bodies.
+  // Planner has zero settlement authority; stage-scoped bodies load active_now (+ kernel).
+  const orchestrationFacts = deps.skillOrchestrationFacts
+  const catalogSkills = deps.listSkillCatalog
+    ? await deps.listSkillCatalog().catch(() => [] as const)
+    : undefined
+  const requestedSkillIds = mergeSelectedSkillIds({
+    explicitSkillIds: payload.skillIds,
+    userInput,
+    catalogSkills
+  })
+  const orchestrationMode = resolveHostSkillOrchestrationMode({
+    isTeachingConversation: conversation.isTeachingConversation,
+    conversationMode: conversation.mode,
+    selectedSkillIds: requestedSkillIds,
+    preferArtifactProfile: orchestrationFacts?.preferArtifactProfile
+  })
+  const contextIdentity = buildSkillOrchestrationContextIdentity({
+    conversationId: payload.conversationId,
+    workspaceId: payload.workspaceId ?? workspace?.id,
+    mode: conversation.mode
+  })
+  const readiness = buildSkillOrchestrationReadinessFromCatalog({
+    selectedSkillIds: requestedSkillIds,
+    catalogSkills
+  })
+  const skillOrchestrationPlan = planSkillOrchestration(
+    buildSkillOrchestrationPlanInput({
+      selectedSkillIds: requestedSkillIds,
+      mode: orchestrationMode,
+      objective: userInput,
+      contextIdentity,
+      readiness,
+      nextStepAction: orchestrationFacts?.nextStepAction,
+      nextStepReason: orchestrationFacts?.nextStepReason,
+      resourceReadiness: orchestrationFacts?.resourceReadiness,
+      evidenceStatus: orchestrationFacts?.evidenceStatus,
+      availableArtifacts: orchestrationFacts?.availableArtifacts,
+      budgetConstrained: orchestrationFacts?.budgetConstrained,
+      preferArtifactProfile: orchestrationFacts?.preferArtifactProfile
+    })
+  )
+  const bodyLoadSkillIds = skillIdsForBodyLoad({
+    plan: skillOrchestrationPlan,
+    isTeachingConversation: conversation.isTeachingConversation
+  })
+  let skillReferences: InstalledSkillReference[] = []
+  try {
+    skillReferences =
+      bodyLoadSkillIds.length > 0 || /^\/[a-z0-9][a-z0-9._-]{0,63}(?:\s|$)/i.test(userInput)
+        ? await deps.loadSkillReferences(bodyLoadSkillIds, userInput)
+        : []
+  } catch (error) {
+    // Fail-closed when Teaching Kernel cannot load (missing/corrupt builtin pack).
+    if (conversation.isTeachingConversation || skillOrchestrationPlan.mode === 'teaching_turn') {
+      const message = error instanceof Error ? error.message : String(error)
+      return {
+        error: true,
+        message: `Teaching Kernel unavailable: ${message}`
+      }
+    }
+    throw error
+  }
+  // Drop non-active full bodies if loader returned extras (slash inference / catalog side paths).
+  skillReferences = filterSkillReferencesToActiveBodies({
+    references: skillReferences,
+    plan: skillOrchestrationPlan,
+    isTeachingConversation: conversation.isTeachingConversation
+  })
+  const needsTeachingKernel =
+    conversation.isTeachingConversation ||
+    skillOrchestrationPlan.mode === 'teaching_turn' ||
+    skillOrchestrationPlan.mode === 'artifact_workflow'
+  if (
+    needsTeachingKernel &&
+    bodyLoadSkillIds.some((id) => id.toLocaleLowerCase() === 'teach') &&
+    !skillReferences.some((reference) => reference.id.toLocaleLowerCase() === 'teach')
+  ) {
+    return {
+      error: true,
+      message:
+        'Teaching Kernel unavailable: reserved skill "teach" was not loaded from app-shipped builtin roots (ADR-0151).'
+    }
+  }
   const skillResourceTool = settings.tools.enabled ? createReadSkillResourceTool(skillReferences) : null
   if (skillResourceTool) baseRegistry.register(skillResourceTool)
   // Slice F: memory search + human-approved synthetic teaching memory (no FTS).
@@ -446,7 +552,8 @@ async function runTeachingConversationTurnActive(
     settings,
     provider,
     temporaryContext,
-    visiblePageContext: payload.context
+    visiblePageContext: payload.context,
+    skillOrchestrationPlan
   } as const
   const messages: ChatMessage[] = [
     {
@@ -788,3 +895,4 @@ function collectToolUsageFromResult(result: AgentChatStreamResult): Array<{
   }
   return tools
 }
+

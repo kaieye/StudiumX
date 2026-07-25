@@ -4,6 +4,7 @@ import { planLearnerMemoryCapture } from '../shared/teaching-memory-capture'
 import { resolveActiveProvider } from './ai/provider-adapter'
 import { buildTeachingSyntheticMemoryIndexLines } from './ai/tools/memory-tools'
 import type { InstalledSkillReference, AgentChatMode, TeachingMemoryRecord, TeachingSettingsV1 } from '../shared/teaching-types'
+import type { SkillOrchestrationPlan } from '../shared/teaching-types/skill-orchestration'
 
 export type TemporaryChatContext = {
   learnerProfiles: string[]
@@ -19,6 +20,11 @@ export type TeachingPromptOptions = {
   provider?: ReturnType<typeof resolveActiveProvider>
   temporaryContext?: TemporaryChatContext | null
   visiblePageContext?: string | null
+  /**
+   * Compact orchestration plan projection for turn-tail only (ADR-0151 Phase 3).
+   * Must not include skill bodies or secrets. Does not enter stable system prefix.
+   */
+  skillOrchestrationPlan?: SkillOrchestrationPlan | null
 }
 
 /** Builds the session-stable system prefix. Dynamic turn data is intentionally excluded. */
@@ -52,7 +58,17 @@ ${skillIndex}`
 
 /** Composes turn-varying context to place alongside the user's message. */
 export function composeTeachingUserTurn(options: TeachingPromptOptions): string {
-  const { mode, skillReferences, memoryCapturePlan = { action: 'none', reason: 'no_candidate' }, existingMemories = [], settings, provider, temporaryContext, visiblePageContext } = options
+  const {
+    mode,
+    skillReferences,
+    memoryCapturePlan = { action: 'none', reason: 'no_candidate' },
+    existingMemories = [],
+    settings,
+    provider,
+    temporaryContext,
+    visiblePageContext,
+    skillOrchestrationPlan
+  } = options
   const teachSkillReference = skillReferences.find((skill) => skill.id === 'teach')
   const teachPolicyReference = teachSkillReference ? [
     `<teach-skill-reference source="${escapePromptAttribute(teachSkillReference.source)}">`,
@@ -61,6 +77,7 @@ export function composeTeachingUserTurn(options: TeachingPromptOptions): string 
     formatSkillForPrompt(teachSkillReference.content, teachSkillReference.name),
     '</teach-skill-reference>'
   ].join('\n') : ''
+  // Stage-scoped bodies: callers pass only active_now (+ kernel for teaching) full bodies.
   const additionalSkillReferences = skillReferences.filter((skill) => skill.id !== 'teach').map((skill) => [
     `<skill-reference name="${escapePromptAttribute(skill.name)}" source="${escapePromptAttribute(skill.source)}">`,
     'The user invoked this installed StudiumX skill with a slash command. Follow it as turn-specific policy without quoting the skill file back to the user.',
@@ -71,6 +88,7 @@ export function composeTeachingUserTurn(options: TeachingPromptOptions): string 
   const sections = [
     teachPolicyReference,
     ...additionalSkillReferences,
+    buildSkillOrchestrationPlanPromptLines(skillOrchestrationPlan),
     mode === 'temporary' ? buildTemporaryChatPromptLines(temporaryContext, visiblePageContext) : buildTeachingVisiblePageContext(visiblePageContext),
     buildModelRuntimePromptLines(settings, provider),
     mode === 'teaching' ? buildLearnerProfilePromptContext(existingMemories) : '',
@@ -83,6 +101,70 @@ export function composeTeachingUserTurn(options: TeachingPromptOptions): string 
 /** @deprecated Use buildSessionStablePrefix and composeTeachingUserTurn. */
 export function buildAgentChatSystemPrompt(options: TeachingPromptOptions): string {
   return buildSessionStablePrefix(options)
+}
+
+/**
+ * Compact plan projection for turn-tail (ADR-0151 Phase 3 / ADR-0044).
+ * Index identity stays in stable prefix; full bodies stay in teach/skill-reference slots only for active skills.
+ * Router skills must not claim dynamic execution of uninstalled children.
+ */
+export function buildSkillOrchestrationPlanPromptLines(
+  plan: SkillOrchestrationPlan | null | undefined
+): string {
+  if (!plan) return ''
+  const currentStage = plan.stages[0]
+  const decisionLines = plan.decisions
+    .slice()
+    .sort((a, b) => a.skillId.localeCompare(b.skillId))
+    .map((d) => {
+      const role = d.role ? `; role=${d.role}` : ''
+      const impact = d.teachingImpact ? `; teachingImpact=${d.teachingImpact}` : ''
+      const reason = sanitizePlanReason(d.reason)
+      return `- skillId=${d.skillId}; status=${d.status}${role}${impact}; reason=${reason}`
+    })
+  const stageLines = plan.stages.map(
+    (s) =>
+      `- id=${s.id}; kind=${s.kind}; execution=${s.execution}; skillIds=${s.skillIds.join(',') || 'none'}`
+  )
+  const diagLines = plan.diagnostics.map(
+    (d) => `- [${d.severity}] ${d.code}: ${sanitizePlanReason(d.message)}`
+  )
+  const echo = plan.authorityEcho
+  const authorityLines: string[] = []
+  if (echo) {
+    if (echo.nextStepAction) authorityLines.push(`nextStepAction=${sanitizePlanReason(echo.nextStepAction)}`)
+    if (echo.nextStepReason) authorityLines.push(`nextStepReason=${sanitizePlanReason(echo.nextStepReason)}`)
+    if (echo.resourceReadiness) {
+      authorityLines.push(`resourceReadiness=${sanitizePlanReason(echo.resourceReadiness)}`)
+    }
+    if (echo.evidenceStatus) authorityLines.push(`evidenceStatus=${sanitizePlanReason(echo.evidenceStatus)}`)
+    if (echo.availableArtifacts?.length) {
+      authorityLines.push(`availableArtifacts=${echo.availableArtifacts.join(',')}`)
+    }
+  }
+  return [
+    '<skill-orchestration-plan>',
+    `planId=${plan.planId}`,
+    `mode=${plan.mode}`,
+    `kernel=${plan.kernel.skillId}; profile=${plan.kernel.profile}`,
+    `currentStage=${currentStage?.kind ?? 'none'}`,
+    'note=Planner has zero settlement authority; skill bodies loaded only for active_now (plus Teaching Kernel for teaching modes). Workflow routers plan stages only and do not execute uninstalled child skills. Authority echoes are read-only loop facts, not outcome writes.',
+    ...(authorityLines.length ? ['authorityEcho:', ...authorityLines.map((line) => `- ${line}`)] : []),
+    'decisions:',
+    ...(decisionLines.length ? decisionLines : ['- none']),
+    'stages:',
+    ...(stageLines.length ? stageLines : ['- none']),
+    ...(diagLines.length ? ['diagnostics:', ...diagLines] : []),
+    '</skill-orchestration-plan>'
+  ].join('\n')
+}
+
+function sanitizePlanReason(raw: string): string {
+  return String(raw ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[<>]/g, '')
+    .trim()
+    .slice(0, 240)
 }
 
 function buildSkillIndexPromptLines(skillReferences: InstalledSkillReference[], mode: AgentChatMode): string {

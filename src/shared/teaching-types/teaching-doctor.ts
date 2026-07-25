@@ -115,6 +115,17 @@ export type TeachingDoctorConfigFacts = {
   configPath?: string | null
   /** Optional settings schema/key path when known (e.g. `provider.apiKey`). */
   configKey?: string | null
+  /**
+   * Optional agent sandbox readiness (ADR-0153 Stage E).
+   * Same source as runtime resolveAgentSandboxReadiness — non-secret only.
+   */
+  agentSandboxMode?: string
+  agentSandboxBackend?: string
+  agentSandboxOsEnforcementAvailable?: boolean
+  /** Human-readable, bounded, non-secret readiness summary. */
+  agentSandboxSummary?: string
+  /** Windows only: ready | notConfigured | updateRequired */
+  agentSandboxWindowsReadiness?: string
 }
 
 export type TeachingDoctorSourceGapFacts = {

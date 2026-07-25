@@ -12,6 +12,13 @@ import {
   type ToolResultBudgetPolicy
 } from './annotations'
 import { classifyToolEffect } from './effect-policy'
+import { isKnownSafeReadCommand, resolveShellArgv } from './shell-command-safety'
+import {
+  RUN_WORKSPACE_COMMAND_TOOL_NAME,
+  runWorkspaceCommandTool,
+  shellTool,
+  SHELL_TOOL_NAME
+} from './workspace-shell'
 import {
   DEFAULT_IN_PROCESS_TOOL_POLICY_DOCUMENT,
   evaluateRegistryToolPolicyGate,
@@ -322,6 +329,12 @@ export function buildDefaultRegistry(
       registry.register(writeWorkspaceFileTool)
       registry.register(editWorkspaceFileTool)
     }
+    // Workspace shell: default on when tools.workspaceShell !== false (ADR-0153 mainstream agent).
+    // Requires workspaceWrite session grant (same fence as file writers).
+    if (settings.tools.workspaceShell !== false && options.workspaceWrite === true) {
+      registry.register(runWorkspaceCommandTool)
+      registry.register(shellTool)
+    }
   }
   if (settings.tools.webSearch) registry.register(webSearchTool)
   if (settings.tools.webFetch) registry.register(webFetchTool)
@@ -381,10 +394,14 @@ async function resolveToolPermission(
   const requiresMcpInteractive = request.toolName.startsWith('mcp__')
 
   const requiresHumanMemoryApproval = isForcedHumanMemoryApprovalTool(request.toolName)
+  const isWorkspaceShell =
+    request.toolName === RUN_WORKSPACE_COMMAND_TOOL_NAME ||
+    request.toolName === SHELL_TOOL_NAME
 
   if (!requiresHumanMemoryApproval && !requiresMcpInteractive && !forceInteractive) {
     switch (ctx.settings.tools.approvalMode) {
       case 'full_access': {
+        // Codex `never` / StudiumX「本课放行」— auto for this run (still path-fenced).
         const decision: ToolPermissionDecision = { decision: 'allow_for_run' }
         return {
           decision,
@@ -395,9 +412,23 @@ async function resolveToolPermission(
         }
       }
       case 'based_on_approval':
-        // Creating a new in-workspace text file is reversible and constrained by
-        // the workspace path guard. Replacing an existing file remains a risk and
-        // therefore flows through the same explicit approval mechanism below.
+        // Codex `on-request`: low-risk auto; higher risk prompts.
+        // Shell: known-safe read-oriented argv (Codex safelist subset) may auto-allow.
+        // Files: new in-workspace creates auto-allow (existing behaviour).
+        if (isWorkspaceShell) {
+          const shell = resolveShellArgv(args)
+          if (!('error' in shell) && isKnownSafeReadCommand(shell.argv)) {
+            const decision: ToolPermissionDecision = { decision: 'allow_for_run' }
+            return {
+              decision,
+              journalPermissionDecision: journalPermissionDecisionFromGateAndResolution({
+                policyAction,
+                interactiveDecision: decision.decision
+              })
+            }
+          }
+          break
+        }
         if (request.creates === true) {
           const decision: ToolPermissionDecision = { decision: 'allow_for_run' }
           return {
@@ -410,6 +441,7 @@ async function resolveToolPermission(
         }
         break
       case 'request_approval':
+        // Codex `untrusted`: always interactive for shell + writes (no silent exec).
         break
     }
   }

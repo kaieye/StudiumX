@@ -14,6 +14,10 @@
 
 import { isSecretConfigured } from '../../shared/secret-presence'
 import type { TeachingDoctorConfigFacts, TeachingDoctorFacts } from '../../shared/teaching-types/teaching-doctor'
+import {
+  normalizeAgentSandboxMode,
+  resolveAgentSandboxReadiness
+} from '../ai/tools/agent-sandbox-policy'
 import type { TeachingDoctorFactsCollector } from './teaching-doctor-facts-assemble'
 
 /** Logical locator only — never an absolute userData path. */
@@ -103,6 +107,7 @@ function probeConfigFacts(loaded: unknown, configPath: string): TeachingDoctorCo
 
   const settings = loaded as Record<string, unknown>
   const providerConfigured = isProviderConfigured(settings)
+  const sandboxFacts = probeAgentSandboxFacts(settings)
 
   return {
     settingsAvailable: true,
@@ -111,7 +116,8 @@ function probeConfigFacts(loaded: unknown, configPath: string): TeachingDoctorCo
     providerConfigured,
     reason: providerConfigured ? null : 'provider_not_configured',
     configPath,
-    ...(providerConfigured ? {} : { configKey: 'provider.apiKey' })
+    ...(providerConfigured ? {} : { configKey: 'provider.apiKey' }),
+    ...sandboxFacts
   }
 }
 
@@ -170,6 +176,46 @@ function providerHasCredentialsOrModels(provider: unknown): boolean {
   }
 
   return false
+}
+
+
+/**
+ * Non-secret sandbox readiness for Doctor — same source as shell runtime.
+ * Fail-soft: missing tools section simply omits optional fields.
+ */
+function probeAgentSandboxFacts(
+  settings: Record<string, unknown>
+): Partial<TeachingDoctorConfigFacts> {
+  const tools = asRecord(settings.tools)
+  if (!tools) return {}
+
+  try {
+    const mode = normalizeAgentSandboxMode(tools.sandboxMode, 'workspace_write')
+    const windowsLevel =
+      typeof tools.windowsSandboxLevel === 'string'
+        ? tools.windowsSandboxLevel
+        : 'restricted_token'
+    const readiness = resolveAgentSandboxReadiness({
+      mode,
+      windowsSandboxLevel: windowsLevel
+    })
+    const summary = String(readiness.summary ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 280)
+    return {
+      agentSandboxMode: readiness.mode,
+      agentSandboxBackend: readiness.backend,
+      agentSandboxOsEnforcementAvailable: readiness.osEnforcementAvailable === true,
+      ...(summary ? { agentSandboxSummary: summary } : {}),
+      ...(typeof readiness.windowsReadiness === 'string'
+        ? { agentSandboxWindowsReadiness: readiness.windowsReadiness }
+        : {})
+    }
+  } catch {
+    // Fail-soft: config availability still reports settings; sandbox optional.
+    return {}
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

@@ -25,6 +25,10 @@ type AnalyticsCopy = {
     notGenerated: string
     rangeLabel: string
     description: string
+    demo: string
+    demoExit: string
+    demoActive: string
+    demoLoaded: string
   }
   ranges: Record<Exclude<AnalyticsRangePreset, 'custom'>, string>
   states: {
@@ -46,6 +50,13 @@ type AnalyticsCopy = {
     noTasks: string
     current: string
     inRange: string
+    levelProgressTitle: string
+    currentXp: string
+    nextLevelXp: string
+    xpToNext: string
+    comparisonUp: string
+    comparisonDown: string
+    comparisonFlat: string
   }
   focus: {
     title: string
@@ -59,10 +70,10 @@ type AnalyticsCopy = {
     hourTitle: string
     hourPeak: string
     hourNoPeak: string
-    modeTitle: string
-    roomTitle: string
-    signalTitle: string
+    activeRangeHourAxis: string
+    activeRangeDayAxis: string
     structureTitle: string
+    structureChartTitle: string
     completed: string
     interrupted: string
     canceled: string
@@ -70,9 +81,6 @@ type AnalyticsCopy = {
     avgSession: string
     breakTime: string
     weekdays: readonly [string, string, string, string, string, string, string]
-    modeLabels: Record<string, string>
-    roomLabels: Record<string, string>
-    signalLabels: Record<string, string>
   }
   tokens: {
     title: string
@@ -82,8 +90,12 @@ type AnalyticsCopy = {
     providerCalls: string
     toolCalls: string
     trendTitle: string
+    promptTrend: string
+    completionTrend: string
     byToolTitle: string
     byWorkspaceTitle: string
+    noToolShare: string
+    noWorkspaceShare: string
     toolCallsUnit: string
     toolErrorsUnit: string
     efficiencyTitle: string
@@ -113,6 +125,12 @@ type AnalyticsCopy = {
     noCategoryShare: string
     completionCountUnit: string
     uncategorized: string
+    planTitle: string
+    planVsExecLabel: string
+    planned: string
+    executed: string
+    executionRate: string
+    noPlan: string
   }
   review: {
     title: string
@@ -123,6 +141,7 @@ type AnalyticsCopy = {
     cards: string
     byLessonTitle: string
     noLessons: string
+    accuracyGaugeTitle: string
   }
   memory: {
     title: string
@@ -176,25 +195,6 @@ const unavailableReasonsEn: Record<AnalyticsUnavailableReason, string> = {
   unsupported: 'This analysis is not supported in this version.'
 }
 
-const modeLabelsZh: Record<string, string> = {
-  free: '自由学习', sync: '同步自习', deepwork: '深度工作', exam: '考试冲刺'
-}
-const roomLabelsZh: Record<string, string> = {
-  silent: '静音自习', sprint: '冲刺房', deep: '深度房', exam: '考试房'
-}
-const signalLabelsZh: Record<string, string> = {
-  reading: '阅读', writing: '写作', practice: '练习', review: '复习', exam: '考试'
-}
-const modeLabelsEn: Record<string, string> = {
-  free: 'Free study', sync: 'Synced study', deepwork: 'Deep work', exam: 'Exam sprint'
-}
-const roomLabelsEn: Record<string, string> = {
-  silent: 'Silent room', sprint: 'Sprint room', deep: 'Deep room', exam: 'Exam room'
-}
-const signalLabelsEn: Record<string, string> = {
-  reading: 'Reading', writing: 'Writing', practice: 'Practice', review: 'Review', exam: 'Exam'
-}
-
 export const analyticsCopy: AnalyticsCopy = {
   page: {
     eyebrow: 'Learning Insights',
@@ -211,10 +211,14 @@ export const analyticsCopy: AnalyticsCopy = {
     updated: '更新于',
     notGenerated: '尚未生成',
     rangeLabel: '时间范围',
-    description: '汇总你的专注时段、任务节奏、模型消耗与知识沉淀。'
+    description: '汇总你的专注时段、任务节奏、模型消耗与知识沉淀。',
+    demo: '示例',
+    demoExit: '退出示例',
+    demoActive: '示例模式',
+    demoLoaded: '正在展示示例数据（多日伪造学习记录）'
   },
   ranges: {
-    today: '今天', week: '本周', month: '本月', '90d': '近 90 天', all: '全部'
+    today: '今天', week: '本周', month: '本月', all: '全部'
   },
   states: {
     loading: '正在加载',
@@ -240,7 +244,14 @@ export const analyticsCopy: AnalyticsCopy = {
     tasks: '任务完成率',
     noTasks: '暂无任务',
     current: '当前',
-    inRange: '所选范围'
+    inRange: '所选范围',
+    levelProgressTitle: '等级进度',
+    currentXp: '当前经验',
+    nextLevelXp: '下一级门槛',
+    xpToNext: '距下一级',
+    comparisonUp: '较上期 +',
+    comparisonDown: '较上期 −',
+    comparisonFlat: '与上期持平'
   },
   focus: {
     title: '专注分析',
@@ -248,26 +259,23 @@ export const analyticsCopy: AnalyticsCopy = {
     heatmapTitle: '专注日历热力图',
     heatmapLegendLess: '少',
     heatmapLegendMore: '多',
-    trendTitle: '专注与 Token 趋势',
+    trendTitle: '专注趋势',
     trendFocus: '专注时长',
     trendTokens: 'Token 消耗',
     hourTitle: '一天中的专注分布',
     hourPeak: '高峰',
     hourNoPeak: '暂无高峰时段',
-    modeTitle: '学习模式占比',
-    roomTitle: '自习室占比',
-    signalTitle: '学习信号占比',
+    activeRangeHourAxis: '今日时段',
+    activeRangeDayAxis: '日期',
     structureTitle: '会话结构',
+    structureChartTitle: '完成 vs 中断',
     completed: '已完成',
     interrupted: '被打断',
     canceled: '已取消',
     completionRate: '完成率',
     avgSession: '平均专注时长',
     breakTime: '休息时长',
-    weekdays: ['一', '二', '三', '四', '五', '六', '日'],
-    modeLabels: modeLabelsZh,
-    roomLabels: roomLabelsZh,
-    signalLabels: signalLabelsZh
+    weekdays: ['一', '二', '三', '四', '五', '六', '日']
   },
   tokens: {
     title: 'Token 消耗',
@@ -277,8 +285,12 @@ export const analyticsCopy: AnalyticsCopy = {
     providerCalls: '模型调用',
     toolCalls: '工具调用',
     trendTitle: 'Token 使用趋势',
-    byToolTitle: '工具调用占比',
-    byWorkspaceTitle: '工作区消耗占比',
+    promptTrend: '输入 Token',
+    completionTrend: '输出 Token',
+    byToolTitle: '工具调用排行',
+    byWorkspaceTitle: '工作区消耗排行',
+    noToolShare: '尚无工具调用记录。',
+    noWorkspaceShare: '尚无工作区 Token 分布。',
     toolCallsUnit: '次调用',
     toolErrorsUnit: '次错误',
     efficiencyTitle: '效率',
@@ -301,13 +313,19 @@ export const analyticsCopy: AnalyticsCopy = {
     topCompletionTitle: '完成次数最多的任务',
     noTopTasks: '尚无带专注归属的任务。选择任务并完成专注后会出现时间占比。',
     noCompletionShare: '尚无任务完成记录。在清单中勾选任务后会出现完成占比。',
-    byTaskTitle: '任务时间占比',
-    byCategoryTitle: '类别时间占比',
-    byTaskCompletionTitle: '任务完成占比',
-    byCategoryCompletionTitle: '类别完成占比',
+    byTaskTitle: '任务时间排行',
+    byCategoryTitle: '类别时间排行',
+    byTaskCompletionTitle: '任务完成排行',
+    byCategoryCompletionTitle: '类别完成排行',
     noCategoryShare: '尚无任务类别时间分布。',
     completionCountUnit: ' 次',
-    uncategorized: '未分类'
+    uncategorized: '未分类',
+    planTitle: '计划 vs 执行',
+    planVsExecLabel: '计划时段',
+    planned: '计划时长',
+    executed: '实际专注',
+    executionRate: '执行率',
+    noPlan: '尚无计划与执行对比数据。'
   },
   review: {
     title: '复习分析',
@@ -316,8 +334,9 @@ export const analyticsCopy: AnalyticsCopy = {
     answered: '已作答',
     correct: '答对',
     cards: '复习卡片',
-    byLessonTitle: '按课程',
-    noLessons: '暂无复习记录。'
+    byLessonTitle: '按课程正确率',
+    noLessons: '暂无复习记录。',
+    accuracyGaugeTitle: '总正确率'
   },
   memory: {
     title: '记忆分析',
@@ -367,10 +386,14 @@ const analyticsCopyEn: AnalyticsCopy = {
     updated: 'Updated',
     notGenerated: 'Not generated yet',
     rangeLabel: 'Date range',
-    description: 'A summary of your focus sessions, task rhythm, model usage, and knowledge.'
+    description: 'A summary of your focus sessions, task rhythm, model usage, and knowledge.',
+    demo: 'Sample',
+    demoExit: 'Exit sample',
+    demoActive: 'Sample mode',
+    demoLoaded: 'Showing sample multi-day analytics data'
   },
   ranges: {
-    today: 'Today', week: 'This week', month: 'This month', '90d': 'Last 90 days', all: 'All time'
+    today: 'Today', week: 'This week', month: 'This month', all: 'All time'
   },
   states: {
     loading: 'Loading',
@@ -396,7 +419,14 @@ const analyticsCopyEn: AnalyticsCopy = {
     tasks: 'Task completion',
     noTasks: 'No tasks',
     current: 'Current',
-    inRange: 'Selected range'
+    inRange: 'Selected range',
+    levelProgressTitle: 'Level progress',
+    currentXp: 'Current XP',
+    nextLevelXp: 'Next level at',
+    xpToNext: 'XP to next',
+    comparisonUp: 'vs prev +',
+    comparisonDown: 'vs prev −',
+    comparisonFlat: 'Unchanged vs previous'
   },
   focus: {
     title: 'Focus analytics',
@@ -404,26 +434,23 @@ const analyticsCopyEn: AnalyticsCopy = {
     heatmapTitle: 'Focus calendar heatmap',
     heatmapLegendLess: 'Less',
     heatmapLegendMore: 'More',
-    trendTitle: 'Focus & token trend',
+    trendTitle: 'Focus trend',
     trendFocus: 'Focus time',
     trendTokens: 'Token usage',
     hourTitle: 'Focus by hour of day',
     hourPeak: 'Peak',
     hourNoPeak: 'No peak hour yet',
-    modeTitle: 'Study mode share',
-    roomTitle: 'Study room share',
-    signalTitle: 'Learning signal share',
+    activeRangeHourAxis: 'Hours today',
+    activeRangeDayAxis: 'Dates',
     structureTitle: 'Session structure',
+    structureChartTitle: 'Completed vs interrupted',
     completed: 'Completed',
     interrupted: 'Interrupted',
     canceled: 'Canceled',
     completionRate: 'Completion rate',
     avgSession: 'Avg. session',
     breakTime: 'Break time',
-    weekdays: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
-    modeLabels: modeLabelsEn,
-    roomLabels: roomLabelsEn,
-    signalLabels: signalLabelsEn
+    weekdays: ['M', 'T', 'W', 'T', 'F', 'S', 'S']
   },
   tokens: {
     title: 'Token usage',
@@ -433,8 +460,12 @@ const analyticsCopyEn: AnalyticsCopy = {
     providerCalls: 'Model calls',
     toolCalls: 'Tool calls',
     trendTitle: 'Token usage trend',
-    byToolTitle: 'Tool call share',
-    byWorkspaceTitle: 'Workspace usage share',
+    promptTrend: 'Prompt tokens',
+    completionTrend: 'Completion tokens',
+    byToolTitle: 'Tool call ranking',
+    byWorkspaceTitle: 'Workspace usage ranking',
+    noToolShare: 'No tool calls yet.',
+    noWorkspaceShare: 'No workspace token share yet.',
     toolCallsUnit: 'calls',
     toolErrorsUnit: 'errors',
     efficiencyTitle: 'Efficiency',
@@ -463,7 +494,13 @@ const analyticsCopyEn: AnalyticsCopy = {
     byCategoryCompletionTitle: 'Completions by category',
     noCategoryShare: 'No task-category focus share yet.',
     completionCountUnit: 'x',
-    uncategorized: 'Uncategorized'
+    uncategorized: 'Uncategorized',
+    planTitle: 'Plan vs execution',
+    planVsExecLabel: 'Scheduled block',
+    planned: 'Planned',
+    executed: 'Executed focus',
+    executionRate: 'Execution rate',
+    noPlan: 'No plan vs execution data yet.'
   },
   review: {
     title: 'Review analytics',
@@ -472,8 +509,9 @@ const analyticsCopyEn: AnalyticsCopy = {
     answered: 'Answered',
     correct: 'Correct',
     cards: 'Review cards',
-    byLessonTitle: 'By lesson',
-    noLessons: 'No review activity yet.'
+    byLessonTitle: 'Accuracy by lesson',
+    noLessons: 'No review activity yet.',
+    accuracyGaugeTitle: 'Overall accuracy'
   },
   memory: {
     title: 'Memory analytics',

@@ -51,7 +51,7 @@ Do not burn real model API keys in default CI.
 ## Hard red lines
 
 - LearningSessionLedger ⟂ AgentRun; TeachingTurnCoordinator remains sole writer for settlement.
-- No default shell / MCP market / SQLite FTS product search.
+- No default-on workspace shell / MCP market / SQLite FTS product search. Workspace commands are opt-in (`tools.workspaceShell`, ADR-0152).
 - Keep typed effect lattice and fail-closed capability catalog.
 - Teaching write-authority remains files; SQLite is disposable projection (list/analytics preferred read when current); do not weaken history redaction or secret-free resolved config.
 

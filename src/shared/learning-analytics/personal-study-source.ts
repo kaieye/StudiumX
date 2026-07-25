@@ -5,15 +5,13 @@ import type {
   AnalyticsSectionResult,
   AnalyticsSourceCoverage,
   AnalyticsWarning,
+  FocusActiveRangeSeries,
   FocusAnalytics,
   LearningAnalyticsHero,
   LearningAnalyticsQuery,
   PersonalStudyAnalyticsSnapshot,
   StudyActivityFact,
   StudyAnalyticsFact,
-  StudyAnalyticsModeId,
-  StudyAnalyticsRoomId,
-  StudyAnalyticsSignalId,
   StudyDailyProjection,
   StudySessionFact,
   StudyTaskActivityFact,
@@ -222,12 +220,11 @@ export function rebuildPersonalStudyDailyProjections(facts: StudyAnalyticsFact[]
   const read = (date: string): MutableProjection => {
     const existing = projections.get(date)
     if (existing) return existing
-    const created: MutableProjection = { projectionVersion: 1, date, focusSeconds: 0, breakSeconds: 0, completedFocusSessions: 0, interruptedFocusSessions: 0, xpEarned: 0, modeSeconds: {}, roomSeconds: {}, signalSeconds: {}, hourBuckets: EMPTY_HOURS(), tasksCreated: 0, tasksCompleted: 0, tasksReopened: 0, tasksDeleted: 0, reviewAnswered: 0, reviewCorrect: 0, sourceFactCount: 0, rebuiltAt, buckets: Array.from({ length: 24 }, () => 0) }
+    const created: MutableProjection = { projectionVersion: 1, date, focusSeconds: 0, breakSeconds: 0, completedFocusSessions: 0, interruptedFocusSessions: 0, xpEarned: 0, hourBuckets: EMPTY_HOURS(), tasksCreated: 0, tasksCompleted: 0, tasksReopened: 0, tasksDeleted: 0, reviewAnswered: 0, reviewCorrect: 0, sourceFactCount: 0, rebuiltAt, buckets: Array.from({ length: 24 }, () => 0) }
     projections.set(date, created)
     return created
   }
   const seen = new Set<string>()
-  const add = <T extends string>(record: Partial<Record<T, number>>, key: T, amount: number): void => { record[key] = (record[key] ?? 0) + amount }
   for (const fact of facts) {
     if (seen.has(fact.id)) continue
     seen.add(fact.id)
@@ -239,9 +236,6 @@ export function rebuildPersonalStudyDailyProjections(facts: StudyAnalyticsFact[]
         if (!dates.has(segment.localDate)) { dates.add(segment.localDate); projection.sourceFactCount += 1 }
         if (fact.timerMode === 'focus') {
           projection.focusSeconds += segment.activeSeconds
-          add<StudyAnalyticsModeId>(projection.modeSeconds, fact.context.modeId, segment.activeSeconds)
-          add<StudyAnalyticsRoomId>(projection.roomSeconds, fact.context.roomId, segment.activeSeconds)
-          add<StudyAnalyticsSignalId>(projection.signalSeconds, fact.context.signalId, segment.activeSeconds)
           for (let hour = 0; hour < 24; hour += 1) projection.buckets[hour] += segment.hourBuckets[hour] ?? 0
         } else projection.breakSeconds += segment.activeSeconds
         if (segment === last) { projection.completedFocusSessions += fact.completedFocusSessions; projection.interruptedFocusSessions += fact.timerMode === 'focus' && fact.outcome === 'interrupted' ? 1 : 0; projection.xpEarned += fact.xpEarned }
@@ -291,21 +285,292 @@ function projectionRows(query: LearningAnalyticsQuery, validation: Extract<Perso
   return Array.from({ length: countInclusiveLocalDays(rowFrom, rowTo) }, (_, index) => {
     const date = addAnalyticsLocalDays(rowFrom, index)
     const existing = map.get(date)
-    return { ...(existing ?? { projectionVersion: 1 as const, date, focusSeconds: 0, breakSeconds: 0, completedFocusSessions: 0, interruptedFocusSessions: 0, xpEarned: 0, modeSeconds: {}, roomSeconds: {}, signalSeconds: {}, hourBuckets: EMPTY_HOURS(), tasksCreated: 0, tasksCompleted: 0, tasksReopened: 0, tasksDeleted: 0, reviewAnswered: 0, reviewCorrect: 0, sourceFactCount: 0, rebuiltAt: validation.snapshot.capturedAt }), covered: date >= coverageStart && date <= query.calendarContext.localToday }
+    return { ...(existing ?? { projectionVersion: 1 as const, date, focusSeconds: 0, breakSeconds: 0, completedFocusSessions: 0, interruptedFocusSessions: 0, xpEarned: 0, hourBuckets: EMPTY_HOURS(), tasksCreated: 0, tasksCompleted: 0, tasksReopened: 0, tasksDeleted: 0, reviewAnswered: 0, reviewCorrect: 0, sourceFactCount: 0, rebuiltAt: validation.snapshot.capturedAt }), covered: date >= coverageStart && date <= query.calendarContext.localToday }
   })
 }
 
-function sumDimension<T extends string>(rows: Array<StudyDailyProjection & { covered: boolean }>, key: 'modeSeconds' | 'roomSeconds' | 'signalSeconds'): Array<{ id: T; seconds: number; share: number }> {
-  const totals = new Map<string, number>()
-  for (const row of rows) for (const [id, seconds] of Object.entries(row[key])) totals.set(id, (totals.get(id) ?? 0) + (seconds ?? 0))
-  const total = [...totals.values()].reduce((sum, value) => sum + value, 0)
-  return [...totals.entries()].sort((left, right) => right[1] - left[1]).map(([id, seconds]) => ({ id: id as T, seconds, share: total > 0 ? seconds / total : 0 }))
+/** Always 365 local days ending today, independent of the selected range preset. */
+function heatmapCells(
+  query: LearningAnalyticsQuery,
+  validation: Extract<PersonalStudySnapshotValidation, { state: 'valid' }>,
+  projections: StudyDailyProjection[]
+): FocusAnalytics['heatmap'] {
+  const map = new Map(projections.map((item) => [item.date, item]))
+  const localToday = query.calendarContext.localToday
+  const cutoffDate = addAnalyticsLocalDays(localToday, -399)
+  const coverageStart = validation.snapshot.trackingStartedOn > cutoffDate ? validation.snapshot.trackingStartedOn : cutoffDate
+  const heatmapFrom = addAnalyticsLocalDays(localToday, -364)
+  return Array.from({ length: 365 }, (_, index) => {
+    const date = addAnalyticsLocalDays(heatmapFrom, index)
+    const existing = map.get(date)
+    return {
+      date,
+      focusSeconds: existing?.focusSeconds ?? 0,
+      completedFocusSessions: existing?.completedFocusSessions ?? 0,
+      tasksCompleted: existing?.tasksCompleted ?? 0,
+      isCovered: date >= coverageStart && date <= localToday
+    }
+  })
 }
+
+
+function localMinutesOfDay(instant: string, timezoneOffsetMinutes: number): number {
+  const ms = Date.parse(instant)
+  if (!Number.isFinite(ms)) return 0
+  // Date#getTimezoneOffset semantics: local = UTC + (-offsetMinutes) minutes
+  const localMs = ms - timezoneOffsetMinutes * 60_000
+  const date = new Date(localMs)
+  return date.getUTCHours() * 60 + date.getUTCMinutes() + date.getUTCSeconds() / 60
+}
+
+function mergeRanges(
+  items: Array<{ start: number; end: number; activeSeconds: number }>
+): Array<{ start: number; end: number; activeSeconds: number }> {
+  if (items.length === 0) return []
+  const sorted = [...items].sort((left, right) => left.start - right.start || left.end - right.end)
+  const merged: Array<{ start: number; end: number; activeSeconds: number }> = []
+  for (const item of sorted) {
+    const previous = merged.at(-1)
+    if (!previous || item.start > previous.end + 1e-6) {
+      merged.push({ ...item })
+      continue
+    }
+    previous.end = Math.max(previous.end, item.end)
+    previous.activeSeconds += item.activeSeconds
+  }
+  return merged
+}
+
+/**
+ * Build floating active-range capsules for the selected window.
+ * Single-day ranges use hour × minute; multi-day ranges use date × hour-of-day.
+ */
+export function buildFocusActiveRanges(
+  sessions: readonly StudySessionFact[],
+  range: AnalyticsDateRange,
+  categories: readonly string[]
+): FocusActiveRangeSeries {
+  // Prefer multi-day layout when the caller supplies more than one category
+  // (week preset expands Mon–Sun even when the query range ends at localToday).
+  const singleDay = range.from === range.to && categories.length <= 1
+  if (singleDay) {
+    const hourCategories = Array.from({ length: 24 }, (_, hour) => String(hour))
+    const buckets = new Map<number, Array<{ start: number; end: number; activeSeconds: number }>>()
+    for (const fact of sessions) {
+      if (fact.timerMode !== 'focus') continue
+      for (const segment of fact.daySegments) {
+        if (!inRange(segment.localDate, range) || segment.activeSeconds <= 0) continue
+        const startMin = localMinutesOfDay(segment.startedAt, segment.timezoneOffsetMinutes)
+        const endMin = Math.max(startMin, localMinutesOfDay(segment.endedAt, segment.timezoneOffsetMinutes))
+        // Split across hour boundaries so each capsule lives in one hour column.
+        let cursor = startMin
+        let remaining = segment.activeSeconds
+        while (cursor < endMin - 1e-9 && remaining > 0) {
+          const hour = Math.min(23, Math.max(0, Math.floor(cursor / 60)))
+          const hourEnd = (hour + 1) * 60
+          const sliceEnd = Math.min(endMin, hourEnd)
+          const durationMin = Math.max(0, sliceEnd - cursor)
+          if (durationMin <= 0) break
+          const activeSeconds = Math.min(remaining, Math.max(1, Math.round(durationMin * 60)))
+          const list = buckets.get(hour) ?? []
+          list.push({
+            start: cursor - hour * 60,
+            end: Math.min(60, sliceEnd - hour * 60),
+            activeSeconds
+          })
+          buckets.set(hour, list)
+          remaining -= activeSeconds
+          cursor = sliceEnd
+          if (cursor >= 24 * 60) break
+        }
+      }
+    }
+    const ranges = hourCategories.flatMap((category) => {
+      const hour = Number(category)
+      return mergeRanges(buckets.get(hour) ?? []).map((item, index) => ({
+        id: `h${hour}-${index}`,
+        category,
+        start: item.start,
+        end: Math.max(item.start + 0.5, item.end),
+        activeSeconds: item.activeSeconds
+      }))
+    })
+    return {
+      mode: 'hour_of_day',
+      categories: hourCategories,
+      ranges,
+      yMax: 60,
+      yUnit: 'minute'
+    }
+  }
+
+  const dayCategories = categories.length > 0
+    ? categories
+    : (() => {
+        // Guard against unbounded `all` sentinel ranges when callers pass no categories.
+        const dates: string[] = []
+        let cursor = range.from
+        let guard = 0
+        while (cursor <= range.to && guard < 400) {
+          dates.push(cursor)
+          cursor = addAnalyticsLocalDays(cursor, 1)
+          guard += 1
+        }
+        return dates
+      })()
+  const buckets = new Map<string, Array<{ start: number; end: number; activeSeconds: number }>>()
+  for (const fact of sessions) {
+    if (fact.timerMode !== 'focus') continue
+    for (const segment of fact.daySegments) {
+      if (!inRange(segment.localDate, range) || segment.activeSeconds <= 0) continue
+      const startMin = localMinutesOfDay(segment.startedAt, segment.timezoneOffsetMinutes)
+      const endMin = Math.max(startMin, localMinutesOfDay(segment.endedAt, segment.timezoneOffsetMinutes))
+      const startHour = Math.min(24, Math.max(0, startMin / 60))
+      const endHour = Math.min(24, Math.max(startHour, endMin / 60))
+      if (endHour <= startHour) continue
+      const list = buckets.get(segment.localDate) ?? []
+      list.push({ start: startHour, end: endHour, activeSeconds: segment.activeSeconds })
+      buckets.set(segment.localDate, list)
+    }
+  }
+  const ranges = dayCategories.flatMap((category) =>
+    mergeRanges(buckets.get(category) ?? []).map((item, index) => ({
+      id: `${category}-${index}`,
+      category,
+      start: item.start,
+      end: Math.max(item.start + 1 / 60, item.end),
+      activeSeconds: item.activeSeconds
+    }))
+  )
+  return {
+    mode: 'day_of_range',
+    categories: dayCategories,
+    ranges,
+    yMax: 24,
+    yUnit: 'hour'
+  }
+}
+
 function sessionSecondsInRange(fact: StudySessionFact, range: AnalyticsDateRange): number { return fact.daySegments.filter((segment) => inRange(segment.localDate, range)).reduce((sum, segment) => sum + segment.activeSeconds, 0) }
 function sessionEndsInRange(fact: StudySessionFact, range: AnalyticsDateRange): boolean { return Boolean(fact.daySegments.at(-1) && inRange(fact.daySegments.at(-1)!.localDate, range)) }
 
+function unavailableCoverage(query: LearningAnalyticsQuery): AnalyticsCoverage {
+  return {
+    rangeApplied: true,
+    requestedRange: query.range,
+    effectiveRange: null,
+    trackingStartedOn: null,
+    dataStartDate: null,
+    dataEndDate: null,
+    retention: {
+      policy: 'rolling_local_days',
+      days: 400,
+      includesToday: true,
+      cutoffDate: addAnalyticsLocalDays(query.calendarContext.localToday, -399)
+    },
+    complete: false,
+    sources: [{ source: 'study_snapshot', state: 'unavailable', scanned: 0, included: 0, missing: 1, rejected: 0 }]
+  }
+}
+
 function unavailable<T>(query: LearningAnalyticsQuery, reason: 'history_not_recorded' | 'not_applicable', warnings: AnalyticsWarning[]): AnalyticsSectionResult<T> {
-  return { state: 'unavailable', reason, temporal: { kind: 'range', range: query.range }, coverage: { rangeApplied: true, requestedRange: query.range, effectiveRange: null, trackingStartedOn: null, dataStartDate: null, dataEndDate: null, retention: { policy: 'rolling_local_days', days: 400, includesToday: true, cutoffDate: addAnalyticsLocalDays(query.calendarContext.localToday, -399) }, complete: false, sources: [{ source: 'study_snapshot', state: 'unavailable', scanned: 0, included: 0, missing: 1, rejected: 0 }] }, warnings }
+  return {
+    state: 'unavailable',
+    reason,
+    temporal: { kind: 'range', range: query.range },
+    coverage: unavailableCoverage(query),
+    warnings
+  }
+}
+
+/**
+ * X-axis categories for the active-range chart.
+ * - `week`: always a full Monday–Sunday week (future days stay empty columns)
+ * - other multi-day ranges: expand the requested window, clamped for `all`/retention
+ */
+function focusRangeCategories(query: LearningAnalyticsQuery): string[] {
+  if (query.range.from === query.range.to) return [query.range.from]
+  const localToday = query.calendarContext.localToday
+  const cutoffDate = addAnalyticsLocalDays(localToday, -399)
+
+  if (query.range.preset === 'week') {
+    // Anchor to the Monday of the requested week (range.from is already Monday for the preset).
+    const weekStart = query.range.from
+    return Array.from({ length: 7 }, (_, index) => addAnalyticsLocalDays(weekStart, index))
+  }
+
+  let from = query.range.from
+  let to = query.range.to
+  // `all` (and any extreme lower bound) must not allocate unbounded day columns.
+  if (query.range.preset === 'all' || from < cutoffDate) {
+    from = from > cutoffDate ? from : cutoffDate
+  }
+  if (to > localToday) to = localToday
+  if (from > to) return [localToday]
+  if (countInclusiveLocalDays(from, to) > 400) {
+    from = addAnalyticsLocalDays(to, -399)
+  }
+  return Array.from({ length: countInclusiveLocalDays(from, to) }, (_, index) => addAnalyticsLocalDays(from, index))
+}
+
+/** Blank focus payload so the page can always mount heatmap + active-range cards. */
+function emptyFocusScaffold(query: LearningAnalyticsQuery, trackingStartedOn: string | null = null): FocusAnalytics {
+  const localToday = query.calendarContext.localToday
+  const heatmapFrom = addAnalyticsLocalDays(localToday, -364)
+  const cutoffDate = addAnalyticsLocalDays(localToday, -399)
+  const coverageStart = trackingStartedOn && trackingStartedOn > cutoffDate ? trackingStartedOn : cutoffDate
+  const hasCoverage = Boolean(trackingStartedOn)
+  return {
+    daily: [],
+    heatmap: Array.from({ length: 365 }, (_, index) => {
+      const date = addAnalyticsLocalDays(heatmapFrom, index)
+      return {
+        date,
+        focusSeconds: 0,
+        completedFocusSessions: 0,
+        tasksCompleted: 0,
+        isCovered: hasCoverage && date >= coverageStart && date <= localToday
+      }
+    }),
+    trend: [],
+    hourBuckets: EMPTY_HOURS(),
+    activeRanges: buildFocusActiveRanges([], query.range, focusRangeCategories(query)),
+    sessionStructure: {
+      focusSeconds: 0,
+      breakSeconds: 0,
+      completed: 0,
+      interrupted: 0,
+      canceled: 0,
+      averageCompletedFocusSeconds: null,
+      completionRate: null
+    },
+    currentGrowth: {
+      xp: 0,
+      level: level(0),
+      streakDays: 0,
+      badges: [],
+      plantStage: plantStage(0)
+    }
+  }
+}
+
+function emptyFocusSection(
+  query: LearningAnalyticsQuery,
+  warnings: AnalyticsWarning[],
+  options?: {
+    trackingStartedOn?: string | null
+    coverage?: AnalyticsCoverage
+    reason?: 'no_activity' | 'not_started'
+  }
+): AnalyticsSectionResult<FocusAnalytics> {
+  return {
+    state: 'empty',
+    data: emptyFocusScaffold(query, options?.trackingStartedOn ?? null),
+    reason: options?.reason ?? 'not_started',
+    temporal: { kind: 'range', range: query.range },
+    coverage: options?.coverage ?? unavailableCoverage(query),
+    warnings
+  }
 }
 
 export function buildPersonalStudyAnalytics(input: { query: LearningAnalyticsQuery; validation: PersonalStudySnapshotValidation; generatedAt: string; tokens: AnalyticsSectionResult<TokenAnalytics> }): { hero: AnalyticsSectionResult<LearningAnalyticsHero>; focus: AnalyticsSectionResult<FocusAnalytics>; tasks: AnalyticsSectionResult<TaskAnalytics> } {
@@ -313,7 +578,12 @@ export function buildPersonalStudyAnalytics(input: { query: LearningAnalyticsQue
   if (query.scope.personalFocus.kind !== 'personal') return { hero: unavailable<LearningAnalyticsHero>(query, 'not_applicable', []), focus: unavailable<FocusAnalytics>(query, 'not_applicable', []), tasks: unavailable<TaskAnalytics>(query, 'not_applicable', []) }
   if (validation.state !== 'valid') {
     const warnings = validation.state === 'missing' ? [warning('source_not_configured', 'No personal Study snapshot was supplied for this analytics request.')] : validation.warnings
-    return { hero: unavailable<LearningAnalyticsHero>(query, 'history_not_recorded', warnings), focus: unavailable<FocusAnalytics>(query, 'history_not_recorded', warnings), tasks: unavailable<TaskAnalytics>(query, 'history_not_recorded', warnings) }
+    // Focus always carries a blank skeleton so heatmap / active-range cards stay mounted.
+    return {
+      hero: unavailable<LearningAnalyticsHero>(query, 'history_not_recorded', warnings),
+      focus: emptyFocusSection(query, warnings, { reason: 'not_started' }),
+      tasks: unavailable<TaskAnalytics>(query, 'history_not_recorded', warnings)
+    }
   }
   const projections = rebuildPersonalStudyDailyProjections(validation.snapshot.facts, validation.snapshot.capturedAt)
   const rows = projectionRows(query, validation, projections)
@@ -331,8 +601,24 @@ export function buildPersonalStudyAnalytics(input: { query: LearningAnalyticsQue
   const focusSeconds = rows.reduce((sum, row) => sum + row.focusSeconds, 0)
   const breakSeconds = rows.reduce((sum, row) => sum + row.breakSeconds, 0)
   const growthLevel = level(validation.snapshot.current.xp)
-  const focusData: FocusAnalytics = { daily: rows.map(({ covered: _covered, ...row }) => row), heatmap: rows.map((row) => ({ date: row.date, focusSeconds: row.focusSeconds, completedFocusSessions: row.completedFocusSessions, tasksCompleted: row.tasksCompleted, isCovered: row.covered })), trend: rows.map((row) => ({ date: row.date, focusSeconds: row.focusSeconds, completedFocusSessions: row.completedFocusSessions })), hourBuckets: rows.reduce((hours, row) => hours.map((value, index) => value + (row.hourBuckets[index] ?? 0)) as unknown as AnalyticsHourBuckets, EMPTY_HOURS()), modeBreakdown: sumDimension<StudyAnalyticsModeId>(rows, 'modeSeconds'), roomBreakdown: sumDimension<StudyAnalyticsRoomId>(rows, 'roomSeconds'), signalBreakdown: sumDimension<StudyAnalyticsSignalId>(rows, 'signalSeconds'), sessionStructure: { focusSeconds, breakSeconds, completed, interrupted, canceled, averageCompletedFocusSeconds: completed > 0 ? completedFacts.reduce((sum, fact) => sum + fact.activeSeconds, 0) / completed : null, completionRate: terminalFocus.length > 0 ? completed / terminalFocus.length : null }, currentGrowth: { xp: validation.snapshot.current.xp, level: growthLevel, streakDays: validation.snapshot.current.streakDays, badges: [], plantStage: plantStage(validation.snapshot.current.xp) } }
-  const focus: AnalyticsSectionResult<FocusAnalytics> = rangedSessions.length === 0 && rows.some((row) => row.covered) ? { state: 'empty', data: focusData, reason: 'no_activity', temporal: { kind: 'range', range: query.range }, coverage: sectionCoverage, warnings } : rangedSessions.length === 0 ? { state: 'unavailable', reason: 'history_not_recorded', temporal: { kind: 'range', range: query.range }, coverage: sectionCoverage, warnings } : { state: sectionCoverage.complete ? 'available' : 'partial', data: focusData, temporal: { kind: 'range', range: query.range }, coverage: sectionCoverage, warnings }
+  const focusData: FocusAnalytics = { daily: rows.map(({ covered: _covered, ...row }) => row), heatmap: heatmapCells(query, validation, projections), trend: rows.map((row) => ({ date: row.date, focusSeconds: row.focusSeconds, completedFocusSessions: row.completedFocusSessions })), hourBuckets: rows.reduce((hours, row) => hours.map((value, index) => value + (row.hourBuckets[index] ?? 0)) as unknown as AnalyticsHourBuckets, EMPTY_HOURS()), activeRanges: buildFocusActiveRanges(rangedSessions, query.range, focusRangeCategories(query)), sessionStructure: { focusSeconds, breakSeconds, completed, interrupted, canceled, averageCompletedFocusSeconds: completed > 0 ? completedFacts.reduce((sum, fact) => sum + fact.activeSeconds, 0) / completed : null, completionRate: terminalFocus.length > 0 ? completed / terminalFocus.length : null }, currentGrowth: { xp: validation.snapshot.current.xp, level: growthLevel, streakDays: validation.snapshot.current.streakDays, badges: [], plantStage: plantStage(validation.snapshot.current.xp) } }
+  // Zero sessions still return empty + data (blank heatmap / empty active ranges), never data-less unavailable.
+  const focus: AnalyticsSectionResult<FocusAnalytics> = rangedSessions.length === 0
+    ? {
+        state: 'empty',
+        data: focusData,
+        reason: 'no_activity',
+        temporal: { kind: 'range', range: query.range },
+        coverage: sectionCoverage,
+        warnings
+      }
+    : {
+        state: sectionCoverage.complete ? 'available' : 'partial',
+        data: focusData,
+        temporal: { kind: 'range', range: query.range },
+        coverage: sectionCoverage,
+        warnings
+      }
   const activities = validation.snapshot.facts.filter((fact): fact is StudyTaskActivityFact => fact.factKind === 'study_activity' && fact.activity.kind.startsWith('task_') && inRange(fact.localDate, query.range))
   const currentTasks = validation.snapshot.current.tasks
   const currentTaskById = new Map(currentTasks.map((task) => [task.taskId, task]))

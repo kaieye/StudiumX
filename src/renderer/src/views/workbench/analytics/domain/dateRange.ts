@@ -156,9 +156,6 @@ export function createAnalyticsDateRange(
     case 'month':
       from = `${localToday.slice(0, 8)}01`
       break
-    case '90d':
-      from = addLocalDays(localToday, -89)
-      break
     case 'all':
       from = '0001-01-01'
       break

@@ -260,8 +260,7 @@ function Sidebar() {
     appState,
     setView,
     openWorkspaceTeachingMode,
-    openSettings,
-    showNotification
+    openSettings
   } = useAppStore()
 
   const active = appState.activeWorkspace

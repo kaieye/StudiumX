@@ -115,6 +115,7 @@ import type {
 
 import type { LearningOutcomeCommitResult } from './learning-outcome'
 import type { RunTeachingDoctorPayload, TeachingDoctorReport } from './teaching-doctor'
+import type { AgentSandboxReadiness } from './agent-sandbox'
 import type {
   DecideTeachingTurnReviewPayload,
   DecideTeachingTurnReviewResult,
@@ -242,6 +243,11 @@ export type TeachingSystemApi = {
   openAppDataDir: () => Promise<OpenPathResult>
   /** Read-only TeachingDoctor: assembles process crash-marker facts + pure report (ADR-0084). */
   runTeachingDoctor: (payload?: RunTeachingDoctorPayload) => Promise<TeachingDoctorReport>
+  /**
+   * Live agent sandbox readiness for Settings (Stage E).
+   * Same resolveAgentSandboxReadiness as runtime/Doctor; secret-free.
+   */
+  getAgentSandboxReadiness: () => Promise<AgentSandboxReadiness>
   /**
    * Project teaching-turn review bundle (+ optional decision) to UI-safe DTO (ADR-0087).
    * No auto-apply; approved ids are not an apply plan.

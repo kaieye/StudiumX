@@ -57,6 +57,7 @@ import {
   type TeachingConversationRuntimeStream,
   type TemporaryChatContext
 } from './teaching-conversation-runtime'
+import { loadSkillOrchestrationAuthorityFactsForWorkspace } from './skill-orchestration-authority-bridge'
 import { AgentRunStore } from './ai/agent-run-store'
 import { parentTurnStageSafeTextDigest } from './ai/agent-parent-turn-staging'
 import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
@@ -1137,6 +1138,11 @@ export class TeachingWorkspaceService {
     // A stream id is a one-run capability. Reusing it must never retain a prior
     // run's staged transcript promotion allowance, including after a failed run.
     this.pendingAgentRunArchiveScopes.delete(stream.streamId)
+    // Fail-soft Authority Plane echoes for skill orchestration (read-only; never settlement).
+    const skillOrchestrationFacts =
+      isTeachingConversation && workspace
+        ? await loadSkillOrchestrationAuthorityFactsForWorkspace(workspace.rootPath)
+        : {}
     const result = await runTeachingConversationTurn(payload, stream, runtimeWorkspace, {
       appDataRoot: this.appDataRoot,
       mcpSessionManager: this.mcpSessionManager,
@@ -1148,6 +1154,17 @@ export class TeachingWorkspaceService {
       deleteMemory: (memoryId, workspaceRoot) => this.memoryStore.delete(memoryId, { workspaceRoot }),
       loadSkillReferences: (skillIds, userInput) =>
         this.skillLibraryService?.readInvokedSkillReferences(userInput, skillIds) ?? Promise.resolve([]),
+      // Catalog readiness for SkillOrchestrationPlanner (ADR-0151); never settlement authority.
+      listSkillCatalog: async () => {
+        if (!this.skillLibraryService) return []
+        const catalog = await this.skillLibraryService.listSkills()
+        return catalog.skills.map((skill) => ({
+          id: skill.id,
+          installed: skill.installed,
+          source: skill.source
+        }))
+      },
+      skillOrchestrationFacts,
       generateLessonFromBrief: runtimeWorkspace && isTeachingConversation
         ? async (brief) => {
             const generation = await this.generateAndPersistLesson({

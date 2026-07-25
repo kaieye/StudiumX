@@ -149,6 +149,7 @@ const api: TeachingSystemApi = {
   openLogFile: () => ipcRenderer.invoke(teachingInvokeChannels.openLogFile),
   openAppDataDir: () => ipcRenderer.invoke(teachingInvokeChannels.openAppDataDir),
   runTeachingDoctor: (payload) => ipcRenderer.invoke(teachingInvokeChannels.runTeachingDoctor, payload),
+  getAgentSandboxReadiness: () => ipcRenderer.invoke(teachingInvokeChannels.getAgentSandboxReadiness),
   projectTeachingTurnReview: (payload) => ipcRenderer.invoke(teachingInvokeChannels.projectTeachingTurnReview, payload),
   decideTeachingTurnReview: (payload) => ipcRenderer.invoke(teachingInvokeChannels.decideTeachingTurnReview, payload),
   projectTeachingTurnReviewHandoff: (payload) => ipcRenderer.invoke(teachingInvokeChannels.projectTeachingTurnReviewHandoff, payload),

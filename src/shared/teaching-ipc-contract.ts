@@ -96,6 +96,8 @@ export const teachingInvokeChannels = {
   openLogFile: 'teach:open-log',
   openAppDataDir: 'teach:open-app-data-dir',
   runTeachingDoctor: 'teach:run-teaching-doctor',
+  /** Live agent sandbox readiness (Stage E); secret-free. */
+  getAgentSandboxReadiness: 'teach:get-agent-sandbox-readiness',
   projectTeachingTurnReview: 'teach:project-teaching-turn-review',
   decideTeachingTurnReview: 'teach:decide-teaching-turn-review',
   projectTeachingTurnReviewHandoff: 'teach:project-teaching-turn-review-handoff',

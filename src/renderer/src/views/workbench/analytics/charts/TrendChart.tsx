@@ -9,6 +9,10 @@ export type TrendSeries = {
   values: readonly (number | null)[]
   /** Formats a value for the tooltip. */
   format: (value: number) => string
+  /** Soft area under the line (Glance dual-area spirit). */
+  fill?: boolean
+  /** When true, series share one max scale instead of per-series normalization. */
+  sharedScale?: boolean
 }
 
 export type TrendChartProps = {
@@ -17,6 +21,11 @@ export type TrendChartProps = {
   title: string
   formatDate: (date: AnalyticsLocalDate) => string
   emptyLabel: string
+  /**
+   * Shared scale across series that set `sharedScale: true`.
+   * Defaults false to preserve focus-vs-token dual plots.
+   */
+  sharedScale?: boolean
 }
 
 const WIDTH = 640
@@ -25,7 +34,7 @@ const PADDING_X = 12
 const PADDING_TOP = 14
 const PADDING_BOTTOM = 26
 
-type PlottedPoint = { x: number; y: number | null }
+type PlottedPoint = { x: number; y: number | null; value: number | null }
 
 function buildPath(points: readonly PlottedPoint[]): string {
   let path = ''
@@ -41,27 +50,64 @@ function buildPath(points: readonly PlottedPoint[]): string {
   return path.trim()
 }
 
+function buildAreaPath(points: readonly PlottedPoint[], baselineY: number): string {
+  const solid = points.filter((point) => point.y !== null)
+  if (solid.length === 0) return ''
+  let path = `M ${solid[0].x.toFixed(1)} ${baselineY.toFixed(1)}`
+  for (const point of solid) {
+    path += ` L ${point.x.toFixed(1)} ${(point.y as number).toFixed(1)}`
+  }
+  path += ` L ${solid[solid.length - 1].x.toFixed(1)} ${baselineY.toFixed(1)} Z`
+  return path
+}
+
 /**
- * Multi-series trend line normalized per-series (each series to its own max), so
- * a large token count and a small focus count share the plot without one flattening
- * the other. Only the paths are drawn — no fills — to stay legible on glass.
+ * Multi-series trend line. By default each series is normalized to its own max so
+ * mixed units can share a plot. Series with `sharedScale` (or chart-level sharedScale)
+ * share one magnitude scale — useful for prompt vs completion tokens.
  */
-export function TrendChart({ dates, series, title, formatDate, emptyLabel }: TrendChartProps) {
+export function TrendChart({
+  dates,
+  series,
+  title,
+  formatDate,
+  emptyLabel,
+  sharedScale = false
+}: TrendChartProps) {
   const titleId = useId()
 
   const plotted = useMemo(() => {
     const count = dates.length
     const plotWidth = WIDTH - PADDING_X * 2
     const plotHeight = HEIGHT - PADDING_TOP - PADDING_BOTTOM
+    const baselineY = PADDING_TOP + plotHeight
+
+    const sharedMax = Math.max(
+      1,
+      ...series
+        .filter((serie) => sharedScale || serie.sharedScale)
+        .flatMap((serie) => serie.values.map((value) => value ?? 0))
+    )
+
     return series.map((serie) => {
-      const max = Math.max(1, ...serie.values.map((value) => value ?? 0))
+      const useShared = sharedScale || serie.sharedScale
+      const max = useShared
+        ? sharedMax
+        : Math.max(1, ...serie.values.map((value) => value ?? 0))
       const points: PlottedPoint[] = serie.values.map((value, index) => ({
-        x: count === 1 ? WIDTH / 2 : PADDING_X + (index / (count - 1)) * plotWidth,
-        y: value === null ? null : PADDING_TOP + plotHeight - (value / max) * plotHeight
+        x: count === 1 ? WIDTH / 2 : PADDING_X + (index / Math.max(1, count - 1)) * plotWidth,
+        y: value === null ? null : PADDING_TOP + plotHeight - (value / max) * plotHeight,
+        value
       }))
-      return { ...serie, points, path: buildPath(points), max }
+      return {
+        ...serie,
+        points,
+        path: buildPath(points),
+        areaPath: serie.fill ? buildAreaPath(points, baselineY) : '',
+        max
+      }
     })
-  }, [dates.length, series])
+  }, [dates.length, series, sharedScale])
 
   const hasData = series.some((serie) => serie.values.some((value) => value !== null && value > 0))
   if (!hasData) {
@@ -93,6 +139,16 @@ export function TrendChart({ dates, series, title, formatDate, emptyLabel }: Tre
             />
           )
         })}
+        {plotted.map((serie) =>
+          serie.areaPath ? (
+            <path
+              key={`${serie.id}-area`}
+              className="trend-chart__area"
+              d={serie.areaPath}
+              fill={serie.color}
+            />
+          ) : null
+        )}
         {plotted.map((serie) => (
           <path
             key={serie.id}
@@ -102,8 +158,8 @@ export function TrendChart({ dates, series, title, formatDate, emptyLabel }: Tre
             stroke={serie.color}
           />
         ))}
-        {plotted.map((serie) => (
-          serie.points.map((point, index) => (
+        {plotted.map((serie) =>
+          serie.points.map((point, index) =>
             point.y === null ? null : (
               <circle
                 key={`${serie.id}-${index}`}
@@ -113,11 +169,13 @@ export function TrendChart({ dates, series, title, formatDate, emptyLabel }: Tre
                 r={2.4}
                 fill={serie.color}
               >
-                <title>{`${formatDate(dates[index])} · ${serie.label}: ${serie.format(serie.values[index] ?? 0)}`}</title>
+                <title>
+                  {`${formatDate(dates[index])} · ${serie.label}: ${serie.format(serie.values[index] ?? 0)}`}
+                </title>
               </circle>
             )
-          ))
-        ))}
+          )
+        )}
       </svg>
       <ul className="trend-chart__legend">
         {series.map((serie) => (

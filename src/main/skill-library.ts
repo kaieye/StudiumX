@@ -12,11 +12,17 @@ import type {
 } from '../shared/teaching-types'
 import { stageThenSwapSkillPack } from './skill-library/skill-install-stage-swap'
 import {
+  isCoreTeachingKernelId,
+  loadCoreTeachingKernelReference
+} from './skill-library/core-teaching-kernel'
+import {
   readVerifiedLegacySkillFile, SKILL_PACK_MANIFEST,
   type SkillFrontmatter, type VerifiedSkillPack, verifySkillPack
 } from './skill-library/skill-pack-verifier'
 import { resolveUniqueSkillPackDirectories, resolveUniqueSkillPackDirectory } from './skill-library/skill-pack-resolver'
 import { isPathInsideRoot } from './path-access'
+
+export { CORE_TEACHING_KERNEL_ID, CoreTeachingKernelError, isCoreTeachingKernelId, loadCoreTeachingKernelReference } from './skill-library/core-teaching-kernel'
 
 type SkillLibraryOptions = {
   builtInRoots: string[]
@@ -135,6 +141,14 @@ export class SkillLibraryService {
     return this.readReferencesFromCatalog([...explicitIds, ...inferredIds], catalog)
   }
 
+  /**
+   * Load the app-shipped Teaching Kernel (`teach`) from verified builtin roots.
+   * Does not require personal install; fails closed if the pack is missing or corrupt (ADR-0151).
+   */
+  async readCoreTeachingKernel(): Promise<InstalledSkillReference> {
+    return loadCoreTeachingKernelReference({ builtInRoots: this.builtInRoots, failClosed: true })
+  }
+
   private async readReferencesFromCatalog(
     rawIds: string[],
     catalog: SkillCatalogResult
@@ -142,6 +156,12 @@ export class SkillLibraryService {
     const ids = [...new Set(rawIds.filter(isSafeSkillId).map((id) => id.trim().toLocaleLowerCase()))].slice(0, 8)
     const references: InstalledSkillReference[] = []
     for (const id of ids) {
+      // Reserved core Teaching Kernel: always load from app-shipped builtin, never personal shadow.
+      if (isCoreTeachingKernelId(id)) {
+        references.push(await this.readCoreTeachingKernel())
+        continue
+      }
+
       const installed = catalog.skills.find((skill) => skill.installed && skill.id.toLocaleLowerCase() === id)
       const directory = installed?.installedPath
       if (!directory) continue

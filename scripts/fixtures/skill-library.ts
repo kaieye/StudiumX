@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { BUILTIN_SKILL_IDS, SkillLibraryService } from '../../src/main/skill-library'
 import { createReadSkillResourceTool } from '../../src/main/ai/tools/skill-resource'
-import { buildAgentChatSystemPrompt } from '../../src/main/teaching-conversation-runtime'
+import { buildAgentChatSystemPrompt, composeTeachingUserTurn } from '../../src/main/teaching-conversation-runtime'
 import { parseAgentChatStreamPayload } from '../../src/main/teaching-ipc-commands'
 import {
   filterSkillSlashMatches,
@@ -76,6 +76,15 @@ try {
     capabilities: ['read-resources', 'read-shared-resources']
   })
 
+  // ADR-0151: Teaching Kernel loads from app-shipped builtin without personal install.
+  const preInstallKernel = await service.readCoreTeachingKernel()
+  assert.equal(preInstallKernel.id, 'teach')
+  assert.match(preInstallKernel.content, /Use retrieval practice/)
+  assert.match(preInstallKernel.source, /builtin-skills|teach/i)
+  const preInstallRefs = await service.readInstalledSkillReferences(['teach'])
+  assert.equal(preInstallRefs.length, 1)
+  assert.match(preInstallRefs[0]?.content ?? '', /Use retrieval practice/)
+
   const installed = await service.installSkill('teach')
   assert.equal(installed.installed, true)
   assert.equal(installed.installedPath, join(personalRoot, 'teach'))
@@ -94,6 +103,13 @@ try {
   )
   await assert.rejects(() => access(join(personalSharedRoot, 'new-shared-resource.md')))
 
+  // Personal same-id install must not shadow kernel body used by teaching runtime.
+  await writeFile(
+    join(personalRoot, 'teach', 'SKILL.md'),
+    `---\nname: teach\ndescription: Personal shadow.\ncategory: learning\nicon: graduation-cap\n---\n\n# Teach\n\nPERSONAL_SHADOW_MARKER\n`,
+    'utf8'
+  )
+
   const afterInstall = await service.listSkills()
   assert.equal(afterInstall.skills.length, 1)
   assert.equal(afterInstall.skills[0]?.installed, true)
@@ -103,6 +119,8 @@ try {
   assert.equal(references.length, 1)
   assert.equal(references[0]?.id, 'teach')
   assert.match(references[0]?.content ?? '', /Use retrieval practice/)
+  assert.doesNotMatch(references[0]?.content ?? '', /PERSONAL_SHADOW_MARKER/)
+  assert.match(references[0]?.source ?? '', /builtin-skills|teach/i)
   const skillResourceTool = createReadSkillResourceTool(references)
   assert.ok(skillResourceTool)
   const resourceResult = JSON.parse(await skillResourceTool.handler({ skillId: 'teach', path: 'REFERENCE.md' }, {} as never))
@@ -110,19 +128,22 @@ try {
   assert.equal(resourceResult.path, 'REFERENCE.md')
   assert.equal(resourceResult.resourceKind, 'reference')
   assert.match(resourceResult.content, /# Reference/)
+  // Kernel resources resolve under app-shipped builtin shared root, not personal shadow.
   const sharedResourceResult = JSON.parse(await skillResourceTool.handler({
     skillId: 'teach',
     path: '../_shared/domain-primitives.md'
   }, {} as never))
   assert.equal(sharedResourceResult.skillId, 'teach')
   assert.equal(sharedResourceResult.path, '../_shared/domain-primitives.md')
-  assert.match(sharedResourceResult.content, /# Personal domain primitives/)
-  await writeFile(join(personalSharedRoot, 'undeclared.md'), '# Undeclared\n', 'utf8')
+  assert.match(sharedResourceResult.content, /# Built-in domain primitives/)
+  // Undeclared shared path under the kernel's (builtin) shared root must be rejected.
+  await writeFile(join(builtInSharedRoot, 'undeclared.md'), '# Undeclared\n', 'utf8')
   const undeclaredResourceResult = JSON.parse(await skillResourceTool.handler({
     skillId: 'teach',
     path: '../_shared/undeclared.md'
   }, {} as never))
   assert.match(undeclaredResourceResult.error, /not declared/)
+  await writeFile(join(personalSharedRoot, 'undeclared.md'), '# Undeclared personal\n', 'utf8')
   const escapedResourceResult = JSON.parse(await skillResourceTool.handler({ skillId: 'teach', path: '../outside.md' }, {} as never))
   assert.match(escapedResourceResult.error, /escapes/)
   const sharedEscapeResult = JSON.parse(await skillResourceTool.handler({
@@ -150,11 +171,19 @@ try {
     lessonToolEnabled: false,
     skillReferences: references
   })
-  assert.match(systemPrompt, /<teach-skill-reference/)
-  assert.match(systemPrompt, /Use retrieval practice/)
-  assert.match(systemPrompt, /progressive disclosure/i)
-  assert.match(systemPrompt, /SKILL\.md/)
-  assert.match(systemPrompt, /load only the referenced resources/i)
+  assert.match(systemPrompt, /<skill-index>/)
+  assert.match(systemPrompt, /id=teach/)
+  // Full kernel body stays in turn-tail (ADR-0044 / ADR-0151), not stable system prefix.
+  const turnTail = composeTeachingUserTurn({
+    mode: 'temporary',
+    lessonToolEnabled: false,
+    skillReferences: references
+  })
+  assert.match(turnTail, /<teach-skill-reference/)
+  assert.match(turnTail, /Use retrieval practice/)
+  assert.match(turnTail, /progressive disclosure/i)
+  assert.match(turnTail, /SKILL\.md/)
+  assert.match(turnTail, /load only the referenced resources/i)
 
   const parsedPayload = parseAgentChatStreamPayload({
     mode: 'temporary',
@@ -216,22 +245,34 @@ try {
   await mkdir(symlinkTeachRoot, { recursive: true })
   await writeFile(join(symlinkTeachRoot, 'SKILL.md'), '# Symlink pack\n', 'utf8')
   await writeFile(outsideReference, '# Outside\n', 'utf8')
-  await symlink(outsideReference, join(symlinkTeachRoot, 'REFERENCE.md'))
-  await writeFile(join(symlinkTeachRoot, 'skill-pack.json'), JSON.stringify({
-    schemaVersion: 1,
-    id: 'teach',
-    version: '1.0.0',
-    capabilities: ['read-resources'],
-    resources: [
-      { path: 'SKILL.md', kind: 'instructions' },
-      { path: 'REFERENCE.md', kind: 'reference' }
-    ]
-  }), 'utf8')
-  const symlinkService = new SkillLibraryService({
-    builtInRoots: [symlinkBuiltInRoot],
-    personalRoot: join(root, 'symlink-personal')
-  })
-  await assert.rejects(() => symlinkService.installSkill('teach'), /regular file|symbolic links/i)
+  let symlinkSupported = true
+  try {
+    await symlink(outsideReference, join(symlinkTeachRoot, 'REFERENCE.md'))
+  } catch (error) {
+    // Windows without Developer Mode / elevated privileges often returns EPERM for symlink.
+    if ((error as NodeJS.ErrnoException).code === 'EPERM' || (error as NodeJS.ErrnoException).code === 'ENOTSUP') {
+      symlinkSupported = false
+    } else {
+      throw error
+    }
+  }
+  if (symlinkSupported) {
+    await writeFile(join(symlinkTeachRoot, 'skill-pack.json'), JSON.stringify({
+      schemaVersion: 1,
+      id: 'teach',
+      version: '1.0.0',
+      capabilities: ['read-resources'],
+      resources: [
+        { path: 'SKILL.md', kind: 'instructions' },
+        { path: 'REFERENCE.md', kind: 'reference' }
+      ]
+    }), 'utf8')
+    const symlinkService = new SkillLibraryService({
+      builtInRoots: [symlinkBuiltInRoot],
+      personalRoot: join(root, 'symlink-personal')
+    })
+    await assert.rejects(() => symlinkService.installSkill('teach'), /regular file|symbolic links/i)
+  }
 
   const legacyRoot = join(personalRoot, 'legacy-skill')
   await mkdir(legacyRoot, { recursive: true })
@@ -249,14 +290,27 @@ try {
   await writeFile(join(brokenRoot, 'skill-pack.json'), '{"schemaVersion":99}', 'utf8')
   assert.equal((await service.listSkills()).skills.some((skill) => skill.id === 'broken-skill'), false)
 
-  await rm(join(personalRoot, 'teach', 'REFERENCE.md'))
-  await symlink(outsideReference, join(personalRoot, 'teach', 'REFERENCE.md'))
-  const escapedDeclaredResource = JSON.parse(await skillResourceTool.handler({
+  // Personal pack corruption / escape must not remove core Teaching Kernel load.
+  await rm(join(personalRoot, 'teach', 'REFERENCE.md'), { force: true })
+  if (symlinkSupported) {
+    await symlink(outsideReference, join(personalRoot, 'teach', 'REFERENCE.md'))
+  } else {
+    // Without symlink privilege, corrupt personal REFERENCE with a directory to prove
+    // personal install state does not gate core kernel body load.
+    await mkdir(join(personalRoot, 'teach', 'REFERENCE.md'), { recursive: true })
+  }
+  const coreAfterPersonalEscape = await service.readInstalledSkillReferences(['teach'])
+  assert.equal(coreAfterPersonalEscape.length, 1)
+  assert.equal(coreAfterPersonalEscape[0]?.id, 'teach')
+  assert.match(coreAfterPersonalEscape[0]?.content ?? '', /Use retrieval practice/)
+  const escapedPersonalTool = createReadSkillResourceTool(coreAfterPersonalEscape)
+  assert.ok(escapedPersonalTool)
+  const coreReferenceResource = JSON.parse(await escapedPersonalTool.handler({
     skillId: 'teach',
     path: 'REFERENCE.md'
   }, {} as never))
-  assert.match(escapedDeclaredResource.error, /escapes/)
-  assert.deepEqual(await service.readInstalledSkillReferences(['teach']), [])
+  assert.equal(coreReferenceResource.path, 'REFERENCE.md')
+  assert.match(coreReferenceResource.content, /# Reference/)
 
   const repositoryBuiltIns = new SkillLibraryService({
     builtInRoots: [join(process.cwd(), 'resources', 'builtin-skills')],
@@ -267,6 +321,9 @@ try {
     repositoryCatalog.skills.map((skill) => skill.id).sort(),
     [...BUILTIN_SKILL_IDS].sort()
   )
+  const repositoryKernel = await repositoryBuiltIns.readCoreTeachingKernel()
+  assert.equal(repositoryKernel.id, 'teach')
+  assert.ok(repositoryKernel.content.length > 100)
 } finally {
   await rm(root, { recursive: true, force: true })
 }

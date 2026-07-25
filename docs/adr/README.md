@@ -1,6 +1,6 @@
 # 架构 ADR 索引
 
-本目录主要记录已经实施、且有代码、测试和 Git 提交证据的架构决定。少数条目为 **Proposed / 设计 gate only**（正文与索引表会标明 **未实施**，例如 [ADR-0123](0123-runtime-session-store.md)），**不**表示生产 schema 或写路径已落地。ADR（Architecture Decision Record，架构决策记录）说明系统为什么采用某项重要做法、已经落地到什么范围，以及它**没有**授权做什么。
+本目录主要记录已经实施、且有代码、测试和 Git 提交证据的架构决定。少数条目为 **Proposed / 设计 gate only**（正文与索引表会标明 **未实施**，例如 [ADR-0123](0123-runtime-session-store.md)），**不**表示生产 schema 或写路径已落地。另有 **provisional / 实施中** 条目（例如 [ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md) shell/sandbox）：决策与代码子集可存在，**合格交付**以关联 delivery roadmap 为准，索引不会把 provisional 写成「已实施结项」。ADR（Architecture Decision Record，架构决策记录）说明系统为什么采用某项重要做法、已经落地到什么范围，以及它**没有**授权做什么。
 
 ## 先从这里读
 
@@ -21,8 +21,10 @@
 | 已覆盖持久化链如何关联 trace，同时保持日志安全 | ADR-0005 |
 | Memory 数据如何按范围隔离，以及能否迁移旧数据 | ADR-0006、ADR-0038 |
 | MCP 的 v1 用户配置、runtime reliability、result safety、OAuth、import/export、多来源 precedence/auto-connect 与完整 marketplace lifecycle 与 P2-6 旧禁令关系 | [ADR-0127](0127-user-configurable-mcp-design-gate.md)（v1 policy）+ [ADR-0128](0128-user-configurable-mcp-implementation.md)（v1 实现 / 仍默认 off·manual 基线）+ [ADR-0132](0132-mcp-zcode-parity-and-trust-lifecycle.md)（全面对齐 policy / 分阶段 trust lifecycle）+ [ADR-0133](0133-mcp-runtime-reliability-implementation.md)（Phase A）+ [ADR-0134](0134-mcp-result-safety-and-local-traces.md)（Phase B）+ [ADR-0135](0135-mcp-oauth-pkce-and-secret-token-lifecycle.md)（Phase C）+ [ADR-0136](0136-mcp-config-import-export-and-sync-contract.md)（Phase D）+ [ADR-0137](0137-mcp-multi-source-precedence-and-auto-connect.md)（Phase E multi-source / controlled auto-connect；root 默认 off）；F–H 见 0138/0140；体验默认见 **ADR-0141**（允许主流 auto-connect/marketplace） |
-| Windows / 跨平台 I/O 如何按 Codex 式 profile 分层，memory 与聊天热路径如何迁移 | [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)（**已实施 / 分 phase 结项**；历史 dual-profile；**默认写模型**见 [ADR-0131](0131-pathname-default-durable-io.md)） |
+| Windows / 跨平台 I/O 如何按 Codex 式 profile 分层，memory 与聊天热路径如何迁移 | [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)（**已实施 / 分 phase 结项**；历史 dual-profile；**默认写模型**见 [ADR-0131](0131-pathname-default-durable-io.md)；**shell 产品面**见 [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md)/[0153](0153-codex-sandbox-dual-axis-and-agent-shell.md)+[delivery roadmap](../agent-shell-sandbox-delivery-roadmap.md)） |
 | 默认 durable 写盘模型（pathname temp+rename；native 非默认） | [ADR-0131](0131-pathname-default-durable-io.md)（**已实施** 2026-07-22；迁移见 `docs/migrations/simplify-durable-io-toward-codex.md`） |
+| Agent shell / 工作区命令 / sandbox 双轴是否合格、下一步做什么 | [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md)（审批轴地基）+ [ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md)（双轴 / provisional）+ **实施权威** [agent-shell-sandbox-delivery-roadmap.md](../agent-shell-sandbox-delivery-roadmap.md)（A–F 合格；当前 not yet qualified） |
+
 | 新持久化 conversation/history 如何先经脱敏 | ADR-0007 |
 | 哪些本地数据能力仍未完成 / 延期 | 当前无开放实现切片；C-6 destructive 延期见 ADR-0038 |
 | P0 教学 Session 如何成为 canonical 事实，而非 Agent run 或 Lesson 目录 | ADR-0008 |
@@ -93,7 +95,7 @@
 | 声明式 tool-policy（allow/prompt/forbidden，按工具名/effect/路径前缀，禁 shell argv / YOLO） | ADR-0063 |
 | ContextCompactor 切点、不足缩减守卫与审计字段 | ADR-0064 |
 | LiveAgent Phase A（研究索引 → ADR，非第二套 ADOPTION backlog） | [ADR-0143](0143-context-file-touch-ledger.md) / [0144](0144-ask-authoritative-deadline.md) / [0145](0145-compaction-pressure-single-flight.md)（**已实施**）；候选清单见 [liveagent-worth-learning.md](../improvements/liveagent-worth-learning.md)（研究索引，**不**重建 ADR-0121 backlog） |
-| [ADR-0146](0146-optional-fuzzy-edit-workspace-file.md) | 可选 fuzzy `edit_workspace_file`（LiveAgent Phase B） | **已实施**（2026-07-24）：`edit-match.ts` + `workspace-edit.ts`（从 `workspace.ts` peel，ADR-0075）；Exact→EOL/BOM→尾空白→缩进；`matchStrategy`；同 path 围栏 / write-policy / 三态审批 / write-rewind；无 Shell/apply_patch。 |
+| [ADR-0146](0146-optional-fuzzy-edit-workspace-file.md) | 可选 fuzzy `edit_workspace_file`（LiveAgent Phase B） | **已实施**（2026-07-24）：`edit-match.ts` + `workspace-edit.ts`（从 `workspace.ts` peel，ADR-0075）；Exact→EOL/BOM→尾空白→缩进；`matchStrategy`；同 path 围栏 / write-policy / 三态审批 / write-rewind；不以 Shell/apply_patch 作本编辑路径（shell 另见 0152/0153）。 |
 | Busy 输入有界队列、steer≠abort、revision / toolsReplayed / 无启动自动 memory 契约 | ADR-0055 |
 | AgentSessionFacade 有状态门面与 busy 队列 drain | ADR-0058 |
 | Cancel 时 tool 成对闭合与 renderer busy-ack 入队 banner | ADR-0067 |
@@ -240,7 +242,7 @@
 | [ADR-0057](0057-provider-bounded-retry-and-shared-budget.md) | Provider bounded retry + shared budget | A-05：`provider-retry.ts` full-jitter；loop 对 retryable 错误有界重试；计入 maxProviderCalls；`auto_retry_*` 诊断；billing/auth/length/overflow 永不重试。 |
 | [ADR-0052](0052-provider-error-and-recovery-taxonomy.md) | Provider error UX + recovery taxonomy | UX 四类保留；`quota exceeded`/billing → `insufficient_balance` 不再进 `rate_limit`；`classifyProviderRecovery` 纯函数导出 retryable/shouldCompress/shouldFallback（未接线 retry）。 |
 | [ADR-0125](0125-provider-overflow-patterns-and-silent-heuristics.md) | Provider overflow patterns + silent heuristics | 见上表 ADAPT-P1；扩展 0052 的 context_overflow 文本/静默检测，不改变 flags。 |
-| [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md) | Codex 式平台能力分层与 consumer 迁移 | **已实施（分 phase）**：PlatformIoProfile registry + chat hot-path degrade + Windows memory `windows_direct_path_non_cas` 读写；doctor/Settings 诚实投影；outcome/audit Windows 保持 unavailable。不重开 Windows strict；不引入 danger-full-access / 默认 shell。**默认写模型**由 [ADR-0131](0131-pathname-default-durable-io.md) supersede。 |
+| [ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md) | Codex 式平台能力分层与 consumer 迁移 | **已实施（分 phase）**：PlatformIoProfile registry + chat hot-path degrade + Windows memory `windows_direct_path_non_cas` 读写；doctor/Settings 诚实投影；outcome/audit Windows 保持 unavailable。不重开 Windows strict；不引入 danger-full-access。**本 ADR 不承担 shell 产品面**（见 0152/0153 + [delivery roadmap](../agent-shell-sandbox-delivery-roadmap.md)）。**默认写模型**由 [ADR-0131](0131-pathname-default-durable-io.md) supersede。 |
 | [ADR-0127](0127-user-configurable-mcp-design-gate.md) | 用户可配置 MCP v1 design gate | **部分被 ADR-0132 取代**：v1 user-config、effect lattice、secret/settlement 不变量保留；auto-connect、marketplace、workspace/plugin source 禁令不再适用于后续阶段。 |
 | [ADR-0128](0128-user-configurable-mcp-implementation.md) | 用户可配置 MCP v1 实现合同 | **已实施 v1 / 部分被 ADR-0132 扩展**：`UserMcpConfigV1`、stdio/HTTP/SSE、`mcp__server__tool`、默认 privileged、IPC、Settings、Doctor；后续 lifecycle 不受旧的 no-marketplace/no-auto-connect 限制。 |
 | [ADR-0132](0132-mcp-zcode-parity-and-trust-lifecycle.md) | MCP 与 Zcode 对齐、trust lifecycle | **已采纳 design gate / 分阶段实施**：v1 仍默认 off/manual（ADR-0128）；A–D **已实施**（0133–0136）；E foundation [0137](0137-mcp-multi-source-precedence-and-auto-connect.md)；F [0138](0138-mcp-filesystem-workspace-root-injection.md)；G [0139](0139-mcp-plugin-lifecycle.md)；H [0140](0140-mcp-marketplace-local-catalog.md)。**不**将 auto-connect/marketplace 写成静默默认。 |
@@ -261,6 +263,9 @@
 | [ADR-0148](0148-presence-only-secret-boundary-sweep.md) | Presence-only 密钥边界扫尾（LiveAgent Phase B） | **已实施**（2026-07-24）：`secret-presence.ts` + MCP public DTO + Doctor facts + support-bundle deny（含 environment 走私字段）；presence 布尔保留；无默认远程 telemetry。 |
 | [ADR-0149](0149-provider-custom-headers-reserved-blacklist.md) | Provider custom headers + 保留键黑名单（LiveAgent Phase B） | **已实施**（2026-07-24）：有序 customHeaders；Authorization/x-api-key/User-Agent 等保留键不可覆盖；诚实 StudiumX UA；CLI 伪装头拒绝；日志脱敏；settings normalize + request-builder/probe 接线。 |
 | [ADR-0150](0150-skills-install-stage-then-swap.md) | Skills 安装 stage-then-swap（LiveAgent Phase B） | **已实施**（2026-07-24）：`skill-install-stage-swap.ts` + `installSkill`；`.staging` + rename + write guard；半成品不可见；仍 allowlist/verifier；无无校验市场。 |
+| [ADR-0151](0151-teaching-kernel-and-skill-orchestration.md) | Teaching Kernel 与 Skill 编排权威边界 | **部分实施**（2026-07-24）：Phase 0–3；双平面；teach=app-shipped kernel；host registry + 纯 plan + runtime stage-scoped bodies；Phase 4–5 UI/markdown residual；不改 settlement / 0044 全文进 prefix。 |
+| [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md) | 工作区命令与 Codex 对齐三态审批 | **部分被 0153 supersede / 非合格结项**（2026-07-24 修订）：审批三态 + `run_workspace_command` 形状仍有效；默认 `workspaceShell` 以 0153 为准；safelist/主路径投影开放（见 [delivery roadmap](../agent-shell-sandbox-delivery-roadmap.md)）。禁止 YOLO 标签。 |
+| [ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md) | Codex 双轴 Sandbox + 主流 Agent Shell | **实施中（provisional）**（2026-07-24 修订）：双轴 + shell 意图/代码子集已落；主路径合格未完成。实施权威 [delivery roadmap](../agent-shell-sandbox-delivery-roadmap.md) A–F；Windows helper=G 可选不阻塞。禁止 YOLO / 虚假 Docker·VM 完备宣称。 |
 | [ADR-0053](0053-agents-md-security-suite-and-testing-doctrine.md) | 根 AGENTS.md + security suite + 测试教条 | SECURITY_CHECKS 纳入 external-content boundary；根 AGENTS 命令图/红线/改哪测哪；testing.md L0/L1/L2/L4；不替代 ADR、不扩 Blocking CI。 |
 | [ADR-0072](0072-node-engines-and-source-rev-build-identity.md) | Node engines / .nvmrc + SOURCE_REV 构建身份 | `.nvmrc`=22；`engines.node` `>=22 <25`；`readBuildIdentity` fail-closed；doctor 非阻塞展示；非 SBOM / 非签名 / 无 phone-home。 |
 | [ADR-0073](0073-teaching-feature-registry.md) | Teaching FeatureRegistry（薄元数据） | 纯 `features.ts` stage 生命周期；非 CapabilityCatalog/Ladder 替换；禁止 shell/code_mode/YOLO bypass。 |

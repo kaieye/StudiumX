@@ -47,6 +47,8 @@ const WORKSPACE_WRITE_TOOL_NAMES = [
   'remember_teaching_memory',
   'forget_teaching_memory'
 ] as const
+/** Workspace command tools; same grant path as workspace file tools (Stage A / ADR-0153). */
+const WORKSPACE_SHELL_TOOL_NAMES = ['run_workspace_command', 'shell'] as const
 const DELEGATION_TOOL_NAMES = ['delegate_task', 'read_only_task', 'parallel_tasks'] as const
 /** Teaching-product write tools — temporary chat excludes only this set (ADR-0128 §5.4). */
 const LESSON_TOOL_NAMES = ['generate_lesson'] as const
@@ -56,6 +58,7 @@ const ALL_KNOWN_TOOL_NAMES = [
   ...CONVERSATION_TOOL_NAMES,
   ...WORKSPACE_READ_TOOL_NAMES,
   ...WORKSPACE_WRITE_TOOL_NAMES,
+  ...WORKSPACE_SHELL_TOOL_NAMES,
   ...DELEGATION_TOOL_NAMES,
   ...LESSON_TOOL_NAMES
 ] as const
@@ -83,12 +86,18 @@ export function resolveTeachingCapabilityPolicy(
   const workspaceGranted = input.workspaceToolAccessGranted === true
 
   // Temporary and teaching share agent tool surface except lesson/product writers.
+  // Shell tools ride the same workspace grant as file tools; registry still gates
+  // on workspaceShell + workspaceWrite (Stage A projection).
   const allowedToolNames = [
     ...EXTERNAL_TOOL_NAMES,
     ...CONVERSATION_TOOL_NAMES,
     ...DELEGATION_TOOL_NAMES,
     ...(workspaceGranted
-      ? [...WORKSPACE_READ_TOOL_NAMES, ...WORKSPACE_WRITE_TOOL_NAMES]
+      ? [
+          ...WORKSPACE_READ_TOOL_NAMES,
+          ...WORKSPACE_WRITE_TOOL_NAMES,
+          ...WORKSPACE_SHELL_TOOL_NAMES
+        ]
       : []),
     ...(isTeachingConversation && input.hasTeachingWorkspace && input.hasLessonGenerator
       ? LESSON_TOOL_NAMES

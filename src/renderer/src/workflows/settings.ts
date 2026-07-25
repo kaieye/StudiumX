@@ -30,13 +30,18 @@ import {
   PARALLEL_SEARCH_MODES,
   WEB_SEARCH_BACKENDS,
   AGENT_APPROVAL_MODES,
+  AGENT_SANDBOX_MODES,
   type ModelReasoningEffort,
   type SettingsSection,
   type TeachingModelProviderProfile,
   type TeachingSettingsPatch,
   type TeachingSettingsV1,
   type WebSearchBackend,
-  type AgentApprovalMode
+  type AgentApprovalMode,
+  type AgentSandboxMode,
+  type AgentSandboxBackendId,
+  type WindowsSandboxReadiness,
+  formatAgentSandboxReadinessForUi
 } from '../../../shared/teaching-types'
 import {
   modelListProbeSupportedForFormat,
@@ -84,6 +89,11 @@ export const agentApprovalModeOptions = AGENT_APPROVAL_MODES.map((mode) => ({
   label: agentApprovalModeLabel(mode)
 }))
 
+export const agentSandboxModeOptions = AGENT_SANDBOX_MODES.map((mode) => ({
+  value: mode,
+  label: agentSandboxModeLabel(mode)
+}))
+
 export const modelSettingsProviderIds = ['deepseek', 'glm', 'custom'] as const
 
 export function webSearchBackendLabel(backend: WebSearchBackend): string {
@@ -119,6 +129,53 @@ export function agentApprovalModeLabel(mode: AgentApprovalMode): string {
     case 'full_access':
       return '本课放行'
   }
+}
+
+/** Codex AskForApproval mapping for settings help / docs (not shown as YOLO). */
+export function agentApprovalModeCodexHint(mode: AgentApprovalMode): string {
+  switch (mode) {
+    case 'request_approval':
+      return 'Codex: untrusted'
+    case 'based_on_approval':
+      return 'Codex: on-request'
+    case 'full_access':
+      return 'Codex: never'
+  }
+}
+
+/** Codex SandboxMode labels (orthogonal to approval). Never YOLO. */
+export function agentSandboxModeLabel(mode: AgentSandboxMode): string {
+  switch (mode) {
+    case 'read_only':
+      return '只读沙箱'
+    case 'workspace_write':
+      return '工作区可写'
+    case 'full_access':
+      return '宽松策略'
+  }
+}
+
+export function agentSandboxModeCodexHint(mode: AgentSandboxMode): string {
+  switch (mode) {
+    case 'read_only':
+      return 'Codex: read-only'
+    case 'workspace_write':
+      return 'Codex: workspace-write'
+    case 'full_access':
+      return 'Codex: danger-full-access (UI never says YOLO)'
+  }
+}
+
+/** Settings / Doctor-facing readiness summary. Never YOLO. */
+export function agentSandboxReadinessSummaryLabel(input: {
+  mode: AgentSandboxMode
+  backend: AgentSandboxBackendId
+  osEnforcementAvailable: boolean
+  platform?: string
+  windowsReadiness?: WindowsSandboxReadiness
+  summary?: string
+}): string {
+  return formatAgentSandboxReadinessForUi(input)
 }
 
 export const DARK_THEME_MEDIA_QUERY = '(prefers-color-scheme: dark)'

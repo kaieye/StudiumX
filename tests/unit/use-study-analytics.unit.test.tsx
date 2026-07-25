@@ -86,12 +86,13 @@ describe('analytics query construction', () => {
       from: '2026-07-13',
       to: '2026-07-13'
     })
+    // Saturday still starts Monday of the same calendar week; range ends at today.
+    expect(buildAnalyticsDateRange('week', '2026-07-25')).toMatchObject({
+      from: '2026-07-20',
+      to: '2026-07-25'
+    })
     expect(buildAnalyticsDateRange('month', '2026-07-13')).toMatchObject({
       from: '2026-07-01',
-      to: '2026-07-13'
-    })
-    expect(buildAnalyticsDateRange('90d', '2026-07-13')).toMatchObject({
-      from: '2026-04-15',
       to: '2026-07-13'
     })
     expect(buildAnalyticsDateRange('all', '2026-07-13')).toMatchObject({

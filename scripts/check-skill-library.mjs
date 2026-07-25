@@ -47,6 +47,19 @@ try {
   assert.match(teachingSiteSkill, /StudiumX loads an installed skill only through an explicit leading slash command/)
   assert.doesNotMatch(teachingSiteSkill, /activate_skill|Claude Code:|Codex: `skill` tool/)
 
+  // ADR-0151 Phase 1: app-shipped Teaching Kernel loader must exist and fail closed.
+  const coreKernel = await readFile(join(process.cwd(), 'src', 'main', 'skill-library', 'core-teaching-kernel.ts'), 'utf8')
+  const skillLibrary = await readFile(join(process.cwd(), 'src', 'main', 'skill-library.ts'), 'utf8')
+  const conversationRuntime = await readFile(join(process.cwd(), 'src', 'main', 'teaching-conversation-runtime.ts'), 'utf8')
+  assert.match(coreKernel, /CORE_TEACHING_KERNEL_ID/)
+  assert.match(coreKernel, /loadCoreTeachingKernelReference/)
+  assert.match(coreKernel, /CoreTeachingKernelError/)
+  assert.match(coreKernel, /fail-closed|Fail-closed/)
+  assert.match(skillLibrary, /readCoreTeachingKernel/)
+  assert.match(skillLibrary, /isCoreTeachingKernelId/)
+  assert.match(conversationRuntime, /Teaching Kernel unavailable/)
+  assert.match(conversationRuntime, /ADR-0151/)
+
   await build({
     absWorkingDir: process.cwd(),
     entryPoints: [join(process.cwd(), 'scripts', 'fixtures', 'skill-library.ts')],

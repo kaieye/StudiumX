@@ -1,4 +1,4 @@
-import { ArrowLeft, RefreshCw } from 'lucide-react'
+import { ArrowLeft, FlaskConical, RefreshCw } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../../app-shell/appStore'
@@ -9,10 +9,12 @@ import { AnalyticsSection, type AnalyticsFallbackState } from './components/Anal
 import {
   FocusBody,
   HeroBody,
+  LevelBody,
   ReviewBody,
   TaskBody,
   TokenBody
 } from './components/SectionBodies'
+import { createDemoLearningAnalyticsBundle } from './demoLearningAnalyticsBundle'
 import {
   buildAnalyticsDateRange,
   buildLearningAnalyticsQuery,
@@ -38,7 +40,6 @@ const RANGE_PRESETS: readonly Exclude<AnalyticsRangePreset, 'custom'>[] = [
   'today',
   'week',
   'month',
-  '90d',
   'all'
 ]
 
@@ -86,6 +87,7 @@ export function StudyAnalyticsPage({
   const workspaces = useAppStore((state) => state.appState.workspaces)
   const [identity] = useState<StudyAnalyticsIdentity>(() => identityOverride ?? defaultIdentity())
   const [preset, setPreset] = useState<Exclude<AnalyticsRangePreset, 'custom'>>('week')
+  const [demoMode, setDemoMode] = useState(false)
 
   const workspaceIdsKey = workspaces.map((workspace) => workspace.id).join('\u001f')
   const query = useMemo(() => buildLearningAnalyticsQuery({
@@ -99,35 +101,45 @@ export function StudyAnalyticsPage({
     presenceSpaceCode: identity.presenceSpaceCode
   }), [identity.personalClientId, identity.presenceSpaceCode, localToday, preset, workspaceIdsKey])
 
-  const analytics = useStudyAnalytics({ query, client })
-  const bundle: LearningAnalyticsBundle | null = analytics.bundle
-  const fallbackState = fallbackStateFor(analytics.phase)
-  const fallbackMessage = analytics.phase === 'unavailable'
-    ? copy.page.apiUnavailableDetail
-    : analytics.phase === 'error'
-      ? copy.page.requestFailedDetail
-      : analytics.phase === 'ready'
-        ? copy.section.error
-        : undefined
-
-  const liveMessage = analytics.isRefreshing
-    ? copy.page.refreshing
-    : analytics.phase === 'ready'
-      ? analytics.issue?.kind === 'request_failed'
-        ? copy.page.failed
-        : copy.page.loaded
+  // Pause real API traffic while demo is open so the shell stays stable.
+  const analytics = useStudyAnalytics({ query, client, enabled: !demoMode })
+  const demoBundle = useMemo(
+    () => (demoMode ? createDemoLearningAnalyticsBundle(query) : null),
+    [demoMode, query]
+  )
+  const bundle: LearningAnalyticsBundle | null = demoMode ? demoBundle : analytics.bundle
+  const phase = demoMode ? 'ready' as const : analytics.phase
+  const fallbackState = fallbackStateFor(phase)
+  const fallbackMessage = demoMode
+    ? undefined
+    : analytics.phase === 'unavailable'
+      ? copy.page.apiUnavailableDetail
       : analytics.phase === 'error'
-        ? copy.page.failed
-        : analytics.phase === 'unavailable'
-          ? copy.page.apiUnavailable
-          : copy.states.loading
+        ? copy.page.requestFailedDetail
+        : analytics.phase === 'ready'
+          ? copy.section.error
+          : undefined
+
+  const liveMessage = demoMode
+    ? copy.page.demoLoaded
+    : analytics.isRefreshing
+      ? copy.page.refreshing
+      : analytics.phase === 'ready'
+        ? analytics.issue?.kind === 'request_failed'
+          ? copy.page.failed
+          : copy.page.loaded
+        : analytics.phase === 'error'
+          ? copy.page.failed
+          : analytics.phase === 'unavailable'
+            ? copy.page.apiUnavailable
+            : copy.states.loading
 
   const shared = {
     copy,
     fallbackState,
     fallbackMessage,
-    isRefreshing: analytics.isRefreshing,
-    isStale: analytics.isStale
+    isRefreshing: demoMode ? false : analytics.isRefreshing,
+    isStale: demoMode ? false : analytics.isStale
   }
   const ctx = { copy, fmt, localToday }
 
@@ -145,16 +157,28 @@ export function StudyAnalyticsPage({
               <p>{copy.page.eyebrow}</p>
               <h1>{copy.page.title}</h1>
             </div>
-            <button
-              type="button"
-              className="analytics-refresh-button"
-              onClick={analytics.refresh}
-              disabled={analytics.isRefreshing}
-              aria-label={copy.page.refresh}
-            >
-              <RefreshCw size={18} aria-hidden="true" />
-              <span>{copy.page.refresh}</span>
-            </button>
+            <div className="analytics-header-actions">
+              <button
+                type="button"
+                className="analytics-demo-button"
+                onClick={() => setDemoMode((value) => !value)}
+                aria-pressed={demoMode}
+                aria-label={demoMode ? copy.page.demoExit : copy.page.demo}
+              >
+                <FlaskConical size={18} aria-hidden="true" />
+                <span>{demoMode ? copy.page.demoExit : copy.page.demo}</span>
+              </button>
+              <button
+                type="button"
+                className="analytics-refresh-button"
+                onClick={analytics.refresh}
+                disabled={demoMode || analytics.isRefreshing}
+                aria-label={copy.page.refresh}
+              >
+                <RefreshCw size={18} aria-hidden="true" />
+                <span>{copy.page.refresh}</span>
+              </button>
+            </div>
           </div>
 
           <div className="analytics-range-bar" role="group" aria-label={copy.page.rangeLabel}>
@@ -175,24 +199,36 @@ export function StudyAnalyticsPage({
         <p className="analytics-live-status" aria-live="polite" aria-atomic="true">{liveMessage}</p>
 
         <div id="analytics-main" className="analytics-main" tabIndex={-1}>
-          <AnalyticsSection
-            {...shared}
-            id="analytics-section-hero"
-            title={copy.hero.title}
-            result={bundle?.hero ?? null}
-            renderEmpty
-            wide
-            onRetry={() => analytics.retrySection('hero')}
-          >
-            {(result) => <HeroBody {...ctx} data={result.data} />}
-          </AnalyticsSection>
+          <div className="analytics-hero-row">
+            <AnalyticsSection
+              {...shared}
+              id="analytics-section-hero"
+              title={copy.hero.title}
+              result={bundle?.hero ?? null}
+              renderEmpty
+              onRetry={() => analytics.retrySection('hero')}
+            >
+              {(result) => <HeroBody {...ctx} data={result.data} />}
+            </AnalyticsSection>
+
+            <AnalyticsSection
+              {...shared}
+              id="analytics-section-level"
+              title={copy.hero.levelProgressTitle}
+              result={bundle?.hero ?? null}
+              renderEmpty
+              onRetry={() => analytics.retrySection('hero')}
+            >
+              {(result) => <LevelBody {...ctx} data={result.data} />}
+            </AnalyticsSection>
+          </div>
 
           <AnalyticsSection
             {...shared}
             id="analytics-section-focus"
             title={copy.focus.title}
-            description={copy.focus.description}
             result={bundle?.focus ?? null}
+            renderEmpty
             wide
             onRetry={() => analytics.retrySection('focus')}
           >

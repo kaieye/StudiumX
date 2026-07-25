@@ -69,6 +69,10 @@ import {
   runReadStudyPlanningIpc
 } from './study-planning-ipc'
 import type { AnalyticsExportRequest, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
+import {
+  normalizeAgentSandboxMode,
+  resolveAgentSandboxReadiness
+} from './ai/tools/agent-sandbox-policy'
 
 /** Dependencies owned by the main-process Teaching IPC composition root. */
 export interface TeachingIpcRegistration {
@@ -660,6 +664,20 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     }),
     command({ channel: teachingInvokeChannels.getMemoryDiagnostics, parser: () => undefined, action: () => service.getMemoryDiagnostics(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.getConnectorStatuses, parser: () => undefined, action: () => service.getConnectorStatuses(), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({
+      channel: teachingInvokeChannels.getAgentSandboxReadiness,
+      parser: () => undefined,
+      action: async () => {
+        const loadedSettings = await settings.load()
+        const mode = normalizeAgentSandboxMode(loadedSettings.tools?.sandboxMode, 'workspace_write')
+        return resolveAgentSandboxReadiness({
+          mode,
+          windowsSandboxLevel: loadedSettings.tools?.windowsSandboxLevel
+        })
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
     command({
       channel: teachingInvokeChannels.createMemory, parser: (payload) => parseCreateMemoryPayload(payload),
       action: async (_event, request) => {

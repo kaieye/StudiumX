@@ -1,4 +1,5 @@
 export * from './teaching-types/settings'
+export * from './teaching-types/agent-sandbox'
 export * from './teaching-types/git'
 export * from './teaching-types/changes'
 export * from './teaching-types/memory'

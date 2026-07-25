@@ -44,7 +44,9 @@ const PRIVILEGED_TOOLS = new Set([
   'ask',
   'generate_lesson',
   'delegate_task',
-  'parallel_tasks'
+  'parallel_tasks',
+  'run_workspace_command',
+  'shell'
 ])
 
 /**

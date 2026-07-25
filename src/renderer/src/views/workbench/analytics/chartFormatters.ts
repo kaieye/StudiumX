@@ -26,7 +26,8 @@ export function createAnalyticsFormatters(locale: AnalyticsLocale) {
   const percentFormat = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 0 })
   const shortDateFormat = new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric' })
   const longDateFormat = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' })
-  const monthFormat = new Intl.DateTimeFormat(locale, { month: 'short' })
+  // Heatmap month axis always uses English abbreviations (Jan, Feb, …).
+  const monthFormat = new Intl.DateTimeFormat('en-US', { month: 'short' })
   const instantFormat = new Intl.DateTimeFormat(locale, {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
   })
@@ -75,7 +76,9 @@ export function createAnalyticsFormatters(locale: AnalyticsLocale) {
 
     month(value: AnalyticsLocalDate): string {
       const date = dateFromLocalKey(value)
-      return date ? monthFormat.format(date) : value
+      if (!date) return value
+      // Normalize to bare English abbreviation without trailing punctuation.
+      return monthFormat.format(date).replace(/\./g, '')
     },
 
     instant(value: string): string {
@@ -86,6 +89,38 @@ export function createAnalyticsFormatters(locale: AnalyticsLocale) {
     hour(hour: number): string {
       const normalized = ((hour % 24) + 24) % 24
       return `${String(normalized).padStart(2, '0')}:00`
+    },
+
+    /** Compact hour tick for the active-range X axis (avoids "00:00" clipping). */
+    axisHour(hour: number): string {
+      const normalized = ((hour % 24) + 24) % 24
+      return String(normalized)
+    },
+
+    /**
+     * Compact date tick for multi-day active-range X axis.
+     * Always month/day without year so labels fit half-width cards.
+     */
+    axisDate(value: AnalyticsLocalDate): string {
+      const date = dateFromLocalKey(value)
+      if (!date) return value
+      const month = date.getMonth() + 1
+      const day = date.getDate()
+      return `${month}/${day}`
+    },
+
+    /** Minute mark on a 0–60 axis (today active-range view). Bare number, no unit word. */
+    minuteMark(minute: number): string {
+      if (!Number.isFinite(minute)) return dash
+      const safe = Math.max(0, Math.min(60, minute))
+      return integerFormat.format(Math.round(safe))
+    },
+
+    /** Hour-of-day mark on a 0–24 axis (week active-range view). Bare number, no unit word. */
+    hourMark(hour: number): string {
+      if (!Number.isFinite(hour)) return dash
+      const safe = Math.max(0, Math.min(24, hour))
+      return integerFormat.format(Math.round(safe))
     },
 
     range(range: AnalyticsDateRange): string {

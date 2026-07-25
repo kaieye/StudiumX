@@ -11,7 +11,7 @@
 | 边界 | 含义 |
 | --- | --- |
 | 文件是教学真相源 | 投影可重建；canonical 在工作区文件，不把 SQLite / agent run 当 teaching authority |
-| 无默认 shell | 不暴露通用 shell / 任意代码执行产品路径 |
+| 无默认 shell | `tools.enabled` 默认关；开启后 **workspaceShell 默认开**（主流 Agent，ADR-0153）。`sandboxMode` × `approvalMode` 双轴 + 路径围栏；**禁止** YOLO 标签与虚假 Docker/VM 完备宣称。**合格交付**见 [`docs/agent-shell-sandbox-delivery-roadmap.md`](docs/agent-shell-sandbox-delivery-roadmap.md)（**Completed 2026-07-25** — qualified without Windows OS helper；ADR-0152/0153 为决策/provisional） |
 | MCP 全面对齐 | [ADR-0132](docs/adr/0132-mcp-zcode-parity-and-trust-lifecycle.md) + 体验边界 [ADR-0141](docs/adr/0141-mcp-product-experience-parity-policy.md) + **产品面 [ADR-0142](docs/adr/0142-mcp-product-surface-settings-only.md)**：A–H foundation 可保留；**Settings 产品面 = list/editor/import/OAuth**（**无** marketplace 设置页）。硬安全不变：secret/token 永不进 public DTO/Doctor；MCP 非 teaching evidence；settlement sole-writer；MCP tool 仍进 effect lattice / approval / ToolOutcome；禁止 YOLO 标签。 |
 | 无自动 remote telemetry | 本地优先；**不**默认 phone-home / Statsig / Mixpanel 式外发 |
 | effect lattice + TOOL_CONTRACT | `read` / `workspace_write` / `external_write` / `privileged` 三态审批；**禁止 YOLO / always-approve 标签** |
@@ -51,8 +51,8 @@ git config core.hooksPath .githooks
 
 ## 3. 红线（Do not）
 
-1. **不要** 引入默认 ShellTool / OS sandbox 产品声明 / shell-escalation 策略语言。
-2. **不要** 加 YOLO / DangerFullAccess / always-approve 默认或 UI 标签。
+1. **不要** 在 `tools.enabled` 关闭时静默执行 shell；不要用 YOLO / DangerFullAccess / always-approve 标签；不要宣称 Docker/VM 级 OS sandbox 完备（ADR-0152/0153）。
+2. **不要** 加 YOLO / DangerFullAccess / always-approve 默认或 UI 标签（`full_access` 仅称「本课放行 / 宽松策略」）。
 3. **MCP 产品面**以 [ADR-0142](docs/adr/0142-mcp-product-surface-settings-only.md) 为准：Settings **仅** list/editor/import/OAuth；**不要**再挂 marketplace 设置页或半成品市场入口。host/foundation（ADR-0140 store/IPC）可保留。所有 MCP tools 仍必须入 effect lattice 与 approval；禁止 YOLO 标签、jiti 全权限扩展、code-mode 执行不可信代码或 shell-escalation 旁路；secret 永不进 public DTO / Doctor / support bundle。
 4. **不要** 默认远程 OTEL / phone-home；本地 doctor / support-bundle 须脱敏与同意。
 5. **不要** 用 SQLite FTS 或向量库做产品搜索面。

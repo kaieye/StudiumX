@@ -143,9 +143,10 @@ describe('TeachingCapabilityCatalog', () => {
       skills: [skill()]
     })
     expect(temporary.policyId).toBe('temporary_chat')
-    expect(byId(temporary.items, 'delegation').status).toBe('denied')
+    // Stage A / ADR-0128 §5.4: temporary shares agent tool surface; only lesson product writers denied.
+    expect(byId(temporary.items, 'delegation').status).toBe('available')
     expect(byId(temporary.items, 'lesson').status).toBe('denied')
-    expect(byId(temporary.items, 'workspace_tools').status).toBe('denied')
+    expect(byId(temporary.items, 'workspace_tools').status).toBe('available')
   })
 
   it('degrades skill load failures and catalog exceptions without throwing', () => {
@@ -225,4 +226,45 @@ describe('TeachingCapabilityCatalog', () => {
     expect(disabled.available).toEqual([])
     expect(selectPromptEligibleCapabilities(disabled)).toEqual([])
   })
+
+  it('includes shell tools in workspace_tools details when workspaceShell on', () => {
+    const on = snapshotTeachingCapabilities({
+      settings: settings((base) => {
+        base.tools.enabled = true
+        base.tools.workspaceRead = true
+        base.tools.workspaceShell = true
+        return base
+      }),
+      mode: 'teaching',
+      hasTeachingWorkspace: true,
+      workspaceToolAccessGranted: true,
+      hasLessonGenerator: true,
+      skills: []
+    })
+    const item = byId(on.items, 'workspace_tools')
+    expect(item.status).toBe('available')
+    expect(item.details?.workspaceShell).toBe(true)
+    expect(String(item.details?.shellTools ?? '')).toMatch(/run_workspace_command/)
+    expect(item.reason).toMatch(/run_workspace_command\/shell/)
+
+    const off = snapshotTeachingCapabilities({
+      settings: settings((base) => {
+        base.tools.enabled = true
+        base.tools.workspaceRead = true
+        base.tools.workspaceShell = false
+        return base
+      }),
+      mode: 'teaching',
+      hasTeachingWorkspace: true,
+      workspaceToolAccessGranted: true,
+      hasLessonGenerator: true,
+      skills: []
+    })
+    const offItem = byId(off.items, 'workspace_tools')
+    expect(offItem.status).toBe('available')
+    expect(offItem.details?.workspaceShell).toBe(false)
+    expect(String(offItem.details?.shellTools ?? '')).toBe('disabled')
+    expect(offItem.reason).not.toMatch(/includes run_workspace_command/)
+  })
+
 })

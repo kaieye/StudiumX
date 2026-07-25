@@ -187,13 +187,13 @@ export function buildAnalyticsDateRange(
     const from = `${localToday.slice(0, 8)}01` as AnalyticsLocalDate
     return makeRange('month', from, localToday)
   }
-  if (preset === '90d') return makeRange('90d', addLocalDays(localToday, -89), localToday)
   if (preset === 'all') {
     // Sentinel lower bound; personal/token sources clamp to tracking/retention.
     return makeRange('all', '0001-01-01', localToday)
   }
 
-  // week: Monday-start inclusive through localToday
+  // week: Monday-start inclusive through localToday.
+  // The active-range chart still expands categories to a full Mon–Sun week.
   const weekday = (today.getDay() + 6) % 7
   const from = addLocalDays(localToday, -weekday)
   return makeRange('week', from, localToday)

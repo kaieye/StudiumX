@@ -9,6 +9,7 @@ import {
   TEACHING_MODEL_PROVIDER_PRESETS,
   WEB_SEARCH_BACKENDS,
   AGENT_APPROVAL_MODES,
+  AGENT_SANDBOX_MODES,
   normalizePetAppearanceId,
   type ModelEndpointFormat,
   type ModelReasoningEffort,
@@ -17,7 +18,9 @@ import {
   type TeachingSettingsPatch,
   type TeachingSettingsV1,
   type WebSearchBackend,
-  type AgentApprovalMode
+  type AgentApprovalMode,
+  type AgentSandboxMode,
+  type WindowsSandboxLevel
 } from './teaching-types'
 import { DEFAULT_LESSON_STYLE_ID, normalizeLessonStyleId } from './lesson-styles'
 import { normalizeProviderCustomHeaders } from './provider-custom-headers'
@@ -94,6 +97,10 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
       enabled: false,
       workspaceRead: true,
       approvalMode: 'request_approval',
+      // Mainstream agent: shell available when tools are enabled; master switch still tools.enabled.
+      workspaceShell: true,
+      sandboxMode: 'workspace_write',
+      windowsSandboxLevel: 'restricted_token',
       webSearch: true,
       webFetch: false,
       maxIterations: 0,
@@ -341,6 +348,13 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
         toolsInput.approvalMode ?? legacyApprovalMode(toolsInput.workspaceWritePermission),
         defaults.tools.approvalMode
       ),
+      // Opt-out: missing key → true (mainstream agent shell). Explicit false disables.
+      workspaceShell: toolsInput.workspaceShell !== false,
+      sandboxMode: normalizeAgentSandboxMode(toolsInput.sandboxMode, defaults.tools.sandboxMode),
+      windowsSandboxLevel: normalizeWindowsSandboxLevel(
+        toolsInput.windowsSandboxLevel,
+        defaults.tools.windowsSandboxLevel
+      ),
       webSearch: toolsInput.webSearch !== false,
       webFetch: toolsInput.webFetch === true,
       maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 0, 64, defaults.tools.maxIterations)),
@@ -522,6 +536,35 @@ function normalizeAgentApprovalMode(
   return typeof input === 'string' && AGENT_APPROVAL_MODES.includes(input as AgentApprovalMode)
     ? input as AgentApprovalMode
     : fallback
+}
+
+function normalizeWindowsSandboxLevel(
+  input: unknown,
+  fallback: WindowsSandboxLevel
+): WindowsSandboxLevel {
+  if (typeof input !== 'string') return fallback
+  const key = input.trim().toLocaleLowerCase().replace(/-/g, '_')
+  if (key === 'disabled') return 'disabled'
+  if (key === 'elevated') return 'elevated'
+  if (key === 'restricted_token' || key === 'restrictedtoken') return 'restricted_token'
+  return fallback
+}
+
+function normalizeAgentSandboxMode(
+  input: unknown,
+  fallback: AgentSandboxMode
+): AgentSandboxMode {
+  if (typeof input !== 'string') return fallback
+  const raw = input.trim()
+  const snake = raw.toLocaleLowerCase().replace(/-/g, '_')
+  if (AGENT_SANDBOX_MODES.includes(snake as AgentSandboxMode)) {
+    return snake as AgentSandboxMode
+  }
+  // Codex wire names
+  if (raw === 'read-only') return 'read_only'
+  if (raw === 'workspace-write') return 'workspace_write'
+  if (raw === 'danger-full-access') return 'full_access'
+  return fallback
 }
 
 /** Migrate the prior write-only control without turning old settings into silent access. */

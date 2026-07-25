@@ -35,7 +35,8 @@ import {
   type TeachingWorkspaceSummary,
   type UpdateTeachingMemoryPayload,
   type WebSearchBackend,
-  type AgentApprovalMode
+  type AgentApprovalMode,
+  type AgentSandboxReadiness
 } from '../../../../shared/teaching-types'
 import {
   parallelSearchModeOptions,
@@ -44,7 +45,9 @@ import {
   toolsSupportedForSettings,
   webSearchBackendLabel,
   webSearchBackendOptions,
-  agentApprovalModeOptions
+  agentApprovalModeOptions,
+  agentSandboxModeOptions,
+  agentSandboxReadinessSummaryLabel
 } from '../../workflows/settings'
 import {
   NumberInput,
@@ -142,6 +145,8 @@ export function SettingsView({
   const filteredMemoryRecords = configuration.filterMemoryRecords(memoryRecords)
   const [connectorStatuses, setConnectorStatuses] = useState<ConnectorStatusesResult | null>(null)
   const [connectorStatusesLoading, setConnectorStatusesLoading] = useState(false)
+  const [sandboxReadiness, setSandboxReadiness] = useState<AgentSandboxReadiness | null>(null)
+  const [sandboxReadinessLoading, setSandboxReadinessLoading] = useState(false)
 
   const refreshConnectorStatuses = async (): Promise<void> => {
     const api = window.teachingSystem
@@ -153,6 +158,37 @@ export function SettingsView({
       setConnectorStatusesLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (section !== 'tools') return
+    const api = window.teachingSystem
+    if (!api?.getAgentSandboxReadiness) {
+      setSandboxReadiness(null)
+      return
+    }
+    let cancelled = false
+    setSandboxReadinessLoading(true)
+    void api
+      .getAgentSandboxReadiness()
+      .then((value) => {
+        if (!cancelled) setSandboxReadiness(value)
+      })
+      .catch(() => {
+        if (!cancelled) setSandboxReadiness(null)
+      })
+      .finally(() => {
+        if (!cancelled) setSandboxReadinessLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    section,
+    settings.tools.enabled,
+    settings.tools.sandboxMode,
+    settings.tools.workspaceShell,
+    settings.tools.windowsSandboxLevel
+  ])
 
   useEffect(() => {
     if (section !== 'connectors') return
@@ -364,12 +400,58 @@ export function SettingsView({
                   onChange={(workspaceRead) => void configuration.updateSetting('tools.workspaceRead', workspaceRead)}
                 />
               </SettingsRow>
-              <SettingsRow label="Agent 权限模式" detail="与对话框左下角保持一致：统一控制 Agent 对工作区文件执行写入操作时的审批策略">
+              <SettingsRow label="Agent 权限模式" detail="与对话框左下角保持一致：对齐 Codex 三态（需批准≈untrusted / 按风险≈on-request / 本课放行≈never），统一控制工作区写入与工作区命令的审批策略">
                 <SettingsSelect
                   value={settings.tools.approvalMode}
                   options={agentApprovalModeOptions}
                   onChange={(approvalMode: AgentApprovalMode) =>
                     void configuration.updateSetting('tools.approvalMode', approvalMode)}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="沙箱模式"
+                detail="对齐 Codex SandboxMode（只读 / 工作区可写 / 宽松策略），与权限模式正交：沙箱管「能做什么」，权限管「要不要问人」。不宣称 Docker/VM 级隔离"
+              >
+                <SettingsSelect
+                  value={settings.tools.sandboxMode}
+                  options={agentSandboxModeOptions}
+                  onChange={(sandboxMode) =>
+                    void configuration.updateSetting('tools.sandboxMode', sandboxMode)}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="沙箱就绪摘要"
+                detail={
+                  sandboxReadinessLoading
+                    ? '正在读取与 runtime 相同的 readiness 探针…'
+                    : sandboxReadiness
+                      ? agentSandboxReadinessSummaryLabel({
+                          mode: sandboxReadiness.mode,
+                          backend: sandboxReadiness.backend,
+                          osEnforcementAvailable: sandboxReadiness.osEnforcementAvailable,
+                          platform: window.teachingSystem?.platform,
+                          windowsReadiness: sandboxReadiness.windowsReadiness,
+                          summary: sandboxReadiness.summary
+                        })
+                      : '无法读取 live readiness；请以 Doctor / 一次 shell 调用结果为准。Windows 无 helper 时为策略围栏。'
+                }
+              >
+                <span style={{ fontSize: 12, color: '#68778f', maxWidth: 280, textAlign: 'right' }} data-testid="agent-sandbox-readiness">
+                  {sandboxReadiness
+                    ? `${sandboxReadiness.backend}${sandboxReadiness.osEnforcementAvailable ? ' · OS' : ' · 策略围栏'}`
+                    : sandboxReadinessLoading
+                      ? '…'
+                      : '—'}
+                </span>
+              </SettingsRow>
+              <SettingsRow
+                label="工作区命令 / Shell"
+                detail="主流 Agent 能力：run_workspace_command 与 shell 别名。开启工具后默认可用；可关闭。工作区路径围栏 + 双轴策略；输出不是学习证据"
+              >
+                <ToggleSwitch
+                  checked={settings.tools.workspaceShell}
+                  onChange={(workspaceShell) =>
+                    void configuration.updateSetting('tools.workspaceShell', workspaceShell)}
                 />
               </SettingsRow>
               <SettingsRow label="web_search（多后端）" detail="自动使用 SearXNG、Brave Search 或 DuckDuckGo Lite 检索最新和课程外信息">

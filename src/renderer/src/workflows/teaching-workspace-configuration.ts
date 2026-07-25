@@ -92,6 +92,9 @@ export type TeachingWorkspaceSettingsPath =
   | 'tools.enabled'
   | 'tools.workspaceRead'
   | 'tools.approvalMode'
+  | 'tools.workspaceShell'
+  | 'tools.sandboxMode'
+  | 'tools.windowsSandboxLevel'
   | 'tools.webSearch'
   | 'tools.webFetch'
   | 'tools.maxIterations'
@@ -161,6 +164,9 @@ export function buildTeachingWorkspaceSettingsPatch(
     case 'tools.enabled':
     case 'tools.workspaceRead':
     case 'tools.approvalMode':
+    case 'tools.workspaceShell':
+    case 'tools.sandboxMode':
+    case 'tools.windowsSandboxLevel':
     case 'tools.webSearch':
     case 'tools.webFetch':
     case 'tools.maxIterations':

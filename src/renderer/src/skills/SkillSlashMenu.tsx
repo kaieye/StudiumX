@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next'
 
 import {
   filterSkillSlashMatches,
-  leadingSkillIds,
+  leadingSkillIdSequence,
   skillCommandValue,
   skillSlashQuery
 } from '../../../shared/skill-command'
@@ -80,7 +80,7 @@ export function useSkillSlashInput(options: {
       />
     ) : null,
     handleKeyDown,
-    skillIdsFor: (value: string) => leadingSkillIds(value, catalog.skills)
+    skillIdsFor: (value: string) => leadingSkillIdSequence(value, catalog.skills)
   }
 }
 

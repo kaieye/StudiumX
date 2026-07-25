@@ -1,7 +1,6 @@
 import type { AnalyticsCopy } from '../analyticsCopy'
 import type { AnalyticsFormatters } from '../chartFormatters'
 import type {
-  AnalyticsDimensionBreakdown,
   AnalyticsLocalDate,
   FocusAnalytics,
   LearningAnalyticsHero,
@@ -11,9 +10,12 @@ import type {
   TaskAnalytics,
   TokenAnalytics
 } from '../types'
+import { ActiveRangeChart } from '../charts/ActiveRangeChart'
 import { CalendarHeatmap } from '../charts/CalendarHeatmap'
 import { DonutChart, type DonutSlice } from '../charts/DonutChart'
-import { HourBarChart } from '../charts/HourBarChart'
+import { DumbbellChart } from '../charts/DumbbellChart'
+import { ProgressGauge } from '../charts/ProgressGauge'
+import { RankBarChart } from '../charts/RankBarChart'
 import { TrendChart } from '../charts/TrendChart'
 import { categoricalColor } from '../charts/palette'
 
@@ -54,34 +56,77 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   )
 }
 
+function comparisonHint(
+  comparison: { absoluteChange: number; ratioChange: number | null } | undefined,
+  fmt: AnalyticsFormatters,
+  copy: AnalyticsCopy,
+  formatValue: (value: number) => string
+): string | undefined {
+  if (!comparison) return undefined
+  const { absoluteChange, ratioChange } = comparison
+  if (absoluteChange === 0) return copy.hero.comparisonFlat
+  const direction = absoluteChange > 0 ? copy.hero.comparisonUp : copy.hero.comparisonDown
+  const magnitude = formatValue(Math.abs(absoluteChange))
+  const ratio =
+    ratioChange === null || !Number.isFinite(ratioChange)
+      ? ''
+      : ` (${fmt.percent(Math.abs(ratioChange))})`
+  return `${direction} ${magnitude}${ratio}`
+}
+
 /* ---------------------------------------------------------------- Hero --- */
 
 export function HeroBody({ data, copy, fmt }: Ctx & { data: LearningAnalyticsHero }) {
+  // Only show comparative deltas; omit static "current" / "in range" footnotes under cards.
+  const focusHint = comparisonHint(data.focusComparison, fmt, copy, fmt.duration)
+  const tokenHint = comparisonHint(data.tokenComparison, fmt, copy, fmt.compact)
+
   return (
-    <div className="analytics-hero-grid">
-      <Stat label={copy.hero.focus} value={fmt.duration(data.focusSeconds)} hint={copy.hero.inRange} />
-      <Stat
-        label={copy.hero.sessions}
-        value={`${fmt.integer(data.completedFocusSessions)}${copy.hero.sessionsUnit ? ` ${copy.hero.sessionsUnit}` : ''}`}
-        hint={copy.hero.inRange}
-      />
-      <Stat label={copy.hero.tokens} value={fmt.compact(data.totalTokens)} hint={copy.hero.inRange} />
-      <Stat
-        label={copy.hero.streak}
-        value={`${fmt.integer(data.currentStreakDays)} ${copy.hero.days}`}
-        hint={copy.hero.current}
-        tone="ok"
-      />
-      <Stat
-        label={copy.hero.level}
-        value={`${fmt.integer(data.currentLevel.level)}${copy.hero.levelUnit ? ` ${copy.hero.levelUnit}` : ''}`}
-        hint={copy.hero.current}
-      />
-      <Stat
-        label={copy.hero.tasks}
-        value={fmt.percent(data.currentTaskCompletionRate)}
-        hint={copy.hero.current}
-        tone={(data.currentTaskCompletionRate ?? 0) >= 0.7 ? 'ok' : (data.currentTaskCompletionRate ?? 0) > 0 ? 'warn' : 'default'}
+    <div className="analytics-hero">
+      <div className="analytics-hero-grid">
+        <Stat label={copy.hero.focus} value={fmt.duration(data.focusSeconds)} hint={focusHint} />
+        <Stat
+          label={copy.hero.sessions}
+          value={`${fmt.integer(data.completedFocusSessions)}${copy.hero.sessionsUnit ? ` ${copy.hero.sessionsUnit}` : ''}`}
+        />
+        <Stat label={copy.hero.tokens} value={fmt.compact(data.totalTokens)} hint={tokenHint} />
+        <Stat
+          label={copy.hero.streak}
+          value={`${fmt.integer(data.currentStreakDays)} ${copy.hero.days}`}
+          tone="ok"
+        />
+        <Stat
+          label={copy.hero.tasks}
+          value={fmt.percent(data.currentTaskCompletionRate)}
+          tone={(data.currentTaskCompletionRate ?? 0) >= 0.7 ? 'ok' : (data.currentTaskCompletionRate ?? 0) > 0 ? 'warn' : 'default'}
+        />
+        <Stat label={copy.hero.currentXp} value={fmt.integer(data.currentXp)} />
+      </div>
+    </div>
+  )
+}
+
+/** Level progress ring as a peer card beside the overview section. */
+export function LevelBody({ data, copy, fmt }: Ctx & { data: LearningAnalyticsHero }) {
+  const level = data.currentLevel
+  const levelProgress = Number.isFinite(level.progress) ? level.progress : null
+  const levelTone: 'default' | 'ok' | 'warn' =
+    (levelProgress ?? 0) >= 0.7 ? 'ok' : (levelProgress ?? 0) > 0 ? 'warn' : 'default'
+  const levelCenter = `${fmt.integer(level.level)}${copy.hero.levelUnit ? ` ${copy.hero.levelUnit}` : ''}`
+  const fillTooltip = `${copy.hero.currentXp}: ${fmt.integer(level.currentXp)}`
+  const trackTooltip = `${copy.hero.nextLevelXp}: ${fmt.integer(level.xpAtNextLevel)}`
+
+  return (
+    <div className="analytics-level-card">
+      <ProgressGauge
+        progress={levelProgress}
+        title={copy.hero.levelProgressTitle}
+        centerValue={levelCenter}
+        centerLabel={fmt.percent(levelProgress)}
+        emptyLabel={copy.charts.empty}
+        tone={levelTone}
+        fillTooltip={fillTooltip}
+        trackTooltip={trackTooltip}
       />
     </div>
   )
@@ -89,20 +134,7 @@ export function HeroBody({ data, copy, fmt }: Ctx & { data: LearningAnalyticsHer
 
 /* --------------------------------------------------------------- Focus --- */
 
-function dimensionSlices<T extends string>(
-  breakdown: readonly AnalyticsDimensionBreakdown<T>[],
-  labels: Record<string, string>
-): DonutSlice[] {
-  return breakdown.map((item) => ({
-    id: item.id,
-    label: labels[item.id] ?? item.id,
-    value: item.seconds
-  }))
-}
-
 export function FocusBody({ data, copy, fmt, localToday }: Ctx & { data: FocusAnalytics }) {
-  const s = data.sessionStructure
-  const trendDates = data.trend.map((point) => point.date)
   return (
     <div className="analytics-focus">
       <div className="analytics-subcard analytics-focus__heatmap">
@@ -127,70 +159,27 @@ export function FocusBody({ data, copy, fmt, localToday }: Ctx & { data: FocusAn
         />
       </div>
 
-      <div className="analytics-subcard analytics-focus__trend">
-        <h3 className="analytics-subcard__title">{copy.focus.trendTitle}</h3>
-        <TrendChart
-          dates={trendDates}
-          series={[
-            {
-              id: 'focus',
-              label: copy.focus.trendFocus,
-              color: categoricalColor(0),
-              values: data.trend.map((point) => point.focusSeconds),
-              format: fmt.duration
-            }
-          ]}
-          title={copy.focus.trendTitle}
-          formatDate={fmt.shortDate}
-          emptyLabel={copy.charts.empty}
-        />
-      </div>
-
       <div className="analytics-subcard analytics-focus__hours">
         <h3 className="analytics-subcard__title">{copy.focus.hourTitle}</h3>
-        <HourBarChart
-          buckets={data.hourBuckets}
+        <ActiveRangeChart
+          series={data.activeRanges}
           title={copy.focus.hourTitle}
-          formatHour={fmt.hour}
-          formatValue={fmt.duration}
-          peakLabel={copy.focus.hourPeak}
-          peakNoneLabel={copy.focus.hourNoPeak}
+          formatCategory={(category, mode) =>
+            mode === 'hour_of_day' ? fmt.axisHour(Number(category)) : fmt.axisDate(category)
+          }
+          formatY={(value, unit) =>
+            unit === 'minute' ? fmt.minuteMark(value) : fmt.hourMark(value)
+          }
+          formatDuration={fmt.duration}
+          rangeLabel={
+            data.activeRanges.mode === 'hour_of_day'
+              ? copy.focus.activeRangeHourAxis
+              : copy.focus.activeRangeDayAxis
+          }
           emptyLabel={copy.charts.empty}
         />
       </div>
 
-      <div className="analytics-subcard analytics-focus__donuts">
-        <div className="analytics-donut-cell">
-          <h3 className="analytics-subcard__title">{copy.focus.modeTitle}</h3>
-          <DonutChart
-            slices={dimensionSlices(data.modeBreakdown, copy.focus.modeLabels)}
-            title={copy.focus.modeTitle}
-            formatValue={fmt.duration}
-            emptyLabel={copy.charts.empty}
-          />
-        </div>
-        <div className="analytics-donut-cell">
-          <h3 className="analytics-subcard__title">{copy.focus.signalTitle}</h3>
-          <DonutChart
-            slices={dimensionSlices(data.signalBreakdown, copy.focus.signalLabels)}
-            title={copy.focus.signalTitle}
-            formatValue={fmt.duration}
-            emptyLabel={copy.charts.empty}
-          />
-        </div>
-      </div>
-
-      <div className="analytics-subcard analytics-focus__structure">
-        <h3 className="analytics-subcard__title">{copy.focus.structureTitle}</h3>
-        <dl className="analytics-keyvalue-grid">
-          <KeyValue label={copy.focus.completed} value={fmt.integer(s.completed)} />
-          <KeyValue label={copy.focus.interrupted} value={fmt.integer(s.interrupted)} />
-          <KeyValue label={copy.focus.canceled} value={fmt.integer(s.canceled)} />
-          <KeyValue label={copy.focus.completionRate} value={fmt.percent(s.completionRate)} />
-          <KeyValue label={copy.focus.avgSession} value={fmt.duration(s.averageCompletedFocusSeconds)} />
-          <KeyValue label={copy.focus.breakTime} value={fmt.duration(s.breakSeconds)} />
-        </dl>
-      </div>
     </div>
   )
 }
@@ -200,6 +189,14 @@ export function FocusBody({ data, copy, fmt, localToday }: Ctx & { data: FocusAn
 export function TokenBody({ data, copy, fmt, localToday }: Ctx & { data: TokenAnalytics }) {
   const todayRow = data.byDay.find((row) => row.date === localToday)
   const trendDates = data.byDay.map((row) => row.date)
+  const hasSplit = data.byDay.some(
+    (row) => (row.promptTokens ?? 0) > 0 || (row.completionTokens ?? 0) > 0
+  )
+  const workspaceItems = data.byWorkspace.map((entry) => ({
+    id: entry.workspaceId,
+    label: entry.name || entry.workspaceId,
+    value: entry.totalTokens
+  }))
 
   return (
     <div className="analytics-tokens">
@@ -212,19 +209,69 @@ export function TokenBody({ data, copy, fmt, localToday }: Ctx & { data: TokenAn
         <h3 className="analytics-subcard__title">{copy.tokens.trendTitle}</h3>
         <TrendChart
           dates={trendDates}
-          series={[
-            {
-              id: 'tokens',
-              label: copy.tokens.trendTitle,
-              color: categoricalColor(1),
-              values: data.byDay.map((row) => row.totalTokens),
-              format: fmt.integer
-            }
-          ]}
+          series={
+            hasSplit
+              ? [
+                  {
+                    id: 'prompt',
+                    label: copy.tokens.promptTrend,
+                    color: categoricalColor(0),
+                    values: data.byDay.map((row) => row.promptTokens ?? 0),
+                    format: fmt.integer,
+                    fill: true,
+                    sharedScale: true
+                  },
+                  {
+                    id: 'completion',
+                    label: copy.tokens.completionTrend,
+                    color: categoricalColor(1),
+                    values: data.byDay.map((row) => row.completionTokens ?? 0),
+                    format: fmt.integer,
+                    fill: true,
+                    sharedScale: true
+                  }
+                ]
+              : [
+                  {
+                    id: 'tokens',
+                    label: copy.tokens.trendTitle,
+                    color: categoricalColor(1),
+                    values: data.byDay.map((row) => row.totalTokens),
+                    format: fmt.integer,
+                    fill: true
+                  }
+                ]
+          }
           title={copy.tokens.trendTitle}
           formatDate={fmt.shortDate}
           emptyLabel={copy.charts.empty}
+          sharedScale={hasSplit}
         />
+      </div>
+
+      <div className="analytics-subcard">
+        <h3 className="analytics-subcard__title">{copy.tokens.byWorkspaceTitle}</h3>
+        <RankBarChart
+          items={workspaceItems}
+          title={copy.tokens.byWorkspaceTitle}
+          formatValue={fmt.integer}
+          emptyLabel={copy.tokens.noWorkspaceShare}
+        />
+      </div>
+
+      <div className="analytics-subcard">
+        <h3 className="analytics-subcard__title">{copy.tokens.efficiencyTitle}</h3>
+        <dl className="analytics-keyvalue-grid">
+          <KeyValue
+            label={copy.tokens.avgPerConversation}
+            value={fmt.integer(data.efficiency.averageTokensPerConversation)}
+          />
+          <KeyValue
+            label={copy.tokens.avgPerMessage}
+            value={fmt.integer(data.efficiency.averageTokensPerMessage)}
+          />
+          <KeyValue label={copy.tokens.toolErrorRate} value={fmt.percent(data.efficiency.toolErrorRate)} />
+        </dl>
       </div>
     </div>
   )
@@ -233,11 +280,11 @@ export function TokenBody({ data, copy, fmt, localToday }: Ctx & { data: TokenAn
 /* --------------------------------------------------------------- Tasks --- */
 
 export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
-  // Prefer attributed focus-time pies; fall back to checklist completion counts so
+  // Prefer attributed focus-time bars; fall back to checklist completion counts so
   // checking tasks on the list produces visible share charts without a focus run.
   const hasFocusShare = data.topByAttributedFocus.some((task) => task.focusSeconds > 0)
   const taskShareMode: 'focus' | 'completion' = hasFocusShare ? 'focus' : 'completion'
-  const taskFocusSlices: DonutSlice[] = hasFocusShare
+  const taskFocusItems = hasFocusShare
     ? data.topByAttributedFocus.map((task) => ({
         id: task.taskId,
         label: task.title,
@@ -248,7 +295,7 @@ export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
         label: task.title,
         value: task.completionCount
       }))
-  const categoryFocusSlices: DonutSlice[] = hasFocusShare
+  const categoryFocusItems = hasFocusShare
     ? data.byCategoryFocus.map((entry) => ({
         id: entry.categoryId,
         label:
@@ -284,6 +331,17 @@ export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
       }))
   const rankTitle = hasFocusShare ? copy.tasks.topTasksTitle : copy.tasks.topCompletionTitle
 
+  const plan = data.plan
+  const planItems = [
+    {
+      id: 'plan-vs-exec',
+      label: copy.tasks.planVsExecLabel,
+      before: plan.plannedSeconds,
+      after: plan.attributedFocusSeconds
+    }
+  ]
+  const hasPlanData = plan.plannedSeconds > 0 || plan.attributedFocusSeconds > 0
+
   return (
     <div className="analytics-tasks">
       <div className="analytics-stat-row">
@@ -301,11 +359,11 @@ export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
         />
       </div>
 
-      <div className="analytics-subcard analytics-tasks__donuts">
+      <div className="analytics-subcard analytics-tasks__bars">
         <div className="analytics-donut-cell">
           <h3 className="analytics-subcard__title">{taskChartTitle}</h3>
-          <DonutChart
-            slices={taskFocusSlices}
+          <RankBarChart
+            items={taskFocusItems}
             title={taskChartTitle}
             formatValue={formatShareValue}
             emptyLabel={emptyShareLabel}
@@ -313,8 +371,8 @@ export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
         </div>
         <div className="analytics-donut-cell">
           <h3 className="analytics-subcard__title">{categoryChartTitle}</h3>
-          <DonutChart
-            slices={categoryFocusSlices}
+          <RankBarChart
+            items={categoryFocusItems}
             title={categoryChartTitle}
             formatValue={formatShareValue}
             emptyLabel={emptyShareLabel}
@@ -322,15 +380,24 @@ export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
         </div>
       </div>
 
-      <div className="analytics-subcard">
-        <h3 className="analytics-subcard__title">{copy.tasks.flowTitle}</h3>
-        <dl className="analytics-keyvalue-grid">
-          <KeyValue label={copy.tasks.created} value={fmt.integer(data.flow.created)} />
-          <KeyValue label={copy.tasks.completed} value={fmt.integer(data.flow.completed)} />
-          <KeyValue label={copy.tasks.reopened} value={fmt.integer(data.flow.reopened)} />
-          <KeyValue label={copy.tasks.deleted} value={fmt.integer(data.flow.deleted)} />
-        </dl>
-      </div>
+      {hasPlanData ? (
+        <div className="analytics-subcard">
+          <h3 className="analytics-subcard__title">{copy.tasks.planTitle}</h3>
+          <DumbbellChart
+            items={planItems}
+            title={copy.tasks.planTitle}
+            beforeLabel={copy.tasks.planned}
+            afterLabel={copy.tasks.executed}
+            formatValue={fmt.duration}
+            emptyLabel={copy.tasks.noPlan}
+          />
+          <dl className="analytics-keyvalue-grid analytics-keyvalue-grid--compact">
+            <KeyValue label={copy.tasks.planned} value={fmt.duration(plan.plannedSeconds)} />
+            <KeyValue label={copy.tasks.executed} value={fmt.duration(plan.attributedFocusSeconds)} />
+            <KeyValue label={copy.tasks.executionRate} value={fmt.percent(plan.executionRate)} />
+          </dl>
+        </div>
+      ) : null}
 
       <div className="analytics-subcard">
         <h3 className="analytics-subcard__title">{rankTitle}</h3>
@@ -354,22 +421,50 @@ export function TaskBody({ data, copy, fmt }: Ctx & { data: TaskAnalytics }) {
 /* -------------------------------------------------------------- Review --- */
 
 export function ReviewBody({ data, copy, fmt }: Ctx & { data: ReviewAnalytics }) {
+  const accuracy = data.cumulative.accuracy
+  const accuracyTone: 'default' | 'ok' | 'warn' =
+    (accuracy ?? 0) >= 0.8 ? 'ok' : (accuracy ?? 0) > 0 ? 'warn' : 'default'
+  const lessonItems = data.byLesson.slice(0, 8).map((lesson) => ({
+    id: lesson.lessonId,
+    label: lesson.title ?? lesson.lessonId,
+    value: Math.round((lesson.accuracy ?? 0) * 100)
+  }))
+
   return (
     <div className="analytics-review">
       <div className="analytics-stat-row">
         <Stat
           label={copy.review.accuracy}
-          value={fmt.percent(data.cumulative.accuracy)}
-          tone={(data.cumulative.accuracy ?? 0) >= 0.8 ? 'ok' : (data.cumulative.accuracy ?? 0) > 0 ? 'warn' : 'default'}
+          value={fmt.percent(accuracy)}
+          tone={accuracyTone}
         />
         <Stat label={copy.review.answered} value={fmt.integer(data.cumulative.totalAnswered)} />
         <Stat label={copy.review.correct} value={fmt.integer(data.cumulative.correct)} tone="ok" />
         <Stat label={copy.review.cards} value={fmt.integer(data.cumulative.cardCount)} />
       </div>
 
+      <div className="analytics-subcard analytics-review__accuracy">
+        <h3 className="analytics-subcard__title">{copy.review.accuracyGaugeTitle}</h3>
+        <ProgressGauge
+          progress={accuracy}
+          title={copy.review.accuracyGaugeTitle}
+          centerValue={fmt.percent(accuracy)}
+          centerLabel={copy.review.accuracy}
+          emptyLabel={copy.charts.empty}
+          tone={accuracyTone}
+        />
+      </div>
+
       <div className="analytics-subcard">
         <h3 className="analytics-subcard__title">{copy.review.byLessonTitle}</h3>
-        {data.byLesson.length > 0 ? (
+        {lessonItems.some((item) => item.value > 0) ? (
+          <RankBarChart
+            items={lessonItems}
+            title={copy.review.byLessonTitle}
+            formatValue={(value) => `${fmt.integer(value)}%`}
+            emptyLabel={copy.review.noLessons}
+          />
+        ) : data.byLesson.length > 0 ? (
           <ol className="analytics-rank-list">
             {data.byLesson.slice(0, 8).map((lesson) => (
               <li key={lesson.lessonId}>
@@ -487,3 +582,4 @@ export function InsightsBody({
     </ul>
   )
 }
+

@@ -7,9 +7,6 @@ import type {
   AnalyticsWeekdayIndex,
   StudyActivityFact,
   StudyAnalyticsFact,
-  StudyAnalyticsModeId,
-  StudyAnalyticsRoomId,
-  StudyAnalyticsSignalId,
   PersonalStudyAnalyticsSnapshot,
   StudyAnalyticsStoreV1,
   StudyDailyProjection,
@@ -70,9 +67,6 @@ function createProjection(date: string, rebuiltAt: string): StudyDailyProjection
     completedFocusSessions: 0,
     interruptedFocusSessions: 0,
     xpEarned: 0,
-    modeSeconds: {},
-    roomSeconds: {},
-    signalSeconds: {},
     hourBuckets: emptyHourBuckets() as unknown as AnalyticsHourBuckets,
     tasksCreated: 0,
     tasksCompleted: 0,
@@ -84,10 +78,6 @@ function createProjection(date: string, rebuiltAt: string): StudyDailyProjection
     rebuiltAt,
     buckets: emptyHourBuckets()
   }
-}
-
-function addRecordValue<K extends string>(record: Partial<Record<K, number>>, key: K, value: number): void {
-  record[key] = (record[key] ?? 0) + value
 }
 
 /** Rebuilds the disposable projection from immutable facts only. Duplicate fact IDs are ignored. */
@@ -121,9 +111,6 @@ export function rebuildStudyDailyProjections(
         const activeSeconds = segment.activeSeconds
         if (fact.timerMode === 'focus') {
           projection.focusSeconds += activeSeconds
-          addRecordValue<StudyAnalyticsModeId>(projection.modeSeconds, fact.context.modeId, activeSeconds)
-          addRecordValue<StudyAnalyticsRoomId>(projection.roomSeconds, fact.context.roomId, activeSeconds)
-          addRecordValue<StudyAnalyticsSignalId>(projection.signalSeconds, fact.context.signalId, activeSeconds)
           for (let hour = 0; hour < 24; hour += 1) {
             projection.buckets[hour] += segment.hourBuckets[hour] ?? 0
           }

@@ -542,13 +542,26 @@ function describeWorkspaceTools(
       promptEligible: false
     })
   }
+  const shellEnabled = settings.tools.workspaceShell !== false
   return capabilityItem({
     id: 'workspace_tools',
     kind: 'workspace_tools',
     name: 'Workspace tools',
     status: 'available',
-    reason: 'trusted teaching workspace tools are enabled',
-    promptEligible: true
+    reason: shellEnabled
+      ? 'trusted teaching workspace tools are enabled; includes run_workspace_command/shell when workspaceShell is on'
+      : 'trusted teaching workspace tools are enabled; workspaceShell is off so shell tools are not claimed',
+    promptEligible: true,
+    details: {
+      workspaceShell: shellEnabled,
+      ...(shellEnabled
+        ? {
+            shellTools: 'run_workspace_command,shell'
+          }
+        : {
+            shellTools: 'disabled'
+          })
+    }
   })
 }
 

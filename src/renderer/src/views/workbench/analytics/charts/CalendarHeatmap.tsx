@@ -45,9 +45,9 @@ function intensityLevel(value: number, max: number): number {
 }
 
 /**
- * GitHub-style calendar heatmap. Columns are ISO weeks (Monday top), a single
- * roving-tabindex grid keeps it keyboard navigable, and only the tooltip/focus
- * ring animate.
+ * GitHub-style calendar heatmap. Columns are ISO weeks (Monday top).
+ * Keyboard arrows move the active cell for the footer readout; mouse hover
+ * does not paint a tracking highlight (native title still shows detail).
  */
 export function CalendarHeatmap({
   cells,
@@ -121,13 +121,6 @@ export function CalendarHeatmap({
     }
   }
 
-  const activeCell = sorted[activeIndex]
-  const activeDescription = activeCell
-    ? activeCell.isCovered
-      ? `${formatDate(activeCell.date)} · ${formatValue(activeCell.value)}`
-      : `${formatDate(activeCell.date)}`
-    : ''
-
   return (
     <div className="calendar-heatmap">
       <div className="calendar-heatmap__scroll">
@@ -175,8 +168,6 @@ export function CalendarHeatmap({
                           ? `${formatDate(cell.date)} · ${formatValue(cell.value)} · ${cell.sessions}`
                           : formatDate(cell.date)
                     }
-                    onPointerEnter={() => setActiveIndex(index)}
-                    onClick={() => setActiveIndex(index)}
                   />
                 )
               })}
@@ -186,7 +177,6 @@ export function CalendarHeatmap({
       </div>
 
       <div className="calendar-heatmap__footer">
-        <p className="calendar-heatmap__readout" aria-live="polite">{activeDescription}</p>
         <div className="calendar-heatmap__legend" aria-hidden="true">
           <span>{legendLess}</span>
           {[0, 1, 2, 3, 4].map((level) => (

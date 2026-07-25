@@ -8,6 +8,8 @@ This contract is the reviewable inventory of registered teaching tools. `scripts
 | `delegate_task` | `privileged` | No child prompt/provider payload projection; expose bounded child status only | Child execution is capability-gated and budgeted. |
 | `generate_lesson` | `privileged` | No raw provider payload; project learner-safe lesson result | Lesson generation is an explicit teaching action, not a generic write grant. |
 | `parallel_tasks` | `privileged` | No snip; project bounded child status | Delegation fan-out remains privileged and budgeted. |
+| `run_workspace_command` | `privileged` | Snip bounded stdout/stderr; never treat as Evidence | Default-on when tools enabled (`workspaceShell !== false`); workspace cwd fence; argv spawn; **sandboxMode × approvalMode** dual-axis (Codex, ADR-0152/0153). Product readiness provisional until [delivery roadmap](../agent-shell-sandbox-delivery-roadmap.md) A–F; teaching projection must allowlist the tool (not registry-only). |
+| `shell` | `privileged` | Same as `run_workspace_command` | Mainstream-agent alias of `run_workspace_command` (ADR-0153). |
 | `read_only_task` | `read` | Snip to bounded read-only result; no write projection | Read-only delegated work may not invoke write or privileged effects. |
 | `list_workspace` | `read` | Snip bounded directory entries; omit sensitive/protected paths | Workspace containment and protected-path checks remain mandatory. |
 | `read_workspace_file` | `read` | Snip bounded line window; no unbounded file projection | Workspace containment and protected-path checks remain mandatory. |
@@ -48,7 +50,7 @@ Registry discovery: optional `ToolEntry.capabilities` overrides defaults; `resol
 
 ## Permission and UI guidance
 
-The contract does not authorize execution by itself. The effect lattice remains the pre-execution gate, and the registry permission descriptor remains the interactive gate. UI copy should describe the three states as **需批准** (approval required), **按风险** (risk-based), and **本课放行** (this lesson/run allows it). Do not expose or label a mode as “YOLO”.
+The contract does not authorize execution by itself. The effect lattice remains the pre-execution gate, and the registry permission descriptor remains the interactive gate. UI copy should describe the three states as **需批准** (approval required; Codex `untrusted`), **按风险** (risk-based; Codex `on-request`), and **本课放行** (this lesson/run allows it; Codex `never`). Do not expose or label a mode as “YOLO”.
 
 
 ## Dynamic MCP bridge rules (ADR-0128)

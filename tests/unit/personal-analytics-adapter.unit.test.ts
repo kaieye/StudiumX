@@ -347,10 +347,25 @@ describe('personal Study analytics snapshot seam', () => {
     const empty = snapshot({ trackingStartedOn: '2026-07-13' })
     const covered = calculate(query('2026-07-13'), empty).sections.focus
     expect(covered.state).toBe('empty')
-    expect(dataOf(covered).heatmap).toEqual([expect.objectContaining({ date: '2026-07-13', focusSeconds: 0, isCovered: true })])
+    const heatmap = dataOf(covered).heatmap
+    expect(heatmap).toHaveLength(365)
+    expect(heatmap[0]?.date).toBe('2025-07-14')
+    expect(heatmap.at(-1)).toEqual(expect.objectContaining({ date: '2026-07-13', focusSeconds: 0, isCovered: true }))
+    expect(heatmap.find((cell) => cell.date === '2026-07-12')).toEqual(
+      expect.objectContaining({ date: '2026-07-12', isCovered: false })
+    )
+    expect(dataOf(covered).activeRanges.mode).toBe('hour_of_day')
+    expect(dataOf(covered).activeRanges.yMax).toBe(60)
+    expect(dataOf(covered).activeRanges.categories).toHaveLength(24)
+    expect(dataOf(covered).activeRanges.ranges).toEqual([])
 
     const beforeTracking = calculate(query('2026-07-12'), empty).sections.focus
-    expect(beforeTracking.state).toBe('unavailable')
+    // Still empty-with-skeleton (blank heatmap + activeRanges axes), not data-less unavailable.
+    expect(beforeTracking.state).toBe('empty')
+    if (beforeTracking.state !== 'empty') throw new Error('expected empty focus skeleton')
+    expect(beforeTracking.data.heatmap).toHaveLength(365)
+    expect(beforeTracking.data.activeRanges.ranges).toEqual([])
+    expect(beforeTracking.data.activeRanges.categories.length).toBeGreaterThan(0)
     expect(beforeTracking.warnings.map((item) => item.code)).toContain('range_before_tracking_started')
   })
 
@@ -382,7 +397,11 @@ describe('personal Study analytics snapshot seam', () => {
   it('rejects stale and oversized snapshots before aggregation', () => {
     const stale = calculate(query(), snapshot({ capturedAt: '2026-07-13T11:49:59.000Z' }))
     expect(stale.validation.state).toBe('invalid')
-    expect(stale.sections.focus.state).toBe('unavailable')
+    // Focus keeps a blank skeleton so charts remain mounted even without a valid snapshot.
+    expect(stale.sections.focus.state).toBe('empty')
+    if (stale.sections.focus.state !== 'empty') throw new Error('expected empty focus skeleton')
+    expect(stale.sections.focus.data.heatmap).toHaveLength(365)
+    expect(stale.sections.focus.data.activeRanges.ranges).toEqual([])
 
     const oversized = calculate(query(), snapshot({
       facts: Array.from({ length: PERSONAL_STUDY_SNAPSHOT_MAX_FACTS + 1 }, (_, index) => sessionFact({ id: `session-${index}` }))

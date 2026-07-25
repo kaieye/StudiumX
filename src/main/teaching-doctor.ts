@@ -279,8 +279,22 @@ function checkConfigAvailability(
     settingsParseable: facts.settingsParseable,
     providerConfigured: facts.providerConfigured,
     configPath,
-    ...(configKey ? { configKey } : {})
-  }, facts.reason ? [redactText(facts.reason)] : [])
+    ...(configKey ? { configKey } : {}),
+    ...(facts.agentSandboxMode ? { agentSandboxMode: facts.agentSandboxMode } : {}),
+    ...(facts.agentSandboxBackend ? { agentSandboxBackend: facts.agentSandboxBackend } : {}),
+    ...(typeof facts.agentSandboxOsEnforcementAvailable === 'boolean'
+      ? { agentSandboxOsEnforcementAvailable: facts.agentSandboxOsEnforcementAvailable }
+      : {}),
+    ...(facts.agentSandboxSummary ? { agentSandboxSummary: facts.agentSandboxSummary } : {}),
+    ...(facts.agentSandboxWindowsReadiness
+      ? { agentSandboxWindowsReadiness: facts.agentSandboxWindowsReadiness }
+      : {})
+  }, [
+    ...(facts.reason ? [redactText(facts.reason)] : []),
+    ...(facts.agentSandboxSummary
+      ? [redactText(`agent_sandbox=${facts.agentSandboxSummary}`)]
+      : [])
+  ])
 
   if (!facts.settingsAvailable || !facts.settingsReadable || !facts.settingsParseable) {
     return item(

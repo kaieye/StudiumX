@@ -74,10 +74,23 @@ export type WebSearchBackend =
   | 'xai'
 export type ParallelSearchMode = 'agentic' | 'fast' | 'one-shot'
 /** The single Agent permission mode exposed throughout the application. */
+/**
+ * Agent interactive approval lattice (Codex-aligned, ADR-0152 / ADR-0153):
+ * - request_approval  ↔ Codex untrusted / UnlessTrusted（需批准）
+ * - based_on_approval ↔ Codex on-request / OnRequest（按风险）
+ * - full_access       ↔ Codex never / Never（本课放行；非 YOLO 标签）
+ *
+ * Orthogonal to AgentSandboxMode (what FS/network posture allows).
+ */
 export type AgentApprovalMode =
   | 'request_approval'
   | 'based_on_approval'
   | 'full_access'
+
+import type { AgentSandboxMode, WindowsSandboxLevel } from './agent-sandbox'
+export type { WindowsSandboxLevel } from './agent-sandbox'
+export type { AgentSandboxMode } from './agent-sandbox'
+export { AGENT_SANDBOX_MODES } from './agent-sandbox'
 
 export const MODEL_ENDPOINT_FORMATS = [
   'chat_completions',
@@ -209,6 +222,23 @@ export type TeachingSettingsV1 = {
     enabled: boolean
     workspaceRead: boolean
     approvalMode: AgentApprovalMode
+    /**
+     * Workspace command / shell tools (Codex-style agent shell).
+     * When tools.enabled is true, defaults to true (mainstream agent posture, ADR-0153).
+     * Explicit false disables registration.
+     */
+    workspaceShell: boolean
+    /**
+     * Codex SandboxMode dual-axis (ADR-0153):
+     * read_only | workspace_write | full_access
+     * Orthogonal to approvalMode. UI never labels full_access as YOLO.
+     */
+    sandboxMode: AgentSandboxMode
+    /**
+     * Codex WindowsSandboxLevel (config_types.rs).
+     * Only meaningful on Windows; ignored elsewhere.
+     */
+    windowsSandboxLevel: WindowsSandboxLevel
     webSearch: boolean
     webFetch: boolean
     maxIterations: number

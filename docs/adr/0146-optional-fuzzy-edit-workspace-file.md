@@ -2,7 +2,7 @@
 
 - **状态：** **已实施**（2026-07-24）：`edit-match.ts` + `workspace-edit.ts` `edit_workspace_file`（peel 自 `workspace.ts`，ADR-0075） + TOOL_CONTRACT / effect-policy / registry；unit `edit-match.unit.test.ts`
 - **日期：** 2026-07-24
-- **范围：** 为教学 agent 提供**可选**局部编辑工具（`edit_workspace_file` 或等价注册名）：多级匹配（Exact → EOL/BOM → 行尾空白 → 缩进统一）+ 向模型回报 `matchStrategy`；**同一** path 围栏、`write-policy`、三态审批、write-rewind journal 路径。**禁止** Shell / `apply_patch` 产品路径。
+- **范围：** 为教学 agent 提供**可选**局部编辑工具（`edit_workspace_file` 或等价注册名）：多级匹配（Exact → EOL/BOM → 行尾空白 → 缩进统一）+ 向模型回报 `matchStrategy`；**同一** path 围栏、`write-policy`、三态审批、write-rewind journal 路径。**禁止** 用 Shell / `apply_patch` **作为本编辑工具的替代产品路径**（工作区命令 shell 另见 ADR-0152/0153，不在本 ADR 范围）。
 - **相关：** [liveagent-worth-learning.md](../improvements/liveagent-worth-learning.md) §3.1 / Phase B、[docs/tools/TOOL_CONTRACT.md](../tools/TOOL_CONTRACT.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0048](0048-tool-contract-and-write-policy.md)、[ADR-0049](0049-write-rewind-journal.md)、[ADR-0121](0121-improvements-adoption-closeout.md)、[ADR-0143](0143-context-file-touch-ledger.md)、`AGENTS.md`、`SECURITY.md`
 - **实现落点（目标）：** `src/main/ai/tools/edit-match.ts`（或同级 pure matcher）；workspace 工具 registry；`docs/tools/TOOL_CONTRACT.md` + `check:tool-contract`；与既有 write-policy / write-rewind / path 围栏接线
 
@@ -10,7 +10,7 @@
 
 全量 `write_workspace_file` 对大 lesson / 源文件成本高且易偏。LiveAgent 以多级 fuzzy 匹配做局部替换并向模型回报策略，降低「旧片段对不齐」失败率。
 
-StudiumX 必须在**不**引入 Shell / apply_patch 产品面的前提下，把局部 edit 放进既有 **effect lattice + write-policy + 三态审批 + write-rewind journal**，并登记 TOOL_CONTRACT。
+StudiumX 必须在**不**把 Shell / apply_patch 当作本局部编辑工具产品面的前提下，把 `edit_workspace_file` 放进既有 **effect lattice + write-policy + 三态审批 + write-rewind journal**，并登记 TOOL_CONTRACT。工作区命令能力见 ADR-0152/0153，与本 ADR 正交。
 
 ## 2. 决策
 

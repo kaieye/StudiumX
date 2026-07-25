@@ -11,7 +11,7 @@ export type AnalyticsLocalDate = string
 /** An absolute timestamp serialized as an ISO-8601 instant (normally UTC with `Z`). */
 export type AnalyticsInstant = string
 
-export type AnalyticsRangePreset = 'today' | 'week' | 'month' | '90d' | 'all' | 'custom'
+export type AnalyticsRangePreset = 'today' | 'week' | 'month' | 'all' | 'custom'
 
 /**
  * All date ranges include both boundary dates. A `week` always starts on Monday.
@@ -400,9 +400,6 @@ export type StudyDailyProjection = {
   completedFocusSessions: number
   interruptedFocusSessions: number
   xpEarned: number
-  modeSeconds: Partial<Record<StudyAnalyticsModeId, number>>
-  roomSeconds: Partial<Record<StudyAnalyticsRoomId, number>>
-  signalSeconds: Partial<Record<StudyAnalyticsSignalId, number>>
   hourBuckets: AnalyticsHourBuckets
   tasksCreated: number
   tasksCompleted: number
@@ -504,12 +501,6 @@ export type AnalyticsTimePoint = {
   completedFocusSessions: number
 }
 
-export type AnalyticsDimensionBreakdown<T extends string> = {
-  id: T
-  seconds: number
-  share: number
-}
-
 export type FocusHeatmapPoint = {
   date: AnalyticsLocalDate
   focusSeconds: number
@@ -519,14 +510,42 @@ export type FocusHeatmapPoint = {
   isCovered: boolean
 }
 
+/**
+ * Floating active-range capsules for focus rhythm (lieflat "Daily active range").
+ * - `hour_of_day`: single-day view — X = hour 0–23, Y = minutes 0–60 within that hour
+ * - `day_of_range`: multi-day view — X = local date, Y = hours 0–24 within the day
+ */
+export type FocusActiveRangeMode = 'hour_of_day' | 'day_of_range'
+
+export type FocusActiveRangeItem = {
+  id: string
+  /** X category: hour `0`–`23` or `YYYY-MM-DD`. */
+  category: string
+  /** Inclusive lower bound on the vertical axis. */
+  start: number
+  /** Exclusive-ish upper bound on the vertical axis (`start < end`). */
+  end: number
+  /** Active seconds covered by this capsule (tooltip / readout). */
+  activeSeconds: number
+}
+
+export type FocusActiveRangeSeries = {
+  mode: FocusActiveRangeMode
+  /** Ordered X-axis categories (hours as decimal strings, or local dates). */
+  categories: readonly string[]
+  ranges: readonly FocusActiveRangeItem[]
+  /** Vertical axis maximum: 60 minutes or 24 hours. */
+  yMax: 60 | 24
+  yUnit: 'minute' | 'hour'
+}
+
 export type FocusAnalytics = {
   daily: StudyDailyProjection[]
   heatmap: FocusHeatmapPoint[]
   trend: AnalyticsTimePoint[]
   hourBuckets: AnalyticsHourBuckets
-  modeBreakdown: Array<AnalyticsDimensionBreakdown<StudyAnalyticsModeId>>
-  roomBreakdown: Array<AnalyticsDimensionBreakdown<StudyAnalyticsRoomId>>
-  signalBreakdown: Array<AnalyticsDimensionBreakdown<StudyAnalyticsSignalId>>
+  /** Range-capsule series for the selected calendar window. */
+  activeRanges: FocusActiveRangeSeries
   sessionStructure: {
     focusSeconds: number
     breakSeconds: number

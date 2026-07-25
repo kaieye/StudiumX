@@ -46,14 +46,12 @@ describe('createTeachingDoctorConfigFactsCollector', () => {
     expect(collector.id).toBe('config-settings')
 
     const partial = await collector.collect()
-    expect(partial.config).toEqual({
-      settingsAvailable: true,
-      settingsReadable: true,
-      settingsParseable: true,
-      providerConfigured: true,
-      reason: null,
-      configPath: TEACHING_DOCTOR_CONFIG_PATH_LABEL
-    })
+    expect(partial.config?.settingsAvailable).toBe(true)
+    expect(partial.config?.settingsReadable).toBe(true)
+    expect(partial.config?.settingsParseable).toBe(true)
+    expect(partial.config?.providerConfigured).toBe(true)
+    expect(partial.config?.reason).toBeNull()
+    expect(partial.config?.configPath).toBe(TEACHING_DOCTOR_CONFIG_PATH_LABEL)
 
     const blob = JSON.stringify(partial)
     expect(blob).not.toContain(SECRET_KEY)
@@ -195,4 +193,47 @@ describe('createTeachingDoctorConfigFactsCollector', () => {
     expect(blob).not.toContain(SECRET_KEY)
     expect(blob).not.toMatch(/sk-live-super-secret/i)
   })
+
+  it('attaches agent sandbox readiness when tools settings exist (Stage E)', async () => {
+    const source: TeachingDoctorConfigFactsSource = {
+      async load() {
+        return {
+          ...settingsWithProvider(SECRET_KEY),
+          tools: {
+            enabled: true,
+            workspaceRead: true,
+            workspaceShell: true,
+            sandboxMode: 'workspace_write',
+            windowsSandboxLevel: 'restricted_token',
+            approvalMode: 'based_on_approval'
+          }
+        }
+      }
+    }
+    const partial = await createTeachingDoctorConfigFactsCollector(source).collect()
+    expect(partial.config?.agentSandboxMode).toBe('workspace_write')
+    expect(typeof partial.config?.agentSandboxBackend).toBe('string')
+    expect(typeof partial.config?.agentSandboxOsEnforcementAvailable).toBe('boolean')
+    expect(String(partial.config?.agentSandboxSummary ?? '')).toMatch(/Sandbox mode=workspace_write/)
+    expect(String(partial.config?.agentSandboxSummary ?? '')).not.toMatch(/YOLO|DangerFullAccess|always-approve/i)
+    if (process.platform === 'win32') {
+      expect(partial.config?.agentSandboxWindowsReadiness).toBeTruthy()
+    }
+    const blob = JSON.stringify(partial)
+    expect(blob).not.toContain(SECRET_KEY)
+    expect(blob).not.toMatch(/sk-live/i)
+    expect(blob).not.toMatch(/C:\\Users|\/home\//i)
+  })
+
+  it('omits sandbox fields when tools section is absent', async () => {
+    const source: TeachingDoctorConfigFactsSource = {
+      async load() {
+        return settingsWithProvider(SECRET_KEY)
+      }
+    }
+    const partial = await createTeachingDoctorConfigFactsCollector(source).collect()
+    expect(partial.config?.agentSandboxMode).toBeUndefined()
+    expect(partial.config?.agentSandboxBackend).toBeUndefined()
+  })
+
 })

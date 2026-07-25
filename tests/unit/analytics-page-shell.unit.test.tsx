@@ -10,6 +10,7 @@ import {
 import type {
   AnalyticsCoverage,
   AnalyticsSectionResult,
+  FocusAnalytics,
   LearningAnalyticsBundle,
   LearningAnalyticsHero,
   LearningAnalyticsQuery,
@@ -36,9 +37,9 @@ function coverage(query: LearningAnalyticsQuery): AnalyticsCoverage {
 }
 
 function addDays(value: string, days: number): string {
-  const date = new Date(`${value}T12:00:00`)
-  date.setDate(date.getDate() + days)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0))
+  return `${String(date.getUTCFullYear()).padStart(4, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
 }
 
 function tokenResult(
@@ -102,6 +103,67 @@ function emptyTokenResult(
     ...tokenResult(query),
     state: 'empty',
     reason: 'no_activity'
+  }
+}
+
+function emptyFocusResult(
+  query: LearningAnalyticsQuery
+): Extract<AnalyticsSectionResult<FocusAnalytics>, { state: 'empty' }> {
+  const localToday = query.calendarContext.localToday
+  const heatmapFrom = addDays(localToday, -364)
+  const singleDay = query.range.from === query.range.to
+  return {
+    state: 'empty',
+    reason: 'no_activity',
+    temporal: { kind: 'range', range: query.range },
+    coverage: coverage(query),
+    warnings: [],
+    data: {
+      daily: [],
+      heatmap: Array.from({ length: 365 }, (_, index) => {
+        const date = addDays(heatmapFrom, index)
+        return {
+          date,
+          focusSeconds: 0,
+          completedFocusSessions: 0,
+          tasksCompleted: 0,
+          isCovered: false
+        }
+      }),
+      trend: [],
+      hourBuckets: Array.from({ length: 24 }, () => 0) as FocusAnalytics['hourBuckets'],
+      activeRanges: singleDay
+        ? {
+            mode: 'hour_of_day',
+            categories: Array.from({ length: 24 }, (_, hour) => String(hour)),
+            ranges: [],
+            yMax: 60,
+            yUnit: 'minute'
+          }
+        : {
+            mode: 'day_of_range',
+            categories: [query.range.from, query.range.to],
+            ranges: [],
+            yMax: 24,
+            yUnit: 'hour'
+          },
+      sessionStructure: {
+        focusSeconds: 0,
+        breakSeconds: 0,
+        completed: 0,
+        interrupted: 0,
+        canceled: 0,
+        averageCompletedFocusSeconds: null,
+        completionRate: null
+      },
+      currentGrowth: {
+        xp: 0,
+        level: { level: 1, xpAtLevelStart: 0, xpAtNextLevel: 120, currentXp: 0, progress: 0 },
+        streakDays: 0,
+        badges: [],
+        plantStage: '种子'
+      }
+    }
   }
 }
 
@@ -295,19 +357,20 @@ describe('StudyAnalyticsPage', () => {
     expect(await screen.findByRole('heading', { name: '概览' })).toBeInTheDocument()
     expect(screen.getByText('专注时长')).toBeInTheDocument()
 
-    // Token section only keeps total, today, and the usage trend.
+    // Token section: totals + dual-series trend + ranking/efficiency cards.
     const tokenHeading = screen.getByRole('heading', { name: 'Token 消耗' })
     expect(tokenHeading).toBeInTheDocument()
     const tokenSection = tokenHeading.closest('section')
     expect(tokenSection).not.toBeNull()
-    expect(tokenSection?.querySelectorAll('.analytics-stat')).toHaveLength(2)
-    expect(tokenSection?.querySelectorAll('.analytics-subcard')).toHaveLength(1)
+    expect(tokenSection?.querySelectorAll('.analytics-stat').length).toBeGreaterThanOrEqual(2)
+    expect(tokenSection?.querySelectorAll('.analytics-subcard').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('1,250')).toBeInTheDocument()
     expect(screen.getByText('今日 Token 量')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Token 使用趋势' })).toBeInTheDocument()
     expect(screen.queryByText('模型调用')).not.toBeInTheDocument()
     expect(screen.queryByText('工具调用')).not.toBeInTheDocument()
-    expect(screen.queryByText('Token 效率')).not.toBeInTheDocument()
+    expect(screen.queryByText('工具调用排行')).not.toBeInTheDocument()
+    expect(screen.getByText('效率')).toBeInTheDocument()
 
     // The requested cards and standalone summary copy are removed.
     expect(screen.queryByText('汇总你的专注时段、任务节奏、模型消耗与知识沉淀。')).not.toBeInTheDocument()
@@ -315,7 +378,7 @@ describe('StudyAnalyticsPage', () => {
     expect(screen.queryByRole('heading', { name: '平台分析' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '洞察' })).not.toBeInTheDocument()
     expect(document.querySelector('.token-consumption-card')).toBeNull()
-    expect(document.querySelectorAll('.analytics-section-card')).toHaveLength(5)
+    expect(document.querySelectorAll('.analytics-section-card')).toHaveLength(6)
 
     // Range presets are exposed and default to "this week".
     expect(screen.getByRole('button', { name: '本周' })).toHaveAttribute('aria-pressed', 'true')
@@ -340,8 +403,8 @@ describe('StudyAnalyticsPage', () => {
     )
 
     await screen.findByRole('heading', { name: '概览' })
-    await user.click(screen.getByRole('button', { name: '近 90 天' }))
-    expect(screen.getByRole('button', { name: '近 90 天' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('button', { name: '全部' }))
+    expect(screen.getByRole('button', { name: '全部' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('renders a successful empty section as recorded zero activity, not a missing API', async () => {
@@ -365,6 +428,31 @@ describe('StudyAnalyticsPage', () => {
     expect(tokenSection).toHaveTextContent('当前范围内暂无学习记录。')
     expect(tokenSection).not.toHaveTextContent('未提供学习分析 API')
     expect(document.body).not.toHaveTextContent('尚未接入')
+  })
+
+  it('keeps focus heatmap and active-range cards mounted for empty focus data', async () => {
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async (query) => ({
+        ...bundle(query),
+        focus: emptyFocusResult(query)
+      }))
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client' }}
+      />
+    )
+
+    const focusSection = (await screen.findByRole('heading', { name: '专注分析' })).closest('section')
+    await waitFor(() => expect(focusSection).toHaveAttribute('data-section-state', 'empty'))
+    expect(focusSection).toHaveTextContent('专注日历热力图')
+    expect(focusSection).toHaveTextContent('一天中的专注分布')
+    // Blank skeleton still mounts the chart shells instead of only the empty message.
+    expect(focusSection?.querySelector('.calendar-heatmap')).not.toBeNull()
+    expect(focusSection?.querySelector('.active-range')).not.toBeNull()
   })
 
   it('renders section-level unavailable with reason copy and retry, never as API unavailable', async () => {
@@ -448,9 +536,9 @@ describe('StudyAnalyticsPage', () => {
     )
 
     await waitFor(() => {
-      expect(document.querySelectorAll('[data-section-state="api-unavailable"]')).toHaveLength(5)
+      expect(document.querySelectorAll('[data-section-state="api-unavailable"]')).toHaveLength(6)
     })
-    expect(screen.getAllByText('当前应用未提供学习分析 API。请更新应用或联系管理员。')).toHaveLength(5)
+    expect(screen.getAllByText('当前应用未提供学习分析 API。请更新应用或联系管理员。')).toHaveLength(6)
     expect(screen.queryAllByRole('button', { name: '重试' })).toHaveLength(0)
   })
 
@@ -470,11 +558,11 @@ describe('StudyAnalyticsPage', () => {
     )
 
     await waitFor(() => {
-      expect(document.querySelectorAll('[data-section-state="request-error"]')).toHaveLength(5)
+      expect(document.querySelectorAll('[data-section-state="request-error"]')).toHaveLength(6)
     })
-    expect(document.querySelectorAll('.analytics-section-message[role="alert"]')).toHaveLength(5)
-    expect(screen.getAllByText('分析服务暂时无法响应。请稍后重试。')).toHaveLength(5)
-    expect(screen.getAllByRole('button', { name: '重试' })).toHaveLength(5)
+    expect(document.querySelectorAll('.analytics-section-message[role="alert"]')).toHaveLength(6)
+    expect(screen.getAllByText('分析服务暂时无法响应。请稍后重试。')).toHaveLength(6)
+    expect(screen.getAllByRole('button', { name: '重试' })).toHaveLength(6)
     expect(document.body).not.toHaveTextContent('socket exploded')
   })
 
@@ -499,10 +587,10 @@ describe('StudyAnalyticsPage', () => {
     )
 
     await waitFor(() => {
-      expect(document.querySelectorAll('[data-section-state="request-error"]')).toHaveLength(5)
+      expect(document.querySelectorAll('[data-section-state="request-error"]')).toHaveLength(6)
     })
-    expect(screen.getAllByText('分析服务暂时无法响应。请稍后重试。')).toHaveLength(5)
-    expect(screen.getAllByRole('button', { name: '重试' })).toHaveLength(5)
+    expect(screen.getAllByText('分析服务暂时无法响应。请稍后重试。')).toHaveLength(6)
+    expect(screen.getAllByRole('button', { name: '重试' })).toHaveLength(6)
     expect(document.body).not.toHaveTextContent(secret)
     expect(document.querySelectorAll('[data-section-state="api-unavailable"]')).toHaveLength(0)
   })
@@ -563,6 +651,47 @@ describe('StudyAnalyticsPage', () => {
     }
 
     expect(css).not.toMatch(/color:\s*var\(--text-(?:muted|soft)\)/)
+  })
+
+  it('places a sample toggle left of refresh and fills charts with demo data', async () => {
+    const user = setupUser()
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async (query) => bundle(query))
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client' }}
+      />
+    )
+
+    await screen.findByRole('heading', { name: '概览' })
+
+    const demoButton = screen.getByRole('button', { name: '示例' })
+    const refreshButton = screen.getByRole('button', { name: '刷新' })
+    expect(demoButton.compareDocumentPosition(refreshButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    await user.click(demoButton)
+
+    expect(screen.getByRole('button', { name: '退出示例' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('正在展示示例数据（多日伪造学习记录）')).toBeInTheDocument()
+    expect(refreshButton).toBeDisabled()
+
+    // Demo mode densifies sections that were unavailable from the real client fixture.
+    const focusSection = screen.getByRole('heading', { name: '专注分析' }).closest('section')
+    expect(focusSection).toHaveAttribute('data-section-state', 'available')
+    expect(screen.getByRole('img', { name: '专注日历热力图' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '一天中的专注分布' })).toBeInTheDocument()
+
+    // Real API traffic pauses while demo mode is active.
+    const callsBefore = (client.getLearningAnalytics as ReturnType<typeof vi.fn>).mock.calls.length
+    await user.click(screen.getByRole('button', { name: '全部' }))
+    expect((client.getLearningAnalytics as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBefore)
+
+    await user.click(screen.getByRole('button', { name: '退出示例' }))
+    expect(screen.getByRole('button', { name: '示例' })).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('retains the clipped page shell and container-query safeguards', () => {

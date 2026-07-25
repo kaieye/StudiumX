@@ -40,6 +40,16 @@ function configuredSettings(root: string): TeachingSettingsV1 {
   return settings
 }
 
+
+function fixtureCoreTeachingKernelReference() {
+  return {
+    id: 'teach' as const,
+    name: 'teach',
+    source: 'builtin-skills/teach/SKILL.md',
+    content: '# Teach\n\nApp-shipped Teaching Kernel fixture for runtime tests (ADR-0151).\n'
+  }
+}
+
 describe('temporary conversation runtime tool availability', () => {
   it('offers configured web tools without exposing workspace tools', async () => {
     const root = await mkdtemp(join(tmpdir(), 'studiumx-temporary-tools-'))
@@ -383,7 +393,7 @@ describe('teaching workspace trust runtime boundary', () => {
         loadSettings: async () => settings,
         listMemories,
         createMemory: async () => { throw new Error('memory should not be created') },
-        loadSkillReferences: async () => [],
+        loadSkillReferences: async () => [fixtureCoreTeachingKernelReference()],
         generateLessonFromBrief: async () => fixtureLesson(root),
         buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
         runStore: new AgentRunStore(root)
@@ -462,7 +472,7 @@ describe('teaching workspace trust runtime boundary', () => {
         loadSettings: async () => settings,
         listMemories: async () => [],
         createMemory: async () => { throw new Error('memory should not be created') },
-        loadSkillReferences: async () => [],
+        loadSkillReferences: async () => [fixtureCoreTeachingKernelReference()],
         buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
         runStore: new AgentRunStore(root)
       }
@@ -518,7 +528,7 @@ describe('teaching conversation memory catalog platform degradation', () => {
         loadSettings: async () => settings,
         listMemories,
         createMemory,
-        loadSkillReferences: async () => [],
+        loadSkillReferences: async () => [fixtureCoreTeachingKernelReference()],
         generateLessonFromBrief: async () => fixtureLesson(root),
         buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
         runStore: new AgentRunStore(root)
@@ -538,3 +548,95 @@ describe('teaching conversation memory catalog platform degradation', () => {
   })
 })
 
+
+describe('teaching conversation core kernel fail-closed (ADR-0151)', () => {
+  it('fails closed when teaching mode skill references omit reserved teach kernel', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-kernel-missing-refs-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    globalThis.fetch = (async () => {
+      throw new Error('provider must not be called when Teaching Kernel is missing')
+    }) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'kernel-missing-refs-run',
+        workspaceId: 'workspace-1',
+        conversationId: 'teaching-conversation-kernel-missing',
+        mode: 'teaching',
+        messages: [],
+        userInput: '继续教学。'
+      },
+      {
+        streamId: 'kernel-missing-refs-run',
+        onChunk: vi.fn(),
+        onStatus: vi.fn(),
+        onTool: vi.fn()
+      },
+      fixtureWorkspace(root, true),
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => {
+          throw new Error('memory should not be created')
+        },
+        // Simulate host returning non-kernel skills only (or empty) — runtime must fail closed.
+        loadSkillReferences: async () => [],
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(result).toMatchObject({
+      error: true,
+      message: expect.stringContaining('Teaching Kernel unavailable')
+    })
+  })
+
+  it('fails closed when loadSkillReferences throws for teaching mode kernel load', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-kernel-load-throw-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    globalThis.fetch = (async () => {
+      throw new Error('provider must not be called when Teaching Kernel load fails')
+    }) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'kernel-load-throw-run',
+        workspaceId: 'workspace-1',
+        conversationId: 'teaching-conversation-kernel-throw',
+        mode: 'teaching',
+        messages: [],
+        userInput: '继续教学。'
+      },
+      {
+        streamId: 'kernel-load-throw-run',
+        onChunk: vi.fn(),
+        onStatus: vi.fn(),
+        onTool: vi.fn()
+      },
+      fixtureWorkspace(root, true),
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => {
+          throw new Error('memory should not be created')
+        },
+        loadSkillReferences: async () => {
+          throw new Error('core_teaching_kernel_missing: builtin pack absent')
+        },
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(result).toMatchObject({
+      error: true,
+      message: expect.stringContaining('Teaching Kernel unavailable')
+    })
+    expect(String((result as { message?: string }).message)).toMatch(/core_teaching_kernel_missing|builtin pack absent/)
+  })
+})

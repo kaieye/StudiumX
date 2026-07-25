@@ -6,6 +6,8 @@ import {
 } from '../shared/teaching-settings-schema'
 import type {
   AgentApprovalMode,
+  AgentSandboxMode,
+  WindowsSandboxLevel,
   ModelEndpointFormat,
   ModelReasoningEffort,
   ParallelSearchMode,
@@ -96,6 +98,9 @@ export type TeachingLoopConfigValue = {
     enabled: boolean
     workspaceRead: boolean
     approvalMode: AgentApprovalMode
+    workspaceShell: boolean
+    sandboxMode: AgentSandboxMode
+    windowsSandboxLevel: WindowsSandboxLevel
     webSearch: boolean
     webFetch: boolean
     maxIterations: number
@@ -453,6 +458,9 @@ function projectTeachingLoopConfig(settings: TeachingSettingsV1): MutableLoopCon
       enabled: settings.tools.enabled,
       workspaceRead: settings.tools.workspaceRead,
       approvalMode: settings.tools.approvalMode,
+      workspaceShell: settings.tools.workspaceShell !== false,
+      sandboxMode: settings.tools.sandboxMode ?? 'workspace_write',
+      windowsSandboxLevel: settings.tools.windowsSandboxLevel ?? 'restricted_token',
       webSearch: settings.tools.webSearch,
       webFetch: settings.tools.webFetch,
       maxIterations: settings.tools.maxIterations,

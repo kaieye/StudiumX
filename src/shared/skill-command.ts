@@ -38,6 +38,32 @@ export function leadingSkillIds(input: string, skills: SkillSummary[]): string[]
   return skill ? [skill.id] : []
 }
 
+/**
+ * Collect consecutive leading slash skill tokens (`/a /b rest` → [a,b]).
+ * Stops at the first non-skill token or non-slash word. Phase 4 multi-select
+ * can feed the same shape via explicit skillIds; this keeps slash parity.
+ */
+export function leadingSkillIdSequence(input: string, skills: SkillSummary[], limit = 8): string[] {
+  const tokens = String(input ?? '').trimStart().split(/\s+/)
+  const found: string[] = []
+  const seen = new Set<string>()
+  const max = Math.max(1, Math.min(limit, 8))
+  for (const raw of tokens) {
+    const match = /^\/([a-z0-9][a-z0-9._-]{0,63})$/i.exec(raw)
+    if (!match) break
+    const token = (match[1] ?? '').toLocaleLowerCase()
+    const skill = skills.find(
+      (candidate) => candidate.installed && candidate.id.toLocaleLowerCase() === token
+    )
+    if (!skill) break
+    if (seen.has(token)) continue
+    seen.add(token)
+    found.push(skill.id)
+    if (found.length >= max) break
+  }
+  return found
+}
+
 export function skillCommandValue(skill: SkillSummary): string {
   return `${skill.command} `
 }

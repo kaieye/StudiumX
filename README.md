@@ -29,4 +29,4 @@ See `CONTRIBUTING.md` for checks, ADRs, and safety red lines.
 
 ## Non-goals (summary)
 
-No default shell, MCP marketplace, automatic telemetry, or SQLite FTS product search.
+Mainstream agent tools (workspace shell + Codex dual-axis sandbox/approval) when tools are enabled; teaching is a specialization layer. No default-on tools master switch, MCP marketplace, automatic telemetry, or SQLite FTS product search.
