@@ -3,7 +3,8 @@
  * Pure presentation after a rest segment completes: next focus / wrap_up / later.
  *
  * Product rule: rest end must not silently start the next focus or task.
- * breakPolicy automatic may auto_start next focus; ask prompts; remind/none idle.
+ * breakPolicy automatic may auto_start next focus; ask/remind/none leave idle focus shell
+ * (no intermediate break-end prompt page).
  *
  * Actions:
  * - start_focus: begin next focus from frozen planSnapshot (round +1)

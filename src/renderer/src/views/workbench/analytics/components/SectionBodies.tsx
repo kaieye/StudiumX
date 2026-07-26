@@ -115,8 +115,6 @@ export function HeroBody({ data, copy, fmt }: Ctx & { data: LearningAnalyticsHer
 export function LevelBody({ data, copy, fmt }: Ctx & { data: LearningAnalyticsHero }) {
   const level = data.currentLevel
   const levelProgress = Number.isFinite(level.progress) ? level.progress : null
-  const levelTone: 'default' | 'ok' | 'warn' =
-    (levelProgress ?? 0) >= 0.7 ? 'ok' : (levelProgress ?? 0) > 0 ? 'warn' : 'default'
   const levelCenter = `${fmt.integer(level.level)}${copy.hero.levelUnit ? ` ${copy.hero.levelUnit}` : ''}`
   const fillTooltip = `${copy.hero.currentXp}: ${fmt.integer(level.currentXp)}`
   const trackTooltip = `${copy.hero.nextLevelXp}: ${fmt.integer(level.xpAtNextLevel)}`
@@ -127,9 +125,9 @@ export function LevelBody({ data, copy, fmt }: Ctx & { data: LearningAnalyticsHe
         progress={levelProgress}
         title={copy.hero.levelProgressTitle}
         centerValue={levelCenter}
-        centerLabel={fmt.percent(levelProgress)}
         emptyLabel={copy.charts.empty}
-        tone={levelTone}
+        /* Fixed green progress ring; do not shift to warn/alert by fill ratio. */
+        tone="ok"
         fillTooltip={fillTooltip}
         trackTooltip={trackTooltip}
       />
@@ -223,7 +221,7 @@ export function FocusBody({
       : copy.tasks.noCompletionShare
 
   return (
-    <div className="analytics-focus">
+    <div className="analytics-focus analytics-focus--mosaic">
       <div className="analytics-subcard analytics-focus__heatmap">
         <div className="analytics-focus__heatmap-header">
           <h3 className="analytics-subcard__title">{copy.focus.heatmapTitle}</h3>
@@ -372,7 +370,21 @@ export function FocusBody({
 }
 
 
-function buildTokenTrendDates(localToday: AnalyticsLocalDate): AnalyticsLocalDate[] {
+function buildTokenTrendDates(
+  localToday: AnalyticsLocalDate,
+  rangePreset: AnalyticsRangePreset,
+  data?: TokenAnalytics
+): AnalyticsLocalDate[] {
+  // "全部" uses a sentinel lower bound; fill only dates that actually have token evidence.
+  if (rangePreset === 'all') {
+    if (!data) return []
+    const dates = new Set<string>()
+    for (const row of data.byDay) dates.add(row.date)
+    for (const row of data.byDayByModel ?? []) dates.add(row.date)
+    return [...dates].sort()
+  }
+
+  // today / week / month always render the rolling 30-day bar axis.
   const range = buildAnalyticsDateRange('month', localToday)
   const dates: AnalyticsLocalDate[] = []
   for (let date = range.from; date <= range.to; date = addLocalDays(date, 1)) {
@@ -423,13 +435,14 @@ function buildTokenModelSeries(
 /* -------------------------------------------------------------- Tokens --- */
 
 
-export function TokenBody({ data, trendData, copy, fmt, localToday }: Ctx & {
+export function TokenBody({ data, trendData, rangePreset, copy, fmt, localToday }: Ctx & {
   data: TokenAnalytics
-  /** The trend is always based on the rolling 30-day token view. */
+  /** Rolling 30-day bars for today/week/month; full history only under "全部". */
   trendData?: TokenAnalytics
+  rangePreset: AnalyticsRangePreset
 }) {
   const todayRow = data.byDay.find((row) => row.date === localToday)
-  const trendDates = trendData ? buildTokenTrendDates(localToday) : []
+  const trendDates = trendData ? buildTokenTrendDates(localToday, rangePreset, trendData) : []
   const modelSeries = trendData
     ? buildTokenModelSeries(trendData, trendDates, copy.tokens.unknownModel)
     : []

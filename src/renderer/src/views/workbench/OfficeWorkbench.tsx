@@ -27,7 +27,6 @@ import { readBrowserNotificationPermission } from '../../study-space/planning-no
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { EmptyStartSheet, type EmptyStartSheetResult } from './EmptyStartSheet'
 import type {
-  BreakEndPromptAskAnswer,
   ClassificationPromptAskAnswer,
   PhasePromptAskAnswer,
   ReconcileAskAnswer,
@@ -44,10 +43,6 @@ import {
   PhasePromptSheet,
   type PhasePromptSheetResult
 } from './PhasePromptSheet'
-import {
-  BreakEndPromptSheet,
-  type BreakEndPromptSheetResult
-} from './BreakEndPromptSheet'
 import {
   ReconcileSheet,
   type ReconcileSheetResult
@@ -105,10 +100,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     ClassificationPromptSheetResult
   >()
   const phasePromptDialog = useDialogAsk<{ completed: TimerSessionRecord }, PhasePromptSheetResult>()
-  const breakEndPromptDialog = useDialogAsk<
-    { completed: TimerSessionRecord },
-    BreakEndPromptSheetResult
-  >()
   const reconcileDialog = useDialogAsk<
     { session: TimerSessionRecord; gapSeconds: number },
     ReconcileSheetResult
@@ -205,20 +196,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     [phasePromptDialog.resolve]
   )
 
-  const askBreakEndPrompt = useCallback(
-    (input: { completed: TimerSessionRecord }): Promise<BreakEndPromptAskAnswer | null> => {
-      return breakEndPromptDialog.ask(input).then((result) => ({ action: result.action }))
-    },
-    [breakEndPromptDialog.ask]
-  )
-
-  const handleBreakEndPromptResolve = useCallback(
-    (result: BreakEndPromptSheetResult) => {
-      breakEndPromptDialog.resolve(result)
-    },
-    [breakEndPromptDialog.resolve]
-  )
-
   const askReconcile = useCallback(
     (input: {
       session: TimerSessionRecord
@@ -295,7 +272,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     onFutureBlocksNeedDecision: askFutureBlocks,
     onClassificationPromptAsk: askClassificationPrompt,
     onPhasePromptAsk: askPhasePrompt,
-    onBreakEndPromptAsk: askBreakEndPrompt,
     onReconcileAsk: askReconcile,
     getNotificationHostContext: () => notificationHostLiveRef.current
   })
@@ -939,12 +915,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         open={phasePromptDialog.open}
         completed={phasePromptDialog.payload?.completed ?? null}
         onResolve={handlePhasePromptResolve}
-      />
-
-      <BreakEndPromptSheet
-        open={breakEndPromptDialog.open}
-        completed={breakEndPromptDialog.payload?.completed ?? null}
-        onResolve={handleBreakEndPromptResolve}
       />
 
       <ReconcileSheet

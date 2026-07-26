@@ -337,14 +337,20 @@
 
 .analytics-hero-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px);
   gap: clamp(14px, 2cqi, 22px);
   align-items: stretch;
   min-width: 0;
+  /* Let the level ring's hover float/tooltip paint outside the card chrome. */
+  overflow: visible;
 }
 
 .analytics-hero-row > .analytics-section-card {
   min-height: 100%;
+}
+
+#analytics-section-level.analytics-section-card {
+  overflow: visible;
 }
 
 .analytics-level-card {
@@ -354,11 +360,13 @@
   justify-content: center;
   gap: 10px;
   min-width: 0;
-  padding-block: 4px 8px;
+  /* Leave room for the floating ring + tooltip without stretching the card. */
+  padding-block: 8px 18px;
+  overflow: visible;
 }
 
 .analytics-level-card .progress-gauge {
-  width: clamp(112px, 16cqi, 140px);
+  width: clamp(132px, 20cqi, 176px);
 }
 
 .analytics-section-card {
@@ -499,8 +507,9 @@
 
 .analytics-hero-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.25rem), 1fr));
-  grid-template-rows: none;
+  /* Fixed 2x3 overview: 3 columns x 2 rows so the six stats never collapse into one row. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, auto);
   gap: clamp(10px, 1.5cqi, 14px);
   min-width: 0;
 }
@@ -655,7 +664,7 @@
   container-type: inline-size;
   container-name: analytics-focus;
   /* Hub (and its dial) keep scaling with the board; avoid a low hard ceiling. */
-  --analytics-focus-hub: clamp(168px, 28cqi, 380px);
+  --analytics-focus-hub: clamp(132px, 20cqi, 260px);
   /* Side lanes grow with the section so the board fills width (no outer gutters). */
   --analytics-focus-side: minmax(0, 1fr);
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
@@ -673,7 +682,7 @@
  * Width fills the section; row heights stay content-driven so the heatmap
  * calendar is not stretched taller than its own cells + chrome.
  */
-.analytics-focus:has(.analytics-focus__percentile) {
+.analytics-focus--mosaic {
   justify-content: stretch;
   grid-template-columns:
     minmax(0, 1.2fr)
@@ -698,7 +707,7 @@
   min-height: 0;
 }
 
-.analytics-focus:has(.analytics-focus__percentile) .analytics-focus__heatmap {
+.analytics-focus--mosaic .analytics-focus__heatmap {
   grid-area: heat;
   /* Top bar spans left + hub, but height hugs the calendar (no forced min). */
   max-width: 100%;
@@ -766,7 +775,7 @@
   padding: clamp(12px, 1.6cqi, 16px);
 }
 
-.analytics-focus:has(.analytics-focus__percentile) .analytics-focus__plan {
+.analytics-focus--mosaic .analytics-focus__plan {
   grid-area: plan;
   /* Right column spanning top + hub rows. */
   min-height: 0;
@@ -883,7 +892,7 @@
   height: auto;
 }
 
-.analytics-focus:has(.analytics-focus__percentile) .analytics-focus__share {
+.analytics-focus--mosaic .analytics-focus__share {
   grid-area: share;
   /* Bottom-left under heat: height comes from hub + hours rows, not a tall floor. */
   min-height: 0;
@@ -892,7 +901,7 @@
   align-self: stretch;
 }
 
-.analytics-focus:has(.analytics-focus__percentile) .analytics-focus__share .morph-pie {
+.analytics-focus--mosaic .analytics-focus__share .morph-pie {
   /* Prefer the real grid-allocated height over the content-driven floor. */
   min-height: 0;
 }
@@ -972,7 +981,7 @@
   height: auto;
 }
 
-.analytics-focus:has(.analytics-focus__percentile) .analytics-focus__hours {
+.analytics-focus--mosaic .analytics-focus__hours {
   grid-area: hours;
   /* Landscape bottom-right strip under the hub: wide (hub+right), content-driven height. */
   min-height: 0;
@@ -982,7 +991,7 @@
   align-self: stretch;
 }
 
-.analytics-focus:has(.analytics-focus__percentile) .analytics-focus__hours .active-range {
+.analytics-focus--mosaic .analytics-focus__hours .active-range {
   /* Height tracks the hours card width (card is a size container). */
   --active-range-height: clamp(92px, 40cqi, 220px);
 }
@@ -1005,8 +1014,9 @@
   min-width: 0;
   min-height: 0;
   /* Hub track is already square (hub col × hub row); avoid aspect-ratio fighting the grid. */
-  gap: 0;
-  padding: clamp(4px, 0.7cqi, 8px);
+  gap: 2px;
+  /* Top padding matches neighboring subcards; bottom stays tight to tuck the card. */
+  padding: clamp(12px, 1.5cqi, 16px) clamp(6px, 0.9cqi, 10px) clamp(2px, 0.4cqi, 4px);
   overflow: hidden;
 
   box-shadow:
@@ -1015,7 +1025,7 @@
 }
 
 .analytics-focus__percentile .analytics-subcard__title {
-  /* Match other analytics subcard titles (0.68rem). */
+  /* Match other analytics subcard titles (0.68rem) and their top chrome height. */
   text-align: center;
   width: 100%;
   font-size: 0.68rem;
@@ -1039,7 +1049,7 @@
   /* TickGaugeChart measures this box and sets SVG px to fill the hub. */
   max-width: 100%;
   max-height: 100%;
-  aspect-ratio: 400 / 320;
+  aspect-ratio: 400 / 280;
   object-fit: contain;
 }
 
@@ -1888,12 +1898,9 @@
   min-width: 0;
   width: 100%;
   max-width: 100%;
-  /* Keep horizontal overflow recoverable, but never invent a vertical scrollbar
-     when overflow-x is non-visible (CSS maps the other axis to auto). */
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-  scrollbar-width: thin;
+  /* Calendar cells resize to the available card width; never expose a horizontal
+     scrollbar while the surrounding focus cards reflow. */
+  overflow: clip;
 }
 
 .calendar-heatmap__inner {
@@ -2381,9 +2388,12 @@
 }
 
 .progress-gauge {
+  --progress-gauge-fill: #22c55e;
+  --progress-gauge-track: #e8e8e8;
   position: relative;
   width: clamp(108px, 14cqi, 132px);
   aspect-ratio: 1;
+  overflow: visible;
 }
 
 .progress-gauge--compact {
@@ -2408,21 +2418,58 @@
   width: 100%;
   height: auto;
   display: block;
+  overflow: visible;
 }
 
 .progress-gauge__track-base,
 .progress-gauge__track {
-  stroke: #e8e8e8;
+  stroke: var(--progress-gauge-track);
 }
 
 .progress-gauge__track {
-  cursor: help;
+  cursor: pointer;
+  transition:
+    stroke-width 180ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    filter 180ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    opacity 180ms ease-out;
 }
 
 .progress-gauge__fill {
-  stroke: var(--analytics-text);
-  cursor: help;
-  transition: stroke-dasharray 320ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  stroke: var(--progress-gauge-fill);
+  cursor: pointer;
+  transition:
+    stroke-dasharray 320ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    stroke-width 180ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    filter 180ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    opacity 180ms ease-out;
+}
+
+.progress-gauge__region {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.9, 0.3, 1),
+    filter 180ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.progress-gauge__region--float {
+  transform: scale(1.08);
+  filter: drop-shadow(0 8px 12px color-mix(in srgb, #141414 22%, transparent));
+}
+
+.progress-gauge__region--float .progress-gauge__fill,
+.progress-gauge__region--float .progress-gauge__track {
+  stroke-width: 13;
+}
+
+.progress-gauge[data-hover='fill'] .progress-gauge__track,
+.progress-gauge[data-hover='track'] .progress-gauge__fill {
+  opacity: 0.5;
+}
+
+.progress-gauge[data-hover='fill'] .progress-gauge__region:not(.progress-gauge__region--float),
+.progress-gauge[data-hover='track'] .progress-gauge__region:not(.progress-gauge__region--float) {
+  filter: none;
 }
 
 .progress-gauge__tooltip {
@@ -2452,8 +2499,9 @@
   opacity: 1;
 }
 
+/* Level ring uses a fixed green progress color; keep warn/alert available for other gauges. */
 .progress-gauge[data-tone='ok'] .progress-gauge__fill {
-  stroke: var(--analytics-ok);
+  stroke: var(--progress-gauge-fill);
 }
 
 .progress-gauge[data-tone='warn'] .progress-gauge__fill {
@@ -2493,6 +2541,22 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.analytics-level-card .progress-gauge__center strong {
+  font-size: clamp(1.2rem, 3.2cqi, 1.55rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-gauge__track,
+  .progress-gauge__fill,
+  .progress-gauge__region {
+    transition: none;
+  }
+
+  .progress-gauge__region--float {
+    transform: none;
+  }
 }
 
 .diverging-bars {
@@ -2862,24 +2926,15 @@
   }
 }
 
+/*
+ * Keep the focus board as a connected mosaic while the window narrows. A
+ * one-column reset here used to leave the square hub isolated and made the
+ * other cards appear displaced. The three-column composition remains viable
+ * down to the point at which the two side lanes become genuinely too narrow.
+ */
 @container study-analytics (max-width: 900px) {
   .analytics-hero-row {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .analytics-focus {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .analytics-focus {
-    grid-template-rows: none;
-  }
-
-  .analytics-focus:has(.analytics-focus__percentile),
-  .analytics-focus:not(:has(.analytics-focus__plan)):has(.analytics-focus__percentile) {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: none;
-    grid-template-areas: none;
   }
 
   .analytics-tokens__charts {
@@ -2890,35 +2945,106 @@
   .analytics-tokens__workspace-ranking {
     grid-column: 1;
   }
+}
 
-  .analytics-focus__heatmap,
-  .analytics-focus__plan,
-  .analytics-focus__share,
-  .analytics-focus__hours,
-  .analytics-focus__percentile {
-    grid-column: 1 / -1;
-    grid-row: auto;
-    grid-area: auto;
-    align-self: stretch;
-    height: auto;
-    min-height: 0;
-    width: auto;
+/*
+ * A three-column board becomes visually imbalanced well before it runs out of
+ * horizontal space: the tall plan card begins to enlarge the heatmap row and
+ * leaves a visible gap underneath the heatmap. Switch at the first compact
+ * desktop width, keeping every card in a dense two-column mosaic instead.
+ */
+@container study-analytics (max-width: 1160px) {
+  .analytics-focus--mosaic,
+  .analytics-focus:not(:has(.analytics-focus__plan)):has(.analytics-focus__percentile) {
+    --analytics-focus-hub: clamp(128px, 30cqi, 190px);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto minmax(160px, auto) var(--analytics-focus-hub) auto;
+    grid-template-areas:
+      "heat heat"
+      "share plan"
+      "share hub"
+      "hours hours";
   }
 
-  .analytics-focus__percentile {
-    max-width: min(100%, clamp(220px, 60cqi, 360px));
-    width: 100%;
-    justify-self: center;
-    aspect-ratio: 1 / 1;
+  .analytics-focus--mosaic .analytics-focus__heatmap {
+    grid-area: heat;
+  }
+
+  .analytics-focus--mosaic .analytics-focus__plan {
+    grid-area: plan;
+  }
+
+  .analytics-focus--mosaic .analytics-focus__share {
+    grid-area: share;
+  }
+
+  .analytics-focus--mosaic .analytics-focus__hours {
+    grid-area: hours;
+  }
+
+  .analytics-focus--mosaic .analytics-focus__percentile {
+    grid-area: hub;
+    max-width: none;
+    justify-self: stretch;
+    aspect-ratio: auto;
   }
 
   .analytics-focus__share .morph-pie {
-    min-height: clamp(220px, 72cqi, 380px);
+    min-height: clamp(180px, 100cqi, 340px);
+  }
+}
+
+/* A normal viewport-query fallback covers embedded/older renderers where the
+   named page container is not used for query evaluation. */
+@media (max-width: 1240px) {
+  .analytics-focus--mosaic,
+  .analytics-focus:not(:has(.analytics-focus__plan)):has(.analytics-focus__percentile) {
+    --analytics-focus-hub: clamp(128px, 30cqi, 190px);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto minmax(160px, auto) var(--analytics-focus-hub) auto;
+    grid-template-areas:
+      "heat heat"
+      "share plan"
+      "share hub"
+      "hours hours";
+  }
+
+  .analytics-focus--mosaic .analytics-focus__heatmap { grid-area: heat; }
+  .analytics-focus--mosaic .analytics-focus__plan { grid-area: plan; }
+  .analytics-focus--mosaic .analytics-focus__share { grid-area: share; }
+  .analytics-focus--mosaic .analytics-focus__hours { grid-area: hours; }
+
+  .analytics-focus--mosaic .analytics-focus__percentile {
+    grid-area: hub;
+    max-width: none;
+    justify-self: stretch;
+    aspect-ratio: auto;
+  }
+}
+
+@container study-analytics (max-width: 520px) {
+  .analytics-focus--mosaic,
+  .analytics-focus:not(:has(.analytics-focus__plan)):has(.analytics-focus__percentile) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas:
+      "heat"
+      "plan"
+      "share"
+      "hours"
+      "hub";
+  }
+
+  .analytics-focus--mosaic .analytics-focus__percentile {
+    max-width: min(100%, 280px);
+    min-height: 180px;
+    justify-self: center;
   }
 }
 
 @container study-analytics (max-width: 980px) {
   .analytics-hero-grid {
+    /* Drop to 2 columns (3 rows) when the overview is too narrow for a 3-up row. */
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: none;
   }
@@ -2955,14 +3081,20 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .analytics-focus {
+  /*
+   * Do not reset cards that participate in the named hub mosaic. Setting
+   * grid-column/grid-row after grid-area removes their named placements, which
+   * leaves the hub behind while the other four cards overflow into implicit
+   * tracks. Boards without a hub still use the conventional stacked layout.
+   */
+  .analytics-focus:not(:has(.analytics-focus__percentile)) {
     grid-template-rows: none;
   }
 
-  .analytics-focus__heatmap,
-  .analytics-focus__plan,
-  .analytics-focus__share,
-  .analytics-focus__hours {
+  .analytics-focus:not(:has(.analytics-focus__percentile)) .analytics-focus__heatmap,
+  .analytics-focus:not(:has(.analytics-focus__percentile)) .analytics-focus__plan,
+  .analytics-focus:not(:has(.analytics-focus__percentile)) .analytics-focus__share,
+  .analytics-focus:not(:has(.analytics-focus__percentile)) .analytics-focus__hours {
     grid-column: 1 / -1;
     grid-row: auto;
     align-self: stretch;

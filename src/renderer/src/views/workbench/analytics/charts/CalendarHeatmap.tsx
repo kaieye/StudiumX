@@ -74,7 +74,7 @@ export function CalendarHeatmap({
   )
   const leadingBlanks = sorted[0] ? mondayIndex(sorted[0].date) : 0
   const columns = Math.ceil((leadingBlanks + sorted.length) / 7)
-  const [cellPx, setCellPx] = useState(12)
+  const [layout, setLayout] = useState({ cellPx: 12, gapPx: 3 })
 
   useEffect(() => {
     const node = scrollRef.current
@@ -84,29 +84,27 @@ export function CalendarHeatmap({
       const styles = getComputedStyle(node)
       const padLeft = Number.parseFloat(styles.paddingLeft) || 0
       const padRight = Number.parseFloat(styles.paddingRight) || 0
-      // Leave room for weekday labels (22px) + body gap (4px).
+      // Leave room for weekday labels (22px) + body gap (4px). The calendar
+      // shrinks its cells before it can introduce a horizontal scrollbar.
       const available = Math.max(0, node.clientWidth - padLeft - padRight - 26)
-      const gap = 3
-      const preferredCellPx = 12
-      const minCellPx = 8
+      // Reduce the inter-week gap as well for very long ranges; otherwise gaps
+      // alone would force an overflow before cells had a chance to shrink.
+      const gapPx = columns > 1 ? Math.min(3, available / (columns * 2)) : 0
+      const minCellPx = 1
       const maxCellPx = 14
-      // Fit the real date range only. Keep the latest week flush right by
-      // growing cells instead of inventing neutral trailing week columns.
-      const rawCellPx = (available - gap * Math.max(0, columns - 1)) / columns
-      const nextCellPx = Math.min(
+      // Fit the real date range only. Small cells are preferable to hiding
+      // dates behind a scrollable viewport when the analytics board narrows.
+      const rawCellPx = (available - gapPx * Math.max(0, columns - 1)) / columns
+      const cellPx = Math.min(
         maxCellPx,
-        Math.max(minCellPx, Math.round(rawCellPx * 100) / 100)
+        Math.max(minCellPx, Math.floor(rawCellPx * 100) / 100)
       )
-      // Prefer the measured size, but never collapse below the preferred size
-      // when the card is wide enough — horizontal scroll covers overflow.
-      const preferredFit = Math.max(minCellPx, Math.min(maxCellPx, preferredCellPx))
-      const resolved = available >= columns * preferredFit + gap * Math.max(0, columns - 1)
-        ? Math.max(preferredFit, nextCellPx)
-        : nextCellPx
 
-      setCellPx((current) => (Math.abs(current - resolved) < 0.05 ? current : resolved))
-      // Keep the latest week flush against the visible right edge.
-      node.scrollLeft = Math.max(0, node.scrollWidth - node.clientWidth)
+      setLayout((current) => (
+        Math.abs(current.cellPx - cellPx) < 0.05 && Math.abs(current.gapPx - gapPx) < 0.05
+          ? current
+          : { cellPx, gapPx }
+      ))
     }
 
     measure()
@@ -197,7 +195,8 @@ export function CalendarHeatmap({
           style={
             {
               '--heatmap-columns': columns,
-              '--heatmap-cell': `${cellPx}px`
+              '--heatmap-cell': `${layout.cellPx}px`,
+              '--heatmap-gap': `${layout.gapPx}px`
             } as React.CSSProperties
           }
         >

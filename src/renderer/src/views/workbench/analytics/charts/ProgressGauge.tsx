@@ -37,7 +37,7 @@ export function ProgressGauge({
   compact = false
 }: ProgressGaugeProps) {
   const titleId = useId()
-  const [hoverLabel, setHoverLabel] = useState<string | null>(null)
+  const [hoverRegion, setHoverRegion] = useState<'fill' | 'track' | null>(null)
 
   const safe = useMemo(() => {
     if (progress === null || progress === undefined || !Number.isFinite(progress)) return null
@@ -51,12 +51,14 @@ export function ProgressGauge({
   const fillLen = safe * CIRCUMFERENCE
   const trackLen = CIRCUMFERENCE - fillLen
   const hasRegionTooltips = Boolean(fillTooltip || trackTooltip)
-  const activeTooltip = hoverLabel ?? null
+  const activeTooltip =
+    hoverRegion === 'fill' ? fillTooltip ?? null : hoverRegion === 'track' ? trackTooltip ?? null : null
 
   return (
     <div
       className={compact ? 'progress-gauge progress-gauge--compact' : 'progress-gauge'}
       data-tone={tone}
+      data-hover={hoverRegion ?? 'none'}
     >
       <svg
         className="progress-gauge__svg"
@@ -77,43 +79,49 @@ export function ProgressGauge({
             aria-hidden="true"
           />
           {trackLen > 0.5 ? (
-            <circle
-              className="progress-gauge__track"
-              r={RADIUS}
-              cx={0}
-              cy={0}
-              fill="none"
-              strokeWidth={STROKE}
-              strokeDasharray={`${trackLen} ${CIRCUMFERENCE}`}
-              strokeDashoffset={-fillLen}
-              strokeLinecap="butt"
-              pointerEvents={trackTooltip ? 'stroke' : 'none'}
-              onPointerEnter={trackTooltip ? () => setHoverLabel(trackTooltip) : undefined}
-              onPointerLeave={trackTooltip ? () => setHoverLabel(null) : undefined}
-              onFocus={trackTooltip ? () => setHoverLabel(trackTooltip) : undefined}
-              onBlur={trackTooltip ? () => setHoverLabel(null) : undefined}
-            >
-              {trackTooltip ? <title>{trackTooltip}</title> : null}
-            </circle>
+            <g className={hoverRegion === 'track' ? 'progress-gauge__region progress-gauge__region--float' : 'progress-gauge__region'}>
+              <circle
+                className="progress-gauge__track"
+                r={RADIUS}
+                cx={0}
+                cy={0}
+                fill="none"
+                strokeWidth={STROKE}
+                strokeDasharray={`${trackLen} ${CIRCUMFERENCE}`}
+                strokeDashoffset={-fillLen}
+                strokeLinecap="butt"
+                pointerEvents={trackTooltip ? 'stroke' : 'none'}
+                tabIndex={trackTooltip ? 0 : undefined}
+                onPointerEnter={trackTooltip ? () => setHoverRegion('track') : undefined}
+                onPointerLeave={trackTooltip ? () => setHoverRegion(null) : undefined}
+                onFocus={trackTooltip ? () => setHoverRegion('track') : undefined}
+                onBlur={trackTooltip ? () => setHoverRegion(null) : undefined}
+              >
+                {trackTooltip ? <title>{trackTooltip}</title> : null}
+              </circle>
+            </g>
           ) : null}
           {fillLen > 0.5 ? (
-            <circle
-              className="progress-gauge__fill"
-              r={RADIUS}
-              cx={0}
-              cy={0}
-              fill="none"
-              strokeWidth={STROKE}
-              strokeDasharray={`${fillLen} ${CIRCUMFERENCE}`}
-              strokeLinecap="round"
-              pointerEvents={fillTooltip ? 'stroke' : 'none'}
-              onPointerEnter={fillTooltip ? () => setHoverLabel(fillTooltip) : undefined}
-              onPointerLeave={fillTooltip ? () => setHoverLabel(null) : undefined}
-              onFocus={fillTooltip ? () => setHoverLabel(fillTooltip) : undefined}
-              onBlur={fillTooltip ? () => setHoverLabel(null) : undefined}
-            >
-              {fillTooltip ? <title>{fillTooltip}</title> : null}
-            </circle>
+            <g className={hoverRegion === 'fill' ? 'progress-gauge__region progress-gauge__region--float' : 'progress-gauge__region'}>
+              <circle
+                className="progress-gauge__fill"
+                r={RADIUS}
+                cx={0}
+                cy={0}
+                fill="none"
+                strokeWidth={STROKE}
+                strokeDasharray={`${fillLen} ${CIRCUMFERENCE}`}
+                strokeLinecap="round"
+                pointerEvents={fillTooltip ? 'stroke' : 'none'}
+                tabIndex={fillTooltip ? 0 : undefined}
+                onPointerEnter={fillTooltip ? () => setHoverRegion('fill') : undefined}
+                onPointerLeave={fillTooltip ? () => setHoverRegion(null) : undefined}
+                onFocus={fillTooltip ? () => setHoverRegion('fill') : undefined}
+                onBlur={fillTooltip ? () => setHoverRegion(null) : undefined}
+              >
+                {fillTooltip ? <title>{fillTooltip}</title> : null}
+              </circle>
+            </g>
           ) : null}
         </g>
       </svg>

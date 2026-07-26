@@ -14,10 +14,11 @@ export type TickGaugeChartProps = {
 }
 
 const VIEW_W = 400
-const VIEW_H = 320
+/* Crop bottom chrome so the dial fills a shorter hub card. */
+const VIEW_H = 280
 const CX = 200
-const CY = 186
-const R0 = 132
+const CY = 168
+const R0 = 138
 const A0 = -195
 const SWEEP = 210
 const MILESTONES = [25, 50, 75, 100] as const
@@ -174,7 +175,7 @@ export function TickGaugeChart({
           </text>
         ) : null}
         {footerLabel ? (
-          <text className="tick-gauge__footer" x={200} y={300} textAnchor="middle">
+          <text className="tick-gauge__footer" x={200} y={268} textAnchor="middle">
             {footerLabel}
           </text>
         ) : null}

@@ -23,7 +23,7 @@ export type AnalyticsSectionProps<T> = {
   fallbackMessage?: string
   isRefreshing: boolean
   isStale: boolean
-  /** Render body even when the section is `empty` (used by the hero). */
+  /** Render body even when the section is `empty` (keeps demo-like chart shells for hero/focus/tokens/review). */
   renderEmpty?: boolean
   onRetry: () => void
   children: (result: DataBearing<T>) => ReactNode

@@ -21,7 +21,12 @@ import {
   useStudyAnalytics,
   type LearningAnalyticsClient
 } from './useStudyAnalytics'
-import type { AnalyticsRangePreset, LearningAnalyticsBundle } from './types'
+import type {
+  AnalyticsRangePreset,
+  LearningAnalyticsBundle,
+  TaskAnalytics,
+  TaskPlanAnalytics
+} from './types'
 import './analytics-page.css'
 
 export type StudyAnalyticsIdentity = {
@@ -41,6 +46,52 @@ const RANGE_PRESETS: readonly Exclude<AnalyticsRangePreset, 'custom'>[] = [
   'month',
   'all'
 ]
+
+/** Blank task board so focus keeps plan/share summary cards when tasks are unavailable. */
+function emptyTaskScaffold(asOf: string): TaskAnalytics {
+  return {
+    current: {
+      asOf,
+      total: 0,
+      open: 0,
+      completed: 0,
+      overdue: 0,
+      completionRate: null
+    },
+    flow: {
+      created: 0,
+      completed: 0,
+      reopened: 0,
+      deleted: 0,
+      byDay: []
+    },
+    plan: {
+      plannedSeconds: 0,
+      scheduledOccurrences: 0,
+      attributedFocusSeconds: 0,
+      executionRate: null
+    },
+    topByAttributedFocus: [],
+    byCategoryFocus: [],
+    topByCompletion: [],
+    byCategoryCompletion: [],
+    unattributedFocusSeconds: 0
+  }
+}
+
+function resolveFocusTaskBoard(
+  tasks: LearningAnalyticsBundle['tasks'] | undefined,
+  asOf: string
+): { plan: TaskPlanAnalytics; tasks: TaskAnalytics } {
+  if (
+    tasks &&
+    (tasks.state === 'available' || tasks.state === 'partial' || tasks.state === 'empty')
+  ) {
+    return { plan: tasks.data.plan, tasks: tasks.data }
+  }
+  const scaffold = emptyTaskScaffold(asOf)
+  return { plan: scaffold.plan, tasks: scaffold }
+}
 
 function useLocalToday(): string {
   const [today, setToday] = useState(() => localDateKey(new Date()))
@@ -99,8 +150,9 @@ export function StudyAnalyticsPage({
       : { kind: 'none' },
     presenceSpaceCode: identity.presenceSpaceCode
   }), [identity.personalClientId, identity.presenceSpaceCode, localToday, preset, workspaceIdsKey])
+  // Token trend stays on the rolling 30-day bars for today/week/month; only "全部" expands to full history.
   const tokenTrendQuery = useMemo(() => buildLearningAnalyticsQuery({
-    range: buildAnalyticsDateRange('month', localToday),
+    range: buildAnalyticsDateRange(preset === 'all' ? 'all' : 'month', localToday),
     localToday,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Etc/UTC',
     personalClientId: identity.personalClientId,
@@ -108,7 +160,7 @@ export function StudyAnalyticsPage({
       ? { kind: 'all_workspaces', workspaceIds: workspaces.map((workspace) => workspace.id) }
       : { kind: 'none' },
     presenceSpaceCode: identity.presenceSpaceCode
-  }), [identity.personalClientId, identity.presenceSpaceCode, localToday, workspaceIdsKey])
+  }), [identity.personalClientId, identity.presenceSpaceCode, localToday, preset, workspaceIdsKey])
 
   // Pause real API traffic while demo is open so the shell stays stable.
   const analytics = useStudyAnalytics({ query, client, enabled: !demoMode })
@@ -163,6 +215,10 @@ export function StudyAnalyticsPage({
     isStale: demoMode ? false : analytics.isStale
   }
   const ctx = { copy, fmt, localToday }
+  const focusTaskBoard = resolveFocusTaskBoard(
+    bundle?.tasks,
+    bundle?.generatedAt ?? new Date().toISOString()
+  )
 
   return (
     <div className="study-analytics-page">
@@ -258,22 +314,8 @@ export function StudyAnalyticsPage({
                 {...ctx}
                 data={result.data}
                 rangePreset={preset}
-                plan={
-                  bundle?.tasks &&
-                  (bundle.tasks.state === 'available' ||
-                    bundle.tasks.state === 'partial' ||
-                    bundle.tasks.state === 'empty')
-                    ? bundle.tasks.data.plan
-                    : null
-                }
-                tasks={
-                  bundle?.tasks &&
-                  (bundle.tasks.state === 'available' ||
-                    bundle.tasks.state === 'partial' ||
-                    bundle.tasks.state === 'empty')
-                    ? bundle.tasks.data
-                    : null
-                }
+                plan={focusTaskBoard.plan}
+                tasks={focusTaskBoard.tasks}
                 selfPercentile={
                   bundle?.presence &&
                   (bundle.presence.state === 'available' || bundle.presence.state === 'partial')
@@ -290,10 +332,11 @@ export function StudyAnalyticsPage({
             title={copy.tokens.title}
             description={copy.tokens.description}
             result={bundle?.tokens ?? null}
+            renderEmpty
             wide
             onRetry={() => analytics.retrySection('tokens')}
           >
-            {(result) => <TokenBody {...ctx} data={result.data} trendData={tokenTrendData} />}
+            {(result) => <TokenBody {...ctx} data={result.data} trendData={tokenTrendData} rangePreset={preset} />}
           </AnalyticsSection>
 
           <div className="analytics-grid">
@@ -303,6 +346,7 @@ export function StudyAnalyticsPage({
               title={copy.review.title}
               description={copy.review.description}
               result={bundle?.review ?? null}
+              renderEmpty
               onRetry={() => analytics.retrySection('review')}
             >
               {(result) => <ReviewBody {...ctx} data={result.data} />}

@@ -15,6 +15,7 @@ import type {
   LearningAnalyticsBundle,
   LearningAnalyticsHero,
   LearningAnalyticsQuery,
+  ReviewAnalytics,
   TokenAnalytics
 } from '@renderer/views/workbench/analytics/types'
 import {
@@ -107,9 +108,78 @@ function emptyTokenResult(
   query: LearningAnalyticsQuery
 ): Extract<AnalyticsSectionResult<TokenAnalytics>, { state: 'empty' }> {
   return {
-    ...tokenResult(query),
     state: 'empty',
-    reason: 'no_activity'
+    reason: 'no_activity',
+    temporal: { kind: 'range', range: query.range },
+    coverage: coverage(query),
+    warnings: [],
+    data: {
+      totals: {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        providerCalls: 0,
+        toolCalls: 0,
+        toolErrors: 0,
+        iterations: 0,
+        childRuns: 0,
+        durationMs: 0,
+        budgetStops: 0
+      },
+      byDay: [],
+      byDayByModel: [],
+      byConversation: [],
+      byWorkspace: [],
+      byTool: [],
+      efficiency: {
+        averageTokensPerUsageFact: null,
+        averageTokensPerConversation: null,
+        averageTokensPerMessage: null,
+        averageDurationMs: null,
+        toolErrorRate: null
+      },
+      contextGovernance: {
+        compactionEvents: 0,
+        replacedTokens: 0,
+        hygieneSavedTokens: 0,
+        childRunShare: null
+      },
+      sourceCoverage: {
+        conversationsScanned: 0,
+        conversationsReadable: 0,
+        conversationsWithUsage: 0,
+        conversationsPartiallyMissingUsage: 0,
+        ledgerSnapshotsScanned: 0,
+        ledgerFallbackConversations: 0,
+        invalidLedgerRows: 0
+      }
+    }
+  }
+}
+
+function emptyReviewResult(
+  query: LearningAnalyticsQuery
+): Extract<AnalyticsSectionResult<ReviewAnalytics>, { state: 'empty' }> {
+  return {
+    state: 'empty',
+    reason: 'no_activity',
+    temporal: { kind: 'range', range: query.range },
+    coverage: coverage(query),
+    warnings: [],
+    data: {
+      cumulative: {
+        totalAnswered: 0,
+        correct: 0,
+        accuracy: null,
+        cardCount: 0
+      },
+      range: {
+        answered: null,
+        correct: null,
+        accuracy: null
+      },
+      byLesson: []
+    }
   }
 }
 
@@ -464,7 +534,8 @@ describe('StudyAnalyticsPage', () => {
     const client: LearningAnalyticsClient = {
       getLearningAnalytics: vi.fn(async (query) => ({
         ...bundle(query),
-        tokens: emptyTokenResult(query)
+        tokens: emptyTokenResult(query),
+        review: emptyReviewResult(query)
       }))
     }
 
@@ -478,9 +549,21 @@ describe('StudyAnalyticsPage', () => {
 
     const tokenSection = screen.getByRole('heading', { name: 'Token 消耗' }).closest('section')
     await waitFor(() => expect(tokenSection).toHaveAttribute('data-section-state', 'empty'))
-    expect(tokenSection).toHaveTextContent('当前范围内暂无学习记录。')
+    // Empty keeps the same chart shell as demo/available, not a bare "no records" message card.
+    expect(tokenSection).toHaveTextContent('Token 使用趋势')
+    expect(tokenSection).toHaveTextContent('工作区消耗排行')
+    expect(tokenSection?.querySelector('.analytics-tokens__trend')).not.toBeNull()
+    expect(tokenSection?.querySelector('.analytics-tokens__workspace-ranking')).not.toBeNull()
+    expect(tokenSection).not.toHaveTextContent('当前范围内暂无学习记录。')
     expect(tokenSection).not.toHaveTextContent('未提供学习分析 API')
     expect(document.body).not.toHaveTextContent('尚未接入')
+
+    const reviewSection = screen.getByRole('heading', { name: '复习分析' }).closest('section')
+    await waitFor(() => expect(reviewSection).toHaveAttribute('data-section-state', 'empty'))
+    expect(reviewSection).toHaveTextContent('正确率')
+    expect(reviewSection).toHaveTextContent('按课程正确率')
+    expect(reviewSection?.querySelector('.analytics-review')).not.toBeNull()
+    expect(reviewSection).not.toHaveTextContent('当前范围内暂无学习记录。')
   })
 
   it('keeps focus heatmap and active-range cards mounted for empty focus data', async () => {
@@ -510,6 +593,12 @@ describe('StudyAnalyticsPage', () => {
     expect(focusSection?.querySelector('.analytics-focus__share')).not.toBeNull()
     expect(focusSection?.querySelector('.analytics-focus__hours')).not.toBeNull()
     expect(focusSection?.querySelector('.analytics-focus__percentile')).not.toBeNull()
+    // Even when tasks/presence are unavailable, keep the planned board cards + empty chart states.
+    expect(focusSection?.querySelector('.analytics-focus__task-summary')).not.toBeNull()
+    expect(focusSection).toHaveTextContent('进行中')
+    expect(focusSection).toHaveTextContent('已完成')
+    expect(focusSection).toHaveTextContent('已逾期')
+    expect(focusSection).toHaveTextContent('完成率')
     expect(focusSection).toHaveTextContent('尚无计划与执行对比数据。')
     expect(focusSection).toHaveTextContent('暂无同伴对比数据')
   })

@@ -49,7 +49,6 @@ import {
   normalizeQuickStartTitle,
   projectBreakEndHandoffPlan,
   projectPhaseHandoffPlan,
-  resolveBreakEndAnswerIntent,
   resolveBreakEndHandoffIntent,
   resolveFocusCompleteHandoffIntent,
   resolvePhasePromptAnswerIntent
@@ -206,12 +205,6 @@ export type PhasePromptAskAnswer =
   | { action: 'later' }
   | { action: 'extend_and_start'; extendMinutes: number }
 
-/** STC-205 remainder / §10.3: host asks after rest completes (no silent next focus). */
-export type BreakEndPromptAskAnswer =
-  | { action: 'start_focus' }
-  | { action: 'wrap_up' }
-  | { action: 'later' }
-
 /** STC-206 / freeze #5: host asks how to credit a stale wall gap (>120 min default). */
 export type ReconcileAskAnswer =
   | { action: 'confirm_all' }
@@ -279,14 +272,6 @@ type UseStudySessionOptions = {
     completed: TimerSessionRecord
   }) => PhasePromptAskAnswer | null | undefined | Promise<PhasePromptAskAnswer | null | undefined>
   /**
-   * STC-205 remainder / §10.3: after rest countdown completes, host shows
-   * BreakEndPromptSheet (start next focus / wrap_up / later).
-   * later never auto-starts focus; wrap_up is not rest and not core focus.
-   */
-  onBreakEndPromptAsk?: (input: {
-    completed: TimerSessionRecord
-  }) => BreakEndPromptAskAnswer | null | undefined | Promise<BreakEndPromptAskAnswer | null | undefined>
-  /**
    * STC-206 / freeze #5: when TimerSession enters needs_reconcile (stale gap),
    * host shows ReconcileSheet (confirm_all / truncate / discard / later).
    * later keeps needs_reconcile; never silently credits sleep as focus.
@@ -323,7 +308,6 @@ export function useStudySession({
   onFutureBlocksNeedDecision,
   onClassificationPromptAsk,
   onPhasePromptAsk,
-  onBreakEndPromptAsk,
   onReconcileAsk,
   getNotificationHostContext
 }: UseStudySessionOptions) {
@@ -745,9 +729,8 @@ export function useStudySession({
   /**
    * STC-205 remainder / §10.3: after rest segment closes, do not silent-start next focus.
    * - automatic → start next focus from frozen planSnapshot
-   * - ask → BreakEndPromptSheet (start_focus / wrap_up / later)
+   * - ask / none → idle focus shell (no intermediate break-end prompt page)
    * - reminder_only → idle focus shell + soft notify
-   * - none → idle focus shell
    */
   const startNextFromCompletedBreak = (
     completed: TimerSessionRecord,
@@ -858,31 +841,8 @@ export function useStudySession({
       return
     }
 
-    if (intent.kind === 'suppress_idle_focus') {
-      commitSnapshot(idleFocusShell)
-      return
-    }
-
-    // intent.kind === 'prompt' (ask)
+    // ask / none / suppress: leave idle focus shell — no intermediate break-end page.
     commitSnapshot(idleFocusShell)
-    if (!onBreakEndPromptAsk || !normalizedCompleted) return
-    try {
-      const answer = await onBreakEndPromptAsk({ completed: normalizedCompleted })
-      const answerIntent = resolveBreakEndAnswerIntent({
-        action: answer?.action,
-        offerWrapUp: handoff.offerWrapUp
-      })
-      if (answerIntent.kind === 'noop') return
-      if (answerIntent.kind === 'start_focus') {
-        startNextFromCompletedBreak(normalizedCompleted, true, 'focus')
-        return
-      }
-      if (answerIntent.kind === 'wrap_up') {
-        startNextFromCompletedBreak(normalizedCompleted, true, 'wrap_up')
-      }
-    } catch {
-      // Fail-closed: leave idle focus shell; never auto-start on prompt error.
-    }
   }
 
   /** Sole-read clock into V1 remainingSeconds cache (focus + break). */
