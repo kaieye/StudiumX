@@ -59,6 +59,7 @@ import {
   SettingsTextInput,
   ToggleSwitch
 } from './SettingsPrimitives'
+import { GlassIconButton } from '../../ui/liquid-glass'
 import { useTeachingWorkspaceConfiguration } from '../../workflows/teaching-workspace-configuration'
 import { ModelProviderSettingsSection } from './sections/ModelProviderSettingsSection'
 import { TeachingDoctorSettingsSection } from './sections/TeachingDoctorSettingsSection'
@@ -216,9 +217,15 @@ export function SettingsView({
       if (event.target === event.currentTarget) onClose()
     }}>
       <section className="settings-view" aria-label={t('settings.aria')} role="dialog" aria-modal="true">
-        <button className="settings-close-button" type="button" aria-label={t('settings.close')} onClick={onClose}>
+        <GlassIconButton
+          className="settings-close-button"
+          type="button"
+          size="sm"
+          aria-label={t('settings.close')}
+          onClick={onClose}
+        >
           <X size={17} />
-        </button>
+        </GlassIconButton>
         <aside className="settings-nav" aria-label={t('settings.navAria')}>
         <div className="settings-nav-heading">{t('settings.navHeading')}</div>
         {settingsNavItems.map((item) => {
@@ -1058,9 +1065,15 @@ function MemoryDialog({
               </span>
             )}
           </div>
-          <button className="settings-close-button" type="button" onClick={onClose} aria-label={t('memory.dialog.close')}>
+          <GlassIconButton
+            className="settings-close-button"
+            type="button"
+            size="sm"
+            onClick={onClose}
+            aria-label={t('memory.dialog.close')}
+          >
             <X size={16} />
-          </button>
+          </GlassIconButton>
         </div>
         <div className="memory-dialog-body">
           {editable ? (

@@ -281,11 +281,13 @@ describe('McpMarketplaceStore (local durable + remote seam)', () => {
 })
 
 describe('feature registry marketplace policy', () => {
-  it('allows mcp-marketplace as experimental and keeps dangerous keys forbidden', () => {
+  it('keeps mcp-marketplace gated under_development and dangerous keys forbidden', () => {
     expect(FORBIDDEN_FEATURE_IDS).not.toContain('mcp_marketplace')
     expect(FORBIDDEN_FEATURE_IDS).toContain('yolo')
-    expect(getFeature('mcp-marketplace')?.stage).toBe('experimental')
+    // ADR-0140/0142 + product floor: marketplace has no product settings surface,
+    // so the feature stays under_development (off even with allowExperimental).
+    expect(getFeature('mcp-marketplace')?.stage).toBe('under_development')
     expect(isFeatureEnabled('mcp-marketplace')).toBe(false)
-    expect(isFeatureEnabled('mcp-marketplace', { allowExperimental: true })).toBe(true)
+    expect(isFeatureEnabled('mcp-marketplace', { allowExperimental: true })).toBe(false)
   })
 })

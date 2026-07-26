@@ -1,5 +1,5 @@
 /* Workbench music player — layout only; glass material comes from shared
-   .workbench-task-card liquid-glass / stage readable-glass rules. */
+   .workbench-task-card / stage readable-glass tokens (--lg-*, --workbench-glass-*). */
 
 .workbench-music-dock {
   position: absolute;

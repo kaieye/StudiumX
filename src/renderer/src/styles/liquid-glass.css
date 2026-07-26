@@ -1,0 +1,754 @@
+/* ================================================================
+   Liquid Glass — Web port of liquid_glass_widgets design language
+   (Flutter package: liquid_glass_widgets; CSS approximation for Electron)
+   ================================================================ */
+
+:root {
+  /* Material (mapped from GlassDefaults / LiquidGlassSettings) */
+  --lg-thickness: 30;
+  --lg-blur: 18px;
+  --lg-blur-strong: 28px;
+  --lg-blur-soft: 10px;
+  --lg-saturate: 165%;
+  --lg-contrast: 1.06;
+  --lg-light-intensity: 0.55;
+  --lg-refractive-tint: rgba(255, 255, 255, 0.22);
+  --lg-glass-fill: color-mix(in srgb, var(--surface-solid) 58%, transparent);
+  --lg-glass-fill-strong: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  --lg-glass-fill-soft: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+  --lg-line: color-mix(in srgb, #ffffff 48%, var(--line) 52%);
+  --lg-line-soft: color-mix(in srgb, #ffffff 28%, var(--line) 72%);
+  --lg-sheen: radial-gradient(
+    130% 90% at 14% 0%,
+    rgba(255, 255, 255, 0.62),
+    transparent 58%
+  );
+  --lg-sheen-edge: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.42) 0%,
+    rgba(255, 255, 255, 0.08) 42%,
+    rgba(255, 255, 255, 0.02) 100%
+  );
+  --lg-shadow: 0 10px 28px rgba(20, 47, 95, 0.1), 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  --lg-shadow-float: 0 22px 58px rgba(20, 47, 95, 0.16), 0 1px 0 rgba(255, 255, 255, 0.4) inset;
+  --lg-radius: 16px;
+  --lg-radius-sm: 10px;
+  --lg-radius-lg: 22px;
+  --lg-radius-xl: 28px;
+  --lg-control-height: 32px;
+  --lg-button-height: 44px;
+  --lg-input-height: 44px;
+  --lg-pad-card: 16px;
+  --lg-pad-panel: 24px;
+  --lg-pad-input-x: 16px;
+  --lg-pad-input-y: 12px;
+  --lg-duration: 200ms;
+  --lg-duration-fast: 100ms;
+  --lg-duration-slow: 300ms;
+  --lg-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --lg-press-scale: 0.97;
+}
+
+:root[data-resolved-theme='dark'] {
+  --lg-glass-fill: color-mix(in srgb, var(--surface-solid) 52%, transparent);
+  --lg-glass-fill-strong: color-mix(in srgb, var(--surface-solid) 68%, transparent);
+  --lg-glass-fill-soft: color-mix(in srgb, var(--surface-solid) 36%, transparent);
+  --lg-line: color-mix(in srgb, #ffffff 18%, var(--line) 82%);
+  --lg-line-soft: color-mix(in srgb, #ffffff 10%, var(--line) 90%);
+  --lg-sheen: radial-gradient(
+    130% 90% at 14% 0%,
+    rgba(255, 255, 255, 0.14),
+    transparent 58%
+  );
+  --lg-sheen-edge: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0.03) 42%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  --lg-shadow: 0 14px 36px rgba(0, 0, 0, 0.36), 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+  --lg-shadow-float: 0 26px 64px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.1) inset;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --lg-blur: 0px;
+    --lg-blur-strong: 0px;
+    --lg-blur-soft: 0px;
+    --lg-glass-fill: var(--surface-solid);
+    --lg-glass-fill-strong: var(--surface-solid);
+    --lg-glass-fill-soft: var(--surface-muted);
+  }
+}
+
+/* ----- Shared glass material ----- */
+.lg-material {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid var(--lg-line);
+  background:
+    var(--lg-sheen),
+    var(--lg-sheen-edge),
+    var(--lg-glass-fill);
+  box-shadow: var(--lg-shadow);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) contrast(var(--lg-contrast));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate))
+    contrast(var(--lg-contrast));
+  transition:
+    background var(--lg-duration) var(--lg-ease),
+    border-color var(--lg-duration) var(--lg-ease),
+    box-shadow var(--lg-duration) var(--lg-ease),
+    transform var(--lg-duration-fast) var(--lg-ease);
+}
+
+.lg-material--strong {
+  background:
+    var(--lg-sheen),
+    var(--lg-sheen-edge),
+    var(--lg-glass-fill-strong);
+  backdrop-filter: blur(var(--lg-blur-strong)) saturate(var(--lg-saturate))
+    contrast(var(--lg-contrast));
+  -webkit-backdrop-filter: blur(var(--lg-blur-strong)) saturate(var(--lg-saturate))
+    contrast(var(--lg-contrast));
+  box-shadow: var(--lg-shadow-float);
+}
+
+.lg-material--soft {
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill-soft);
+  border-color: var(--lg-line-soft);
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  box-shadow: 0 6px 18px rgba(20, 47, 95, 0.06);
+}
+
+.lg-material--flat {
+  /* Nested content inside an outer glass surface — no second glass stack */
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* ----- Container / Card ----- */
+.lg-container {
+  border-radius: var(--lg-radius);
+  padding: var(--lg-pad-card);
+}
+
+.lg-card {
+  overflow: hidden;
+  border-radius: var(--lg-radius);
+  padding: 0;
+}
+
+.lg-card__body {
+  padding: var(--lg-pad-card);
+}
+
+.lg-grouped-section {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border-radius: var(--lg-radius);
+}
+
+.lg-list-tile {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--lg-line-soft);
+  color: var(--text);
+}
+
+.lg-list-tile:last-child {
+  border-bottom: 0;
+}
+
+.lg-list-tile__leading {
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+
+.lg-list-tile__copy {
+  min-width: 0;
+}
+
+.lg-list-tile__copy strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 730;
+  color: var(--text);
+}
+
+.lg-list-tile__copy span {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.lg-list-tile__trailing {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lg-divider {
+  height: 1px;
+  margin: 8px 0;
+  border: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--lg-line-soft) 12%,
+    var(--lg-line-soft) 88%,
+    transparent
+  );
+}
+
+/* ----- Buttons ----- */
+.lg-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--lg-button-height);
+  padding: 0 16px;
+  border-radius: var(--lg-radius-sm);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 720;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.lg-button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.lg-button:not(:disabled):active {
+  transform: scale(var(--lg-press-scale));
+}
+
+.lg-button--icon {
+  width: var(--lg-button-height);
+  min-width: var(--lg-button-height);
+  padding: 0;
+  border-radius: var(--lg-radius-sm);
+}
+
+.lg-button--sm {
+  min-height: var(--lg-control-height);
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 9px;
+}
+
+.lg-button--sm.lg-button--icon {
+  width: var(--lg-control-height);
+  min-width: var(--lg-control-height);
+}
+
+.lg-button--primary {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--lg-line));
+  background:
+    var(--lg-sheen),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 88%, #ffffff),
+      var(--accent)
+    );
+  color: #ffffff;
+  box-shadow:
+    0 10px 24px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 1px 0 rgba(255, 255, 255, 0.35) inset;
+}
+
+.lg-button--primary:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.lg-button--ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.lg-button--ghost:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.lg-button-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 14px;
+}
+
+.lg-button-group > .lg-button {
+  min-height: 30px;
+  border-radius: 11px;
+}
+
+/* ----- Segmented / Switch / Chip / Badge ----- */
+.lg-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 14px;
+}
+
+.lg-segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background var(--lg-duration-fast) var(--lg-ease),
+    color var(--lg-duration-fast) var(--lg-ease),
+    box-shadow var(--lg-duration-fast) var(--lg-ease);
+}
+
+.lg-segmented button.is-active {
+  color: var(--text);
+  background: var(--lg-glass-fill-strong);
+  box-shadow: 0 4px 12px rgba(20, 47, 95, 0.08), 0 1px 0 rgba(255, 255, 255, 0.4) inset;
+}
+
+.lg-switch {
+  position: relative;
+  width: 46px;
+  height: 28px;
+  border: 1px solid var(--lg-line-soft);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--line-strong) 70%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+  transition: background var(--lg-duration) var(--lg-ease);
+}
+
+.lg-switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 4px 10px rgba(20, 47, 95, 0.2);
+  transition: transform var(--lg-duration) var(--lg-ease);
+}
+
+.lg-switch[data-state='checked'] {
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, white);
+}
+
+.lg-switch[data-state='checked'] span {
+  transform: translateX(18px);
+}
+
+.lg-switch:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.lg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.lg-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+/* ----- Inputs ----- */
+.lg-field {
+  display: grid;
+  gap: 6px;
+}
+
+.lg-field__label {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lg-input,
+.lg-textarea,
+.lg-search {
+  width: 100%;
+  min-height: var(--lg-input-height);
+  padding: var(--lg-pad-input-y) var(--lg-pad-input-x);
+  border: 1px solid var(--lg-line);
+  border-radius: 14px;
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill-soft);
+  color: var(--text);
+  font-size: 13px;
+  outline: 0;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset;
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  transition:
+    border-color var(--lg-duration-fast) var(--lg-ease),
+    box-shadow var(--lg-duration-fast) var(--lg-ease);
+}
+
+.lg-input:focus,
+.lg-textarea:focus,
+.lg-search:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--lg-line));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent),
+    0 1px 0 rgba(255, 255, 255, 0.28) inset;
+}
+
+.lg-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.lg-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--lg-input-height);
+  padding: 0 12px 0 14px;
+  border-radius: 16px;
+}
+
+.lg-search-bar input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  outline: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  min-height: 0;
+  padding: 10px 0;
+}
+
+/* ----- Surfaces: scaffold / app bar / tab / bottom ----- */
+.lg-scaffold {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.lg-app-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 14px;
+  border-radius: var(--lg-radius-lg);
+}
+
+.lg-app-bar__title {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.lg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 18px;
+}
+
+.lg-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 18px;
+}
+
+.lg-tab-bar button {
+  flex: 1;
+  min-height: 36px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.lg-tab-bar button.is-active {
+  color: var(--text);
+  background: var(--lg-glass-fill-strong);
+  box-shadow: 0 4px 14px rgba(20, 47, 95, 0.08);
+}
+
+.lg-bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--lg-radius-xl);
+}
+
+/* ----- Overlays ----- */
+.lg-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(16, 22, 36, 0.28);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+:root[data-resolved-theme='dark'] .lg-backdrop {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.lg-dialog,
+.lg-sheet,
+.lg-popover {
+  border-radius: var(--lg-radius-xl);
+  max-width: min(960px, calc(100vw - 48px));
+}
+
+.lg-dialog {
+  width: min(440px, 100%);
+  padding: var(--lg-pad-panel);
+}
+
+.lg-sheet {
+  width: min(720px, 100%);
+  max-height: min(86vh, 820px);
+  overflow: auto;
+  padding: var(--lg-pad-panel);
+}
+
+.lg-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+/* ----- Progress ----- */
+.lg-progress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.lg-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 70%, white),
+    var(--accent)
+  );
+  transition: width var(--lg-duration) var(--lg-ease);
+}
+
+/* ----- Compatibility bridges (map existing class names) ----- */
+.settings-floating-backdrop {
+  background: rgba(16, 22, 36, 0.28);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+.settings-view {
+  border: 1px solid var(--lg-line);
+  border-radius: var(--lg-radius-xl);
+  background:
+    var(--lg-sheen),
+    var(--lg-sheen-edge),
+    var(--lg-glass-fill-strong);
+  box-shadow: var(--lg-shadow-float);
+  backdrop-filter: blur(var(--lg-blur-strong)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur-strong)) saturate(var(--lg-saturate));
+}
+
+.settings-nav {
+  background: color-mix(in srgb, var(--surface-subtle) 70%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.settings-nav-item.is-active,
+.settings-nav-item:hover {
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill);
+  border: 1px solid var(--lg-line-soft);
+  box-shadow: 0 4px 14px rgba(20, 47, 95, 0.06);
+}
+
+.settings-card {
+  border: 1px solid var(--lg-line);
+  border-radius: var(--lg-radius);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill);
+  box-shadow: var(--lg-shadow);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+}
+
+.segmented-control {
+  border: 1px solid var(--lg-line-soft);
+  border-radius: 14px;
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill-soft);
+  backdrop-filter: blur(var(--lg-blur-soft));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft));
+}
+
+.segmented-control button.is-active {
+  background: var(--lg-glass-fill-strong);
+  box-shadow: 0 4px 12px rgba(20, 47, 95, 0.08), 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+}
+
+.toggle-switch {
+  border: 1px solid var(--lg-line-soft);
+  background: color-mix(in srgb, var(--line-strong) 70%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.settings-input,
+.settings-number,
+.settings-select-trigger,
+.settings-textarea {
+  border: 1px solid var(--lg-line);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill-soft);
+  backdrop-filter: blur(var(--lg-blur-soft));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset;
+}
+
+.settings-close-button {
+  border: 1px solid var(--lg-line);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--lg-shadow);
+}
+
+/* Sidebar / main shell soft glass */
+.app-shell-sidebar,
+.sidebar {
+  /* keep layout; add material where solid */
+}
+
+.main-area {
+  border-color: var(--lg-line-soft);
+}
+
+/* Workbench glass surfaces already exist — align tokens */
+.office-workbench-page {
+  --workbench-glass-surface:
+    var(--lg-sheen),
+    var(--lg-sheen-edge),
+    var(--lg-glass-fill);
+  --workbench-glass-surface-strong:
+    var(--lg-sheen),
+    var(--lg-sheen-edge),
+    var(--lg-glass-fill-strong);
+  --liquid-glass-line: var(--lg-line);
+  --liquid-glass-sheen: var(--lg-sheen);
+  --liquid-glass-fill: var(--lg-glass-fill);
+  --liquid-glass-fill-strong: var(--lg-glass-fill-strong);
+  --liquid-glass-blur: blur(var(--lg-blur-strong)) saturate(var(--lg-saturate));
+  --liquid-glass-shadow: var(--lg-shadow-float);
+  --liquid-glass-rim: color-mix(in srgb, #ffffff 70%, transparent);
+  --liquid-glass-rim-soft: color-mix(in srgb, #ffffff 40%, transparent);
+  --liquid-glass-control-fill: color-mix(in srgb, var(--surface-solid) 28%, transparent);
+  --liquid-glass-control-line: var(--lg-line-soft);
+  --workbench-card-material: var(--workbench-glass-surface);
+  --workbench-card-material-heavy: var(--workbench-glass-surface-strong);
+  --workbench-card-shadow: var(--lg-shadow-float);
+  --workbench-card-line: var(--lg-line);
+  --workbench-card-blur: var(--lg-blur);
+  --workbench-card-radius: var(--lg-radius);
+  --workbench-control-radius: var(--lg-radius-sm);
+}
+
+/* Dark theme overrides for settings glass */
+:root[data-resolved-theme='dark'] .settings-view,
+:root[data-resolved-theme='dark'] .settings-card {
+  border-color: var(--lg-line);
+}
+
+:root[data-resolved-theme='dark'] .settings-nav-item.is-active,
+:root[data-resolved-theme='dark'] .settings-nav-item:hover {
+  border-color: var(--lg-line-soft);
+}

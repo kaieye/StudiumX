@@ -231,12 +231,9 @@ export function createTeachingSessionRuntime(deps: TeachingSessionRuntimeDeps): 
       const session = requireSession(input.sessionId)
       const conversationId = input.conversationId?.trim() || session.conversationId
       if (!deps.checkpointSession) {
-        const checkpointId = `tcp_${Date.now().toString(36)}`
-        return {
-          sessionId: input.sessionId,
-          checkpointId,
-          createdAt: now()
-        }
+        // Honest not-wired seam (matches compact/fork/steer): callers must never
+        // mistake a synthesized checkpoint id for a durable checkpoint.
+        throw new Error('Durable checkpoint is not wired for this host.')
       }
       return deps.checkpointSession({ ...input, conversationId })
     },

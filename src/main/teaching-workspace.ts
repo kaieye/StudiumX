@@ -58,6 +58,7 @@ import {
   type TemporaryChatContext
 } from './teaching-conversation-runtime'
 import { loadSkillOrchestrationAuthorityFactsForWorkspace } from './skill-orchestration-authority-bridge'
+import { createSkillOrchestrationStateStore } from './skill-orchestration-state-store'
 import { AgentRunStore } from './ai/agent-run-store'
 import { parentTurnStageSafeTextDigest } from './ai/agent-parent-turn-staging'
 import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
@@ -1143,6 +1144,11 @@ export class TeachingWorkspaceService {
       isTeachingConversation && workspace
         ? await loadSkillOrchestrationAuthorityFactsForWorkspace(workspace.rootPath)
         : {}
+    // ADR-0156: durable orchestration continuity (rebuildable projection only).
+    const skillOrchestrationStateStore =
+      isTeachingConversation && workspace
+        ? createSkillOrchestrationStateStore({ workspaceRoot: workspace.rootPath })
+        : null
     const result = await runTeachingConversationTurn(payload, stream, runtimeWorkspace, {
       appDataRoot: this.appDataRoot,
       mcpSessionManager: this.mcpSessionManager,
@@ -1165,6 +1171,14 @@ export class TeachingWorkspaceService {
         }))
       },
       skillOrchestrationFacts,
+      ...(skillOrchestrationStateStore
+        ? {
+            loadOrchestrationState: (conversationId: string) =>
+              skillOrchestrationStateStore.load(conversationId),
+            saveOrchestrationState: (conversationId: string, state: Parameters<typeof skillOrchestrationStateStore.save>[1]) =>
+              skillOrchestrationStateStore.save(conversationId, state)
+          }
+        : {}),
       generateLessonFromBrief: runtimeWorkspace && isTeachingConversation
         ? async (brief) => {
             const generation = await this.generateAndPersistLesson({

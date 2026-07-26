@@ -46,6 +46,13 @@ export function planNextTeachingStep(facts: NextTeachingStepFacts): NextTeaching
     return decision('request_goal_clarification', 'insufficient_evidence', safeInputSummary)
   }
 
+  // ADR-0154: settle review debt before advancing. Fires only on an otherwise
+  // healthy loop (trusted outcome + verified evidence) and only when an adapter
+  // supplied due-review facts — absent facts keep the legacy decision table.
+  if ((facts.review?.dueCount ?? 0) > 0) {
+    return decision('review_due', 'spaced_review_due', safeInputSummary)
+  }
+
   if (facts.mission.nextGoal !== 'available') {
     return decision('request_goal_clarification', 'no_next_goal', safeInputSummary)
   }
@@ -108,6 +115,7 @@ function summarizeFacts(facts: NextTeachingStepFacts): NextTeachingStepSafeInput
       readiness: facts.resources.readiness,
       availableCount: facts.resources.availableCount
     },
+    ...(facts.review ? { review: { dueCount: facts.review.dueCount } } : {}),
     provenance: {
       outcomeEvidenceEventIds: outcome.status === 'trusted' ? stableIds(outcome.evidenceEventIds) : [],
       resourceIds: stableIds(facts.resources.provenanceIds)

@@ -7,7 +7,9 @@
   min-height: 0;
   padding: 4px 4px 12px 10px;
   border-right: 0;
-  background: var(--app-shell-sidebar-bg);
+  background:
+    var(--lg-sheen),
+    color-mix(in srgb, var(--app-shell-sidebar-bg) 88%, transparent);
   user-select: none;
   -webkit-user-select: none;
   app-region: drag;
@@ -126,10 +128,20 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   height: 40px;
   flex: 0 0 auto;
   color: var(--accent);
-  border: 1px solid #dce7ff;
+  border: 1px solid var(--lg-line);
   border-radius: 13px;
-  background: linear-gradient(180deg, #f8fbff, #edf4ff);
-  box-shadow: 0 8px 22px rgba(79, 124, 245, 0.12);
+  background:
+    var(--lg-sheen),
+    linear-gradient(180deg, #f8fbff, #edf4ff);
+  box-shadow: var(--lg-shadow);
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(var(--lg-saturate));
+}
+
+:root[data-resolved-theme="dark"] .brand-mark {
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill);
 }.brand-title {
   margin: 0;
   color: var(--text);
@@ -150,16 +162,23 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   height: 38px;
   padding: 0 12px;
   color: var(--text-soft);
-  border: 1px solid var(--line);
+  border: 1px solid var(--lg-line-soft);
   border-radius: 13px;
-  background: rgba(255, 255, 255, 0.74);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset;
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
   transition:
     border-color 180ms ease,
     background 180ms ease,
     box-shadow 180ms ease;
 }.search-box:focus-within {
-  border-color: var(--line-strong);
-  background: var(--surface-solid);
+  border-color: var(--lg-line);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill-strong);
   box-shadow: 0 0 0 3px rgba(79, 124, 245, 0.07);
 }.search-box input {
   width: 100%;

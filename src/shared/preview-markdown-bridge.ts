@@ -4,6 +4,7 @@ import {
   normalizeLessonInteraction,
   normalizePreviewLessonInteractionIntent
 } from './teaching-types/lesson-interaction'
+import { normalizeFillAnswer, sha256HexUtf8 } from './fill-answer'
 import { EXTERNAL_DESTINATION_PROTOCOLS, classifyExternalDestination } from './external-destination'
 
 export type { PreviewLessonInteractionIntent } from './teaching-types/lesson-interaction'
@@ -48,6 +49,32 @@ function markdownBridgeScript(): string {
     window.parent.postMessage({ source: ${JSON.stringify(PREVIEW_LESSON_INTERACTION_SOURCE)}, type: ${JSON.stringify(PREVIEW_LESSON_INTERACTION_MESSAGE)}, interaction }, '*');
   };
   const itemIndex = (selector, node) => Math.max(0, Array.from(document.querySelectorAll(selector)).indexOf(node)) + 1;
+  // ADR-0155: fill answers digest to safe option ids; same normalization as quiz.js.
+  const normalizeFill = ${String(normalizeFillAnswer)};
+  const sha256Hex = ${String(sha256HexUtf8)};
+  const emitFillSubmission = (card) => {
+    queueMicrotask(() => {
+      const input = card.querySelector('input[type="text"]');
+      const value = input && typeof input.value === 'string' ? input.value : '';
+      const normalized = normalizeFill(value);
+      if (!normalized) return;
+      const primary = normalizeFill(card.getAttribute('data-answer') || '');
+      let acceptedRaw = [];
+      try { acceptedRaw = JSON.parse(card.getAttribute('data-accepted') || '[]'); } catch {}
+      const accepted = [primary]
+        .concat(Array.isArray(acceptedRaw) ? acceptedRaw.map((entry) => normalizeFill(String(entry))) : [])
+        .filter(Boolean);
+      const correct = accepted.includes(normalized);
+      const index = itemIndex('.quiz-card', card);
+      emit({
+        eventId: interactionId('quiz', index),
+        kind: 'quiz_answered',
+        itemId: 'quiz-' + index,
+        selectedOptionIds: ['fill-' + sha256Hex(normalized)],
+        correct
+      });
+    });
+  };
   document.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
@@ -65,10 +92,14 @@ function markdownBridgeScript(): string {
     if (choice) {
       const card = choice.closest('.quiz-card');
       if (!card) return;
+      const type = card.getAttribute('data-type') || 'single';
+      if (type === 'fill') {
+        if (choice.getAttribute('data-choice') === 'submit') emitFillSubmission(card);
+        return;
+      }
       queueMicrotask(() => {
         const itemId = 'quiz-' + itemIndex('.quiz-card', card);
         const answer = card.getAttribute('data-answer') || '';
-        const type = card.getAttribute('data-type') || 'single';
         const selected = Array.from(card.querySelectorAll('button[data-choice].is-selected')).map((button) => button.getAttribute('data-choice')).filter(Boolean);
         const optionId = choice.getAttribute('data-choice');
         const selectedOptionIds = type === 'multi' ? selected : optionId ? [optionId] : [];
@@ -86,6 +117,15 @@ function markdownBridgeScript(): string {
       if (!card) return;
       emit({ eventId: interactionId('flashcard', itemIndex('.flashcard', card)), kind: 'flashcard_rated', itemId: 'flashcard-' + itemIndex('.flashcard', card), rating: rating.getAttribute('data-rating') });
     }
+  }, true);
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    const target = event.target instanceof Element ? event.target : null;
+    const input = target && target.closest ? target.closest('.quiz-card input[type="text"]') : null;
+    if (!input) return;
+    const card = input.closest('.quiz-card');
+    if (!card || (card.getAttribute('data-type') || '') !== 'fill') return;
+    emitFillSubmission(card);
   }, true);
   document.addEventListener('click', (event) => {
     const target = event.target;

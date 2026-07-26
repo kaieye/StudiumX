@@ -24,9 +24,17 @@ function setupStudiumXQuizCards(root = document) {
       const input = card.querySelector('input[type="text"]');
       const submit = card.querySelector('button[data-choice="submit"]');
       const normalize = (s) => s.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[。.,，！!？?]/g, '');
+      // ADR-0155: optional accepted alternates (JSON array in data-accepted).
+      let acceptedRaw = [];
+      try {
+        acceptedRaw = JSON.parse(card.getAttribute('data-accepted') || '[]');
+      } catch {}
+      const acceptedAnswers = [normalize(answer)]
+        .concat(Array.isArray(acceptedRaw) ? acceptedRaw.map((entry) => normalize(String(entry))) : [])
+        .filter(Boolean);
       const check = () => {
         const value = input?.value || '';
-        const isCorrect = Boolean(value.trim()) && normalize(value) === normalize(answer);
+        const isCorrect = Boolean(value.trim()) && acceptedAnswers.includes(normalize(value));
         if (input) {
           input.classList.toggle('is-correct', isCorrect);
           input.classList.toggle('is-wrong', !isCorrect && value.trim().length > 0);

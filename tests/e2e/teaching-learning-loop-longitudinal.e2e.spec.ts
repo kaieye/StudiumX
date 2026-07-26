@@ -45,6 +45,7 @@ const FIXED_ASSESSMENT_PLAN = {
       question: 'Which artifact is authoritative?',
       choices: ['Normal preview', 'Assessment sidecar'],
       answer: 1,
+      acceptedAnswers: [] as string[],
       explanation: 'Only the static sidecar is evaluated.'
     }
   ],

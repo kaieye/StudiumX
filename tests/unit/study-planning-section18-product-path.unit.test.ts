@@ -340,7 +340,10 @@ describe('§18 #3 product-path: timer modes + planSnapshot continuity (partial)'
   })
 
   it('continuous countdown target freezes focusMinutes into targetSeconds', () => {
+    // Router contract (timer-plan.ts): a bare factory call without id/mode is
+    // the legacy exam seed; countdown-target intent must name its mode.
     const plan = createContinuousCountupPlan({
+      continuousMode: 'target',
       clockMode: 'countdown',
       focusMinutes: 45
     })

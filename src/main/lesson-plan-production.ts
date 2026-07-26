@@ -315,6 +315,7 @@ function localFallbackPlan(
           question: 'StudiumX 里最应该长期保存的真相来源是什么？',
           choices: ['运行时内存状态', '工作区文件资产', '单次聊天窗口'],
           answer: 1,
+          acceptedAnswers: [],
           explanation: '工作区文件能脱离 App 长期保存。'
         }]
       : [],

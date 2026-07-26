@@ -72,7 +72,7 @@ function DoctorCheckCard({
   t: (key: string, options?: Record<string, unknown>) => string
 }) {
   return (
-    <div className="settings-card" data-testid="doctor-check" data-check-id={check.checkId}>
+    <SettingsCard data-testid="doctor-check" data-check-id={check.checkId}>
       <div className="settings-row">
         <div className="settings-row-copy">
           <strong>
@@ -101,7 +101,7 @@ function DoctorCheckCard({
           </ol>
         </div>
       ) : null}
-    </div>
+    </SettingsCard>
   )
 }
 

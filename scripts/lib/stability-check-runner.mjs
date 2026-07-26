@@ -147,7 +147,104 @@ export async function terminateProcessTree(child) {
   }
 }
 
-function terminateWindowsProcessTree(pid) {
+async function terminateWindowsProcessTree(pid) {
+  // taskkill /T resolves the tree from live parent-child links, so descendants
+  // of an already-exited parent are invisible to it (orphaned workers survive).
+  // Snapshot descendant PIDs first, kill the tree, then sweep the snapshot.
+  const descendants = await listWindowsDescendantPids(pid)
+  const main = await runWindowsTaskkill(['/PID', String(pid), '/T', '/F'])
+
+  let sweptCount = 0
+  let sweepError = null
+  for (const descendantPid of descendants) {
+    const sweep = await runWindowsTaskkill(['/PID', String(descendantPid), '/F'])
+    if (sweep.ok || isWindowsProcessNotFound(sweep)) {
+      sweptCount += 1
+      continue
+    }
+    sweepError = sweepError ?? `descendant ${descendantPid}: ${sweep.error ?? 'unknown error'}`
+  }
+
+  const sweepComplete = sweepError === null
+  // Success = the tree kill worked, or every snapshotted descendant is gone
+  // (covers the dead-parent case where taskkill /T has nothing to resolve).
+  const succeeded =
+    (main.ok || isWindowsProcessNotFound(main)) && sweepComplete
+  const errorParts = []
+  if (!main.ok && !isWindowsProcessNotFound(main)) errorParts.push(main.error ?? 'taskkill failed')
+  if (sweepError) errorParts.push(`orphan sweep failed: ${sweepError}`)
+
+  return {
+    attempted: true,
+    succeeded,
+    method: descendants.length > 0
+      ? `taskkill /PID /T /F + orphan sweep (${sweptCount}/${descendants.length})`
+      : 'taskkill /PID /T /F',
+    pid,
+    error: errorParts.length > 0 ? errorParts.join('; ') : null,
+    output: main.output
+  }
+}
+
+const WINDOWS_PID_SNAPSHOT_TIMEOUT_MS = 3_000
+const WINDOWS_PID_SNAPSHOT_LIMIT = 64
+
+/**
+ * Best-effort recursive descendant PID snapshot via a single CIM process list.
+ * Returns [] on any failure — the sweep is an additive safety net only.
+ */
+async function listWindowsDescendantPids(rootPid) {
+  const listing = await runBoundedWindowsCommand(
+    'powershell',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }'
+    ],
+    WINDOWS_PID_SNAPSHOT_TIMEOUT_MS
+  )
+  if (!listing.ok) return []
+
+  const childrenByParent = new Map()
+  for (const line of listing.output.stdout.split(/\r?\n/)) {
+    const match = /^(\d+)\s+(\d+)\s*$/.exec(line.trim())
+    if (!match) continue
+    const childPid = Number(match[1])
+    const parentPid = Number(match[2])
+    if (!Number.isInteger(childPid) || !Number.isInteger(parentPid)) continue
+    const list = childrenByParent.get(parentPid) ?? []
+    list.push(childPid)
+    childrenByParent.set(parentPid, list)
+  }
+
+  const descendants = []
+  const queue = [rootPid]
+  const seen = new Set([rootPid])
+  while (queue.length > 0 && descendants.length < WINDOWS_PID_SNAPSHOT_LIMIT) {
+    const current = queue.shift()
+    for (const childPid of childrenByParent.get(current) ?? []) {
+      if (seen.has(childPid)) continue
+      seen.add(childPid)
+      descendants.push(childPid)
+      queue.push(childPid)
+    }
+  }
+  return descendants
+}
+
+function isWindowsProcessNotFound(result) {
+  if (result.ok) return false
+  const text = `${result.output?.stderr ?? ''}${result.output?.stdout ?? ''}`
+  // taskkill exits 128 with "not found" when the PID is already gone.
+  return result.exitCode === 128 || /not found|没有找到|找不到/i.test(text)
+}
+
+function runWindowsTaskkill(args) {
+  return runBoundedWindowsCommand('taskkill', args, 5_000)
+}
+
+function runBoundedWindowsCommand(command, args, timeoutMs) {
   return new Promise((resolveResult) => {
     let stdout = ''
     let stderr = ''
@@ -156,47 +253,38 @@ function terminateWindowsProcessTree(pid) {
     const finish = (result) => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       resolveResult(result)
     }
 
-    let taskkill
+    let child
     try {
-      taskkill = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
+      child = spawn(command, args, {
         shell: false,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe']
       })
     } catch (error) {
-      finish({
-        attempted: true,
-        succeeded: false,
-        method: 'taskkill /PID /T /F',
-        pid,
-        error: serializeError(error),
-        output: { stdout, stderr }
-      })
+      resolveResult({ ok: false, exitCode: null, error: serializeError(error), output: { stdout, stderr } })
       return
     }
 
-    taskkill.stdout?.on('data', (chunk) => { stdout += Buffer.from(chunk).toString('utf8') })
-    taskkill.stderr?.on('data', (chunk) => { stderr += Buffer.from(chunk).toString('utf8') })
-    taskkill.once('error', (error) => {
-      finish({
-        attempted: true,
-        succeeded: false,
-        method: 'taskkill /PID /T /F',
-        pid,
-        error: serializeError(error),
-        output: { stdout, stderr }
-      })
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL') } catch { /* best effort */ }
+      finish({ ok: false, exitCode: null, error: `${command} timed out after ${timeoutMs}ms`, output: { stdout, stderr } })
+    }, timeoutMs)
+
+    child.stdout?.on('data', (chunk) => { stdout += Buffer.from(chunk).toString('utf8') })
+    child.stderr?.on('data', (chunk) => { stderr += Buffer.from(chunk).toString('utf8') })
+    child.once('error', (error) => {
+      finish({ ok: false, exitCode: null, error: serializeError(error), output: { stdout, stderr } })
     })
-    taskkill.once('close', (exitCode, signal) => {
+    child.once('close', (exitCode, signal) => {
+      const ok = exitCode === 0 && !signal
       finish({
-        attempted: true,
-        succeeded: exitCode === 0 && !signal,
-        method: 'taskkill /PID /T /F',
-        pid,
-        error: exitCode === 0 && !signal ? null : `taskkill exited with code ${exitCode ?? 'null'}${signal ? ` and signal ${signal}` : ''}`,
+        ok,
+        exitCode,
+        error: ok ? null : `${command} exited with code ${exitCode ?? 'null'}${signal ? ` and signal ${signal}` : ''}`,
         output: { stdout, stderr }
       })
     })

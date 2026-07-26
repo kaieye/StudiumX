@@ -2,6 +2,7 @@
 @import "katex/dist/katex.min.css";
 
 @import "./styles/tokens.css";
+@import "./styles/liquid-glass.css";
 @import "./styles/base.css";
 @import "./styles/shell.css";
 @import "./app-frame/window-chrome.css";

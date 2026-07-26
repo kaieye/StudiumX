@@ -51,6 +51,8 @@ export type SkillOrchestrationCompletionGate = {
   description: string
 }
 
+export type SkillOrchestrationStageStatus = 'completed' | 'current' | 'pending'
+
 export type SkillOrchestrationStage = {
   id: string
   kind: SkillOrchestrationStageKind
@@ -59,6 +61,8 @@ export type SkillOrchestrationStage = {
   consumes: string[]
   produces: string[]
   completionGates: SkillOrchestrationCompletionGate[]
+  /** Present only when prior conversation state informed the plan (ADR-0156). */
+  status?: SkillOrchestrationStageStatus
 }
 
 export type SkillOrchestrationDecision = {
@@ -103,6 +107,8 @@ export type SkillOrchestrationPlan = {
   diagnostics: SkillOrchestrationDiagnostic[]
   /** Optional Authority Plane echoes (planId-stable; for turn-tail projection only). */
   authorityEcho?: SkillOrchestrationAuthorityEcho
+  /** First not-yet-completed stage id when prior state informed the plan (ADR-0156). */
+  currentStageId?: string
 }
 
 /**
@@ -146,4 +152,55 @@ export type SkillOrchestrationInput = {
   budgetConstrained?: boolean
   /** Prefer artifact profile for kernel when true. */
   preferArtifactProfile?: boolean
+  /**
+   * Prior-turn orchestration continuity facts (ADR-0156). Allow-listed
+   * projection of the durable conversation state — never a second state
+   * machine: same canonical facts + same prior state → same plan.
+   */
+  priorState?: SkillOrchestrationPriorState
+}
+
+/** Allow-listed prior-state projection consumed by the pure planner (ADR-0156). */
+export type SkillOrchestrationPriorState = {
+  planId: string
+  planRevision: number
+  stageCursor: string | null
+  completedStageKinds: SkillOrchestrationStageKind[]
+  /** Artifact tokens confirmed by deterministic gate checks in prior turns. */
+  artifactFacts: string[]
+}
+
+export const SKILL_ORCHESTRATION_STATE_SCHEMA_VERSION = 1 as const
+
+export type SkillOrchestrationGateResult = {
+  stageId: string
+  gateId: string
+  passed: boolean
+  /** Allow-listed deterministic check description (tokens only, no content). */
+  checkedFact: string
+}
+
+export type SkillOrchestrationStageProgress = {
+  stageId: string
+  kind: SkillOrchestrationStageKind
+  status: 'completed' | 'active' | 'pending'
+  gateResults: SkillOrchestrationGateResult[]
+}
+
+/**
+ * Durable per-conversation orchestration continuity state (ADR-0156).
+ * A rebuildable workflow projection: it stores stage cursor + gate checks only,
+ * never ledger/Evidence facts, and always yields to a fresh re-plan when
+ * missing or conflicting. Zero settlement authority.
+ */
+export type ConversationOrchestrationState = {
+  schemaVersion: typeof SKILL_ORCHESTRATION_STATE_SCHEMA_VERSION
+  conversationId: string
+  planId: string
+  planRevision: number
+  mode: SkillOrchestrationMode
+  stageCursor: string | null
+  stages: SkillOrchestrationStageProgress[]
+  artifactFacts: string[]
+  updatedAt: string
 }

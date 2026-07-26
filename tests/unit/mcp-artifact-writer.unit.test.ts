@@ -19,7 +19,8 @@ async function temporaryRoot(): Promise<string> {
 }
 
 describe('LocalMcpArtifactWriter (ADR-0134)', () => {
-  it('writes contained 0600 content-addressed artifacts and returns no filesystem path', async () => {
+  // POSIX permission bits are not representable on win32 (chmod is a no-op there).
+  it.skipIf(process.platform === 'win32')('writes contained 0600 content-addressed artifacts and returns no filesystem path', async () => {
     const root = await temporaryRoot()
     const writer = new LocalMcpArtifactWriter({ rootPath: root })
     const first = await writer.writeArtifact({
@@ -52,7 +53,8 @@ describe('LocalMcpArtifactWriter (ADR-0134)', () => {
     expect((await stat(storedPath)).mode & 0o777).toBe(0o600)
   })
 
-  it('rejects a symbolic-link root instead of following it', async () => {
+  // Creating symlinks on win32 requires elevation/developer mode; symlink refusal is covered on POSIX runners.
+  it.skipIf(process.platform === 'win32')('rejects a symbolic-link root instead of following it', async () => {
     const parent = await temporaryRoot()
     const target = await temporaryRoot()
     const linkedRoot = join(parent, 'linked-root')

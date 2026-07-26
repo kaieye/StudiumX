@@ -15,28 +15,35 @@
   gap: 10px;
   margin: 0;
   padding: 11px 12px 11px 14px;
-  border-radius: 14px;
+  border-radius: var(--lg-radius);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.45;
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.2);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--lg-shadow-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) contrast(var(--lg-contrast));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate))
+    contrast(var(--lg-contrast));
   animation: floating-alert-in 180ms ease-out;
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }.inline-alert[data-severity="error"] {
   color: #9c384e;
-  border: 1px solid #ffd4de;
-  background: #fff5f7;
+  border: 1px solid color-mix(in srgb, #ffd4de 70%, var(--lg-line));
+  background:
+    var(--lg-sheen),
+    color-mix(in srgb, #fff5f7 78%, transparent);
 }.inline-alert[data-severity="warning"] {
   color: #8a5a19;
-  border: 1px solid #ffe4b8;
-  background: #fffbf0;
+  border: 1px solid color-mix(in srgb, #ffe4b8 70%, var(--lg-line));
+  background:
+    var(--lg-sheen),
+    color-mix(in srgb, #fffbf0 78%, transparent);
 }.inline-alert[data-severity="info"] {
   color: #3a5f9c;
-  border: 1px solid #d4e2ff;
-  background: #f5f9ff;
+  border: 1px solid color-mix(in srgb, #d4e2ff 70%, var(--lg-line));
+  background:
+    var(--lg-sheen),
+    color-mix(in srgb, #f5f9ff 78%, transparent);
 }.inline-alert .alert-dismiss {
   display: inline-flex;
   margin-left: auto;
@@ -66,10 +73,15 @@
   margin: 48px auto;
   padding: 28px 24px;
   text-align: center;
-  border: 1px solid #ffd4de;
-  border-radius: var(--radius-xl);
-  background: #fff5f7;
-  box-shadow: var(--shadow-panel);
+  border: 1px solid color-mix(in srgb, #ffd4de 70%, var(--lg-line));
+  border-radius: var(--lg-radius-lg);
+  background:
+    var(--lg-sheen),
+    var(--lg-sheen-edge),
+    color-mix(in srgb, #fff5f7 82%, transparent);
+  box-shadow: var(--lg-shadow-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
 }.error-boundary-card h2 {
   margin: 0 0 8px;
   color: #9c384e;

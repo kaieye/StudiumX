@@ -54,24 +54,29 @@
    surface tint is now dense enough to keep the content's contrast independent
    of a bright or dark frame behind it. */
 .office-workbench-stage {
+  /* Readable frost over stage/video: sheen + stronger fill so type stays legible. */
   --workbench-readable-glass-surface:
-    linear-gradient(
-      150deg,
-      color-mix(in srgb, var(--surface-solid) 68%, transparent),
-      color-mix(in srgb, var(--surface-solid) 48%, transparent)
-    );
-  --workbench-readable-glass-line: color-mix(in srgb, var(--surface-solid) 38%, var(--liquid-glass-line));
+    var(--lg-sheen, none),
+    var(--lg-sheen-edge, none),
+    color-mix(in srgb, var(--lg-glass-fill, var(--surface-solid)) 88%, transparent);
+  --workbench-readable-glass-line: color-mix(
+    in srgb,
+    var(--surface-solid) 38%,
+    var(--liquid-glass-line, var(--lg-line))
+  );
   --workbench-readable-glass-blur: blur(44px) saturate(140%) contrast(1.04);
 }
 
 .office-workbench-stage.is-immersive {
   --workbench-readable-glass-surface:
-    linear-gradient(
-      150deg,
-      color-mix(in srgb, var(--surface-solid) 76%, transparent),
-      color-mix(in srgb, var(--surface-solid) 58%, transparent)
-    );
-  --workbench-readable-glass-line: color-mix(in srgb, var(--surface-solid) 48%, var(--liquid-glass-line));
+    var(--lg-sheen, none),
+    var(--lg-sheen-edge, none),
+    color-mix(in srgb, var(--lg-glass-fill-strong, var(--surface-solid)) 92%, transparent);
+  --workbench-readable-glass-line: color-mix(
+    in srgb,
+    var(--surface-solid) 48%,
+    var(--liquid-glass-line, var(--lg-line))
+  );
   --workbench-readable-glass-blur: blur(52px) saturate(135%) contrast(1.06);
 }
 
@@ -283,30 +288,34 @@
   --workbench-clock-digit: #c1c1c1;
   --workbench-clock-line: rgba(0, 0, 0, 0.94);
   --workbench-quick-note-surface:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(243, 248, 255, 0.9));
-  --workbench-quick-note-line: rgba(186, 204, 232, 0.9);
-  --workbench-quick-note-shadow: 0 24px 62px rgba(36, 62, 106, 0.18);
-  --workbench-quick-note-input: rgba(248, 251, 255, 0.86);
-  --workbench-quick-note-input-line: rgba(187, 204, 231, 0.84);
+    var(--lg-sheen, none),
+    var(--lg-sheen-edge, none),
+    var(--lg-glass-fill-strong, color-mix(in srgb, var(--surface-solid) 88%, transparent));
+  --workbench-quick-note-line: var(--lg-line, rgba(186, 204, 232, 0.9));
+  --workbench-quick-note-shadow: var(--lg-shadow-float);
+  --workbench-quick-note-input: color-mix(in srgb, var(--surface-solid) 86%, transparent);
+  --workbench-quick-note-input-line: var(--lg-line-soft, rgba(187, 204, 231, 0.84));
   --workbench-quick-note-placeholder: #8090a8;
-  --workbench-quick-note-close: rgba(79, 124, 245, 0.08);
-  --workbench-quick-note-close-hover: rgba(79, 124, 245, 0.15);
-  --workbench-immersive-action-shadow: 0 12px 30px rgba(36, 62, 106, 0.2);
+  --workbench-quick-note-close: color-mix(in srgb, var(--accent) 8%, transparent);
+  --workbench-quick-note-close-hover: color-mix(in srgb, var(--accent) 15%, transparent);
+  --workbench-immersive-action-shadow: var(--lg-shadow);
 }
 
 :root[data-resolved-theme='dark'] {
   --workbench-clock-digit: #c9c9c9;
   --workbench-clock-line: rgba(0, 0, 0, 0.94);
   --workbench-quick-note-surface:
-    linear-gradient(145deg, rgba(38, 45, 61, 0.94), rgba(19, 24, 34, 0.94));
-  --workbench-quick-note-line: rgba(176, 199, 255, 0.25);
-  --workbench-quick-note-shadow: 0 26px 70px rgba(0, 0, 0, 0.48);
-  --workbench-quick-note-input: rgba(8, 13, 23, 0.46);
-  --workbench-quick-note-input-line: rgba(193, 211, 255, 0.18);
+    var(--lg-sheen, none),
+    var(--lg-sheen-edge, none),
+    var(--lg-glass-fill-strong, color-mix(in srgb, var(--surface-solid) 78%, transparent));
+  --workbench-quick-note-line: var(--lg-line, rgba(176, 199, 255, 0.25));
+  --workbench-quick-note-shadow: var(--lg-shadow-float);
+  --workbench-quick-note-input: color-mix(in srgb, var(--surface-solid) 46%, transparent);
+  --workbench-quick-note-input-line: var(--lg-line-soft, rgba(193, 211, 255, 0.18));
   --workbench-quick-note-placeholder: rgba(226, 234, 248, 0.56);
-  --workbench-quick-note-close: rgba(255, 255, 255, 0.08);
-  --workbench-quick-note-close-hover: rgba(255, 255, 255, 0.16);
-  --workbench-immersive-action-shadow: 0 12px 30px rgba(0, 0, 0, 0.34);
+  --workbench-quick-note-close: color-mix(in srgb, #ffffff 8%, transparent);
+  --workbench-quick-note-close-hover: color-mix(in srgb, #ffffff 16%, transparent);
+  --workbench-immersive-action-shadow: var(--lg-shadow);
 }
 
 .workbench-immersive-toggle:focus-visible,

@@ -158,7 +158,8 @@ function toPlannerFacts(facts: TeachingLoopFacts): NextTeachingStepFacts {
       readiness: facts.resources.readiness,
       availableCount: facts.resources.availableCount,
       provenanceIds: facts.resources.provenanceIds
-    }
+    },
+    ...(facts.review ? { review: { dueCount: facts.review.dueCount } } : {})
   }
 }
 

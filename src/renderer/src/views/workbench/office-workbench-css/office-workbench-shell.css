@@ -5,20 +5,17 @@
   --workbench-tools-scale: 1;
   --workbench-tools-layout-height: 100%;
   --workbench-accent-contrast: #ffffff;
+  /* Prefer design-system liquid glass; liquid-glass.css may re-bridge these. */
   --workbench-glass-surface:
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--surface-solid) 82%, transparent),
-      color-mix(in srgb, var(--surface-solid) 56%, transparent)
-    ),
-    color-mix(in srgb, var(--surface) 44%, transparent);
+    var(--lg-sheen, none),
+    var(--lg-sheen-edge, none),
+    var(--lg-glass-fill, color-mix(in srgb, var(--surface-solid) 58%, transparent));
   --workbench-glass-surface-strong:
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--surface-solid) 90%, transparent),
-      color-mix(in srgb, var(--surface-solid) 68%, transparent)
-    ),
-    color-mix(in srgb, var(--surface) 54%, transparent);
+    var(--lg-sheen, none),
+    var(--lg-sheen-edge, none),
+    var(--lg-glass-fill-strong, color-mix(in srgb, var(--surface-solid) 72%, transparent));
+  --liquid-glass-line: var(--lg-line, color-mix(in srgb, #ffffff 48%, var(--line) 52%));
+  --liquid-glass-sheen: var(--lg-sheen, radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.55), transparent 56%));
   position: relative;
   width: 100%;
   max-width: 100%;

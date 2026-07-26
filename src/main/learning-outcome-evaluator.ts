@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { parse, type DefaultTreeAdapterTypes } from 'parse5'
 
 import { readContainedRegularFileBounded } from './path-access'
+import { isFillOptionId } from '../shared/fill-answer'
 import {
   lessonInteractionLedgerKind,
   normalizeLessonInteraction,
@@ -213,7 +214,24 @@ function assessInteraction(
 
   const quiz = quizzes.find((candidate) => candidate.itemId === interaction.itemId)
   if (!quiz) return ignored('unknown_quiz')
-  if (quiz.type === 'fill' || quiz.type === null) return ignored(quiz.type === 'fill' ? 'unsupported_quiz_type' : 'malformed_answer_or_choice')
+  if (quiz.type === null) return ignored('malformed_answer_or_choice')
+  if (quiz.type === 'fill') {
+    // ADR-0155: fill settles only against sidecar v2 accepted-answer digests.
+    // v1 sidecars (answerIds null) keep the conservative unsupported posture.
+    if (!quiz.answerIds) return ignored('unsupported_quiz_type')
+    if (!isValidFillSelection(interaction.selectedOptionIds)) {
+      return ignored('malformed_answer_or_choice')
+    }
+    return {
+      eventId: event.eventId,
+      sequence: event.sequence,
+      itemId: interaction.itemId,
+      disposition: quiz.answerIds.includes(interaction.selectedOptionIds[0]!)
+        ? 'verified_correct'
+        : 'verified_incorrect',
+      reason: 'verified'
+    }
+  }
   if (!quiz.answerIds || !quiz.choiceIds || !isValidSelection(interaction.selectedOptionIds, quiz.choiceIds, quiz.type)) {
     return ignored('malformed_answer_or_choice')
   }
@@ -250,7 +268,12 @@ function parseCanonicalAssessmentJson(content: string): CanonicalQuiz[] | null {
   try {
     if (Buffer.byteLength(content, 'utf8') > MAX_CANONICAL_ARTIFACT_BYTES) return null
     const value: unknown = JSON.parse(content)
-    if (!isRecord(value) || !hasOnlyKeys(value, ['schemaVersion', 'kind', 'quizzes']) || value.schemaVersion !== 1 || value.kind !== 'studiumx-assessment' || !Array.isArray(value.quizzes) || value.quizzes.length > 5) return null
+    if (!isRecord(value) || !hasOnlyKeys(value, ['schemaVersion', 'kind', 'quizzes'])) return null
+    // v1: fill carries no answer binding (unsupported for settlement).
+    // v2 (ADR-0155): fill answerIds are normalized-answer digests (`fill-<sha256>`).
+    const schemaVersion = value.schemaVersion
+    if (schemaVersion !== 1 && schemaVersion !== 2) return null
+    if (value.kind !== 'studiumx-assessment' || !Array.isArray(value.quizzes) || value.quizzes.length > 5) return null
     const quizzes: CanonicalQuiz[] = []
     for (let index = 0; index < value.quizzes.length; index += 1) {
       const quiz = value.quizzes[index]
@@ -262,7 +285,12 @@ function parseCanonicalAssessmentJson(content: string): CanonicalQuiz[] | null {
       if (quiz.answerIds !== null && !answerIds) return null
       if (quiz.choiceIds !== null && !choiceIds) return null
       if (type === 'fill') {
-        if (answerIds !== null || choiceIds !== null) return null
+        if (choiceIds !== null) return null
+        if (schemaVersion === 1) {
+          if (answerIds !== null) return null
+        } else if (answerIds !== null && !answerIds.every((id) => isFillOptionId(id))) {
+          return null
+        }
       } else if (type === 'single' || type === 'multi' || type === 'truefalse') {
         if (!answerIds || !choiceIds || answerIds.length === 0 || choiceIds.length === 0 ||
           (type !== 'multi' && answerIds.length !== 1) ||
@@ -367,12 +395,20 @@ function parseStaticAssessmentDocument(document: DefaultTreeAdapterTypes.Documen
 }
 
 function isStaticAssessmentCard(card: HtmlElement, itemId: string): boolean {
-  if (!hasCompleteSourceLocation(card) || !hasExactAttributes(card, {
+  const baseAttributes = {
     class: 'quiz-card',
     'data-item-id': itemId,
     'data-type': isAssessmentQuizType,
     'data-answer': () => true
-  })) return false
+  }
+  // Fill cards may carry the optional accepted-alternates attribute (ADR-0155).
+  const fillWithAccepted =
+    attributeValue(card, 'data-type') === 'fill' &&
+    attributeValue(card, 'data-accepted') !== undefined
+  if (!hasCompleteSourceLocation(card) || !hasExactAttributes(
+    card,
+    fillWithAccepted ? { ...baseAttributes, 'data-accepted': isJsonStringArrayAttribute } : baseAttributes
+  )) return false
 
   const type = attributeValue(card, 'data-type')
   const children = exactElementChildren(card)
@@ -519,6 +555,8 @@ function pushChildElements(stack: PendingElement[], parent: HtmlParentNode, dept
 function parseQuizCard(itemId: string, card: HtmlElement): CanonicalQuiz {
   const type = attributeValue(card, 'data-type')
   const choiceIds = parseChoiceIds(card)
+  // Fill settles only via the JSON sidecar's digest bindings (ADR-0155 v2);
+  // the legacy HTML sidecar keeps its conservative unsupported posture.
   if (type === 'fill') return { itemId, type: 'fill', answerIds: null, choiceIds }
   if (type !== 'single' && type !== 'multi' && type !== 'truefalse') return malformedQuiz(itemId)
 
@@ -606,6 +644,31 @@ function isValidSelection(selected: string[], choices: string[], type: 'single' 
   if (!Array.isArray(selected) || selected.length === 0 || new Set(selected).size !== selected.length) return false
   if ((type === 'single' || type === 'truefalse') && selected.length !== 1) return false
   return selected.every((value) => isSafeOptionId(value) && choices.includes(value))
+}
+
+/** Fill evidence carries exactly one normalized-answer digest id (ADR-0155). */
+function isValidFillSelection(selected: string[]): boolean {
+  return Array.isArray(selected) && selected.length === 1 && isFillOptionId(selected[0]!)
+}
+
+/** Optional data-accepted attribute: strict JSON array of non-empty strings. */
+function isJsonStringArrayAttribute(value: string): boolean {
+  return parseAcceptedAlternatesAttributeStrict(value) !== null
+}
+
+function parseAcceptedAlternatesAttributeStrict(value: string): string[] | null {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 4) return null
+    const out: string[] = []
+    for (const item of parsed) {
+      if (typeof item !== 'string' || item.trim().length === 0 || item.length > 200) return null
+      out.push(item)
+    }
+    return out
+  } catch {
+    return null
+  }
 }
 
 function sameIds(left: string[], right: string[]): boolean {

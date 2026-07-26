@@ -1264,9 +1264,13 @@
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(3, 7, 15, 0.46);
-  backdrop-filter: blur(16px) saturate(135%);
-  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  background: color-mix(in srgb, #101624 28%, transparent);
+  backdrop-filter: blur(var(--lg-blur, 18px)) saturate(var(--lg-saturate, 140%));
+  -webkit-backdrop-filter: blur(var(--lg-blur, 18px)) saturate(var(--lg-saturate, 140%));
+}
+
+:root[data-resolved-theme='dark'] .workbench-empty-start-backdrop {
+  background: color-mix(in srgb, #000000 42%, transparent);
 }
 
 .workbench-empty-start-sheet {
@@ -1274,14 +1278,19 @@
   width: min(420px, 100%);
   display: grid;
   gap: 14px;
-  padding: 18px;
+  padding: var(--lg-pad-panel, 24px);
   color: var(--text);
-  border: 1px solid var(--workbench-quick-note-line);
-  border-radius: 22px;
-  background: var(--workbench-quick-note-surface);
-  box-shadow:
-    var(--workbench-quick-note-shadow),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 56%, transparent);
+  border: 1px solid var(--lg-line, var(--workbench-quick-note-line));
+  border-radius: var(--lg-radius-xl, 28px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-sheen-edge, none),
+    var(--lg-glass-fill-strong, var(--workbench-quick-note-surface));
+  box-shadow: var(--lg-shadow-float, var(--workbench-quick-note-shadow));
+  backdrop-filter: blur(var(--lg-blur-strong, 28px)) saturate(var(--lg-saturate, 165%))
+    contrast(var(--lg-contrast, 1.06));
+  -webkit-backdrop-filter: blur(var(--lg-blur-strong, 28px)) saturate(var(--lg-saturate, 165%))
+    contrast(var(--lg-contrast, 1.06));
   animation: workbench-scene-picker-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   outline: none;
 }
@@ -1316,17 +1325,22 @@
 }
 
 .workbench-empty-start-sheet__close {
-  width: 34px;
-  height: 34px;
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
+  width: 34px;
+  height: 34px;
   padding: 0;
   color: var(--text-muted);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-solid) 54%, transparent);
+  border: 1px solid var(--lg-line-soft, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid) 22%, transparent);
   cursor: pointer;
+  transition: transform var(--lg-duration-fast, 100ms) var(--lg-ease, ease);
+}
+
+.workbench-empty-start-sheet__close:active {
+  transform: scale(var(--lg-press-scale, 0.97));
 }
 
 .workbench-empty-start-sheet__actions {
@@ -1339,11 +1353,21 @@
   gap: 4px;
   text-align: left;
   padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+  border: 1px solid var(--lg-line-soft, var(--line));
+  border-radius: var(--lg-radius-sm, 14px);
+  /* Flat nested control — outer sheet already frosts the stage. */
+  background: color-mix(in srgb, var(--surface-solid) 28%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 40%, transparent);
   color: var(--text);
   cursor: pointer;
+  transition:
+    transform var(--lg-duration-fast, 100ms) var(--lg-ease, ease),
+    background var(--lg-duration, 200ms) var(--lg-ease, ease),
+    border-color var(--lg-duration, 200ms) var(--lg-ease, ease);
+}
+
+.workbench-empty-start-sheet__action:active {
+  transform: scale(var(--lg-press-scale, 0.97));
 }
 
 .workbench-empty-start-sheet__action strong {
@@ -1397,17 +1421,23 @@
   width: 100%;
   text-align: left;
   padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-solid) 58%, transparent);
+  border: 1px solid var(--lg-line-soft, var(--line));
+  border-radius: var(--lg-radius-sm, 12px);
+  background: color-mix(in srgb, var(--surface-solid) 28%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 36%, transparent);
   color: var(--text);
   cursor: pointer;
   font-size: 13px;
+  transition: transform var(--lg-duration-fast, 100ms) var(--lg-ease, ease);
+}
+
+.workbench-empty-start-sheet__task:active {
+  transform: scale(var(--lg-press-scale, 0.97));
 }
 
 .workbench-empty-start-sheet__task.is-selected {
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface-solid));
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--lg-line, var(--line)));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .workbench-empty-start-sheet__field {
@@ -1436,15 +1466,30 @@
 .workbench-empty-start-sheet__primary,
 .workbench-empty-start-sheet__secondary {
   padding: 9px 14px;
-  border-radius: 12px;
+  border-radius: var(--lg-radius-sm, 12px);
   font-size: 13px;
   cursor: pointer;
+  transition: transform var(--lg-duration-fast, 100ms) var(--lg-ease, ease);
+}
+
+.workbench-empty-start-sheet__primary:not(:disabled):active,
+.workbench-empty-start-sheet__secondary:active {
+  transform: scale(var(--lg-press-scale, 0.97));
 }
 
 .workbench-empty-start-sheet__primary {
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
-  background: color-mix(in srgb, var(--accent) 18%, var(--surface-solid));
-  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--lg-line, var(--line)));
+  background:
+    var(--lg-sheen, none),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 88%, #ffffff),
+      var(--accent)
+    );
+  color: #ffffff;
+  box-shadow:
+    0 10px 24px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 1px 0 rgba(255, 255, 255, 0.35) inset;
 }
 
 .workbench-empty-start-sheet__primary:disabled {
@@ -1453,8 +1498,8 @@
 }
 
 .workbench-empty-start-sheet__secondary {
-  border: 1px solid var(--line);
-  background: transparent;
+  border: 1px solid var(--lg-line-soft, var(--line));
+  background: color-mix(in srgb, var(--surface-solid) 22%, transparent);
   color: var(--text-muted);
 }
 

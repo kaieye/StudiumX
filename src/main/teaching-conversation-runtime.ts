@@ -32,11 +32,14 @@ import { createConversationPermissionResolver } from './teaching-conversation-pe
 import { buildSessionStablePrefix, composeTeachingUserTurn, type TemporaryChatContext } from './teaching-conversation-prompt'
 import { plan as planSkillOrchestration } from './skill-orchestration-planner'
 import {
+  advanceConversationOrchestrationState,
   buildSkillOrchestrationContextIdentity,
   buildSkillOrchestrationPlanInput,
   buildSkillOrchestrationReadinessFromCatalog,
+  evaluateSkillOrchestrationStageGates,
   filterSkillReferencesToActiveBodies,
   mergeSelectedSkillIds,
+  priorStateFromConversationOrchestrationState,
   resolveHostSkillOrchestrationMode,
   skillIdsForBodyLoad
 } from './skill-orchestration-host'
@@ -109,6 +112,18 @@ export type TeachingConversationRuntimeDeps = {
     budgetConstrained?: boolean
     preferArtifactProfile?: boolean
   }
+  /**
+   * Optional durable orchestration continuity store (ADR-0156). A rebuildable
+   * workflow projection only — never settlement authority. Missing/corrupt
+   * state degrades to single-turn planning; save failures never fail the turn.
+   */
+  loadOrchestrationState?: (
+    conversationId: string
+  ) => Promise<import('../shared/teaching-types/skill-orchestration').ConversationOrchestrationState | null>
+  saveOrchestrationState?: (
+    conversationId: string,
+    state: import('../shared/teaching-types/skill-orchestration').ConversationOrchestrationState
+  ) => Promise<boolean>
   /**
    * Execute the lesson generation pipeline for a brief the conversation agent
    * assembled. Provided only for teaching-mode conversations with an active
@@ -407,6 +422,13 @@ async function runTeachingConversationTurnActive(
     selectedSkillIds: requestedSkillIds,
     catalogSkills
   })
+  // ADR-0156: prior-turn continuity (fail-soft). Corrupt/missing state → fresh plan.
+  const orchestrationConversationId = String(payload.conversationId ?? '').trim()
+  const priorOrchestrationState =
+    orchestrationConversationId && deps.loadOrchestrationState
+      ? await deps.loadOrchestrationState(orchestrationConversationId).catch(() => null)
+      : null
+  const orchestrationPriorState = priorStateFromConversationOrchestrationState(priorOrchestrationState)
   const skillOrchestrationPlan = planSkillOrchestration(
     buildSkillOrchestrationPlanInput({
       selectedSkillIds: requestedSkillIds,
@@ -420,9 +442,31 @@ async function runTeachingConversationTurnActive(
       evidenceStatus: orchestrationFacts?.evidenceStatus,
       availableArtifacts: orchestrationFacts?.availableArtifacts,
       budgetConstrained: orchestrationFacts?.budgetConstrained,
-      preferArtifactProfile: orchestrationFacts?.preferArtifactProfile
+      preferArtifactProfile: orchestrationFacts?.preferArtifactProfile,
+      ...(orchestrationPriorState ? { priorState: orchestrationPriorState } : {})
     })
   )
+  if (orchestrationConversationId && deps.saveOrchestrationState) {
+    // Deterministic gate checks against allow-listed artifact facts; save is
+    // best-effort and never blocks or fails the teaching turn.
+    try {
+      const gateResults = evaluateSkillOrchestrationStageGates({
+        plan: skillOrchestrationPlan,
+        artifactFacts: orchestrationFacts?.availableArtifacts
+      })
+      const nextOrchestrationState = advanceConversationOrchestrationState({
+        conversationId: orchestrationConversationId,
+        prior: priorOrchestrationState,
+        plan: skillOrchestrationPlan,
+        gateResults,
+        artifactFacts: orchestrationFacts?.availableArtifacts,
+        updatedAt: new Date().toISOString()
+      })
+      await deps.saveOrchestrationState(orchestrationConversationId, nextOrchestrationState)
+    } catch {
+      // Fail-soft: continuity is a projection, never load-bearing for the turn.
+    }
+  }
   const bodyLoadSkillIds = skillIdsForBodyLoad({
     plan: skillOrchestrationPlan,
     isTeachingConversation: conversation.isTeachingConversation

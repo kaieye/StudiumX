@@ -21,6 +21,9 @@ export const lessonQuizItemSchema = z.object({
   // single/multi: 0-based indices (multi as comma string or number array);
   // truefalse: 1 = true; fill: normalized expected text.
   answer: z.union([z.number().int().min(0), z.string().max(200), z.array(z.number().int().min(0))]).default(''),
+  // fill only (ADR-0155): equivalent accepted spellings of the answer.
+  // Settlement digests these into the assessment sidecar; ignored for other types.
+  acceptedAnswers: z.array(z.string().min(1).max(200)).max(4).default([]),
   explanation: z.string().max(600).default('')
 })
 export type LessonQuizItem = z.infer<typeof lessonQuizItemSchema>
@@ -112,13 +115,28 @@ export function sanitizePlan(plan: LessonPlan): LessonPlan {
             .slice(0, item.choices.length)
           return {
             ...item,
+            // acceptedAnswers is a fill-only field; keep other types canonical.
+            acceptedAnswers: [],
             answer:
               item.type === 'multi'
                 ? clamped.join(',')
                 : String(clamped[0] ?? 0)
           }
         }
-        return item
+        if (item.type === 'fill') {
+          const primary = String(item.answer).trim()
+          const seen = new Set<string>([primary])
+          const acceptedAnswers = item.acceptedAnswers
+            .map((candidate) => candidate.trim())
+            .filter((candidate) => {
+              if (!candidate || seen.has(candidate)) return false
+              seen.add(candidate)
+              return true
+            })
+            .slice(0, 4)
+          return { ...item, acceptedAnswers }
+        }
+        return { ...item, acceptedAnswers: [] }
       })
       // Drop quiz items that have no usable answer after clamping.
       .filter((item) => {

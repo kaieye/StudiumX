@@ -127,7 +127,8 @@ describe('Lesson artifact publisher integration', () => {
       published.lesson.absolutePath.replace(/\\/g, '/')
     ])
     const authority = JSON.parse(sidecar) as { schemaVersion: number; kind: string; quizzes: Array<{ itemId: string }> }
-    expect(authority).toMatchObject({ schemaVersion: 1, kind: 'studiumx-assessment' })
+    // ADR-0155: sidecar v2 adds digest-bound fill answers; choice bindings unchanged.
+    expect(authority).toMatchObject({ schemaVersion: 2, kind: 'studiumx-assessment' })
     expect(authority.quizzes.map((quiz) => quiz.itemId)).toEqual(['quiz-1', 'quiz-2'])
     expect(sidecar).not.toMatch(/<(?:html|script|iframe|template)\b/i)
     expect([...normal.matchAll(/data-item-id="([^"]+)"/g)].map((match) => match[1])).toEqual(['quiz-1', 'quiz-2'])

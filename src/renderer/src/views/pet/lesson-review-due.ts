@@ -1,18 +1,28 @@
 import type { LessonSummary, ProgressSummary, ReviewCard } from '../../../../shared/teaching-types'
+import {
+  deriveReviewSchedule,
+  REVIEW_INTERVAL_LADDER_DAYS,
+  type ReviewScheduleItemInput
+} from '../../../../shared/review-scheduler'
 
 /**
  * Real "due for review" projection for lessons.
  *
- * A lesson is due when it has at least one review card (flashcards) AND its
- * `createdAt` is at least {@link LESSON_REVIEW_DUE_THRESHOLD_MS} in the past.
- * The `reason` distinguishes lessons the learner has never answered
- * (`never-reviewed`) from lessons that have been answered at least once but
- * are still old enough to refresh (`stale`).
+ * v2 (ADR-0154): derivation now runs through the shared spaced-review
+ * scheduler (`deriveReviewSchedule`) instead of a local ad-hoc threshold, so
+ * Pet notifications and the teaching loop share one review-timing authority.
+ *
+ * Renderer inputs still carry no per-attempt timestamps (that wiring arrives
+ * with the canonical snapshot IPC), so each lesson is seeded as a single
+ * flashcard-kind item anchored at `createdAt`. With the base ladder interval of
+ * one day this reproduces the v1 due semantics exactly; per-item history
+ * scheduling activates on adapters that can supply real evidence history
+ * (see src/main/review-schedule-facts.ts).
  *
  * This is a pure function of real workspace data: lesson summaries, review
  * cards, and aggregate progress. It does not read the filesystem, does not
- * consult the (currently unwired) learning-session ledger, and does not
- * mutate its inputs. Callers are responsible for fetching the data.
+ * consult the learning-session ledger, and does not mutate its inputs.
+ * Callers are responsible for fetching the data.
  */
 
 export type DueLessonReason = 'never-reviewed' | 'stale'
@@ -24,8 +34,8 @@ export type DueLessonReview = {
   reason: DueLessonReason
 }
 
-/** A lesson becomes due for review once it is at least one day old. */
-export const LESSON_REVIEW_DUE_THRESHOLD_MS = 24 * 60 * 60 * 1000
+/** A lesson becomes due for review once it is at least one base interval old. */
+export const LESSON_REVIEW_DUE_THRESHOLD_MS = REVIEW_INTERVAL_LADDER_DAYS[0]! * 24 * 60 * 60 * 1000
 
 export type ComputeDueLessonReviewsInput = {
   lessons: LessonSummary[]
@@ -49,12 +59,33 @@ export function computeDueLessonReviews(input: ComputeDueLessonReviewsInput): Du
   )
   if (lessonsWithCards.size === 0) return []
 
-  const due: DueLessonReview[] = []
+  const byLessonId = new Map<string, LessonSummary>()
+  const items: ReviewScheduleItemInput[] = []
   for (const lesson of input.lessons) {
     if (!lessonsWithCards.has(lesson.id)) continue
-    const createdAtMs = Date.parse(lesson.createdAt)
-    if (Number.isNaN(createdAtMs)) continue
-    if (input.now - createdAtMs < LESSON_REVIEW_DUE_THRESHOLD_MS) continue
+    if (Number.isNaN(Date.parse(lesson.createdAt))) continue
+    byLessonId.set(lesson.id, lesson)
+    items.push({
+      itemId: 'lesson-review',
+      lessonId: lesson.id,
+      kind: 'flashcard',
+      anchorAt: lesson.createdAt,
+      history: []
+    })
+  }
+  if (items.length === 0) return []
+
+  const schedule = deriveReviewSchedule({
+    items,
+    now: new Date(input.now).toISOString(),
+    // Pet projection lists every due lesson; notification pacing is owned upstream.
+    dueLimit: items.length
+  })
+
+  const due: DueLessonReview[] = []
+  for (const item of schedule.dueNow) {
+    const lesson = byLessonId.get(item.lessonId)
+    if (!lesson) continue
     const answered = input.progress.byLesson[lesson.id]?.answered ?? 0
     due.push({
       lessonId: lesson.id,

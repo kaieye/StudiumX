@@ -48,6 +48,16 @@ function healthyFacts(): TeachingDoctorFacts {
     processCrashMarker: {
       present: false
     },
+    // ADR-0128/0140: default-off MCP posture is a healthy 'ok' diagnosis.
+    mcp: {
+      implementationPresent: true,
+      rootEnabled: false,
+      serverCount: 0,
+      enabledServerCount: 0,
+      connectedServerCount: 0,
+      errorServerCount: 0,
+      servers: []
+    },
     localDataIndex: {
       pathExists: true,
       indexPathLabel: 'userData/studiumx-index.sqlite',
@@ -77,7 +87,7 @@ describe('TeachingDoctor', () => {
     expect(report.workspaceOpenPolicy).toBe('read_only_allowed')
     expect(report.diagnostics.autoRepair).toBe('disabled')
     expect(report.overallStatus).toBe('ok')
-    expect(report.checks).toHaveLength(7)
+    expect(report.checks).toHaveLength(8)
     expect(report.checks.every((check) => check.result === 'ok')).toBe(true)
     expect(report.checks.every((check) => check.repair.autoRepairAllowed === false)).toBe(true)
   })

@@ -1,4 +1,5 @@
 import type { LessonCalloutKind, LessonPlan, LessonQuizItem } from '../../shared/lesson-schema'
+import { fillAcceptedOptionIds } from '../../shared/fill-answer'
 import { LESSON_MARKUP_CLASSES, LESSON_MARKUP_DATA_ATTRIBUTES } from '../../shared/lesson-style-themes/contract'
 import type { LessonSummary, TeachingSettingsV1 } from '../../shared/teaching-types'
 import { renderLessonDocument, renderReferenceDocument } from './lesson-rendering/document-frame'
@@ -199,7 +200,10 @@ export function renderAssessmentJsonFromPlan(opts: { plan: LessonPlan }): string
   const quizzes = opts.plan.quiz.map((item, index) => {
     const itemId = `quiz-${index + 1}`
     if (item.type === 'fill') {
-      return { itemId, type: 'fill', answerIds: null, choiceIds: null }
+      // ADR-0155 (sidecar v2): fill answers bind as normalized-answer digests so
+      // settlement can verify attempts without learner plaintext in evidence.
+      const answerIds = fillAcceptedOptionIds(String(item.answer), item.acceptedAnswers ?? [])
+      return { itemId, type: 'fill', answerIds: answerIds.length > 0 ? answerIds : null, choiceIds: null }
     }
     if (item.type === 'truefalse') {
       const answer = String(item.answer).toLowerCase() === 'true' || String(item.answer) === '1' ? 'true' : 'false'
@@ -214,7 +218,7 @@ export function renderAssessmentJsonFromPlan(opts: { plan: LessonPlan }): string
     const choiceIds = item.choices.map((_choice, choiceIndex) => letterFor(choiceIndex))
     return { itemId, type: item.type, answerIds, choiceIds }
   })
-  return `${JSON.stringify({ schemaVersion: 1, kind: 'studiumx-assessment', quizzes }, null, 2)}\n`
+  return `${JSON.stringify({ schemaVersion: 2, kind: 'studiumx-assessment', quizzes }, null, 2)}\n`
 }
 
 export function renderAssessmentHtmlFromPlan(opts: { plan: LessonPlan }): string {
@@ -245,7 +249,11 @@ ${quiz}
 function renderQuizCard(item: LessonQuizItem, itemId: string): string {
   const type = item.type
   if (type === 'fill') {
-    return `        <article class="${cls.quizCard}" data-item-id="${escapeAttr(itemId)}" ${data.quizType}="fill" ${data.quizAnswer}="${escapeAttr(String(item.answer))}">
+    const accepted = (item.acceptedAnswers ?? []).filter((candidate) => candidate.trim().length > 0)
+    const acceptedAttribute = accepted.length > 0
+      ? ` ${data.quizAccepted}="${escapeAttr(JSON.stringify(accepted))}"`
+      : ''
+    return `        <article class="${cls.quizCard}" data-item-id="${escapeAttr(itemId)}" ${data.quizType}="fill" ${data.quizAnswer}="${escapeAttr(String(item.answer))}"${acceptedAttribute}>
           <p>${escapeHtml(item.question)}</p>
           <div class="${cls.quizFill}">
             <input type="text" placeholder="输入你的答案" aria-label="答案输入" />

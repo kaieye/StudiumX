@@ -112,7 +112,10 @@ export function buildSkillOrchestrationPlanPromptLines(
   plan: SkillOrchestrationPlan | null | undefined
 ): string {
   if (!plan) return ''
-  const currentStage = plan.stages[0]
+  // ADR-0156: continuity-informed plans carry an explicit current stage.
+  const currentStage = plan.currentStageId
+    ? plan.stages.find((stage) => stage.id === plan.currentStageId) ?? plan.stages[0]
+    : plan.stages[0]
   const decisionLines = plan.decisions
     .slice()
     .sort((a, b) => a.skillId.localeCompare(b.skillId))
@@ -122,10 +125,15 @@ export function buildSkillOrchestrationPlanPromptLines(
       const reason = sanitizePlanReason(d.reason)
       return `- skillId=${d.skillId}; status=${d.status}${role}${impact}; reason=${reason}`
     })
-  const stageLines = plan.stages.map(
-    (s) =>
-      `- id=${s.id}; kind=${s.kind}; execution=${s.execution}; skillIds=${s.skillIds.join(',') || 'none'}`
-  )
+  const stageLines = plan.stages.map((s) => {
+    const status = s.status ? `; status=${s.status}` : ''
+    const consumes = s.consumes.length ? `; consumes=${s.consumes.join(',')}` : ''
+    const produces = s.produces.length ? `; produces=${s.produces.join(',')}` : ''
+    const gates = s.completionGates.length
+      ? `; gates=${s.completionGates.map((gate) => gate.id).join(',')}`
+      : ''
+    return `- id=${s.id}; kind=${s.kind}; execution=${s.execution}; skillIds=${s.skillIds.join(',') || 'none'}${status}${consumes}${produces}${gates}`
+  })
   const diagLines = plan.diagnostics.map(
     (d) => `- [${d.severity}] ${d.code}: ${sanitizePlanReason(d.message)}`
   )

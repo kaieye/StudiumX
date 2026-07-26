@@ -8,7 +8,7 @@ if (!workerPidPath || !escapedMarkerPath) {
 
 const worker = spawn(
   process.execPath,
-  ['-e', `setTimeout(() => require('node:fs').writeFileSync(process.argv[1], 'orphaned'), 1_500)`, escapedMarkerPath],
+  ['-e', `setTimeout(() => require('node:fs').writeFileSync(process.argv[1], 'orphaned'), 3_500)`, escapedMarkerPath],
   { stdio: 'ignore' }
 )
 

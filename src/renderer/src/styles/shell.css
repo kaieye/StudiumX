@@ -27,14 +27,24 @@
   flex: 0 0 var(--titlebar-height);
   align-items: center;
   justify-content: flex-end;
-  border-bottom: 0;
+  border-bottom: 1px solid var(--lg-line-soft);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(246, 249, 254, 0.76)),
-    #f7f9fe;
+    var(--lg-sheen),
+    var(--lg-sheen-edge),
+    var(--lg-glass-fill-strong);
   color: var(--text);
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(var(--lg-saturate));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(var(--lg-saturate));
   user-select: none;
   app-region: drag;
   -webkit-app-region: drag;
+}
+
+:root[data-resolved-theme="dark"] .window-titlebar {
+  background:
+    var(--lg-sheen),
+    var(--lg-sheen-edge),
+    var(--lg-glass-fill-strong);
 }
 
 /* ----- Window control buttons (minimize / maximize / close) ----- */.window-controls {

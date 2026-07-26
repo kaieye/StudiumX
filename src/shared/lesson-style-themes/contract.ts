@@ -28,6 +28,8 @@ export const LESSON_MARKUP_CLASSES = {
 export const LESSON_MARKUP_DATA_ATTRIBUTES = {
   quizType: 'data-type',
   quizAnswer: 'data-answer',
+  /** Optional `|`-joined accepted fill alternates (ADR-0155); absent on non-fill cards. */
+  quizAccepted: 'data-accepted',
   quizChoice: 'data-choice',
   flashcardRating: 'data-rating',
   quizReady: 'data-quiz-ready'
@@ -36,6 +38,7 @@ export const LESSON_MARKUP_DATA_ATTRIBUTES = {
 export const LESSON_MARKUP_DATASET_KEYS = {
   quizType: 'type',
   quizAnswer: 'answer',
+  quizAccepted: 'accepted',
   quizChoice: 'choice',
   flashcardRating: 'rating',
   quizReady: 'quizReady'

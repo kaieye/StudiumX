@@ -7,11 +7,16 @@
 import { getBuiltinSkillOrchestrationPolicy } from './builtin-skill-orchestration-policy'
 import { leadingSkillIdSequence } from '../shared/skill-command'
 import type { InstalledSkillReference, SkillSummary } from '../shared/teaching-types'
-import type {
-  SkillOrchestrationInput,
-  SkillOrchestrationMode,
-  SkillOrchestrationPlan,
-  SkillOrchestrationReadiness
+import {
+  SKILL_ORCHESTRATION_STATE_SCHEMA_VERSION,
+  type ConversationOrchestrationState,
+  type SkillOrchestrationGateResult,
+  type SkillOrchestrationInput,
+  type SkillOrchestrationMode,
+  type SkillOrchestrationPlan,
+  type SkillOrchestrationPriorState,
+  type SkillOrchestrationReadiness,
+  type SkillOrchestrationStageProgress
 } from '../shared/teaching-types/skill-orchestration'
 
 const CORE_KERNEL_ID = 'teach' as const
@@ -286,6 +291,7 @@ export function buildSkillOrchestrationPlanInput(input: {
   availableArtifacts?: string[]
   budgetConstrained?: boolean
   preferArtifactProfile?: boolean
+  priorState?: SkillOrchestrationPriorState
 }): SkillOrchestrationInput {
   const nextStepAction = sanitizeAuthorityToken(input.nextStepAction)
   const nextStepReason = sanitizeAuthorityToken(input.nextStepReason)
@@ -304,7 +310,130 @@ export function buildSkillOrchestrationPlanInput(input: {
     ...(evidenceStatus ? { evidenceStatus } : {}),
     ...(availableArtifacts.length ? { availableArtifacts } : {}),
     ...(input.budgetConstrained ? { budgetConstrained: true } : {}),
-    ...(input.preferArtifactProfile ? { preferArtifactProfile: true } : {})
+    ...(input.preferArtifactProfile ? { preferArtifactProfile: true } : {}),
+    ...(input.priorState ? { priorState: input.priorState } : {})
+  }
+}
+
+/**
+ * Deterministic completion-gate evaluation (ADR-0156). Only gates whose facts
+ * are derivable from allow-listed workspace artifact tokens can pass; anything
+ * else stays honestly failed with an explicit checkedFact token. Verifier and
+ * learner-evidence gates are never inferred here.
+ */
+export function evaluateSkillOrchestrationStageGates(input: {
+  plan: SkillOrchestrationPlan
+  artifactFacts?: string[]
+}): SkillOrchestrationGateResult[] {
+  const artifacts = new Set(sanitizeAvailableArtifacts(input.artifactFacts))
+  const results: SkillOrchestrationGateResult[] = []
+  for (const stage of input.plan.stages) {
+    for (const gate of stage.completionGates) {
+      if (gate.id === 'artifact-lead-writer') {
+        const produced = stage.produces.filter((token) => artifacts.has(token))
+        const passed = stage.produces.length > 0 && produced.length === stage.produces.length
+        results.push({
+          stageId: stage.id,
+          gateId: gate.id,
+          passed,
+          checkedFact: `produces=${stage.produces.join(',') || 'none'};present=${produced.join(',') || 'none'}`
+        })
+        continue
+      }
+      if (gate.id === 'canonical-stable') {
+        const consumed = stage.consumes.filter((token) => artifacts.has(token))
+        const passed = stage.consumes.length > 0 && consumed.length === stage.consumes.length
+        results.push({
+          stageId: stage.id,
+          gateId: gate.id,
+          passed,
+          checkedFact: `consumes=${stage.consumes.join(',') || 'none'};present=${consumed.join(',') || 'none'}`
+        })
+        continue
+      }
+      // verify-reports and any unknown gate: not derivable from artifact facts.
+      results.push({
+        stageId: stage.id,
+        gateId: gate.id,
+        passed: false,
+        checkedFact: 'not_derivable_from_artifact_facts_v1'
+      })
+    }
+  }
+  return results
+}
+
+/**
+ * Advance the durable conversation orchestration state after a plan (ADR-0156).
+ * A rebuildable workflow projection: stage cursor + gate checks + artifact
+ * tokens only. Conflicting or missing prior state degrades to a fresh plan.
+ */
+export function advanceConversationOrchestrationState(input: {
+  conversationId: string
+  prior: ConversationOrchestrationState | null
+  plan: SkillOrchestrationPlan
+  gateResults: SkillOrchestrationGateResult[]
+  artifactFacts?: string[]
+  updatedAt: string
+}): ConversationOrchestrationState {
+  const gatesByStage = new Map<string, SkillOrchestrationGateResult[]>()
+  for (const result of input.gateResults) {
+    const list = gatesByStage.get(result.stageId) ?? []
+    list.push(result)
+    gatesByStage.set(result.stageId, list)
+  }
+  const priorCompleted = new Set(
+    (input.prior?.stages ?? [])
+      .filter((stage) => stage.status === 'completed')
+      .map((stage) => stage.stageId)
+  )
+
+  let cursorAssigned = false
+  let stageCursor: string | null = null
+  const stages: SkillOrchestrationStageProgress[] = input.plan.stages.map((stage) => {
+    const gateResults = gatesByStage.get(stage.id) ?? []
+    const gatesPassed = gateResults.length > 0 && gateResults.every((gate) => gate.passed)
+    // Completion is monotonic: once completed (prior turns or passing gates now),
+    // a stage stays completed until the plan itself changes shape.
+    const completed = priorCompleted.has(stage.id) || gatesPassed
+    let status: SkillOrchestrationStageProgress['status'] = 'pending'
+    if (completed) {
+      status = 'completed'
+    } else if (!cursorAssigned) {
+      status = 'active'
+      stageCursor = stage.id
+      cursorAssigned = true
+    }
+    return { stageId: stage.id, kind: stage.kind, status, gateResults }
+  })
+
+  const planChanged = input.prior !== null && input.prior.planId !== input.plan.planId
+  return {
+    schemaVersion: SKILL_ORCHESTRATION_STATE_SCHEMA_VERSION,
+    conversationId: input.conversationId,
+    planId: input.plan.planId,
+    planRevision: planChanged ? input.prior!.planRevision + 1 : input.prior?.planRevision ?? 1,
+    mode: input.plan.mode,
+    stageCursor,
+    stages,
+    artifactFacts: sanitizeAvailableArtifacts(input.artifactFacts),
+    updatedAt: input.updatedAt
+  }
+}
+
+/** Project durable state into the allow-listed planner prior-state input. */
+export function priorStateFromConversationOrchestrationState(
+  state: ConversationOrchestrationState | null | undefined
+): SkillOrchestrationPriorState | undefined {
+  if (!state || state.schemaVersion !== SKILL_ORCHESTRATION_STATE_SCHEMA_VERSION) return undefined
+  return {
+    planId: state.planId,
+    planRevision: state.planRevision,
+    stageCursor: state.stageCursor,
+    completedStageKinds: state.stages
+      .filter((stage) => stage.status === 'completed')
+      .map((stage) => stage.kind),
+    artifactFacts: [...state.artifactFacts]
   }
 }
 

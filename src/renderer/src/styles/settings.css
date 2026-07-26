@@ -25,10 +25,15 @@
   gap: 0;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 26px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 28px 80px rgba(20, 47, 95, 0.24);
+  border: 1px solid var(--lg-line, rgba(255, 255, 255, 0.72));
+  border-radius: var(--lg-radius-xl, 26px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-sheen-edge, none),
+    var(--lg-glass-fill-strong, rgba(255, 255, 255, 0.94));
+  box-shadow: var(--lg-shadow-float, 0 28px 80px rgba(20, 47, 95, 0.24));
+  backdrop-filter: blur(var(--lg-blur-strong, 14px)) saturate(var(--lg-saturate, 140%));
+  -webkit-backdrop-filter: blur(var(--lg-blur-strong, 14px)) saturate(var(--lg-saturate, 140%));
 }
 
 .settings-close-button {
@@ -40,15 +45,23 @@
   place-items: center;
   width: 34px;
   height: 34px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface-solid);
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--lg-radius-sm, 12px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill, var(--surface-solid));
   color: var(--text-muted);
+  box-shadow: var(--lg-shadow, none);
+  backdrop-filter: blur(var(--lg-blur-soft, 10px));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft, 10px));
 }
 
 .settings-close-button:hover {
   color: var(--text);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--lg-shadow, var(--shadow-card));
 }
 
 .settings-nav {
@@ -140,10 +153,14 @@
 
 .settings-card {
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-solid);
-  box-shadow: var(--shadow-card);
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--lg-radius, var(--radius-lg));
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill, var(--surface-solid));
+  box-shadow: var(--lg-shadow, var(--shadow-card));
+  backdrop-filter: blur(var(--lg-blur, 12px)) saturate(var(--lg-saturate, 140%));
+  -webkit-backdrop-filter: blur(var(--lg-blur, 12px)) saturate(var(--lg-saturate, 140%));
 }
 
 .settings-row {
@@ -267,9 +284,14 @@
 .settings-number {
   height: 34px;
   padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--surface-solid);
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--lg-radius-sm, 11px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-soft, var(--surface-solid));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset;
+  backdrop-filter: blur(var(--lg-blur-soft, 8px));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft, 8px));
 }
 
 .settings-number {
@@ -317,6 +339,14 @@
   padding: 10px;
   resize: vertical;
   line-height: 1.5;
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--lg-radius-sm, 11px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-soft, var(--surface-solid));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset;
+  backdrop-filter: blur(var(--lg-blur-soft, 8px));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft, 8px));
 }
 
 .settings-range {
@@ -337,44 +367,49 @@
   gap: 10px;
   padding: 0 12px 0 14px;
   color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--lg-radius, 14px);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 255, 0.96));
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-soft, linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 255, 0.96)));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    0 8px 22px rgba(20, 47, 95, 0.05);
+    var(--lg-shadow, 0 8px 22px rgba(20, 47, 95, 0.05));
+  backdrop-filter: blur(var(--lg-blur-soft, 8px));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft, 8px));
   text-align: left;
   transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    transform 140ms ease,
-    background 160ms ease;
+    border-color var(--lg-duration, 160ms) var(--lg-ease, ease),
+    box-shadow var(--lg-duration, 160ms) var(--lg-ease, ease),
+    transform var(--lg-duration-fast, 140ms) var(--lg-ease, ease),
+    background var(--lg-duration, 160ms) var(--lg-ease, ease);
 }
 
 .settings-select-trigger:hover {
-  border-color: #cfdaee;
+  border-color: var(--lg-line, #cfdaee);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(242, 247, 255, 0.98));
+    var(--lg-sheen, none),
+    var(--lg-glass-fill, linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(242, 247, 255, 0.98)));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 12px 26px rgba(20, 47, 95, 0.08);
+    var(--lg-shadow, 0 12px 26px rgba(20, 47, 95, 0.08));
 }
 
 .settings-select-trigger:focus-visible {
-  border-color: #c7d8ff;
+  border-color: var(--lg-line, #c7d8ff);
   box-shadow:
     0 0 0 4px rgba(79, 124, 245, 0.11),
-    0 12px 26px rgba(20, 47, 95, 0.08);
+    var(--lg-shadow, 0 12px 26px rgba(20, 47, 95, 0.08));
 }
 
 .settings-select.is-open .settings-select-trigger {
-  border-color: #c7d8ff;
+  border-color: var(--lg-line, #c7d8ff);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(239, 245, 255, 0.98));
+    var(--lg-sheen, none),
+    var(--lg-glass-fill, linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(239, 245, 255, 0.98)));
   box-shadow:
     0 0 0 4px rgba(79, 124, 245, 0.09),
-    0 14px 34px rgba(20, 47, 95, 0.1);
+    var(--lg-shadow-float, 0 14px 34px rgba(20, 47, 95, 0.1));
 }
 
 .settings-select-trigger-copy,
@@ -437,13 +472,14 @@
   max-height: 280px;
   overflow: auto;
   padding: 8px;
-  border: 1px solid rgba(206, 218, 237, 0.92);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow:
-    0 22px 48px rgba(20, 47, 95, 0.14),
-    0 4px 14px rgba(20, 47, 95, 0.06);
-  backdrop-filter: blur(16px);
+  border: 1px solid var(--lg-line, rgba(206, 218, 237, 0.92));
+  border-radius: var(--lg-radius-lg, 18px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-strong, rgba(255, 255, 255, 0.98));
+  box-shadow: var(--lg-shadow-float, 0 22px 48px rgba(20, 47, 95, 0.14), 0 4px 14px rgba(20, 47, 95, 0.06));
+  backdrop-filter: blur(var(--lg-blur-strong, 16px)) saturate(var(--lg-saturate, 140%));
+  -webkit-backdrop-filter: blur(var(--lg-blur-strong, 16px)) saturate(var(--lg-saturate, 140%));
 }
 
 .settings-select-menu.is-item-aligned {
@@ -507,13 +543,16 @@
   overflow-x: hidden;
   overflow-y: auto;
   padding: 4px;
-  border-color: var(--line);
-  border-radius: 12px;
-  background: var(--surface-solid);
-  box-shadow: 0 8px 16px rgba(20, 47, 95, 0.12);
+  border-color: var(--lg-line, var(--line));
+  border-radius: var(--lg-radius-sm, 12px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-strong, var(--surface-solid));
+  box-shadow: var(--lg-shadow-float, 0 8px 16px rgba(20, 47, 95, 0.12));
   animation: settings-select-menu-in 100ms ease-out;
   will-change: opacity;
-  backdrop-filter: none;
+  backdrop-filter: blur(var(--lg-blur, 12px)) saturate(var(--lg-saturate, 140%));
+  -webkit-backdrop-filter: blur(var(--lg-blur, 12px)) saturate(var(--lg-saturate, 140%));
 }
 
 @keyframes settings-select-menu-in {
@@ -785,6 +824,31 @@
   color: #c65c76;
 }
 
+/* Settings action buttons — soft glass when not strong/danger variants */
+.settings-actions .ghost-button:not(.strong):not(.danger),
+.settings-toolbar .ghost-button:not(.strong):not(.danger),
+.settings-inline-group .ghost-button:not(.strong):not(.danger),
+.settings-row-control .ghost-button:not(.strong):not(.danger) {
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--lg-radius-sm, 10px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill, var(--surface-solid));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.22) inset;
+  backdrop-filter: blur(var(--lg-blur-soft, 8px));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft, 8px));
+}
+
+.settings-actions .ghost-button:not(.strong):not(.danger):hover:not(:disabled),
+.settings-toolbar .ghost-button:not(.strong):not(.danger):hover:not(:disabled),
+.settings-inline-group .ghost-button:not(.strong):not(.danger):hover:not(:disabled),
+.settings-row-control .ghost-button:not(.strong):not(.danger):hover:not(:disabled) {
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-strong, var(--surface-hover));
+  box-shadow: var(--lg-shadow, var(--shadow-card));
+}
+
 .memory-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -802,10 +866,15 @@
   width: min(720px, calc(100vw - 48px));
   max-height: min(80vh, 720px);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 28px 80px rgba(20, 47, 95, 0.24);
+  border: 1px solid var(--lg-line, rgba(255, 255, 255, 0.72));
+  border-radius: var(--lg-radius-xl, 24px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-sheen-edge, none),
+    var(--lg-glass-fill-strong, rgba(255, 255, 255, 0.98));
+  box-shadow: var(--lg-shadow-float, 0 28px 80px rgba(20, 47, 95, 0.24));
+  backdrop-filter: blur(var(--lg-blur-strong, 16px)) saturate(var(--lg-saturate, 140%));
+  -webkit-backdrop-filter: blur(var(--lg-blur-strong, 16px)) saturate(var(--lg-saturate, 140%));
 }
 
 .memory-dialog-header,
@@ -967,15 +1036,22 @@
   height: 32px;
   padding: 0;
   color: var(--text-muted);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface-solid);
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--lg-radius-sm, 9px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill, var(--surface-solid));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+  backdrop-filter: blur(var(--lg-blur-soft, 8px));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft, 8px));
 }
 
 .mcp-toolbar-button:hover:not(:disabled),
 .mcp-icon-button:hover:not(:disabled) {
   color: var(--text);
-  background: var(--surface-hover);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-strong, var(--surface-hover));
 }
 
 .mcp-toolbar-button:disabled,
@@ -993,12 +1069,16 @@
 .mcp-page-status,
 .mcp-inline-alert {
   padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-subtle);
+  border: 1px solid var(--lg-line-soft, var(--line));
+  border-radius: var(--lg-radius-sm, 10px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-soft, var(--surface-subtle));
   color: var(--text-muted);
   font-size: 11.5px;
   line-height: 1.5;
+  backdrop-filter: blur(var(--lg-blur-soft, 8px));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft, 8px));
 }
 
 .mcp-page-status.is-success {
@@ -1207,9 +1287,14 @@
   height: 34px;
   padding: 0 10px;
   color: var(--text-muted);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-solid);
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--lg-radius-sm, 10px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-soft, var(--surface-solid));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.22) inset;
+  backdrop-filter: blur(var(--lg-blur-soft, 8px));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft, 8px));
 }
 
 .mcp-search:focus-within {
@@ -1325,9 +1410,13 @@
   width: 36px;
   height: 36px;
   color: var(--text-muted);
-  border: 1px solid var(--line);
+  border: 1px solid var(--lg-line-soft, var(--line));
   border-radius: 50%;
-  background: var(--surface-subtle);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-soft, var(--surface-subtle));
+  backdrop-filter: blur(var(--lg-blur-soft, 8px));
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft, 8px));
 }
 
 .mcp-status-dot,

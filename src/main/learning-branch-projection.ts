@@ -224,6 +224,10 @@ function kindForAction(action: NextTeachingStepAction): LearningBranchNodeKind {
       return 'retry'
     case 'continue_next_session':
       return 'primary'
+    // ADR-0154: due review is the recommended forward branch (not remediation);
+    // a dedicated branch node kind would extend the ADR-0029 closed union.
+    case 'review_due':
+      return 'primary'
     case 'request_goal_clarification':
       return 'clarification'
     case 'wait_for_resources':

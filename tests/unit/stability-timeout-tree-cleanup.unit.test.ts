@@ -56,7 +56,9 @@ describe('stability timeout process cleanup', () => {
       expect(result.kind).toBe('timeout')
       expect(result.termination).toMatchObject({ attempted: true, succeeded: true })
       await waitFor(() => existsSync(workerPidPath), 500)
-      await new Promise((resolve) => setTimeout(resolve, 1_750))
+      // The orphan timer (3.5s) must lose to tree termination, including the
+      // Windows dead-parent orphan sweep (bounded CIM snapshot ≤3s).
+      await new Promise((resolve) => setTimeout(resolve, 4_000))
       expect(existsSync(orphanMarkerPath)).toBe(false)
     } finally {
       await cleanupPid(workerPidPath)

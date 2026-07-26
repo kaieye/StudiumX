@@ -751,13 +751,16 @@ describe('Teaching IPC gateway', () => {
     expect(preloadSource).not.toContain('cleanup-agent-artifacts')
   })
 
-  it('registers every existing Teaching invoke channel exactly once', () => {
+  it('registers every non-MCP Teaching invoke channel exactly once', () => {
     registerTeachingIpcGateway(registration())
 
+    // ADR-0128/0142: teach:mcp-* invoke channels are owned by the dedicated
+    // registerMcpIpcGateway registrar, not this gateway.
     const channels = Object.values(teachingInvokeChannels)
-    expect(electron.handle).toHaveBeenCalledTimes(channels.length)
-    expect(electron.handlers.size).toBe(channels.length)
-    expect([...electron.handlers.keys()].sort()).toEqual([...channels].sort())
+    const gatewayChannels = channels.filter((channel) => !channel.startsWith('teach:mcp-'))
+    expect(electron.handle).toHaveBeenCalledTimes(gatewayChannels.length)
+    expect(electron.handlers.size).toBe(gatewayChannels.length)
+    expect([...electron.handlers.keys()].sort()).toEqual([...gatewayChannels].sort())
     expect(new Set(channels).size).toBe(channels.length)
   })
 

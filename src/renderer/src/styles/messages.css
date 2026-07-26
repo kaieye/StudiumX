@@ -24,13 +24,18 @@
   max-width: 100%;
   min-width: 0;
   overflow-wrap: anywhere;
-  border: 1px solid var(--line);
+  border: 1px solid var(--lg-line-soft);
   border-radius: 14px;
-  background: var(--surface-muted);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill-soft);
   color: var(--text);
   padding: 10px 14px;
   font-size: 14px;
   line-height: 1.65;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.22) inset;
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
   user-select: text;
   -webkit-user-select: text;
   app-region: no-drag;
@@ -39,11 +44,16 @@
   border-color: transparent;
   border-radius: 0;
   background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   padding: 0;
 }.markdown-message--user {
   color: var(--text);
-  border-color: transparent;
-  background: var(--surface-muted);
+  border-color: var(--lg-line-soft);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill);
 }.markdown-message.is-compact {
   font-size: 13px;
   line-height: 1.65;
@@ -142,11 +152,15 @@
   width: 100%;
   min-width: min(100%, 280px);
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid var(--lg-line-soft);
   border-radius: 12px;
-  background: var(--surface-solid);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill);
   color: var(--text);
-  box-shadow: 0 8px 20px rgba(20, 47, 95, 0.05);
+  box-shadow: var(--lg-shadow);
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
   user-select: text;
   -webkit-user-select: text;
   app-region: no-drag;
@@ -160,7 +174,7 @@
   gap: 7px;
   min-height: 32px;
   padding: 7px 10px;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--lg-line-soft);
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 700;
@@ -373,9 +387,13 @@
 }.tool-call-card {
   width: 100%;
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid var(--lg-line-soft);
   border-radius: 10px;
-  background: var(--surface-subtle);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill-soft);
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
 }.tool-call-card.is-error {
   border-color: #ffd4de;
   background: var(--rose-soft);
@@ -966,11 +984,15 @@
   width: 100%;
   min-width: min(100%, 280px);
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid var(--lg-line-soft);
   border-radius: 12px;
-  background: var(--surface-solid);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill);
   color: var(--text);
-  box-shadow: 0 8px 20px rgba(20, 47, 95, 0.05);
+  box-shadow: var(--lg-shadow);
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
   padding: 10px 12px;
   display: grid;
   gap: 8px;

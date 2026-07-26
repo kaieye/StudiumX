@@ -61,6 +61,10 @@ export type TeachingLoopFactSource = {
    * (scan-latest). Settlement must target the same selected session.
    */
   selectedSessionId?: string
+  /** Optional spaced-review facts (ADR-0154). Callers own derivation; count only. */
+  review?: {
+    dueCount: number
+  }
 }
 
 /**
@@ -103,6 +107,7 @@ export function buildTeachingLoopFacts(source: TeachingLoopFactSource): Teaching
       availableCount: source.resources.availableCount,
       provenanceIds: [...source.resources.provenanceIds]
     },
+    ...(source.review ? { review: { dueCount: source.review.dueCount } } : {}),
     integrity: {
       codes: stableCodes([...integrityCodes, ...outcomeIntegrity])
     }

@@ -17,9 +17,14 @@
   margin-bottom: 10px;
   padding: 6px 12px;
   color: var(--accent);
-  border: 1px solid #dce7ff;
+  border: 1px solid var(--lg-line);
   border-radius: var(--radius-full);
-  background: rgba(237, 244, 255, 0.74);
+  background:
+    var(--lg-sheen),
+    color-mix(in srgb, rgba(237, 244, 255, 0.9) 70%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
   font-size: 12px;
   font-weight: 700;
 }.hero-copy h1 {
@@ -44,11 +49,16 @@
   gap: 10px;
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--lg-line-soft);
   border-radius: var(--radius-lg);
-  background: var(--surface);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(20px);
+  background:
+    var(--lg-sheen),
+    var(--lg-sheen-edge),
+    var(--lg-glass-fill);
+  box-shadow: var(--lg-shadow);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) contrast(var(--lg-contrast));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate))
+    contrast(var(--lg-contrast));
 }.mission-icon {
   display: grid;
   place-items: center;
@@ -87,10 +97,14 @@
   gap: 10px;
   min-height: 72px;
   padding: 14px 16px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--lg-line-soft);
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.8);
-  box-shadow: var(--shadow-card);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill);
+  box-shadow: var(--lg-shadow);
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,
@@ -139,10 +153,16 @@
   max-width: 860px;
   margin: 0 auto 18px;
   padding: 14px;
-  border: 1px solid rgba(20, 47, 95, 0.09);
+  border: 1px solid var(--lg-line);
   border-radius: var(--radius-xl);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: var(--shadow-composer);
+  background:
+    var(--lg-sheen),
+    var(--lg-sheen-edge),
+    var(--lg-glass-fill-strong);
+  box-shadow: var(--lg-shadow-float);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) contrast(var(--lg-contrast));
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate))
+    contrast(var(--lg-contrast));
 }.overview-banner {
   display: flex;
   align-items: end;
@@ -161,9 +181,14 @@
   margin-bottom: 10px;
   padding: 6px 12px;
   color: var(--accent);
-  border: 1px solid #dce7ff;
+  border: 1px solid var(--lg-line);
   border-radius: var(--radius-full);
-  background: rgba(237, 244, 255, 0.74);
+  background:
+    var(--lg-sheen),
+    color-mix(in srgb, rgba(237, 244, 255, 0.9) 70%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
   font-size: 12px;
   font-weight: 700;
 }.overview-copy h1 {
@@ -243,11 +268,15 @@
   gap: 7px;
   padding: 0 11px;
   color: var(--text-muted);
-  border: 1px solid var(--line);
+  border: 1px solid var(--lg-line-soft);
   border-radius: var(--radius-full);
-  background: var(--surface-solid);
+  background:
+    var(--lg-sheen),
+    var(--lg-glass-fill);
   font-size: 12px;
   font-weight: 650;
+  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
   transition:
     border-color 160ms ease,
     color 160ms ease,

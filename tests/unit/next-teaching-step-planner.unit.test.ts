@@ -34,6 +34,53 @@ describe('NextTeachingStepPlanner', () => {
     expect(decision.reason).toBe('needs_practice')
   })
 
+  describe('spaced review (ADR-0154)', () => {
+    function establishedFacts(): NextTeachingStepFacts {
+      const input = facts()
+      input.durableOutcome = {
+        status: 'trusted',
+        id: 'outcome-established',
+        kind: 'established',
+        evidenceEventIds: ['event-1']
+      }
+      return input
+    }
+
+    it('recommends review_due on an otherwise healthy loop with due reviews', () => {
+      const decision = planNextTeachingStep({ ...establishedFacts(), review: { dueCount: 3 } })
+
+      expect(decision.action).toBe('review_due')
+      expect(decision.reason).toBe('spaced_review_due')
+      expect(decision.safeInputSummary.review).toEqual({ dueCount: 3 })
+    })
+
+    it('keeps the legacy decision table byte-identical when review facts are absent', () => {
+      const decision = planNextTeachingStep(establishedFacts())
+
+      expect(decision.action).toBe('continue_next_session')
+      expect('review' in decision.safeInputSummary).toBe(false)
+    })
+
+    it('never lets review debt override remediation (contrast_and_retry)', () => {
+      const decision = planNextTeachingStep({ ...facts(), review: { dueCount: 5 } })
+
+      expect(decision.action).toBe('contrast_and_retry')
+    })
+
+    it('prefers review_due over goal clarification when no next goal exists', () => {
+      const input = establishedFacts()
+      input.mission.nextGoal = 'absent'
+
+      expect(planNextTeachingStep({ ...input, review: { dueCount: 1 } }).action).toBe('review_due')
+    })
+
+    it('treats a zero due count as no review facts', () => {
+      const decision = planNextTeachingStep({ ...establishedFacts(), review: { dueCount: 0 } })
+
+      expect(decision.action).toBe('continue_next_session')
+    })
+  })
+
   it('downgrades needs_practice to waiting when further resources are not ready', () => {
     const input = facts()
     input.resources.readiness = 'not_ready'

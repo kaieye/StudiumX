@@ -701,8 +701,9 @@ describe('McpSessionManager fake transport (ADR-0128)', () => {
       ok: false,
       code: MCP_ERROR_CODES.mcp_server_unavailable
     })
+    // ADR-0133: invalidation now enters budgeted retry_wait (disconnected is the retries-exhausted terminal state).
     expect(manager.getRuntimeView()[0]).toMatchObject({
-      state: 'disconnected',
+      state: 'retry_wait',
       inventory: { stale: true },
       errorCode: MCP_ERROR_CODES.mcp_server_unavailable
     })
@@ -787,7 +788,8 @@ describe('McpSessionManager fake transport (ADR-0128)', () => {
       ok: false,
       code: MCP_ERROR_CODES.mcp_call_failed
     })
-    expect(manager.getRuntimeView()[0]).toMatchObject({ state: 'disconnected' })
+    // ADR-0133: transport-call failure schedules a budgeted reconnect (retry_wait), not terminal disconnected.
+    expect(manager.getRuntimeView()[0]).toMatchObject({ state: 'retry_wait' })
 
     const replacement = await manager.buildSnapshot()
     expect(replacement.tools.map((tool) => tool.rawToolName)).toEqual(['recovered'])
@@ -902,8 +904,9 @@ describe('McpSessionManager fake transport (ADR-0128)', () => {
       ok: false,
       code: MCP_ERROR_CODES.mcp_server_unavailable
     })
+    // ADR-0133: invalidation now enters budgeted retry_wait (disconnected is the retries-exhausted terminal state).
     expect(manager.getRuntimeView()[0]).toMatchObject({
-      state: 'disconnected',
+      state: 'retry_wait',
       inventory: { stale: true },
       errorCode: MCP_ERROR_CODES.mcp_server_unavailable
     })

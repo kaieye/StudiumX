@@ -2,6 +2,12 @@ import { Check, ChevronDown, type LucideIcon } from 'lucide-react'
 import type { HTMLAttributes, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import {
+  GlassCard,
+  GlassSegmentedControl,
+  GlassSwitch,
+  GlassTextField
+} from '../../ui/liquid-glass'
 
 export function SettingsPanel({
   title,
@@ -29,9 +35,9 @@ export function SettingsCard({
   ...props
 }: { children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   return (
-    <div {...props} className={`settings-card ${className}`}>
+    <GlassCard {...props} className={`settings-card ${className}`.trim()} tone="default">
       {children}
-    </div>
+    </GlassCard>
   )
 }
 
@@ -67,18 +73,13 @@ export function ToggleSwitch({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <button
+    <GlassSwitch
       className="toggle-switch"
-      data-state={checked ? 'checked' : 'unchecked'}
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
+      checked={checked}
       disabled={disabled}
-      type="button"
-      onClick={() => onChange(!checked)}
-    >
-      <span />
-    </button>
+      ariaLabel={ariaLabel}
+      onChange={onChange}
+    />
   )
 }
 
@@ -92,22 +93,19 @@ export function SegmentedControl<T extends string>({
   onChange: (value: T) => void
 }) {
   return (
-    <div className="segmented-control">
-      {options.map((option) => {
+    <GlassSegmentedControl
+      className="segmented-control"
+      value={value}
+      onChange={onChange}
+      options={options.map((option) => {
         const Icon = option.icon
-        return (
-          <button
-            className={option.value === value ? 'is-active' : ''}
-            key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-          >
-            {Icon && <Icon size={14} />}
-            {option.label}
-          </button>
-        )
+        return {
+          value: option.value,
+          label: option.label,
+          icon: Icon ? <Icon size={14} /> : undefined
+        }
       })}
-    </div>
+    />
   )
 }
 
@@ -123,7 +121,7 @@ export function SettingsTextInput({
   onChange: (value: string) => void
 }) {
   return (
-    <input
+    <GlassTextField
       className="settings-input"
       type={type}
       value={value}

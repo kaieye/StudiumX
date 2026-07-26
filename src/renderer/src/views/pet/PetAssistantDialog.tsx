@@ -221,7 +221,7 @@ export function PetAssistantDialog({ open, petName, onClose }: PetAssistantDialo
     if (!thread) return
 
     if (typeof thread.scrollTo === 'function') {
-      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
       thread.scrollTo({ top: thread.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' })
     } else {
       thread.scrollTop = thread.scrollHeight

@@ -15,6 +15,7 @@ import {
   type SkillOrchestrationInput,
   type SkillOrchestrationMode,
   type SkillOrchestrationPlan,
+  type SkillOrchestrationPriorState,
   type SkillOrchestrationReadiness,
   type SkillOrchestrationStage,
   type SkillOrchestrationStageKind
@@ -41,6 +42,38 @@ function normalizeId(raw: string): string {
 
 function uniqueSorted(ids: string[]): string[] {
   return [...new Set(ids.map(normalizeId).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+}
+
+/**
+ * Artifact tokens are case-significant (registry declares `CourseOutline`).
+ * Lowercasing them (the id normalizer) silently broke accepts/produces
+ * matching — keep the declared casing, trim, dedupe, sort.
+ */
+function uniqueSortedArtifacts(tokens: string[]): string[] {
+  return [...new Set(tokens.map((token) => String(token ?? '').trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b)
+  )
+}
+
+/** Strict allow-listed prior-state normalization (ADR-0156); invalid → undefined. */
+function normalizePriorState(
+  raw: SkillOrchestrationPriorState | undefined
+): SkillOrchestrationPriorState | undefined {
+  if (!raw) return undefined
+  const planId = String(raw.planId ?? '').trim()
+  if (!/^sop1_[0-9a-f]{8}$/.test(planId)) return undefined
+  const planRevision = Number.isInteger(raw.planRevision) && raw.planRevision > 0 ? raw.planRevision : 1
+  const stageCursor =
+    typeof raw.stageCursor === 'string' && /^stage_[a-z_]{1,32}$/.test(raw.stageCursor)
+      ? raw.stageCursor
+      : null
+  const completedStageKinds = [...new Set((raw.completedStageKinds ?? []).filter((kind) =>
+    STAGE_ORDER.includes(kind)
+  ))]
+  const artifactFacts = uniqueSortedArtifacts([...(raw.artifactFacts ?? [])]).filter((token) =>
+    /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(token)
+  )
+  return { planId, planRevision, stageCursor, completedStageKinds, artifactFacts }
 }
 
 function readinessMap(
@@ -128,6 +161,7 @@ function computePlanId(input: {
   availableArtifacts: string[]
   budgetConstrained: boolean
   preferArtifactProfile: boolean
+  priorState?: SkillOrchestrationPriorState
 }): string {
   const readinessKey = [...input.readiness.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
@@ -146,7 +180,16 @@ function computePlanId(input: {
     input.evidenceStatus,
     input.availableArtifacts.join(','),
     input.budgetConstrained ? '1' : '0',
-    input.preferArtifactProfile ? '1' : '0'
+    input.preferArtifactProfile ? '1' : '0',
+    input.priorState
+      ? [
+          input.priorState.planId,
+          String(input.priorState.planRevision),
+          input.priorState.stageCursor ?? '',
+          input.priorState.completedStageKinds.join(','),
+          input.priorState.artifactFacts.join(',')
+        ].join('|')
+      : ''
   ])
   return `sop1_${digest}`
 }
@@ -181,7 +224,14 @@ function decisionFromWork(item: WorkItem): SkillOrchestrationDecision {
 export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
   const selected = uniqueSorted(input.selectedSkillIds ?? [])
   const readiness = readinessMap(input.readiness)
-  const availableArtifacts = uniqueSorted(input.availableArtifacts ?? [])
+  // ADR-0156: prior-turn continuity facts are ordinary allow-listed inputs —
+  // merged deterministically, never a second state machine.
+  const priorState = normalizePriorState(input.priorState)
+  const completedStageKinds = new Set<SkillOrchestrationStageKind>(priorState?.completedStageKinds ?? [])
+  const availableArtifacts = uniqueSortedArtifacts([
+    ...(input.availableArtifacts ?? []),
+    ...(priorState?.artifactFacts ?? [])
+  ])
   const contextIdentity = String(input.contextIdentity ?? 'ctx:default').trim() || 'ctx:default'
   const nextStepAction = String(input.nextStepAction ?? '').trim()
   const objective =
@@ -418,14 +468,24 @@ export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
         break
       }
       case 'cross_cutting_enhancer':
-        item.status = 'scheduled_later'
-        item.reason = 'Enhancer runs after base artifact stage.'
+        if (completedStageKinds.has('artifact_authoring')) {
+          item.status = 'active_now'
+          item.reason =
+            'Enhancer active: base artifact stage completed in prior turns (ADR-0156 continuity).'
+        } else {
+          item.status = 'scheduled_later'
+          item.reason = 'Enhancer runs after base artifact stage.'
+        }
         break
       case 'verifier':
-        if (hasWriter) {
+        if (hasWriter && !completedStageKinds.has('artifact_authoring')) {
           item.status = 'scheduled_later'
           item.reason =
             'Verifier scheduled after producers (parallel_readonly); success is not learner Evidence.'
+        } else if (hasWriter) {
+          item.status = 'active_now'
+          item.reason =
+            'Verifier active: producer stage completed in prior turns (parallel_readonly); success is not learner Evidence.'
         } else {
           item.status = 'active_now'
           item.reason =
@@ -442,6 +502,14 @@ export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
             w.policy.produces.some((p) => policy.accepts.includes(p))
         )
         if (
+          item.userSelected &&
+          missingAccepts.length === 0 &&
+          completedStageKinds.has('artifact_authoring')
+        ) {
+          item.status = 'active_now'
+          item.reason =
+            'Variant/packager active: required canonical artifacts are available and prior stages completed (ADR-0156 continuity).'
+        } else if (
           item.userSelected &&
           missingAccepts.length > 0 &&
           !producersMayProvide &&
@@ -537,6 +605,25 @@ export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
   }
 
   const stages = buildStages(work, mode)
+  // Continuity annotation (ADR-0156): only when prior state informed the plan,
+  // so priorState-free planning keeps its original byte-identical shape.
+  let currentStageId: string | undefined
+  if (priorState) {
+    let currentAssigned = false
+    for (const stage of stages) {
+      if (completedStageKinds.has(stage.kind)) {
+        stage.status = 'completed'
+        continue
+      }
+      if (!currentAssigned) {
+        stage.status = 'current'
+        currentStageId = stage.id
+        currentAssigned = true
+        continue
+      }
+      stage.status = 'pending'
+    }
+  }
 
   const decisionList = [...decisions.values()].sort((a, b) => a.skillId.localeCompare(b.skillId))
 
@@ -551,7 +638,8 @@ export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
     evidenceStatus,
     availableArtifacts,
     budgetConstrained,
-    preferArtifactProfile
+    preferArtifactProfile,
+    ...(priorState ? { priorState } : {})
   })
 
   const authorityEcho =
@@ -580,7 +668,8 @@ export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
     diagnostics: diagnostics.sort(
       (a, b) => a.code.localeCompare(b.code) || a.message.localeCompare(b.message)
     ),
-    ...(authorityEcho ? { authorityEcho } : {})
+    ...(authorityEcho ? { authorityEcho } : {}),
+    ...(currentStageId ? { currentStageId } : {})
   }
 }
 
@@ -644,8 +733,9 @@ function buildStages(work: Map<string, WorkItem>, mode: SkillOrchestrationMode):
       execution = 'sequential'
     }
 
-    const consumes = uniqueSorted(policies.flatMap((p) => p.accepts))
-    const produces = uniqueSorted(policies.flatMap((p) => p.produces))
+    // Artifact tokens keep their declared casing (see uniqueSortedArtifacts).
+    const consumes = uniqueSortedArtifacts(policies.flatMap((p) => p.accepts))
+    const produces = uniqueSortedArtifacts(policies.flatMap((p) => p.produces))
     const completionGates =
       kind === 'verify'
         ? [

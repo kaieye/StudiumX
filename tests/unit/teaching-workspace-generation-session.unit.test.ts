@@ -47,9 +47,9 @@ describe('TeachingWorkspaceService generation Session gate', () => {
         actionId: randomUUID(),
         prompt: 'Explain why a Session identity must be canonical.',
         messages: []
-      })).rejects.toThrow(process.platform === 'win32'
-        ? 'Descriptor-relative contained directory access is unavailable on this platform.'
-        : 'controlled canonical session open failure')
+      // ADR-0126: Windows direct-path IO landed, so the controlled ledger
+      // failure surfaces on every platform (no descriptor-unavailable fork).
+      })).rejects.toThrow('controlled canonical session open failure')
     } finally {
       ledgerControl.failOpen = false
     }

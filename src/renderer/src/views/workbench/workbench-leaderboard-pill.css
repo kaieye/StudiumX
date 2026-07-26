@@ -15,6 +15,8 @@
   overflow: hidden;
   overflow-anchor: none;
   border-radius: 999px;
+  /* Align compact pill with shared glass tokens (stage may strengthen for video). */
+  border-color: var(--workbench-card-line, var(--lg-line));
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,

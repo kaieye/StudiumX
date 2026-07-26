@@ -1,30 +1,17 @@
 /* Partial of office-workbench.css — do not import directly; use ../office-workbench.css aggregator. */
 /* Section: cards (source lines 1340-3103) */
 
-/* Apple-inspired study cards: compact material, crisp hierarchy, instant touch feedback. */
+/* Apple-inspired study cards: liquid-glass tokens + compact hierarchy. */
 .office-workbench-page {
-  --workbench-card-radius: 8px;
-  --workbench-control-radius: 7px;
+  --workbench-card-radius: var(--lg-radius, 16px);
+  --workbench-control-radius: var(--lg-radius-sm, 10px);
   --workbench-card-width: 292px;
-  --workbench-card-blur: 26px;
-  --workbench-card-shadow:
-    0 18px 54px color-mix(in srgb, var(--text) 14%, transparent),
-    0 3px 10px color-mix(in srgb, var(--text) 8%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 72%, transparent);
-  --workbench-card-material:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--surface-solid) 78%, transparent),
-      color-mix(in srgb, var(--surface-solid) 55%, transparent)
-    ),
-    color-mix(in srgb, var(--surface) 34%, transparent);
-  --workbench-card-material-heavy:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--surface-solid) 88%, transparent),
-      color-mix(in srgb, var(--surface-solid) 66%, transparent)
-    ),
-    color-mix(in srgb, var(--surface) 48%, transparent);
+  --workbench-card-blur: var(--lg-blur, 18px);
+  /* Multi-layer tokens are assigned directly (var() cannot take comma-list fallbacks). */
+  --workbench-card-shadow: var(--lg-shadow-float);
+  --workbench-card-material: var(--workbench-glass-surface);
+  --workbench-card-material-heavy: var(--workbench-glass-surface-strong);
+  --workbench-card-line: var(--lg-line, color-mix(in srgb, var(--line) 72%, #ffffff 28%));
 }
 
 .workbench-tools {
@@ -42,12 +29,14 @@
   width: 100%;
   max-width: var(--workbench-card-width);
   color: var(--text);
-  border: 1px solid color-mix(in srgb, var(--line) 72%, #ffffff 28%);
+  border: 1px solid var(--workbench-card-line);
   border-radius: var(--workbench-card-radius);
   background: var(--workbench-card-material);
   box-shadow: var(--workbench-card-shadow);
-  backdrop-filter: blur(var(--workbench-card-blur)) saturate(175%);
-  -webkit-backdrop-filter: blur(var(--workbench-card-blur)) saturate(175%);
+  backdrop-filter: blur(var(--workbench-card-blur)) saturate(var(--lg-saturate, 165%))
+    contrast(var(--lg-contrast, 1.06));
+  -webkit-backdrop-filter: blur(var(--workbench-card-blur)) saturate(var(--lg-saturate, 165%))
+    contrast(var(--lg-contrast, 1.06));
 }
 
 .workbench-room-switcher,
@@ -68,10 +57,15 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
+  /* Specular sheen from design system; light accent wash kept subtle. */
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 42%, transparent), transparent 46%),
-    linear-gradient(90deg, color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 12%, transparent), transparent 34%);
-  opacity: 0.72;
+    var(--liquid-glass-sheen, var(--lg-sheen, none)),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--pomodoro-accent, var(--accent)) 10%, transparent),
+      transparent 34%
+    );
+  opacity: 0.85;
   pointer-events: none;
 }
 
@@ -479,18 +473,13 @@
 /* Full Apple-style rebuild: a Control Center rail with distinct glass modules. */
 .office-workbench-page {
   --workbench-card-width: 316px;
-  --workbench-card-radius: 8px;
-  --workbench-control-radius: 8px;
-  --workbench-rail-material:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface-solid) 76%, transparent), color-mix(in srgb, var(--surface) 40%, transparent));
-  --workbench-module-material:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface-solid) 88%, transparent), color-mix(in srgb, var(--surface-solid) 58%, transparent));
-  --workbench-module-inset: color-mix(in srgb, var(--surface-solid) 68%, transparent);
-  --workbench-module-line: color-mix(in srgb, var(--line) 68%, #ffffff 26%);
-  --workbench-module-shadow:
-    0 20px 60px color-mix(in srgb, var(--text) 14%, transparent),
-    0 4px 16px color-mix(in srgb, var(--text) 8%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 52%, transparent);
+  --workbench-card-radius: var(--lg-radius, 16px);
+  --workbench-control-radius: var(--lg-radius-sm, 10px);
+  --workbench-rail-material: var(--workbench-glass-surface);
+  --workbench-module-material: var(--workbench-card-material);
+  --workbench-module-inset: color-mix(in srgb, var(--surface-solid) 42%, transparent);
+  --workbench-module-line: var(--lg-line-soft, color-mix(in srgb, var(--line) 68%, #ffffff 26%));
+  --workbench-module-shadow: var(--lg-shadow);
 }
 
 .workbench-tools {
@@ -956,26 +945,22 @@
 
 /* Liquid Glass pass: transparent lensing, bright rims, and refractive highlights. */
 .office-workbench-page {
-  --liquid-glass-tint: color-mix(in srgb, var(--surface-solid) 42%, transparent);
-  --liquid-glass-tint-strong: color-mix(in srgb, var(--surface-solid) 56%, transparent);
-  --liquid-glass-line: color-mix(in srgb, #ffffff 58%, var(--line) 42%);
+  /* Bridge legacy --liquid-glass-* aliases onto design-system --lg-* tokens. */
+  --liquid-glass-tint: var(--lg-glass-fill-soft, color-mix(in srgb, var(--surface-solid) 42%, transparent));
+  --liquid-glass-tint-strong: var(--lg-glass-fill, color-mix(in srgb, var(--surface-solid) 56%, transparent));
+  --liquid-glass-line: var(--lg-line, color-mix(in srgb, #ffffff 58%, var(--line) 42%));
   --liquid-glass-edge: color-mix(in srgb, #ffffff 74%, transparent);
   --liquid-glass-depth: color-mix(in srgb, var(--text) 15%, transparent);
   --liquid-glass-accent: color-mix(in srgb, var(--accent) 22%, transparent);
-  /* Real Liquid Glass: a genuinely translucent tint so the stage aurora
-     refracts through the blur. Rim catches ambient light; sheen stands in
-     for specular reflection. No painted-on stripes. */
-  --liquid-glass-fill: rgba(255, 255, 255, 0.14);
-  --liquid-glass-fill-strong: rgba(255, 255, 255, 0.2);
-  --liquid-glass-rim: rgba(255, 255, 255, 0.7);
-  --liquid-glass-rim-soft: rgba(255, 255, 255, 0.4);
-  --liquid-glass-control-fill: rgba(255, 255, 255, 0.2);
-  --liquid-glass-control-line: rgba(255, 255, 255, 0.34);
-  --liquid-glass-sheen: radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.6), transparent 56%);
-  --liquid-glass-shadow:
-    0 24px 70px rgba(20, 47, 95, 0.16),
-    0 7px 24px rgba(20, 47, 95, 0.08);
-  --liquid-glass-blur: blur(30px) saturate(180%);
+  --liquid-glass-fill: var(--lg-glass-fill, color-mix(in srgb, var(--surface-solid) 58%, transparent));
+  --liquid-glass-fill-strong: var(--lg-glass-fill-strong, color-mix(in srgb, var(--surface-solid) 72%, transparent));
+  --liquid-glass-rim: color-mix(in srgb, #ffffff 70%, transparent);
+  --liquid-glass-rim-soft: color-mix(in srgb, #ffffff 40%, transparent);
+  --liquid-glass-control-fill: color-mix(in srgb, var(--surface-solid) 28%, transparent);
+  --liquid-glass-control-line: var(--lg-line-soft, color-mix(in srgb, #ffffff 34%, var(--line) 66%));
+  --liquid-glass-sheen: var(--lg-sheen, radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.55), transparent 56%));
+  --liquid-glass-shadow: var(--lg-shadow-float);
+  --liquid-glass-blur: blur(var(--lg-blur-strong, 28px)) saturate(var(--lg-saturate, 165%));
 }
 
 .workbench-tools {
@@ -1163,22 +1148,21 @@
 }
 
 :root[data-resolved-theme='dark'] .office-workbench-page {
-  --liquid-glass-tint: color-mix(in srgb, var(--surface-solid) 34%, transparent);
-  --liquid-glass-tint-strong: color-mix(in srgb, var(--surface-solid) 48%, transparent);
-  --liquid-glass-line: color-mix(in srgb, #ffffff 22%, var(--line) 78%);
+  /* Dark theme inherits --lg-* dark overrides from liquid-glass.css. */
+  --liquid-glass-tint: var(--lg-glass-fill-soft);
+  --liquid-glass-tint-strong: var(--lg-glass-fill);
+  --liquid-glass-line: var(--lg-line);
   --liquid-glass-edge: color-mix(in srgb, #ffffff 32%, transparent);
   --liquid-glass-depth: color-mix(in srgb, #000000 38%, transparent);
-  --liquid-glass-fill: rgba(255, 255, 255, 0.07);
-  --liquid-glass-fill-strong: rgba(255, 255, 255, 0.11);
-  --liquid-glass-rim: rgba(255, 255, 255, 0.32);
-  --liquid-glass-rim-soft: rgba(255, 255, 255, 0.16);
-  --liquid-glass-control-fill: rgba(255, 255, 255, 0.08);
-  --liquid-glass-control-line: rgba(255, 255, 255, 0.14);
-  --liquid-glass-sheen: radial-gradient(130% 80% at 14% 0%, rgba(255, 255, 255, 0.18), transparent 56%);
-  --liquid-glass-shadow:
-    0 24px 70px rgba(0, 0, 0, 0.42),
-    0 7px 24px rgba(0, 0, 0, 0.24);
-  --liquid-glass-blur: blur(30px) saturate(160%);
+  --liquid-glass-fill: var(--lg-glass-fill);
+  --liquid-glass-fill-strong: var(--lg-glass-fill-strong);
+  --liquid-glass-rim: color-mix(in srgb, #ffffff 32%, transparent);
+  --liquid-glass-rim-soft: color-mix(in srgb, #ffffff 16%, transparent);
+  --liquid-glass-control-fill: color-mix(in srgb, var(--surface-solid) 18%, transparent);
+  --liquid-glass-control-line: var(--lg-line-soft);
+  --liquid-glass-sheen: var(--lg-sheen);
+  --liquid-glass-shadow: var(--lg-shadow-float);
+  --liquid-glass-blur: blur(var(--lg-blur-strong, 28px)) saturate(var(--lg-saturate, 160%));
 }
 
 :root[data-resolved-theme='dark'] .workbench-pomodoro-time strong,
@@ -1397,6 +1381,7 @@
 
 /* One glass surface only: the outer disclosure card. Detail content is flat
    layout inside that surface — no nested panel card, fixed open body height. */
+/* Nested panel inside outer glass card — no second frost stack. */
 .office-workbench-stage > .workbench-leaderboard .workbench-leaderboard-panel {
   display: flex;
   flex-direction: column;
