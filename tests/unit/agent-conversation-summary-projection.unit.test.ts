@@ -198,7 +198,7 @@ describe.runIf(process.platform !== 'win32')('agent conversation summary project
       .resolves.toEqual([{ conversationId: archivedId, status: 'rejected', reason: 'write_failed' }])
   })
 
-  it('binds publication to the validated output-directory identity when a parent is swapped to a symlink before temp creation', async () => {
+  it('fails closed when the pathname parent is swapped to a symlink before temp creation', async () => {
     const root = await temporaryRoot()
     await writeConversation(root, archivedId)
     const outside = await mkdtemp(join(tmpdir(), 'studiumx-projection-parent-swap-outside-'))
@@ -206,23 +206,25 @@ describe.runIf(process.platform !== 'win32')('agent conversation summary project
     const originalStudiumx = join(root, '.studiumx')
     const heldStudiumx = join(root, '.studiumx-held')
     const outsideProjection = join(outside, 'conversation-projections')
+    await mkdir(outsideProjection)
 
     await expect(projectAgentConversationSummaries(
       { rootPath: root, conversationIds: [archivedId] },
       {
         onOutputDirectoryBound: async () => {
           // Pathname publisher: after parent mkdir, before private temp creation.
-          // Swapping the parent to a symlink must not publish outside the root.
+          // The writer must revalidate containment and fail closed rather than
+          // publish into an attacker-prepared directory outside the root.
           await rename(originalStudiumx, heldStudiumx)
           await symlink(outside, originalStudiumx)
         }
       }
-    )).resolves.toEqual([{ conversationId: archivedId, status: 'generated' }])
+    )).resolves.toEqual([{ conversationId: archivedId, status: 'rejected', reason: 'write_failed' }])
 
     const filename = `${archivedId}.summary.json`
-    await expect(readdir(outside)).resolves.toEqual([])
+    await expect(readdir(outsideProjection)).resolves.toEqual([])
     await expect(readFile(join(outsideProjection, filename))).rejects.toMatchObject({ code: 'ENOENT' })
-    await expect(readFile(join(heldStudiumx, 'conversation-projections', filename), 'utf8')).resolves.toContain('conversation-summary-v1')
+    await expect(readFile(join(heldStudiumx, 'conversation-projections', filename), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('bounds JSON and Markdown source reads before parsing or hashing', async () => {

@@ -11,6 +11,10 @@ import type {
   AgentConversationSummaryProjection,
   AgentConversationSummaryProjectionOutcome
 } from '../shared/teaching-types'
+import {
+  prepareWorkspaceWriteTarget,
+  resolveWorkspacePathTarget
+} from './ai/tools/workspace-path-target'
 import { readContainedRegularFileBounded } from './path-access'
 import { replaceDurably } from './persistence/durable-file'
 import {
@@ -48,7 +52,7 @@ export function agentConversationSummaryProjectionRelativePath(conversationId: s
  * accept renderer paths, touch audits/ledgers, or change canonical files.
  */
 export type AgentConversationSummaryProjectionPublicationInstrumentation = {
-  /** Test-only deterministic seam after parent mkdir and before temp creation. */
+  /** Test-only deterministic seam before the final containment check and temp creation. */
   onOutputDirectoryBound?: () => void | Promise<void>
 }
 
@@ -156,12 +160,24 @@ async function projectOne(
     ) return { conversationId: id, status: 'rejected', reason: 'source_drift' }
 
     try {
+      const target = resolveWorkspacePathTarget(
+        rootPath,
+        agentConversationSummaryProjectionRelativePath(id)
+      )
+      // ADR-0131 keeps pathname publication deliberately non-CAS, but every
+      // write must still pass the trusted-root containment gate. Validate both
+      // before mkdir and immediately after the deterministic race seam so an
+      // existing or swapped symlink cannot redirect this projection outside.
+      await prepareWorkspaceWriteTarget(target)
       // Pathname-default publication (ADR-0131): temp → write → optional fsync → rename.
       await replaceDurably({
-        path: join(rootPath, agentConversationSummaryProjectionRelativePath(id)),
+        path: target.absolutePath,
         content: canonicalProjectionBytes(buildProjection(sources)),
         mode: 0o600,
-        onDirectoryBound: instrumentation.onOutputDirectoryBound
+        onDirectoryBound: async () => {
+          await instrumentation.onOutputDirectoryBound?.()
+          await prepareWorkspaceWriteTarget(target)
+        }
       })
     } catch {
       return { conversationId: id, status: 'rejected', reason: 'write_failed' }

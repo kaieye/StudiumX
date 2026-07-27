@@ -61,7 +61,10 @@ describe.runIf(process.platform !== 'win32')('TeachingMemoryRecall diagnostics',
         blockedDuplicateCount: 0,
         blockedRecoveryIssueCount: 0,
         migrationReady: true
-      }
+      },
+      platformIoProfile: 'pathname_default',
+      platformCapabilityCode: 'ok',
+      platformCapabilityMessageKey: 'platformCapability.pathnameDefault'
     })
     expect(JSON.stringify(diagnostics)).not.toContain(catalog.rootDir)
     expect(JSON.stringify(diagnostics)).not.toContain(record.id)

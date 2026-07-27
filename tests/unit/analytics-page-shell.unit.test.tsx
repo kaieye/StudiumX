@@ -957,11 +957,11 @@ describe('StudyAnalyticsPage', () => {
     expect(css).toMatch(/\.analytics-tokens__charts\s*\{[^}]*grid-template-columns:\s*minmax\(0, 2fr\) minmax\(0, 1fr\)/s)
     expect(css).toContain('.analytics-tokens__trend')
     expect(css).toContain('.analytics-tokens__workspace-ranking')
-    expect(css).toMatch(/\.analytics-focus:has\(\.analytics-focus__percentile\)\s*\{[^}]*grid-template-areas:/s)
-    expect(css).toMatch(/\.analytics-focus:has\(\.analytics-focus__percentile\)\s*\{[^}]*justify-content:\s*stretch/s)
+    expect(css).toMatch(/\.analytics-focus:not\(:has\(\.analytics-focus__plan\)\):has\(\.analytics-focus__percentile\)\s*\{[^}]*grid-template-areas:/s)
+    expect(css).toMatch(/\.analytics-focus:not\(:has\(\.analytics-focus__plan\)\):has\(\.analytics-focus__percentile\)\s*\{[^}]*justify-content:\s*stretch/s)
     expect(css).toMatch(/grid-template-areas:[^;]*"heat heat plan"[^;]*"share hub plan"[^;]*"share hours hours"/s)
-    expect(css).toMatch(/\.analytics-focus:has\(\.analytics-focus__percentile\) \.analytics-focus__share\s*\{[^}]*grid-area:\s*share/s)
-    expect(css).toMatch(/\.analytics-focus:has\(\.analytics-focus__percentile\) \.analytics-focus__hours\s*\{[^}]*grid-area:\s*hours/s)
+    expect(css).toMatch(/\.analytics-focus:not\(:has\(\.analytics-focus__plan\)\):has\(\.analytics-focus__percentile\) \.analytics-focus__share\s*\{[^}]*grid-area:\s*share/s)
+    expect(css).toMatch(/\.analytics-focus:not\(:has\(\.analytics-focus__plan\)\):has\(\.analytics-focus__percentile\) \.analytics-focus__hours\s*\{[^}]*grid-area:\s*hours/s)
     expect(css).toMatch(/\.analytics-focus__share\s*\{[^}]*min-height:/s)
     expect(css).toContain('.analytics-focus__percentile')
     expect(css).toContain('.tick-gauge')
@@ -974,5 +974,4 @@ describe('StudyAnalyticsPage', () => {
     expect(entryCss).toMatch(/\.workbench-analytics-route\s*\{[^}]*height:\s*100%/s)
   })
 })
-
 
