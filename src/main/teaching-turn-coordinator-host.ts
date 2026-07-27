@@ -17,6 +17,10 @@ import {
   type OutcomeCommitResult
 } from './learning-outcome-committer'
 import { createNextTeachingStepPlanner, type NextTeachingStepPlanner } from './next-teaching-step-planner'
+import { deriveReviewScheduleFromScan } from './review-schedule-facts'
+import { loadTeachingLoopFactSource } from './teaching-loop-fact-source'
+import { readTeachingLoopDurableInputsForWorkspace } from './skill-orchestration-authority-bridge'
+import type { TeachingLoopMissionInput, TeachingLoopResourceInput } from './teaching-loop-facts'
 import {
   createTeachingTurnCoordinator,
   type TeachingTurnCoordinator,
@@ -25,6 +29,7 @@ import {
 import type { TeachingEventEnvelope } from '../shared/teaching-events'
 import type { LearningOutcomeCommitResult } from '../shared/teaching-types/learning-outcome'
 import type { CommitLearningOutcomeRequest } from '../shared/teaching-types/system-api'
+import { TEACHING_PRESENTATION_SCHEMA_VERSION, type TeachingPresentationActionPayload, type TeachingPresentationActionResult, type TeachingPresentationSnapshot } from '../shared/teaching-types/teaching-presentation'
 
 export type TeachingTurnWorkspaceRef = {
   id: string
@@ -43,6 +48,10 @@ export type TeachingTurnCoordinatorHostOptions = {
     ledger: Pick<LearningSessionLedger, 'open' | 'load' | 'scan'>
   ) => Pick<LearningOutcomeCommitter, 'commit' | 'reconcile'>
   createPlanner?: () => Pick<NextTeachingStepPlanner, 'plan'>
+  /** Existing bounded durable fact adapter for presentation-only loop reconstruction. */
+  readPresentationFacts?: (
+    workspaceRoot: string
+  ) => Promise<{ mission: TeachingLoopMissionInput; resources: TeachingLoopResourceInput }>
   now?: () => string
   /** Optional bound for process-local coordinator caches (tests). */
   maxOperations?: number
@@ -72,6 +81,10 @@ export interface TeachingTurnCoordinatorHost {
    * Synthesizes a stable turn envelope from the versioned IPC request.
    */
   commitLearningOutcome(request: CommitLearningOutcomeRequest): Promise<LearningOutcomeCommitResult>
+  /** Canonical-only, learner-safe read projection for the selected workspace. */
+  getTeachingPresentation(workspaceId: string): Promise<TeachingPresentationSnapshot | null>
+  /** Validate a closed next-step action against the current canonical projection. */
+  actOnTeachingPresentation(workspaceId: string, payload: TeachingPresentationActionPayload): Promise<TeachingPresentationActionResult>
 }
 
 type WorkspaceCoordinatorEntry = {
@@ -92,6 +105,7 @@ class DefaultTeachingTurnCoordinatorHost implements TeachingTurnCoordinatorHost 
   private readonly createRecorder: NonNullable<TeachingTurnCoordinatorHostOptions['createRecorder']>
   private readonly createCommitter: NonNullable<TeachingTurnCoordinatorHostOptions['createCommitter']>
   private readonly createPlanner: NonNullable<TeachingTurnCoordinatorHostOptions['createPlanner']>
+  private readonly readPresentationFacts: NonNullable<TeachingTurnCoordinatorHostOptions['readPresentationFacts']>
   private readonly now?: () => string
 
   constructor(private readonly options: TeachingTurnCoordinatorHostOptions) {
@@ -109,6 +123,7 @@ class DefaultTeachingTurnCoordinatorHost implements TeachingTurnCoordinatorHost 
           now: options.now
         }))
     this.createPlanner = options.createPlanner ?? (() => createNextTeachingStepPlanner())
+    this.readPresentationFacts = options.readPresentationFacts ?? readTeachingLoopDurableInputsForWorkspace
     this.now = options.now
   }
 
@@ -132,6 +147,29 @@ class DefaultTeachingTurnCoordinatorHost implements TeachingTurnCoordinatorHost 
 
     const result = await entry.coordinator.execute(command)
     return projectIpcExecuteResult(result)
+  }
+
+  async getTeachingPresentation(workspaceId: string): Promise<TeachingPresentationSnapshot | null> {
+    const entry = await this.coordinatorFor(workspaceId)
+    if (!entry) return null
+    return this.readPresentation(entry)
+  }
+
+  async actOnTeachingPresentation(
+    workspaceId: string,
+    payload: TeachingPresentationActionPayload
+  ): Promise<TeachingPresentationActionResult> {
+    const entry = await this.coordinatorFor(workspaceId)
+    if (!entry) return { status: 'unavailable', snapshot: null }
+    const snapshot = await this.readPresentation(entry)
+    if (!snapshot) return { status: 'unavailable', snapshot: null }
+    if (payload.action !== snapshot.nextStep?.action) return { status: 'rejected', snapshot }
+    if (payload.operationId !== snapshot.operationId || payload.expectedRevision !== snapshot.revision) {
+      return { status: 'stale', snapshot }
+    }
+    // This is deliberately an authorization/intention boundary only. It never
+    // appends evidence, settles outcomes, or bypasses the coordinator sole-writer.
+    return { status: 'accepted', snapshot }
   }
 
   async commitLearningOutcome(request: CommitLearningOutcomeRequest): Promise<LearningOutcomeCommitResult> {
@@ -172,6 +210,42 @@ class DefaultTeachingTurnCoordinatorHost implements TeachingTurnCoordinatorHost 
     const resolved = await this.options.resolveWorkspace(workspaceId)
     if (!resolved || resolved.id !== workspaceId) return null
     return this.createEntry(resolved)
+  }
+
+  private async readPresentation(entry: WorkspaceCoordinatorEntry): Promise<TeachingPresentationSnapshot | null> {
+    const ledger = this.createLedger(entry.rootPath)
+    const scan = await ledger.scan({})
+    const session = [...scan.canonicalSessions].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id)
+    )[0]
+    if (!session) return null
+    const [presentationFacts, committer] = await Promise.all([
+      this.readPresentationFacts(entry.rootPath),
+      this.createCommitter(entry.rootPath, ledger)
+    ])
+    const reviewSchedule = deriveReviewScheduleFromScan({
+      scan: { canonicalSessions: scan.canonicalSessions },
+      now: this.now?.() ?? new Date().toISOString()
+    })
+    const loaded = await loadTeachingLoopFactSource(
+      // Reuse the scan used to bind this CAS revision; never create a second ledger catalog.
+      { ledger: { scan: async () => scan }, committer, workspaceRoot: entry.rootPath },
+      {
+        sessionId: session.id,
+        mission: presentationFacts.mission,
+        course: { id: session.courseRef.courseId },
+        resources: presentationFacts.resources,
+        ...(reviewSchedule.dueCount > 0 ? { review: { dueCount: reviewSchedule.dueCount } } : {})
+      }
+    )
+    const nextStep = learnerSafePresentationNextStep(loaded.snapshot.nextStep?.action)
+    if (!nextStep) return null
+    return {
+      schemaVersion: TEACHING_PRESENTATION_SCHEMA_VERSION,
+      operationId: createHash('sha256').update(`${entry.workspaceId}\0${loaded.snapshot.identity}`).digest('hex'),
+      revision: session.version,
+      nextStep
+    }
   }
 
   private createEntry(workspace: TeachingTurnWorkspaceRef): WorkspaceCoordinatorEntry {
@@ -261,6 +335,27 @@ function projectIpcExecuteResult(result: TeachingTurnExecuteResult): TeachingTur
     if (commitResult) projected.commitResult = commitResult
   }
   return projected
+}
+
+function learnerSafePresentationNextStep(
+  action: import('../shared/teaching-types/next-teaching-step').NextTeachingStepAction | undefined
+): TeachingPresentationSnapshot['nextStep'] {
+  switch (action) {
+    case 'contrast_and_retry':
+      return {
+        action,
+        label: '对照后再试一次',
+        description: '先比较关键差异，再用新的提示重试。'
+      }
+    case 'review_due':
+      return {
+        action,
+        label: '开始复习',
+        description: '先完成一项到期复习，再继续新的学习内容。'
+      }
+    default:
+      return null
+  }
 }
 
 function mapExecuteToCommitResult(result: TeachingTurnExecuteResult): LearningOutcomeCommitResult {

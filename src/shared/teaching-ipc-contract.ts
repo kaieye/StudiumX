@@ -98,6 +98,8 @@ export const teachingInvokeChannels = {
   runTeachingDoctor: 'teach:run-teaching-doctor',
   /** Live agent sandbox readiness (Stage E); secret-free. */
   getAgentSandboxReadiness: 'teach:get-agent-sandbox-readiness',
+  getTeachingPresentation: 'teach:get-teaching-presentation',
+  actOnTeachingPresentation: 'teach:act-on-teaching-presentation',
   projectTeachingTurnReview: 'teach:project-teaching-turn-review',
   decideTeachingTurnReview: 'teach:decide-teaching-turn-review',
   projectTeachingTurnReviewHandoff: 'teach:project-teaching-turn-review-handoff',

@@ -1,7 +1,7 @@
 # ADR-0014：将教学运行事实投影为学习者安全的 TeachingTurnPresentation
 
-- **状态：** 已实施（投影器、Reader 接口与定向 UI/Electron 自动化；P1-12 封闭 TeachingCommand 与 composer a11y residual 已合入；默认 App 编排接线未在此 ADR 中断言）
-- **范围：** `TeachingTurnPresentation`、四阶段 learner projection、redaction、a11y 语义、保存态显示、封闭 `TeachingCommand` composer 目录
+- **状态：** 已实施（投影器、Reader 接口、P0 canonical snapshot IPC → 默认 App 接线、`contrast_and_retry` / `review_due` 受控动作、定向 UI/Electron 自动化；P1-12 封闭 TeachingCommand 与 composer a11y residual 已合入）
+- **范围：** `TeachingTurnPresentation`、P0 canonical learner-safe snapshot、`contrast_and_retry` / `review_due` 受控入口、四阶段 learner projection、redaction、a11y 语义、保存态显示、封闭 `TeachingCommand` composer 目录
 - **证据提交：** `840d566`、`f71f211`、`0ce39c9`、`963d9b2`、`ef983f9`；P1-12 feature `8cc956b` / merge `f6257cc`
 
 ## 决定
@@ -15,9 +15,19 @@
 
 学习者 composer 仅暴露封闭 `TeachingCommandKind`（`continue` | `retry` | `show_source` | `end_session`）。命令执行类型为 `presentation_action` / `local_ui` / `session_control`，**永不**映射为任意 tool call、shell、diagnostics 或 effect-policy 旁路。`continue`/`retry` 受既有 presentation action 门控；不可用时 fail closed，不得发明 planner step。slash 发现与技能 slash 同形，但 `diagnosticMode` 不在此目录解锁技术/agent 控制。
 
+### P0：canonical snapshot 与受控 `contrast_and_retry` / `review_due`
+
+默认教学对话通过 closed `teach:get-teaching-presentation` 读取**当前 active workspace** 的 `TeachingPresentationSnapshot`，并通过 `teach:act-on-teaching-presentation` 提交 allow-listed 的 `contrast_and_retry` 或 `review_due` 动作。DTO 只包含 opaque operation ID、canonical session revision 与固定 learner copy；不含 path、raw evidence、evaluator reason、prompt、provider payload、secret、token、review item ID 或 planner diagnostics。它不是通用 operation 查询面，也不向 renderer 公开 ledger/committer 状态。
+
+host 每次从既有 `LearningSessionLedger` scan + outcome settlement reconcile 的只读投影重建 snapshot，并复用已有限界 durable mission/resource-readiness adapter；`review_due` 额外由同一 scan 经 ADR-0154 的 `deriveReviewScheduleFromScan` 得到 count-only review fact，再交给既有 planner。不会假设资源已就绪，也不会把 `MISSION.md` / `RESOURCES.md` 正文、review item 或 due diagnostics 投影给 renderer。动作同时比较 opaque operation ID 和 `expectedRevision`；不匹配返回刷新后的 snapshot，且不追加 evidence、outcome 或 record。只有 host 接受该 closed action 后，默认 App 才启动对应的固定 teaching intent；学习者不能借卡片或 `/retry` 传入任意 prompt。该意图仍经过正常 teaching conversation / evidence / evaluator / `TeachingTurnCoordinator` settlement 路径，不能写 outcome 或绕过 sole-writer。
+
+read channel 不接受 selector 或 diagnostic payload；action input 和两条 channel 的 output 都按 exact allow-list 校验。任何未知字段或 host 读取异常均在 main 侧 fail closed，绝不把路径、内部 reason 或其他诊断文字穿过 preload。
+
 ## 已实施范围与验证入口
 
 `840d566` 引入 renderer projector，`0ce39c9` 合入主线；后续提交覆盖 Electron a11y 与 learner-safe diagnostics/redaction。`AgentConversationReader` 可接收教学 presentation，Electron 测试验证键盘、语义状态、克制公告与脱敏。
+
+P0 将 shared snapshot adapter 接到 production `App.tsx` 的最近 assistant turn：错误答案 settlement 得到 `contrast_and_retry` 后，卡片在 `AgentConversationReader` 展示“对照后再试一次”；ledger evidence 经调度器得到 `review_due` 后，同一 Reader 展示“开始复习”。点击复用同一 host-validated route。刷新或重开不会依赖 renderer persistence，而是再次读取 canonical projection。
 
 ```powershell
 pnpm exec vitest run --project unit tests/unit/teaching-turn-presentation.unit.test.ts
@@ -26,6 +36,7 @@ node scripts/check-teaching-presentation-redaction.mjs
 pnpm exec playwright test tests/e2e/teaching-turn-presentation.a11y.e2e.spec.ts --project=electron-e2e
 pnpm run check:teaching-composer-a11y
 CI=true node ./node_modules/vitest/vitest.mjs run --project unit tests/unit/teaching-command.unit.test.ts
+pnpm exec vitest run --project unit tests/unit/teaching-turn-coordinator-host.unit.test.ts tests/unit/teaching-ipc-gateway.unit.test.ts
 ```
 
 ## 不变量
@@ -35,9 +46,12 @@ CI=true node ./node_modules/vitest/vitest.mjs run --project unit tests/unit/teac
 - source、错误和保存信息仅显示 allowlisted、可解释且已脱敏的字段。
 - presentation 是 projection，不是 Evidence、Outcome、Learning record 或 canonical writer。
 - TeachingCommand 目录封闭；composer 不得成为通用 agent/tool 控制面。
+- P0 action 的 stale operation/revision 必须 fail closed 并用 host snapshot 刷新；不得产生第二次 settlement。
+- `TeachingTurnCoordinator` / host 仍是 settlement sole-writer；renderer、模型和 skill 不得直写 outcome。
+- `review_due` 只启动新的受控练习回合；它不直接确认、消费或写入 review outcome，且不能成为第二 review authority。
 
 ## 不包含
 
-- 本 ADR 不声称当前默认 `App` 已自动构建并传入全部 teaching presentation。
-- 本 ADR 不把现有 Electron presentation/a11y harness 视为完整 evidence → IPC → canonical files → restart Golden E2E。
+- 本 ADR 不把 `TeachingPresentationSnapshot` 变成通用 ledger 浏览器或任意 operation 查询 API。
+- 本 ADR 不实现 ReviewView、TodayQueue 或 Pet；`review_due` 仅作为 Teaching Reader 的最窄 canonical 入口，`continue_next_session` 仍不是产品入口。
 - 本 ADR 不授权展示 hidden prompt、provider payload、secret 或模型推理过程。

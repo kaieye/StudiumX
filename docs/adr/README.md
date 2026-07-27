@@ -164,7 +164,7 @@
 | [ADR-0011](0011-evidence-gated-learning-outcome-settlement.md) | P0 outcome settlement | Evidence-gated 的 canonical outcome / Learning record 结算、有序发布、reconcile 和窄 IPC sole-writer 边界。 |
 | [ADR-0012](0012-deterministic-next-teaching-step-planner.md) | P0 next teaching step | 由 outcome / Evidence 导出的确定性 typed 教学动作，而非自由文本推断。 |
 | [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md) | P0/P1 teaching context | provenance allowlist、预算化 context、ProjectionReport、multi-adapter ResourceGrounder（含 external_untrusted 边界）。 |
-| [ADR-0014](0014-learner-safe-teaching-turn-presentation.md) | P0/P1 learner presentation | 教学事实的 learner-safe 四阶段投影、redaction、a11y 边界，与封闭 TeachingCommand composer 目录。 |
+| [ADR-0014](0014-learner-safe-teaching-turn-presentation.md) | P0/P1 learner presentation | canonical learner-safe snapshot 的 closed IPC → 默认 App → Reader 接线、`contrast_and_retry` / `review_due` CAS 动作、四阶段投影、redaction、a11y 边界，以及封闭 TeachingCommand composer 目录。 |
 | [ADR-0015](0015-canonical-teaching-event-protocol.md) | P1 canonical teaching events | 版本化封闭 event envelope、event bus 与 legacy adapter 边界。 |
 | [ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md) | P0 assessment evaluator | 仅信任绑定、publisher-owned、digest 校验的 assessment artifact，并对不可信输入保守失败。 |
 | [ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md) | P0 Win/Mac release proof | clean-checkout audit、Win/Mac skip 预算、runtime gates 与真实 Electron longitudinal/crash Golden；Linux 产品船与 C-4 完整 migration 不在此声明。 |
@@ -266,7 +266,7 @@
 | [ADR-0151](0151-teaching-kernel-and-skill-orchestration.md) | Teaching Kernel 与 Skill 编排权威边界 | **部分实施**（2026-07-24）：Phase 0–3；双平面；teach=app-shipped kernel；host registry + 纯 plan + runtime stage-scoped bodies；Phase 4–5 UI/markdown residual；不改 settlement / 0044 全文进 prefix。 |
 | [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md) | 工作区命令与 Codex 对齐三态审批 | **部分被 0153 supersede / 非合格结项**（2026-07-24 修订）：审批三态 + `run_workspace_command` 形状仍有效；默认 `workspaceShell` 以 0153 为准；safelist/主路径投影开放（见 [delivery roadmap](../agent-shell-sandbox-delivery-roadmap.md)）。禁止 YOLO 标签。 |
 | [ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md) | Codex 双轴 Sandbox + 主流 Agent Shell | **实施中（provisional）**（2026-07-24 修订）：双轴 + shell 意图/代码子集已落；主路径合格未完成。实施权威 [delivery roadmap](../agent-shell-sandbox-delivery-roadmap.md) A–F；Windows helper=G 可选不阻塞。禁止 YOLO / 虚假 Docker·VM 完备宣称。 |
-| [ADR-0154](0154-spaced-review-scheduler-and-review-due-planner-action.md) | 间隔复习调度投影与 planner `review_due` | **部分实施**（2026-07-26）：纯调度投影（固定阶梯 1/3/7/21/60 天）+ ledger scan 适配器 + planner 动作扩展（无 review 事实时决策表逐字节不变）+ Pet 复习投影切换 + bridge dueCount；复习入口 UI / 今日队列消费 residual。调度器是可重建投影,非第二权威;不写 ledger/outcome。 |
+| [ADR-0154](0154-spaced-review-scheduler-and-review-due-planner-action.md) | 间隔复习调度投影与 planner `review_due` | **部分实施**（2026-07-27）：纯调度投影（固定阶梯 1/3/7/21/60 天）+ ledger scan 适配器 + planner 动作扩展（无 review 事实时决策表逐字节不变）+ bridge dueCount + Teaching Reader 受控复习入口；TodayQueue residual。调度器是可重建投影,非第二权威;不写 ledger/outcome；Pet 不新增功能。 |
 | [ADR-0155](0155-fill-quiz-settlement-via-sidecar-v2.md) | fill 题结算（sidecar v2 + 归一化答案 digest） | **已实施**（2026-07-26）：冻结归一化契约贯穿 quiz.js/证据桥/evaluator；证据携带 `fill-<sha256>` 身份（无学习者明文）；sidecar schemaVersion 2（v1 保守语义原地保留）；`['submit']` 垃圾证据判 malformed。不放宽 0016 静态文法;HTML sidecar 变体 fill 仍 unsupported。 |
 | [ADR-0156](0156-skill-orchestration-conversation-continuity.md) | Skill 编排跨轮续航（durable 会话状态 + priorState） | **已实施（核心）**（2026-07-26）：planner 可选 priorState（无则逐字节不变）；确定性 gate 判定（不可导出的 gate 诚实 fail）；`.agent-sessions/skill-orchestration/` 可重建状态（损坏→单轮降级）；bridge 真实 mission/resource/artifact/review 事实替换占位 seed；附带修复 artifact token 小写化休眠 bug。多选 UI 属 0151 Phase 4 residual。 |
 | [ADR-0157](0157-learning-outcome-strength-and-consolidation.md) | 学习结果强度维度（provisional→consolidated） | **Proposed（设计草案,未实施 — 2026-07-26）**：established 细分当场/隔日复验强度;record immutable,强度由 RetentionProjection 派生。 |
@@ -371,6 +371,4 @@ Database 子系统：event density / backup-export / multi-workspace rebuild 默
 - 已实施决定的范围、边界或验证入口变化时，更新对应 ADR；新的开放/延期工作必须新增独立 ADR（含 design gate 前提），不得把 ADR 的受限切片扩大为完整 closure。已结项 plan 应删除，不保留无用指针 stub。
 - ADR 中的 Git 提交 hash 是验证线索。若合并主线时使用 rebase 或 squash 导致 hash 改变，应将其更新为主线中可追溯的提交或合并记录。
 - ADR 记录的是已获采纳的决定；尚未批准的建议不得记为已实施事实。当前无独立 local-data 待办页：开放实现须先有新 ADR 批准，延期项以各 ADR 的 non-claims / 延期段落为准（C-6 destructive 见 ADR-0038）。Study-planning：Phase 0 见 [ADR-0094](0094-study-task-timer-planning-design-gate.md)；路径/wire/store 合同见 [ADR-0117](0117-study-planning-store-paths-and-wire.md)；renderer cutover 见 [ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md)；Phase 7 / §18 residual 见 [ADR-0130](0130-study-planning-phase7-and-completion-residual.md)。
-
-
 

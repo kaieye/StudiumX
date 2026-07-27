@@ -115,6 +115,7 @@ import type {
 
 import type { LearningOutcomeCommitResult } from './learning-outcome'
 import type { RunTeachingDoctorPayload, TeachingDoctorReport } from './teaching-doctor'
+import type { TeachingPresentationActionPayload, TeachingPresentationActionResult, TeachingPresentationSnapshot } from './teaching-presentation'
 import type { AgentSandboxReadiness } from './agent-sandbox'
 import type {
   DecideTeachingTurnReviewPayload,
@@ -248,6 +249,10 @@ export type TeachingSystemApi = {
    * Same resolveAgentSandboxReadiness as runtime/Doctor; secret-free.
    */
   getAgentSandboxReadiness: () => Promise<AgentSandboxReadiness>
+  /** Read-only learner-safe canonical teaching projection for the active workspace. */
+  getTeachingPresentation: () => Promise<TeachingPresentationSnapshot | null>
+  /** Closed next-step command; host validates operation identity and revision before retry. */
+  actOnTeachingPresentation: (payload: TeachingPresentationActionPayload) => Promise<TeachingPresentationActionResult>
   /**
    * Project teaching-turn review bundle (+ optional decision) to UI-safe DTO (ADR-0087).
    * No auto-apply; approved ids are not an apply plan.

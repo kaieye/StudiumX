@@ -281,3 +281,58 @@ describe('TeachingTurnPresentation', () => {
   })
 
 })
+describe('authoritative teaching presentation snapshot adapter', () => {
+  it('renders the host-projected contrast-and-retry action without deriving planner reasons in the renderer', async () => {
+    const { buildTeachingTurnPresentationFromSnapshot } = await import('../../src/renderer/src/teaching-turn-presentation')
+    const presentation = buildTeachingTurnPresentationFromSnapshot({
+      schemaVersion: 1,
+      operationId: 'a'.repeat(64),
+      revision: 7,
+      nextStep: {
+        action: 'contrast_and_retry',
+        label: '对照后再试一次',
+        description: '先比较关键差异，再用新的提示重试。'
+      }
+    })
+    expect(presentation).toMatchObject({
+      activePhaseId: 'explanation_retry',
+      action: { kind: 'retry', label: '对照后再试一次' }
+    })
+    const calls: string[] = []
+    renderUi(createElement(AgentConversationReader, {
+      presentation: undefined,
+      teachingPresentation: presentation,
+      onTeachingAction: (action) => calls.push(action.kind)
+    }))
+    await setupUser().click(screen.getByRole('button', { name: '对照后再试一次' }))
+    expect(calls).toEqual(['retry'])
+    expect(JSON.stringify(presentation)).not.toMatch(/prompt|reason|path|token|secret/i)
+  })
+
+  it('renders the host-projected due-review action without item details or renderer-derived review state', async () => {
+    const { buildTeachingTurnPresentationFromSnapshot } = await import('../../src/renderer/src/teaching-turn-presentation')
+    const presentation = buildTeachingTurnPresentationFromSnapshot({
+      schemaVersion: 1,
+      operationId: 'b'.repeat(64),
+      revision: 8,
+      nextStep: {
+        action: 'review_due',
+        label: '开始复习',
+        description: '先完成一项到期复习，再继续新的学习内容。'
+      }
+    })
+    expect(presentation).toMatchObject({
+      activePhaseId: 'retrieval_practice',
+      action: { kind: 'review_due', label: '开始复习' }
+    })
+    const calls: string[] = []
+    renderUi(createElement(AgentConversationReader, {
+      presentation: undefined,
+      teachingPresentation: presentation,
+      onTeachingAction: (action) => calls.push(action.kind)
+    }))
+    await setupUser().click(screen.getByRole('button', { name: '开始复习' }))
+    expect(calls).toEqual(['review_due'])
+    expect(JSON.stringify(presentation)).not.toMatch(/itemId|lessonId|path|prompt|reason|token|secret/i)
+  })
+})

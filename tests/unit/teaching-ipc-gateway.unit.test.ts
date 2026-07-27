@@ -137,6 +137,157 @@ describe('Teaching IPC gateway', () => {
     expect(createWorkspace).toHaveBeenCalledWith({ name: 'Course', prompt: 'Teach algebra' })
   })
 
+  it('exposes only the active-workspace learner-safe presentation and rejects expanded action payloads', async () => {
+    const snapshot = {
+      schemaVersion: 1 as const,
+      operationId: 'a'.repeat(64),
+      revision: 7,
+      nextStep: {
+        action: 'contrast_and_retry' as const,
+        label: '对照后再试一次',
+        description: '先比较关键差异，再用新的提示重试。'
+      }
+    }
+    const getState = vi.fn().mockResolvedValue({ activeWorkspace: { id: 'workspace-presentation-1' } })
+    const getTeachingPresentation = vi.fn().mockResolvedValue(snapshot)
+    const actOnTeachingPresentation = vi.fn().mockResolvedValue({ status: 'accepted' as const, snapshot })
+    registerTeachingIpcGateway(registration({
+      workspaceService: { getState },
+      turnCoordinatorHost: { getTeachingPresentation, actOnTeachingPresentation }
+    }))
+
+    await expect(handler(teachingInvokeChannels.getTeachingPresentation)(event)).resolves.toEqual(snapshot)
+    expect(getTeachingPresentation).toHaveBeenCalledWith('workspace-presentation-1')
+
+    await expect(handler(teachingInvokeChannels.getTeachingPresentation)(event, {
+      operationId: snapshot.operationId
+    })).rejects.toThrow('Teaching presentation read does not accept a payload.')
+    expect(getTeachingPresentation).toHaveBeenCalledTimes(1)
+
+    await expect(handler(teachingInvokeChannels.actOnTeachingPresentation)(event, {
+      operationId: snapshot.operationId,
+      expectedRevision: snapshot.revision,
+      action: 'contrast_and_retry'
+    })).resolves.toEqual({ status: 'accepted', snapshot })
+    expect(actOnTeachingPresentation).toHaveBeenCalledWith('workspace-presentation-1', {
+      operationId: snapshot.operationId,
+      expectedRevision: snapshot.revision,
+      action: 'contrast_and_retry'
+    })
+
+    await expect(handler(teachingInvokeChannels.actOnTeachingPresentation)(event, {
+      operationId: snapshot.operationId,
+      expectedRevision: snapshot.revision,
+      action: 'contrast_and_retry',
+      prompt: 'must not cross the presentation boundary'
+    })).rejects.toThrow('Teaching presentation action contains unsupported fields.')
+    expect(actOnTeachingPresentation).toHaveBeenCalledTimes(1)
+
+    await expect(handler(teachingInvokeChannels.actOnTeachingPresentation)(event, {
+      operationId: snapshot.operationId,
+      expectedRevision: snapshot.revision,
+      action: 'review_due'
+    })).resolves.toEqual({ status: 'accepted', snapshot })
+    expect(actOnTeachingPresentation).toHaveBeenLastCalledWith('workspace-presentation-1', {
+      operationId: snapshot.operationId,
+      expectedRevision: snapshot.revision,
+      action: 'review_due'
+    })
+  })
+
+  it('validates canonical presentation output before exposing it to the renderer', async () => {
+    const getState = vi.fn().mockResolvedValue({ activeWorkspace: { id: 'workspace-presentation-1' } })
+    const validSnapshot = {
+      schemaVersion: 1 as const,
+      operationId: 'a'.repeat(64),
+      revision: 7,
+      nextStep: {
+        action: 'contrast_and_retry' as const,
+        label: '对照后再试一次',
+        description: '先比较关键差异，再用新的提示重试。'
+      }
+    }
+    const getTeachingPresentation = vi.fn().mockResolvedValue({ ...validSnapshot, reason: 'internal-only' })
+    const actOnTeachingPresentation = vi.fn().mockResolvedValue({
+      status: 'accepted',
+      snapshot: { ...validSnapshot, prompt: 'must not reach renderer' }
+    })
+    registerTeachingIpcGateway(registration({
+      workspaceService: { getState },
+      turnCoordinatorHost: { getTeachingPresentation, actOnTeachingPresentation }
+    }))
+
+    await expect(handler(teachingInvokeChannels.getTeachingPresentation)(event)).resolves.toBeNull()
+    await expect(handler(teachingInvokeChannels.actOnTeachingPresentation)(event, {
+      operationId: validSnapshot.operationId,
+      expectedRevision: validSnapshot.revision,
+      action: 'contrast_and_retry'
+    })).resolves.toEqual({ status: 'unavailable', snapshot: null })
+  })
+
+  it('allows only the fixed learner-safe due-review snapshot copy', async () => {
+    const getState = vi.fn().mockResolvedValue({ activeWorkspace: { id: 'workspace-presentation-1' } })
+    const snapshot = {
+      schemaVersion: 1 as const,
+      operationId: 'b'.repeat(64),
+      revision: 8,
+      nextStep: {
+        action: 'review_due' as const,
+        label: '开始复习' as const,
+        description: '先完成一项到期复习，再继续新的学习内容。' as const
+      }
+    }
+    const getTeachingPresentation = vi.fn().mockResolvedValue(snapshot)
+    const actOnTeachingPresentation = vi.fn().mockResolvedValue({ status: 'accepted' as const, snapshot })
+    registerTeachingIpcGateway(registration({
+      workspaceService: { getState },
+      turnCoordinatorHost: { getTeachingPresentation, actOnTeachingPresentation }
+    }))
+
+    await expect(handler(teachingInvokeChannels.getTeachingPresentation)(event)).resolves.toEqual(snapshot)
+    await expect(handler(teachingInvokeChannels.actOnTeachingPresentation)(event, {
+      operationId: snapshot.operationId,
+      expectedRevision: snapshot.revision,
+      action: 'review_due'
+    })).resolves.toEqual({ status: 'accepted', snapshot })
+  })
+
+  it('fails closed when the canonical presentation reader or action host is unavailable', async () => {
+    const getState = vi.fn().mockResolvedValue({ activeWorkspace: { id: 'workspace-presentation-1' } })
+    const getTeachingPresentation = vi.fn().mockRejectedValue(new Error('/internal/canonical/path'))
+    const actOnTeachingPresentation = vi.fn().mockRejectedValue(new Error('internal evaluator reason'))
+    registerTeachingIpcGateway(registration({
+      workspaceService: { getState },
+      turnCoordinatorHost: { getTeachingPresentation, actOnTeachingPresentation }
+    }))
+
+    await expect(handler(teachingInvokeChannels.getTeachingPresentation)(event)).resolves.toBeNull()
+    await expect(handler(teachingInvokeChannels.actOnTeachingPresentation)(event, {
+      operationId: 'a'.repeat(64),
+      expectedRevision: 7,
+      action: 'contrast_and_retry'
+    })).resolves.toEqual({ status: 'unavailable', snapshot: null })
+  })
+
+  it('fails closed when active-workspace lookup fails before a canonical presentation read or action', async () => {
+    const getState = vi.fn().mockRejectedValue(new Error('/private/workspace/root'))
+    const getTeachingPresentation = vi.fn()
+    const actOnTeachingPresentation = vi.fn()
+    registerTeachingIpcGateway(registration({
+      workspaceService: { getState },
+      turnCoordinatorHost: { getTeachingPresentation, actOnTeachingPresentation }
+    }))
+
+    await expect(handler(teachingInvokeChannels.getTeachingPresentation)(event)).resolves.toBeNull()
+    await expect(handler(teachingInvokeChannels.actOnTeachingPresentation)(event, {
+      operationId: 'a'.repeat(64),
+      expectedRevision: 7,
+      action: 'contrast_and_retry'
+    })).resolves.toEqual({ status: 'unavailable', snapshot: null })
+    expect(getTeachingPresentation).not.toHaveBeenCalled()
+    expect(actOnTeachingPresentation).not.toHaveBeenCalled()
+  })
+
   it('routes the path-free workspace trust command through its exact parser', async () => {
     const setWorkspaceTrust = vi.fn().mockResolvedValue({ id: 'workspace-1', agentWorkspaceTrust: 'trusted' })
     registerTeachingIpcGateway(registration({ workspaceService: { setWorkspaceTrust } }))
@@ -175,6 +326,9 @@ describe('Teaching IPC gateway', () => {
       activeCount: 1,
       tombstoneCount: 0,
       lastInjectedCount: 0,
+      platformIoProfile: 'pathname_default',
+      platformCapabilityCode: 'ok',
+      platformCapabilityMessageKey: 'platformCapability.pathnameDefault',
       legacyMigrationPreflight: {
         legacyFlatEligibleCount: 0,
         alreadyPartitionedCount: 1,
@@ -786,4 +940,3 @@ describe('Teaching IPC gateway', () => {
     expect(pending.cancelStreamToolPermissionPending).toHaveBeenCalledWith('stream-1')
   })
 })
-

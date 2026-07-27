@@ -35,6 +35,13 @@ export type TeachingLoopFactSourceLoaderInput = {
   course: TeachingLoopCourseInput
   resources: TeachingLoopResourceInput
   /**
+   * Already-derived canonical review facts. The loader neither reads nor writes
+   * review state; callers must obtain this count from the review scheduler.
+   */
+  review?: {
+    dueCount: number
+  }
+  /**
    * Prefer loading settlement for this session and bind projection to it.
    * When omitted, settlement is loaded for the selected latest canonical session
    * after scan (if any) and projection uses scan-latest selection.
@@ -99,7 +106,8 @@ export async function loadTeachingLoopFactSource(
       provenanceIds: [...input.resources.provenanceIds]
     },
     settlement,
-    ...(selectedSessionId !== undefined ? { selectedSessionId } : {})
+    ...(selectedSessionId !== undefined ? { selectedSessionId } : {}),
+    ...(input.review ? { review: { dueCount: input.review.dueCount } } : {})
   }
 
   const facts = buildTeachingLoopFacts(source)

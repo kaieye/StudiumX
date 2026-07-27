@@ -14,6 +14,7 @@ export type TeachingTurnActionKind =
   | 'confirm_goal'
   | 'begin_retrieval_practice'
   | 'retry'
+  | 'review_due'
   | 'continue'
   | 'wait'
 
@@ -363,3 +364,48 @@ function opaqueKey(...parts: Array<string | number>): string {
 }
 
 export type { NextTeachingStepAction, NextTeachingStepReason }
+/** Maps the shared host projection into the existing teaching reader without deriving facts in the renderer. */
+export function buildTeachingTurnPresentationFromSnapshot(
+  snapshot: import('../../shared/teaching-types/teaching-presentation').TeachingPresentationSnapshot
+): TeachingTurnPresentation | undefined {
+  if (!snapshot.nextStep) return undefined
+  if (snapshot.nextStep.action === 'review_due') {
+    const phases: TeachingTurnPhase[] = PHASES.map((phase) => ({
+      ...phase,
+      state: phase.id === 'retrieval_practice' ? 'needs_you' : 'upcoming',
+      statusText: phase.id === 'retrieval_practice' ? snapshot.nextStep!.description : '尚未开始'
+    }))
+    return {
+      phases,
+      activePhaseId: 'retrieval_practice',
+      action: { kind: 'review_due', label: snapshot.nextStep.label },
+      sourceIds: [],
+      accessibleNames: {
+        ...STATIC_ACCESSIBLE_NAMES,
+        currentPhase: formatCurrentPhaseAccessibleName('完成检索练习', snapshot.nextStep.description)
+      },
+      announcement: null,
+      technicalDiagnostic: { state: 'active', label: '学习流程正在等待你开始到期复习' },
+      focusKey: opaqueKey('presentation', snapshot.operationId, snapshot.revision)
+    }
+  }
+  if (snapshot.nextStep.action !== 'contrast_and_retry') return undefined
+  const phases: TeachingTurnPhase[] = PHASES.map((phase) => ({
+    ...phase,
+    state: phase.id === 'explanation_retry' ? 'needs_you' : 'upcoming',
+    statusText: phase.id === 'explanation_retry' ? snapshot.nextStep!.description : '尚未开始'
+  }))
+  return {
+    phases,
+    activePhaseId: 'explanation_retry',
+    action: { kind: 'retry', label: snapshot.nextStep.label },
+    sourceIds: [],
+    accessibleNames: {
+      ...STATIC_ACCESSIBLE_NAMES,
+      currentPhase: formatCurrentPhaseAccessibleName('讲解并重试', snapshot.nextStep.description)
+    },
+    announcement: null,
+    technicalDiagnostic: { state: 'active', label: '学习流程正在等待你的重试' },
+    focusKey: opaqueKey('presentation', snapshot.operationId, snapshot.revision)
+  }
+}

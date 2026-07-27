@@ -768,3 +768,99 @@ export {
   parseQueryAgentArchivedHistoryPayload,
   parseRebuildAgentHistoryIndexPayload
 } from './teaching-ipc-commands-agent-conversation'
+
+/** Closed no-argument canonical presentation read. Reject renderer-supplied selectors or diagnostics. */
+export function parseGetTeachingPresentationPayload(payload: unknown): undefined {
+  if (payload !== undefined) throw new Error('Teaching presentation read does not accept a payload.')
+  return undefined
+}
+
+/** Exact, closed next-step action payload. Renderer cannot attach prompt text, paths, evidence, or provider data. */
+export function parseTeachingPresentationActionPayload(payload: unknown): import('../shared/teaching-types/teaching-presentation').TeachingPresentationActionPayload {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Teaching presentation action must be an object.')
+  const record = payload as Record<string, unknown>
+  const allowed = ['operationId', 'expectedRevision', 'action']
+  if (Object.keys(record).length !== allowed.length || Object.keys(record).some((key) => !allowed.includes(key))) {
+    throw new Error('Teaching presentation action contains unsupported fields.')
+  }
+  if (typeof record.operationId !== 'string' || !/^[a-f0-9]{64}$/.test(record.operationId)) {
+    throw new Error('Teaching presentation action operationId is invalid.')
+  }
+  if (typeof record.expectedRevision !== 'number' || !Number.isSafeInteger(record.expectedRevision) || record.expectedRevision < 1) {
+    throw new Error('Teaching presentation action expectedRevision is invalid.')
+  }
+  if (record.action !== 'contrast_and_retry' && record.action !== 'review_due') {
+    throw new Error('Teaching presentation action is unsupported.')
+  }
+  return { operationId: record.operationId, expectedRevision: record.expectedRevision, action: record.action }
+}
+
+/** Validates host replies before they cross into the renderer public surface. */
+export function parseTeachingPresentationSnapshot(
+  value: unknown
+): import('../shared/teaching-types/teaching-presentation').TeachingPresentationSnapshot | null {
+  if (value === null) return null
+  const record = requireExactObject(value, ['schemaVersion', 'operationId', 'revision', 'nextStep'], 'Teaching presentation snapshot')
+  if (record.schemaVersion !== 1) throw new Error('Teaching presentation snapshot schemaVersion is invalid.')
+  if (typeof record.operationId !== 'string' || !/^[a-f0-9]{64}$/.test(record.operationId)) {
+    throw new Error('Teaching presentation snapshot operationId is invalid.')
+  }
+  if (typeof record.revision !== 'number' || !Number.isSafeInteger(record.revision) || record.revision < 1) {
+    throw new Error('Teaching presentation snapshot revision is invalid.')
+  }
+  if (record.nextStep === null) {
+    return { schemaVersion: 1, operationId: record.operationId, revision: record.revision, nextStep: null }
+  }
+  const nextStep = requireExactObject(record.nextStep, ['action', 'label', 'description'], 'Teaching presentation next step')
+  if (
+    nextStep.action === 'contrast_and_retry' &&
+    nextStep.label === '对照后再试一次' &&
+    nextStep.description === '先比较关键差异，再用新的提示重试。'
+  ) {
+    return {
+      schemaVersion: 1,
+      operationId: record.operationId,
+      revision: record.revision,
+      nextStep: { action: nextStep.action, label: nextStep.label, description: nextStep.description }
+    }
+  }
+  if (
+    nextStep.action === 'review_due' &&
+    nextStep.label === '开始复习' &&
+    nextStep.description === '先完成一项到期复习，再继续新的学习内容。'
+  ) {
+    return {
+      schemaVersion: 1,
+      operationId: record.operationId,
+      revision: record.revision,
+      nextStep: { action: nextStep.action, label: nextStep.label, description: nextStep.description }
+    }
+  }
+  throw new Error('Teaching presentation next step is invalid.')
+}
+
+/** Validates closed host action replies and strips all unknown output fields. */
+export function parseTeachingPresentationActionResult(
+  value: unknown
+): import('../shared/teaching-types/teaching-presentation').TeachingPresentationActionResult {
+  const record = requireExactObject(value, ['status', 'snapshot'], 'Teaching presentation action result')
+  if (record.status !== 'accepted' && record.status !== 'stale' && record.status !== 'unavailable' && record.status !== 'rejected') {
+    throw new Error('Teaching presentation action result status is invalid.')
+  }
+  const snapshot = parseTeachingPresentationSnapshot(record.snapshot)
+  if (record.status === 'accepted' && snapshot === null) {
+    throw new Error('Accepted teaching presentation action must include a snapshot.')
+  }
+  return record.status === 'accepted'
+    ? { status: 'accepted', snapshot: snapshot! }
+    : { status: record.status, snapshot }
+}
+
+function requireExactObject(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object.`)
+  const record = value as Record<string, unknown>
+  if (Object.keys(record).length !== keys.length || Object.keys(record).some((key) => !keys.includes(key))) {
+    throw new Error(`${label} contains unsupported fields.`)
+  }
+  return record
+}

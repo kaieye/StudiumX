@@ -1,5 +1,7 @@
 # StudiumX 教学链路评估与优化
 
+> **当前性提示（2026-07-27）：** 本文的 As-Is 快照早于当前 `main@d308289`。其后 [ADR-0154](adr/0154-spaced-review-scheduler-and-review-due-planner-action.md)～[ADR-0156](adr/0156-skill-orchestration-conversation-continuity.md) 与对应代码已经推进 fill 题结算、间隔复习内核、真实 authority facts 和多 skill 跨轮续航；因此下文“复习完全缺失”“纯单轮编排”“所有建议均未实施”等表述只代表旧基线。当前实现状态、剩余断点与路线图请以 [《教学链路与多 Skill 编排复评》](improvements/teaching-chain-multiskill-evaluation.md) 为准。
+
 > 状态:评估与方案建议(非 ADR)
 > 日期:2026-07-26
 > 范围:教学主链路(教什么 → 怎么教 → 证据 → 结算 → 下一步 → 复习)的端到端评估;多 skill 教学编排的现状与升级方案;与自习室 / Pet 动机层的连接
@@ -459,4 +461,4 @@ type ConversationOrchestrationState = {
 - 源码(36 文件,关键结论出处):`teaching-conversation-runtime.ts`(执行流、kernel fail-closed、强制启发式、lesson 轮次预算)、`teaching-conversation-prompt.ts`(stable prefix / turn-tail、PERSONAL_TEACHER_POLICY_PROMPT、skill 装配语)、`builtin-skill-orchestration-policy.ts` / `skill-orchestration-planner.ts` / `skill-orchestration-host.ts` / `skill-orchestration-authority-bridge.ts`(编排现状与占位 seed)、`next-teaching-step-planner.ts`(四动作决策树)、`learning-outcome-evaluator.ts`(quiz-only 结算、fill 忽略、mastery 定义)、`learning-outcome-committer.ts`(sole-writer、有序发布)、`lesson-schema.ts` / `lesson-plan-production.ts` / `lesson-prompts.ts`(lesson 形态与生成规则)、`teaching-placement.ts`(sidecar 布局)、`teaching-personalization.ts`(≤6 条画像注入)、`ai/teaching-turn-orchestrator.ts` / `ai/teaching-session-runtime.ts`(双路径与 stub 现状)、`teaching-loop-resolver.ts`、`lesson-interaction-recorder.ts`、`course-definition-store.ts`、`renderer/src/views/pet/lesson-review-due.ts`(24h 阈值复习投影)。
 - Skill 正文:`resources/builtin-skills/teach/SKILL.md`(内核全文)、`learning-assessor/SKILL.md`(模板残留证据)、`teaching-site/SKILL.md`。
 
-以上事实描述如与最新代码不一致,以代码为准;本文所有"建议"均未实施,落地须按仓库惯例先行 ADR。
+以上事实描述如与最新代码不一致,以代码为准。本文建议的实施状态已经随 HEAD 演进；已完成、部分完成、Proposed 与仍未实施项的当前边界见 [《教学链路与多 Skill 编排复评》](improvements/teaching-chain-multiskill-evaluation.md)。任何尚未批准的架构变更仍须按仓库惯例先行 ADR。

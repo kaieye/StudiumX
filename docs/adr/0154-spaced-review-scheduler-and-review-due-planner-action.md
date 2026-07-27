@@ -1,10 +1,10 @@
 # ADR-0154：间隔复习调度投影与 planner `review_due` 动作
 
-- **状态：** **部分实施**（2026-07-26）：纯调度投影 + ledger scan 适配器 + planner 动作扩展 + Pet 复习投影切换已落地;bridge 已喂 dueCount;学习者可见的复习入口 UI 与「今日队列」消费（ADR-0161）residual
+- **状态：** **部分实施**（2026-07-27）：纯调度投影 + ledger scan 适配器 + planner 动作扩展 + Pet 复习投影切换 + Teaching Reader 的受控 `review_due` 入口已落地;bridge 已喂 dueCount;TodayQueue 消费（ADR-0161）residual。**Pet 功能范围冻结，当前语义不再扩展。**
 - **日期：** 2026-07-26
-- **范围：** 把 spacing（间隔复习）从 `teach` kernel 的原则文本升级为系统行为:确定性复习调度投影、`NextTeachingStepPlanner` 动作 union 扩展（修订 [ADR-0012](0012-deterministic-next-teaching-step-planner.md)）、Pet `lesson-review-due` 切换到共享调度器。**不**新增 settlement 写者,**不**改 outcome 历史。
+- **范围：** 把 spacing（间隔复习）从 `teach` kernel 的原则文本升级为系统行为:确定性复习调度投影、`NextTeachingStepPlanner` 动作 union 扩展（修订 [ADR-0012](0012-deterministic-next-teaching-step-planner.md)）、Teaching Reader 的 canonical `review_due` 入口，以及 Pet `lesson-review-due` 切换到共享调度器并保持既有语义。**不**新增 settlement 写者,**不**改 outcome 历史,**不**把 Pet 扩展为 canonical review-history、ReviewView、TodayQueue 或通知/激励产品面。
 - **关联：** [teaching-chain-evaluation-and-optimization.md](../teaching-chain-evaluation-and-optimization.md) §4-O2;[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md);[ADR-0009](0009-typed-lesson-interaction-evidence.md);[ADR-0012](0012-deterministic-next-teaching-step-planner.md);[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)（信号触发升级模式）;[ADR-0157](0157-learning-outcome-strength-and-consolidation.md)（Proposed,消费本调度器）;[ADR-0161](0161-today-learning-queue-projection.md)（Proposed）
-- **实现落点：** `src/shared/review-scheduler.ts`（纯投影）;`src/main/review-schedule-facts.ts`（ledger scan → 调度事实适配器）;`src/main/next-teaching-step-planner.ts` + `src/shared/teaching-types/next-teaching-step.ts`（`review_due` / `spaced_review_due`,可选 `review.dueCount` 事实）;`src/main/teaching-loop-facts.ts` / `teaching-loop-resolver.ts`（可选 review 事实透传）;`src/main/skill-orchestration-authority-bridge.ts`（chat 路径喂真实 dueCount）;`src/renderer/src/views/pet/lesson-review-due.ts`（v2:消费共享调度器,v1 语义逐字节保持）;测试 `tests/unit/review-scheduler.unit.test.ts`、`tests/unit/review-schedule-facts.unit.test.ts`、`tests/unit/next-teaching-step-planner.unit.test.ts`（spaced review 块）
+- **实现落点：** `src/shared/review-scheduler.ts`（纯投影）;`src/main/review-schedule-facts.ts`（ledger scan → 调度事实适配器）;`src/main/next-teaching-step-planner.ts` + `src/shared/teaching-types/next-teaching-step.ts`（`review_due` / `spaced_review_due`,可选 `review.dueCount` 事实）;`src/main/teaching-loop-facts.ts` / `teaching-loop-fact-source.ts` / `teaching-loop-resolver.ts`（可选 review 事实透传）;`src/main/teaching-turn-coordinator-host.ts` + `src/shared/teaching-types/teaching-presentation.ts`（count-only snapshot 与 CAS action）;`src/main/skill-orchestration-authority-bridge.ts`（chat 路径喂真实 dueCount）;`src/renderer/src/teaching-turn-presentation.ts`（Teaching Reader 显示动作）;`src/renderer/src/views/pet/lesson-review-due.ts`（v2:消费共享调度器,v1 语义逐字节保持）;测试 `tests/unit/review-scheduler.unit.test.ts`、`tests/unit/review-schedule-facts.unit.test.ts`、`tests/unit/next-teaching-step-planner.unit.test.ts`、`tests/unit/teaching-turn-coordinator-host.unit.test.ts`（spaced review 块）
 
 ## 1. 问题
 
@@ -35,14 +35,15 @@
 ### 2.4 消费面（本 ADR 已接线部分）
 
 - chat 路径:authority bridge 在 loop 事实中喂真实 `dueCount` → snapshot nextStep 可为 `review_due` → 经既有 authorityEcho 进入 skill 编排计划投影。
-- Pet:`lesson-review-due` 改为消费共享调度器（renderer 输入无 per-attempt 时间戳,以 createdAt 为 anchor 的种子模式**逐字节复刻 v1 行为**;真实逐 item 历史随 canonical snapshot IPC 接入,见 M5）。
+- Teaching Reader：host 以同一 canonical ledger scan 重建 review schedule，并仅把 planner 的 `review_due` 映射为固定 learner copy；action 用 opaque operation ID + `expectedRevision` fail-closed 校验。接受后只启动固定 review teaching intent，新的作答仍必须经 Evidence → evaluator → committer / `TeachingTurnCoordinator` 结算。snapshot 不含 dueCount、item ID、时间戳、路径或 planner diagnostics；不实现 ReviewView、TodayQueue 或 Pet 接线。
+- Pet:`lesson-review-due` 改为消费共享调度器（renderer 输入无 per-attempt 时间戳,以 createdAt 为 anchor 的种子模式**逐字节复刻 v1 行为**）。当前 Pet 功能到此为止；不接入 canonical snapshot IPC、真实逐 item 历史、ReviewView、TodayQueue 或新的通知/激励功能。
 
 ## 3. 非目标 / 红线
 
 1. 调度器是**可重建投影,不是第二权威**:不写 LearningSessionLedger、不创建/修改 outcome、不改 record;与 ledger 冲突时以重算为准;调度文件永不作为结算输入。
 2. settlement sole-writer（[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)/[0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)/[0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)）不变;evidence-gating 不变;复习完成 = 正常 Evidence → evaluator → committer 路径,无捷径。
 3. 本地优先:无远程 telemetry;无 FTS/向量库;同意门控记忆边界不变。
-4. 不实施每日复习通知节流策略本身（属 Pet/队列消费方,遵守安静模式;见 ADR-0161)。
+4. 不实施每日复习通知节流策略；Pet 维持既有行为且不新增通知能力。
 5. 逾期不惩罚:无 streak 绑架、无罚金语义。
 
 ## 4. 验证入口

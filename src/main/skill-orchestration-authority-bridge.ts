@@ -37,9 +37,8 @@ export async function loadSkillOrchestrationAuthorityFactsForWorkspace(
   if (!root) return {}
 
   try {
-    const [mission, resources, availableArtifacts] = await Promise.all([
-      readMissionGoalFacts(root),
-      readResourceFacts(root),
+    const [{ mission, resources }, availableArtifacts] = await Promise.all([
+      readTeachingLoopDurableInputsForWorkspace(root),
       deriveWorkspaceArtifactFacts(root)
     ])
 
@@ -74,6 +73,28 @@ export async function loadSkillOrchestrationAuthorityFactsForWorkspace(
   } catch {
     return {}
   }
+}
+
+/**
+ * Shared bounded durable input adapter for canonical teaching-loop projections.
+ * It returns allow-listed readiness/enums only; MISSION.md and RESOURCES.md
+ * bodies never leave this module. It never writes or becomes teaching authority.
+ */
+export async function readTeachingLoopDurableInputsForWorkspace(
+  workspaceRoot: string | null | undefined
+): Promise<{ mission: TeachingLoopMissionInput; resources: TeachingLoopResourceInput }> {
+  const root = String(workspaceRoot ?? '').trim()
+  if (!root) {
+    return {
+      mission: { id: 'mission', nextGoal: 'absent' },
+      resources: { readiness: 'not_ready', availableCount: 0, provenanceIds: [] }
+    }
+  }
+  const [mission, resources] = await Promise.all([
+    readMissionGoalFacts(root),
+    readResourceFacts(root)
+  ])
+  return { mission, resources }
 }
 
 /**

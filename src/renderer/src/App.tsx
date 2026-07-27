@@ -40,6 +40,7 @@ import {
   Wrench
 } from 'lucide-react'
 import { WorkspaceWebRemoteControlTrigger } from './views/web-remote-control/WebRemoteControlDialog'
+import type { TeachingPresentationSnapshot } from '../../shared/teaching-types/teaching-presentation'
 import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Component, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -102,6 +103,7 @@ import {
 } from './agent-conversation-state'
 import { buildAgentConversationPresentation } from './agent-conversation-presentation'
 import { AgentConversationReader } from './views/agent-conversation/AgentConversationReader'
+import { buildTeachingTurnPresentationFromSnapshot, type TeachingTurnAction } from './teaching-turn-presentation'
 import { ConversationInterruptionDock } from './views/agent-conversation/ConversationInterruptionDock'
 import { AgentMessageActions, AgentMessageEditor } from './views/agent-conversation/AgentSessionTreePanel'
 import {
@@ -2068,6 +2070,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const [teachingComposerNotice, setTeachingComposerNotice] = useState<string | null>(null)
   const [openTeachingSourcesKey, setOpenTeachingSourcesKey] = useState(0)
   const [pendingTeachingActionKind, setPendingTeachingActionKind] = useState<'continue' | 'retry' | null>(null)
+  const [teachingSnapshot, setTeachingSnapshot] = useState<TeachingPresentationSnapshot | null>(null)
+  const [teachingActionBusy, setTeachingActionBusy] = useState(false)
   const teachingComposer = useTeachingComposerCommands({
     enabled: isTeachingMode,
     value: inputValue,
@@ -2079,6 +2083,52 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       diagnosticMode: false
     }
   })
+  useEffect(() => {
+    if (!isTeachingMode) { setTeachingSnapshot(null); return }
+    let cancelled = false
+    void window.teachingSystem?.getTeachingPresentation().then((snapshot) => {
+      if (!cancelled) setTeachingSnapshot(snapshot)
+    }).catch(() => { if (!cancelled) setTeachingSnapshot(null) })
+    return () => { cancelled = true }
+  }, [isTeachingMode, agentTurns.length])
+  const teachingPresentation = teachingSnapshot
+    ? buildTeachingTurnPresentationFromSnapshot(teachingSnapshot)
+    : undefined
+  useEffect(() => {
+    setPendingTeachingActionKind(teachingSnapshot?.nextStep?.action === 'contrast_and_retry' ? 'retry' : null)
+  }, [teachingSnapshot])
+  const runTeachingAction = async (action: TeachingTurnAction): Promise<void> => {
+    if (!teachingSnapshot || teachingActionBusy || agentChatBusy) return
+    const canonicalAction =
+      action.kind === 'retry' && teachingSnapshot.nextStep?.action === 'contrast_and_retry'
+        ? 'contrast_and_retry'
+        : action.kind === 'review_due' && teachingSnapshot.nextStep?.action === 'review_due'
+          ? 'review_due'
+          : null
+    if (!canonicalAction) return
+    setTeachingActionBusy(true)
+    try {
+      const result = await window.teachingSystem?.actOnTeachingPresentation({
+        operationId: teachingSnapshot.operationId,
+        expectedRevision: teachingSnapshot.revision,
+        action: canonicalAction
+      })
+      if (!result) return
+      setTeachingSnapshot(result.snapshot)
+      if (result.status !== 'accepted') return
+      // Renderer supplies no learner-controlled instruction. The host has just
+      // authorized this exact canonical action; a fixed intent begins the next
+      // teaching turn. Evidence, evaluation, and settlement remain host-owned.
+      await agentChat(
+        canonicalAction === 'contrast_and_retry'
+          ? '请根据已结算的学习结果进行对照讲解，并给出一次新的重试练习。'
+          : '请根据已结算的学习记录，先开展一项到期复习练习；在获得新的学习者作答证据前，不要结算学习结果。',
+        { mode: 'teaching' }
+      )
+    } finally {
+      setTeachingActionBusy(false)
+    }
+  }
   const [inputHistoryIndex, setInputHistoryIndex] = useState<number | null>(null)
   const [inputHistoryDraft, setInputHistoryDraft] = useState('')
   const activeConversationId = useAppStore((s) => s.activeConversationId)
@@ -2205,11 +2255,12 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             setAgentInput('')
             setInputHistoryIndex(null)
             setInputHistoryDraft('')
-            if (resolved.kind === 'continue' || resolved.kind === 'retry') {
+            if (resolved.kind === 'continue') {
               // Only accepted when presentation already exposes this action — never invents a planner step.
-              setTeachingComposerNotice(resolved.kind === 'continue'
-                ? '已请求继续下一步（遵循当前学习流程）'
-                : '已请求重试（遵循当前学习流程）')
+              setTeachingComposerNotice('已请求继续下一步（遵循当前学习流程）')
+            } else if (resolved.kind === 'retry') {
+              // Reuse the same host-validated action path as the visible learner card.
+              void runTeachingAction({ kind: 'retry', label: '对照后再试一次' })
             } else if (resolved.kind === 'show_source') {
               setOpenTeachingSourcesKey((key) => key + 1)
               setTeachingComposerNotice('已展开可信来源摘要')
@@ -2409,7 +2460,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
                   />
                 ) : (
                   <>
-                    {turn.role === 'assistant' ? <AgentConversationReader presentation={turnPresentation} compact /> : null}
+                    {turn.role === 'assistant' ? <AgentConversationReader presentation={turnPresentation} teachingPresentation={turn.id === [...agentTurns].reverse().find((item) => item.role === 'assistant')?.id ? teachingPresentation : undefined} onTeachingAction={(action) => { void runTeachingAction(action) }} compact /> : null}
                     {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
                     {sourceReferences.length > 0 ? (
                       <AgentSourceReferences sources={sourceReferences} />

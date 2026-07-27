@@ -22,7 +22,7 @@ import { fetchUpstreamModels, probeModelProvider } from './provider-connection'
 import type { SkillLibraryService } from './skill-library'
 import { createAndSwitchGitBranchForWorkspace, getGitBranchesForWorkspace, listGitWorktreesForWorkspace, removeGitWorktreeForWorkspace, switchGitBranchForWorkspace } from './teaching-git'
 import {
-  decodeToolAnswerPayload, optionalString, parseAgentChatStreamPayload, parseApplyLessonStylePayload,
+  decodeToolAnswerPayload, optionalString, parseAgentChatStreamPayload, parseApplyLessonStylePayload, parseGetTeachingPresentationPayload, parseTeachingPresentationActionPayload, parseTeachingPresentationActionResult, parseTeachingPresentationSnapshot,
   parseCommitLearningOutcomeRequest, parseCreateAgentConversationCheckpointPayload,
   parseListAgentWriteRewindJournalPayload, parseRestoreAgentWriteRewindPayload,
   parseForkAgentConversationBranchPayload, parseOpenAgentConversationBranchPayload,
@@ -679,6 +679,43 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       streamCleanup: noStreamCleanup
     }),
     command({
+      channel: teachingInvokeChannels.getTeachingPresentation,
+      parser: (payload) => parseGetTeachingPresentationPayload(payload),
+      action: async () => {
+        try {
+          const workspaceId = (await service.getState()).activeWorkspace?.id
+          if (!workspaceId || !context.turnCoordinatorHost) return null
+          // This is a learner-safe read boundary. Do not surface host/ledger
+          // failures (which may contain paths or diagnostic details) to renderer.
+          return await context.turnCoordinatorHost.getTeachingPresentation(workspaceId)
+            .then((snapshot) => parseTeachingPresentationSnapshot(snapshot))
+            .catch(() => null)
+        } catch {
+          return null
+        }
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.actOnTeachingPresentation,
+      parser: (payload) => parseTeachingPresentationActionPayload(payload),
+      action: async (_event, payload) => {
+        try {
+          const workspaceId = (await service.getState()).activeWorkspace?.id
+          if (!workspaceId || !context.turnCoordinatorHost) return { status: 'unavailable' as const, snapshot: null }
+          // Fail closed rather than forwarding host/ledger diagnostics through IPC.
+          return await context.turnCoordinatorHost.actOnTeachingPresentation(workspaceId, payload)
+            .then((result) => parseTeachingPresentationActionResult(result))
+            .catch(() => ({ status: 'unavailable' as const, snapshot: null }))
+        } catch {
+          return { status: 'unavailable' as const, snapshot: null }
+        }
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
+    command({
       channel: teachingInvokeChannels.createMemory, parser: (payload) => parseCreateMemoryPayload(payload),
       action: async (_event, request) => {
         const access = await resolveOptionalWorkspaceRoot(request.workspaceRoot)
@@ -852,7 +889,6 @@ function resolveProxyUrl(settings: TeachingSettingsV1): string {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
-
 
 
 
