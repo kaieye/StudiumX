@@ -939,4 +939,36 @@ describe('Teaching IPC gateway', () => {
     expect(pending.cancelStreamAskPending).toHaveBeenCalledWith('stream-1')
     expect(pending.cancelStreamToolPermissionPending).toHaveBeenCalledWith('stream-1')
   })
+
+  it('rejects a duplicate active stream id but permits an explicit retry after the first stream settles', async () => {
+    const agentChatStream = vi.fn((_payload, options: { signal: AbortSignal }) => new Promise((_, reject) => {
+      options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+    }))
+    registerTeachingIpcGateway(registration({ workspaceService: { agentChatStream } }))
+
+    const first = handler(teachingInvokeChannels.agentChatStream)(event, {
+      streamId: 'retryable-stream', userInput: 'Hello', messages: []
+    })
+    await Promise.resolve()
+
+    await expect(handler(teachingInvokeChannels.agentChatStream)(event, {
+      streamId: 'retryable-stream', userInput: 'Duplicate', messages: []
+    })).resolves.toEqual({
+      streamId: 'retryable-stream',
+      error: true,
+      message: 'Agent chat stream id is already active.'
+    })
+    expect(agentChatStream).toHaveBeenCalledTimes(1)
+
+    await expect(handler(teachingInvokeChannels.cancelAgentChatStream)(event, 'retryable-stream'))
+      .resolves.toEqual({ canceled: true })
+    await expect(first).resolves.toEqual({ streamId: 'retryable-stream', canceled: true })
+
+    const retry = handler(teachingInvokeChannels.agentChatStream)(event, {
+      streamId: 'retryable-stream', userInput: 'Retry', messages: []
+    })
+    await vi.waitFor(() => expect(agentChatStream).toHaveBeenCalledTimes(2))
+    await handler(teachingInvokeChannels.cancelAgentChatStream)(event, 'retryable-stream')
+    await expect(retry).resolves.toEqual({ streamId: 'retryable-stream', canceled: true })
+  })
 })

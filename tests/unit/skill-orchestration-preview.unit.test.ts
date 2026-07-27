@@ -1,11 +1,14 @@
-import { mkdtemp, readdir } from 'node:fs/promises'
+import { mkdtemp, readdir, mkdir, writeFile, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { previewSkillOrchestration } from '../../src/main/skill-orchestration-preview'
 import { createSkillOrchestrationStateStore } from '../../src/main/skill-orchestration-state-store'
-import { createSkillOrchestrationDiagnosticsStore } from '../../src/main/skill-orchestration-diagnostics-store'
+import {
+  buildSkillOrchestrationEvaluationSummary,
+  createSkillOrchestrationDiagnosticsStore
+} from '../../src/main/skill-orchestration-diagnostics-store'
 import { buildSkillOrchestrationPlanDiagnosticsFact } from '../../src/main/skill-orchestration-host'
 import { listSkillOrchestrationPresets } from '../../src/shared/skill-orchestration-presets'
 import { listBuiltinSkillOrchestrationPolicies } from '../../src/main/builtin-skill-orchestration-policy'
@@ -166,6 +169,91 @@ describe('local plan diagnostics (ADR-0163 §2.6)', () => {
     expect(serialized).not.toContain('SECRET-OBJECTIVE-TEXT')
     expect(entries[0]?.planId).toBe(preview.plan?.planId)
     expect(entries[0]?.decisionCounts).toHaveProperty('active_now')
+  })
+
+  it('rejects arbitrary diagnostics fields and strips injected disk properties', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'studiumx-diagnostics-strict-'))
+    const store = createSkillOrchestrationDiagnosticsStore({ workspaceRoot })
+    const fact = {
+      planId: 'sop1_deadbeef',
+      mode: 'teaching_turn' as const,
+      stageKinds: ['diagnose'] as const,
+      currentStageKind: 'diagnose' as const,
+      currentStageSkillCount: 1,
+      decisionCounts: {
+        active_now: 1,
+        scheduled_later: 0,
+        advisory_only: 1,
+        excluded: 0,
+        blocked: 0
+      },
+      diagnosticCodes: [],
+      userOverrideStatus: 'not_supported' as const,
+      promptBudget: {
+        kernelBudgetChars: 18_000,
+        kernelInputChars: 100,
+        kernelIncludedChars: 100,
+        dynamicBudgetChars: 24_000,
+        dynamicInputChars: 200,
+        dynamicIncludedChars: 200,
+        truncatedBodyCount: 0
+      },
+      gates: { checkedCount: 1, passedCount: 1, failedCount: 0 },
+      teachingCompleteness: {
+        applicable: true,
+        elicitStagePresent: true,
+        evidenceStatusPresent: false,
+        nextStepActionPresent: true
+      }
+    }
+
+    expect(await store.record({
+      ...fact,
+      diagnosticCodes: [{ code: 'untrusted free-form diagnostic', severity: 'info' }]
+    } as any)).toBe(false)
+    expect(await store.record(fact)).toBe(true)
+
+    const path = join(workspaceRoot, '.agent-sessions', 'skill-orchestration', 'plan-diagnostics.json')
+    await mkdir(join(workspaceRoot, '.agent-sessions', 'skill-orchestration'), { recursive: true })
+    await writeFile(path, JSON.stringify([{ ...fact, recordedAt: '2026-07-27T00:00:00.000Z', injected: 'SECRET-INJECTED-TEXT' }]), 'utf8')
+
+    const entries = await store.list()
+    expect(entries).toEqual([{ ...fact, recordedAt: '2026-07-27T00:00:00.000Z' }])
+    expect(JSON.stringify(entries)).not.toContain('SECRET-INJECTED-TEXT')
+
+    const summary = buildSkillOrchestrationEvaluationSummary(entries)
+    expect(summary).toMatchObject({
+      schemaVersion: 1,
+      planCount: 1,
+      stageSelectionCounts: { diagnose: 1 },
+      unresolvedStageCount: 0,
+      overrideSupported: false,
+      overrideCount: 0,
+      promptBudget: { inputChars: 300, includedChars: 300, budgetChars: 42_000 },
+      gates: { checkedCount: 1, passedCount: 1, failedCount: 0, passRate: 1 },
+      teachingCompleteness: {
+        applicablePlanCount: 1,
+        elicitPresentCount: 1,
+        evidenceStatusPresentCount: 0,
+        nextStepActionPresentCount: 1
+      }
+    })
+    expect(JSON.stringify(summary)).not.toMatch(/objective|promptBody|path|secret|learner/i)
+  })
+
+  it('refuses a symlinked local diagnostics parent', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'studiumx-diagnostics-link-'))
+    const outside = await mkdtemp(join(tmpdir(), 'studiumx-diagnostics-outside-'))
+    await symlink(outside, join(workspaceRoot, '.agent-sessions'))
+    const store = createSkillOrchestrationDiagnosticsStore({ workspaceRoot })
+    expect(await store.record({
+      planId: 'sop1_deadbeef',
+      mode: 'teaching_turn',
+      stageKinds: [],
+      decisionCounts: { active_now: 0, scheduled_later: 0, advisory_only: 1, excluded: 0, blocked: 0 },
+      diagnosticCodes: []
+    })).toBe(false)
+    expect(await readdir(outside)).toEqual([])
   })
 
   it('degrades to an empty list when the local file is absent', async () => {

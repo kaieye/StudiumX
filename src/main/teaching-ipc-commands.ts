@@ -35,9 +35,12 @@ import { normalizePreviewLessonInteractionIntent, type PreviewLessonInteractionI
 import { isLessonStyleId } from '../shared/lesson-styles'
 import { isLearningSessionId } from '../shared/teaching-placement'
 import { normalizeProviderCustomHeaders } from '../shared/provider-custom-headers'
+import { getSkillOrchestrationPreset } from '../shared/skill-orchestration-presets'
+import { isSafeSkillId } from '../shared/skill-command'
 
 const SAFE_CONVERSATION_ID = /^[a-z0-9][a-z0-9-]{0,99}$/
 const SAFE_OUTCOME_COMMIT_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?$/
+const MAX_SELECTED_SKILL_IDS = 8
 
 /**
  * Narrow, versioned command envelope. This parser is intentionally exact: the
@@ -201,9 +204,20 @@ export function parseAgentChatMessages(value: unknown): AgentChatMessage[] {
 
 export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPayload {
   const record = requireRecord(payload)
-  const skillIds = Array.isArray(record.skillIds)
-    ? [...new Set(record.skillIds.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))].slice(0, 8)
-    : undefined
+  requireExactPayloadKeys(record, [
+    'streamId',
+    'conversationId',
+    'workspaceId',
+    'expectedBranchRevision',
+    'mode',
+    'context',
+    'contextCompaction',
+    'skillIds',
+    'messageTurnIds',
+    'messages',
+    'userInput'
+  ], 'agentChatStream')
+  const skillIds = parseSkillIds(record.skillIds, 'skillIds')
   const messageTurnIds = Array.isArray(record.messageTurnIds) && record.messageTurnIds.length <= 400
     ? Array.from(record.messageTurnIds, (item) => {
         const turnId = typeof item === 'string' ? item.trim() : ''
@@ -216,12 +230,12 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
     ? messageTurnIds as AgentChatStreamPayload['messageTurnIds']
     : undefined
   return {
-    streamId: optionalStreamId(record.streamId),
-    conversationId: optionalStreamId(record.conversationId),
-    workspaceId: typeof record.workspaceId === 'string' ? record.workspaceId : undefined,
+    streamId: parseOptionalStreamId(record.streamId, 'streamId'),
+    conversationId: parseOptionalStreamId(record.conversationId, 'conversationId'),
+    workspaceId: parseOptionalString(record.workspaceId, 'workspaceId'),
     ...(expectedBranchRevision !== undefined ? { expectedBranchRevision } : {}),
-    mode: record.mode === 'teaching' ? 'teaching' : record.mode === 'temporary' ? 'temporary' : undefined,
-    context: optionalString(record.context),
+    mode: parseAgentChatMode(record.mode),
+    context: parseOptionalString(record.context, 'context'),
     contextCompaction: parseAgentChatContextCompaction(record.contextCompaction),
     ...(skillIds?.length ? { skillIds } : {}),
     ...(alignedMessageTurnIds ? { messageTurnIds: alignedMessageTurnIds } : {}),
@@ -239,28 +253,126 @@ export function parsePreviewSkillOrchestrationPayload(
   payload: unknown
 ): SkillOrchestrationPreviewRequest {
   const record = requireRecord(payload)
-  const selectedSkillIds = Array.isArray(record.selectedSkillIds)
-    ? [
-        ...new Set(
-          record.selectedSkillIds
-            .filter((item): item is string => typeof item === 'string')
-            .map((item) => item.trim().toLocaleLowerCase())
-            .filter(Boolean)
-        )
-      ].slice(0, 8)
-    : []
-  const conversationId = optionalStreamId(record.conversationId)
-  const workspaceId = typeof record.workspaceId === 'string' ? record.workspaceId : undefined
-  const presetId = typeof record.presetId === 'string' ? record.presetId.trim().slice(0, 64) : undefined
-  const userInput = typeof record.userInput === 'string' ? record.userInput.slice(0, 4_000) : undefined
+  requireExactPayloadKeys(record, [
+    'selectedSkillIds',
+    'conversationId',
+    'workspaceId',
+    'presetId',
+    'userInput',
+    'isTeachingConversation'
+  ], 'previewSkillOrchestration')
+  const selectedSkillIds = parseSkillIds(record.selectedSkillIds, 'selectedSkillIds', { required: true }) ?? []
+  const conversationId = parseOptionalStreamId(record.conversationId, 'conversationId')
+  const workspaceId = parseOptionalString(record.workspaceId, 'workspaceId')
+  const presetId = parseSkillOrchestrationPresetId(record.presetId)
+  const userInput = parseOptionalBoundedString(record.userInput, 'userInput', 4_000)
+  const isTeachingConversation = parseOptionalBoolean(record.isTeachingConversation, 'isTeachingConversation')
   return {
     selectedSkillIds,
     ...(conversationId ? { conversationId } : {}),
     ...(workspaceId ? { workspaceId } : {}),
     ...(presetId ? { presetId } : {}),
     ...(userInput ? { userInput } : {}),
-    ...(record.isTeachingConversation === true ? { isTeachingConversation: true } : {})
+    ...(isTeachingConversation !== undefined ? { isTeachingConversation } : {})
   }
+}
+
+function requireExactPayloadKeys(record: Record<string, unknown>, allowedKeys: readonly string[], command: string): void {
+  const allowed = new Set(allowedKeys)
+  if (Object.keys(record).some((key) => !allowed.has(key))) {
+    throw new Error(`IPC ${command} payload contains an unsupported field.`)
+  }
+}
+
+function parseSkillIds(
+  value: unknown,
+  fieldName: 'skillIds' | 'selectedSkillIds',
+  options: { required?: boolean } = {}
+): string[] | undefined {
+  if (value === undefined) {
+    if (options.required) throw new Error(`IPC payload field "${fieldName}" must be an array.`)
+    return undefined
+  }
+  if (!Array.isArray(value)) throw new Error(`IPC payload field "${fieldName}" must be an array.`)
+  if (value.length > MAX_SELECTED_SKILL_IDS) {
+    throw new Error(`IPC payload field "${fieldName}" may contain at most ${MAX_SELECTED_SKILL_IDS} ids.`)
+  }
+
+  const seen = new Set<string>()
+  const ids: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      throw new Error(`IPC payload field "${fieldName}" must contain only strings.`)
+    }
+    const id = item.trim().toLocaleLowerCase()
+    // Unknown but syntactically valid custom ids remain compatible with the
+    // host resolver. Path-like values never cross the renderer/host boundary.
+    if (!isSafeSkillId(id)) {
+      throw new Error(`IPC payload field "${fieldName}" contains an invalid skill id.`)
+    }
+    if (!seen.has(id)) {
+      seen.add(id)
+      ids.push(id)
+    }
+  }
+  return ids
+}
+
+function parseOptionalStreamId(value: unknown, fieldName: 'streamId' | 'conversationId'): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') {
+    throw new Error(`IPC payload field "${fieldName}" must be a string.`)
+  }
+  return optionalStreamId(value)
+}
+
+function parseOptionalString(value: unknown, fieldName: string): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') {
+    throw new Error(`IPC payload field "${fieldName}" must be a string.`)
+  }
+  return optionalString(value)
+}
+
+function parseOptionalBoundedString(value: unknown, fieldName: string, maxLength: number): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') {
+    throw new Error(`IPC payload field "${fieldName}" must be a string.`)
+  }
+  const text = value.trim()
+  if (text.length > maxLength) {
+    throw new Error(`IPC payload field "${fieldName}" must be at most ${maxLength} characters.`)
+  }
+  return text || undefined
+}
+
+function parseOptionalBoolean(value: unknown, fieldName: string): boolean | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'boolean') {
+    throw new Error(`IPC payload field "${fieldName}" must be a boolean.`)
+  }
+  return value
+}
+
+function parseAgentChatMode(value: unknown): AgentChatStreamPayload['mode'] {
+  if (value === undefined) return undefined
+  if (value === 'teaching' || value === 'temporary') return value
+  // Preserve the legacy mode fallback: an old/unknown mode is treated as
+  // absent and the host selects the default. This is intentionally distinct
+  // from capability IDs, which are passed to the resolver for adjudication.
+  return undefined
+}
+
+function parseSkillOrchestrationPresetId(value: unknown): SkillOrchestrationPreviewRequest['presetId'] {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') {
+    throw new Error('IPC payload field "presetId" must be a string.')
+  }
+  const preset = getSkillOrchestrationPreset(value)
+  if (!preset) {
+    throw new Error('IPC payload field "presetId" must name a known preset.')
+  }
+  return preset.id
 }
 
 function parseAgentChatContextCompaction(value: unknown): AgentChatContextCompactionRequest | undefined {

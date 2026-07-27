@@ -34,7 +34,8 @@ export type SkillOrchestrationStateStore = {
 export function createSkillOrchestrationStateStore(input: {
   workspaceRoot: string
 }): SkillOrchestrationStateStore {
-  const directory = join(input.workspaceRoot, ...STATE_DIRECTORY)
+  const sessionDirectory = join(input.workspaceRoot, STATE_DIRECTORY[0])
+  const directory = join(sessionDirectory, STATE_DIRECTORY[1])
 
   return {
     async load(conversationId: string): Promise<ConversationOrchestrationState | null> {
@@ -42,6 +43,7 @@ export function createSkillOrchestrationStateStore(input: {
       if (!id) return null
       const path = join(directory, `${id}.json`)
       try {
+        if (!(await hasSafeStorageDirectory(sessionDirectory, directory))) return null
         const info = await lstat(path)
         if (info.isSymbolicLink() || !info.isFile() || info.size > MAX_STATE_BYTES) return null
         const content = await readFile(path, 'utf8')
@@ -57,10 +59,11 @@ export function createSkillOrchestrationStateStore(input: {
       const path = join(directory, `${id}.json`)
       const staging = join(directory, `.${id}.json.tmp`)
       try {
-        await mkdir(directory, { recursive: true })
+        if (!(await ensureSafeStorageDirectory(sessionDirectory, directory))) return false
         const payload = `${JSON.stringify(state, null, 2)}\n`
         if (Buffer.byteLength(payload, 'utf8') > MAX_STATE_BYTES) return false
-        await writeFile(staging, payload, 'utf8')
+        await rm(staging, { force: true })
+        await writeFile(staging, payload, { encoding: 'utf8', flag: 'wx' })
         await rename(staging, path)
         return true
       } catch {
@@ -165,4 +168,26 @@ function normalizeStageProgress(value: unknown): SkillOrchestrationStageProgress
     status: status as SkillOrchestrationStageProgress['status'],
     gateResults
   }
+}
+
+
+/** Do not read or write through a workspace-controlled state-directory symlink. */
+async function hasSafeStorageDirectory(sessionDirectory: string, directory: string): Promise<boolean> {
+  return (await isRegularDirectory(sessionDirectory)) && (await isRegularDirectory(directory))
+}
+
+async function ensureSafeStorageDirectory(sessionDirectory: string, directory: string): Promise<boolean> {
+  return (await ensureRegularDirectory(sessionDirectory)) && (await ensureRegularDirectory(directory))
+}
+
+async function ensureRegularDirectory(path: string): Promise<boolean> {
+  const existing = await lstat(path).catch(() => null)
+  if (existing) return existing.isDirectory() && !existing.isSymbolicLink()
+  await mkdir(path)
+  return isRegularDirectory(path)
+}
+
+async function isRegularDirectory(path: string): Promise<boolean> {
+  const info = await lstat(path).catch(() => null)
+  return Boolean(info?.isDirectory() && !info.isSymbolicLink())
 }

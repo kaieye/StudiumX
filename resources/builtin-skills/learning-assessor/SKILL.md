@@ -11,6 +11,7 @@ description: Provides comprehensive guidance for learning assessment including a
 > - **产出：** `AssessmentRubric, ElicitationPlan`
 > - **产物范围：** `—`
 > - **前置依赖：** `—`
+> - **完成门槛：** `LearningObjective` 与 `LearnerLevel` 已知；只在交付可执行的 rubric / `ElicitationPlan`（或明确「未知 / 待验证」）后完成，真实结论仍须经过 host 的 Evidence gate。
 > - **非职责：** 不写 learner Evidence；不提交 outcome；不判定掌握度；rubric 与参考答案都不是 learner 表现记录。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

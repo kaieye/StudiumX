@@ -11,6 +11,7 @@ description: Use this skill when an existing multi-day public-class teaching sit
 > - **产出：** `CorporateEdition`
 > - **产物范围：** `course-package/corporate/**`
 > - **前置依赖：** `course-content-authoring`
+> - **完成门槛：** 仅在 canonical `CourseContent` 已稳定且 teaching-site 的上游产物可复核时生成独立企业版；不得把未完成的中间版本包装成交付物。
 > - **非职责：** 只消费稳定 canonical 产物；不反向修改 canonical source；不写 learner Evidence。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

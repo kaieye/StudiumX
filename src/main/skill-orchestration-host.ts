@@ -17,8 +17,10 @@ import {
   type SkillOrchestrationMode,
   type SkillOrchestrationPlan,
   type SkillOrchestrationPlanDiagnosticsFact,
+  type SkillOrchestrationPromptBudgetFact,
   type SkillOrchestrationPriorState,
   type SkillOrchestrationReadiness,
+  type SkillOrchestrationStage,
   type SkillOrchestrationStageProgress
 } from '../shared/teaching-types/skill-orchestration'
 
@@ -105,6 +107,29 @@ export function sanitizeAuthorityToken(raw: string | undefined, maxLen = 64): st
     .toLocaleLowerCase()
   if (!/^[a-z][a-z0-9_]{0,63}$/.test(value)) return undefined
   return value.slice(0, maxLen) || undefined
+}
+
+/**
+ * Derive a real, configured soft pressure signal for orchestration planning.
+ * This only defers low-priority enhancer/packager roles; AgentRunBudget remains
+ * the independent hard runtime ceiling and is never replaced by this signal.
+ */
+export function deriveSkillOrchestrationBudgetPressure(input: {
+  maxTotalTokens: number
+  warningThreshold: number
+  selectedSkillCount: number
+}): boolean {
+  const hardCeiling = Number.isFinite(input.maxTotalTokens)
+    ? Math.max(0, Math.floor(input.maxTotalTokens))
+    : 0
+  const warningThreshold = Number.isFinite(input.warningThreshold)
+    ? Math.min(1, Math.max(0, input.warningThreshold))
+    : 0
+  const selectedSkillCount = Math.min(8, Math.max(0, Math.floor(input.selectedSkillCount)))
+  // Reserve a small teaching-turn baseline plus deterministic headroom for
+  // each requested capability. This is a planner hint, not token accounting.
+  const requiredHeadroomTokens = 8_000 + selectedSkillCount * 4_000
+  return hardCeiling * warningThreshold < requiredHeadroomTokens
 }
 
 /** @deprecated Prefer sanitizeAuthorityToken — same allow-list for next-step action. */
@@ -218,27 +243,64 @@ export function mergeSelectedSkillIds(input: {
 }
 
 /**
+ * Resolves the one stage allowed to contribute non-kernel bodies this turn.
+ * Fresh plans have no continuity annotations, so their first stage is current.
+ * Continuity-informed plans must explicitly expose a current/pending stage; an
+ * all-completed plan intentionally resolves to no stage rather than restarting
+ * at stage zero.
+ */
+export function resolveCurrentSkillOrchestrationStage(
+  plan: SkillOrchestrationPlan
+): SkillOrchestrationStage | undefined {
+  if (plan.currentStageId) {
+    const explicit = plan.stages.find((stage) => stage.id === plan.currentStageId)
+    if (explicit) return explicit
+  }
+
+  const hasContinuityStatus = plan.stages.some((stage) => stage.status !== undefined)
+  if (hasContinuityStatus) {
+    return (
+      plan.stages.find((stage) => stage.status === 'current') ??
+      plan.stages.find((stage) => stage.status === 'pending')
+    )
+  }
+
+  return plan.stages[0]
+}
+
+/**
  * Skill ids whose full bodies may be loaded for this turn (ADR-0151 §3.1):
- * - `active_now`
+ * - current-stage `active_now` bodies only
  * - kernel `advisory_only` (instant_help)
  * - teaching conversation always includes `teach`
- * - non-kernel `advisory_only` / later / blocked / excluded → no full body
+ * - non-kernel advisory / later / blocked / excluded and later active stages
+ *   never receive full bodies
  */
 export function skillIdsForBodyLoad(input: {
   plan: SkillOrchestrationPlan
   isTeachingConversation: boolean
 }): string[] {
   const allowed = new Set<string>()
-  for (const d of input.plan.decisions) {
-    const id = normalizeId(d.skillId)
-    if (!id) continue
-    if (d.status === 'active_now') {
-      allowed.add(id)
-      continue
-    }
-    if (d.status === 'advisory_only' && id === CORE_KERNEL_ID) {
-      allowed.add(id)
-    }
+  const currentStage = resolveCurrentSkillOrchestrationStage(input.plan)
+  const activeNow = new Set(
+    input.plan.decisions
+      .filter((decision) => decision.status === 'active_now')
+      .map((decision) => normalizeId(decision.skillId))
+      .filter(Boolean)
+  )
+
+  for (const skillId of currentStage?.skillIds ?? []) {
+    const id = normalizeId(skillId)
+    if (id && activeNow.has(id)) allowed.add(id)
+  }
+
+  if (
+    input.plan.decisions.some(
+      (decision) =>
+        normalizeId(decision.skillId) === CORE_KERNEL_ID && decision.status === 'advisory_only'
+    )
+  ) {
+    allowed.add(CORE_KERNEL_ID)
   }
   if (input.isTeachingConversation) {
     allowed.add(CORE_KERNEL_ID)
@@ -250,7 +312,7 @@ export function skillIdsForBodyLoad(input: {
   ) {
     allowed.add(CORE_KERNEL_ID)
   }
-  return [...allowed]
+  return [...allowed].sort()
 }
 
 /**
@@ -488,6 +550,8 @@ export function skillOrchestrationFactsFromAuthority(input: {
 export function buildSkillOrchestrationPlanDiagnosticsFact(input: {
   plan: SkillOrchestrationPlan
   presetId?: string
+  promptBudget?: SkillOrchestrationPromptBudgetFact
+  gateResults?: readonly SkillOrchestrationGateResult[]
 }): SkillOrchestrationPlanDiagnosticsFact {
   const decisionCounts: Record<SkillOrchestrationDecisionStatus, number> = {
     active_now: 0,
@@ -500,15 +564,43 @@ export function buildSkillOrchestrationPlanDiagnosticsFact(input: {
     if (decision.status in decisionCounts) decisionCounts[decision.status] += 1
   }
   const presetId = sanitizeSkillOrchestrationPresetId(input.presetId)
+  const currentStage = resolveCurrentSkillOrchestrationStage(input.plan)
+  const gateResults = input.gateResults ?? []
+  const passedGateCount = gateResults.filter((result) => result.passed).length
+  const promptBudget = input.promptBudget ?? {
+    kernelBudgetChars: 0,
+    kernelInputChars: 0,
+    kernelIncludedChars: 0,
+    dynamicBudgetChars: 0,
+    dynamicInputChars: 0,
+    dynamicIncludedChars: 0,
+    truncatedBodyCount: 0
+  }
+  const teachingApplicable = input.plan.mode === 'teaching_turn'
   return {
     planId: input.plan.planId,
     mode: input.plan.mode,
     ...(presetId ? { presetId } : {}),
     stageKinds: input.plan.stages.map((stage) => stage.kind),
+    ...(currentStage ? { currentStageKind: currentStage.kind } : {}),
+    currentStageSkillCount: currentStage?.skillIds.length ?? 0,
     decisionCounts,
     diagnosticCodes: input.plan.diagnostics.map((diagnostic) => ({
       code: diagnostic.code,
       severity: diagnostic.severity
-    }))
+    })),
+    userOverrideStatus: 'not_supported',
+    promptBudget,
+    gates: {
+      checkedCount: gateResults.length,
+      passedCount: passedGateCount,
+      failedCount: gateResults.length - passedGateCount
+    },
+    teachingCompleteness: {
+      applicable: teachingApplicable,
+      elicitStagePresent: teachingApplicable && input.plan.stages.some((stage) => stage.kind === 'elicit'),
+      evidenceStatusPresent: teachingApplicable && Boolean(input.plan.authorityEcho?.evidenceStatus),
+      nextStepActionPresent: teachingApplicable && Boolean(input.plan.authorityEcho?.nextStepAction)
+    }
   }
 }

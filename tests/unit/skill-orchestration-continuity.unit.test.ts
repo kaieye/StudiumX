@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, writeFile, mkdir, readdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -203,6 +203,17 @@ describe('skill orchestration state store (ADR-0156)', () => {
     expect(await store.load('conv-2')).toBeNull()
     expect(await store.load('../conv-1')).toBeNull()
     expect(await store.save('bad/../id', state())).toBe(false)
+  })
+
+  it('refuses a symlinked local state parent', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sx-orch-state-link-'))
+    const outside = await mkdtemp(join(tmpdir(), 'sx-orch-state-outside-'))
+    await symlink(outside, join(root, '.agent-sessions'))
+    const store = createSkillOrchestrationStateStore({ workspaceRoot: root })
+
+    expect(await store.save('conv-1', state())).toBe(false)
+    expect(await store.load('conv-1')).toBeNull()
+    expect(await readdir(outside)).toEqual([])
   })
 
   it('normalize rejects malformed shapes entirely (no partial trust)', () => {

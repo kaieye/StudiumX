@@ -11,6 +11,7 @@ description: Use this skill when you have structured course content (or any chap
 > - **产出：** `StaticSpa`
 > - **产物范围：** `teaching-site/spa/**`
 > - **前置依赖：** `—`
+> - **完成门槛：** `CourseContent` 与 `TeachingSitePlan` 已能确定页面结构；产物必须可本地运行并保留到 canonical 内容的可追溯映射后才可交接。
 > - **非职责：** 不写 learner Evidence；不提交 outcome；不判定学习者掌握度；同一 stage 内同一产物范围只能有一个 lead writer。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

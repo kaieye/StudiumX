@@ -594,6 +594,55 @@ describe('teaching conversation core kernel fail-closed (ADR-0151)', () => {
     })
   })
 
+  it('fails closed before provider execution when a current-stage skill body is omitted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-current-stage-body-missing-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    const loadSkillReferences = vi.fn(async () => [fixtureCoreTeachingKernelReference()])
+    globalThis.fetch = (async () => {
+      throw new Error('provider must not be called when a current-stage body is missing')
+    }) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'current-stage-body-missing-run',
+        workspaceId: 'workspace-1',
+        conversationId: 'teaching-conversation-current-stage-body-missing',
+        mode: 'teaching',
+        messages: [],
+        skillIds: ['learning-assessor'],
+        userInput: '请检查我是否掌握了这个概念。'
+      },
+      {
+        streamId: 'current-stage-body-missing-run',
+        onChunk: vi.fn(),
+        onStatus: vi.fn(),
+        onTool: vi.fn()
+      },
+      fixtureWorkspace(root, true),
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => {
+          throw new Error('memory should not be created')
+        },
+        loadSkillReferences,
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(loadSkillReferences).toHaveBeenCalledWith(
+      expect.arrayContaining(['teach', 'learning-assessor']),
+      expect.any(String)
+    )
+    expect(result).toMatchObject({
+      error: true,
+      message: expect.stringContaining('required current-stage skill body')
+    })
+  })
+
   it('fails closed when loadSkillReferences throws for teaching mode kernel load', async () => {
     const root = await mkdtemp(join(tmpdir(), 'studiumx-kernel-load-throw-'))
     createdRoots.push(root)
@@ -638,5 +687,149 @@ describe('teaching conversation core kernel fail-closed (ADR-0151)', () => {
       message: expect.stringContaining('Teaching Kernel unavailable')
     })
     expect(String((result as { message?: string }).message)).toMatch(/core_teaching_kernel_missing|builtin pack absent/)
+  })
+})
+
+describe('skill orchestration runtime evaluation (ADR-0151 / ADR-0163)', () => {
+  it('fails closed visibly for an artifact workflow when the Teaching Kernel loader throws', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-artifact-kernel-fail-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    const providerFetch = vi.fn(async () => jsonResponse({ choices: [{ message: { content: 'must not run' } }] }))
+    globalThis.fetch = providerFetch as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'artifact-kernel-fail-run',
+        conversationId: 'artifact-kernel-fail-conversation',
+        mode: 'temporary',
+        messages: [],
+        skillIds: ['teaching-site'],
+        userInput: '构建教学站点。'
+      },
+      { streamId: 'artifact-kernel-fail-run', onChunk: vi.fn(), onStatus: vi.fn(), onTool: vi.fn() },
+      null,
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => { throw new Error('memory should not be created') },
+        listSkillCatalog: async () => [
+          { id: 'teach', installed: true, source: 'builtin' },
+          { id: 'teaching-site', installed: true, source: 'builtin' }
+        ],
+        loadSkillReferences: async () => {
+          throw new Error('core_teaching_kernel_missing: app-shipped pack absent')
+        },
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(result).toMatchObject({ error: true, message: expect.stringContaining('Teaching Kernel unavailable') })
+    expect(providerFetch).not.toHaveBeenCalled()
+  })
+
+  it('uses configured budget pressure for planner deferral while preserving the hard AgentRun budget', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-orchestration-budget-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    settings.tools.runBudget.maxTotalTokens = 10_000
+    settings.tools.runBudget.warningThreshold = 0.5
+    const recordOrchestrationDiagnostics = vi.fn(async () => {})
+    globalThis.fetch = (async () => jsonResponse({ choices: [{ message: { content: '预算内完成。' } }] })) as typeof fetch
+    const runStore = new AgentRunStore(root)
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'orchestration-budget-run',
+        conversationId: 'orchestration-budget-conversation',
+        mode: 'temporary',
+        messages: [],
+        skillIds: ['web-visual-assets'],
+        userInput: '补充视觉素材。'
+      },
+      { streamId: 'orchestration-budget-run', onChunk: vi.fn(), onStatus: vi.fn(), onTool: vi.fn() },
+      null,
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => { throw new Error('memory should not be created') },
+        listSkillCatalog: async () => [
+          { id: 'teach', installed: true, source: 'builtin' },
+          { id: 'web-visual-assets', installed: true, source: 'builtin' }
+        ],
+        loadSkillReferences: async () => [fixtureCoreTeachingKernelReference()],
+        recordOrchestrationDiagnostics,
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore
+      }
+    )
+
+    expect(result).toMatchObject({ finalText: '预算内完成。' })
+    expect(recordOrchestrationDiagnostics).toHaveBeenCalledWith(expect.objectContaining({
+      diagnosticCodes: expect.arrayContaining([expect.objectContaining({ code: 'budget_defer' })]),
+      promptBudget: expect.objectContaining({ kernelIncludedChars: expect.any(Number) }),
+      userOverrideStatus: 'not_supported'
+    }))
+    const checkpoint = await runStore.readCheckpoint('orchestration-budget-run')
+    expect(checkpoint.budget).toMatchObject({ maxTotalTokens: 10_000, warningThreshold: 0.5 })
+  })
+
+  it('does not manufacture completed orchestration stages when provider execution is canceled', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-orchestration-cancel-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    const controller = new AbortController()
+    const savedStates: Array<{ stages: Array<{ status: string }> }> = []
+    globalThis.fetch = (async () => {
+      controller.abort()
+      const error = new Error('provider aborted')
+      error.name = 'AbortError'
+      throw error
+    }) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'orchestration-cancel-run',
+        conversationId: 'orchestration-cancel-conversation',
+        mode: 'teaching',
+        messages: [],
+        skillIds: ['learning-assessor'],
+        userInput: '检查掌握情况。'
+      },
+      {
+        streamId: 'orchestration-cancel-run',
+        signal: controller.signal,
+        onChunk: vi.fn(),
+        onStatus: vi.fn(),
+        onTool: vi.fn()
+      },
+      null,
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => { throw new Error('memory should not be created') },
+        listSkillCatalog: async () => [
+          { id: 'teach', installed: true, source: 'builtin' },
+          { id: 'learning-assessor', installed: true, source: 'builtin' }
+        ],
+        loadSkillReferences: async () => [
+          fixtureCoreTeachingKernelReference(),
+          { id: 'learning-assessor', name: 'Assessor', source: 'builtin', content: '# Assessor\nCheck mastery.' }
+        ],
+        saveOrchestrationState: async (_id, state) => {
+          savedStates.push(state as typeof savedStates[number])
+        },
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(result).toMatchObject({ canceled: true })
+    expect(savedStates.length).toBeGreaterThan(0)
+    expect(savedStates.flatMap((state) => state.stages).some((stage) => stage.status === 'completed')).toBe(false)
   })
 })

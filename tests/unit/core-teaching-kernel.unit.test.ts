@@ -83,6 +83,16 @@ describe('core teaching kernel load (ADR-0151 Phase 1)', () => {
     expect(references[0]?.source.toLocaleLowerCase()).toContain(join(builtInRoot, 'teach').toLocaleLowerCase())
   })
 
+  it('fails closed with actionable diagnostics when builtin roots are empty', async () => {
+    await expect(loadCoreTeachingKernelReference({ builtInRoots: [] })).rejects.toMatchObject({
+      name: 'CoreTeachingKernelError',
+      code: 'core_teaching_kernel_missing',
+      diagnostics: expect.arrayContaining([
+        expect.stringContaining('Configure builtInRoots')
+      ])
+    })
+  })
+
   it('fails closed when core pack is missing', async () => {
     const root = await createRoot()
     const builtInRoot = join(root, 'builtins')

@@ -318,6 +318,13 @@
 .skill-capability-toggle.is-open {
   color: var(--text);
   background: var(--surface-hover);
+}.skill-capability-toggle:focus-visible,
+.skill-capability-chip button:focus-visible,
+.skill-capability-panel__head button:focus-visible,
+.skill-capability-preset:focus-visible,
+.skill-capability-option:has(input:focus-visible) {
+  outline: 2px solid rgba(79, 124, 245, 0.72);
+  outline-offset: 2px;
 }.skill-capability-panel {
   position: absolute;
   z-index: 21;
@@ -392,6 +399,8 @@
   border-radius: 10px;
   cursor: pointer;
 }.skill-capability-option:hover {
+  background: var(--surface-hover);
+}.skill-capability-option:has(input:focus-visible) {
   background: var(--surface-hover);
 }.skill-capability-option__copy {
   min-width: 0;

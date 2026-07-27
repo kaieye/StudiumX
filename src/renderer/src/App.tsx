@@ -1982,6 +1982,13 @@ function OverviewLessonComposer({
   } = useAppStore()
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const skillSlash = useSkillSlashInput({ value: taskPrompt, onChange: setTaskPrompt, inputRef })
+  const activeConversationId = useAppStore((s) => s.activeConversationId)
+  const skillCapabilities = useSkillCapabilityPicker({
+    isTeachingMode: true,
+    userInput: taskPrompt,
+    ...(activeConversationId ? { conversationId: activeConversationId } : {}),
+    ...(active?.id ? { workspaceId: active.id } : {})
+  })
   const busy = generating || agentChatBusy
   const canSend = Boolean(active && taskPrompt.trim().length > 0 && !busy)
   // Every free-form teaching input goes through the conversation agent; it
@@ -1989,7 +1996,7 @@ function OverviewLessonComposer({
   const submitToTeachingAgent = () => {
     if (!canSend) return
     const prompt = taskPrompt.trim()
-    const skillIds = skillSlash.skillIdsFor(prompt)
+    const skillIds = mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt))
     setTaskPrompt('')
     openTeachingConversationView()
     void agentChat(prompt, { mode: 'teaching', skillIds })
@@ -2004,6 +2011,8 @@ function OverviewLessonComposer({
       <form className="overview-dialog-stack" onSubmit={onSubmit}>
         <div className="overview-dialog-card">
           {skillSlash.menu}
+          {skillCapabilities.panel}
+          {skillCapabilities.chips}
           <textarea
             ref={inputRef}
             value={taskPrompt}
@@ -2022,6 +2031,7 @@ function OverviewLessonComposer({
           <div className="overview-dialog-footer">
             <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
+              {skillCapabilities.toggle}
               <OverviewModelPicker />
               <OverviewReasoningPicker />
               <button className="send-button overview-dialog-send" type="submit" aria-label={t('lessons.send')} disabled={!canSend}>

@@ -147,6 +147,20 @@ describe('SkillOrchestrationPlanner.plan', () => {
     expect(outline!.reason.toLowerCase()).toMatch(/depend|auto-schedul/)
   })
 
+  it('orders a dependency before its dependent within one sequential stage', () => {
+    const result = plan(
+      baseInput({
+        mode: 'artifact_workflow',
+        selectedSkillIds: ['course-content-authoring'],
+        readiness: readyAll(['course-content-authoring', 'course-outline-design'])
+      })
+    )
+    const authoring = result.stages.find((stage) => stage.kind === 'artifact_authoring')
+
+    expect(authoring?.execution).toBe('sequential')
+    expect(authoring?.skillIds).toEqual(['course-outline-design', 'course-content-authoring'])
+  })
+
   it('blocks when required dependency cannot be auto-scheduled', () => {
     const result = plan(
       baseInput({
@@ -279,6 +293,25 @@ describe('SkillOrchestrationPlanner.plan', () => {
       })
     )
     expect(a.planId).not.toBe(b.planId)
+  })
+
+  it('keeps plan identity to allow-listed facts, not objective text or unknown payloads', () => {
+    const base = baseInput({
+      mode: 'teaching_turn',
+      selectedSkillIds: ['learning-assessor'],
+      readiness: readyAll(['learning-assessor']),
+      contextIdentity: 'ctx:allow-listed'
+    })
+    const a = plan({ ...base, objective: 'Explain fractions; secret=not-an-identity-input' })
+    const b = plan({
+      ...base,
+      objective: 'A different user-facing objective must not re-key the same orchestration facts.',
+      // Runtime callers can carry unrelated properties; plan() must never hash them.
+      untrustedPayload: 'sk-not-a-plan-identity-input'
+    } as SkillOrchestrationInput)
+
+    expect(a.planId).toBe(b.planId)
+    expect(a.objective).not.toBe(b.objective)
   })
 
   it('uses teaching-site as workflow router without activating all children at once', () => {

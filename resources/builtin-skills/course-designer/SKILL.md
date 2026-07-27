@@ -11,6 +11,7 @@ description: Provides comprehensive guidance for course design including curricu
 > - **产出：** `CourseWorkflowPlan`
 > - **产物范围：** `—`
 > - **前置依赖：** `—`
+> - **完成门槛：** `CourseBrief` 足以判断当前阶段；信息不足时先澄清。只在交付可解释的 `CourseWorkflowPlan`（或明确的 advisory 回答）后完成。
 > - **非职责：** 只产出阶段计划与路由说明；不替代下游 producer 实现；**不会**自动激活或执行未安装的子 skill；不写 learner Evidence。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

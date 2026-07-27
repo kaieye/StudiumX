@@ -11,6 +11,7 @@ description: Use this skill when an outline exists and you need to fill in the a
 > - **产出：** `CourseContent`
 > - **产物范围：** `course-package/day*/content.md`
 > - **前置依赖：** `course-outline-design`
+> - **完成门槛：** 仅在 `CourseOutline` 已稳定且每份内容仍可对应其 unit ID 时交接；缺少稳定大纲时回到 `course-outline-design`。
 > - **非职责：** 不写 learner Evidence；不提交 outcome；不判定学习者掌握度；同一 stage 内同一产物范围只能有一个 lead writer。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

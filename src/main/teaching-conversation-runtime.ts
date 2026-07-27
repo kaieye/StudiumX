@@ -29,7 +29,12 @@ import {
   lessonGenerationRunBudget
 } from './teaching-conversation-lesson-tool'
 import { createConversationPermissionResolver } from './teaching-conversation-permissions'
-import { buildSessionStablePrefix, composeTeachingUserTurn, type TemporaryChatContext } from './teaching-conversation-prompt'
+import {
+  buildSessionStablePrefix,
+  composeTeachingUserTurn,
+  projectSkillPromptBudget,
+  type TemporaryChatContext
+} from './teaching-conversation-prompt'
 import { plan as planSkillOrchestration } from './skill-orchestration-planner'
 import {
   advanceConversationOrchestrationState,
@@ -37,6 +42,7 @@ import {
   buildSkillOrchestrationPlanDiagnosticsFact,
   buildSkillOrchestrationPlanInput,
   buildSkillOrchestrationReadinessFromCatalog,
+  deriveSkillOrchestrationBudgetPressure,
   evaluateSkillOrchestrationStageGates,
   filterSkillReferencesToActiveBodies,
   mergeSelectedSkillIds,
@@ -438,6 +444,12 @@ async function runTeachingConversationTurnActive(
       ? await deps.loadOrchestrationState(orchestrationConversationId).catch(() => null)
       : null
   const orchestrationPriorState = priorStateFromConversationOrchestrationState(priorOrchestrationState)
+  const configuredRunBudget = normalizeAgentRunBudget(settings.tools.runBudget)
+  const configuredBudgetPressure = deriveSkillOrchestrationBudgetPressure({
+    maxTotalTokens: configuredRunBudget.maxTotalTokens,
+    warningThreshold: configuredRunBudget.warningThreshold,
+    selectedSkillCount: requestedSkillIds.length
+  })
   const skillOrchestrationPlan = planSkillOrchestration(
     buildSkillOrchestrationPlanInput({
       selectedSkillIds: requestedSkillIds,
@@ -450,19 +462,20 @@ async function runTeachingConversationTurnActive(
       resourceReadiness: orchestrationFacts?.resourceReadiness,
       evidenceStatus: orchestrationFacts?.evidenceStatus,
       availableArtifacts: orchestrationFacts?.availableArtifacts,
-      budgetConstrained: orchestrationFacts?.budgetConstrained,
+      budgetConstrained:
+        orchestrationFacts?.budgetConstrained === true || configuredBudgetPressure,
       preferArtifactProfile: orchestrationFacts?.preferArtifactProfile,
       ...(orchestrationPriorState ? { priorState: orchestrationPriorState } : {})
     })
   )
+  const gateResults = evaluateSkillOrchestrationStageGates({
+    plan: skillOrchestrationPlan,
+    artifactFacts: orchestrationFacts?.availableArtifacts
+  })
   if (orchestrationConversationId && deps.saveOrchestrationState) {
     // Deterministic gate checks against allow-listed artifact facts; save is
     // best-effort and never blocks or fails the teaching turn.
     try {
-      const gateResults = evaluateSkillOrchestrationStageGates({
-        plan: skillOrchestrationPlan,
-        artifactFacts: orchestrationFacts?.availableArtifacts
-      })
       const nextOrchestrationState = advanceConversationOrchestrationState({
         conversationId: orchestrationConversationId,
         prior: priorOrchestrationState,
@@ -476,19 +489,14 @@ async function runTeachingConversationTurnActive(
       // Fail-soft: continuity is a projection, never load-bearing for the turn.
     }
   }
-  // ADR-0163 §2.6: local, redactable plan diagnostics. Fire-and-forget; the
-  // sink is observability only and must never delay or fail a teaching turn.
-  if (deps.recordOrchestrationDiagnostics) {
-    void deps
-      .recordOrchestrationDiagnostics(
-        buildSkillOrchestrationPlanDiagnosticsFact({ plan: skillOrchestrationPlan })
-      )
-      .catch(() => undefined)
-  }
   const bodyLoadSkillIds = skillIdsForBodyLoad({
     plan: skillOrchestrationPlan,
     isTeachingConversation: conversation.isTeachingConversation
   })
+  const needsTeachingKernel =
+    conversation.isTeachingConversation ||
+    skillOrchestrationPlan.mode === 'teaching_turn' ||
+    skillOrchestrationPlan.mode === 'artifact_workflow'
   let skillReferences: InstalledSkillReference[] = []
   try {
     skillReferences =
@@ -497,7 +505,7 @@ async function runTeachingConversationTurnActive(
         : []
   } catch (error) {
     // Fail-closed when Teaching Kernel cannot load (missing/corrupt builtin pack).
-    if (conversation.isTeachingConversation || skillOrchestrationPlan.mode === 'teaching_turn') {
+    if (needsTeachingKernel) {
       const message = error instanceof Error ? error.message : String(error)
       return {
         error: true,
@@ -512,10 +520,6 @@ async function runTeachingConversationTurnActive(
     plan: skillOrchestrationPlan,
     isTeachingConversation: conversation.isTeachingConversation
   })
-  const needsTeachingKernel =
-    conversation.isTeachingConversation ||
-    skillOrchestrationPlan.mode === 'teaching_turn' ||
-    skillOrchestrationPlan.mode === 'artifact_workflow'
   if (
     needsTeachingKernel &&
     bodyLoadSkillIds.some((id) => id.toLocaleLowerCase() === 'teach') &&
@@ -527,6 +531,39 @@ async function runTeachingConversationTurnActive(
         'Teaching Kernel unavailable: reserved skill "teach" was not loaded from app-shipped builtin roots (ADR-0151).'
     }
   }
+  // A plan is only executable when every selected current-stage body survived
+  // the verified loader and the defensive active-body filter. Do not silently
+  // run a later/partial stage policy if a required body is absent.
+  const missingCurrentStageBody = bodyLoadSkillIds.some((skillId) => {
+    if (skillId.toLocaleLowerCase() === 'teach') return false
+    return !skillReferences.some(
+      (reference) =>
+        reference.id.toLocaleLowerCase() === skillId.toLocaleLowerCase() &&
+        Boolean(reference.content?.trim())
+    )
+  })
+  if (missingCurrentStageBody) {
+    return {
+      error: true,
+      message:
+        'Skill orchestration unavailable: a required current-stage skill body was not loaded (ADR-0151).'
+    }
+  }
+  // ADR-0163 §2.6: local, redactable counts-only diagnostics after verified
+  // body loading, so prompt-budget and gate metrics describe the executable plan.
+  // Fire-and-forget: observability never delays or fails the teaching turn.
+  if (deps.recordOrchestrationDiagnostics) {
+    void deps
+      .recordOrchestrationDiagnostics(
+        buildSkillOrchestrationPlanDiagnosticsFact({
+          plan: skillOrchestrationPlan,
+          promptBudget: projectSkillPromptBudget(skillReferences),
+          gateResults
+        })
+      )
+      .catch(() => undefined)
+  }
+
   const skillResourceTool = settings.tools.enabled ? createReadSkillResourceTool(skillReferences) : null
   if (skillResourceTool) baseRegistry.register(skillResourceTool)
   // Slice F: memory search + human-approved synthetic teaching memory (no FTS).

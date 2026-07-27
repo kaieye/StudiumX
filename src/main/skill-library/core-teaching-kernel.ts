@@ -16,8 +16,6 @@ export const CORE_TEACHING_KERNEL_ID = 'teach' as const
 
 export type CoreTeachingKernelLoadOptions = {
   builtInRoots: string[]
-  /** When true (default), throw on missing/corrupt pack instead of returning null. */
-  failClosed?: boolean
 }
 
 export class CoreTeachingKernelError extends Error {
@@ -45,13 +43,11 @@ export class CoreTeachingKernelError extends Error {
 export async function loadCoreTeachingKernelReference(
   options: CoreTeachingKernelLoadOptions
 ): Promise<InstalledSkillReference> {
-  const failClosed = options.failClosed !== false
   const skillId = CORE_TEACHING_KERNEL_ID
   const roots = options.builtInRoots.filter(Boolean)
 
   if (roots.length === 0) {
     const message = 'Teaching Kernel builtin roots are not configured.'
-    if (!failClosed) throw new CoreTeachingKernelError('core_teaching_kernel_missing', message)
     throw new CoreTeachingKernelError('core_teaching_kernel_missing', message, {
       diagnostics: [message, 'Configure builtInRoots to include app-shipped builtin-skills.']
     })

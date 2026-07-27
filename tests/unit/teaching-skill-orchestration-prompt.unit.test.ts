@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   buildSessionStablePrefix,
   buildSkillOrchestrationPlanPromptLines,
-  composeTeachingUserTurn
+  composeTeachingUserTurn,
+  DYNAMIC_SKILL_PROMPT_BODY_BUDGET_CHARS,
+  projectSkillPromptBudget,
+  TEACHING_KERNEL_PROMPT_BODY_BUDGET_CHARS
 } from '../../src/main/teaching-conversation-prompt'
 import { plan } from '../../src/main/skill-orchestration-planner'
 import type { SkillOrchestrationPlan } from '../../src/shared/teaching-types/skill-orchestration'
@@ -56,9 +59,21 @@ describe('teaching skill orchestration prompt contract (ADR-0151 Phase 3)', () =
     expect(assessorDecision?.status).toBe('active_now')
     expect(ebookDecision?.status).not.toBe('active_now')
 
-    const skillReferences = activeBodyRefsFromPlan(orchestration)
-    expect(skillReferences.some((r) => r.id === 'course-ebook-publishing')).toBe(false)
+    const skillReferences = [
+      ...activeBodyRefsFromPlan(orchestration),
+      {
+        id: 'course-ebook-publishing',
+        name: 'Course Ebook Publishing',
+        source: 'builtin',
+        content: '# Ebook\nINACTIVE_EBOOK_BODY'
+      }
+    ]
 
+    const prefix = buildSessionStablePrefix({
+      mode: 'teaching',
+      lessonToolEnabled: true,
+      skillReferences
+    })
     const turn = composeTeachingUserTurn({
       mode: 'teaching',
       lessonToolEnabled: true,
@@ -66,13 +81,14 @@ describe('teaching skill orchestration prompt contract (ADR-0151 Phase 3)', () =
       skillOrchestrationPlan: orchestration
     })
 
-    expect(turn).toContain('KERNEL_BODY_MARKER')
+    expect(prefix).toContain('KERNEL_BODY_MARKER')
+    expect(turn).not.toContain('KERNEL_BODY_MARKER')
     expect(turn).toContain('ACTIVE_ASSESSOR_BODY')
     expect(turn).not.toContain('INACTIVE_EBOOK_BODY')
     expect(turn).toContain('<skill-orchestration-plan>')
     expect(turn).toContain('status=active_now')
     expect(turn).toContain('skillId=learning-assessor')
-    expect(turn).toContain(`skillId=course-ebook-publishing; status=${ebookDecision!.status}`)
+    expect(turn).not.toContain(`skillId=course-ebook-publishing; status=${ebookDecision!.status}`)
     expect(turn).toContain('zero settlement authority')
     expect(turn).toContain('do not execute uninstalled child skills')
   })
@@ -109,11 +125,11 @@ describe('teaching skill orchestration prompt contract (ADR-0151 Phase 3)', () =
       skillReferences,
       skillOrchestrationPlan: orchestration
     })
-    expect(prefix).not.toContain('FULL KERNEL')
+    expect(prefix).toContain('FULL KERNEL')
     expect(prefix).not.toContain('FULL ASSESSOR')
     expect(prefix).not.toContain('<skill-orchestration-plan>')
     expect(prefix).toContain('<skill-index>')
-    expect(turn).toContain('FULL KERNEL')
+    expect(turn).not.toContain('FULL KERNEL')
     expect(turn).toContain('<skill-orchestration-plan>')
     expect(turn).toContain(orchestration.planId)
   })
@@ -150,4 +166,54 @@ describe('teaching skill orchestration prompt contract (ADR-0151 Phase 3)', () =
     expect(text).toContain('evidenceStatus=verified')
     expect(text).not.toContain('FULL')
   })
+
+  it('enforces aggregate kernel/dynamic budgets and fairly represents large current-stage bodies', () => {
+    const references = [
+      {
+        id: 'teach',
+        name: 'Teach',
+        source: 'builtin',
+        content: `# Teach
+KERNEL_START
+${'K'.repeat(25_000)}`
+      },
+      {
+        id: 'learning-assessor',
+        name: 'Assessor',
+        source: 'builtin',
+        content: `# Assessor
+ASSESSOR_START
+${'A'.repeat(20_000)}`
+      },
+      {
+        id: 'course-content-authoring',
+        name: 'Authoring',
+        source: 'builtin',
+        content: `# Authoring
+AUTHORING_START
+${'B'.repeat(20_000)}`
+      }
+    ]
+    const projected = projectSkillPromptBudget(references)
+    const turn = composeTeachingUserTurn({
+      mode: 'teaching',
+      lessonToolEnabled: true,
+      skillReferences: references
+    })
+    const prefix = buildSessionStablePrefix({
+      mode: 'teaching',
+      lessonToolEnabled: true,
+      skillReferences: references
+    })
+
+    expect(projected.kernelIncludedChars).toBeLessThanOrEqual(TEACHING_KERNEL_PROMPT_BODY_BUDGET_CHARS)
+    expect(projected.dynamicIncludedChars).toBeLessThanOrEqual(DYNAMIC_SKILL_PROMPT_BODY_BUDGET_CHARS)
+    expect(projected.truncatedBodyCount).toBe(3)
+    expect(prefix).toContain('KERNEL_START')
+    expect(prefix).toContain('skill truncated by stable Teaching Kernel budget')
+    expect(turn).toContain('ASSESSOR_START')
+    expect(turn).toContain('AUTHORING_START')
+    expect(turn.match(/skill truncated by dynamic prompt budget/g)).toHaveLength(2)
+  })
+
 })

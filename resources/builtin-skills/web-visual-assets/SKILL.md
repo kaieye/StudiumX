@@ -11,6 +11,7 @@ description: Use this skill when a content-complete website has missing/placehol
 > - **产出：** `VisualAssets`
 > - **产物范围：** `teaching-site/assets/**`
 > - **前置依赖：** `—`
+> - **完成门槛：** 已有 `StaticSpa` 与 `CourseContent` 可定位资产；覆盖要求、路径和 fallback 已验证后才可交接给下游 verifier 或 packager。
 > - **非职责：** 必须在基础产物已存在后执行；不新建 canonical 产物；不写 learner Evidence。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

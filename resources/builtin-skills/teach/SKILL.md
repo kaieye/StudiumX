@@ -16,6 +16,7 @@ author: StudiumX
 > - **产出：** `—`
 > - **产物范围：** `—`
 > - **前置依赖：** `—`
+> - **完成门槛：** 仅在 host 提供的教学上下文中完成一次教学策略交互；任何 durable completion 仍必须通过 host 的 Evidence / outcome settlement gate。
 > - **非职责：** 不写 LearningSessionLedger；不创建或提交 outcome；不伪造 Evidence；不是 settlement writer。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

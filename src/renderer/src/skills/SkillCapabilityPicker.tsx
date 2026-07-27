@@ -1,5 +1,5 @@
 import { Layers, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
   listSkillOrchestrationPresets,
@@ -77,8 +77,12 @@ export function useSkillCapabilityPicker(options: {
   const [preview, setPreview] = useState<SkillOrchestrationPreviewResult | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const requestSeq = useRef(0)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const panelId = useId()
+  const panelTitleId = useId()
 
-  // Only registered builtin capabilities are selectable; the kernel is excluded.
+  // Catalog capabilities are selectable; the host-injected kernel is excluded.
   const selectable = useMemo(
     () => catalog.skills.filter((skill) => skill.id !== KERNEL_SKILL_ID),
     [catalog.skills]
@@ -116,11 +120,24 @@ export function useSkillCapabilityPicker(options: {
     const preset = listSkillOrchestrationPresets().find((entry) => entry.id === id)
     if (!preset) return
     setNotice(null)
-    setPresetId((current) => (current === id ? null : id))
-    setSelectedSkillIds((current) =>
-      presetIdEquals(current, preset.skillIds) ? [] : preset.skillIds.slice(0, MAX_SELECTED_SKILLS)
-    )
+    // Toggle only a currently applied preset. A manual selection that happens
+    // to match a preset must remain selected when the user chooses that preset;
+    // otherwise preview would expand the preset while execution sent no ids.
+    const nextPresetId = presetId === id ? null : id
+    setPresetId(nextPresetId)
+    setSelectedSkillIds(nextPresetId ? preset.skillIds.slice(0, MAX_SELECTED_SKILLS) : [])
+  }, [presetId])
+
+  const closePanel = useCallback(() => {
+    // Return focus before the dialog unmounts so keyboard users retain their
+    // place in the composer toolbar.
+    triggerRef.current?.focus()
+    setOpen(false)
   }, [])
+
+  useEffect(() => {
+    if (open) closeButtonRef.current?.focus()
+  }, [open])
 
   // Read-only preview. Never advances orchestration state (ADR-0163 §2.2).
   //
@@ -157,7 +174,11 @@ export function useSkillCapabilityPicker(options: {
           if (seq === requestSeq.current) setPreview(null)
         })
     }, PREVIEW_DEBOUNCE_MS)
-    return () => window.clearTimeout(timer)
+    return () => {
+      // Invalidate an in-flight response as well as the debounce timer.
+      requestSeq.current += 1
+      window.clearTimeout(timer)
+    }
   }, [
     open,
     selectedSkillIds,
@@ -193,11 +214,14 @@ export function useSkillCapabilityPicker(options: {
   const toggle = (
     <button
       type="button"
+      ref={triggerRef}
       className={`skill-capability-toggle${open ? ' is-open' : ''}`}
       aria-expanded={open}
+      aria-controls={panelId}
+      aria-haspopup="dialog"
       aria-label="选择教学能力"
       title="选择本次任务可以使用的能力"
-      onClick={() => setOpen((current) => !current)}
+      onClick={() => (open ? closePanel() : setOpen(true))}
     >
       <Layers size={15} />
       {selectedSkillIds.length > 0 ? <span>{selectedSkillIds.length}</span> : null}
@@ -205,10 +229,22 @@ export function useSkillCapabilityPicker(options: {
   )
 
   const panel = open ? (
-    <div className="skill-capability-panel" role="dialog" aria-label="教学能力与计划">
+    <div
+      id={panelId}
+      className="skill-capability-panel"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby={panelTitleId}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          closePanel()
+        }
+      }}
+    >
       <div className="skill-capability-panel__head">
-        <span>选择本次可以使用的能力</span>
-        <button type="button" aria-label="关闭能力选择" onClick={() => setOpen(false)}>
+        <span id={panelTitleId}>选择本次可以使用的能力</span>
+        <button ref={closeButtonRef} type="button" aria-label="关闭能力选择" onClick={closePanel}>
           <X size={14} />
         </button>
       </div>
@@ -222,6 +258,7 @@ export function useSkillCapabilityPicker(options: {
               type="button"
               className={`skill-capability-preset${presetId === preset.id ? ' is-active' : ''}`}
               aria-pressed={presetId === preset.id}
+              aria-label={`${preset.label}：${preset.description}`}
               title={preset.description}
               onClick={() => applyPreset(preset.id)}
             >
@@ -264,15 +301,13 @@ export function useSkillCapabilityPicker(options: {
         </p>
       ) : null}
 
-      <SkillOrchestrationPlanPreview preview={preview} catalog={catalog.skills} />
+      <div aria-live="polite">
+        <SkillOrchestrationPlanPreview preview={preview} catalog={catalog.skills} />
+      </div>
     </div>
   ) : null
 
   return { chips, panel, toggle, selectedSkillIds, clear }
-}
-
-function presetIdEquals(current: string[], next: string[]): boolean {
-  return current.length === next.length && current.every((id, index) => id === next[index])
 }
 
 /**

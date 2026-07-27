@@ -112,7 +112,7 @@ export interface TeachingIpcRegistration {
 type GatewayContext = TeachingIpcRegistration & {
   activeAgentChatStreams: Map<string, AbortController>
   retainedAgentEventBuses: Map<string, AgentEventBus>
-  agentStreamSessions: WeakMap<Electron.IpcMainInvokeEvent, AgentStreamSession>
+  agentStreamSessions: WeakMap<Electron.IpcMainInvokeEvent, Set<AgentStreamSession>>
   /**
    * Per-stream busy follow-up/steer queues (B-01 / B-02).
    * Cancel always clears via clearOnCancel. Façade owns drain policy; gateway
@@ -129,7 +129,7 @@ type GatewayContext = TeachingIpcRegistration & {
   previewBindingLifecycleSenders: WeakSet<Electron.WebContents>
 }
 
-type AgentStreamSession = { streamId: string; controller: AbortController }
+type AgentStreamSession = { streamId: string; controller: AbortController; payload: unknown }
 
 type GatewayCommand = {
   channel: string
@@ -361,10 +361,23 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({
       channel: teachingInvokeChannels.agentChatStream, parser: (payload) => parseAgentChatStreamPayload(payload),
       action: async (event, payload) => {
-        const streamId = payload.streamId ?? `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+        const suppliedStreamId = payload.streamId
+        // A retry may reuse an id only after the earlier run settled. While it
+        // is active, reject the duplicate instead of replacing its controller
+        // and letting two turns share one stream identity.
+        if (suppliedStreamId && context.activeAgentChatStreams.has(suppliedStreamId)) {
+          return {
+            streamId: suppliedStreamId,
+            error: true as const,
+            message: 'Agent chat stream id is already active.'
+          }
+        }
+        const streamId = suppliedStreamId ?? `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
         const controller = new AbortController()
         context.activeAgentChatStreams.set(streamId, controller)
-        context.agentStreamSessions.set(event, { streamId, controller })
+        const senderSessions = context.agentStreamSessions.get(event) ?? new Set<AgentStreamSession>()
+        senderSessions.add({ streamId, controller, payload })
+        context.agentStreamSessions.set(event, senderSessions)
         // B-02: product stream is driven through AgentSessionFacade.prompt with a real
         // invoker that calls service.agentChatStream once (not a second loop).
         // autoDrain stays false (ADR-0082): mid-run steer/follow-up IPC is available, but product
@@ -448,11 +461,15 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         }
       },
       reply: identityReply,
-      streamCleanup: (event) => {
-        const session = context.agentStreamSessions.get(event)
-        if (!session) return
+      streamCleanup: (event, payload) => {
+        const senderSessions = context.agentStreamSessions.get(event)
+        const session = [...(senderSessions ?? [])].find((candidate) => candidate.payload === payload)
+        // A duplicate supplied stream id is rejected before it owns the sender
+        // session. Its generic command cleanup must not detach the live turn.
+        if (!session || session.payload !== payload) return
         if (context.activeAgentChatStreams.get(session.streamId) === session.controller) context.activeAgentChatStreams.delete(session.streamId)
-        context.agentStreamSessions.delete(event)
+        senderSessions?.delete(session)
+        if (senderSessions?.size === 0) context.agentStreamSessions.delete(event)
         // Safety: drop façade if action finally did not run (e.g. parse failure).
         context.agentSessionFacades.detach(session.streamId)
       }
@@ -901,7 +918,4 @@ function resolveProxyUrl(settings: TeachingSettingsV1): string {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
-
-
-
 

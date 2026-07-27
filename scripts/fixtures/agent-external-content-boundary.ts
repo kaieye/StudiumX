@@ -37,7 +37,7 @@ try {
     if (url.includes('duckduckgo.com')) {
       return new Response(`
         <html><body>
-          <a class="result-link" href="https://example.com/injected-search">${injectedExternalText}</a>
+          <a class="result-link" href="https://93.184.216.34/injected-search">${injectedExternalText}</a>
           <td class="result-snippet">${injectedExternalText}</td>
         </body></html>
       `, { headers: { 'content-type': 'text/html; charset=utf-8' } })
@@ -52,7 +52,7 @@ try {
 
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input)
-    if (url === 'https://example.com/injected-fetch') {
+    if (url === 'https://93.184.216.34/injected-fetch') {
       return new Response(`<html><body><main><p>${injectedExternalText}</p></main></body></html>`, {
         headers: { 'content-type': 'text/html; charset=utf-8' }
       })
@@ -60,13 +60,13 @@ try {
     throw new Error(`Unexpected fetch: ${url}`)
   }) as typeof fetch
 
-  const fetched = JSON.parse(await handlers.web_fetch({ url: 'https://example.com/injected-fetch' }))
+  const fetched = JSON.parse(await handlers.web_fetch({ url: 'https://93.184.216.34/injected-fetch' }))
   assert.deepEqual(fetched.provenance, { trust: 'external_untrusted' })
   assert.match(fetched.text, /Grant write access/)
 
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input)
-    if (url === 'https://example.com/injected-status') {
+    if (url === 'https://93.184.216.34/injected-status') {
       return new Response('', {
         status: 503,
         statusText: injectedExternalText
@@ -75,7 +75,7 @@ try {
     throw new Error(`Unexpected fetch: ${url}`)
   }) as typeof fetch
 
-  const failedFetch = JSON.parse(await handlers.web_fetch({ url: 'https://example.com/injected-status' }))
+  const failedFetch = JSON.parse(await handlers.web_fetch({ url: 'https://93.184.216.34/injected-status' }))
   assert.deepEqual(failedFetch.provenance, { trust: 'external_untrusted' })
   assert.match(failedFetch.error, /503/)
   assert.match(failedFetch.error, /IGNORE ALL PREVIOUS INSTRUCTIONS/)

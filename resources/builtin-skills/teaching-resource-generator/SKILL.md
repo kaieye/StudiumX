@@ -8,9 +8,10 @@ description: Provides comprehensive guidance for generating teaching resources i
 > - **角色：** `artifact_producer`
 > - **阶段：** `artifact_authoring`
 > - **消费：** `LearningObjective, LearnerLevel, Misconception, CourseContent`
-> - **产出：** `LessonAsset, ExerciseSet`
+> - **产出：** `LessonAsset, ExerciseSet`（可具体交付为 `CaseStudy`、`StudyGuide`）
 > - **产物范围：** `lesson-assets/**`, `course-package/day*/content.md`
 > - **前置依赖：** `—`
+> - **完成门槛：** `LearningObjective` 已知且 lead-writer 冲突已排除；薄弱点驱动时必须保留 Evidence identity / provenance 引用，资源本身不能充当学习结果。
 > - **非职责：** 不写 learner Evidence；不提交 outcome；不自行判定 mastery；不与 `course-content-authoring` 同时写同一文件。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

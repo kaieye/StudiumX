@@ -151,7 +151,7 @@ export class SkillLibraryService {
    * Does not require personal install; fails closed if the pack is missing or corrupt (ADR-0151).
    */
   async readCoreTeachingKernel(): Promise<InstalledSkillReference> {
-    return loadCoreTeachingKernelReference({ builtInRoots: this.builtInRoots, failClosed: true })
+    return loadCoreTeachingKernelReference({ builtInRoots: this.builtInRoots })
   }
 
   private async readReferencesFromCatalog(

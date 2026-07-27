@@ -717,7 +717,26 @@ function buildStages(work: Map<string, WorkItem>, mode: SkillOrchestrationMode):
 
   const stages: SkillOrchestrationStage[] = []
   for (const kind of STAGE_ORDER) {
-    const skillIds = uniqueSorted(byKind.get(kind) ?? [])
+    const unorderedSkillIds = uniqueSorted(byKind.get(kind) ?? [])
+    const policyById = new Map<string, BuiltinSkillOrchestrationEntry>(
+      unorderedSkillIds
+        .map((id) => getBuiltinSkillOrchestrationPolicy(id))
+        .filter((policy): policy is BuiltinSkillOrchestrationEntry => policy !== null)
+        .map((policy) => [policy.skillId, policy] as const)
+    )
+    const remaining = new Set(policyById.keys())
+    const skillIds: string[] = []
+    while (remaining.size > 0) {
+      const candidates = [...remaining]
+        .map((id) => policyById.get(id)!)
+        .filter((policy) => policy.requires.every((dependency) => !remaining.has(dependency)))
+      // Registered dependencies are acyclic; retain a stable fallback for an invalid future policy.
+      const next = (candidates.length ? candidates : [...remaining].map((id) => policyById.get(id)!)).sort(
+        (a, b) => b.priority - a.priority || a.skillId.localeCompare(b.skillId)
+      )[0]!
+      skillIds.push(next.skillId)
+      remaining.delete(next.skillId)
+    }
     if (skillIds.length === 0) continue
 
     const policies = skillIds

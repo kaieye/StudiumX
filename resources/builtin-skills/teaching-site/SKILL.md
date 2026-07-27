@@ -11,6 +11,7 @@ description: Use this skill as the main entry point whenever the user wants to b
 > - **产出：** `TeachingSitePlan`
 > - **产物范围：** `teaching-site/**`
 > - **前置依赖：** `—`
+> - **完成门槛：** 仅在显式 slash 调用与当前 stage gate 都满足时交付 `TeachingSitePlan`；下游 skill 必须由用户单独调用，router 不会代为执行。
 > - **非职责：** 只产出阶段计划与路由说明；不替代下游 producer 实现；**不会**自动激活或执行未安装的子 skill；不写 learner Evidence。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

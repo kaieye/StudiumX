@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   buildSkillOrchestrationPlanInput,
   buildSkillOrchestrationReadinessFromCatalog,
+  deriveSkillOrchestrationBudgetPressure,
   filterSkillReferencesToActiveBodies,
   mergeSelectedSkillIds,
+  resolveCurrentSkillOrchestrationStage,
   resolveHostSkillOrchestrationMode,
   sanitizeAvailableArtifacts,
   skillIdsForBodyLoad,
@@ -32,6 +34,23 @@ function planFor(selected: string[], mode?: 'teaching_turn' | 'artifact_workflow
     })
   )
 }
+
+
+
+describe('deriveSkillOrchestrationBudgetPressure', () => {
+  it('derives only a soft planner pressure signal from configured hard-budget headroom', () => {
+    expect(deriveSkillOrchestrationBudgetPressure({
+      maxTotalTokens: 10_000,
+      warningThreshold: 0.5,
+      selectedSkillCount: 2
+    })).toBe(true)
+    expect(deriveSkillOrchestrationBudgetPressure({
+      maxTotalTokens: 500_000,
+      warningThreshold: 0.8,
+      selectedSkillCount: 8
+    })).toBe(false)
+  })
+})
 
 describe('resolveHostSkillOrchestrationMode', () => {
   it('uses artifact_workflow when a workflow router is selected even in teaching chat', () => {
@@ -93,28 +112,62 @@ describe('buildSkillOrchestrationReadinessFromCatalog', () => {
 })
 
 describe('stage-scoped body load', () => {
-  it('loads active_now and kernel advisory only — not non-kernel advisory or later', () => {
+  it('loads only current-stage active bodies plus the Teaching Kernel', () => {
     const orchestration: SkillOrchestrationPlan = planFor(
       ['teaching-site', 'course-content-authoring', 'static-spa-interactions'],
       'artifact_workflow'
     )
-    // Ensure plan has some non-active statuses for interactions / later stages
+    const currentStage = resolveCurrentSkillOrchestrationStage(orchestration)
     const bodyIds = skillIdsForBodyLoad({
       plan: orchestration,
       isTeachingConversation: true
     })
-    expect(bodyIds).toContain('teach')
-    for (const d of orchestration.decisions) {
-      if (d.status === 'scheduled_later' || d.status === 'blocked' || d.status === 'excluded') {
-        expect(bodyIds).not.toContain(d.skillId)
-      }
-      if (d.status === 'advisory_only' && d.skillId !== 'teach') {
-        expect(bodyIds).not.toContain(d.skillId)
-      }
-      if (d.status === 'active_now') {
-        expect(bodyIds).toContain(d.skillId)
+    const expected = [
+      'teach',
+      ...(currentStage?.skillIds ?? []).filter((skillId) =>
+        orchestration.decisions.some((decision) =>
+          decision.skillId === skillId && decision.status === 'active_now'
+        )
+      )
+    ].sort()
+
+    expect(currentStage?.id).toBe(orchestration.stages[0]?.id)
+    expect(bodyIds).toEqual(expected)
+    for (const decision of orchestration.decisions) {
+      if (decision.skillId !== 'teach' && !currentStage?.skillIds.includes(decision.skillId) && decision.status === 'active_now') {
+        expect(bodyIds).not.toContain(decision.skillId)
       }
     }
+  })
+
+  it('uses the continuity cursor and never restarts an all-completed plan', () => {
+    const base = planFor(['teaching-site', 'course-content-authoring'], 'artifact_workflow')
+    const continuityPlan: SkillOrchestrationPlan = {
+      ...base,
+      currentStageId: base.stages[1]?.id,
+      stages: base.stages.map((stage, index) => ({
+        ...stage,
+        status: index === 0 ? 'completed' : index === 1 ? 'current' : 'pending'
+      }))
+    }
+    const currentStage = resolveCurrentSkillOrchestrationStage(continuityPlan)
+    expect(currentStage?.id).toBe(base.stages[1]?.id)
+    expect(skillIdsForBodyLoad({ plan: continuityPlan, isTeachingConversation: true })).toEqual([
+      'teach',
+      ...(currentStage?.skillIds ?? []).filter((skillId) =>
+        continuityPlan.decisions.some((decision) =>
+          decision.skillId === skillId && decision.status === 'active_now'
+        )
+      )
+    ].sort())
+
+    const completedPlan: SkillOrchestrationPlan = {
+      ...continuityPlan,
+      currentStageId: undefined,
+      stages: continuityPlan.stages.map((stage) => ({ ...stage, status: 'completed' }))
+    }
+    expect(resolveCurrentSkillOrchestrationStage(completedPlan)).toBeUndefined()
+    expect(skillIdsForBodyLoad({ plan: completedPlan, isTeachingConversation: false })).toEqual(['teach'])
   })
 
   it('filters references to active body set', () => {

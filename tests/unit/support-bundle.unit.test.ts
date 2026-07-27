@@ -595,5 +595,57 @@ describe('support bundle', () => {
     expect(json).not.toMatch(/Bearer sk-proj/)
   })
 
+  it('previews and exports aggregate-only skill orchestration metrics with explicit consent', () => {
+    const preview = previewSupportBundle({
+      now: () => NOW,
+      workspaceRoot: WORKSPACE_ROOT,
+      skillOrchestration: {
+        schemaVersion: 1,
+        planCount: 3,
+        stageSelectionCounts: { teach: 2, verify: 1 },
+        unresolvedStageCount: 0,
+        conflictExclusionCount: 1,
+        overrideSupported: false,
+        overrideCount: 0,
+        promptBudget: {
+          inputChars: 50_000,
+          includedChars: 30_000,
+          budgetChars: 42_000,
+          truncatedBodyCount: 2
+        },
+        gates: { checkedCount: 4, passedCount: 3, failedCount: 1, passRate: 0.75 },
+        teachingCompleteness: {
+          applicablePlanCount: 2,
+          elicitPresentCount: 2,
+          evidenceStatusPresentCount: 1,
+          nextStepActionPresentCount: 2
+        },
+        // @ts-expect-error malicious fields must never enter the projected section
+        promptBody: 'SECRET PROMPT BODY',
+        objective: 'SECRET OBJECTIVE',
+        workspacePath: `${WORKSPACE_ROOT}/secret`
+      }
+    })
+    const section = preview.sections.find((item) => item.id === 'skill_orchestration')
+    expect(section?.title).toBe('Skill Orchestration Evaluation')
+    const json = JSON.stringify(section?.payload)
+    expect(json).toContain('aggregateOnly')
+    expect(json).toContain('automaticallyUploaded')
+    expect(json).not.toMatch(/SECRET PROMPT BODY|SECRET OBJECTIVE|workspacePath|C:\/Users\/alice/)
+
+    expect(exportSupportBundle(preview, null)).toMatchObject({ ok: false, code: 'consent_required' })
+    const exported = exportSupportBundle(preview, {
+      accepted: true,
+      acceptedAt: NOW,
+      sectionsAllowed: ['skill_orchestration']
+    })
+    expect(exported).toMatchObject({
+      schemaVersion: SUPPORT_BUNDLE_SCHEMA_VERSION,
+      consent: { accepted: true, sectionsAllowed: ['skill_orchestration'] },
+      sections: [{ id: 'skill_orchestration' }]
+    })
+  })
+
+
 })
 

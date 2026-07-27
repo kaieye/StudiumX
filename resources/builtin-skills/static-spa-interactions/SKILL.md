@@ -11,6 +11,7 @@ description: Use this skill when a vanilla static SPA scaffold exists and needs 
 > - **产出：** `StaticSpaInteractions`
 > - **产物范围：** `teaching-site/spa/**`
 > - **前置依赖：** `static-spa-conversion`
+> - **完成门槛：** 基础 `StaticSpa` 已存在且可渲染；交互、响应式和持久化行为必须经相应运行时验证后才可交接。
 > - **非职责：** 必须在基础产物已存在后执行；不新建 canonical 产物；不写 learner Evidence。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

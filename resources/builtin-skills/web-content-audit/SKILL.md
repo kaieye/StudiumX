@@ -11,6 +11,7 @@ description: Use this skill when you need to verify cross-file data/asset consis
 > - **产出：** `ContentAuditReport`
 > - **产物范围：** `—`
 > - **前置依赖：** `—`
+> - **完成门槛：** 可审计的 `StaticSpa` 与 `CourseContent` 已提供；报告必须区分通过项、警告与错误，错误修复和复验另行进行。
 > - **非职责：** 只产出诊断；verifier 通过**不等于**修复完成，更**不是** learner Evidence 或 outcome。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

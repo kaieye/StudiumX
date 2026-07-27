@@ -173,25 +173,25 @@ try {
   })
   assert.match(systemPrompt, /<skill-index>/)
   assert.match(systemPrompt, /id=teach/)
-  // Full kernel body stays in turn-tail (ADR-0044 / ADR-0151), not stable system prefix.
+  // Temporary chat receives only the skill index. The Teaching Kernel body is
+  // stable teaching-mode context, never a temporary turn-tail body.
   const turnTail = composeTeachingUserTurn({
     mode: 'temporary',
     lessonToolEnabled: false,
     skillReferences: references
   })
-  assert.match(turnTail, /<teach-skill-reference/)
-  assert.match(turnTail, /Use retrieval practice/)
-  assert.match(turnTail, /progressive disclosure/i)
-  assert.match(turnTail, /SKILL\.md/)
-  assert.match(turnTail, /load only the referenced resources/i)
+  assert.doesNotMatch(turnTail, /<teach-skill-reference/)
+  assert.doesNotMatch(turnTail, /Use retrieval practice/)
+  assert.doesNotMatch(turnTail, /progressive disclosure/i)
+  assert.doesNotMatch(turnTail, /SKILL\.md/)
+  assert.doesNotMatch(turnTail, /load only the referenced resources/i)
 
-  const parsedPayload = parseAgentChatStreamPayload({
+  assert.throws(() => parseAgentChatStreamPayload({
     mode: 'temporary',
     messages: [],
     userInput: '/teach explain closures',
     skillIds: ['teach', 'teach', '../escape']
-  })
-  assert.deepEqual(parsedPayload.skillIds, ['teach', '../escape'])
+  }), /invalid skill id/)
 
   const installedSkills = afterInstall.skills.filter((skill) => skill.installed)
   assert.equal(skillSlashQuery('/'), '')

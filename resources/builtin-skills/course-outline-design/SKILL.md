@@ -11,6 +11,7 @@ description: Use this skill when starting a new course / workshop / training pro
 > - **产出：** `CourseOutline`
 > - **产物范围：** `course-package/outline.md`
 > - **前置依赖：** `—`
+> - **完成门槛：** `CourseBrief` 已说明受众、时长、成果与约束；outline 的 unit ID 稳定且通过本 skill 的 Completion Gate 后，才可交给下游 authoring。
 > - **非职责：** 不写 learner Evidence；不提交 outcome；不判定学习者掌握度；同一 stage 内同一产物范围只能有一个 lead writer。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

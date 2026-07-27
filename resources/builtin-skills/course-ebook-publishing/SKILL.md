@@ -11,6 +11,7 @@ description: Use this skill ONLY AFTER a teaching site is feature-complete and s
 > - **产出：** `CourseEbook`
 > - **产物范围：** `course-package/ebook/**`
 > - **前置依赖：** `course-content-authoring`
+> - **完成门槛：** 仅在 canonical `CourseContent` 与 `StaticSpa` 已稳定、图片覆盖门槛已通过且发布物可验证时交付电子书。
 > - **非职责：** 只消费稳定 canonical 产物；不反向修改 canonical source；不写 learner Evidence。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

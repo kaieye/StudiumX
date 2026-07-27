@@ -11,6 +11,7 @@ description: Use this skill whenever you're making visual / styling decisions on
 > - **产出：** `DesignSystemTokens`
 > - **产物范围：** `teaching-site/design/**`
 > - **前置依赖：** `—`
+> - **完成门槛：** 已有 `StaticSpa` 或 `TeachingSitePlan` 可作为落点；设计 token 必须被目标站点消费并经视觉验证后才可交接。
 > - **非职责：** 必须在基础产物已存在后执行；不新建 canonical 产物；不写 learner Evidence。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

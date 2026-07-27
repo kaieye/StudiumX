@@ -92,7 +92,7 @@ Pet 当前仍以 lesson `createdAt` 的 seed 兼容旧提醒语义；这是接�
 | --- | --- | --- | --- |
 | 间隔复习 | 纯 scheduler、`[1,3,7,21,60]` 阶梯、ledger scan adapter、`review_due`、bridge `dueCount`、Pet 共用 scheduler | 正常 review 页面/入口；结算后的 learner action | **调度内核已实施，学习者可见消费面未闭合** |
 | planner 影响实际教学 | `nextStepAction`、`nextStepReason`、resource/evidence/artifact facts 已进入 `<skill-orchestration-plan>` turn-tail | 未成为 learner-safe UI 动作；未进入 lesson generation；仍依赖模型遵循提示 | **对模型已有约束影响，对产品流程尚非确定性控制** |
-| 多 skill workflow | host policy、冲突/依赖、stage、gate、跨轮 state、active-only 正文装配 | 计划预览、阶段 UI、推进/取消动作、全局 token 预算、完整 teaching-site 自动流水线 | **对话级 workflow continuity 已有，产品级 workflow UX 未交付** |
+| 多 skill workflow | host policy、冲突/依赖、stage、gate、跨轮 state、active-only 正文装配、configured budget pressure、全局正文字符预算、多选/preset/plan preview、strict IPC、本地 counts-only diagnostics 与同意式 support export | learner-facing 显式推进/取消动作；完整 teaching-site 确定性自动流水线；canonical gate override | **编排与解释面已交付；仍未把阶段控制或 override 伪装成 learner authority** |
 | Teaching Reader | `AgentConversationReader` 支持 `teachingPresentation` 与 `onTeachingAction` | `App.tsx` 的生产调用只传普通 `presentation` | **组件能力存在，生产主链未接线** |
 | Pet 复习提醒 | 已调用共享 ReviewScheduler | 每课传 `history: []`，只以 lesson `createdAt` 作 anchor；范围冻结，不接入真实学习历史 | **维持现状；不是本路线图的待交付功能** |
 
@@ -264,18 +264,20 @@ choice/受支持 fill 的答对可以成为 established outcome 的输入，但�
 | gate | 基于 allow-listed artifact facts 的确定性检查 |
 | durable continuity | `.agent-sessions/skill-orchestration/<conversationId>.json`；严格 normalize、原子替换、损坏 fail-soft |
 | 预算降级 | planner 类型支持 `budgetConstrained`，可延后 enhancer/packager |
+| 生产预算压力 | runtime 根据配置的 `maxTotalTokens` / `warningThreshold` 计算软编排压力，同时保持 `AgentRunBudget` checkpoint 原值与硬 fallback 不变 |
+| 正文预算 | Kernel stable body 总预算 18,000 字符；current-stage dynamic bodies 总预算 24,000 字符、单体 14,000，并使用确定性公平截断 |
+| 选择与解释 | 两个 composer 路径提供 chips、presets、active/later/advisory/blocked/excluded preview、依赖解释和无障碍交互 |
+| 本地评估 | strict-normalized counts-only diagnostics；support bundle 仅在显式同意和 section allow-list 下导出；无 phone-home |
 
 这些能力足以推翻旧评估中“完全没有优先级、冲突与跨轮治理”的笼统表述。
 
 ### 5.2 仍存在的编排缺口
 
-1. **生产路径没有真实提供 `budgetConstrained`。** 当前主要是类型、planner 分支和测试能力，尚未由 authority/runtime 的真实预算压力稳定驱动。
-2. **没有整轮全局 skill 正文预算。** `teaching-conversation-prompt.ts` 对每个 skill 分别截断到 `14_000` 字符，多 skill 叠加时仍可能放大 turn-tail。
-3. **stable prefix 仍受 active skill index 变化影响。** skillReferences 改变会改变前缀形状；需要按 [ADR-0044](../adr/0044-teaching-prompt-cache-contract.md) 重新量化命中率，而不是仅凭命名认定其稳定。
-4. **规则是 builtin host policy，不是通用 manifest contract。** 它能治理内建能力，但没有授权不可信 skill 自行声明任意执行能力。
-5. **产品 UI 缺失。** 没有多选 chip、计划预览、阶段状态、gate 解释、显式推进或取消。
-6. **工具假设未完全对齐。** skill 正文提出 shell/外部动作时，必须以产品 effect lattice 和审批结果为准，不能把文档工作流当作已授权执行。
-7. **产物体系仍分裂。** `teach` 家族使用 `lessons/*.html` / learning records；`teaching-site` 家族偏向 `course-package/` / `course-data.js`，两套目录与 schema 缺少正式桥接。
+1. **没有 learner-facing 显式推进或取消动作。** 当前阶段由 canonical artifact facts + deterministic gate 跨轮推进；preview 只读，不成为第二状态机。
+2. **没有 canonical gate override。** Phase 6 明确记录 `not_supported` / `overrideSupported:false`，不会制造不存在的 override event 或频率；若未来增加，必须先定义 authority 与 audit 契约。
+3. **规则是 builtin host policy，不是通用 manifest contract。** 它能治理内建能力，但没有授权不可信 skill 自行声明任意执行能力；manifest schema v2 已明确延期到单独 ADR。
+4. **工具假设未完全对齐。** skill 正文提出 shell/外部动作时，必须以产品 effect lattice 和审批结果为准，不能把文档工作流当作已授权执行。
+5. **产物体系仍分裂。** `teach` 家族使用 `lessons/*.html` / learning records；`teaching-site` 家族偏向 `course-package/` / `course-data.js`，两套目录与 schema 缺少正式桥接，也尚无完整确定性自动流水线。
 
 ### 5.3 Builtin skill 内容治理债
 
@@ -430,14 +432,14 @@ user intent + authority facts + prior orchestration state
 2. **Outcome strength**：区分 provisional、consolidated、lapsed/decayed；隔日检索才提升保持强度。
 3. **Mission success progress**：将 `Success looks like` 结构化为可核对目标，显示缺口而非二元 available/absent。
 4. **TodayQueue**：聚合 review due、planner next step 与既有 study task；不建立新权威。
-5. **多 skill 全局预算与计划 UI**：整轮 body budget、阶段预览、gate 解释、推进/取消。
+5. **多 skill learner action**：全局正文预算、阶段预览与 gate 解释已经完成；剩余是为推进/取消设计 learner-facing、可审计且不绕过 canonical gate 的动作。
 6. **teaching-site 确定性 handoff**：把“已有必要产物”从 prompt 约定升级为代码 gate，并统一 teach/site artifact schema。
 
 ### P2：治理与效果优化
 
 1. 清理 builtin skill 模板残留、绝对路径、命名和 schema 漂移。
 2. 让本地学习效果 analytics 以封闭 allow-list 反馈教学策略，同时保持 usage ledger 与 teaching authority 正交。
-3. 按 ADR-0044 重新测量 skill index / turn-tail 变化对 prompt cache 的影响。
+3. 持续测量 ADR-0044 contract 的缓存效果；当前 regression 已固定 non-kernel stage body 不改变 stable prefix，verified app-shipped Kernel 内容变化会改变 prefix。
 4. 在 objective 与 review 数据可靠后，再评估 interleaving、confidence calibration 和延迟保持测试。
 5. 用真实、可复现的学习失败案例决定是否升级复习算法；不要因“更先进”直接引入复杂自适应模型。
 

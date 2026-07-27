@@ -20,6 +20,7 @@ export type SupportBundleSectionId =
   | 'environment'
   | 'local_data_index'
   | 'mcp_status'
+  | 'skill_orchestration'
 
 /**
  * Documented redaction policy carried on every export so support recipients

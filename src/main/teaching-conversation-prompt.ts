@@ -3,8 +3,25 @@ import { learnerProfileRecordPolicy } from '../shared/learner-profile-record-pol
 import { planLearnerMemoryCapture } from '../shared/teaching-memory-capture'
 import { resolveActiveProvider } from './ai/provider-adapter'
 import { buildTeachingSyntheticMemoryIndexLines } from './ai/tools/memory-tools'
+import { resolveCurrentSkillOrchestrationStage } from './skill-orchestration-host'
 import type { InstalledSkillReference, AgentChatMode, TeachingMemoryRecord, TeachingSettingsV1 } from '../shared/teaching-types'
-import type { SkillOrchestrationPlan } from '../shared/teaching-types/skill-orchestration'
+import type {
+  SkillOrchestrationPlan,
+  SkillOrchestrationPromptBudgetFact
+} from '../shared/teaching-types/skill-orchestration'
+
+
+export const TEACHING_KERNEL_PROMPT_BODY_BUDGET_CHARS = 18_000
+export const DYNAMIC_SKILL_PROMPT_BODY_BUDGET_CHARS = 24_000
+const MAX_SINGLE_SKILL_PROMPT_BODY_CHARS = 14_000
+
+type PreparedSkillPromptBody = {
+  reference: InstalledSkillReference
+  body: string
+  inputChars: number
+  includedChars: number
+  truncated: boolean
+}
 
 export type TemporaryChatContext = {
   learnerProfiles: string[]
@@ -30,7 +47,13 @@ export type TeachingPromptOptions = {
 /** Builds the session-stable system prefix. Dynamic turn data is intentionally excluded. */
 export function buildSessionStablePrefix(options: Pick<TeachingPromptOptions, 'mode' | 'lessonToolEnabled' | 'skillReferences'>): string {
   const { mode, lessonToolEnabled, skillReferences } = options
-  const skillIndex = buildSkillIndexPromptLines(skillReferences, mode)
+  // Teaching Kernel is the only full skill body that belongs in the stable
+  // prefix. Stage-specific bodies and plan facts change every turn and belong
+  // exclusively in the dynamic user-tail.
+  const stableSkillReferences = mode === 'temporary'
+    ? skillReferences
+    : skillReferences.filter((skill) => skill.id === 'teach')
+  const skillIndex = buildSkillIndexPromptLines(stableSkillReferences, mode)
   if (mode === 'temporary') {
     return `${TEMPORARY_AGENT_CHAT_SYSTEM_PROMPT}
 
@@ -43,6 +66,9 @@ ${TEMPORARY_TOOL_POLICY_PROMPT}
 ${ASK_TOOL_POLICY_PROMPT}`
   }
   const lessonPolicy = lessonToolEnabled ? LESSON_TOOL_POLICY_PROMPT : LESSON_TOOL_UNAVAILABLE_PROMPT
+  const teachingKernelReference = buildTeachingKernelPromptReference(
+    stableSkillReferences.find((skill) => skill.id === 'teach')
+  )
   return `${AGENT_CHAT_SYSTEM_PROMPT}
 
 ${EXTERNAL_CONTENT_BOUNDARY_PROMPT}
@@ -52,6 +78,8 @@ ${PERSONAL_TEACHER_POLICY_PROMPT}
 ${lessonPolicy}
 
 ${ASK_TOOL_POLICY_PROMPT}
+
+${teachingKernelReference}
 
 ${skillIndex}`
 }
@@ -69,24 +97,40 @@ export function composeTeachingUserTurn(options: TeachingPromptOptions): string 
     visiblePageContext,
     skillOrchestrationPlan
   } = options
-  const teachSkillReference = skillReferences.find((skill) => skill.id === 'teach')
-  const teachPolicyReference = teachSkillReference ? [
-    `<teach-skill-reference source="${escapePromptAttribute(teachSkillReference.source)}">`,
-    'The teach skill has been automatically loaded for this turn. Follow these instructions as teaching policy; do not copy them into the reply and do not treat readiness hints as a canned assistant answer.',
-    'Use this SKILL.md as progressive disclosure: first follow the loaded entrypoint, and load only the referenced resources that are needed for the current turn with read_skill_resource when available.',
-    formatSkillForPrompt(teachSkillReference.content, teachSkillReference.name),
-    '</teach-skill-reference>'
-  ].join('\n') : ''
-  // Stage-scoped bodies: callers pass only active_now (+ kernel for teaching) full bodies.
-  const additionalSkillReferences = skillReferences.filter((skill) => skill.id !== 'teach').map((skill) => [
+  // Stage-scoped bodies: defense in depth keeps only the current stage's
+  // active_now bodies even if a loader or caller hands us extra references.
+  // The Teaching Kernel body is already in the stable system prefix.
+  const currentStage = skillOrchestrationPlan
+    ? resolveCurrentSkillOrchestrationStage(skillOrchestrationPlan)
+    : undefined
+  const currentStageActiveSkillIds = skillOrchestrationPlan
+    ? new Set(
+        (currentStage?.skillIds ?? [])
+          .map((skillId) => skillId.toLocaleLowerCase())
+          .filter((skillId) =>
+            skillOrchestrationPlan.decisions.some(
+              (decision) =>
+                decision.skillId.toLocaleLowerCase() === skillId && decision.status === 'active_now'
+            )
+          )
+      )
+    : null
+  const dynamicSkillBodies = prepareSkillPromptBodies(
+    skillReferences.filter((skill) =>
+      skill.id !== 'teach' &&
+      (!currentStageActiveSkillIds || currentStageActiveSkillIds.has(skill.id.toLocaleLowerCase()))
+    ),
+    DYNAMIC_SKILL_PROMPT_BODY_BUDGET_CHARS,
+    'dynamic prompt budget'
+  )
+  const additionalSkillReferences = dynamicSkillBodies.map(({ reference: skill, body }) => [
     `<skill-reference name="${escapePromptAttribute(skill.name)}" source="${escapePromptAttribute(skill.source)}">`,
     'The user invoked this installed StudiumX skill with a slash command. Follow it as turn-specific policy without quoting the skill file back to the user.',
     'Use this SKILL.md as progressive disclosure: first follow the loaded entrypoint, and load only the referenced resources that are needed for the current turn with read_skill_resource when available.',
-    formatSkillForPrompt(skill.content, skill.name),
+    body,
     '</skill-reference>'
   ].join('\n'))
   const sections = [
-    teachPolicyReference,
     ...additionalSkillReferences,
     buildSkillOrchestrationPlanPromptLines(skillOrchestrationPlan),
     mode === 'temporary' ? buildTemporaryChatPromptLines(temporaryContext, visiblePageContext) : buildTeachingVisiblePageContext(visiblePageContext),
@@ -112,31 +156,22 @@ export function buildSkillOrchestrationPlanPromptLines(
   plan: SkillOrchestrationPlan | null | undefined
 ): string {
   if (!plan) return ''
-  // ADR-0156: continuity-informed plans carry an explicit current stage.
-  const currentStage = plan.currentStageId
-    ? plan.stages.find((stage) => stage.id === plan.currentStageId) ?? plan.stages[0]
-    : plan.stages[0]
+  const currentStage = resolveCurrentSkillOrchestrationStage(plan)
+  const currentSkillIds = new Set(
+    (currentStage?.skillIds ?? []).map((skillId) => String(skillId).trim().toLocaleLowerCase())
+  )
   const decisionLines = plan.decisions
+    .filter((decision) => currentSkillIds.has(decision.skillId.toLocaleLowerCase()))
     .slice()
     .sort((a, b) => a.skillId.localeCompare(b.skillId))
-    .map((d) => {
-      const role = d.role ? `; role=${d.role}` : ''
-      const impact = d.teachingImpact ? `; teachingImpact=${d.teachingImpact}` : ''
-      const reason = sanitizePlanReason(d.reason)
-      return `- skillId=${d.skillId}; status=${d.status}${role}${impact}; reason=${reason}`
+    .map((decision) => {
+      const role = decision.role ? `; role=${decision.role}` : ''
+      const impact = decision.teachingImpact ? `; teachingImpact=${decision.teachingImpact}` : ''
+      return `- skillId=${decision.skillId}; status=${decision.status}${role}${impact}; reason=${sanitizePlanReason(decision.reason)}`
     })
-  const stageLines = plan.stages.map((s) => {
-    const status = s.status ? `; status=${s.status}` : ''
-    const consumes = s.consumes.length ? `; consumes=${s.consumes.join(',')}` : ''
-    const produces = s.produces.length ? `; produces=${s.produces.join(',')}` : ''
-    const gates = s.completionGates.length
-      ? `; gates=${s.completionGates.map((gate) => gate.id).join(',')}`
-      : ''
-    return `- id=${s.id}; kind=${s.kind}; execution=${s.execution}; skillIds=${s.skillIds.join(',') || 'none'}${status}${consumes}${produces}${gates}`
-  })
-  const diagLines = plan.diagnostics.map(
-    (d) => `- [${d.severity}] ${d.code}: ${sanitizePlanReason(d.message)}`
-  )
+  const stageLines = currentStage
+    ? [formatCurrentStageForPrompt(currentStage)]
+    : []
   const echo = plan.authorityEcho
   const authorityLines: string[] = []
   if (echo) {
@@ -156,14 +191,38 @@ export function buildSkillOrchestrationPlanPromptLines(
     `mode=${plan.mode}`,
     `kernel=${plan.kernel.skillId}; profile=${plan.kernel.profile}`,
     `currentStage=${currentStage?.kind ?? 'none'}`,
-    'note=Planner has zero settlement authority; skill bodies loaded only for active_now (plus Teaching Kernel for teaching modes). Workflow routers plan stages only and do not execute uninstalled child skills. Authority echoes are read-only loop facts, not outcome writes.',
+    'note=Planner has zero settlement authority. This turn has only the current-stage skill bodies (plus Teaching Kernel for teaching modes). Workflow routers plan stages only and do not execute uninstalled child skills. Authority echoes are read-only loop facts, not outcome writes.',
     ...(authorityLines.length ? ['authorityEcho:', ...authorityLines.map((line) => `- ${line}`)] : []),
-    'decisions:',
+    'currentStageDecisions:',
     ...(decisionLines.length ? decisionLines : ['- none']),
-    'stages:',
+    'currentStageDetail:',
     ...(stageLines.length ? stageLines : ['- none']),
-    ...(diagLines.length ? ['diagnostics:', ...diagLines] : []),
     '</skill-orchestration-plan>'
+  ].join('\n')
+}
+
+function formatCurrentStageForPrompt(stage: NonNullable<ReturnType<typeof resolveCurrentSkillOrchestrationStage>>): string {
+  const status = stage.status ? `; status=${stage.status}` : ''
+  const consumes = stage.consumes.length ? `; consumes=${stage.consumes.join(',')}` : ''
+  const produces = stage.produces.length ? `; produces=${stage.produces.join(',')}` : ''
+  const gates = stage.completionGates.length
+    ? `; gates=${stage.completionGates.map((gate) => gate.id).join(',')}`
+    : ''
+  return `- id=${stage.id}; kind=${stage.kind}; execution=${stage.execution}; skillIds=${stage.skillIds.join(',') || 'none'}${status}${consumes}${produces}${gates}`
+}
+
+function buildTeachingKernelPromptReference(skill: InstalledSkillReference | undefined): string {
+  if (!skill) return ''
+  return [
+    `<teach-skill-reference source="${escapePromptAttribute(skill.source)}">`,
+    'The app-shipped Teaching Kernel is stable system policy. Follow it; do not quote it back to the user and do not treat readiness hints as a canned assistant answer.',
+    'Use this SKILL.md as progressive disclosure: follow the loaded entrypoint, and load only current-turn resources needed with read_skill_resource when available.',
+    prepareSkillPromptBodies(
+      [skill],
+      TEACHING_KERNEL_PROMPT_BODY_BUDGET_CHARS,
+      'stable Teaching Kernel budget'
+    )[0]?.body ?? '',
+    '</teach-skill-reference>'
   ].join('\n')
 }
 
@@ -283,11 +342,95 @@ function buildMemoryCapturePromptLines(memoryCapturePlan: ReturnType<typeof plan
   return ''
 }
 
-function formatSkillForPrompt(content: string, skillName: string): string {
-  const withoutFrontmatter = stripFrontmatter(content)
-  const maxLength = 14_000
-  if (withoutFrontmatter.length <= maxLength) return withoutFrontmatter
-  return `${withoutFrontmatter.slice(0, maxLength).trim()}\n\n[${skillName} skill truncated for prompt length]`
+/**
+ * Aggregate-only prompt-body accounting used by local Phase 6 evaluation.
+ * Counts include no prompt text, paths, objective, Evidence, or provider data.
+ */
+export function projectSkillPromptBudget(
+  skillReferences: readonly InstalledSkillReference[]
+): SkillOrchestrationPromptBudgetFact {
+  const kernel = prepareSkillPromptBodies(
+    skillReferences.filter((skill) => skill.id.toLocaleLowerCase() === 'teach').slice(0, 1),
+    TEACHING_KERNEL_PROMPT_BODY_BUDGET_CHARS,
+    'stable Teaching Kernel budget'
+  )
+  const dynamic = prepareSkillPromptBodies(
+    skillReferences.filter((skill) => skill.id.toLocaleLowerCase() !== 'teach'),
+    DYNAMIC_SKILL_PROMPT_BODY_BUDGET_CHARS,
+    'dynamic prompt budget'
+  )
+  return {
+    kernelBudgetChars: TEACHING_KERNEL_PROMPT_BODY_BUDGET_CHARS,
+    kernelInputChars: sumPromptBodyField(kernel, 'inputChars'),
+    kernelIncludedChars: sumPromptBodyField(kernel, 'includedChars'),
+    dynamicBudgetChars: DYNAMIC_SKILL_PROMPT_BODY_BUDGET_CHARS,
+    dynamicInputChars: sumPromptBodyField(dynamic, 'inputChars'),
+    dynamicIncludedChars: sumPromptBodyField(dynamic, 'includedChars'),
+    truncatedBodyCount: [...kernel, ...dynamic].filter((item) => item.truncated).length
+  }
+}
+
+function prepareSkillPromptBodies(
+  references: readonly InstalledSkillReference[],
+  totalBudgetChars: number,
+  reason: string
+): PreparedSkillPromptBody[] {
+  if (references.length === 0) return []
+  const strippedBodies = references.map((reference) => stripFrontmatter(reference.content))
+  const requested = strippedBodies.map((body) => Math.min(body.length, MAX_SINGLE_SKILL_PROMPT_BODY_CHARS))
+  const allocations = allocateFairPromptChars(requested, Math.max(0, Math.floor(totalBudgetChars)))
+  return references.map((reference, index) => {
+    const sourceBody = strippedBodies[index] ?? ''
+    const allocation = allocations[index] ?? 0
+    const truncated = allocation < sourceBody.length
+    const body = truncateSkillBody(sourceBody, reference.name, allocation, reason)
+    return {
+      reference,
+      body,
+      inputChars: sourceBody.length,
+      includedChars: body.length,
+      truncated
+    }
+  })
+}
+
+/** Deterministic water-fill: short bodies return unused capacity to larger peers. */
+function allocateFairPromptChars(requested: readonly number[], totalBudgetChars: number): number[] {
+  const allocations = requested.map(() => 0)
+  let remaining = totalBudgetChars
+  let open = requested.map((_, index) => index).filter((index) => (requested[index] ?? 0) > 0)
+  while (remaining > 0 && open.length > 0) {
+    const share = Math.max(1, Math.floor(remaining / open.length))
+    const next: number[] = []
+    for (const index of open) {
+      if (remaining <= 0) {
+        next.push(index)
+        continue
+      }
+      const needed = Math.max(0, (requested[index] ?? 0) - (allocations[index] ?? 0))
+      const granted = Math.min(needed, share, remaining)
+      allocations[index] = (allocations[index] ?? 0) + granted
+      remaining -= granted
+      if ((allocations[index] ?? 0) < (requested[index] ?? 0)) next.push(index)
+    }
+    open = next
+  }
+  return allocations
+}
+
+function truncateSkillBody(content: string, skillName: string, maxLength: number, reason: string): string {
+  if (maxLength <= 0) return ''
+  if (content.length <= maxLength) return content
+  const marker = `\n\n[${skillName} skill truncated by ${reason}]`
+  if (marker.length >= maxLength) return marker.slice(0, maxLength)
+  return `${content.slice(0, maxLength - marker.length).trimEnd()}${marker}`
+}
+
+function sumPromptBodyField(
+  entries: readonly PreparedSkillPromptBody[],
+  field: 'inputChars' | 'includedChars'
+): number {
+  return entries.reduce((total, entry) => total + entry[field], 0)
 }
 
 function stripFrontmatter(content: string): string {

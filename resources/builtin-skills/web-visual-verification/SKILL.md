@@ -11,6 +11,7 @@ description: Use this skill whenever you need to verify that a web UI actually w
 > - **产出：** `VisualVerificationReport`
 > - **产物范围：** `—`
 > - **前置依赖：** `—`
+> - **完成门槛：** `VisualAssets` 与 `StaticSpa` 已提供；验证脚本已运行并把失败、截图与诊断写入报告。通过不代表修复工作已完成。
 > - **非职责：** 只产出诊断；verifier 通过**不等于**修复完成，更**不是** learner Evidence 或 outcome。
 >
 > 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。

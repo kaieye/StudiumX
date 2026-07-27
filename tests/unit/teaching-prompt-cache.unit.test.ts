@@ -12,7 +12,31 @@ describe('teaching prompt cache contract', () => {
     const first = buildSessionStablePrefix(base)
     const second = buildSessionStablePrefix({ ...base, skillReferences: [...base.skillReferences] })
     expect(second).toBe(first)
-    expect(first).not.toContain('FULL BODY')
+    expect(first).toContain('FULL BODY')
+  })
+
+  it('ignores stage-specific bodies for prefix identity but invalidates on kernel content change', () => {
+    const first = buildSessionStablePrefix({
+      ...base,
+      skillReferences: [
+        ...base.skillReferences,
+        { id: 'learning-assessor', name: 'Assessor', source: 'builtin', content: 'ASSESSOR V1' }
+      ]
+    })
+    const nonKernelChanged = buildSessionStablePrefix({
+      ...base,
+      skillReferences: [
+        ...base.skillReferences,
+        { id: 'learning-assessor', name: 'Assessor', source: 'builtin', content: 'ASSESSOR V2' }
+      ]
+    })
+    const kernelChanged = buildSessionStablePrefix({
+      ...base,
+      skillReferences: [{ ...base.skillReferences[0]!, content: '# Teach\nCHANGED KERNEL' }]
+    })
+    expect(nonKernelChanged).toBe(first)
+    expect(kernelChanged).not.toBe(first)
+    expect(kernelChanged).toContain('CHANGED KERNEL')
   })
 
   it('moves turn-varying context into the user turn packet', () => {
@@ -26,7 +50,7 @@ describe('teaching prompt cache contract', () => {
     expect(prefix).not.toContain('Remember this')
     expect(turn).toContain('<teaching-context-packet>')
     expect(turn).toContain('Visible page changes')
-    expect(turn).toContain('FULL BODY')
+    expect(turn).not.toContain('FULL BODY')
     expect(turn).toContain('Remember this')
   })
 })

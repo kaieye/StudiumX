@@ -244,11 +244,69 @@ export type SkillOrchestrationPreviewResult = {
  * Identifiers, enums and counts ONLY — never objective text, skill bodies,
  * workspace paths, secrets or learner Evidence. Never phoned home.
  */
+export type SkillOrchestrationPromptBudgetFact = {
+  kernelBudgetChars: number
+  kernelInputChars: number
+  kernelIncludedChars: number
+  dynamicBudgetChars: number
+  dynamicInputChars: number
+  dynamicIncludedChars: number
+  truncatedBodyCount: number
+}
+
+export type SkillOrchestrationGateDiagnosticsFact = {
+  checkedCount: number
+  passedCount: number
+  failedCount: number
+}
+
+export type SkillOrchestrationTeachingCompletenessFact = {
+  applicable: boolean
+  elicitStagePresent: boolean
+  evidenceStatusPresent: boolean
+  nextStepActionPresent: boolean
+}
+
 export type SkillOrchestrationPlanDiagnosticsFact = {
   planId: string
   mode: SkillOrchestrationMode
   presetId?: string
   stageKinds: SkillOrchestrationStageKind[]
+  currentStageKind?: SkillOrchestrationStageKind
+  currentStageSkillCount: number
   decisionCounts: Record<SkillOrchestrationDecisionStatus, number>
   diagnosticCodes: Array<{ code: string; severity: SkillOrchestrationDiagnostic['severity'] }>
+  /** There is no product gate-override path yet; never fabricate override events. */
+  userOverrideStatus: 'not_supported'
+  promptBudget: SkillOrchestrationPromptBudgetFact
+  gates: SkillOrchestrationGateDiagnosticsFact
+  teachingCompleteness: SkillOrchestrationTeachingCompletenessFact
+}
+
+export type SkillOrchestrationEvaluationSummary = {
+  schemaVersion: 1
+  planCount: number
+  stageSelectionCounts: Partial<Record<SkillOrchestrationStageKind, number>>
+  unresolvedStageCount: number
+  conflictExclusionCount: number
+  overrideSupported: false
+  overrideCount: 0
+  promptBudget: {
+    inputChars: number
+    includedChars: number
+    budgetChars: number
+    truncatedBodyCount: number
+  }
+  gates: {
+    checkedCount: number
+    passedCount: number
+    failedCount: number
+    passRate: number | null
+  }
+  teachingCompleteness: {
+    applicablePlanCount: number
+    elicitPresentCount: number
+    evidenceStatusPresentCount: number
+    nextStepActionPresentCount: number
+  }
 }

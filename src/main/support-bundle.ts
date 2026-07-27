@@ -8,6 +8,10 @@
  */
 
 import type { TeachingDoctorReport } from '../shared/teaching-types/teaching-doctor'
+import type {
+  SkillOrchestrationEvaluationSummary,
+  SkillOrchestrationStageKind
+} from '../shared/teaching-types/skill-orchestration'
 import {
   DEFAULT_SUPPORT_BUNDLE_REDACTION_POLICY,
   SUPPORT_BUNDLE_SCHEMA_VERSION,
@@ -59,7 +63,8 @@ const SECTION_TITLES: Readonly<Record<SupportBundleSectionId, string>> = {
   audit_correlation: 'Audit Correlation',
   environment: 'Environment',
   local_data_index: 'Local Data Index',
-  mcp_status: 'User MCP Status'
+  mcp_status: 'User MCP Status',
+  skill_orchestration: 'Skill Orchestration Evaluation'
 }
 
 const ALL_SECTION_IDS: readonly SupportBundleSectionId[] = [
@@ -70,7 +75,8 @@ const ALL_SECTION_IDS: readonly SupportBundleSectionId[] = [
   'audit_correlation',
   'environment',
   'local_data_index',
-  'mcp_status'
+  'mcp_status',
+  'skill_orchestration'
 ]
 
 /** Optional inputs assembled by callers; missing sections are simply omitted. */
@@ -97,6 +103,8 @@ export type SupportBundleInput = {
    * Never includes env secrets, headers, or secret storage refs.
    */
   mcp?: SupportBundleMcpStatusInput | null
+  /** Aggregate counts only; export remains previewed and consent-gated. */
+  skillOrchestration?: SkillOrchestrationEvaluationSummary | null
 }
 
 /**
@@ -256,6 +264,9 @@ export function previewSupportBundle(input: SupportBundleInput = {}): SupportBun
   }
   if (input.mcp != null) {
     sections.push(buildMcpStatusSection(input.mcp, workspaceRoot))
+  }
+  if (input.skillOrchestration != null) {
+    sections.push(buildSkillOrchestrationSection(input.skillOrchestration))
   }
 
   if (sections.length === 0) {
@@ -593,6 +604,73 @@ function buildLocalDataIndexSection(
   }
 
   return section('local_data_index', deepRedactJson(payload, workspaceRoot), warnings)
+}
+
+function buildSkillOrchestrationSection(
+  input: SkillOrchestrationEvaluationSummary
+): SupportBundleSectionPreview {
+  const stageKinds: readonly SkillOrchestrationStageKind[] = [
+    'ground',
+    'diagnose',
+    'teach',
+    'elicit',
+    'artifact_authoring',
+    'enhance',
+    'verify',
+    'package'
+  ]
+  const safeCount = (value: unknown): number =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+      ? Math.min(value, Number.MAX_SAFE_INTEGER)
+      : 0
+  const stageSelectionCounts: Partial<Record<SkillOrchestrationStageKind, number>> = {}
+  for (const kind of stageKinds) {
+    const count = safeCount(input.stageSelectionCounts?.[kind])
+    if (count > 0) stageSelectionCounts[kind] = count
+  }
+  const checkedCount = safeCount(input.gates?.checkedCount)
+  const passedCount = Math.min(checkedCount, safeCount(input.gates?.passedCount))
+  const failedCount = Math.min(checkedCount - passedCount, safeCount(input.gates?.failedCount))
+  const payload = {
+    aggregateOnly: true as const,
+    schemaVersion: 1 as const,
+    planCount: safeCount(input.planCount),
+    stageSelectionCounts,
+    unresolvedStageCount: safeCount(input.unresolvedStageCount),
+    conflictExclusionCount: safeCount(input.conflictExclusionCount),
+    overrideSupported: false as const,
+    overrideCount: 0 as const,
+    promptBudget: {
+      inputChars: safeCount(input.promptBudget?.inputChars),
+      includedChars: safeCount(input.promptBudget?.includedChars),
+      budgetChars: safeCount(input.promptBudget?.budgetChars),
+      truncatedBodyCount: safeCount(input.promptBudget?.truncatedBodyCount)
+    },
+    gates: {
+      checkedCount,
+      passedCount,
+      failedCount,
+      passRate: checkedCount > 0 ? passedCount / checkedCount : null
+    },
+    teachingCompleteness: {
+      applicablePlanCount: safeCount(input.teachingCompleteness?.applicablePlanCount),
+      elicitPresentCount: safeCount(input.teachingCompleteness?.elicitPresentCount),
+      evidenceStatusPresentCount: safeCount(input.teachingCompleteness?.evidenceStatusPresentCount),
+      nextStepActionPresentCount: safeCount(input.teachingCompleteness?.nextStepActionPresentCount)
+    },
+    includesPromptBodies: false as const,
+    includesObjectives: false as const,
+    includesLearnerEvidence: false as const,
+    automaticallyUploaded: false as const
+  }
+  return section(
+    'skill_orchestration',
+    payload,
+    [
+      'Local aggregate-only evaluation; no prompt bodies, objectives, paths, secrets, or learner Evidence are included.',
+      'Export requires explicit user consent and this section in sectionsAllowed; data is never automatically uploaded.'
+    ]
+  )
 }
 
 function buildMcpStatusSection(
