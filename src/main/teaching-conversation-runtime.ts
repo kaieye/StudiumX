@@ -34,6 +34,7 @@ import { plan as planSkillOrchestration } from './skill-orchestration-planner'
 import {
   advanceConversationOrchestrationState,
   buildSkillOrchestrationContextIdentity,
+  buildSkillOrchestrationPlanDiagnosticsFact,
   buildSkillOrchestrationPlanInput,
   buildSkillOrchestrationReadinessFromCatalog,
   evaluateSkillOrchestrationStageGates,
@@ -123,6 +124,14 @@ export type TeachingConversationRuntimeDeps = {
   saveOrchestrationState?: (
     conversationId: string,
     state: import('../shared/teaching-types/skill-orchestration').ConversationOrchestrationState
+  ) => Promise<boolean>
+  /**
+   * Optional local plan diagnostics sink (ADR-0163 §2.6). Allow-listed
+   * identifiers/enums/counts only; local-first, never phoned home, zero
+   * authority. Failures never affect the teaching turn.
+   */
+  recordOrchestrationDiagnostics?: (
+    fact: import('../shared/teaching-types/skill-orchestration').SkillOrchestrationPlanDiagnosticsFact
   ) => Promise<boolean>
   /**
    * Execute the lesson generation pipeline for a brief the conversation agent
@@ -466,6 +475,15 @@ async function runTeachingConversationTurnActive(
     } catch {
       // Fail-soft: continuity is a projection, never load-bearing for the turn.
     }
+  }
+  // ADR-0163 §2.6: local, redactable plan diagnostics. Fire-and-forget; the
+  // sink is observability only and must never delay or fail a teaching turn.
+  if (deps.recordOrchestrationDiagnostics) {
+    void deps
+      .recordOrchestrationDiagnostics(
+        buildSkillOrchestrationPlanDiagnosticsFact({ plan: skillOrchestrationPlan })
+      )
+      .catch(() => undefined)
   }
   const bodyLoadSkillIds = skillIdsForBodyLoad({
     plan: skillOrchestrationPlan,

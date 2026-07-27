@@ -30,6 +30,7 @@ import type {
 import type { RunTeachingDoctorPayload } from '../shared/teaching-types/teaching-doctor'
 import type { ProjectAgentSessionQueuePayload } from '../shared/teaching-types/agent-session-queue'
 import type { CommitLearningOutcomeRequest } from '../shared/teaching-types/system-api'
+import type { SkillOrchestrationPreviewRequest } from '../shared/teaching-types/skill-orchestration'
 import { normalizePreviewLessonInteractionIntent, type PreviewLessonInteractionIntent } from '../shared/teaching-types/lesson-interaction'
 import { isLessonStyleId } from '../shared/lesson-styles'
 import { isLearningSessionId } from '../shared/teaching-placement'
@@ -226,6 +227,39 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
     ...(alignedMessageTurnIds ? { messageTurnIds: alignedMessageTurnIds } : {}),
     messages,
     userInput: requireString(record.userInput, 'userInput')
+  }
+}
+
+/**
+ * Read-only orchestration preview payload (ADR-0163).
+ * Selection is deduped, lowercased and capped to the same 8-id ceiling as the
+ * turn path so preview and execution can never disagree on the selection.
+ */
+export function parsePreviewSkillOrchestrationPayload(
+  payload: unknown
+): SkillOrchestrationPreviewRequest {
+  const record = requireRecord(payload)
+  const selectedSkillIds = Array.isArray(record.selectedSkillIds)
+    ? [
+        ...new Set(
+          record.selectedSkillIds
+            .filter((item): item is string => typeof item === 'string')
+            .map((item) => item.trim().toLocaleLowerCase())
+            .filter(Boolean)
+        )
+      ].slice(0, 8)
+    : []
+  const conversationId = optionalStreamId(record.conversationId)
+  const workspaceId = typeof record.workspaceId === 'string' ? record.workspaceId : undefined
+  const presetId = typeof record.presetId === 'string' ? record.presetId.trim().slice(0, 64) : undefined
+  const userInput = typeof record.userInput === 'string' ? record.userInput.slice(0, 4_000) : undefined
+  return {
+    selectedSkillIds,
+    ...(conversationId ? { conversationId } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(presetId ? { presetId } : {}),
+    ...(userInput ? { userInput } : {}),
+    ...(record.isTeachingConversation === true ? { isTeachingConversation: true } : {})
   }
 }
 

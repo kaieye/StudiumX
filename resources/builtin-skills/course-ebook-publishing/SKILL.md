@@ -3,6 +3,18 @@ name: course-ebook-publishing
 description: Use this skill ONLY AFTER a teaching site is feature-complete and stable, when the user wants to produce a printable / archivable / shareable version — typically a PDF ebook with cover, page numbers, table of contents, or a DOCX for editorial review. Triggers on phrases like "做電子書", "產 PDF", "ebook", "PDF ebook", "印給學員", "課程講義 PDF", "course handbook", "DOCX deliverable", "book-style layout", "build:ebook". Do NOT invoke during early site development — this is a downstream consumer that breaks if the site changes underneath. The skill produces PDF via Playwright `page.pdf()` and DOCX via pandoc, both from a single composed markdown source.
 ---
 
+> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+>
+> - **角色：** `packager`
+> - **阶段：** `package`
+> - **消费：** `CourseContent, StaticSpa`
+> - **产出：** `CourseEbook`
+> - **产物范围：** `course-package/ebook/**`
+> - **前置依赖：** `course-content-authoring`
+> - **非职责：** 只消费稳定 canonical 产物；不反向修改 canonical source；不写 learner Evidence。
+>
+> 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。
+
 # Course Ebook Publishing
 
 > **Schema authority**: this skill reads the live `window.COURSE` object whose shape is defined in [`_shared/domain-primitives.md`](../_shared/domain-primitives.md). Quiz / pre-test / post-test items are filtered OUT of the ebook (per §10 quiz item rules + ebook content policy).

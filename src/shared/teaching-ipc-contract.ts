@@ -39,6 +39,8 @@ export const teachingInvokeChannels = {
   applyLessonStyle: 'teach:apply-lesson-style',
   listSkills: 'teach:list-skills',
   installSkill: 'teach:install-skill',
+  /** Read-only orchestration preview (ADR-0163); never advances continuity state. */
+  previewSkillOrchestration: 'teach:preview-skill-orchestration',
   generateLesson: 'teach:generate-lesson',
   getDirectLessonActionStatus: 'teach:get-direct-lesson-action-status',
   readLesson: 'teach:read-lesson',

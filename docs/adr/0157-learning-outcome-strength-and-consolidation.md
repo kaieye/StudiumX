@@ -3,7 +3,7 @@
 - **状态：** Proposed（设计草案,未实施 — 2026-07-26）
 - **日期：** 2026-07-26
 - **范围：** 为 `established` outcome 引入 strength 维度（`provisional` / `consolidated`）的领域设计；复验事件与 RetentionProjection 的派生语义；`NextTeachingStepPlanner` 对 `provisional` 的保守推进；evaluator 判据的 `evaluatorVersion` 递增机制。**不**改变四分类 outcome union、settlement sole-writer、既有 record 文件或任何生产行为。
-- **关联：** [teaching-chain-evaluation-and-optimization.md](../teaching-chain-evaluation-and-optimization.md)（§3.2 G2、§4 O1-2）；[ADR-0009](0009-typed-lesson-interaction-evidence.md)；[ADR-0010](0010-evidence-gated-learning-record-cutover.md)；[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)；[ADR-0012](0012-deterministic-next-teaching-step-planner.md)；[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)；[ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)；[ADR-0029](0029-learning-branch-projection.md)；[ADR-0154](0154-spaced-review-scheduler-and-review-due-planner-action.md)（间隔复习调度器,部分实施;本 ADR 的 RetentionProjection 构建于其上）；[ADR-0160](0160-teaching-turn-behavior-contract.md)（Mastery Policy 治理）
+- **关联：** [ADR-0009](0009-typed-lesson-interaction-evidence.md)；[ADR-0010](0010-evidence-gated-learning-record-cutover.md)；[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)；[ADR-0012](0012-deterministic-next-teaching-step-planner.md)；[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)；[ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)；[ADR-0029](0029-learning-branch-projection.md)；[ADR-0154](0154-spaced-review-scheduler-and-review-due-planner-action.md)（间隔复习调度器,部分实施;本 ADR 的 RetentionProjection 构建于其上）；[ADR-0160](0160-teaching-turn-behavior-contract.md)（Mastery Policy 治理）
 
 ## 1. 问题
 

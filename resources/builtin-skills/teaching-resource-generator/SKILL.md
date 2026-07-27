@@ -3,115 +3,86 @@ name: teaching-resource-generator
 description: Provides comprehensive guidance for generating teaching resources including courseware, exercises, case studies, and learning guides. Use when the user asks about generating teaching materials, creating courseware, designing exercises, or developing educational content.
 ---
 
+> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+>
+> - **角色：** `artifact_producer`
+> - **阶段：** `artifact_authoring`
+> - **消费：** `LearningObjective, LearnerLevel, Misconception, CourseContent`
+> - **产出：** `LessonAsset, ExerciseSet`
+> - **产物范围：** `lesson-assets/**`, `course-package/day*/content.md`
+> - **前置依赖：** `—`
+> - **非职责：** 不写 learner Evidence；不提交 outcome；不自行判定 mastery；不与 `course-content-authoring` 同时写同一文件。
+>
+> 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。
+
 # 教学资源生成技能
 
 ## 概述
 
-本技能帮助您生成各种教学资源，包括课件、练习题、教学案例和学习指南。
+本技能是**资源 producer**：把 typed facts 转成学习者能直接使用的教学资源。它不做诊断、不做判定、不做路由——只生产资源。
 
-**关键词**: 教学资源生成、课件制作、练习题设计、教学案例、学习指南
+**关键词**: 教学资源生成、课件、练习题、教学案例、学习指南
 
-## 核心功能
+## 输入：typed facts
 
-### 1. 课件生成
+生成前先确认拿到了哪些事实；缺失的部分**明确标注为假设**，不要静默补齐。
 
-- 设计课程PPT结构
-- 生成讲解要点和文字内容
-- 添加图表和示意图
-- 创建互动环节
+| 输入 | 用途 | 缺失时 |
+|---|---|---|
+| `LearningObjective` | 决定资源要达成什么 | 必需——缺失时先问，不要凭主题猜目标 |
+| `LearnerLevel` | 决定深度、术语密度、脚手架多少 | 标注假设水平并在产物开头写明 |
+| `Misconception` | 决定纠错练习与反例的靶子 | 跳过纠错类资源，不要虚构误解 |
+| `CourseContent` | 保证与既有讲义一致、不重复不冲突 | 只生成独立资源，不要改写未读过的内容 |
 
-### 2. 练习题设计
+## 输出：资源类型
 
-- 设计多种题型（选择题、填空题、简答题、编程题）
-- 创建递进式练习
-- 设计纠错练习
-- 生成答案解析
+- **LessonAsset** — 课件骨架、讲解要点、图示需求、互动环节
+- **ExerciseSet** — 练习集（选择 / 填空 / 简答 / 编程 / 改错），含答案解析与难度梯度
+- **CaseStudy** — 实践场景、分步指导、示例、思考题
+- **StudyGuide** — 学习路线图、知识点清单、自测清单、参考资料
 
-### 3. 教学案例
+每份产物开头声明：目标（引用 `LearningObjective`）、适用水平、类型、与哪份 `CourseContent` 对齐。
 
-- 设计实践场景
-- 创建分步骤指导
-- 提供代码示例
-- 添加思考题
+## 写入边界（硬规则）
 
-### 4. 学习指南
+产物范围是 `lesson-assets/**` 与 `course-package/day*/content.md`。后者与 `course-content-authoring` **重叠**，host 会把同一 stage 内的双 lead writer 判定为冲突。
 
-- 编写学习路线图
-- 设计知识点清单
-- 创建自我测评
-- 提供参考资料
+- **默认写 `lesson-assets/**`**——独立资源放这里，永不与他人抢位
+- **只有在 `course-content-authoring` 未在同一 stage 领写时**，才可写 `course-package/day*/content.md`
+- **绝不同时写同一文件**——两个 producer 交替写同一份 `content.md` 会互相覆盖，且没人知道哪一版是权威
+- 不确定谁在领写时，写到 `lesson-assets/**` 并在交付说明里指出可合并的位置，由用户决定
 
-## 使用指南
+## Evidence 引用规则（薄弱点驱动的资源）
 
-### 资源生成流程
+当资源是**依据学习者薄弱点**生成时：
 
-1. **需求分析**
-   - 确定教学目标
-   - 了解受众水平
-   - 明确资源类型
+- **必须保留所依据 Evidence 的 identity / provenance 引用**：`sessionId`、`eventId`、`sequence`
+- **不复制敏感正文**：不抄学习者原话、原始作答、`responseDigest` 之外的任何正文
+- 引用形式示例：`> 依据：session {sessionId} 的 evidence {eventId}（seq {sequence}）——概念「X」上的误解`
+- **不自行判定 mastery**：可以写「针对误解 X 的强化练习」，不可以写「学习者尚未掌握 X」——掌握度判定不属于本技能
+- 没有 Evidence 支撑时，资源按通用难点设计，并明确写「非基于个人学习记录」
 
-2. **内容设计**
-   - 规划内容结构
-   - 设计教学活动
-   - 编写详细内容
+## 生成流程
 
-3. **格式优化**
-   - 选择合适格式
-   - 优化排版布局
-   - 添加视觉元素
-
-## 输出格式
-
-教学资源应包含以下部分：
-
-- **资源基本信息**: 名称、类型、适用对象
-- **内容主体**: 核心教学内容
-- **练习与实践**: 巩固所学知识
-- **参考资料**: 延伸学习资源
+1. **确认输入** — 对照上表列出已有 / 缺失的 typed facts，缺 `LearningObjective` 先问
+2. **确认写入位置** — 检查是否与 `course-content-authoring` 存在 lead writer 冲突
+3. **设计结构** — 按目标拆分内容块，规划难度梯度与互动点
+4. **产出内容** — 写实质内容；练习给完整解析，案例给可执行步骤
+5. **标注溯源** — 声明目标引用、Evidence 引用（若有）、假设项
 
 ## 最佳实践
 
-- 确保内容准确、与课程目标对齐
-- 保持语言清晰、易于理解
-- 设计互动环节提高参与度
-- 提供即时反馈机制
+- 内容与学习目标严格对齐，删掉「有用但不在目标里」的部分
+- 语言难度匹配 `LearnerLevel`，术语首次出现时给定义
+- 练习按认知层次递进，不要一上来就是综合题
+- 每个练习都给反馈路径：答错时指回该复习哪个知识点
+- 与既有 `CourseContent` 保持术语一致，不引入同义异名
 
-## 能力边界
+## 反模式
 
-### ✅ 适用场景
-- 当你需要使用此技能对应的技术栈时
-- 当项目需要遵循最佳实践时
-- 当需要快速上手或深入理解核心概念时
-
-### ⚠️ 需要注意
-- 复杂业务逻辑需要结合具体场景调整
-- 性能优化需要根据实际数据量评估
-
-### ❌ 不适用场景
-- 不相关的技术栈或框架
-- 需要完全自定义的特殊场景
-
-## 常见陷阱 (Gotchas)
-
-1. **版本兼容性**：注意框架版本与依赖库的兼容性，不同版本 API 可能有差异
-2. **配置文件格式**：配置文件格式错误是最常见的问题，建议使用编辑器的语法检查
-3. **环境变量**：确保所有必要的环境变量已正确设置，敏感信息不要硬编码
-4. **依赖冲突**：多版本共存时注意依赖冲突，使用 lock 文件锁定版本
-5. **性能陷阱**：大数据量场景下注意性能优化，避免 N+1 查询等常见问题
-
-## 使用流程
-
-### Step 1: 环境准备
-确保开发环境已安装必要的依赖和工具。
-
-### Step 2: 配置初始化
-根据项目需求进行基础配置。
-
-### Step 3: 核心功能使用
-按照示例代码实现核心功能。
-
-### Step 4: 测试验证
-运行测试确保功能正常。
-
-### Step 5: 部署上线
-完成开发后进行部署和监控。
+- **在资源里下掌握度结论**——「学习者已掌握 X」是 Evidence 才能支撑的判断，本技能永不做。
+- **把生成的练习和答案当成学习者表现记录**——生成产物不是 Evidence。
+- **与 `course-content-authoring` 抢写同一份 `content.md`**——互相覆盖，权威版本丢失。
+- **复制学习者原始作答到资源正文里**——只留 identity / provenance 引用。
+- **凭主题猜学习目标**——目标缺失就问，猜错会让整份资源偏离。
+- **虚构误解来凑纠错练习**——没有 `Misconception` 就不生成纠错类资源。

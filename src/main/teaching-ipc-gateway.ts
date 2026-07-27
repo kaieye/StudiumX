@@ -33,7 +33,7 @@ import {
   parsePreviewLessonInteractionIntent,
   parseReplayAgentConversationBranchPayload,
   parseRebuildAgentHistoryIndexPayload, parseResolveAgentConversationCheckpointPayload,
-  parseReadWorkspaceMarkdownPayload, parseRecordProgressPayload, parseRemoveGitWorktreePayload, parseReplayAgentChatEventsPayload, parseSteerAgentChatPayload, parseFollowUpAgentChatPayload, parseProjectAgentSessionQueuePayload,
+  parseReadWorkspaceMarkdownPayload, parseRecordProgressPayload, parseRemoveGitWorktreePayload, parseReplayAgentChatEventsPayload, parseSteerAgentChatPayload, parseFollowUpAgentChatPayload, parseProjectAgentSessionQueuePayload, parsePreviewSkillOrchestrationPayload,
   parseSaveAgentConversationPayload, parseSaveWorkspaceMarkdownPayload, parseSettingsPatch,
   parseUpdateAgentConversationBranchStatusPayload, parseUpdateMemoryPayload, parseUpdateMissionPayload, parseSetWorkspaceTrustPayload,
   parseWorkspaceItemMetaPayload,
@@ -331,6 +331,18 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({ channel: teachingInvokeChannels.setWorkspaceTrust, parser: (payload) => parseSetWorkspaceTrustPayload(payload), action: (_event, payload) => service.setWorkspaceTrust(payload.workspaceId, payload.trust), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.applyLessonStyle, parser: (payload) => parseApplyLessonStylePayload(payload), action: (_event, payload) => service.applyLessonStyle(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.listSkills, parser: () => undefined, action: () => skills.listSkills(), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({
+      channel: teachingInvokeChannels.previewSkillOrchestration,
+      parser: (payload) => parsePreviewSkillOrchestrationPayload(payload),
+      action: (_event, payload) => {
+        // Read-only preview (ADR-0163): reuses the turn's host assembly + pure
+        // plan(), reads the ADR-0156 continuity state but never advances or
+        // persists it. No ledger write, no outcome, no Evidence, no tool run.
+        return service.previewSkillOrchestration(payload)
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
     command({ channel: teachingInvokeChannels.installSkill, parser: (skillId) => requireString(skillId, 'skillId'), action: (_event, skillId) => skills.installSkill(skillId), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.generateLesson, parser: (payload) => parseGenerateLessonPayload(payload), action: (_event, payload) => service.generateLesson(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.getDirectLessonActionStatus, parser: (payload) => parseDirectLessonActionStatusPayload(payload), action: (_event, payload) => service.getDirectLessonActionStatus(payload), reply: identityReply, streamCleanup: noStreamCleanup }),

@@ -3,6 +3,18 @@ name: teaching-site-design-system
 description: Use this skill whenever you're making visual / styling decisions on a teaching site or content-driven SPA — picking colors, fonts, badge styles, card layouts, hero treatments, dark mode tokens, or any "how should this look?" question. Triggers on phrases like "視覺風格", "設計系統", "色票", "字體", "暗色模式", "玻璃卡片", "提示詞徽章", "Day hero 怎麼設計", "design tokens", "design system", "color system", "glass cards", "typography", "look and feel", "視覺一致性", or any moment when the user evaluates aesthetics rather than behaviour. This is the cross-cutting visual authority — every stage (SPA, interactions, corporate edition, ebook) reads tokens from here so the brand stays coherent across formats.
 ---
 
+> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+>
+> - **角色：** `cross_cutting_enhancer`
+> - **阶段：** `enhance`
+> - **消费：** `StaticSpa, TeachingSitePlan`
+> - **产出：** `DesignSystemTokens`
+> - **产物范围：** `teaching-site/design/**`
+> - **前置依赖：** `—`
+> - **非职责：** 必须在基础产物已存在后执行；不新建 canonical 产物；不写 learner Evidence。
+>
+> 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。
+
 # Teaching Site Design System
 
 > **Token starter** (copy this, don't re-derive): [`templates/tokens.css`](templates/tokens.css) — full `:root` block + dark theme + signature components (day-hero, glass-card, prompt-card, task-list, learning-goal, concept, unit, material, table). Paste into the `<style>` block of `index.html` (vanilla SPA pattern) or use as external `style.css`.

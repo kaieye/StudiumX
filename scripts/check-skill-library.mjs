@@ -38,7 +38,8 @@ try {
   assert.match(contract, /listSkills: 'teach:list-skills'/)
   assert.match(contract, /installSkill: 'teach:install-skill'/)
   assert.deepEqual(JSON.parse(packageJson).build.extraResources, [
-    { from: 'resources/builtin-skills', to: 'builtin-skills' }
+    { from: 'resources/builtin-skills', to: 'builtin-skills' },
+    { from: 'resources/sandbox', to: 'sandbox' }
   ])
   assert.match(builtinSkill, /name: teach/)
   assert.match(builtinSkill, /category: learning/)

@@ -204,3 +204,51 @@ export type ConversationOrchestrationState = {
   artifactFacts: string[]
   updatedAt: string
 }
+
+/**
+ * Read-only orchestration preview request (ADR-0163).
+ *
+ * Preview reuses the same host assembly + pure `plan(...)` as a real teaching
+ * turn, so the previewed plan equals the executed plan for the same canonical
+ * facts. It NEVER advances the ADR-0156 continuity cursor and never writes.
+ */
+export type SkillOrchestrationPreviewRequest = {
+  /** Conversation whose prior continuity state should be READ (never written). */
+  conversationId?: string
+  workspaceId?: string
+  /** Explicit capability selection (chips + expanded preset). */
+  selectedSkillIds: string[]
+  /** Raw composer text; leading slash tokens merge with the explicit selection. */
+  userInput?: string
+  /** Product intent preset the selection came from, when applicable. */
+  presetId?: string
+  /** True when the composer is in teaching mode. */
+  isTeachingConversation?: boolean
+}
+
+export type SkillOrchestrationPreviewResult = {
+  ok: boolean
+  /** Null whenever preview degraded — callers render "no preview", never block. */
+  plan: SkillOrchestrationPlan | null
+  /**
+   * Ids the host added as predeclared builtin dependencies rather than the user.
+   * Surfaced separately so auto-fill is never disguised as a user choice.
+   */
+  autoAddedSkillIds: string[]
+  /** Allow-listed failure token when `ok` is false (never raw error text). */
+  reason?: string
+}
+
+/**
+ * Local-only, redactable plan diagnostics fact (ADR-0163 §2.6).
+ * Identifiers, enums and counts ONLY — never objective text, skill bodies,
+ * workspace paths, secrets or learner Evidence. Never phoned home.
+ */
+export type SkillOrchestrationPlanDiagnosticsFact = {
+  planId: string
+  mode: SkillOrchestrationMode
+  presetId?: string
+  stageKinds: SkillOrchestrationStageKind[]
+  decisionCounts: Record<SkillOrchestrationDecisionStatus, number>
+  diagnosticCodes: Array<{ code: string; severity: SkillOrchestrationDiagnostic['severity'] }>
+}

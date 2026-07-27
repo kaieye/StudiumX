@@ -6,14 +6,17 @@
 
 import { getBuiltinSkillOrchestrationPolicy } from './builtin-skill-orchestration-policy'
 import { leadingSkillIdSequence } from '../shared/skill-command'
+import { sanitizeSkillOrchestrationPresetId } from '../shared/skill-orchestration-presets'
 import type { InstalledSkillReference, SkillSummary } from '../shared/teaching-types'
 import {
   SKILL_ORCHESTRATION_STATE_SCHEMA_VERSION,
   type ConversationOrchestrationState,
+  type SkillOrchestrationDecisionStatus,
   type SkillOrchestrationGateResult,
   type SkillOrchestrationInput,
   type SkillOrchestrationMode,
   type SkillOrchestrationPlan,
+  type SkillOrchestrationPlanDiagnosticsFact,
   type SkillOrchestrationPriorState,
   type SkillOrchestrationReadiness,
   type SkillOrchestrationStageProgress
@@ -471,5 +474,41 @@ export function skillOrchestrationFactsFromAuthority(input: {
     ...(availableArtifacts.length ? { availableArtifacts } : {}),
     ...(input.budgetConstrained ? { budgetConstrained: true } : {}),
     ...(input.preferArtifactProfile ? { preferArtifactProfile: true } : {})
+  }
+}
+
+/**
+ * Project a plan into a LOCAL, redactable diagnostics fact (ADR-0163 §2.6).
+ *
+ * Identifiers, enums and counts only. The objective text, skill bodies,
+ * workspace paths, secrets and every learner Evidence field are structurally
+ * excluded — this shape has nowhere to put them. Never phoned home; never a
+ * settlement input.
+ */
+export function buildSkillOrchestrationPlanDiagnosticsFact(input: {
+  plan: SkillOrchestrationPlan
+  presetId?: string
+}): SkillOrchestrationPlanDiagnosticsFact {
+  const decisionCounts: Record<SkillOrchestrationDecisionStatus, number> = {
+    active_now: 0,
+    scheduled_later: 0,
+    advisory_only: 0,
+    excluded: 0,
+    blocked: 0
+  }
+  for (const decision of input.plan.decisions) {
+    if (decision.status in decisionCounts) decisionCounts[decision.status] += 1
+  }
+  const presetId = sanitizeSkillOrchestrationPresetId(input.presetId)
+  return {
+    planId: input.plan.planId,
+    mode: input.plan.mode,
+    ...(presetId ? { presetId } : {}),
+    stageKinds: input.plan.stages.map((stage) => stage.kind),
+    decisionCounts,
+    diagnosticCodes: input.plan.diagnostics.map((diagnostic) => ({
+      code: diagnostic.code,
+      severity: diagnostic.severity
+    }))
   }
 }

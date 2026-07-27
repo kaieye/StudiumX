@@ -59,6 +59,12 @@ import {
 } from './teaching-conversation-runtime'
 import { loadSkillOrchestrationAuthorityFactsForWorkspace } from './skill-orchestration-authority-bridge'
 import { createSkillOrchestrationStateStore } from './skill-orchestration-state-store'
+import { createSkillOrchestrationDiagnosticsStore } from './skill-orchestration-diagnostics-store'
+import { previewSkillOrchestration } from './skill-orchestration-preview'
+import type {
+  SkillOrchestrationPreviewRequest,
+  SkillOrchestrationPreviewResult
+} from '../shared/teaching-types/skill-orchestration'
 import { AgentRunStore } from './ai/agent-run-store'
 import { parentTurnStageSafeTextDigest } from './ai/agent-parent-turn-staging'
 import type { AgentStagedChildTranscriptAllowance } from './agent-conversation-session-audit'
@@ -1149,6 +1155,11 @@ export class TeachingWorkspaceService {
       isTeachingConversation && workspace
         ? createSkillOrchestrationStateStore({ workspaceRoot: workspace.rootPath })
         : null
+    // ADR-0163 §2.6: local-only, allow-listed plan diagnostics (never phoned home).
+    const skillOrchestrationDiagnosticsStore =
+      isTeachingConversation && workspace
+        ? createSkillOrchestrationDiagnosticsStore({ workspaceRoot: workspace.rootPath })
+        : null
     const result = await runTeachingConversationTurn(payload, stream, runtimeWorkspace, {
       appDataRoot: this.appDataRoot,
       mcpSessionManager: this.mcpSessionManager,
@@ -1177,6 +1188,13 @@ export class TeachingWorkspaceService {
               skillOrchestrationStateStore.load(conversationId),
             saveOrchestrationState: (conversationId: string, state: Parameters<typeof skillOrchestrationStateStore.save>[1]) =>
               skillOrchestrationStateStore.save(conversationId, state)
+          }
+        : {}),
+      ...(skillOrchestrationDiagnosticsStore
+        ? {
+            recordOrchestrationDiagnostics: (
+              fact: Parameters<typeof skillOrchestrationDiagnosticsStore.record>[0]
+            ) => skillOrchestrationDiagnosticsStore.record(fact)
           }
         : {}),
       generateLessonFromBrief: runtimeWorkspace && isTeachingConversation
@@ -1462,6 +1480,50 @@ export class TeachingWorkspaceService {
     const workspace = findWorkspace(registry, payload.workspaceId)
     const record = (await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, payload.scope)).record
     return { ...record, branch: inferAgentConversationBranchMetadata(record) }
+  }
+
+  /**
+   * Read-only skill orchestration preview (ADR-0163).
+   *
+   * Reuses the same host assembly + pure `plan(...)` as a real teaching turn.
+   * Deliberately passes ONLY the continuity store's `load` — no `save`, and
+   * never `advanceConversationOrchestrationState` — so previewing can never
+   * move the ADR-0156 stage cursor. Fully fail-soft: any failure degrades to
+   * "no preview" and never affects a teaching turn.
+   */
+  async previewSkillOrchestration(
+    request: SkillOrchestrationPreviewRequest
+  ): Promise<SkillOrchestrationPreviewResult> {
+    let workspaceRoot: string | null = null
+    try {
+      const registry = await this.ensureRegistry()
+      // Fall back to the active workspace so a preview issued before the
+      // renderer knows its workspace id still sees real authority facts.
+      const workspaceId = request.workspaceId || registry.activeWorkspaceId || ''
+      workspaceRoot = findWorkspace(registry, workspaceId).rootPath
+    } catch {
+      workspaceRoot = null
+    }
+    const stateStore = workspaceRoot
+      ? createSkillOrchestrationStateStore({ workspaceRoot })
+      : null
+    return previewSkillOrchestration(request, {
+      workspaceRoot,
+      listSkillCatalog: async () => {
+        if (!this.skillLibraryService) return []
+        const catalog = await this.skillLibraryService.listSkills()
+        return catalog.skills.map((skill) => ({
+          id: skill.id,
+          installed: skill.installed,
+          source: skill.source
+        }))
+      },
+      ...(stateStore
+        ? { loadOrchestrationState: (conversationId: string) => stateStore.load(conversationId) }
+        : {}),
+      loadAuthorityFacts: (root) => loadSkillOrchestrationAuthorityFactsForWorkspace(root),
+      conversationMode: request.isTeachingConversation ? 'teaching' : 'temporary'
+    })
   }
 
   async projectAgentConversationSummaries(

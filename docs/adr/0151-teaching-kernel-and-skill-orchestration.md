@@ -1,9 +1,9 @@
 # ADR-0151：Teaching Kernel 与 Skill 编排权威边界
 
-- **状态：** **部分实施**（2026-07-24）：Phase 0–3 完成；**Phase 3 已实施**（runtime plan(...) + stage-scoped bodies + turn-tail plan projection）；Phase 4–5 residual（multi-select UI、skill markdown rewrites）
+- **状态：** **已实施**（2026-07-27）：Phase 0–3 完成；**Phase 4–5 已由 [ADR-0163](0163-teaching-capability-selection-and-plan-preview.md) 收尾**（多选 chip + 计划预览 + preset、skill 正文治理与三个模板化 skill 重写、本地 plan 诊断）。manifest schema v2（Phase B）仍延期，须另开 ADR。
 - **日期：** 2026-07-24
 - **范围：** 将 `teach` 固定为 app-shipped **Teaching Kernel** 标识；划分 **Teaching Authority Plane** 与 **Skill Capability Plane**；约定 `SkillOrchestrationPlanner` 为纯 `plan(...)`（Phase 2 已交付 planner + host registry；runtime wire residual）。**不**改 settlement sole-writer、ledger 权威、effect lattice 或 prompt-cache 合同全文。
-- **关联：** [teaching-skill-orchestration-solution.md](../teaching-skill-orchestration-solution.md)；[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)–[ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)；[ADR-0022](0022-teaching-capability-catalog-read-only-readiness.md)–[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)；[ADR-0044](0044-teaching-prompt-cache-contract.md)；[ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md)；[ADR-0150](0150-skills-install-stage-then-swap.md)；`Agents.md` 产品地板
+- **关联：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)–[ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)；[ADR-0022](0022-teaching-capability-catalog-read-only-readiness.md)–[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)；[ADR-0044](0044-teaching-prompt-cache-contract.md)；[ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md)；[ADR-0150](0150-skills-install-stage-then-swap.md)；`Agents.md` 产品地板
 - **实现落点（Phase 2）：** `src/shared/teaching-types/skill-orchestration.ts`；`src/main/builtin-skill-orchestration-policy.ts`；`src/main/skill-orchestration-planner.ts`（纯 `plan(...)`）；`tests/unit/skill-orchestration-planner.unit.test.ts`。**不**写 settlement/Evidence；Phase 3 runtime wire 已交付（见 §3.1）。
 - **实现落点（Phase 1）：** `src/main/skill-library/core-teaching-kernel.ts`；`SkillLibraryService.readCoreTeachingKernel` / 引用加载路径；`teaching-conversation-runtime` teaching 模式 kernel 缺席 fail-closed；`tests/unit/core-teaching-kernel.unit.test.ts`；`scripts/fixtures/skill-library.ts`；`scripts/check-skill-library.mjs`
 
@@ -12,8 +12,6 @@
 1. 教学模式把 `'teach'` 并入 skill id 列表，但 `readInstalledSkillReferences` / `readInvokedSkillReferences` 仅从 **personal root 且 `installed === true`** 读正文 → 未安装时 **静默缺席** Teaching Kernel。
 2. personal 同 id 包可覆盖 catalog 的 `installedPath`，存在用个人副本 **静默 shadow** 内置教学内核的风险。
 3. 多 skill 产品化需要统一术语与权威边界，避免把 Markdown skill 误升为 settlement / Evidence 写者。
-
-方案全文见 [teaching-skill-orchestration-solution.md](../teaching-skill-orchestration-solution.md)。
 
 ## 2. 决策：双平面
 

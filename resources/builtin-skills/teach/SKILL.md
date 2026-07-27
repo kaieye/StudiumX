@@ -8,6 +8,18 @@ icon: graduation-cap
 author: StudiumX
 ---
 
+> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+>
+> - **角色：** `kernel`
+> - **阶段：** `ground, teach, elicit`
+> - **消费：** `—`
+> - **产出：** `—`
+> - **产物范围：** `—`
+> - **前置依赖：** `—`
+> - **非职责：** 不写 LearningSessionLedger；不创建或提交 outcome；不伪造 Evidence；不是 settlement writer。
+>
+> 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。
+
 The user has asked you to teach them something. This is a stateful request - they intend to learn the topic over multiple sessions.
 
 ## Teaching Workspace

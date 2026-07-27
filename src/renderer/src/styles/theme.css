@@ -37,6 +37,7 @@
 :root[data-resolved-theme="dark"] .style-card,
 :root[data-resolved-theme="dark"] .skill-library-card,
 :root[data-resolved-theme="dark"] .skill-slash-menu,
+:root[data-resolved-theme="dark"] .skill-capability-panel,
 :root[data-resolved-theme="dark"] .empty-state,
 :root[data-resolved-theme="dark"] .row-context-menu-dropdown,
 :root[data-resolved-theme="dark"] .remove-dialog {
@@ -167,6 +168,10 @@
 :root[data-resolved-theme="dark"] .skill-library-sort,
 :root[data-resolved-theme="dark"] .skill-library-search,
 :root[data-resolved-theme="dark"] .skill-slash-menu__head kbd,
+:root[data-resolved-theme="dark"] .skill-capability-chip,
+:root[data-resolved-theme="dark"] .skill-capability-toggle,
+:root[data-resolved-theme="dark"] .skill-capability-preset,
+:root[data-resolved-theme="dark"] .skill-capability-plan__auto,
 :root[data-resolved-theme="dark"] .skill-library-loading,
 :root[data-resolved-theme="dark"] .skill-library-empty {
   color: var(--text-muted);
@@ -174,6 +179,9 @@
   background: var(--surface-muted);
 }:root[data-resolved-theme="dark"] .skill-category-pills button.is-active,
 :root[data-resolved-theme="dark"] .skill-library-mine.is-active,
+:root[data-resolved-theme="dark"] .skill-capability-preset.is-active,
+:root[data-resolved-theme="dark"] .skill-capability-chip.is-kernel,
+:root[data-resolved-theme="dark"] .skill-capability-toggle.is-open,
 :root[data-resolved-theme="dark"] .skill-slash-menu__item.is-active {
   color: var(--text);
   border-color: var(--line-strong);

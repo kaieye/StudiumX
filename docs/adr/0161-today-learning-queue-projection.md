@@ -3,7 +3,7 @@
 - **状态：** Proposed（设计草案,未实施 — 2026-07-26）
 - **日期：** 2026-07-26
 - **范围：** 聚合"到期复习 + planner 下一步 + 今日 Study task"的 TodayQueue 纯投影；确定性排序与每日复习上限；教学对话入口卡片与自习室 FocusContract 默认值 / SR-305 深链两个表面的单源消费。**不**新增写权威,**不**改变计时与教学 Session 的术语边界,**不**新增或改造 Pet 功能。
-- **关联：** [teaching-chain-evaluation-and-optimization.md](../teaching-chain-evaluation-and-optimization.md)（§3.2 G3/G8、§4 O7）；[ADR-0012](0012-deterministic-next-teaching-step-planner.md)；[ADR-0094](0094-study-task-timer-planning-design-gate.md)（TimerSession ≠ LearningSession）；[ADR-0117](0117-study-planning-store-paths-and-wire.md)；[ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md)；[study-room-improvement-plan.md](../study-room-improvement-plan.md)（SR-104 / SR-305 / FocusContract）；ADR-0154（到期复习投影,同批设计草案）
+- **关联：** [ADR-0012](0012-deterministic-next-teaching-step-planner.md)；[ADR-0094](0094-study-task-timer-planning-design-gate.md)（TimerSession ≠ LearningSession）；[ADR-0117](0117-study-planning-store-paths-and-wire.md)；[ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md)；[study-room-improvement-plan.md](../study-room-improvement-plan.md)（SR-104 / SR-305 / FocusContract）；ADR-0154（到期复习投影,同批设计草案）
 
 ## 1. 问题
 

@@ -77,6 +77,7 @@ import { AppPet } from './views/pet/AppPet'
 import { PetSprite } from './views/pet/PetSprite'
 import { useSkillCatalog } from './skills/skillCatalog'
 import { useSkillSlashInput } from './skills/SkillSlashMenu'
+import { mergeComposerSkillIds, useSkillCapabilityPicker } from './skills/SkillCapabilityPicker'
 import { useTeachingComposerCommands } from './teaching/TeachingComposerCommandMenu'
 import { isForbiddenTechnicalComposerToken, parseTeachingCommandInput, resolveTeachingCommandSubmission } from '../../shared/teaching-command'
 import { SettingsView } from './views/settings/SettingsView'
@@ -2133,6 +2134,15 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const [inputHistoryDraft, setInputHistoryDraft] = useState('')
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const activeConversationRevision = useAppStore((s) => s.activeConversationRevision)
+  const activeWorkspaceForSkills = useAppStore((s) => s.appState.activeWorkspace)
+  // ADR-0163: explicit capability multi-select + read-only plan preview.
+  // Slash entry stays authoritative for backward compatibility; both merge.
+  const skillCapabilities = useSkillCapabilityPicker({
+    isTeachingMode,
+    userInput: inputValue,
+    ...(activeConversationId ? { conversationId: activeConversationId } : {}),
+    ...(activeWorkspaceForSkills?.id ? { workspaceId: activeWorkspaceForSkills.id } : {})
+  })
   const activeSessionTree = useAppStore((s) => s.activeSessionTree)
   const openAgentConversationBranch = useAppStore((s) => s.openAgentConversationBranch)
   const forkAgentConversationBranch = useAppStore((s) => s.forkAgentConversationBranch)
@@ -2227,7 +2237,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     setAgentInput('')
     // One brain: the teaching conversation owns clarification AND generation
     // (via its generate_lesson tool). No parallel pipeline hand-off here.
-    void agentChat(prompt, { mode: 'teaching', skillIds: skillSlash.skillIdsFor(prompt) })
+    void agentChat(prompt, { mode: 'teaching', skillIds: mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt)) })
   }
   const submitChatPrompt = (value: string): void => {
     const prompt = value.trim()
@@ -2235,7 +2245,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     rememberAgentInput(prompt)
     setInputHistoryIndex(null)
     setInputHistoryDraft('')
-    void agentChat(prompt, { mode: 'temporary', skillIds: skillSlash.skillIdsFor(prompt) })
+    void agentChat(prompt, { mode: 'temporary', skillIds: mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt)) })
   }
   const submitCurrentMode = (): void => {
     if (isTeachingMode) {
@@ -2517,6 +2527,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         <div className="overview-dialog-card">
           {teachingComposer.menu}
           {skillSlash.menu}
+          {skillCapabilities.panel}
+          {skillCapabilities.chips}
           <textarea
             ref={inputRef}
             value={inputValue}
@@ -2552,6 +2564,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           <div className="overview-dialog-footer">
             <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
+              {skillCapabilities.toggle}
               <OverviewModelPicker />
               <OverviewReasoningPicker />
               <button

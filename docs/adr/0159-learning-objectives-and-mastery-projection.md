@@ -3,7 +3,7 @@
 - **状态：** Proposed（设计草案,未实施 — 2026-07-26）
 - **日期：** 2026-07-26
 - **范围：** CourseDefinition schema v2 的 LearningObjective 扩展；quiz/flashcard item 与 objectiveId 的 sidecar 绑定；按 objective 聚合的 MasteryProjection 纯投影；diagnose 前测（只评估、不讲解的特殊 lesson）；mastery 摘要的预算化 turn-tail 注入。**不**改变 CourseDefinition 的非权威地位、settlement 链路或任何生产行为。
-- **关联：** [teaching-chain-evaluation-and-optimization.md](../teaching-chain-evaluation-and-optimization.md)（§3.2 G5、§4 O4）；[ADR-0012](0012-deterministic-next-teaching-step-planner.md)；[ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)；[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)；[ADR-0026](0026-course-definition-durable-session-order.md)；[ADR-0044](0044-teaching-prompt-cache-contract.md)；[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)（无 FTS/向量的检索红线）；[ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)（`diagnose` stage）；[ADR-0157](0157-learning-outcome-strength-and-consolidation.md)；ADR-0154（RetentionProjection,同批设计草案）
+- **关联：** [ADR-0012](0012-deterministic-next-teaching-step-planner.md)；[ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)；[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)；[ADR-0026](0026-course-definition-durable-session-order.md)；[ADR-0044](0044-teaching-prompt-cache-contract.md)；[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)（无 FTS/向量的检索红线）；[ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)（`diagnose` stage）；[ADR-0157](0157-learning-outcome-strength-and-consolidation.md)；ADR-0154（RetentionProjection,同批设计草案）
 
 ## 1. 问题
 

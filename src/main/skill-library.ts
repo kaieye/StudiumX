@@ -104,7 +104,12 @@ export class SkillLibraryService {
         installRoot: this.personalRoot,
         skillId,
         stageBuild: async (stagingSkillDir) => {
-          await cp(source.realDirectory, stagingSkillDir, { recursive: true, errorOnExist: true, force: false })
+          // `stageThenSwapSkillPack` rm's and re-creates `stagingSkillDir`
+          // immediately before this callback, so the destination is guaranteed
+          // to be a fresh empty directory. `errorOnExist` would therefore always
+          // throw EEXIST on that very directory rather than guarding anything —
+          // the real no-clobber protection is the promote/backup step.
+          await cp(source.realDirectory, stagingSkillDir, { recursive: true, force: true })
         }
         // Shared resources resolve under personalRoot/_shared (sibling of the
         // final skill dir), not under .staging — full verifySkillPack (incl.

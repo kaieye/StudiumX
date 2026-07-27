@@ -3,6 +3,18 @@ name: web-visual-verification
 description: Use this skill whenever you need to verify that a web UI actually works the way it's supposed to — clicking through flows, asserting state, catching console errors, taking screenshots across multiple viewports for visual review. Triggers on phrases like "驗證網頁", "verify the site", "Playwright tests", "visual regression", "RWD verification", "screenshot comparison", "responsive check", "console error check", "看看手機版有沒有壞", "視覺驗證", "Playwright 測試", "截圖比對", "RWD 驗證", "驗 sidebar", "看 console 有沒有錯", or any post-change moment where the user wants to know "did I break anything?". This is the runtime-behaviour verifier — use `web-content-audit` instead if the question is about file/data consistency rather than rendered behaviour.
 ---
 
+> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+>
+> - **角色：** `verifier`
+> - **阶段：** `verify`
+> - **消费：** `VisualAssets, StaticSpa`
+> - **产出：** `VisualVerificationReport`
+> - **产物范围：** `—`
+> - **前置依赖：** `—`
+> - **非职责：** 只产出诊断；verifier 通过**不等于**修复完成，更**不是** learner Evidence 或 outcome。
+>
+> 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。
+
 # Web Visual Verification
 
 > **Schema authority**: when verifying that data renders correctly, the source-of-truth field names come from [`_shared/domain-primitives.md`](../_shared/domain-primitives.md). E.g. asserting `unit.illustrations.length >= 1` matches §11's Coverage Floor.

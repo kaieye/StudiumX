@@ -3,6 +3,18 @@ name: static-spa-conversion
 description: Use this skill when you have structured course content (or any chapter-based dataset) in markdown form and need to turn it into a working interactive website — without picking a framework, without a build step. Triggers on phrases like "做成網頁", "轉成 SPA", "course-data.js", "render 函式", "把講義變網頁", "static site from markdown", "vanilla JS site", "no-framework site", "single-page app from markdown". The output is a vanilla HTML + JS single-page app that opens with `npx serve` and persists state in localStorage. Always invoke AFTER `course-content-authoring` (content stable), BEFORE `static-spa-interactions` (this skill produces the scaffold; interactions adorn it).
 ---
 
+> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+>
+> - **角色：** `artifact_producer`
+> - **阶段：** `artifact_authoring`
+> - **消费：** `CourseContent, TeachingSitePlan`
+> - **产出：** `StaticSpa`
+> - **产物范围：** `teaching-site/spa/**`
+> - **前置依赖：** `—`
+> - **非职责：** 不写 learner Evidence；不提交 outcome；不判定学习者掌握度；同一 stage 内同一产物范围只能有一个 lead writer。
+>
+> 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。
+
 # Static SPA Conversion
 
 > **Schema authority**: all `window.COURSE` field names come from [`_shared/domain-primitives.md`](../_shared/domain-primitives.md). When the schema example below diverges from that file, that file wins.

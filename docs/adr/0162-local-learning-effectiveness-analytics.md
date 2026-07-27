@@ -3,7 +3,7 @@
 - **状态：** Proposed（设计草案,未实施 — 2026-07-26）
 - **日期：** 2026-07-26
 - **范围：** 从 LearningSession ledger 与 RetentionProjection/MasteryProjection 派生的本地学习效果指标（封闭 allow-list）；StudyAnalyticsPage 新增"学习效果"页签；teaching doctor facts 扩展。**不**引入远程 telemetry、全站对比或任何新写权威。
-- **关联：** [teaching-chain-evaluation-and-optimization.md](../teaching-chain-evaluation-and-optimization.md)（§3.2 G9、§4 O8）；[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)；[ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)；[ADR-0034](0034-redacted-support-bundle.md)；[ADR-0093](0093-teaching-doctor-multi-collector-facts.md)；[ADR-0104](0104-teaching-doctor-session-outcome-scan-collectors.md)；[ADR-0122](0122-usage-ledger-as-canonical-observability.md)（正交性）；[ADR-0157](0157-learning-outcome-strength-and-consolidation.md)；[ADR-0159](0159-learning-objectives-and-mastery-projection.md)；[ADR-0160](0160-teaching-turn-behavior-contract.md)；[ADR-0161](0161-today-learning-queue-projection.md)；ADR-0154（RetentionProjection,同批设计草案）
+- **关联：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)；[ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)；[ADR-0034](0034-redacted-support-bundle.md)；[ADR-0093](0093-teaching-doctor-multi-collector-facts.md)；[ADR-0104](0104-teaching-doctor-session-outcome-scan-collectors.md)；[ADR-0122](0122-usage-ledger-as-canonical-observability.md)（正交性）；[ADR-0157](0157-learning-outcome-strength-and-consolidation.md)；[ADR-0159](0159-learning-objectives-and-mastery-projection.md)；[ADR-0160](0160-teaching-turn-behavior-contract.md)；[ADR-0161](0161-today-learning-queue-projection.md)；ADR-0154（RetentionProjection,同批设计草案）
 
 ## 1. 问题
 

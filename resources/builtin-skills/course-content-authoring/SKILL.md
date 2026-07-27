@@ -3,6 +3,18 @@ name: course-content-authoring
 description: Use this skill when an outline exists and you need to fill in the actual teaching content — lecture notes, sample materials (CSV / YAML / MD samples), quiz items, and any course-specific artifacts like prompt templates or worksheets. Triggers on phrases like "寫講義", "補素材", "出測驗題", "提示詞範本", "撰寫課程內容", "lecture notes", "course material", "quiz questions", "quiz authoring", "prompt templates". Always invoke AFTER `course-outline-design` is stable, BEFORE `static-spa-conversion`. This skill produces only the raw `.md`/`.csv`/`.yaml` artifacts — turning them into a website is the next stage's job.
 ---
 
+> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+>
+> - **角色：** `artifact_producer`
+> - **阶段：** `artifact_authoring`
+> - **消费：** `CourseOutline`
+> - **产出：** `CourseContent`
+> - **产物范围：** `course-package/day*/content.md`
+> - **前置依赖：** `course-outline-design`
+> - **非职责：** 不写 learner Evidence；不提交 outcome；不判定学习者掌握度；同一 stage 内同一产物范围只能有一个 lead writer。
+>
+> 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。
+
 # Course Content Authoring
 
 > **Schema authority**: all primitive field names (unit / concept / prompt / task / material / quiz / faq / illustration) come from [`_shared/domain-primitives.md`](../_shared/domain-primitives.md). When this skill mentions a field, that file is the source of truth.

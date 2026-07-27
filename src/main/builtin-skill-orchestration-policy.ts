@@ -4,6 +4,7 @@
  */
 
 import { BUILTIN_SKILL_IDS } from './skill-library'
+import { listSkillOrchestrationPresets } from '../shared/skill-orchestration-presets'
 import type {
   SkillOrchestrationRole,
   SkillOrchestrationStageKind,
@@ -224,6 +225,25 @@ for (const id of BUILTIN_SKILL_IDS) {
 }
 if (ENTRIES.length !== BUILTIN_SKILL_IDS.length) {
   throw new Error('Host orchestration policy length must match BUILTIN_SKILL_IDS.')
+}
+
+/**
+ * Product presets (ADR-0163 §2.3) may only reference registered builtin skills.
+ * A preset can never introduce an unknown, personal or custom id into planning.
+ */
+for (const preset of listSkillOrchestrationPresets()) {
+  for (const skillId of preset.skillIds) {
+    if (!REGISTERED.has(skillId as BuiltinSkillOrchestrationEntry['skillId'])) {
+      throw new Error(
+        `Preset "${preset.id}" references unregistered skill "${skillId}" (ADR-0163 §2.3).`
+      )
+    }
+    if (skillId === 'teach') {
+      throw new Error(
+        `Preset "${preset.id}" must not list the reserved kernel id "teach" (ADR-0151 §2.1).`
+      )
+    }
+  }
 }
 
 export function listBuiltinSkillOrchestrationPolicies(): readonly BuiltinSkillOrchestrationEntry[] {

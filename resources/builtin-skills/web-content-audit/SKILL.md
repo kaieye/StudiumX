@@ -3,6 +3,18 @@ name: web-content-audit
 description: Use this skill when you need to verify cross-file data/asset consistency in a content-driven site — not "does it render?" (that's `web-visual-verification`) but "do the data, files, and references all line up?". Triggers on phrases like "盤點內容", "稽核資產", "對照 course-data 跟 markdown", "找缺圖", "task ID 有沒有重複", "quiz 編號 vs 硬編碼總數", "audit", "content audit", "content drift", "asset coverage", "three-way sync check", "cross-file consistency", "find missing illustrations", "資料一致性檢查", "找出該補插圖的地方", or any moment when the user senses divergence between source files and deployed data. Output is a human-readable markdown report, not a pass/fail. Pair with `web-visual-verification` for full pre-release coverage.
 ---
 
+> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+>
+> - **角色：** `verifier`
+> - **阶段：** `verify`
+> - **消费：** `StaticSpa, CourseContent`
+> - **产出：** `ContentAuditReport`
+> - **产物范围：** `—`
+> - **前置依赖：** `—`
+> - **非职责：** 只产出诊断；verifier 通过**不等于**修复完成，更**不是** learner Evidence 或 outcome。
+>
+> 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。
+
 # Web Content Audit
 
 > **Schema authority**: cross-file consistency rules (3-place sync for materials, task ID stability, quiz renumber trap) are codified in [`_shared/domain-primitives.md`](../_shared/domain-primitives.md) §13. Audit scripts in this skill operationalise those rules.

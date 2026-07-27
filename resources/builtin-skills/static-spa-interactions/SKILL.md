@@ -3,6 +3,18 @@ name: static-spa-interactions
 description: Use this skill when a vanilla static SPA scaffold exists and needs to feel like a polished product — progress persistence, sidebar + scrollspy navigation, dark/light theme, content zoom, responsive (mobile sidebar overlay), keyboard nav, fade-in entrances, toast notifications, iframe modal viewers, quiz scoring with section back-links. Triggers on phrases like "加進度勾選", "響應式", "暗色模式", "縮放", "scrollspy", "sidebar 收合", "手機版", "RWD", "dark mode", "progress tracking", "quiz UX", "interactive polish". Always invoke AFTER `static-spa-conversion` (renders working), as a standalone enhancement layer.
 ---
 
+> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+>
+> - **角色：** `cross_cutting_enhancer`
+> - **阶段：** `enhance`
+> - **消费：** `StaticSpa`
+> - **产出：** `StaticSpaInteractions`
+> - **产物范围：** `teaching-site/spa/**`
+> - **前置依赖：** `static-spa-conversion`
+> - **非职责：** 必须在基础产物已存在后执行；不新建 canonical 产物；不写 learner Evidence。
+>
+> 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。
+
 # Static SPA Interactions
 
 > **Schema authority**: the `Task` primitive (id-as-localStorage-key rules) and the `QuizItem` primitive (storage of selected option) come from [`_shared/domain-primitives.md`](../_shared/domain-primitives.md) §8 and §10. localStorage schema lives in §8.

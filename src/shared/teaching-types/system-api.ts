@@ -105,6 +105,10 @@ import type { TeachingSettingsPatch, TeachingSettingsV1 } from './settings'
 import type { PreviewLessonInteractionIntent, PreviewLessonInteractionReceipt } from './lesson-interaction'
 import type { SkillCatalogResult, SkillSummary } from './skill'
 import type {
+  SkillOrchestrationPreviewRequest,
+  SkillOrchestrationPreviewResult
+} from './skill-orchestration'
+import type {
   AnalyticsExportRequest,
   AnalyticsExportResult,
   ClearAnalyticsRequest,
@@ -161,6 +165,14 @@ export type TeachingSystemApi = {
   applyLessonStyle: (payload: ApplyLessonStylePayload) => Promise<TeachingAppState>
   listSkills: () => Promise<SkillCatalogResult>
   installSkill: (skillId: string) => Promise<SkillSummary>
+  /**
+   * Read-only skill orchestration preview (ADR-0163).
+   * Same host assembly + pure `plan(...)` as a real turn. Never writes the
+   * ledger, an outcome, Evidence, or the ADR-0156 continuity cursor.
+   */
+  previewSkillOrchestration: (
+    request: SkillOrchestrationPreviewRequest
+  ) => Promise<SkillOrchestrationPreviewResult>
   generateLesson: (payload: GenerateLessonPayload) => Promise<GenerateLessonResult>
   getDirectLessonActionStatus: (payload: DirectLessonActionStatusPayload) => Promise<DirectLessonActionStatus>
   readLesson: (payload: ReadLessonPayload) => Promise<ReadLessonResult>

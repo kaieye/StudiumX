@@ -3,6 +3,18 @@ name: teaching-site
 description: Use this skill as the main entry point whenever the user wants to build, plan, or evolve an interactive teaching website / course microsite / workshop landing page — from a blank slate, from existing course materials, or any state in between. Triggers on broad phrases like "做課程網站", "做教學網頁", "做工作坊網站", "把講義變網頁", "course microsite", "workshop site", "interactive lesson page", "multi-day curriculum website", "做一套課程". This skill routes the whole teaching-site pipeline (outline → content → SPA → interactions → visuals → corporate / ebook) and identifies the specialised installed slash skill for each stage. Prefer this when the user's request is broad or unclear about which stage they're at; invoke a stage skill explicitly (for example `/course-ebook-publishing`) for a focused request.
 ---
 
+> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+>
+> - **角色：** `workflow_router`
+> - **阶段：** `ground, artifact_authoring`
+> - **消费：** `CourseContent, CourseOutline`
+> - **产出：** `TeachingSitePlan`
+> - **产物范围：** `teaching-site/**`
+> - **前置依赖：** `—`
+> - **非职责：** 只产出阶段计划与路由说明；不替代下游 producer 实现；**不会**自动激活或执行未安装的子 skill；不写 learner Evidence。
+>
+> 本块是文档，不是信任权威；与 host registry 冲突时以 registry 为准。
+
 # Teaching Site — Main Entry Point
 
 > **Schema authority**: all primitive field names (unit / concept / prompt / task / material / quiz / faq / illustration) and the canonical project layout come from [`_shared/domain-primitives.md`](../_shared/domain-primitives.md). Read that file before applying a pipeline stage.

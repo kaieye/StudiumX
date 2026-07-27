@@ -275,6 +275,7 @@
 | [ADR-0160](0160-teaching-turn-behavior-contract.md) | 教学行为合同（turn shape 检查） | **Proposed（设计草案,未实施 — 2026-07-26）**：恰一 Elicit 收尾等确定性后置检查 + recovery 软纠偏;kernel 版本化与本地教学回归;Mastery Policy ADR 化。 |
 | [ADR-0161](0161-today-learning-queue-projection.md) | 今日学习队列投影 | **Proposed（设计草案,未实施 — 2026-07-26）**：到期复习 + planner 下一步 + Study task 的零写权聚合;三表面单源消费;复习 3–5 项/日上限。 |
 | [ADR-0162](0162-local-learning-effectiveness-analytics.md) | 本地学习效果分析 | **Proposed（设计草案,未实施 — 2026-07-26）**：掌握进度/复习命中率/遗忘回退率等封闭指标目录,全部可由 ledger 重算;无 telemetry。 |
+| [ADR-0163](0163-teaching-capability-selection-and-plan-preview.md) | 教学能力选择面与编排计划预览 | **已实施（2026-07-27）**：0151 Phase 4–6 收尾——只读 `previewSkillOrchestration`（永不推进 0156 stage 游标）+ host-owned 意图 preset + 多选 chip 与 active/later/advisory/blocked/excluded 计划预览 + 内置 skill 治理头（正文非信任权威）+ 本地可脱敏 plan 诊断;planner 纯度、settlement sole-writer、ADR-0044 prefix 均不变。 |
 | [ADR-0053](0053-agents-md-security-suite-and-testing-doctrine.md) | 根 AGENTS.md + security suite + 测试教条 | SECURITY_CHECKS 纳入 external-content boundary；根 AGENTS 命令图/红线/改哪测哪；testing.md L0/L1/L2/L4；不替代 ADR、不扩 Blocking CI。 |
 | [ADR-0072](0072-node-engines-and-source-rev-build-identity.md) | Node engines / .nvmrc + SOURCE_REV 构建身份 | `.nvmrc`=22；`engines.node` `>=22 <25`；`readBuildIdentity` fail-closed；doctor 非阻塞展示；非 SBOM / 非签名 / 无 phone-home。 |
 | [ADR-0073](0073-teaching-feature-registry.md) | Teaching FeatureRegistry（薄元数据） | 纯 `features.ts` stage 生命周期；非 CapabilityCatalog/Ladder 替换；禁止 shell/code_mode/YOLO bypass。 |

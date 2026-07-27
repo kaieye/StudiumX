@@ -3,9 +3,34 @@
 - **日期：** 2026-07-27
 - **代码快照：** `main@d308289`
 - **性质：** 当前实现复评、旧建议落地盘点与下一阶段路线图；**不是 ADR，也不是已批准 backlog**
-- **旧基线：** [StudiumX 教学链路评估与优化](../teaching-chain-evaluation-and-optimization.md)
 - **恢复材料：** `/tmp/sx-eval` 中的 reader/lens JSON 与中断会话记录；这些材料只作为问题线索，最终结论以本快照的代码、测试和 ADR 状态为准
 - **范围：** `Mission → 教学对话/lesson → typed evidence → settlement → next step → review`，以及多个 builtin skill 在这条主线上的选择、冲突、跨轮续航和产品呈现
+
+## 当前工作区核对清单（2026-07-27）
+
+> **核对范围：** 本清单以当前工作区（包含尚未提交的 ADR-0163 与相关实现）为准；正文其余 As-Is 叙述仍以 `main@d308289` 为原始复评快照。`[x]` 表示该项已具备生产接线与相应测试/ADR 证据，`[~]` 表示只完成了明确的一部分，`[ ]` 表示仍未交付。Pet 的真实学习历史接入已冻结为非目标，不计入待办。
+>
+> **已验证测试：** `pnpm exec vitest run --project unit tests/unit/teaching-turn-presentation.unit.test.ts tests/unit/skill-orchestration-preview.unit.test.ts`（24 tests passed，2026-07-27）。
+
+### 已完成与仍余项
+
+- [x] 旧断点：`fill` 题结算、app-shipped Teaching Kernel fail-closed、跨轮 skill workflow continuity、authority bridge 的主要占位事实已关闭（§2.1）。
+- [x] **P0-1：authoritative teaching presentation 主链接通。** `App.tsx` 已读取 presentation snapshot，并将 `teachingPresentation` / `onTeachingAction` 传给生产 `AgentConversationReader`；动作仍经 operation ID 与 `expectedRevision` 校验。
+- [~] **P0-2：结算后的下一步动作。** `contrast_and_retry` 与 `review_due` 已有受控 IPC/CAS action；`continue_next_session` 仍只是 composer 意图，尚未成为同等级的 canonical action。
+- [ ] **P0-3：ReviewView 与正常导航入口。** 尚无独立 ReviewView / 主导航消费面；目前只能从 teaching action 开始一轮到期复习。
+- [ ] **P0-4：结构化回流到下一课。** settled outcome、上一课、错因和 review 摘要尚未传入生产 lesson-generation 调用。
+- [ ] **P0-5：对话 Elicit 的 typed evidence producer。** `conversation_evidence_recorded` 已有类型、校验与 recorder，但生产代码尚未构造该证据。
+- [ ] **P1-1：LearningObjective、MasteryProjection 与 diagnose。** 仍只有 ADR-0159 设计，未见生产投影或 schema。
+- [ ] **P1-2：outcome strength。** provisional / consolidated / lapsed（或 decayed）尚未实现，ADR-0157 仍为 Proposed。
+- [ ] **P1-3：Mission 成功进度。** 尚未把 `Success looks like` 投影为可核对的 learner-facing 缺口。
+- [ ] **P1-4：TodayQueue。** ADR-0161 仍为 Proposed，未见聚合投影或消费面。
+- [~] **P1-5：多 skill 产品面。** ADR-0163 已交付多选能力、preset、只读计划预览、本地 plan 诊断与部分内置 skill 治理；整轮全局 body budget、阶段推进/取消控制和完整 teaching-site 自动流水线仍未完成。
+- [ ] **P1-6：teaching-site 确定性 handoff。** artifact schema 收敛与代码级 handoff gate 尚未交付。
+- [~] **P2-1：builtin skill 内容治理。** ADR-0163 已补治理头并重写三个模板化 skill；所有模板残留、绝对路径、命名及 schema 漂移尚未整体收口。
+- [ ] **P2-2：analytics 反馈教学策略。** 本地 analytics 已能读取/展示事实，但 planner/runtime 尚不消费这些信号。
+- [ ] **P2-3：prompt-cache 重新测量。** 尚无 ADR-0044 所要求的本轮 skill index / turn-tail 变更测量结论。
+- [ ] **P2-4：interleaving、confidence calibration 与延迟保持评估。** 依赖 objective/review 数据，尚未启动。
+- [ ] **P2-5：基于可复现失败案例的复习算法升级决策。** 尚未形成案例驱动的升级结论。
 
 > **状态口径：** 本文严格区分“已实施”“部分实施”“仅有类型/接口”“Proposed ADR”和“建议”。仓库里存在 ADR 或类型定义，不等于对应产品能力已经交付。
 
@@ -487,7 +512,6 @@ pnpm test:unit
 - [ADR-0012：deterministic next-step planner](../adr/0012-deterministic-next-teaching-step-planner.md)
 - [ADR-0044：prompt-cache stable prefix](../adr/0044-teaching-prompt-cache-contract.md)
 - [ADR 索引](../adr/README.md)
-- [当前教学链路旧基线](../teaching-chain-evaluation-and-optimization.md)
 - [产品待办与 M5–M10 状态](../../todolist.md)
 
 ### 11.2 关键实现
