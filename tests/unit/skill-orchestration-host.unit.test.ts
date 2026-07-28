@@ -183,6 +183,34 @@ describe('stage-scoped body load', () => {
     })
     expect(filtered.map((r) => r.id).sort()).toEqual(['learning-assessor', 'teach'].sort())
   })
+
+  it('never loads scheduled, advisory, blocked, or excluded non-kernel bodies into a teaching turn', () => {
+    const activePlan = planFor(['learning-assessor'], 'teaching_turn')
+    const planWithInactiveDecisions: SkillOrchestrationPlan = {
+      ...activePlan,
+      decisions: [
+        ...activePlan.decisions,
+        { skillId: 'scheduled', status: 'scheduled_later', reason: 'Later stage.' },
+        { skillId: 'advisory', status: 'advisory_only', reason: 'Advisory only.' },
+        { skillId: 'blocked', status: 'blocked', reason: 'Not ready.' },
+        { skillId: 'excluded', status: 'excluded', reason: 'Host policy excluded it.' }
+      ]
+    }
+    const filtered = filterSkillReferencesToActiveBodies({
+      plan: planWithInactiveDecisions,
+      isTeachingConversation: true,
+      references: [
+        { id: 'teach', name: 'teach', source: 'builtin', content: 'kernel' },
+        { id: 'learning-assessor', name: 'assessor', source: 'builtin', content: 'strategy' },
+        { id: 'scheduled', name: 'scheduled', source: 'builtin', content: 'later' },
+        { id: 'advisory', name: 'advisory', source: 'builtin', content: 'advisory' },
+        { id: 'blocked', name: 'blocked', source: 'builtin', content: 'blocked' },
+        { id: 'excluded', name: 'excluded', source: 'builtin', content: 'excluded' }
+      ]
+    })
+
+    expect(filtered.map((reference) => reference.id).sort()).toEqual(['learning-assessor', 'teach'])
+  })
 })
 
 describe('sanitizeAvailableArtifacts', () => {

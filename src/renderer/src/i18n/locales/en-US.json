@@ -246,8 +246,8 @@
       "featured": "Featured",
       "stylesMeta": "Visual styles",
       "stylesDetail": "{{count}} lesson page styles, currently using {{style}}.",
-      "skillsMeta": "Agent skills",
-      "skillsDetail": "{{count}} available skills, with {{installed}} installed in your personal skill directory.",
+      "skillsMeta": "Teaching capabilities",
+      "skillsDetail": "{{count}} capabilities available; {{installed}} are installed locally. Personal files do not automatically join formal teaching.",
       "petsMeta": "Boba status pet",
       "petsDetail": "Let Boba react to running, waiting, failed, and completed work while staying inside the app.",
       "open": "Open",
@@ -542,19 +542,19 @@
     }
   },
   "skills": {
-    "eyebrow": "Skills",
-    "title": "Skill library",
-    "detail": "Selected skills are installed to {{root}} and become available by typing / in the composer.",
-    "openFolder": "Open skill folder",
-    "search": "Search skills",
-    "mine": "My skills {{count}}",
-    "loading": "Loading skills…",
+    "eyebrow": "Teaching tools",
+    "title": "Capability Library",
+    "detail": "Built-in capabilities can be installed to {{root}}. Personal files remain manageable here, but do not automatically gain formal teaching authority.",
+    "openFolder": "Open personal capability folder",
+    "search": "Search capabilities",
+    "mine": "Installed {{count}}",
+    "loading": "Loading capabilities…",
     "install": "Install",
     "installing": "Installing",
     "installed": "Installed",
-    "noResults": "No matching skills",
+    "noResults": "No matching capabilities",
     "categories": {
-      "aria": "Skill categories",
+      "aria": "Capability categories",
       "all": "All",
       "learning": "🎓 Learning",
       "productivity": "⚡ Productivity",
@@ -567,9 +567,9 @@
       "name": "Name"
     },
     "slash": {
-      "aria": "Skill command list",
-      "title": "Choose an installed skill",
-      "empty": "No matching installed skills. Install one from Resources → Skill library first."
+      "aria": "Advanced capability command list",
+      "title": "Choose a host-governed capability",
+      "empty": "No matching host-governed capabilities. Install a bundled capability from Resources → Capability Library first."
     }
   },
   "records": {

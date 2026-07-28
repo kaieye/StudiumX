@@ -15,20 +15,36 @@ import {
   skillSlashQuery
 } from '../../../shared/skill-command'
 import type { SkillSummary } from '../../../shared/teaching-types'
+import type { SkillOrchestrationMode } from '../../../shared/teaching-types/skill-orchestration'
 import { useSkillCatalog } from './skillCatalog'
 
 export function useSkillSlashInput(options: {
   value: string
   onChange: (value: string) => void
   inputRef: RefObject<HTMLTextAreaElement | null>
+  /** Current composer mode; raw slash capabilities never switch it implicitly. */
+  mode: SkillOrchestrationMode
 }) {
   const { catalog } = useSkillCatalog()
   const [activeIndex, setActiveIndex] = useState(0)
   const [dismissedValue, setDismissedValue] = useState<string | null>(null)
   const query = skillSlashQuery(options.value)
+  // Slash is an advanced raw capability entry, but still uses the same
+  // main-process host admission projection as the ordinary picker.
+  const formalSlashSkills = useMemo(
+    () =>
+      catalog.skills.filter(
+        (skill) =>
+          skill.orchestration?.formalTeachingEligible === true &&
+          skill.orchestration.selectionSurface !== 'hidden' &&
+          skill.orchestration.trustLevel === 'host_governed' &&
+          skill.orchestration.allowedModes.includes(options.mode)
+      ),
+    [catalog.skills, options.mode]
+  )
   const matches = useMemo(
-    () => filterSkillSlashMatches(options.value, catalog.skills),
-    [catalog.skills, options.value]
+    () => filterSkillSlashMatches(options.value, formalSlashSkills),
+    [formalSlashSkills, options.value]
   )
   const open = query !== null && dismissedValue !== options.value
 
@@ -80,7 +96,7 @@ export function useSkillSlashInput(options: {
       />
     ) : null,
     handleKeyDown,
-    skillIdsFor: (value: string) => leadingSkillIdSequence(value, catalog.skills)
+    skillIdsFor: (value: string) => leadingSkillIdSequence(value, formalSlashSkills)
   }
 }
 

@@ -46,6 +46,35 @@ export type SkillOrchestrationTeachingImpact =
 
 export type SkillOrchestrationKernelProfile = 'interactive' | 'artifact'
 
+/** Host-projected admission only; it never comes from a skill manifest. */
+export type SkillOrchestrationTrustLevel = 'host_governed' | 'advisory_only' | 'untrusted'
+export type SkillOrchestrationSelectionSurface = 'default' | 'advanced' | 'hidden'
+
+export type SkillOrchestrationAdmission = {
+  allowedModes: SkillOrchestrationMode[]
+  /** Product slot name for diagnostics; role remains the execution classification. */
+  slot:
+    | 'kernel'
+    | 'primary_teaching_strategy'
+    | 'workflow_router'
+    | 'artifact'
+    | 'verification'
+  exclusiveGroup?: string
+  maxActivePerStage?: number
+  preferredNextStepActions?: string[]
+  trustLevel: SkillOrchestrationTrustLevel
+  selectionSurface: SkillOrchestrationSelectionSurface
+}
+
+/** Renderer-facing projection of host admission, never a source of authority. */
+export type SkillOrchestrationEligibility = Pick<
+  SkillOrchestrationAdmission,
+  'allowedModes' | 'slot' | 'trustLevel' | 'selectionSurface'
+> & {
+  formalTeachingEligible: boolean
+  reason: string
+}
+
 export type SkillOrchestrationCompletionGate = {
   id: string
   description: string

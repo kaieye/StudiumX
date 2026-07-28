@@ -20,6 +20,7 @@ import type { Logger } from './logger'
 import { isPathInsideConfiguredRoot, isRealPathInsideRoot } from './path-access'
 import { fetchUpstreamModels, probeModelProvider } from './provider-connection'
 import type { SkillLibraryService } from './skill-library'
+import { getSkillOrchestrationEligibility } from './builtin-skill-orchestration-policy'
 import { createAndSwitchGitBranchForWorkspace, getGitBranchesForWorkspace, listGitWorktreesForWorkspace, removeGitWorktreeForWorkspace, switchGitBranchForWorkspace } from './teaching-git'
 import {
   decodeToolAnswerPayload, optionalString, parseAgentChatStreamPayload, parseApplyLessonStylePayload, parseGetTeachingPresentationPayload, parseTeachingPresentationActionPayload, parseTeachingPresentationActionResult, parseTeachingPresentationSnapshot,
@@ -330,7 +331,24 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({ channel: teachingInvokeChannels.updateMission, parser: (payload) => parseUpdateMissionPayload(payload), action: (_event, payload) => service.updateMission(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.setWorkspaceTrust, parser: (payload) => parseSetWorkspaceTrustPayload(payload), action: (_event, payload) => service.setWorkspaceTrust(payload.workspaceId, payload.trust), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.applyLessonStyle, parser: (payload) => parseApplyLessonStylePayload(payload), action: (_event, payload) => service.applyLessonStyle(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
-    command({ channel: teachingInvokeChannels.listSkills, parser: () => undefined, action: () => skills.listSkills(), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({
+      channel: teachingInvokeChannels.listSkills,
+      parser: () => undefined,
+      action: async () => {
+        const catalog = await skills.listSkills()
+        // The renderer consumes this projection for product surfaces only. The
+        // planner retains the host registry as its final fail-closed authority.
+        return {
+          ...catalog,
+          skills: catalog.skills.map((skill) => ({
+            ...skill,
+            orchestration: getSkillOrchestrationEligibility(skill)
+          }))
+        }
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
     command({
       channel: teachingInvokeChannels.previewSkillOrchestration,
       parser: (payload) => parsePreviewSkillOrchestrationPayload(payload),

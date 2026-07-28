@@ -137,6 +137,48 @@ describe('Teaching IPC gateway', () => {
     expect(createWorkspace).toHaveBeenCalledWith({ name: 'Course', prompt: 'Teach algebra' })
   })
 
+  it('projects host-owned formal admission on the skill catalog without changing catalog ownership', async () => {
+    const listSkills = vi.fn().mockResolvedValue({
+      rootPath: '/tmp/skills',
+      skills: [
+        {
+          id: 'teach', name: 'Teach', description: 'Kernel', category: 'learning', icon: 'graduation-cap',
+          author: 'StudiumX', command: '/teach', source: 'builtin', installed: true
+        },
+        {
+          id: 'learning-assessor', name: 'Learning Assessor', description: 'Assess', category: 'learning', icon: 'sparkles',
+          author: 'StudiumX', command: '/learning-assessor', source: 'builtin', installed: true
+        },
+        {
+          id: 'personal-study-style', name: 'Personal Style', description: 'Personal', category: 'learning', icon: 'sparkles',
+          author: 'You', command: '/personal-study-style', source: 'personal', installed: true
+        }
+      ]
+    })
+    registerTeachingIpcGateway(registration({ skillLibraryService: { listSkills } }))
+
+    const result = await handler(teachingInvokeChannels.listSkills)(event) as {
+      skills: Array<{ id: string; orchestration?: { formalTeachingEligible: boolean; selectionSurface: string; trustLevel: string } }>
+    }
+
+    expect(listSkills).toHaveBeenCalledTimes(1)
+    expect(result.skills.find((skill) => skill.id === 'teach')?.orchestration).toMatchObject({
+      formalTeachingEligible: false,
+      selectionSurface: 'hidden',
+      trustLevel: 'host_governed'
+    })
+    expect(result.skills.find((skill) => skill.id === 'learning-assessor')?.orchestration).toMatchObject({
+      formalTeachingEligible: true,
+      selectionSurface: 'default',
+      trustLevel: 'host_governed'
+    })
+    expect(result.skills.find((skill) => skill.id === 'personal-study-style')?.orchestration).toMatchObject({
+      formalTeachingEligible: false,
+      selectionSurface: 'advanced',
+      trustLevel: 'advisory_only'
+    })
+  })
+
   it('exposes only the active-workspace learner-safe presentation and rejects expanded action payloads', async () => {
     const snapshot = {
       schemaVersion: 1 as const,

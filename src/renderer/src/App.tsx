@@ -1981,7 +1981,12 @@ function OverviewLessonComposer({
     openTeachingConversationView
   } = useAppStore()
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const skillSlash = useSkillSlashInput({ value: taskPrompt, onChange: setTaskPrompt, inputRef })
+  const skillSlash = useSkillSlashInput({
+    value: taskPrompt,
+    onChange: setTaskPrompt,
+    inputRef,
+    mode: 'teaching_turn'
+  })
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const skillCapabilities = useSkillCapabilityPicker({
     isTeachingMode: true,
@@ -2077,7 +2082,12 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const hasConversation = agentTurns.length > 0
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const skillSlash = useSkillSlashInput({ value: inputValue, onChange: setAgentInput, inputRef })
+  const skillSlash = useSkillSlashInput({
+    value: inputValue,
+    onChange: setAgentInput,
+    inputRef,
+    mode: isTeachingMode ? 'teaching_turn' : 'instant_help'
+  })
   const [teachingComposerNotice, setTeachingComposerNotice] = useState<string | null>(null)
   const [openTeachingSourcesKey, setOpenTeachingSourcesKey] = useState(0)
   const [pendingTeachingActionKind, setPendingTeachingActionKind] = useState<'continue' | 'retry' | null>(null)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   getBuiltinSkillOrchestrationPolicy,
+  getSkillOrchestrationEligibility,
   listBuiltinSkillOrchestrationPolicies,
   SKILL_ORCHESTRATION_POLICY_VERSION
 } from '../../src/main/builtin-skill-orchestration-policy'
@@ -49,6 +50,26 @@ describe('builtin skill orchestration policy (host authority)', () => {
 
   it('exports a stable policy version for planId', () => {
     expect(SKILL_ORCHESTRATION_POLICY_VERSION).toMatch(/^builtin-orch-v/)
+  })
+
+  it('projects formal admission from host policy and fails closed for personal entries', () => {
+    expect(getSkillOrchestrationEligibility({ id: 'teach', source: 'builtin' })).toMatchObject({
+      trustLevel: 'host_governed',
+      selectionSurface: 'hidden',
+      slot: 'kernel',
+      formalTeachingEligible: false
+    })
+    expect(getSkillOrchestrationEligibility({ id: 'learning-assessor', source: 'builtin' })).toMatchObject({
+      trustLevel: 'host_governed',
+      selectionSurface: 'default',
+      slot: 'primary_teaching_strategy',
+      formalTeachingEligible: true
+    })
+    expect(getSkillOrchestrationEligibility({ id: 'personal-study-style', source: 'personal' })).toMatchObject({
+      trustLevel: 'advisory_only',
+      selectionSurface: 'advanced',
+      formalTeachingEligible: false
+    })
   })
 })
 
@@ -312,6 +333,26 @@ describe('SkillOrchestrationPlanner.plan', () => {
 
     expect(a.planId).toBe(b.planId)
     expect(a.objective).not.toBe(b.objective)
+  })
+
+  it('keeps exactly one active workflow router with a deterministic excluded loser', () => {
+    const result = plan(
+      baseInput({
+        mode: 'artifact_workflow',
+        selectedSkillIds: ['course-designer', 'teaching-site'],
+        readiness: readyAll(['course-designer', 'teaching-site'])
+      })
+    )
+
+    expect(result.decisions.find((d) => d.skillId === 'teaching-site')?.status).toBe('active_now')
+    const loser = result.decisions.find((d) => d.skillId === 'course-designer')
+    expect(loser?.status).toBe('excluded')
+    expect(loser?.reason).toMatch(/workflow_router/i)
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'role_cardinality_conflict',
+      severity: 'warning'
+    }))
+    expect(result.stages.find((stage) => stage.kind === 'ground')?.skillIds).toEqual(['teaching-site'])
   })
 
   it('uses teaching-site as workflow router without activating all children at once', () => {

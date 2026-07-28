@@ -8,6 +8,7 @@ import {
 import type {
   SkillOrchestrationDecision,
   SkillOrchestrationDecisionStatus,
+  SkillOrchestrationMode,
   SkillOrchestrationPreviewResult
 } from '../../../shared/teaching-types/skill-orchestration'
 import type { SkillSummary } from '../../../shared/teaching-types'
@@ -76,15 +77,44 @@ export function useSkillCapabilityPicker(options: {
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState<SkillOrchestrationPreviewResult | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const requestSeq = useRef(0)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const panelId = useId()
   const panelTitleId = useId()
 
-  // Catalog capabilities are selectable; the host-injected kernel is excluded.
+  // Eligibility comes from the main-process host projection. The renderer
+  // never reconstructs the builtin registry or treats a catalog entry as formal
+  // teaching authority on its own.
+  //
+  // The preset path is intentionally separate: its host-owned intent may
+  // explicitly request an artifact workflow. Raw capability selection, by
+  // contrast, must only offer capabilities admitted to the current composer
+  // mode, so the renderer never offers a choice the planner will immediately
+  // reject as mode-ineligible.
+  const orchestrationMode: SkillOrchestrationMode = options.isTeachingMode
+    ? 'teaching_turn'
+    : 'instant_help'
   const selectable = useMemo(
-    () => catalog.skills.filter((skill) => skill.id !== KERNEL_SKILL_ID),
+    () =>
+      catalog.skills.filter(
+        (skill) =>
+          skill.id !== KERNEL_SKILL_ID &&
+          skill.orchestration?.formalTeachingEligible === true &&
+          skill.orchestration.selectionSurface === 'default' &&
+          skill.orchestration.trustLevel === 'host_governed' &&
+          skill.orchestration.allowedModes.includes(orchestrationMode)
+      ),
+    [catalog.skills, orchestrationMode]
+  )
+  const advancedOnly = useMemo(
+    () =>
+      catalog.skills.filter(
+        (skill) =>
+          skill.id !== KERNEL_SKILL_ID &&
+          skill.orchestration?.selectionSurface === 'advanced'
+      ),
     [catalog.skills]
   )
 
@@ -93,6 +123,7 @@ export function useSkillCapabilityPicker(options: {
     setPresetId(null)
     setPreview(null)
     setNotice(null)
+    setAdvancedOpen(false)
   }, [])
 
   // Capability selection is a per-conversation intent: switching conversations
@@ -219,8 +250,8 @@ export function useSkillCapabilityPicker(options: {
       aria-expanded={open}
       aria-controls={panelId}
       aria-haspopup="dialog"
-      aria-label="选择教学能力"
-      title="选择本次任务可以使用的能力"
+      aria-label="教学意图与能力设置"
+      title="先选择教学意图；高级能力不会自动获得正式教学权威"
       onClick={() => (open ? closePanel() : setOpen(true))}
     >
       <Layers size={15} />
@@ -243,8 +274,8 @@ export function useSkillCapabilityPicker(options: {
       }}
     >
       <div className="skill-capability-panel__head">
-        <span id={panelTitleId}>选择本次可以使用的能力</span>
-        <button ref={closeButtonRef} type="button" aria-label="关闭能力选择" onClick={closePanel}>
+        <span id={panelTitleId}>教学意图与能力设置</span>
+        <button ref={closeButtonRef} type="button" aria-label="关闭教学能力设置" onClick={closePanel}>
           <X size={14} />
         </button>
       </div>
@@ -268,32 +299,64 @@ export function useSkillCapabilityPicker(options: {
         </div>
       </div>
 
-      <div className="skill-capability-panel__section">
-        <h4>全部能力</h4>
-        <div className="skill-capability-list" role="group" aria-label="可选教学能力">
-          {selectable.length === 0 ? (
-            <p className="skill-capability-empty">暂无可用能力。</p>
-          ) : (
-            selectable.map((skill) => {
-              const checked = selectedSkillIds.includes(skill.id)
-              return (
-                <label key={skill.id} className="skill-capability-option">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleSkill(skill.id)}
-                  />
-                  <span className="skill-capability-option__copy">
-                    <strong>{skill.name}</strong>
-                    <span>{skill.description}</span>
-                  </span>
-                  {!skill.installed ? <small>未安装</small> : null}
-                </label>
-              )
-            })
-          )}
+      {selectable.length > 0 || advancedOnly.length > 0 ? (
+        <div className="skill-capability-panel__section skill-capability-panel__advanced">
+          <button
+            type="button"
+            className="skill-capability-advanced-toggle"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen((value) => !value)}
+          >
+            高级能力设置
+          </button>
+          {advancedOpen ? (
+            <>
+              <h4>受平台治理的能力</h4>
+              <p className="skill-capability-hint">正式教学仍由统一教学内核和编排计划决定；安装更多能力不会自动提升教学权威。</p>
+              <div className="skill-capability-list" role="group" aria-label="可选的受平台治理教学能力">
+                {selectable.length === 0 ? (
+                  <p className="skill-capability-empty">暂无可用能力。</p>
+                ) : (
+                  selectable.map((skill) => {
+                    const checked = selectedSkillIds.includes(skill.id)
+                    return (
+                      <label key={skill.id} className="skill-capability-option">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleSkill(skill.id)}
+                        />
+                        <span className="skill-capability-option__copy">
+                          <strong>{skill.name}</strong>
+                          <span>{skill.description}</span>
+                        </span>
+                        {!skill.installed ? <small>未安装</small> : null}
+                      </label>
+                    )
+                  })
+                )}
+              </div>
+
+              {advancedOnly.length > 0 ? (
+                <div className="skill-capability-advisory" role="group" aria-label="高级个人或未注册能力">
+                  <h4>个人与未注册能力</h4>
+                  <div className="skill-capability-list">
+                    {advancedOnly.map((skill) => (
+                      <div key={skill.id} className="skill-capability-option is-advisory">
+                        <span className="skill-capability-option__copy">
+                          <strong>{skill.name}</strong>
+                          <span>{skill.orchestration?.reason}</span>
+                        </span>
+                        <small>不参与正式教学链路</small>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
         </div>
-      </div>
+      ) : null}
 
       {notice ? (
         <p className="skill-capability-notice" role="status" aria-live="polite">

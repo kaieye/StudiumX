@@ -1,3 +1,5 @@
+import type { SkillOrchestrationEligibility } from './skill-orchestration'
+
 import { z } from 'zod'
 
 export type SkillCategory = 'learning' | 'productivity' | 'development' | 'lifestyle' | 'other'
@@ -89,6 +91,8 @@ export type SkillSummary = {
   installedPath?: string
   version?: string
   capabilities?: SkillPackCapability[]
+  /** Main-process projection of host admission; never supplied by a manifest. */
+  orchestration?: SkillOrchestrationEligibility
 }
 
 export type SkillCatalogResult = {

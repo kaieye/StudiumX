@@ -6,13 +6,15 @@
 import { BUILTIN_SKILL_IDS } from './skill-library'
 import { listSkillOrchestrationPresets } from '../shared/skill-orchestration-presets'
 import type {
+  SkillOrchestrationAdmission,
+  SkillOrchestrationEligibility,
   SkillOrchestrationRole,
   SkillOrchestrationStageKind,
   SkillOrchestrationTeachingImpact
 } from '../shared/teaching-types/skill-orchestration'
 
 /** Bump when registry semantics change in a way that must re-key planId. */
-export const SKILL_ORCHESTRATION_POLICY_VERSION = 'builtin-orch-v1' as const
+export const SKILL_ORCHESTRATION_POLICY_VERSION = 'builtin-orch-v2' as const
 
 export type BuiltinSkillOrchestrationEntry = {
   skillId: (typeof BUILTIN_SKILL_IDS)[number]
@@ -27,9 +29,11 @@ export type BuiltinSkillOrchestrationEntry = {
   priority: number
   /** When true, may be auto-scheduled as a predeclared builtin dependency. */
   autoSchedulableDependency: boolean
+  /** Host-owned admission/cardinality — never inferred from a skill pack manifest. */
+  admission: SkillOrchestrationAdmission
 }
 
-const ENTRIES: BuiltinSkillOrchestrationEntry[] = [
+const RAW_ENTRIES: Omit<BuiltinSkillOrchestrationEntry, 'admission'>[] = [
   {
     skillId: 'teach',
     role: 'kernel',
@@ -213,6 +217,87 @@ const ENTRIES: BuiltinSkillOrchestrationEntry[] = [
     autoSchedulableDependency: false
   }
 ]
+
+function admissionFor(entry: Omit<BuiltinSkillOrchestrationEntry, 'admission'>): SkillOrchestrationAdmission {
+  const role = entry.role
+  const allowedModes: SkillOrchestrationAdmission['allowedModes'] =
+    role === 'kernel'
+      ? ['instant_help', 'teaching_turn', 'artifact_workflow']
+      : role === 'teaching_strategy'
+        ? ['instant_help', 'teaching_turn']
+        : role === 'workflow_router' ||
+            role === 'artifact_producer' ||
+            role === 'cross_cutting_enhancer' ||
+            role === 'verifier' ||
+            role === 'variant_producer' ||
+            role === 'packager'
+          ? ['artifact_workflow']
+          : []
+  const slot =
+    role === 'kernel'
+      ? 'kernel'
+      : role === 'teaching_strategy'
+        ? 'primary_teaching_strategy'
+        : role === 'workflow_router'
+          ? 'workflow_router'
+          : role === 'verifier'
+            ? 'verification'
+            : 'artifact'
+  return {
+    allowedModes,
+    slot,
+    ...(role === 'teaching_strategy'
+      ? {
+          exclusiveGroup: 'primary_teaching_strategy',
+          maxActivePerStage: 1,
+          preferredNextStepActions: ['diagnose', 'assess', 'check_mastery']
+        }
+      : role === 'workflow_router'
+        ? { exclusiveGroup: 'workflow_router', maxActivePerStage: 1 }
+        : {}),
+    trustLevel: 'host_governed',
+    selectionSurface: role === 'kernel' ? 'hidden' : 'default'
+  }
+}
+
+const ENTRIES: BuiltinSkillOrchestrationEntry[] = RAW_ENTRIES.map((entry) => ({
+  ...entry,
+  admission: admissionFor(entry)
+}))
+
+/**
+ * Main-process projection consumed by the renderer. Unknown/personal entries
+ * remain visible only to an explicitly advanced surface and never gain a formal
+ * teaching slot merely by being installed.
+ */
+export function getSkillOrchestrationEligibility(skill: {
+  id: string
+  source: 'builtin' | 'personal'
+}): SkillOrchestrationEligibility {
+  const policy = getBuiltinSkillOrchestrationPolicy(skill.id)
+  if (policy) {
+    return {
+      allowedModes: [...policy.admission.allowedModes],
+      slot: policy.admission.slot,
+      trustLevel: policy.admission.trustLevel,
+      selectionSurface: policy.admission.selectionSurface,
+      formalTeachingEligible: policy.role !== 'kernel',
+      reason:
+        policy.role === 'kernel'
+          ? 'The app-shipped Teaching Kernel is always active and is not a user-selectable capability.'
+          : 'Host-governed builtin capability; final scheduling still depends on mode, readiness, and plan constraints.'
+    }
+  }
+  return {
+    allowedModes: [],
+    slot: 'artifact',
+    trustLevel: skill.source === 'personal' ? 'advisory_only' : 'untrusted',
+    selectionSurface: 'advanced',
+    formalTeachingEligible: false,
+    reason:
+      'Personal or unregistered skills are not admitted to the formal teaching chain and cannot become a Teaching Kernel, primary strategy, or settlement writer.'
+  }
+}
 
 const BY_ID = new Map(ENTRIES.map((e) => [e.skillId, e] as const))
 

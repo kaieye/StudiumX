@@ -8,6 +8,7 @@ import {
   SKILL_ORCHESTRATION_POLICY_VERSION,
   type BuiltinSkillOrchestrationEntry
 } from './builtin-skill-orchestration-policy'
+import { resolveActiveRoleCardinality } from './skill-orchestration-cardinality'
 import {
   SKILL_ORCHESTRATION_SCHEMA_VERSION,
   type SkillOrchestrationDecision,
@@ -536,7 +537,35 @@ export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
     putDecision(decisionFromWork(item))
   }
 
-  // 6) Dual writer conflict: same artifact scope → one lead (highest priority, then skillId)
+  // 6) Host-owned exclusive slots. This is deliberately after hard
+  // admission/mode/readiness classification and before artifact writer conflict:
+  // no prompt instruction may replace typed cardinality policy.
+  for (const exclusion of resolveActiveRoleCardinality({
+    candidates: [...work.values()]
+      .filter((item) => item.status === 'active_now')
+      .map((item) => ({
+        skillId: item.skillId,
+        policy: item.policy,
+        userSelected: item.userSelected
+      })),
+    mode,
+    nextStepAction
+  })) {
+    const loser = work.get(exclusion.skillId)
+    if (!loser || loser.status !== 'active_now') continue
+    loser.status = 'excluded'
+    loser.reason = exclusion.reason
+    putDecision(decisionFromWork(loser))
+    diagnostics.push({
+      code: 'role_cardinality_conflict',
+      severity: 'warning',
+      message:
+        `Stage "${exclusion.stage}": "${exclusion.winnerSkillId}" wins ` +
+        `${exclusion.exclusiveGroup} over "${exclusion.skillId}".`
+    })
+  }
+
+  // 7) Dual writer conflict: same artifact scope → one lead (highest priority, then skillId)
   const scopeBuckets = new Map<string, WorkItem[]>()
   for (const item of work.values()) {
     if (item.status === 'blocked' || item.status === 'excluded' || item.status === 'advisory_only') {

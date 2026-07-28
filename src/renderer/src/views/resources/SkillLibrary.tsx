@@ -139,6 +139,11 @@ export function SkillLibrary({ onBack }: { onBack: () => void }) {
                     <span>{skill.author}</span>
                     <span>{t(`skills.categories.${skill.category}`)}</span>
                   </div>
+                  {skill.orchestration?.formalTeachingEligible === false ? (
+                    <p className="skill-library-card__admission">
+                      {skill.orchestration.reason}
+                    </p>
+                  ) : null}
                 </div>
                 <button
                   className={`skill-library-card__action${skill.installed ? ' is-installed' : ''}`}

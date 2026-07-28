@@ -2,13 +2,14 @@
 
 - **状态：** **已实施**（2026-07-27；ADR-0151 Phase 4–6 closeout）
 - **范围：** 多选 capability chips、host-owned presets、只读 plan preview、严格 IPC、builtin skill 治理、本地评估与同意式 support export
-- **关联：** [ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)、[ADR-0156](0156-skill-orchestration-conversation-continuity.md)
+- **关联：** [ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)、[ADR-0156](0156-skill-orchestration-conversation-continuity.md)、[ADR-0164](0164-unified-teaching-chain-and-skill-admission.md)
+- **限定：** ADR-0164 已限定本 ADR 的普通 capability 选择心智：8 项仅是输入防御 ceiling；正式教学以 host-governed admission 与 intent preset 为主，raw selection 是高级入口。
 
 ## 1. 用户选择语义
 
 - Teaching Kernel（`teach`）始终启用，不显示为普通可选 chip。
-- 用户可在两个 composer 路径中多选最多 8 个 capability，也可使用少量 host-owned intent presets。
-- 既有 leading `/skill-id` 语法继续有效；slash 与 chips 合并、normalize、dedupe，不能静默丢弃选择。
+- 普通 composer 先呈现 host-owned intent presets；受平台治理且 admitted 的 raw capability 只作为高级能力设置。最多 8 项仅是 IPC 防御 ceiling，绝不构成“可自由拼装八个教学策略”的产品承诺。
+- leading `/skill-id` 仍可作为高级入口；slash 与 chips 合并、normalize、dedupe，且只接受 host eligibility projection 中允许进入该入口的 capability，不能静默丢弃选择。
 - planner 对每个 selected skill 给出 `active_now` / `scheduled_later` / `advisory_only` / `excluded` / `blocked` 与理由；host 自动补齐的预声明依赖单独显示，不能伪装成用户选择。
 
 ## 2. Preview 与 IPC
@@ -26,10 +27,10 @@ IPC 命令与 gateway：
 
 `SkillCapabilityPicker` 在两个 composer 路径提供：
 
-- chips、preset toggle、展开选择器和计划预览；
+- 教学内核状态、intent preset、受治理 capability 的高级选择器和计划预览；
 - active/later/advisory/blocked/excluded 分组及理由；
 - dialog semantics、键盘 Escape、focus restore 与 live region；
-- picker 仅改变 capability selection，不授予工具权限，不绕过 effect lattice 或三态审批。
+- picker 仅改变 capability selection，不授予工具权限，不绕过 effect lattice 或三态审批；personal/custom 文件可在资源面管理，但不自动进入正式教学链路。
 
 ## 4. Builtin skill 治理
 
@@ -85,4 +86,4 @@ pnpm exec vitest run --project unit \
 
 ## 8. 一句话
 
-**用户获得“能力多选 + 可解释计划 + 无障碍预览”，维护者获得本地、可同意导出的 counts-only 评估；但 planner 纯度、文件/ledger 权威、Evidence 边界、settlement sole-writer 和工具审批均未改变。**
+**用户获得“intent-first 的受治理能力选择 + 可解释计划 + 无障碍预览”，维护者获得本地、可同意导出的 counts-only 评估；但 planner 纯度、文件/ledger 权威、Evidence 边界、settlement sole-writer 和工具审批均未改变。**

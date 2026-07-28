@@ -4,12 +4,20 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { previewSkillOrchestration } from '../../src/main/skill-orchestration-preview'
+import { plan as planSkillOrchestration } from '../../src/main/skill-orchestration-planner'
 import { createSkillOrchestrationStateStore } from '../../src/main/skill-orchestration-state-store'
 import {
   buildSkillOrchestrationEvaluationSummary,
   createSkillOrchestrationDiagnosticsStore
 } from '../../src/main/skill-orchestration-diagnostics-store'
-import { buildSkillOrchestrationPlanDiagnosticsFact } from '../../src/main/skill-orchestration-host'
+import {
+  buildSkillOrchestrationContextIdentity,
+  buildSkillOrchestrationPlanDiagnosticsFact,
+  buildSkillOrchestrationPlanInput,
+  buildSkillOrchestrationReadinessFromCatalog,
+  mergeSelectedSkillIds,
+  resolveHostSkillOrchestrationMode
+} from '../../src/main/skill-orchestration-host'
 import { listSkillOrchestrationPresets } from '../../src/shared/skill-orchestration-presets'
 import { listBuiltinSkillOrchestrationPolicies } from '../../src/main/builtin-skill-orchestration-policy'
 import type { SkillOrchestrationPreviewDeps } from '../../src/main/skill-orchestration-preview'
@@ -19,7 +27,9 @@ const CATALOG = [
   { id: 'learning-assessor', installed: true, source: 'builtin' as const },
   { id: 'course-outline-design', installed: true, source: 'builtin' as const },
   { id: 'course-content-authoring', installed: true, source: 'builtin' as const },
-  { id: 'course-ebook-publishing', installed: true, source: 'builtin' as const }
+  { id: 'course-ebook-publishing', installed: true, source: 'builtin' as const },
+  { id: 'course-designer', installed: true, source: 'builtin' as const },
+  { id: 'teaching-site', installed: true, source: 'builtin' as const }
 ]
 
 function deps(overrides: Partial<SkillOrchestrationPreviewDeps> = {}): SkillOrchestrationPreviewDeps {
@@ -59,6 +69,44 @@ describe('skill orchestration preview (ADR-0163)', () => {
     const first = await previewSkillOrchestration(request, deps())
     const second = await previewSkillOrchestration(request, deps())
     expect(first.plan?.planId).toBe(second.plan?.planId)
+  })
+
+  it('uses the same host assembly and cardinality plan as a turn for identical facts', async () => {
+    const request = {
+      selectedSkillIds: ['course-designer', 'teaching-site'],
+      isTeachingConversation: true,
+      userInput: 'Build a course site',
+      conversationId: 'conversation-preview-parity',
+      workspaceId: 'workspace-preview-parity'
+    }
+    const preview = await previewSkillOrchestration(request, deps({ conversationMode: 'teaching' }))
+    const selectedSkillIds = mergeSelectedSkillIds({
+      explicitSkillIds: request.selectedSkillIds,
+      userInput: request.userInput,
+      catalogSkills: CATALOG
+    })
+    const expected = planSkillOrchestration(
+      buildSkillOrchestrationPlanInput({
+        selectedSkillIds,
+        mode: resolveHostSkillOrchestrationMode({
+          isTeachingConversation: true,
+          conversationMode: 'teaching',
+          selectedSkillIds
+        }),
+        objective: request.userInput,
+        contextIdentity: buildSkillOrchestrationContextIdentity({
+          conversationId: request.conversationId,
+          workspaceId: request.workspaceId,
+          mode: 'teaching'
+        }),
+        readiness: buildSkillOrchestrationReadinessFromCatalog({ selectedSkillIds, catalogSkills: CATALOG })
+      })
+    )
+
+    expect(preview.ok).toBe(true)
+    expect(preview.plan).toEqual(expected)
+    expect(preview.plan?.decisions.find((decision) => decision.skillId === 'course-designer')?.status).toBe('excluded')
+    expect(preview.plan?.decisions.find((decision) => decision.skillId === 'teaching-site')?.status).toBe('active_now')
   })
 
   it('expands a host-owned preset and reports auto-added dependencies separately', async () => {

@@ -246,8 +246,8 @@
       "featured": "Featured",
       "stylesMeta": "视觉样式",
       "stylesDetail": "{{count}} 套课程页面风格，当前使用 {{style}}。",
-      "skillsMeta": "Agent 技能",
-      "skillsDetail": "{{count}} 个可用技能，已有 {{installed}} 个安装到个人技能目录。",
+      "skillsMeta": "教学能力",
+      "skillsDetail": "{{count}} 个能力可用，{{installed}} 个已安装到本地；个人文件不会自动进入正式教学链路。",
       "petsMeta": "Boba 状态宠物",
       "petsDetail": "让 Boba 响应生成、等待确认、失败与完成状态，并停留在应用界面上。",
       "open": "打开",
@@ -542,19 +542,19 @@
     }
   },
   "skills": {
-    "eyebrow": "技能（Skill）",
-    "title": "技能库",
-    "detail": "选择技能后会安装到 {{root}}，随后在对话框输入 / 即可调用。",
-    "openFolder": "打开技能目录",
-    "search": "搜索技能",
-    "mine": "我的技能 {{count}}",
-    "loading": "正在读取技能…",
+    "eyebrow": "教学工具",
+    "title": "教学能力库",
+    "detail": "内置能力可安装到 {{root}}。个人能力文件仍可在此管理，但不会自动获得正式教学权威。",
+    "openFolder": "打开个人能力目录",
+    "search": "搜索能力",
+    "mine": "已安装 {{count}}",
+    "loading": "正在读取能力…",
     "install": "安装",
     "installing": "安装中",
     "installed": "已安装",
-    "noResults": "没有匹配的技能",
+    "noResults": "没有匹配的能力",
     "categories": {
-      "aria": "技能分类",
+      "aria": "能力分类",
       "all": "全部",
       "learning": "🎓 办公学习",
       "productivity": "⚡ 效率工具",
@@ -567,9 +567,9 @@
       "name": "名称"
     },
     "slash": {
-      "aria": "技能命令列表",
-      "title": "选择一个已安装技能",
-      "empty": "暂无匹配的已安装技能，请先前往资源 → 技能库安装。"
+      "aria": "高级能力命令列表",
+      "title": "选择受平台治理的能力",
+      "empty": "暂无匹配的受平台治理能力，请先前往资源 → 教学能力库安装内置能力。"
     }
   },
   "records": {

@@ -1520,6 +1520,14 @@
   content: '·';
   margin-right: 8px;
 }
+.skill-library-card__body .skill-library-card__admission {
+  min-height: 0;
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  font-size: 10.5px;
+  line-height: 1.4;
+  -webkit-line-clamp: 3;
+}
 .skill-library-card__action {
   position: absolute;
   right: 15px;

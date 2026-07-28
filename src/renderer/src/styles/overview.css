@@ -420,7 +420,37 @@
 }.skill-capability-option small {
   color: var(--text-soft);
   font-size: 10.5px;
-}.skill-capability-empty,
+}.skill-capability-hint {
+  margin: 4px 0 7px;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}.skill-capability-advanced-toggle {
+  width: 100%;
+  padding: 6px 8px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}.skill-capability-advanced-toggle:hover,
+.skill-capability-advanced-toggle[aria-expanded="true"] {
+  background: var(--surface-hover);
+}.skill-capability-panel__advanced h4 {
+  margin-top: 10px;
+}.skill-capability-advisory {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}.skill-capability-option.is-advisory {
+  grid-template-columns: minmax(0, 1fr) auto;
+  cursor: default;
+}
+.skill-capability-empty,
 .skill-capability-notice {
   margin: 6px 0 0;
   color: var(--text-soft);
