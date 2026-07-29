@@ -7,7 +7,7 @@ import type { PlanningTask } from './schedule-block'
 import type { ScheduleBlock } from './schedule-block'
 import type { TimerSessionRecord } from './timer-session-lifecycle'
 
-export type TaskTimelineViewId = 'now' | 'today' | 'inbox' | 'all' | 'done'
+export type TaskTimelineViewId = 'today' | 'unfinished' | 'all'
 
 export type TaskTimelineItem = {
   task: PlanningTask
@@ -34,7 +34,7 @@ export type ProjectTaskTimelineInput = {
 }
 
 function focusSeconds(block: ScheduleBlock): number {
-  if (block.kind !== 'focus') return 0
+  if (block.kind !== 'focus' || block.status === 'cancelled') return 0
   return Math.max(0, Math.floor((block.endAtMs - block.startAtMs) / 1000))
 }
 
@@ -48,7 +48,8 @@ function actualFocusForTask(taskId: string, sessions: readonly TimerSessionRecor
 
 /**
  * Project tasks for a view. `manualOrder` is source order of `tasks` array (authority).
- * "today" sorts by next block time for display only.
+ * The primary list surfaces only today, unfinished, and all tasks; inbox remains a
+ * classification attribute rather than its own destination.
  */
 export function projectTaskTimeline(input: ProjectTaskTimelineInput): TaskTimelineItem[] {
   const sessions = input.timerSessions ?? []
@@ -80,52 +81,80 @@ export function projectTaskTimeline(input: ProjectTaskTimelineInput): TaskTimeli
 
   const filtered = items.filter((item) => {
     switch (input.view) {
-      case 'inbox':
-        return item.task.inbox === true && item.task.status !== 'cancelled'
-      case 'done':
-        return item.task.status === 'done'
+      case 'unfinished':
+        return item.task.status === 'open'
       case 'all':
         return item.task.status !== 'cancelled'
-      case 'now': {
-        if (item.task.status !== 'open') return false
-        // In progress session or block overlapping now
-        const inSession = sessions.some(
-          (s) => s.taskId === item.task.id && (s.state === 'running' || s.state === 'paused')
-        )
-        if (inSession) return true
-        return item.blocks.some(
-          (b) => b.startAtMs <= input.nowMs && input.nowMs < b.endAtMs && b.status !== 'cancelled'
-        )
-      }
       case 'today': {
-        if (item.task.status === 'cancelled') return false
-        if (item.task.status === 'done') {
-          return item.blocks.some(
-            (b) => b.startAtMs < input.dayEndMs && b.endAtMs > input.dayStartMs
-          )
-        }
-        // open: has block today OR no schedule (inbox-style carry)
-        const hasToday = item.blocks.some(
-          (b) => b.startAtMs < input.dayEndMs && b.endAtMs > input.dayStartMs
+        if (item.task.status !== 'open') return false
+        const isDueTodayOrOverdue =
+          item.task.dueAtMs != null && item.task.dueAtMs < input.dayEndMs
+        const hasScheduledBlockToday = item.blocks.some(
+          (block) =>
+            block.status !== 'cancelled' &&
+            block.startAtMs < input.dayEndMs &&
+            block.endAtMs > input.dayStartMs
         )
-        return hasToday || item.blocks.length === 0
+        return isDueTodayOrOverdue || hasScheduledBlockToday
       }
-      default:
-        return true
     }
   })
 
-  if (input.view === 'today' || input.view === 'now') {
-    return filtered.slice().sort((a, b) => {
-      const aKey = a.nextBlockStartAtMs ?? Number.POSITIVE_INFINITY
-      const bKey = b.nextBlockStartAtMs ?? Number.POSITIVE_INFINITY
-      if (aKey !== bKey) return aKey - bKey
-      return a.manualOrder - b.manualOrder
-    })
+  return filtered.slice().sort((a, b) => compareTaskTimelineItems(a, b, input))
+}
+
+function compareTaskTimelineItems(
+  a: TaskTimelineItem,
+  b: TaskTimelineItem,
+  input: Pick<ProjectTaskTimelineInput, 'view' | 'dayStartMs' | 'dayEndMs' | 'nowMs'>
+): number {
+  if (input.view === 'all') {
+    const aIsOpen = a.task.status === 'open'
+    const bIsOpen = b.task.status === 'open'
+    if (aIsOpen !== bIsOpen) return aIsOpen ? -1 : 1
   }
 
-  // all / inbox / done: preserve manual order
-  return filtered.slice().sort((a, b) => a.manualOrder - b.manualOrder)
+  const aUrgency = taskUrgency(a, input)
+  const bUrgency = taskUrgency(b, input)
+  if (aUrgency.bucket !== bUrgency.bucket) return aUrgency.bucket - bUrgency.bucket
+  if (aUrgency.timeMs !== bUrgency.timeMs) return aUrgency.timeMs - bUrgency.timeMs
+  return a.manualOrder - b.manualOrder
+}
+
+type TaskUrgency = { bucket: number; timeMs: number }
+
+/** Priority: overdue → today → scheduled/due later → no date. */
+function taskUrgency(
+  item: TaskTimelineItem,
+  input: Pick<ProjectTaskTimelineInput, 'dayStartMs' | 'dayEndMs' | 'nowMs'>
+): TaskUrgency {
+  const dueAtMs = item.task.dueAtMs
+  if (dueAtMs != null) {
+    if (dueAtMs < input.nowMs) return { bucket: 0, timeMs: dueAtMs }
+    if (dueAtMs < input.dayEndMs) return { bucket: 1, timeMs: dueAtMs }
+    return { bucket: 2, timeMs: dueAtMs }
+  }
+
+  const todayBlockStarts = item.blocks
+    .filter(
+      (block) =>
+        block.status !== 'cancelled' &&
+        block.startAtMs < input.dayEndMs &&
+        block.endAtMs > input.dayStartMs
+    )
+    .map((block) => block.startAtMs)
+  if (todayBlockStarts.length > 0) {
+    return { bucket: 1, timeMs: Math.min(...todayBlockStarts) }
+  }
+
+  const futureBlockStarts = item.blocks
+    .filter((block) => block.status !== 'cancelled' && block.endAtMs > input.nowMs)
+    .map((block) => block.startAtMs)
+  if (futureBlockStarts.length > 0) {
+    return { bucket: 2, timeMs: Math.min(...futureBlockStarts) }
+  }
+
+  return { bucket: 3, timeMs: Number.MAX_SAFE_INTEGER }
 }
 
 export type FutureBlocksDecision = 'cancel_blocks' | 'keep_as_review' | 'reassign'

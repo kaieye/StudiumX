@@ -43,29 +43,29 @@ function block(
 
 describe('projectTaskTimeline (STC-302..305)', () => {
   const tasks = [
-    task({ id: 'a', title: 'A', inbox: false, categoryId: 'study' }),
-    task({ id: 'b', title: 'B', inbox: true }),
-    task({ id: 'c', title: 'C', status: 'done', inbox: false, categoryId: 'study' })
+    task({ id: 'overdue', title: 'Overdue', dueAtMs: now - 60 * 60_000 }),
+    task({ id: 'today-due', title: 'Due today', dueAtMs: now + 2 * 60 * 60_000 }),
+    task({ id: 'today-block', title: 'Scheduled today', inbox: false, categoryId: 'study' }),
+    task({ id: 'future-block', title: 'Scheduled later', inbox: false, categoryId: 'study' }),
+    task({ id: 'unscheduled', title: 'No date' }),
+    task({ id: 'done', title: 'Done', status: 'done', inbox: false, categoryId: 'study' })
   ]
   const blocks = [
-    block({ id: 'b1', taskId: 'a', startAtMs: dayStart + 9 * 3600_000, endAtMs: dayStart + 9.5 * 3600_000 }),
-    block({ id: 'b2', taskId: 'a', startAtMs: dayStart + 14 * 3600_000, endAtMs: dayStart + 15 * 3600_000 }),
-    block({ id: 'b3', taskId: 'c', startAtMs: dayStart + 8 * 3600_000, endAtMs: dayStart + 9 * 3600_000 })
+    block({
+      id: 'today',
+      taskId: 'today-block',
+      startAtMs: dayStart + 14 * 3600_000,
+      endAtMs: dayStart + 15 * 3600_000
+    }),
+    block({
+      id: 'future',
+      taskId: 'future-block',
+      startAtMs: dayEnd + 9 * 3600_000,
+      endAtMs: dayEnd + 10 * 3600_000
+    })
   ]
 
-  it('inbox view only inbox tasks; preserves manual order', () => {
-    const items = projectTaskTimeline({
-      view: 'inbox',
-      tasks,
-      scheduleBlocks: blocks,
-      dayStartMs: dayStart,
-      dayEndMs: dayEnd,
-      nowMs: now
-    })
-    expect(items.map((i) => i.task.id)).toEqual(['b'])
-  })
-
-  it('today sorts by next block without mutating manualOrder field', () => {
+  it('today includes only open tasks due today or overdue, or with a non-cancelled block today', () => {
     const items = projectTaskTimeline({
       view: 'today',
       tasks,
@@ -74,23 +74,74 @@ describe('projectTaskTimeline (STC-302..305)', () => {
       dayEndMs: dayEnd,
       nowMs: now
     })
-    // a has next block at 14:00; b has none (infinity); c done with today block
-    expect(items.find((i) => i.task.id === 'a')?.manualOrder).toBe(0)
-    const a = items.find((i) => i.task.id === 'a')
-    expect(a?.blocks).toHaveLength(2)
-    expect(a?.nextBlockStartAtMs).toBe(dayStart + 14 * 3600_000)
+    expect(items.map((i) => i.task.id)).toEqual(['overdue', 'today-due', 'today-block'])
   })
 
-  it('done view lists completed tasks', () => {
+  it('unfinished includes all open tasks and orders them by urgency', () => {
     const items = projectTaskTimeline({
-      view: 'done',
+      view: 'unfinished',
       tasks,
       scheduleBlocks: blocks,
       dayStartMs: dayStart,
       dayEndMs: dayEnd,
       nowMs: now
     })
-    expect(items.map((i) => i.task.id)).toEqual(['c'])
+    expect(items.map((i) => i.task.id)).toEqual([
+      'overdue',
+      'today-due',
+      'today-block',
+      'future-block',
+      'unscheduled'
+    ])
+  })
+
+  it('all keeps cancelled tasks out and puts open tasks before completed ones', () => {
+    const items = projectTaskTimeline({
+      view: 'all',
+      tasks: [...tasks, task({ id: 'cancelled', title: 'Cancelled', status: 'cancelled' })],
+      scheduleBlocks: blocks,
+      dayStartMs: dayStart,
+      dayEndMs: dayEnd,
+      nowMs: now
+    })
+    expect(items.map((i) => i.task.id)).toEqual([
+      'overdue',
+      'today-due',
+      'today-block',
+      'future-block',
+      'unscheduled',
+      'done'
+    ])
+  })
+
+  it('ignores cancelled blocks when projecting today and calculating planned focus', () => {
+    const scheduled = task({ id: 'scheduled', title: 'Scheduled' })
+    const cancelledBlock = block({
+      id: 'cancelled-block',
+      taskId: 'scheduled',
+      startAtMs: dayStart + 11 * 3600_000,
+      endAtMs: dayStart + 12 * 3600_000,
+      status: 'cancelled'
+    })
+    const items = projectTaskTimeline({
+      view: 'today',
+      tasks: [scheduled],
+      scheduleBlocks: [cancelledBlock],
+      dayStartMs: dayStart,
+      dayEndMs: dayEnd,
+      nowMs: now
+    })
+    expect(items).toEqual([])
+
+    const allItems = projectTaskTimeline({
+      view: 'all',
+      tasks: [scheduled],
+      scheduleBlocks: [cancelledBlock],
+      dayStartMs: dayStart,
+      dayEndMs: dayEnd,
+      nowMs: now
+    })
+    expect(allItems[0]?.plannedFocusSeconds).toBe(0)
   })
 })
 

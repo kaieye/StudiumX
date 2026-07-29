@@ -23,10 +23,14 @@ function task(partial: Partial<StudyTask> & Pick<StudyTask, 'id' | 'title'>): St
 }
 
 describe('planning-task-timeline-adapter (STC-302 UI)', () => {
-  it('exports five product views', () => {
-    expect(TASK_LIST_VIEWS.map((v) => v.id)).toEqual(['now', 'today', 'inbox', 'all', 'done'])
+  it('exports the three primary task-list views', () => {
+    expect(TASK_LIST_VIEWS.map((v) => v.id)).toEqual(['today', 'unfinished', 'all'])
     expect(isTaskListViewId('today')).toBe(true)
-    expect(isTaskListViewId('nope')).toBe(false)
+    expect(isTaskListViewId('unfinished')).toBe(true)
+    expect(isTaskListViewId('all')).toBe(true)
+    expect(isTaskListViewId('now')).toBe(false)
+    expect(isTaskListViewId('inbox')).toBe(false)
+    expect(isTaskListViewId('done')).toBe(false)
   })
 
   it('maps missing category to inbox PlanningTask', () => {
@@ -43,17 +47,15 @@ describe('planning-task-timeline-adapter (STC-302 UI)', () => {
     })
   })
 
-  it('projects inbox / done / all views', () => {
+  it('projects unfinished and all views, keeping inbox as an attribute', () => {
     const tasks = [
       task({ id: 'open-study', title: 'A', categoryId: 'study' }),
       task({ id: 'inbox-1', title: 'B' }),
       task({ id: 'done-1', title: 'C', categoryId: 'study', done: true })
     ]
-    expect(projectStudyTasksForView({ view: 'inbox', tasks, nowMs: weekAnchor }).map((t) => t.id)).toEqual([
+    expect(projectStudyTasksForView({ view: 'unfinished', tasks, nowMs: weekAnchor }).map((t) => t.id)).toEqual([
+      'open-study',
       'inbox-1'
-    ])
-    expect(projectStudyTasksForView({ view: 'done', tasks, nowMs: weekAnchor }).map((t) => t.id)).toEqual([
-      'done-1'
     ])
     expect(projectStudyTasksForView({ view: 'all', tasks, nowMs: weekAnchor }).map((t) => t.id)).toEqual([
       'open-study',
@@ -62,8 +64,8 @@ describe('planning-task-timeline-adapter (STC-302 UI)', () => {
     ])
   })
 
-  it('today view includes open unscheduled + scheduled-today (Mon-first)', () => {
-    // Mon-first weekday 0 = Monday; weekAnchor is Monday UTC
+  it('today view includes scheduled-today tasks but excludes unscheduled tasks', () => {
+    // Mon-first weekday 0 = Monday; weekAnchor is Monday UTC.
     const tasks = [
       task({
         id: 'mon',
@@ -77,9 +79,8 @@ describe('planning-task-timeline-adapter (STC-302 UI)', () => {
         categoryId: 'study',
         schedule: { weekday: 1, startMinutes: 9 * 60, endMinutes: 10 * 60 }
       }),
-      task({ id: 'carry', title: 'No schedule', categoryId: 'study' })
+      task({ id: 'unscheduled', title: 'No schedule', categoryId: 'study' })
     ]
-    // now = Monday morning after weekAnchor + 8h (local-safe via Date.UTC Monday)
     const nowMs = weekAnchor + 8 * 60 * 60_000
     const ids = projectStudyTasksForView({
       view: 'today',
@@ -87,32 +88,7 @@ describe('planning-task-timeline-adapter (STC-302 UI)', () => {
       nowMs,
       weekAnchorMidnightMs: weekAnchor
     }).map((t) => t.id)
-    expect(ids).toContain('mon')
-    expect(ids).toContain('carry')
-    expect(ids).not.toContain('tue')
-  })
-
-  it('now view uses activeTimer hint', () => {
-    const tasks = [
-      task({ id: 'focus', title: 'Focus me', categoryId: 'study' }),
-      task({ id: 'other', title: 'Other', categoryId: 'study' })
-    ]
-    expect(
-      projectStudyTasksForView({
-        view: 'now',
-        tasks,
-        nowMs: weekAnchor,
-        activeTimer: { taskId: 'focus', state: 'running' }
-      }).map((t) => t.id)
-    ).toEqual(['focus'])
-    expect(
-      projectStudyTasksForView({
-        view: 'now',
-        tasks,
-        nowMs: weekAnchor,
-        activeTimer: null
-      })
-    ).toEqual([])
+    expect(ids).toEqual(['mon'])
   })
 
   it('materializes Mon-first V1 schedule blocks', () => {

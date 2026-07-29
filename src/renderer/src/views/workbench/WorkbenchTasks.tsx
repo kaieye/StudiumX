@@ -38,9 +38,9 @@ type WorkbenchTasksProps = {
   onOpenAnalytics: () => void
   analyticsButtonRef?: RefObject<HTMLButtonElement | null>
   defaultOpen?: boolean
-  /** Optional active timer for "now" view (STC-302). */
+  /** Optional active timer retained for focus-session analytics. */
   activeTimer?: ActiveTimerHint | null
-  /** Initial timeline view; default "today" matches prior "今日清单" label. */
+  /** Initial timeline view; default "today" matches the primary task list. */
   defaultView?: TaskListViewId
   /** STC-408: open batch classify for current inbox (or selected subset). */
   onOpenBatchClassify?: (taskIds: string[]) => void
@@ -85,16 +85,20 @@ export function WorkbenchTasks({
   const taskCount = openTasks + completedTasks
   const completedRatio = taskCount > 0 ? Math.round((completedTasks / taskCount) * 100) : 0
 
-  const visibleTasks = useMemo(
-    () =>
-      projectStudyTasksForView({
-        view,
+  const nowMs = Date.now()
+  const tasksByView = useMemo(() => {
+    const projected = {} as Record<TaskListViewId, StudyTask[]>
+    for (const tab of TASK_LIST_VIEWS) {
+      projected[tab.id] = projectStudyTasksForView({
+        view: tab.id,
         tasks,
         activeTimer,
-        nowMs: Date.now()
-      }),
-    [view, tasks, activeTimer]
-  )
+        nowMs
+      })
+    }
+    return projected
+  }, [tasks, activeTimer, nowMs])
+  const visibleTasks = tasksByView[view]
 
   const emptyLabel = emptyLabelForTaskListView(view)
 
@@ -136,20 +140,7 @@ export function WorkbenchTasks({
                     type="button"
                     className="workbench-task-batch-classify-button"
                     onClick={() => {
-                      // Inbox view: all visible inbox rows; otherwise all inbox tasks.
-                      const ids =
-                        view === 'inbox'
-                          ? visibleTasks
-                              .filter(
-                                (t) =>
-                                  !(
-                                    typeof t.categoryId === 'string' &&
-                                    t.categoryId.trim().length > 0
-                                  )
-                              )
-                              .map((t) => t.id)
-                          : inboxTaskIds
-                      if (ids.length > 0) onOpenBatchClassify(ids)
+                      if (inboxTaskIds.length > 0) onOpenBatchClassify(inboxTaskIds)
                     }}
                     aria-label={`批量归类（${inboxTaskIds.length}）`}
                     title="批量归类待归类任务"
@@ -204,7 +195,7 @@ export function WorkbenchTasks({
                     className={`workbench-task-view-tab${selected ? ' is-active' : ''}`}
                     onClick={() => setView(tab.id)}
                   >
-                    {tab.label}
+                    {tab.label} ({tasksByView[tab.id].length})
                   </button>
                 )
               })}

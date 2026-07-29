@@ -21,21 +21,13 @@ export const TASK_LIST_VIEWS: readonly {
   label: string
   ariaLabel: string
 }[] = [
-  { id: 'now', label: '现在', ariaLabel: '现在进行的任务' },
-  { id: 'today', label: '今日', ariaLabel: '今日任务' },
-  { id: 'inbox', label: '待归类', ariaLabel: '待归类任务' },
-  { id: 'all', label: '全部', ariaLabel: '全部任务' },
-  { id: 'done', label: '已完成', ariaLabel: '已完成任务' }
+  { id: 'today', label: '今天', ariaLabel: '今天任务' },
+  { id: 'unfinished', label: '未完成', ariaLabel: '未完成任务' },
+  { id: 'all', label: '全部', ariaLabel: '全部任务' }
 ] as const
 
 export function isTaskListViewId(value: unknown): value is TaskListViewId {
-  return (
-    value === 'now' ||
-    value === 'today' ||
-    value === 'inbox' ||
-    value === 'all' ||
-    value === 'done'
-  )
+  return value === 'today' || value === 'unfinished' || value === 'all'
 }
 
 /** Local calendar day [start, end) for timeline day window. */
@@ -121,7 +113,7 @@ export function studyTasksToScheduleBlocks(
   return blocks
 }
 
-/** Minimal session hint for "now" view (running/paused focus on a task). */
+/** Optional running/paused timer hint retained for focus-session analytics. */
 export type ActiveTimerHint = {
   taskId: string
   state: 'running' | 'paused'
@@ -134,7 +126,7 @@ export type ProjectStudyTasksForViewInput = {
   scheduleBlocks?: readonly ScheduleBlock[]
   nowMs?: number
   weekAnchorMidnightMs?: number
-  /** Optional active timer for "now" view (V1 still owns the UI clock). */
+  /** Optional active timer retained for focus-session analytics. */
   activeTimer?: ActiveTimerHint | null
 }
 
@@ -201,16 +193,11 @@ export function projectStudyTasksForView(input: ProjectStudyTasksForViewInput): 
 /** Empty-state copy per view (UI). */
 export function emptyLabelForTaskListView(view: TaskListViewId): string {
   switch (view) {
-    case 'now':
-      return '此刻没有进行中的任务'
     case 'today':
-      return '今日暂无任务'
-    case 'inbox':
-      return '没有待归类任务'
-    case 'done':
-      return '还没有已完成任务'
+      return '今天暂无任务'
+    case 'unfinished':
+      return '没有未完成任务'
     case 'all':
-    default:
       return '清单为空'
   }
 }
