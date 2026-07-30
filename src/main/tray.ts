@@ -1,9 +1,13 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage } from 'electron'
+import { app, BrowserWindow, Menu, Tray, nativeImage, type NativeImage } from 'electron'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Logger } from './logger'
 import { applicationTrayLifecycle, type TrayLocale, type TrayMenuLabels } from './tray-lifecycle'
 
-// 1x1 accent-blue PNG; Electron scales it up for the tray. Good enough as a
-// placeholder until a real icon asset is bundled.
+const __dirname = fileURLToPath(new URL('.', import.meta.url))
+
+// 1x1 accent-blue PNG used only as a last-resort fallback when the bundled
+// platform tray asset cannot be loaded.
 const TRAY_ICON_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mN4+P+/HgAFDwIAB6s5FQAAAABJRU5ErkJggg=='
 
@@ -40,9 +44,31 @@ export class TrayManager {
     }
   }
 
+  /**
+   * Resolve a platform-appropriate tray icon.
+   *
+   * macOS menu-bar icons are monochrome "template" images that the system
+   * recolors to match the current light/dark appearance, so the template asset
+   * is loaded and marked as a template. Windows/Linux instead use a filled,
+   * brand-colored icon. Both fall back to the embedded data URL when the
+   * bundled asset is missing, so the tray always stays usable.
+   */
+  private resolveTrayIcon(): NativeImage {
+    const dir = app.isPackaged ? process.resourcesPath : join(__dirname, '../../build')
+    const isMac = process.platform === 'darwin'
+    const fileName = isMac ? 'trayTemplate.png' : 'trayIcon.png'
+    const image = nativeImage.createFromPath(join(dir, fileName))
+    if (image.isEmpty()) {
+      this.logger?.warn(`Tray icon asset missing (${fileName}); using fallback`)
+      return nativeImage.createFromDataURL(TRAY_ICON_DATA_URL)
+    }
+    if (isMac) image.setTemplateImage(true)
+    return image
+  }
+
   private ensureTray(): void {
     if (this.tray) return
-    this.tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON_DATA_URL))
+    this.tray = new Tray(this.resolveTrayIcon())
     this.tray.setToolTip('StudiumX')
     this.tray.on('click', () => this.show())
     this.logger?.info('Tray initialized')

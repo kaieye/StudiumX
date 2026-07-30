@@ -220,6 +220,22 @@
       {
         "from": "resources/sandbox",
         "to": "sandbox"
+      },
+      {
+        "from": "build/trayTemplate.png",
+        "to": "trayTemplate.png"
+      },
+      {
+        "from": "build/trayTemplate@2x.png",
+        "to": "trayTemplate@2x.png"
+      },
+      {
+        "from": "build/trayIcon.png",
+        "to": "trayIcon.png"
+      },
+      {
+        "from": "build/trayIcon@2x.png",
+        "to": "trayIcon@2x.png"
       }
     ],
     "asarUnpack": [

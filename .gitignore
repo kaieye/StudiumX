@@ -5,6 +5,7 @@ dist/
 build/*
 !build/icon.png
 !build/icon.icns
+!build/tray*
 ref_project/
 
 *.log
