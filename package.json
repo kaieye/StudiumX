@@ -227,7 +227,16 @@
       "node_modules/bindings/**",
       "node_modules/file-uri-to-path/**"
     ],
-    "npmRebuild": false
+    "npmRebuild": false,
+    "mac": {
+      "icon": "build/icon.icns"
+    },
+    "win": {
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "icon": "build/icon.png"
+    }
   },
   "engines": {
     "node": ">=22 <25"

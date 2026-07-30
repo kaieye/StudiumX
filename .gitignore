@@ -2,7 +2,9 @@ node_modules/
 out/
 /release/
 dist/
-build/
+build/*
+!build/icon.png
+!build/icon.icns
 ref_project/
 
 *.log

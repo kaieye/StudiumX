@@ -152,6 +152,10 @@ function createWindow(
   logger: Logger,
   hidden = false
 ): BrowserWindow {
+  if (isDev && process.platform === "darwin") {
+    app.dock?.setIcon(join(__dirname, "../../build/icon.png"))
+  }
+
   const mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
