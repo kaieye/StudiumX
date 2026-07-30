@@ -19,13 +19,14 @@ import { TrayLifecycle } from '../../src/main/tray-lifecycle'
   assert.equal(lifecycle.closeOutcome(), 'hide')
 }
 
-// Disabling tray mode removes the tray requirement and allows a normal close.
+// The tray stays present in either close mode; 'quit' only switches the close
+// outcome to a normal close instead of hiding to the tray.
 {
   const lifecycle = new TrayLifecycle()
   lifecycle.configure('tray', 'en-US')
-  const disabled = lifecycle.configure('quit')
-  assert.equal(disabled.trayEnabled, false)
-  assert.equal(disabled.locale, 'en-US')
+  const quitMode = lifecycle.configure('quit')
+  assert.equal(quitMode.trayEnabled, true)
+  assert.equal(quitMode.locale, 'en-US')
   assert.equal(lifecycle.closeOutcome(), 'close')
 }
 

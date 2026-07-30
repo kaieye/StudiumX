@@ -153,7 +153,9 @@ function createWindow(
   hidden = false
 ): BrowserWindow {
   if (isDev && process.platform === "darwin") {
-    app.dock?.setIcon(join(__dirname, "../../build/icon.png"))
+    // macOS does not squircle-mask icons set via dock.setIcon, so use a
+    // pre-rounded asset in dev; packaged builds are masked via the icns.
+    app.dock?.setIcon(join(__dirname, "../../build/icon-dock.png"))
   }
 
   const mainWindow = new BrowserWindow({

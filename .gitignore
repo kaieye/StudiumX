@@ -6,6 +6,7 @@ build/*
 !build/icon.png
 !build/icon.icns
 !build/tray*
+!build/icon-dock.png
 ref_project/
 
 *.log

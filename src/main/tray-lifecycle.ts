@@ -55,7 +55,7 @@ export class TrayLifecycle {
     return {
       closeAction: this.closeAction,
       locale: this.locale,
-      trayEnabled: this.closeAction === 'tray',
+      trayEnabled: true,
       labels: trayLabels[this.locale]
     }
   }
