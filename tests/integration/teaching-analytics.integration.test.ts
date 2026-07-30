@@ -191,7 +191,7 @@ function workspaceScan(runtime: IsolatedTestRuntime, summaries: TeachingWorkspac
 
 function settings(runtime: IsolatedTestRuntime): TeachingSettingsV1 {
   return {
-    version: 1,
+    version: 2,
     locale: 'en-US',
     theme: 'system',
     uiFontScale: 1,

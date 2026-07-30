@@ -177,8 +177,10 @@ export type PetNotificationPreferences = {
   quietUntil: number | null
 }
 
+// The type name `TeachingSettingsV1` is retained to avoid a wide rename churn;
+// the persisted schema marker is now `2` (close-to-tray became the default).
 export type TeachingSettingsV1 = {
-  version: 1
+  version: 2
   locale: LocalePreference
   theme: ThemePreference
   uiFontScale: number

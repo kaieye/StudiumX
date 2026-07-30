@@ -14,11 +14,32 @@ describe('teaching settings schema', () => {
   it('creates the same complete default document for main and renderer callers', () => {
     expect(createTeachingSettingsDefaults('')).toEqual(emptySettings)
     expect(createTeachingSettingsDefaults(fallbackRoot)).toMatchObject({
-      version: 1,
+      version: 2,
       workspace: { defaultRoot: fallbackRoot },
       worktree: { rootPath: 'C:\\StudiumX\\workspace\\.worktrees' },
-      tools: { maxIterations: 0, runBudget: DEFAULT_TEACHING_AGENT_RUN_BUDGET }
+      tools: { maxIterations: 0, runBudget: DEFAULT_TEACHING_AGENT_RUN_BUDGET },
+      appBehavior: { closeAction: 'tray', closeToTray: true }
     })
+  })
+
+  it('migrates legacy (pre-v2) records to close-to-tray regardless of stored closeAction', () => {
+    const migrated = normalizeTeachingSettings(
+      { version: 1, appBehavior: { closeAction: 'quit', closeToTray: false } },
+      fallbackRoot
+    )
+    expect(migrated.version).toBe(2)
+    expect(migrated.appBehavior.closeAction).toBe('tray')
+    expect(migrated.appBehavior.closeToTray).toBe(true)
+  })
+
+  it('preserves an explicit quit choice on already-v2 records', () => {
+    const preserved = normalizeTeachingSettings(
+      { version: 2, appBehavior: { closeAction: 'quit', closeToTray: false } },
+      fallbackRoot
+    )
+    expect(preserved.version).toBe(2)
+    expect(preserved.appBehavior.closeAction).toBe('quit')
+    expect(preserved.appBehavior.closeToTray).toBe(false)
   })
 
   it('defaults, clamps, and rounds persisted pet sizes explicitly', () => {
@@ -167,7 +188,7 @@ describe('teaching settings schema', () => {
 
     const custom = normalized.provider.providers.find((provider) => provider.id === 'custom')!
     expect(normalized).toMatchObject({
-      version: 1,
+      version: 2,
       locale: 'zh-CN',
       theme: 'system',
       uiFontScale: 1.2,
@@ -220,7 +241,7 @@ describe('teaching settings schema', () => {
         size: 224
       },
       privacy: { maskApiKeys: false, allowExternalLinks: true },
-      appBehavior: { closeAction: 'tray', closeToTray: false },
+      appBehavior: { closeAction: 'tray', closeToTray: true },
       log: { retentionDays: 1 }
     })
     expect(normalized.generator).not.toHaveProperty('generateLearningRecord')

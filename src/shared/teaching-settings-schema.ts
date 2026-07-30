@@ -52,7 +52,7 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
   const activeProvider = providers[0]!
 
   return {
-    version: 1,
+    version: 2,
     locale: 'zh-CN',
     theme: 'system',
     uiFontScale: DEFAULT_UI_FONT_SCALE,
@@ -154,8 +154,8 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
     appBehavior: {
       openAtLogin: false,
       startMinimized: false,
-      closeAction: 'quit',
-      closeToTray: false
+      closeAction: 'tray',
+      closeToTray: true
     },
     log: {
       enabled: true,
@@ -260,6 +260,10 @@ export function mergeTeachingSettings(
  */
 export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: string): TeachingSettingsV1 {
   const record = isRecord(input) ? input : {}
+  // `version` is a passive schema marker; v<2 records predate the tray-default
+  // behavior and are migrated to close-to-tray on load.
+  const incomingVersion = typeof record.version === 'number' ? record.version : 0
+  const isLegacyRecord = incomingVersion < 2
   const defaults = createTeachingSettingsDefaults(fallbackDefaultRoot)
   const providerInput = recordOf(record.provider)
   const normalizedProviders = normalizeProviders(providerInput.providers, defaults.provider.providers)
@@ -288,11 +292,18 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
   const petNotificationSourcesInput = recordOf(petNotificationPreferencesInput.sources)
   const privacyInput = recordOf(record.privacy)
   const appBehaviorInput = recordOf(record.appBehavior)
+  // Legacy (<v2) documents always migrate to the tray default regardless of any
+  // stored `closeAction`; v2+ records honor the user's explicit choice.
+  const normalizedCloseAction: 'quit' | 'tray' = isLegacyRecord
+    ? 'tray'
+    : appBehaviorInput.closeAction === 'tray'
+      ? 'tray'
+      : 'quit'
   const logInput = recordOf(record.log)
   const proxyInput = recordOf(providerInput.proxy)
 
   return {
-    version: 1,
+    version: 2,
     locale: record.locale === 'en-US' ? 'en-US' : 'zh-CN',
     theme: record.theme === 'light' || record.theme === 'dark' || record.theme === 'system'
       ? record.theme
@@ -408,8 +419,8 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
     appBehavior: {
       openAtLogin: appBehaviorInput.openAtLogin === true,
       startMinimized: appBehaviorInput.startMinimized === true,
-      closeAction: appBehaviorInput.closeAction === 'tray' ? 'tray' : 'quit',
-      closeToTray: appBehaviorInput.closeToTray === true
+      closeAction: normalizedCloseAction,
+      closeToTray: normalizedCloseAction === 'tray'
     },
     log: {
       enabled: logInput.enabled !== false,
