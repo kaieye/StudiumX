@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StudiumX — 学习伙伴仪表盘</title>
+  <meta name="description" content="StudiumX 是你的学习伙伴：学习分析、学习计划、自习室、课程讲义与对话历史，一目了然。" />
+  <style>
+    :root { --brand:#4f46e5; --brand-dark:#3730a3; --ink:#1f2937; --muted:#6b7280; --bg:#f8fafc; --card:#ffffff; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: var(--ink); background: var(--bg); line-height: 1.6; }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+    header { padding: 18px 0; display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-weight: 700; font-size: 1.25rem; color: var(--brand-dark); letter-spacing: -0.02em; }
+    nav a { color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+    nav a:hover { color: var(--brand); }
+    .hero { padding: 70px 0 50px; text-align: center; }
+    .hero h1 { font-size: 2.6rem; line-height: 1.2; margin-bottom: 18px; letter-spacing: -0.03em; }
+    .hero h1 span { color: var(--brand); }
+    .hero p { font-size: 1.15rem; color: var(--muted); max-width: 640px; margin: 0 auto 32px; }
+    .cta-btn { display: inline-block; background: var(--brand); color: #fff; font-size: 1.1rem; font-weight: 600; padding: 15px 40px; border-radius: 10px; text-decoration: none; box-shadow: 0 6px 20px rgba(79,70,229,.28); transition: transform .15s ease, background .15s ease; cursor: pointer; border: none; }
+    .cta-btn:hover { background: var(--brand-dark); transform: translateY(-2px); }
+    .cta-hint { margin-top: 14px; font-size: 0.85rem; color: var(--muted); }
+    .features { padding: 40px 0 70px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+    .card { background: var(--card); border: 1px solid #e5e7eb; border-radius: 14px; padding: 26px; transition: box-shadow .2s ease; }
+    .card:hover { box-shadow: 0 10px 30px rgba(0,0,0,.06); }
+    .card .ico { font-size: 1.6rem; margin-bottom: 10px; }
+    .card h3 { font-size: 1.1rem; margin-bottom: 8px; }
+    .card p { font-size: 0.92rem; color: var(--muted); }
+    footer { border-top: 1px solid #e5e7eb; padding: 26px 0; text-align: center; color: var(--muted); font-size: 0.85rem; }
+    @media (max-width: 600px) { .hero h1 { font-size: 2rem; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">StudiumX</div>
+      <nav><a href="#features">功能</a></nav>
+    </header>
+
+    <section class="hero">
+      <h1>你的 <span>学习伙伴</span> 仪表盘</h1>
+      <p>StudiumX 把学习分析、学习计划、自习室、课程讲义与对话历史汇聚到一处，让学习有迹可循、有据可依。</p>
+      <!-- 登录按钮：跳转到 Web 端登录页（微信扫码）。URL 由下方 WEB_LOGIN_URL 配置。 -->
+      <a id="enterWebBtn" class="cta-btn" href="http://localhost:5174/login">登录 / 进入网页版</a>
+      <div class="cta-hint">点击进入网页版，使用微信扫码登录</div>
+    </section>
+
+    <section id="features" class="features">
+      <div class="card"><div class="ico">📊</div><h3>学习分析</h3><p>可视化学习时长、节奏与掌握度，看清自己的进步与短板。</p></div>
+      <div class="card"><div class="ico">🗓️</div><h3>学习计划</h3><p>制定任务与日程，把目标拆解成可执行的每日学习安排。</p></div>
+      <div class="card"><div class="ico">🪑</div><h3>自习室</h3><p>专注计时与陪伴，营造沉浸式自习氛围，远离分心。</p></div>
+      <div class="card"><div class="ico">📘</div><h3>课程讲义</h3><p>归档与浏览生成的课程讲义，随时回看知识点与笔记。</p></div>
+      <div class="card"><div class="ico">💬</div><h3>对话历史</h3><p>完整保留与学习伙伴的对话记录，复盘每一次答疑。</p></div>
+    </section>
+
+    <footer>© StudiumX · 学习有迹可循</footer>
+  </div>
+
+  <script>
+    // === Landing -> Web 登录跳转配置 ===
+    // 默认指向本地 Web 开发服务器；生产部署时通过 window.LANDING_CONFIG.webLoginUrl 覆盖为线上 Web 地址。
+    const WEB_LOGIN_URL = window.LANDING_CONFIG?.webLoginUrl || 'http://localhost:5174/login';
+    document.getElementById('enterWebBtn').href = WEB_LOGIN_URL;
+  </script>
+</body>
+</html>

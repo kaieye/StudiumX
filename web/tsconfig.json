@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["DOM", "DOM.Iterable", "ES2023"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "typeRoots": ["../node_modules/@types"],
+    "types": ["node", "react", "react-dom", "better-sqlite3", "markdown-it", "qrcode", "ws"],
+    "paths": {
+      "@shared/*": ["../src/shared/*"],
+      "@renderer/*": ["../src/renderer/src/*"],
+      "@web/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "references": []
+}
