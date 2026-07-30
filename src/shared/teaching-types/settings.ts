@@ -19,6 +19,7 @@ export type SettingsSection =
   | 'privacy'
   | 'doctor'
   | 'review'
+  | 'account'
   | 'about'
 
 export type ThemePreference = 'system' | 'light' | 'dark'

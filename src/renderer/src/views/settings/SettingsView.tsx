@@ -66,6 +66,7 @@ import { TeachingDoctorSettingsSection } from './sections/TeachingDoctorSettings
 import { TeachingTurnReviewSettingsSection } from './sections/TeachingTurnReviewSettingsSection'
 import { UserMcpSettingsSection } from './sections/UserMcpSettingsSection'
 import { RemoteControlSettingsSection } from './sections/RemoteControlSettingsSection'
+import { AccountSyncSettingsSection } from '../../sync/AccountSyncSettingsSection'
 
 export function SettingsView({
   section,
@@ -970,6 +971,8 @@ export function SettingsView({
         )}
 
         {section === 'doctor' && <TeachingDoctorSettingsSection />}
+
+        {section === 'account' && <AccountSyncSettingsSection />}
 
         {section === 'about' && (
           <SettingsPanel
