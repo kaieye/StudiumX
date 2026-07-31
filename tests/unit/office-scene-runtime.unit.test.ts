@@ -4,6 +4,7 @@ import {
   type OfficeSceneSeatOccupant,
   type OfficeSceneSeatState
 } from '../../src/renderer/src/views/workbench/office-scene-runtime'
+import { getPetSpriteSheetUrl } from '../../src/renderer/src/views/pet/PetSprite'
 
 type FrameQueue = Map<number, FrameRequestCallback>
 
@@ -11,6 +12,7 @@ type RuntimeHarness = {
   canvas: HTMLCanvasElement
   context: CanvasRenderingContext2D
   frames: FrameQueue
+  images: Array<{ srcValue: string }>
   runtime: ReturnType<typeof createOfficeSceneRuntime>
 }
 
@@ -27,12 +29,19 @@ function seatState({
   }
 }
 
-function installImageLoader(fail = false): void {
+function installImageLoader(fail = false): Array<{ srcValue: string }> {
+  const images: Array<{ srcValue: string }> = []
   class FakeImage {
     onload: ((event: Event) => void) | null = null
     onerror: ((event: Event) => void) | null = null
+    srcValue = ''
 
-    set src(_value: string) {
+    constructor() {
+      images.push(this)
+    }
+
+    set src(value: string) {
+      this.srcValue = value
       queueMicrotask(() => {
         const event = new Event(fail ? 'error' : 'load')
         if (fail) this.onerror?.(event)
@@ -42,6 +51,7 @@ function installImageLoader(fail = false): void {
   }
 
   vi.stubGlobal('Image', FakeImage)
+  return images
 }
 
 function installMatchMedia(matches = false): void {
@@ -90,7 +100,7 @@ function createContext(): CanvasRenderingContext2D {
 }
 
 function createHarness({ reducedMotion = false, failedAssets = false } = {}): RuntimeHarness {
-  installImageLoader(failedAssets)
+  const images = installImageLoader(failedAssets)
   installMatchMedia(reducedMotion)
   vi.stubGlobal('ResizeObserver', class {
     disconnect = vi.fn()
@@ -146,7 +156,7 @@ function createHarness({ reducedMotion = false, failedAssets = false } = {}): Ru
     petAppearance: 'boba'
   })
 
-  return { canvas, context, frames, runtime }
+  return { canvas, context, frames, images, runtime }
 }
 
 async function settleAssetLoad(): Promise<void> {
@@ -271,6 +281,40 @@ describe('OfficeSceneRuntime', () => {
 
     const seatedPetDraw = vi.mocked(harness.context.drawImage).mock.calls.find((call) => call.length === 9)
     expect(seatedPetDraw?.[1]).toBe(0)
+    harness.runtime.dispose()
+  })
+
+  it('draws a server peer with that peer\'s selected pet sprite sheet', async () => {
+    const harness = createHarness()
+    harness.runtime.mount()
+    harness.runtime.update(seatState({
+      occupantsByDeskId: new Map([
+        ['desk-1', {
+          kind: 'peer',
+          name: '兔子同学',
+          petAppearance: 'usagi',
+          status: 'running',
+          timerMode: 'focus',
+          todayFocusSeconds: 0
+        }]
+      ])
+    }))
+    await settleAssetLoad()
+    renderNextFrame(harness, 480)
+
+    const usagiImage = harness.images.find((image) => image.srcValue === getPetSpriteSheetUrl('usagi'))
+    expect(usagiImage).toBeDefined()
+    expect(vi.mocked(harness.context.drawImage).mock.calls).toContainEqual([
+      usagiImage,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number)
+    ])
     harness.runtime.dispose()
   })
 

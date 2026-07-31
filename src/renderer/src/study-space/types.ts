@@ -1,3 +1,5 @@
+import type { PetAppearanceId } from '../../../shared/teaching-types'
+
 export type StudyTimerMode = 'focus' | 'break'
 export type StudyTimerState = 'idle' | 'running' | 'paused'
 
@@ -110,6 +112,8 @@ export type StudyPresencePeer = {
   roomId: StudyRoomId
   spaceCode: string
   nickname: string
+  /** Optional for legacy relay peers; server-backed peers always provide it. */
+  petAppearance?: PetAppearanceId
   signalId: StudySignalId
   seatIndex: number
   seatClaimedAt: number

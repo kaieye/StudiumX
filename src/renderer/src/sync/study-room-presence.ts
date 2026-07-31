@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { PetAppearanceId } from '../../../shared/teaching-types'
 import { createSyncApiClient, type SyncStudyRoomMember } from './sync-api-client'
 import { getSyncAccessToken, useSyncState } from './sync-store'
 
@@ -27,12 +28,15 @@ export interface UseStudyRoomPresenceOptions {
   roomId: string | null
   nickname?: string | null
   avatarUrl?: string | null
+  petAppearance?: PetAppearanceId
   platform?: string
   /** Same-day focus seconds to advertise to the room. */
   focusSecondsToday?: number
   status?: 'studying' | 'break' | 'idle'
   /** When false, the hook stays inert (no joins/traffic). */
   active?: boolean
+  /** Applies the server's first-entry room assignment to the local snapshot. */
+  onAssignedRoom?: (roomId: string) => void
 }
 
 /**
@@ -44,7 +48,17 @@ export interface UseStudyRoomPresenceOptions {
 export function useStudyRoomPresence(
   options: UseStudyRoomPresenceOptions,
 ): StudyRoomPresenceState {
-  const { roomId, nickname, avatarUrl, platform, focusSecondsToday, status, active } = options
+  const {
+    roomId,
+    nickname,
+    avatarUrl,
+    petAppearance,
+    platform,
+    focusSecondsToday,
+    status,
+    active,
+    onAssignedRoom
+  } = options
   const syncState = useSyncState()
   const [members, setMembers] = useState<SyncStudyRoomMember[]>([])
   const [loading, setLoading] = useState(false)
@@ -54,6 +68,19 @@ export function useStudyRoomPresence(
   focusRef.current = focusSecondsToday
   const statusRef = useRef(status)
   statusRef.current = status
+  const onAssignedRoomRef = useRef(onAssignedRoom)
+  onAssignedRoomRef.current = onAssignedRoom
+  const assignmentAttemptedRef = useRef(false)
+  const assignmentUserIdRef = useRef<string | undefined>(undefined)
+
+  // A fresh authenticated user entering the workbench gets one assignment
+  // attempt. Subsequent explicit room switches stay under the user's control.
+  useEffect(() => {
+    const userId = syncState.user?.id
+    if (assignmentUserIdRef.current === userId) return
+    assignmentUserIdRef.current = userId
+    assignmentAttemptedRef.current = false
+  }, [syncState.user?.id])
 
   const client = createSyncApiClient({
     baseUrl: syncState.baseUrl,
@@ -82,10 +109,21 @@ export function useStudyRoomPresence(
 
     void (async () => {
       try {
+        if (!assignmentAttemptedRef.current && onAssignedRoomRef.current) {
+          assignmentAttemptedRef.current = true
+          const assignment = await client.studyRoomAssignment()
+          if (cancelled) return
+          if (assignment.roomId && assignment.roomId !== room) {
+            onAssignedRoomRef.current(assignment.roomId)
+            return
+          }
+        }
+
         await client.studyRoomJoin({
           roomId: room,
           nickname: nickname ?? undefined,
           avatarUrl: avatarUrl ?? undefined,
+          petAppearance,
           platform: platform ?? 'desktop',
           status: status ?? 'studying',
           focusSecondsToday: focusSecondsToday ?? 0,
@@ -108,7 +146,7 @@ export function useStudyRoomPresence(
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, roomId, syncState.accessToken, syncState.baseUrl, nickname, avatarUrl, platform])
+  }, [active, roomId, syncState.accessToken, syncState.baseUrl, nickname, avatarUrl, petAppearance, platform])
 
   // Heartbeat + poll loop.
   useEffect(() => {

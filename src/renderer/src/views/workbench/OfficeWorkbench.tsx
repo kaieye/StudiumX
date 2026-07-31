@@ -27,6 +27,7 @@ import { useStudyRoomPresence } from '../../sync/study-room-presence'
 import { useSyncState } from '../../sync/sync-store'
 import type { SyncStudyRoomMember } from '../../sync/sync-api-client'
 import type { StudyRoomMember } from '../../study-space/viewModel'
+import { normalizePetAppearanceId } from '../../../../shared/teaching-types'
 import { readBrowserNotificationPermission } from '../../study-space/planning-notification-host'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { EmptyStartSheet, type EmptyStartSheetResult } from './EmptyStartSheet'
@@ -93,9 +94,8 @@ const WorkbenchAnalyticsPage = StudyAnalyticsPage
 
 /**
  * Map a server-side study-room member (phone / other devices) into the
- * desktop leaderboard shape. Server members carry only presence essentials
- * (nickname, today's focus, status); relay-only peer fields get neutral
- * defaults since the leaderboard renders nickname + focus only.
+ * desktop leaderboard/scene shape. The server-provided identity fields are
+ * authoritative for public room display; relay-only fields get neutral values.
  */
 function mapServerMemberToRoomMember(member: SyncStudyRoomMember): StudyRoomMember {
   return {
@@ -103,6 +103,7 @@ function mapServerMemberToRoomMember(member: SyncStudyRoomMember): StudyRoomMemb
     roomId: 'silent',
     spaceCode: '',
     nickname: member.nickname?.trim() || '匿名同学',
+    petAppearance: normalizePetAppearanceId(member.petAppearance),
     signalId: 'practice',
     seatIndex: -1,
     seatClaimedAt: 0,
@@ -138,10 +139,22 @@ function deriveServerPresenceStatus(
  */
 function mergeServerMembers(
   local: StudyRoomMember[],
-  server: SyncStudyRoomMember[]
+  server: SyncStudyRoomMember[],
+  authenticatedNickname?: string | null
 ): StudyRoomMember[] {
-  if (server.length === 0) return local
-  const seen = new Set(local.map((member) => member.nickname))
+  const serverSelf = server.find((member) => member.isSelf)
+  const withAuthenticatedSelfName = local.map((member) => {
+    if (!member.isSelf) return member
+    return {
+      ...member,
+      nickname: serverSelf?.nickname?.trim() || authenticatedNickname?.trim() || member.nickname,
+      petAppearance: serverSelf
+        ? normalizePetAppearanceId(serverSelf.petAppearance, member.petAppearance)
+        : member.petAppearance
+    }
+  })
+  if (server.length === 0) return withAuthenticatedSelfName
+  const seen = new Set(withAuthenticatedSelfName.map((member) => member.nickname))
   const added: StudyRoomMember[] = []
   for (const member of server) {
     if (member.isSelf) continue
@@ -150,8 +163,8 @@ function mergeServerMembers(
     seen.add(nickname)
     added.push(mapServerMemberToRoomMember(member))
   }
-  if (added.length === 0) return local
-  return [...local, ...added].sort(
+  if (added.length === 0) return withAuthenticatedSelfName
+  return [...withAuthenticatedSelfName, ...added].sort(
     (left, right) => right.todayFocusSeconds - left.todayFocusSeconds
   )
 }
@@ -349,14 +362,18 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const syncState = useSyncState()
   const studyRoomPresence = useStudyRoomPresence({
     roomId: snapshot.spaceCode,
-    nickname: snapshot.nickname,
+    nickname: syncState.user?.nickname ?? snapshot.nickname,
+    avatarUrl: syncState.user?.avatarUrl,
+    petAppearance,
     focusSecondsToday: snapshot.todayFocusSeconds,
     status: deriveServerPresenceStatus(snapshot.timerState, snapshot.timerMode),
-    active: Boolean(syncState.accessToken)
+    active: Boolean(syncState.accessToken),
+    onAssignedRoom: joinSpace
   })
   const leaderboardMembers = mergeServerMembers(
     viewModel.roomMembers,
-    studyRoomPresence.members
+    studyRoomPresence.members,
+    syncState.user?.nickname
   )
 
   const openBatchClassify = useCallback((taskIds: string[]) => {
@@ -463,6 +480,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     occupantsByDeskId.set(deskIdForSeatIndex(workbenchUserSeatIndex), {
       kind: 'self',
       name: snapshot.nickname,
+      petAppearance,
       status: snapshot.timerState,
       timerMode: snapshot.timerMode,
       todayFocusSeconds: snapshot.todayFocusSeconds
@@ -475,11 +493,32 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     occupantsByDeskId.set(deskId, {
       kind: 'peer',
       name: peer.nickname,
+      petAppearance: peer.petAppearance,
       status: peer.status,
       timerMode: peer.timerMode,
       todayFocusSeconds: peer.todayFocusSeconds
     })
   })
+  // Server-only peers (for example a phone user) do not have a public-relay
+  // seat claim. Show them in the remaining desks so their own selected pet is
+  // still represented in the shared self-study room.
+  let nextServerSeat = 0
+  for (const member of leaderboardMembers) {
+    if (member.isSelf || member.seatIndex >= 0) continue
+    while (nextServerSeat < workbenchSeatCount && occupantsByDeskId.has(deskIdForSeatIndex(nextServerSeat))) {
+      nextServerSeat += 1
+    }
+    if (nextServerSeat >= workbenchSeatCount) break
+    occupantsByDeskId.set(deskIdForSeatIndex(nextServerSeat), {
+      kind: 'peer',
+      name: member.nickname,
+      petAppearance: member.petAppearance,
+      status: member.status,
+      timerMode: member.timerMode,
+      todayFocusSeconds: member.todayFocusSeconds
+    })
+    nextServerSeat += 1
+  }
   const seatState: OfficeSceneSeatState = {
     userSeatIndex: viewModel.userSeatConflict ? -1 : workbenchUserSeatIndex,
     activeRoomName: viewModel.activeRoom.name,

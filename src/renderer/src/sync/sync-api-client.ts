@@ -105,6 +105,7 @@ export type SyncStudyRoomMember = {
   userId: string
   nickname: string | null
   avatarUrl: string | null
+  petAppearance: string | null
   platform: string | null
   status: string | null
   focusSecondsToday: number
@@ -120,6 +121,7 @@ export type SyncStudyRoomJoinBody = {
   roomId: string
   nickname?: string
   avatarUrl?: string
+  petAppearance?: string
   platform?: string
   status?: 'studying' | 'break' | 'idle'
   focusSecondsToday?: number
@@ -159,6 +161,7 @@ export type SyncApiClient = {
   studyRoomHeartbeat(body: SyncStudyRoomHeartbeatBody): Promise<{ ok: boolean }>
   studyRoomLeave(roomId: string): Promise<{ left: boolean }>
   studyRoomMembers(roomId: string): Promise<SyncStudyRoomMembersResponse>
+  studyRoomAssignment(): Promise<{ roomId: string | null }>
 }
 
 export class SyncApiError extends Error {
@@ -330,6 +333,9 @@ export function createSyncApiClient(options: SyncApiClientOptions = {}): SyncApi
     },
     async studyRoomMembers(roomId) {
       return asType<SyncStudyRoomMembersResponse>(await authed('GET', `/sync/study-room/members?roomId=${encodeURIComponent(roomId)}`))
+    },
+    async studyRoomAssignment() {
+      return asType<{ roomId: string | null }>(await authed('GET', '/sync/study-room/assignment'))
     }
   }
 }

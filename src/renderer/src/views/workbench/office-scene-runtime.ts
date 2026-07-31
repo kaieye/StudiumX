@@ -1,4 +1,8 @@
-import type { PetAppearanceId } from '../../../../shared/teaching-types'
+import {
+  normalizePetAppearanceId,
+  PET_APPEARANCE_IDS,
+  type PetAppearanceId
+} from '../../../../shared/teaching-types'
 import { formatStudyHours } from '../../study-space/domain'
 import type { StudyTimerMode, StudyTimerState } from '../../study-space/types'
 import {
@@ -12,7 +16,7 @@ import {
 
 type WorkbenchAssets = {
   deskImage: HTMLImageElement
-  petImage: HTMLImageElement
+  petImages: Record<PetAppearanceId, HTMLImageElement>
 }
 
 type DeskId = `desk-${number}`
@@ -33,6 +37,7 @@ type DeskSlot = {
 export type OfficeSceneSeatOccupant = {
   kind: 'self' | 'peer'
   name: string
+  petAppearance?: PetAppearanceId
   status: StudyTimerState
   timerMode: StudyTimerMode
   todayFocusSeconds: number
@@ -140,11 +145,17 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 async function loadWorkbenchAssets(appearance: PetAppearanceId): Promise<WorkbenchAssets> {
-  const [deskImage, petImage] = await Promise.all([
+  const petImages = {} as Record<PetAppearanceId, HTMLImageElement>
+  const [deskImage] = await Promise.all([
     loadImage(deskImageUrl),
-    loadImage(getPetSpriteSheetUrl(appearance))
+    ...PET_APPEARANCE_IDS.map(async (petAppearance) => {
+      petImages[petAppearance] = await loadImage(getPetSpriteSheetUrl(petAppearance))
+    })
   ])
-  return { deskImage, petImage }
+  // `appearance` is the documented fallback for legacy peers that predate
+  // public pet-presence data.
+  petImages[appearance] ??= await loadImage(getPetSpriteSheetUrl(appearance))
+  return { deskImage, petImages }
 }
 
 function drawDeskImage(ctx: CanvasRenderingContext2D, image: HTMLImageElement, slot: DeskSlot): void {
@@ -253,7 +264,8 @@ function drawScene(
   assets: WorkbenchAssets,
   elapsed: number,
   seatState: OfficeSceneSeatState,
-  reducedMotion: boolean
+  reducedMotion: boolean,
+  fallbackPetAppearance: PetAppearanceId
 ): void {
   ctx.clearRect(0, 0, officeWidth, officeHeight)
   ctx.save()
@@ -269,7 +281,14 @@ function drawScene(
     if (occupant) {
       depthLayers.push({
         z: slot.z,
-        draw: () => drawSeatedPet(ctx, assets.petImage, slot, occupant, elapsed, reducedMotion)
+        draw: () => drawSeatedPet(
+          ctx,
+          assets.petImages[normalizePetAppearanceId(occupant.petAppearance, fallbackPetAppearance)],
+          slot,
+          occupant,
+          elapsed,
+          reducedMotion
+        )
       })
     }
   }
@@ -377,7 +396,7 @@ export function createOfficeSceneRuntime({
       ctx.imageSmoothingEnabled = true
       ctx.imageSmoothingQuality = 'high'
       ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0)
-      drawScene(ctx, assets, time, seatState, reducedMotion)
+      drawScene(ctx, assets, time, seatState, reducedMotion, petAppearance)
       ctx.restore()
       scheduleFrame(ctx, assets)
     })
