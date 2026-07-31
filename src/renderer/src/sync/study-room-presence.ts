@@ -20,6 +20,12 @@ export type StudyRoomPresenceState = {
   error: string | null
   refresh: () => void
   /**
+   * Join a room found by an explicit room-code search. The server rejects
+   * empty/non-existent rooms, so callers must wait for this result before
+   * changing their local room code.
+   */
+  joinExistingRoom: (roomId: string) => Promise<boolean>
+  /**
    * Atomically select and enter a room on the server. Returns null when sync
    * is unavailable or the request fails, allowing the local-only room flow.
    */
@@ -145,6 +151,28 @@ export function useStudyRoomPresence(
     }
   }, [active, syncState.accessToken, syncState.baseUrl])
 
+  const joinExistingRoom = useCallback(async (roomIdInput: string): Promise<boolean> => {
+    const roomId = roomIdInput.trim().toUpperCase()
+    if (!roomId || !active || !getSyncAccessToken() || !syncState.accessToken) return false
+    try {
+      const presence = assignmentPresenceRef.current
+      await client.studyRoomJoin({
+        roomId,
+        nickname: presence.nickname ?? undefined,
+        avatarUrl: presence.avatarUrl ?? undefined,
+        petAppearance: presence.petAppearance,
+        platform: presence.platform ?? 'desktop',
+        status: presence.status ?? 'studying',
+        focusSecondsToday: presence.focusSecondsToday ?? 0,
+      })
+      setError(null)
+      return true
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      return false
+    }
+  }, [active, syncState.accessToken, syncState.baseUrl])
+
   // Join + leave lifecycle.
   useEffect(() => {
     if (!active || !roomId || !getSyncAccessToken() || !syncState.accessToken) {
@@ -235,5 +263,5 @@ export function useStudyRoomPresence(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, roomId, syncState.accessToken, syncState.baseUrl])
 
-  return { members, loading, error, refresh, assignAndJoinRoom }
+  return { members, loading, error, refresh, joinExistingRoom, assignAndJoinRoom }
 }

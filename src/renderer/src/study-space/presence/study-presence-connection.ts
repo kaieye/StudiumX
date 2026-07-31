@@ -8,6 +8,7 @@ import {
 import {
   clampNumber,
   defaultStudyNickname,
+  isGeneratedStudyNickname,
   normalizeStudyRelayUrl,
   normalizeStudyRoomId,
   normalizeStudySeatClaimedAt,
@@ -97,8 +98,9 @@ function isPublicClientId(value: unknown): value is string {
 }
 
 function publicNickname(value: unknown, clientId: string): string {
-  return typeof value === 'string' && value.trim()
-    ? value.trim().slice(0, 18)
+  const nickname = typeof value === 'string' ? value.trim().slice(0, 18) : ''
+  return nickname && !isGeneratedStudyNickname(nickname)
+    ? nickname
     : defaultStudyNickname(clientId)
 }
 
@@ -413,5 +415,4 @@ export class StudyPresenceConnection {
 export function createStudyPresenceConnection(options: StudyPresenceConnectionOptions): StudyPresenceConnection {
   return new StudyPresenceConnection(options)
 }
-
 

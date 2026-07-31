@@ -35,6 +35,21 @@ describe('durable Study Session snapshot', () => {
     expect(persisted).toEqual(snapshot)
   })
 
+  it('assigns and persists a study-room seat during initial session initialization', () => {
+    window.sessionStorage.setItem(STUDY_SPACE_SESSION_CLIENT_KEY, 'studiumx-app-open')
+
+    const snapshot = readStudySnapshot()
+    const persisted = JSON.parse(window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY) ?? 'null')
+
+    expect(snapshot.seatIndex).toBeGreaterThanOrEqual(0)
+    expect(snapshot.seatClaimedAt).toBeGreaterThan(0)
+    expect(persisted).toMatchObject({
+      clientId: 'studiumx-app-open',
+      seatIndex: snapshot.seatIndex,
+      seatClaimedAt: snapshot.seatClaimedAt
+    })
+  })
+
   it('lets canonical invite parameters override legacy aliases and persisted state', () => {
     window.history.replaceState(
       null,
@@ -74,9 +89,19 @@ describe('durable Study Session snapshot', () => {
     const second = readStudySnapshot()
 
     expect(first.clientId).toBe('studiumx-reused-ABCD')
-    expect(first.nickname).toBe('同学 ABCD')
+    expect(first.nickname).toBe('未设置昵称')
     expect(second.clientId).toBe(first.clientId)
     expect(JSON.parse(window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY) ?? 'null').clientId).toBe(first.clientId)
+  })
+
+  it('replaces legacy client-id-derived names with an explicit unset-name label', () => {
+    const snapshot = normalizeStudySnapshot({
+      ...defaultStudySnapshot,
+      clientId: 'studiumx-known-client',
+      nickname: '同学 IENT'
+    })
+
+    expect(snapshot.nickname).toBe('未设置昵称')
   })
 
   it('accepts only five-character room codes and replaces invalid values with a generated code', () => {
@@ -183,4 +208,3 @@ describe('normalizeStudySnapshot timer clamps (continuous / countup)', () => {
     expect(snap.remainingSeconds).toBeGreaterThanOrEqual(1)
   })
 })
-

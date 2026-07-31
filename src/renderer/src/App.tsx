@@ -52,6 +52,7 @@ import i18n from './i18n'
 import { MarkdownEditor } from './markdown-editor'
 import { MarkdownPreview } from './markdown-preview'
 import { OfficeWorkbench } from './views/workbench/OfficeWorkbench'
+import { readStudySnapshot } from './study-space/domain'
 import {
   defaultSidebarWidth,
   DesktopAppFrame,
@@ -1106,6 +1107,13 @@ function MainArea() {
   useEffect(() => {
     void initialize()
   }, [initialize])
+
+  useEffect(() => {
+    // Entering the app also establishes the durable study-room identity and
+    // deterministic seat. This deliberately does not start any remote
+    // presence traffic; that remains gated by the study-room surface.
+    readStudySnapshot()
+  }, [])
 
   const active = appState.activeWorkspace
   const selectedCourseWorkspaceId = useAppStore((s) => s.selectedCourseWorkspaceId)

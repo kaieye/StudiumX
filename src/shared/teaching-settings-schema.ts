@@ -129,7 +129,7 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
     },
     pet: {
       enabled: true,
-      displayName: 'Boba',
+      displayName: '噜噜',
       showStatusBubble: true,
       appearance: DEFAULT_PET_APPEARANCE_ID,
       size: DEFAULT_PET_SIZE,

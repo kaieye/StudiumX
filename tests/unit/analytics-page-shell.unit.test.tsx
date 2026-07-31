@@ -238,7 +238,18 @@ function emptyFocusResult(
         level: { level: 1, xpAtLevelStart: 0, xpAtNextLevel: 120, currentXp: 0, progress: 0 },
         streakDays: 0,
         badges: [],
-        plantStage: '种子'
+        plantStage: '种子',
+        dailyXp: {
+          localDate: localToday,
+          earnedXp: 236,
+          capXp: 300,
+          remainingXp: 64,
+          sources: [
+            { source: 'focus_completion', earnedXp: 176, capXp: 200, remainingXp: 24 },
+            { source: 'task_completion', earnedXp: 40, capXp: 60, remainingXp: 20 },
+            { source: 'review_correct', earnedXp: 20, capXp: 40, remainingXp: 20 }
+          ]
+        }
       }
     }
   }
@@ -417,7 +428,10 @@ describe('StudyAnalyticsPage', () => {
   it('renders a multi-section dashboard from the analytics bundle', async () => {
     const onBack = vi.fn()
     const client: LearningAnalyticsClient = {
-      getLearningAnalytics: vi.fn(async (query) => bundle(query))
+      getLearningAnalytics: vi.fn(async (query) => ({
+        ...bundle(query),
+        focus: emptyFocusResult(query)
+      }))
     }
 
     renderUi(
@@ -433,6 +447,15 @@ describe('StudyAnalyticsPage', () => {
     // Hero section renders its stat cards from the bundle.
     expect(await screen.findByRole('heading', { name: '概览' })).toBeInTheDocument()
     expect(screen.getByText('专注时长')).toBeInTheDocument()
+
+    const progressionSection = screen.getByRole('heading', { name: '今日经验与等级' }).closest('section')
+    expect(progressionSection).toHaveTextContent('236 / 300 XP')
+    expect(progressionSection).toHaveTextContent('完成专注')
+    expect(progressionSection).toHaveTextContent('176 / 200 XP')
+    expect(progressionSection).toHaveTextContent('完成任务')
+    expect(progressionSection).toHaveTextContent('40 / 60 XP')
+    expect(progressionSection).toHaveTextContent('复习答对')
+    expect(progressionSection).toHaveTextContent('20 / 40 XP')
 
     // Token section: totals + model-stacked trend + workspace ranking (no efficiency card).
     const tokenHeading = screen.getByRole('heading', { name: 'Token 消耗' })
@@ -459,7 +482,8 @@ describe('StudyAnalyticsPage', () => {
     expect(screen.queryByRole('heading', { name: '洞察' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '任务分析' })).not.toBeInTheDocument()
     expect(document.querySelector('.token-consumption-card')).toBeNull()
-    expect(document.querySelectorAll('.analytics-section-card')).toHaveLength(5)
+    expect(screen.getByRole('heading', { name: '今日经验与等级' })).toBeInTheDocument()
+    expect(document.querySelectorAll('.analytics-section-card')).toHaveLength(6)
 
     // Range presets are exposed and default to the last 7 days.
     expect(screen.getByRole('button', { name: '7天' })).toHaveAttribute('aria-pressed', 'true')
@@ -726,9 +750,9 @@ describe('StudyAnalyticsPage', () => {
     )
 
     await waitFor(() => {
-      expect(document.querySelectorAll('[data-section-state="api-unavailable"]')).toHaveLength(5)
+      expect(document.querySelectorAll('[data-section-state="api-unavailable"]')).toHaveLength(6)
     })
-    expect(screen.getAllByText('当前应用未提供学习分析 API。请更新应用或联系管理员。')).toHaveLength(5)
+    expect(screen.getAllByText('当前应用未提供学习分析 API。请更新应用或联系管理员。')).toHaveLength(6)
     expect(screen.queryAllByRole('button', { name: '重试' })).toHaveLength(0)
   })
 
@@ -748,11 +772,11 @@ describe('StudyAnalyticsPage', () => {
     )
 
     await waitFor(() => {
-      expect(document.querySelectorAll('[data-section-state="request-error"]')).toHaveLength(5)
+      expect(document.querySelectorAll('[data-section-state="request-error"]')).toHaveLength(6)
     })
-    expect(document.querySelectorAll('.analytics-section-message[role="alert"]')).toHaveLength(5)
-    expect(screen.getAllByText('分析服务暂时无法响应。请稍后重试。')).toHaveLength(5)
-    expect(screen.getAllByRole('button', { name: '重试' })).toHaveLength(5)
+    expect(document.querySelectorAll('.analytics-section-message[role="alert"]')).toHaveLength(6)
+    expect(screen.getAllByText('分析服务暂时无法响应。请稍后重试。')).toHaveLength(6)
+    expect(screen.getAllByRole('button', { name: '重试' })).toHaveLength(6)
     expect(document.body).not.toHaveTextContent('socket exploded')
   })
 
@@ -777,10 +801,10 @@ describe('StudyAnalyticsPage', () => {
     )
 
     await waitFor(() => {
-      expect(document.querySelectorAll('[data-section-state="request-error"]')).toHaveLength(5)
+      expect(document.querySelectorAll('[data-section-state="request-error"]')).toHaveLength(6)
     })
-    expect(screen.getAllByText('分析服务暂时无法响应。请稍后重试。')).toHaveLength(5)
-    expect(screen.getAllByRole('button', { name: '重试' })).toHaveLength(5)
+    expect(screen.getAllByText('分析服务暂时无法响应。请稍后重试。')).toHaveLength(6)
+    expect(screen.getAllByRole('button', { name: '重试' })).toHaveLength(6)
     expect(document.body).not.toHaveTextContent(secret)
     expect(document.querySelectorAll('[data-section-state="api-unavailable"]')).toHaveLength(0)
   })

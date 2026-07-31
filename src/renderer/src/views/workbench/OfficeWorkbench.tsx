@@ -103,7 +103,7 @@ function mapServerMemberToRoomMember(member: SyncStudyRoomMember): StudyRoomMemb
     clientId: `server:${member.userId}`,
     roomId: 'silent',
     spaceCode: '',
-    nickname: member.nickname?.trim() || '匿名同学',
+    nickname: member.nickname?.trim() || '未设置昵称',
     petAppearance: normalizePetAppearanceId(member.petAppearance),
     signalId: 'practice',
     seatIndex: -1,
@@ -115,7 +115,7 @@ function mapServerMemberToRoomMember(member: SyncStudyRoomMember): StudyRoomMemb
     todaySessions: 0,
     streakDays: 0,
     updatedAt: Date.now(),
-    isSelf: false
+    isSelf: member.isSelf
   }
 }
 
@@ -132,11 +132,9 @@ function deriveServerPresenceStatus(
 /**
  * Merge server-backed members into the relay-based leaderboard.
  *
- * Additive only: server members whose nickname is not already present locally
- * are appended, then the combined list is re-sorted by today's focus. The
- * server's own self row is skipped (the local self row is authoritative).
- * Returns the local list unchanged when there is nothing to merge, so the
- * leaderboard is fully inert when sync is not logged in.
+ * Server presence carries account-profile names, so it is the authoritative
+ * roster whenever it is available. The local relay remains a fallback only
+ * while no server roster has been received.
  */
 function mergeServerMembers(
   local: StudyRoomMember[],
@@ -155,17 +153,7 @@ function mergeServerMembers(
     }
   })
   if (server.length === 0) return withAuthenticatedSelfName
-  const seen = new Set(withAuthenticatedSelfName.map((member) => member.nickname))
-  const added: StudyRoomMember[] = []
-  for (const member of server) {
-    if (member.isSelf) continue
-    const nickname = member.nickname?.trim() || '匿名同学'
-    if (seen.has(nickname)) continue
-    seen.add(nickname)
-    added.push(mapServerMemberToRoomMember(member))
-  }
-  if (added.length === 0) return withAuthenticatedSelfName
-  return [...withAuthenticatedSelfName, ...added].sort(
+  return server.map(mapServerMemberToRoomMember).sort(
     (left, right) => right.todayFocusSeconds - left.todayFocusSeconds
   )
 }
@@ -388,6 +376,14 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       const selectedRoomId = roomId ?? fallbackRoomId
       if (selectedRoomId !== snapshot.spaceCode) joinSpace(selectedRoomId)
     })()
+  }, [joinSpace, snapshot.spaceCode, studyRoomPresence])
+
+  const handleJoinExistingSpace = useCallback(async (roomId: string): Promise<boolean> => {
+    const joined = await studyRoomPresence.joinExistingRoom(roomId)
+    if (joined && roomId.trim().toUpperCase() !== snapshot.spaceCode) {
+      joinSpace(roomId)
+    }
+    return joined
   }, [joinSpace, snapshot.spaceCode, studyRoomPresence])
 
   const openBatchClassify = useCallback((taskIds: string[]) => {
@@ -954,7 +950,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           presenceStatus={presence.status}
           spaceCode={snapshot.spaceCode}
           onEnterRandomSpace={handleEnterRandomSpace}
-          onJoinSpace={joinSpace}
+          onJoinSpace={handleJoinExistingSpace}
         />
         <div className="workbench-tools" role="group" aria-label="自习工具">
           {viewModel.userSeatConflict ? (

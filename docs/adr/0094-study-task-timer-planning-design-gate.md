@@ -87,7 +87,7 @@
 
 | 原则 | 内容 |
 | --- | --- |
-| 真相源 | **文件是教学/规划真相源**；投影可重建。localStorage **不是**长期任务/排程权威。SQLite 若参与，**仅**可重建本地分析，**禁止** FTS / 向量库作产品搜索。 |
+| 真相源与同步边界 | **教学决策事实**仍以文件 / ledger 为真相源；任务、排程、等级/XP 等个人产品状态不属于 teaching authority，可按独立同步契约多端同步。localStorage 不是跨设备长期权威；SQLite 若参与，不得替代教学事实，且禁止 FTS / 向量库作产品搜索。详见 ADR-0167。 |
 | 单 writer | **`StudyPlanningStore`** 为规划数据 sole-writer 入口：`readSnapshot()` / `applyCommand(command, expectedRevision)`。 |
 | 修订与幂等 | 所有写路径带 **`expectedRevision`** 与 **action / operation id**；exact retry 不得重复创建任务或会话。 |
 | 纯分配 | **`allocateTimeWindow(input) -> AllocationProposal`** 必须是纯函数；**提案先于写入**；UI 不得散落循环/休息/尾段规则。 |
@@ -175,7 +175,7 @@
 
 ---
 
-**一句话：** 任务是目标、时间块是安排、TimerSession 是事实；先提案后写入；文件为真相源；本文件只关门 Phase 0 决策，不交付实现。
+**一句话：** 任务是目标、时间块是安排、TimerSession 是事实；先提案后写入；教学决策事实以文件 / ledger 为真相源，个人产品状态可依独立契约同步；本文件只关门 Phase 0 决策，不交付实现。
 
 ---
 

@@ -18,8 +18,15 @@ import type { SyncApiClient, SyncEntity } from './sync-api-client'
 export const STUDY_PLANNING_SYNC_COLLECTION = 'study-planning'
 
 export type PushStudyPlanningResult =
-  | { ok: true; status: string; serverRevision?: number }
-  | { ok: false; code: string; message: string }
+  | { ok: true; status: 'accepted' | 'up_to_date'; serverRevision?: number }
+  | {
+      ok: false
+      code: 'conflict'
+      message: string
+      serverRevision?: number
+      serverUpdatedAtMs?: number
+    }
+  | { ok: false; code: 'no_result' | 'unexpected_result' | 'push_failed'; message: string }
 
 export type PullStudyPlanningResult =
   | {
@@ -82,10 +89,26 @@ export function createStudyPlanningSyncBridge(deps: StudyPlanningSyncBridgeDeps)
         if (!result) {
           return { ok: false, code: 'no_result', message: 'server returned no result for study-planning' }
         }
-        if (result.status === 'conflict' || result.conflict) {
-          return { ok: true, status: 'conflict', serverRevision: result.serverRevision }
+        if (result.status === 'accepted') {
+          return { ok: true, status: 'accepted', serverRevision: result.serverRevision }
         }
-        return { ok: true, status: result.status || 'accepted', serverRevision: result.serverRevision }
+        if (result.status === 'skipped_duplicate') {
+          return { ok: true, status: 'up_to_date', serverRevision: result.serverRevision }
+        }
+        if (result.status === 'conflict' || result.conflict) {
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'server has a newer study-planning revision',
+            serverRevision: result.conflict?.serverRevision ?? result.serverRevision,
+            serverUpdatedAtMs: result.conflict?.serverUpdatedAtMs
+          }
+        }
+        return {
+          ok: false,
+          code: 'unexpected_result',
+          message: `unexpected study-planning sync result: ${result.status}`
+        }
       } catch (err) {
         return { ok: false, code: 'push_failed', message: err instanceof Error ? err.message : String(err) }
       }
@@ -93,14 +116,12 @@ export function createStudyPlanningSyncBridge(deps: StudyPlanningSyncBridgeDeps)
 
     async pullStudyPlanning(localRevision) {
       try {
-        const response = await apiClient.pull(undefined, [STUDY_PLANNING_SYNC_COLLECTION])
-        const entity = response.entities.find((item) => item.collection === STUDY_PLANNING_SYNC_COLLECTION)
-        if (!entity) return { ok: true, status: 'no_server_snapshot' }
-        if (!isStudyPlanningSnapshotV1(entity.payload)) {
+        const serverSnapshot = await apiClient.getStudyPlanning()
+        if (!serverSnapshot) return { ok: true, status: 'no_server_snapshot' }
+        if (!isStudyPlanningSnapshotV1(serverSnapshot)) {
           return { ok: false, code: 'schema_invalid', message: 'server study-planning payload failed validation' }
         }
-        const serverSnapshot = entity.payload
-        const serverRevision = entity.revision
+        const serverRevision = serverSnapshot.revision
         if (typeof localRevision === 'number' && serverRevision > localRevision) {
           return { ok: true, status: 'server_newer', serverSnapshot, serverRevision }
         }

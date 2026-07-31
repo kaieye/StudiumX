@@ -220,7 +220,9 @@ function drawDeskBadge(
 
   const { x, y, width, height } = slot.hitArea
   const isPeer = occupant?.kind === 'peer'
-  const shouldDrawDeskOutline = occupant?.kind !== 'self'
+  // Occupied desks retain their focus badge, but should not be surrounded by a
+  // selection-style rectangle. In particular, peers must not look selected.
+  const shouldDrawDeskOutline = occupant === null
   ctx.save()
   if (shouldDrawDeskOutline) {
     roundedRect(ctx, x, y, width, height, 18)

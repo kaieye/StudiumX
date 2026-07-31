@@ -2,6 +2,12 @@ import { create } from 'zustand'
 import { classifyExternalDestination } from '../../../shared/external-destination'
 import i18n from '../i18n'
 import { initialWorkspaceViewFromUrl } from '../study-space'
+import { readStudySnapshot, persistStudySnapshot } from '../study-space/domain'
+import { applyStudyProgressionAwards } from '../study-space/study-progression'
+import { dispatchStudyProgressionFacts } from '../study-space/study-progression-events'
+import { appendStudyAnalyticsFacts, createStudyAnalyticsFactId } from '../views/workbench/analytics/domain/activityLedger'
+import { getLocalDateKey, getLocalTimezoneOffsetMinutes, resolvedLocalTimeZone } from '../views/workbench/analytics/domain/dateRange'
+import type { StudyActivityFact } from '../../../shared/teaching-types/analytics'
 import {
   applySettingsSideEffects,
   emptySettings,
@@ -2125,6 +2131,39 @@ export const useAppStore = create<StoreState>((set, get) => {
     try {
       const res = await api.recordProgress({ workspaceId: workspace.id, lessonId, results })
       set({ progress: res.progress })
+
+      // Review answers are recorded only after the canonical workspace write succeeds.
+      // The local facts/progression below are a rebuildable analytics + game projection,
+      // never a teaching or review-scheduler authority.
+      const recordedAtMs = Date.now()
+      const timeZone = resolvedLocalTimeZone()
+      const localToday = getLocalDateKey(recordedAtMs, timeZone)
+      const snapshot = readStudySnapshot()
+      const recordedAt = new Date(recordedAtMs).toISOString()
+      const reviewFacts: StudyActivityFact[] = results.map((result) => ({
+        factVersion: 1,
+        factKind: 'study_activity',
+        id: createStudyAnalyticsFactId('review-answer', recordedAtMs),
+        clientId: snapshot.clientId,
+        occurredAt: recordedAt,
+        recordedAt,
+        localDate: localToday,
+        timezoneOffsetMinutes: getLocalTimezoneOffsetMinutes(recordedAtMs, timeZone),
+        activity: {
+          kind: 'review_answered',
+          workspaceId: workspace.id,
+          lessonId,
+          correct: result.correct
+        }
+      }))
+      if (reviewFacts.length > 0) {
+        appendStudyAnalyticsFacts(snapshot.clientId, reviewFacts, { localToday, updatedAt: recordedAt })
+        const handledByStudyHost = dispatchStudyProgressionFacts(reviewFacts, localToday)
+        if (!handledByStudyHost) {
+          const awarded = applyStudyProgressionAwards(snapshot, reviewFacts, localToday)
+          if (awarded !== snapshot) persistStudySnapshot(awarded)
+        }
+      }
     } catch (error) {
       set({ error: toUserError(error) })
     }

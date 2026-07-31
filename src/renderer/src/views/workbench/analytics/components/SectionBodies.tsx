@@ -135,6 +135,53 @@ export function LevelBody({ data, copy, fmt }: Ctx & { data: LearningAnalyticsHe
   )
 }
 
+/* ---------------------------------------------------------- Progression --- */
+
+export function DailyXpBody({ data, copy, fmt }: Ctx & { data: FocusAnalytics }) {
+  const daily = data.currentGrowth.dailyXp
+  const level = data.currentGrowth.level
+  const toNext = Math.max(0, level.xpAtNextLevel - level.currentXp)
+  if (!daily) return <p className="analytics-chart-empty">{copy.section.empty}</p>
+
+  return (
+    <div className="analytics-progression">
+      <div className="analytics-progression__summary">
+        <Stat
+          label={copy.progression.todayTotal}
+          value={`${fmt.integer(daily.earnedXp)} / ${fmt.integer(daily.capXp)} XP`}
+          tone={daily.remainingXp === 0 ? 'ok' : 'default'}
+          hint={daily.remainingXp === 0
+            ? copy.progression.capReached
+            : `${copy.progression.remaining} ${fmt.integer(daily.remainingXp)} XP`}
+        />
+        <Stat
+          label={level.level >= 100 ? copy.progression.maxLevel : copy.progression.toNextLevel}
+          value={level.level >= 100 ? 'Lv.100' : `${fmt.integer(toNext)} XP`}
+          tone="ok"
+        />
+      </div>
+      <ul className="analytics-progression__sources">
+        {daily.sources.map((source) => {
+          const reached = source.remainingXp === 0
+          const width = source.capXp > 0 ? Math.min(100, (source.earnedXp / source.capXp) * 100) : 0
+          return (
+            <li key={source.source}>
+              <div className="analytics-progression__source-row">
+                <span>{copy.progression.sources[source.source]}</span>
+                <strong>{`${fmt.integer(source.earnedXp)} / ${fmt.integer(source.capXp)} XP`}</strong>
+              </div>
+              <div className="analytics-progression__track" aria-hidden="true">
+                <span style={{ width: `${width}%` }} />
+              </div>
+              <small>{reached ? copy.progression.capReached : `${copy.progression.remaining} ${fmt.integer(source.remainingXp)} XP`}</small>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 /* --------------------------------------------------------------- Focus --- */
 
 export function FocusBody({
@@ -639,4 +686,3 @@ export function InsightsBody({
     </ul>
   )
 }
-

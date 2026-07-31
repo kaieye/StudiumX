@@ -22,8 +22,7 @@ describe('sync API base migration', () => {
         accessToken: null,
         refreshToken: null,
         deviceId: 'existing-device',
-        user: null,
-        enabled: false
+        user: null
       })
     )
 
@@ -44,5 +43,19 @@ describe('sync API base migration', () => {
     const { getSyncState } = await loadSyncStore()
 
     expect(getSyncState().baseUrl).toBe('https://sync.staging.example.test')
+  })
+
+  it('discards the retired sync opt-out flag from existing profiles', async () => {
+    localStorage.setItem(
+      SYNC_STORAGE_KEY,
+      JSON.stringify({
+        baseUrl: PRODUCTION_API_BASE,
+        enabled: false
+      })
+    )
+
+    const { getSyncState } = await loadSyncStore()
+
+    expect(getSyncState()).not.toHaveProperty('enabled')
   })
 })

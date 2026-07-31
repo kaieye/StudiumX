@@ -13,7 +13,7 @@
 
 ## 背景
 
-ADR-0094 **原则**已冻结（文件真相源、StudyPlanningStore、expectedRevision + action id、dry-run 迁移、备份 ≥30 天或用户确认擦除），但**明确不冻结**具体路径、wire schema 版本号与备份文件名。Phase 1 纯函数切片（STC-101..108）已落地于 `src/shared/study-planning/`，**禁止**在无实现 ADR 的情况下写 canonical 生产路径。
+ADR-0094 **原则**已冻结（教学决策事实的文件真相源、StudyPlanningStore、expectedRevision + action id、dry-run 迁移、备份 ≥30 天或用户确认擦除）；其中“文件真相源”不禁止任务、规划、等级/XP 等非教学产品状态依独立 wire 多端同步（ADR-0167）。但本 ADR **明确不冻结**具体路径、wire schema 版本号与备份文件名。Phase 1 纯函数切片（STC-101..108）已落地于 `src/shared/study-planning/`，**禁止**在无实现 ADR 的情况下写 canonical 生产路径。
 
 本 ADR 关闭该实现门，使 Phase 2+ 可立项 `StudyPlanningStore` 与迁移，而不重开 Phase 0 产品十项冻结。
 

@@ -22,12 +22,14 @@ import type {
   StudyTimerMode,
   StudyTimerState
 } from './types'
+import { calculateStudyLevelProgress, studyPlantStageForLevel } from '../../../shared/study-progression'
 
 export {
   applyStudyInviteParams,
   applyStudySessionIdentity,
   clampNumber,
   defaultStudyNickname,
+  isGeneratedStudyNickname,
   defaultStudySeatIndex,
   normalizeStudyModeId,
   normalizeStudyRelayUrl,
@@ -263,16 +265,21 @@ export function studyMemberStatusLabel(status: StudyTimerState, timerMode: Study
 }
 
 export function studyLevel(xp: number): { level: number; current: number; next: number; progress: number } {
-  const level = Math.max(1, Math.floor(xp / 120) + 1)
-  const current = xp % 120
-  return { level, current, next: 120, progress: Math.min(100, Math.round((current / 120) * 100)) }
+  const value = calculateStudyLevelProgress(xp)
+  return {
+    level: value.level,
+    current: value.currentXp - value.xpAtLevelStart,
+    next: Math.max(0, value.xpAtNextLevel - value.xpAtLevelStart),
+    progress: Math.round(value.progress * 100)
+  }
 }
 
 export function studyPlantStage(xp: number): string {
-  if (xp >= 720) return '成林'
-  if (xp >= 420) return '开花'
-  if (xp >= 180) return '抽枝'
-  if (xp >= 60) return '发芽'
+  const stage = studyPlantStageForLevel(calculateStudyLevelProgress(xp).level)
+  if (stage === 'forest') return '成林'
+  if (stage === 'bloom') return '开花'
+  if (stage === 'branch') return '抽枝'
+  if (stage === 'sprout') return '发芽'
   return '种子'
 }
 

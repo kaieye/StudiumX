@@ -13,6 +13,7 @@ import { normalizeStudyTaskCategoryId } from '../taskCategories'
 import { pickOptionalAdvancedFields } from '../planning-timer-plan-advanced-fields'
 import { pickOptionalKindFields } from '../planning-timer-plan-kind'
 import { TIMER_PLAN_SEED_DEFAULTS } from '../../../../shared/study-planning'
+import { clampStudyXp, normalizeDailyXpProgress } from '../../../../shared/study-progression'
 import {
   isV1LocalAuthorityDemoted,
   shouldPersistV1TaskAuthority,
@@ -50,8 +51,17 @@ export function randomStudyClientId(): string {
   return `${STUDY_PRESENCE_CLIENT_PREFIX}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-export function defaultStudyNickname(clientId: string): string {
-  return `同学 ${clientId.slice(-4).toUpperCase()}`
+/**
+ * A name is personal profile data, not an identifier to manufacture from a
+ * client id. Until the user has supplied one, make that absence explicit.
+ */
+export function defaultStudyNickname(_clientId: string): string {
+  return '未设置昵称'
+}
+
+/** Identifies the legacy client-id-derived placeholder, never a profile name. */
+export function isGeneratedStudyNickname(value: string): boolean {
+  return /^同学 [A-Z0-9]{4}$/.test(value)
 }
 
 export function normalizeStudyRoomId(input: unknown): StudyRoomId {
@@ -277,8 +287,9 @@ export function normalizeStudySnapshot(
   const clientId = typeof raw.clientId === 'string' && raw.clientId.startsWith(STUDY_PRESENCE_CLIENT_PREFIX)
     ? raw.clientId
     : randomStudyClientId()
-  const nickname = typeof raw.nickname === 'string' && raw.nickname.trim()
-    ? raw.nickname.trim().slice(0, 18)
+  const rawNickname = typeof raw.nickname === 'string' ? raw.nickname.trim().slice(0, 18) : ''
+  const nickname = rawNickname && !isGeneratedStudyNickname(rawNickname)
+    ? rawNickname
     : defaultStudyNickname(clientId)
   const spaceCode = normalizeStudySpaceCode(raw.spaceCode)
   const modeId = normalizeStudyModeId(raw.modeId)
@@ -371,7 +382,8 @@ export function normalizeStudySnapshot(
     totalFocusSeconds: clampNumber(raw.totalFocusSeconds, 0, 100_000 * 60, 0),
     totalSessions: clampNumber(raw.totalSessions, 0, 100_000, 0),
     streakDays: clampNumber(raw.streakDays, 0, 10_000, 0),
-    xp: clampNumber(raw.xp, 0, 1_000_000, 0),
+    xp: clampStudyXp(raw.xp),
+    dailyXpProgress: normalizeDailyXpProgress(raw.dailyXpProgress, localTodayKey()),
     lastStudyDate,
     tasks: normalizeStudyTasks(raw.tasks, {
       allowEmpty: options?.allowEmptyTasks === true
@@ -406,7 +418,7 @@ export function readStudySessionClientId(): string {
 export function applyStudySessionIdentity(snapshot: StudySnapshot): StudySnapshot {
   const clientId = readStudySessionClientId()
   if (clientId === snapshot.clientId) return snapshot
-  const nickname = /^同学 [A-Z0-9]{4}$/.test(snapshot.nickname)
+  const nickname = isGeneratedStudyNickname(snapshot.nickname)
     ? defaultStudyNickname(clientId)
     : snapshot.nickname
   return {

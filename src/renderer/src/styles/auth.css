@@ -266,6 +266,31 @@
   flex: 0 0 auto;
 }
 
+.account-sync-now-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: var(--radius-full);
+  color: var(--accent);
+}
+
+.account-sync-now-button:hover:not(:disabled) {
+  color: var(--accent-strong, var(--accent));
+  transform: rotate(20deg);
+}
+
+.account-sync-now-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 62%, transparent);
+  outline-offset: 2px;
+}
+
+.account-sync-now-icon--spinning {
+  animation: auth-spin 0.8s linear infinite;
+}
+
 /* ---- In-card WeChat QR login ---- */
 
 .auth-screen-qr {

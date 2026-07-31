@@ -23,6 +23,11 @@ import {
 import { appendStudyAnalyticsFacts, createStudyAnalyticsFactId } from '../../views/workbench/analytics/domain/activityLedger'
 import { getLocalDateKey, resolvedLocalTimeZone } from '../../views/workbench/analytics/domain/dateRange'
 import type { StudySessionFact } from '../../../../shared/teaching-types/analytics'
+import { applyStudyProgressionAwards } from '../study-progression'
+import {
+  claimStudyProgressionFactsEvent,
+  STUDY_PROGRESSION_FACTS_EVENT
+} from '../study-progression-events'
 import {
   filterV1SessionCompletionAnalyticsIntents,
   projectTimerSessionCloseForHost,
@@ -661,10 +666,10 @@ export function useStudySession({
     if (intent.kind === 'suppress_to_focus_idle') {
       // breakPolicy none: stay ready — prefer focus idle for next start.
       commitSnapshot({
-        ...hostAfterAdvance,
+        ...hostWithAnalytics,
         timerMode: 'focus',
         timerState: 'idle',
-        remainingSeconds: Math.max(1, hostAfterAdvance.focusMinutes * 60),
+        remainingSeconds: Math.max(1, hostWithAnalytics.focusMinutes * 60),
         contractLocked: false
       })
       return
@@ -1309,16 +1314,32 @@ export function useStudySession({
     }
   }
   const commitSnapshot = (next: StudySnapshot): StudySnapshot => {
-    snapshotRef.current = next
-    setSnapshot(next)
-    return next
+    const current = snapshotRef.current
+    // Analytics intents can settle XP immediately before their accompanying UI
+    // state transition is committed. Keep that newer local reward settlement
+    // instead of letting the older transition snapshot overwrite it.
+    const preserveProgression =
+      current.dailyXpProgress.awardedXp > next.dailyXpProgress.awardedXp
+      && current.xp >= next.xp
+    const resolved = preserveProgression
+      ? { ...next, xp: Math.max(next.xp, current.xp), dailyXpProgress: current.dailyXpProgress }
+      : next
+    snapshotRef.current = resolved
+    setSnapshot(resolved)
+    return resolved
   }
 
   const dispatchLifecycleIntents = (intents: StudySessionLifecycleIntent[]): void => {
     for (const intent of intents) {
       if (intent.kind === 'analytics') {
+        const localToday = intent.localToday ?? getLocalDateKey(Date.now(), resolvedLocalTimeZone())
+        const awarded = applyStudyProgressionAwards(snapshotRef.current, intent.facts, localToday)
+        if (awarded !== snapshotRef.current) {
+          snapshotRef.current = awarded
+          setSnapshot(awarded)
+        }
         appendStudyAnalyticsFacts(intent.clientId, intent.facts, {
-          ...(intent.localToday ? { localToday: intent.localToday } : {}),
+          localToday,
           ...(intent.updatedAt ? { updatedAt: intent.updatedAt } : {})
         })
       } else if (intent.kind === 'presence') {
@@ -1335,6 +1356,21 @@ export function useStudySession({
       }
     }
   }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onProgressionFacts = (event: Event) => {
+      const detail = claimStudyProgressionFactsEvent(event)
+      if (!detail) return
+      const awarded = applyStudyProgressionAwards(snapshotRef.current, detail.facts, detail.localToday)
+      if (awarded !== snapshotRef.current) {
+        snapshotRef.current = awarded
+        setSnapshot(awarded)
+      }
+    }
+    window.addEventListener(STUDY_PROGRESSION_FACTS_EVENT, onProgressionFacts)
+    return () => window.removeEventListener(STUDY_PROGRESSION_FACTS_EVENT, onProgressionFacts)
+  }, [])
 
   const decorateTasksForLedger = (tasks: StudySnapshot['tasks']) => {
     const categories = listStudyTaskCategories()

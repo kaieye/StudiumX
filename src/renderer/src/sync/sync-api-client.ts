@@ -44,12 +44,19 @@ export type SyncEntity = {
   payload: unknown
 }
 
+export type SyncPushStatus = 'accepted' | 'conflict' | 'skipped_duplicate'
+
+export type SyncPushConflict = {
+  serverRevision: number
+  serverUpdatedAtMs: number
+}
+
 export type SyncPushResult = {
   collection: string
   id: string
-  status: string
+  status: SyncPushStatus
   serverRevision?: number
-  conflict?: unknown
+  conflict?: SyncPushConflict
 }
 
 export type SyncPushResponse = {
@@ -64,7 +71,7 @@ export type SyncPullResponse = {
 export type SyncAckResponse = Record<string, unknown>
 
 export type SyncStudyPlanningPutResponse = {
-  status: 'accepted' | 'conflict'
+  status: 'accepted' | 'skipped_duplicate' | 'conflict'
   serverRevision?: number
 }
 

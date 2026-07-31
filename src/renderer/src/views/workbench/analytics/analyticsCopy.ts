@@ -143,6 +143,16 @@ type AnalyticsCopy = {
     byLessonTitle: string
     noLessons: string
   }
+  progression: {
+    title: string
+    description: string
+    todayTotal: string
+    remaining: string
+    toNextLevel: string
+    maxLevel: string
+    capReached: string
+    sources: Record<'focus_completion' | 'task_completion' | 'review_correct', string>
+  }
   memory: {
     title: string
     description: string
@@ -339,6 +349,20 @@ export const analyticsCopy: AnalyticsCopy = {
     byLessonTitle: '按课程正确率',
     noLessons: '暂无复习记录。'
   },
+  progression: {
+    title: '今日经验与等级',
+    description: '每日经验有总上限；达到上限后学习记录仍会保留，但不再增加经验。',
+    todayTotal: '今日经验',
+    remaining: '还可获得',
+    toNextLevel: '距下一级',
+    maxLevel: '已达到最高等级',
+    capReached: '已达今日上限',
+    sources: {
+      focus_completion: '完成专注',
+      task_completion: '完成任务',
+      review_correct: '复习答对'
+    }
+  },
   memory: {
     title: '记忆分析',
     description: 'AI 记忆的规模、范围与标签分布。',
@@ -514,6 +538,20 @@ const analyticsCopyEn: AnalyticsCopy = {
     cards: 'Review cards',
     byLessonTitle: 'Accuracy by lesson',
     noLessons: 'No review activity yet.'
+  },
+  progression: {
+    title: 'Today’s XP & level',
+    description: 'Daily XP is capped. Learning records still save after a cap is reached, but they no longer add XP.',
+    todayTotal: 'Today’s XP',
+    remaining: 'Still available',
+    toNextLevel: 'To next level',
+    maxLevel: 'Maximum level reached',
+    capReached: 'Daily cap reached',
+    sources: {
+      focus_completion: 'Focus completed',
+      task_completion: 'Tasks completed',
+      review_correct: 'Correct reviews'
+    }
   },
   memory: {
     title: 'Memory analytics',

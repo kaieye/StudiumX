@@ -726,7 +726,7 @@
     },
     "account": {
       "label": "Account & sync",
-      "detail": "WeChat login, cross-device sync"
+      "detail": "Sign-in status and cross-device sync"
     }
   },
   "general": {
@@ -1784,15 +1784,15 @@
       "label": "Sign out"
     },
     "sync": {
-      "enable": "Enable sync",
-      "enableDetail": "Sync only runs after you explicitly enable it",
       "now": "Sync now",
       "nowDetail": "Push the local study-plan snapshot to the server",
-      "enableFirst": "Enable sync first",
       "openWorkspace": "Open a workspace first",
       "readFailed": "Could not read local plan",
       "failed": "Sync failed",
       "done": "Sync complete",
+      "upToDate": "Already up to date",
+      "conflict": "A newer version exists on the server. To protect both copies, neither version was overwritten.",
+      "conflictWithRevisions": "Sync conflict: local r{{localRevision}}, server r{{serverRevision}}. To protect both copies, neither version was overwritten.",
       "error": "Sync error"
     }
   }

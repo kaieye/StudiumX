@@ -10,7 +10,7 @@ type WorkbenchLeaderboardProps = {
   presenceStatus: StudyPresenceStatus
   spaceCode: string
   onEnterRandomSpace: () => void
-  onJoinSpace: (spaceCode: string) => void
+  onJoinSpace: (spaceCode: string) => Promise<boolean>
 }
 
 function presenceStatusLabel(status: StudyPresenceStatus): string {

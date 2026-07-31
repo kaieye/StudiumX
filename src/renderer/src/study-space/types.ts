@@ -1,4 +1,5 @@
 import type { PetAppearanceId } from '../../../shared/teaching-types'
+import type { DailyXpProgress } from '../../../shared/study-progression'
 
 export type StudyTimerMode = 'focus' | 'break'
 export type StudyTimerState = 'idle' | 'running' | 'paused'
@@ -173,6 +174,8 @@ export type StudySnapshot = {
   totalSessions: number
   streakDays: number
   xp: number
+  /** Local progression metadata; it is not teaching authority. */
+  dailyXpProgress: DailyXpProgress
   lastStudyDate: string
   tasks: StudyTask[]
 }

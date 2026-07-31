@@ -25,6 +25,8 @@ import type {
   StudyTaskAttribution
 } from '../../../shared/teaching-types/analytics'
 import type { TimerSessionRecord } from '../../../shared/study-planning'
+import { xpForFocusCompletion } from '../../../shared/study-progression'
+import { applyStudyProgressionAwardForSession } from './study-progression'
 import type { StudySnapshot } from './types'
 import {
   getLocalDateKey,
@@ -160,9 +162,7 @@ export function projectStudySessionFactFromTimerSession(
       : activeSeconds
   const completedFocusSessions: 0 | 1 =
     input.outcome === 'completed' && timerMode === 'focus' ? 1 : 0
-  const xpEarned = completedFocusSessions
-    ? Math.max(10, Math.round(plannedSeconds / 30))
-    : 0
+  const xpEarned = completedFocusSessions ? xpForFocusCompletion(plannedSeconds) : 0
   const daySegments = projectTimerSessionDaySegments({
     session,
     endedAtMs,
@@ -201,7 +201,7 @@ export function projectStudySessionFactFromTimerSession(
 }
 
 /**
- * Apply completion shell stats (sessions + xp) from a TimerSession-backed fact.
+ * Apply completion shell stats (sessions + capped XP) from a TimerSession-backed fact.
  * Does **not** re-add activeSeconds — V1 tick advance may already have credited
  * live focus seconds on the snapshot during the segment.
  */
@@ -214,13 +214,13 @@ export function applyTimerSessionCompletionShellStats(
     return host
   }
   const todaySessionsBase = host.lastStudyDate === localToday ? host.todaySessions : 0
-  return {
+  const next = {
     ...host,
     todaySessions: todaySessionsBase + 1,
     totalSessions: host.totalSessions + 1,
-    xp: host.xp + Math.max(0, fact.xpEarned),
     lastStudyDate: host.lastStudyDate || localToday
   }
+  return applyStudyProgressionAwardForSession(next, fact, localToday)
 }
 
 /**
@@ -310,4 +310,3 @@ export function projectTimerSessionCloseForHost(input: {
   }
   return { fact, host: input.host }
 }
-

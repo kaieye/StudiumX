@@ -1,7 +1,7 @@
 /**
  * Small sync state store (module state + useSyncExternalStore hook).
  *
- * Holds {baseUrl, accessToken, refreshToken, deviceId, user, enabled}.
+ * Holds {baseUrl, accessToken, refreshToken, deviceId, user}.
  * Persisted to localStorage under key `studiumx.sync`.
  * Sync is user-initiated + login-gated; no default remote telemetry.
  * Tokens never leave this module into logs/public DTO.
@@ -30,7 +30,6 @@ export type SyncState = {
   refreshToken: string | null
   deviceId: string | null
   user: SyncAuthUser | null
-  enabled: boolean
 }
 
 const DEFAULT_STATE: SyncState = {
@@ -38,8 +37,7 @@ const DEFAULT_STATE: SyncState = {
   accessToken: null,
   refreshToken: null,
   deviceId: null,
-  user: null,
-  enabled: false
+  user: null
 }
 
 const listeners = new Set<() => void>()
@@ -56,7 +54,9 @@ function loadState(): SyncState {
   try {
     const raw = localStorage.getItem(SYNC_STORAGE_KEY)
     if (!raw) return { ...DEFAULT_STATE }
-    const parsed = JSON.parse(raw) as Partial<SyncState>
+    const { enabled: _legacyEnabled, ...parsed } = JSON.parse(raw) as Partial<SyncState> & {
+      enabled?: boolean
+    }
     const configuredDefault = resolveDefaultSyncApiBase()
     const storedBaseUrl = typeof parsed.baseUrl === 'string' ? parsed.baseUrl.trim() : ''
     const migratedLegacyDefault =
@@ -130,10 +130,6 @@ export function ensureDeviceId(): string {
   const id = generateDeviceId()
   setState({ deviceId: id })
   return id
-}
-
-export function setSyncEnabled(enabled: boolean): void {
-  setState({ enabled })
 }
 
 export function setSyncBaseUrl(baseUrl: string): void {

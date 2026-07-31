@@ -10,10 +10,10 @@
 
 | 边界 | 含义 |
 | --- | --- |
-| 文件是教学真相源 | 投影可重建；canonical 在工作区文件，不把 SQLite / agent run 当 teaching authority |
+| 文件是教学真相源 | **仅指 AI 教学决策事实**：根据学习进度、答题表现制定下一步学习计划时，canonical 在工作区文件 / LearningSession ledger；SQLite、agent run 与同步副本不得成为 teaching authority。等级/XP、偏好、规划快照与经同意的分析摘要是可同步用户状态，不因此获得教学权威。详见 [ADR-0167](docs/adr/0167-teaching-authority-and-syncable-user-state.md)。 |
 | 无默认 shell | `tools.enabled` 默认关；开启后 **workspaceShell 默认开**（主流 Agent，ADR-0153）。`sandboxMode` × `approvalMode` 双轴 + 路径围栏；**禁止** YOLO 标签与虚假 Docker/VM 完备宣称。**合格交付**见 [`docs/agent-shell-sandbox-delivery-roadmap.md`](docs/agent-shell-sandbox-delivery-roadmap.md)（**Completed 2026-07-25** — qualified without Windows OS helper；ADR-0152/0153 为决策/provisional） |
 | MCP 全面对齐 | [ADR-0132](docs/adr/0132-mcp-zcode-parity-and-trust-lifecycle.md) + 体验边界 [ADR-0141](docs/adr/0141-mcp-product-experience-parity-policy.md) + **产品面 [ADR-0142](docs/adr/0142-mcp-product-surface-settings-only.md)**：A–H foundation 可保留；**Settings 产品面 = list/editor/import/OAuth**（**无** marketplace 设置页）。硬安全不变：secret/token 永不进 public DTO/Doctor；MCP 非 teaching evidence；settlement sole-writer；MCP tool 仍进 effect lattice / approval / ToolOutcome；禁止 YOLO 标签。 |
-| 无自动 remote telemetry | 本地优先；**不**默认 phone-home / Statsig / Mixpanel 式外发 |
+| 无自动 remote telemetry | 本地优先指**不静默上传**、**不**默认 phone-home / Statsig / Mixpanel 式外发；不禁止用户显式开启的账号与多端同步。同步状态不得反向改写教学决策事实。 |
 | effect lattice + TOOL_CONTRACT | `read` / `workspace_write` / `external_write` / `privileged` 三态审批；**禁止 YOLO / always-approve 标签** |
 | Settlement sole-writer | `TeachingTurnCoordinator` / host 为 outcome settlement 唯一写入路径；IPC 须 `expectedRevision`；fork 路径保持 `toolsReplayed: false` |
 | 多轴硬预算 | run budget + durable-success / budget fallback；禁止用 soft reminder 替代硬预算 |

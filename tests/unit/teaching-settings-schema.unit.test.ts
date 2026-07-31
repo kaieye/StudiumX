@@ -268,6 +268,15 @@ describe('teaching settings schema', () => {
     expect(normalizeSettings(malformed, '')).toEqual(normalizeRendererSettings(malformed))
   })
 
+  it('uses 噜噜 as the initial pet appearance and display name', () => {
+    const defaults = createTeachingSettingsDefaults(fallbackRoot)
+
+    expect(defaults.pet).toMatchObject({
+      appearance: 'lulu-capybara',
+      displayName: '噜噜'
+    })
+  })
+
   it('deep-merges a partial update before normalization without losing a stored budget', () => {
     const current = createTeachingSettingsDefaults(fallbackRoot)
     const merged = mergeTeachingSettings(current, {

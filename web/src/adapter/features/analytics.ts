@@ -51,6 +51,7 @@ import type {
   WorkspaceAssetsAnalytics
 } from '@shared/teaching-types/analytics'
 import type { TeachingSystemApi } from '@shared/teaching-types/system-api'
+import { calculateStudyLevelProgress, dailyXpSummary, studyPlantStageForLevel } from '@shared/study-progression'
 import { apiGet, ApiError } from '../../api/http'
 
 /** Server `AnalyticsSummaryRow` (server-contracts.md §2, `toRow`). */
@@ -201,19 +202,8 @@ function unavailableSection<T>(
   }
 }
 
-/** Simple linear XP level (every 100 XP = 1 level); Web has no XP source, so
- *  this stays at level 1 unless a `personalStudy` snapshot is supplied. */
 function levelProgress(xp: number): AnalyticsLevelProgress {
-  const level = Math.floor(Math.max(0, xp) / 100) + 1
-  const xpAtLevelStart = (level - 1) * 100
-  const xpAtNextLevel = level * 100
-  return {
-    level,
-    xpAtLevelStart,
-    xpAtNextLevel,
-    currentXp: xp,
-    progress: (Math.max(0, xp) - xpAtLevelStart) / 100
-  }
+  return calculateStudyLevelProgress(xp)
 }
 
 function zeroHourBuckets(): AnalyticsHourBuckets {
@@ -325,7 +315,8 @@ function populatedBundle(
       level: levelProgress(xp),
       streakDays: streak,
       badges: [],
-      plantStage: ''
+      plantStage: studyPlantStageForLevel(levelProgress(xp).level),
+      dailyXp: dailyXpSummary(request.personalStudy?.current.dailyXpProgress, query.calendarContext.localToday)
     }
   }
 

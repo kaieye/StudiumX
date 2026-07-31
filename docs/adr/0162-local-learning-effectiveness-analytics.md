@@ -7,7 +7,7 @@
 
 ## 1. 问题
 
-教学效果不可度量,改进没有反馈回路（评估文档 G9）：usage ledger 明确与 LearningSession 正交（token/工具观测,ADR-0122）,StudyAnalyticsPage 只有专注分析;没有掌握率、复习命中率、遗忘率、Elicit 率等任何本地学习效果指标。kernel/prompt/planner/调度算法的任何改动都无法回答"教学效果变好了吗",产品迭代只能凭感觉。本地优先 ≠ 不度量——本地、可脱敏、用户可见的学习分析与仓库红线完全兼容。
+教学效果不可度量,改进没有反馈回路（评估文档 G9）：usage ledger 明确与 LearningSession 正交（token/工具观测,ADR-0122）,StudyAnalyticsPage 只有专注分析;没有掌握率、复习命中率、遗忘率、Elicit 率等任何本地学习效果指标。kernel/prompt/planner/调度算法的任何改动都无法回答"教学效果变好了吗",产品迭代只能凭感觉。本地优先 ≠ 不度量，也 ≠ 禁止用户显式开启的跨设备同步——本地、可脱敏、用户可见的学习分析，以及经同意的派生摘要同步，都与仓库红线兼容；它们不能反向成为制定下一步教学计划的 authority（ADR-0167）。
 
 ## 2. 决策
 

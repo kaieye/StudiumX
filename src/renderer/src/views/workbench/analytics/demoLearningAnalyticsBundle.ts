@@ -21,6 +21,11 @@ import type {
 } from './types'
 import type { LearningAnalyticsClient } from './useStudyAnalytics'
 import { FOCUS_HEATMAP_DAYS } from '../../../../../shared/learning-analytics/personal-study-source'
+import {
+  calculateStudyLevelProgress,
+  dailyXpSummary,
+  studyPlantStageForLevel
+} from '../../../../../shared/study-progression'
 
 function parseLocalDate(value: AnalyticsLocalDate): Date {
   const [year, month, day] = value.split('-').map(Number)
@@ -213,8 +218,7 @@ function buildHero(series: DemoDay[], range: AnalyticsDateRange): LearningAnalyt
   const previousFocus = Math.round(focusSeconds * 0.78)
   const previousTokens = Math.round(totalTokens * 0.84)
   const currentXp = 4_860
-  const xpAtLevelStart = 4_200
-  const xpAtNextLevel = 5_400
+  const currentLevel = calculateStudyLevelProgress(currentXp)
   const span = daysInclusive(range.from, range.to).length
 
   return {
@@ -222,13 +226,7 @@ function buildHero(series: DemoDay[], range: AnalyticsDateRange): LearningAnalyt
     completedFocusSessions,
     currentStreakDays: 12,
     currentXp,
-    currentLevel: {
-      level: 18,
-      xpAtLevelStart,
-      xpAtNextLevel,
-      currentXp,
-      progress: (currentXp - xpAtLevelStart) / (xpAtNextLevel - xpAtLevelStart)
-    },
+    currentLevel,
     totalTokens,
     currentTaskCompletionRate: 0.72,
     focusComparison: {
@@ -409,20 +407,22 @@ function buildFocus(
     },
     currentGrowth: {
       xp: 4_860,
-      level: {
-        level: 18,
-        xpAtLevelStart: 4_200,
-        xpAtNextLevel: 5_400,
-        currentXp: 4_860,
-        progress: 0.55
-      },
+      level: calculateStudyLevelProgress(4_860),
       streakDays: 12,
       badges: [
         { id: 'streak-7', label: '连续 7 天', unlocked: true },
         { id: 'deep-focus', label: '深度专注', unlocked: true },
         { id: 'night-owl', label: '夜读达人', unlocked: false }
       ],
-      plantStage: 'sprout'
+      plantStage: studyPlantStageForLevel(calculateStudyLevelProgress(4_860).level),
+      dailyXp: dailyXpSummary({
+        version: 1,
+        localDate: query.calendarContext.localToday,
+        awardedXp: 236,
+        bySource: { focus_completion: 176, task_completion: 40, review_correct: 20 },
+        appliedSourceEventIds: [],
+        rewardedTaskIds: []
+      }, query.calendarContext.localToday)
     }
   }
 }

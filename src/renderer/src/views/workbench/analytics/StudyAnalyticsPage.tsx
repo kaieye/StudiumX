@@ -10,6 +10,7 @@ import {
   FocusBody,
   HeroBody,
   LevelBody,
+  DailyXpBody,
   ReviewBody,
   TokenBody
 } from './components/SectionBodies'
@@ -350,6 +351,17 @@ export function StudyAnalyticsPage({
               onRetry={() => analytics.retrySection('review')}
             >
               {(result) => <ReviewBody {...ctx} data={result.data} />}
+            </AnalyticsSection>
+            <AnalyticsSection
+              {...shared}
+              id="analytics-section-progression"
+              title={copy.progression.title}
+              description={copy.progression.description}
+              result={bundle?.focus ?? null}
+              renderEmpty
+              onRetry={() => analytics.retrySection('focus')}
+            >
+              {(result) => <DailyXpBody {...ctx} data={result.data} />}
             </AnalyticsSection>
           </div>
         </div>

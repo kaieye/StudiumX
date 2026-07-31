@@ -490,7 +490,7 @@ export function readStudyAnalyticsStore(
 
 export type PersonalStudySnapshotCurrentState = Pick<
   PersonalStudyAnalyticsSnapshot['current'],
-  'xp' | 'streakDays' | 'tasks'
+  'xp' | 'streakDays' | 'tasks' | 'dailyXpProgress'
 >
 
 function snapshotIdentity(value: unknown): string {

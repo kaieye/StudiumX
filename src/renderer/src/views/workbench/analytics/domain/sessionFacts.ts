@@ -21,7 +21,7 @@ import {
   type ReliableTimerSample,
   type ReliableTimerState
 } from './reliableTimer'
-
+import { xpForFocusCompletion } from '../../../../../../shared/study-progression'
 export type StudyTimedInterval = {
   startMs: number
   endMs: number
@@ -298,7 +298,7 @@ export function finalizeActiveStudySession(
   const activeSeconds = daySegments.reduce((sum, segment) => sum + segment.activeSeconds, 0)
   const pausedSeconds = daySegments.reduce((sum, segment) => sum + segment.pausedSeconds, 0)
   const completedFocusSessions = outcome === 'completed' && session.timerMode === 'focus' ? 1 : 0
-  const xpEarned = completedFocusSessions ? Math.max(10, Math.round(session.plannedSeconds / 30)) : 0
+  const xpEarned = completedFocusSessions ? xpForFocusCompletion(session.plannedSeconds) : 0
   return {
     factVersion: 1,
     factKind: 'study_session',

@@ -4,6 +4,7 @@
  * This module is intentionally renderer-agnostic. Main, preload, and renderer code
  * may depend on it; it must not import types from `src/renderer`.
  */
+import type { DailyXpProgress, DailyXpSummary } from '../study-progression'
 
 /** A Gregorian local-calendar date serialized exactly as `YYYY-MM-DD`. */
 export type AnalyticsLocalDate = string
@@ -444,6 +445,8 @@ export type PersonalStudyAnalyticsSnapshot = {
     xp: number
     streakDays: number
     tasks: StudyTaskStateSnapshot[]
+    /** Local capped-XP bookkeeping, passed only through the personal source seam. */
+    dailyXpProgress?: DailyXpProgress
   }
   diagnostics?: {
     invalidFactRows?: number
@@ -563,6 +566,8 @@ export type FocusAnalytics = {
     streakDays: number
     badges: Array<{ id: string; label: string; unlocked: boolean }>
     plantStage: string
+    /** Present for local personal analytics; absent for older/Web aggregate payloads. */
+    dailyXp?: DailyXpSummary
   }
 }
 

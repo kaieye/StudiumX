@@ -182,6 +182,18 @@
   border-bottom: 0;
 }
 
+/* Status copy is often appended after a row by an async settings action.
+   Give it a real footer rather than letting a bare text node sit against the
+   card's clipped rounded edge. Long server messages must remain readable. */
+.settings-card-feedback {
+  min-width: 0;
+  padding: 10px 14px 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .settings-row-copy {
   min-width: 0;
 }
@@ -791,6 +803,16 @@
 
 .settings-list-copy {
   min-width: 0;
+}
+
+/* A standalone message inside a shared settings card needs its own inset.
+   Without it, messages rendered after an action end up flush with the
+   card's rounded, clipped edge. */
+.settings-card > .settings-list-copy {
+  margin: 0;
+  padding: 12px 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .settings-list-copy strong,

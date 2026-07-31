@@ -2509,6 +2509,15 @@
   cursor: default;
 }
 
+.workbench-room-join-error {
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
+  color: var(--danger, #b3261e);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
 @media (max-width: 520px) {
   .workbench-leaderboard-actions {
     grid-template-columns: minmax(0, 1fr) 28px;
@@ -2901,4 +2910,3 @@
     min-height: 28px;
   }
 }
-

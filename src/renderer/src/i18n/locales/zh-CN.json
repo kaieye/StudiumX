@@ -726,7 +726,7 @@
     },
     "account": {
       "label": "账号与同步",
-      "detail": "微信登录、跨设备同步"
+      "detail": "登录状态、跨设备同步"
     }
   },
   "general": {
@@ -1784,15 +1784,15 @@
       "label": "退出登录"
     },
     "sync": {
-      "enable": "启用同步",
-      "enableDetail": "仅用户主动开启后才会同步",
       "now": "立即同步",
       "nowDetail": "将本地学习计划快照推送至服务端",
-      "enableFirst": "请先启用同步",
       "openWorkspace": "请先打开工作区",
       "readFailed": "无法读取本地规划",
       "failed": "同步失败",
       "done": "同步完成",
+      "upToDate": "已是最新状态",
+      "conflict": "检测到同步冲突：服务端存在更高版本。为保护两端数据，未覆盖任何数据。",
+      "conflictWithRevisions": "检测到同步冲突：本地 r{{localRevision}}，服务端 r{{serverRevision}}。为保护两端数据，未覆盖任何数据。",
       "error": "同步出错"
     }
   }

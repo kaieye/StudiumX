@@ -376,7 +376,7 @@ export function createWebTeachingApi(): TeachingSystemApi {
 继承自 StudiumX 和 StudiumX-Server 的既有红线：
 
 1. **Web 端不做教学执行引擎** -- 不持有模型 key、不运行 agent loop、不写教学工作区文件。
-2. **Web 端是 Server 的又一个 device** -- 通过 sync API 参与同步，遵守 local-wins 策略。
+2. **Web 端是 Server 的又一个 device** -- 通过 sync API 参与同步。`local-wins` 只适用于教学资产的归档冲突；等级/XP、偏好、规划与经同意的派生摘要按各自的同步契约处理，且不得成为 AI 教学决策 authority（ADR-0167）。
 3. **Token 安全** -- accessToken 存 localStorage（短期 15m），refreshToken 存 httpOnly cookie 或 localStorage（30d 轮换）。不存微信 access_token。
 4. **分析数据默认关闭** -- 用户需在 Web 端显式开启"学习分析同步"才上传派生摘要（继承 Server §5.4 红线）。
 5. **组件共享不破坏桌面端** -- Web 端通过 adapter 注入 teachingSystem，不修改 renderer 既有组件源码。如果某组件需要 Web 适配，通过运行时检测 `platform === 'web'` 分支处理，不拆分组件。

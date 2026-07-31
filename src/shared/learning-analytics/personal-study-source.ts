@@ -20,6 +20,12 @@ import type {
   TaskAnalytics,
   TokenAnalytics
 } from '../teaching-types/analytics'
+import {
+  calculateStudyLevelProgress,
+  dailyXpSummary,
+  normalizeDailyXpProgress,
+  studyPlantStageForLevel,
+} from '../study-progression'
 
 export const PERSONAL_STUDY_SNAPSHOT_MAX_FACTS = 4_000 as const
 export const PERSONAL_STUDY_SNAPSHOT_MAX_TASKS = 500 as const
@@ -213,7 +219,8 @@ export function validatePersonalStudySnapshot(value: unknown, input: { clientId:
   if (rejectedFacts > 0) warnings.push(warning('facts_recovered_with_invalid_rows', 'Invalid personal Study fact rows were ignored before analytics aggregation.', { invalidFactRows: rejectedFacts, historicalInvalidFactRows: upstreamRejected }))
   else if (upstreamRejected > 0) warnings.push(warning('facts_recovered_with_invalid_rows', 'Previously recovered invalid personal Study fact rows were already filtered from the snapshot.', { invalidFactRows: 0, historicalInvalidFactRows: upstreamRejected }))
   if (retentionPruned) warnings.push(warning('retention_pruned', 'Personal Study facts outside the rolling 400-day retention window were ignored.'))
-  return { state: 'valid', cacheIdentity: identity, snapshot: { version: 1, identity, capturedAt: new Date(capturedAt).toISOString(), clientId: input.clientId, trackingStartedOn: value.trackingStartedOn, facts: accepted, current: { xp: value.current.xp, streakDays: value.current.streakDays, tasks: value.current.tasks }, diagnostics: { invalidFactRows: rejectedFacts + upstreamRejected, retentionPruned } }, rejectedFacts, retentionPruned, warnings }
+  const dailyXpProgress = normalizeDailyXpProgress(value.current.dailyXpProgress, input.localToday)
+  return { state: 'valid', cacheIdentity: identity, snapshot: { version: 1, identity, capturedAt: new Date(capturedAt).toISOString(), clientId: input.clientId, trackingStartedOn: value.trackingStartedOn, facts: accepted, current: { xp: value.current.xp, streakDays: value.current.streakDays, tasks: value.current.tasks, dailyXpProgress }, diagnostics: { invalidFactRows: rejectedFacts + upstreamRejected, retentionPruned } }, rejectedFacts, retentionPruned, warnings }
 }
 
 export function rebuildPersonalStudyDailyProjections(facts: StudyAnalyticsFact[], rebuiltAt: string): StudyDailyProjection[] {
@@ -255,8 +262,8 @@ export function rebuildPersonalStudyDailyProjections(facts: StudyAnalyticsFact[]
   return [...projections.values()].sort((left, right) => left.date.localeCompare(right.date)).map(({ buckets, ...item }) => ({ ...item, hourBuckets: buckets as unknown as AnalyticsHourBuckets }))
 }
 
-function level(xp: number): LearningAnalyticsHero['currentLevel'] { const current = xp % 120; return { level: Math.max(1, Math.floor(xp / 120) + 1), xpAtLevelStart: xp - current, xpAtNextLevel: 120, currentXp: xp, progress: current / 120 } }
-function plantStage(xp: number): string { if (xp >= 720) return '成林'; if (xp >= 420) return '开花'; if (xp >= 180) return '抽枝'; if (xp >= 60) return '发芽'; return '种子' }
+function level(xp: number): LearningAnalyticsHero['currentLevel'] { return calculateStudyLevelProgress(xp) }
+function plantStage(xp: number): string { return studyPlantStageForLevel(calculateStudyLevelProgress(xp).level) }
 
 function coverage(query: LearningAnalyticsQuery, validation: Extract<PersonalStudySnapshotValidation, { state: 'valid' }>, projections: StudyDailyProjection[]): AnalyticsCoverage {
   const snapshot = validation.snapshot
@@ -546,7 +553,8 @@ function emptyFocusScaffold(query: LearningAnalyticsQuery, trackingStartedOn: st
       level: level(0),
       streakDays: 0,
       badges: [],
-      plantStage: plantStage(0)
+      plantStage: plantStage(0),
+      dailyXp: dailyXpSummary(undefined, query.calendarContext.localToday)
     }
   }
 }
@@ -598,7 +606,7 @@ export function buildPersonalStudyAnalytics(input: { query: LearningAnalyticsQue
   const focusSeconds = rows.reduce((sum, row) => sum + row.focusSeconds, 0)
   const breakSeconds = rows.reduce((sum, row) => sum + row.breakSeconds, 0)
   const growthLevel = level(validation.snapshot.current.xp)
-  const focusData: FocusAnalytics = { daily: rows.map(({ covered: _covered, ...row }) => row), heatmap: heatmapCells(query, validation, projections), trend: rows.map((row) => ({ date: row.date, focusSeconds: row.focusSeconds, completedFocusSessions: row.completedFocusSessions })), hourBuckets: rows.reduce((hours, row) => hours.map((value, index) => value + (row.hourBuckets[index] ?? 0)) as unknown as AnalyticsHourBuckets, EMPTY_HOURS()), activeRanges: buildFocusActiveRanges(rangedSessions, query.range, focusRangeCategories(query)), sessionStructure: { focusSeconds, breakSeconds, completed, interrupted, canceled, averageCompletedFocusSeconds: completed > 0 ? completedFacts.reduce((sum, fact) => sum + fact.activeSeconds, 0) / completed : null, completionRate: terminalFocus.length > 0 ? completed / terminalFocus.length : null }, currentGrowth: { xp: validation.snapshot.current.xp, level: growthLevel, streakDays: validation.snapshot.current.streakDays, badges: [], plantStage: plantStage(validation.snapshot.current.xp) } }
+  const focusData: FocusAnalytics = { daily: rows.map(({ covered: _covered, ...row }) => row), heatmap: heatmapCells(query, validation, projections), trend: rows.map((row) => ({ date: row.date, focusSeconds: row.focusSeconds, completedFocusSessions: row.completedFocusSessions })), hourBuckets: rows.reduce((hours, row) => hours.map((value, index) => value + (row.hourBuckets[index] ?? 0)) as unknown as AnalyticsHourBuckets, EMPTY_HOURS()), activeRanges: buildFocusActiveRanges(rangedSessions, query.range, focusRangeCategories(query)), sessionStructure: { focusSeconds, breakSeconds, completed, interrupted, canceled, averageCompletedFocusSeconds: completed > 0 ? completedFacts.reduce((sum, fact) => sum + fact.activeSeconds, 0) / completed : null, completionRate: terminalFocus.length > 0 ? completed / terminalFocus.length : null }, currentGrowth: { xp: validation.snapshot.current.xp, level: growthLevel, streakDays: validation.snapshot.current.streakDays, badges: [], plantStage: plantStage(validation.snapshot.current.xp), dailyXp: dailyXpSummary(validation.snapshot.current.dailyXpProgress, query.calendarContext.localToday) } }
   // Zero sessions still return empty + data (blank heatmap / empty active ranges), never data-less unavailable.
   const focus: AnalyticsSectionResult<FocusAnalytics> = rangedSessions.length === 0
     ? {
@@ -800,4 +808,3 @@ export function buildPersonalStudyAnalytics(input: { query: LearningAnalyticsQue
         }
   return { hero, focus, tasks }
 }
-

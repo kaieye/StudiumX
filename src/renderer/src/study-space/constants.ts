@@ -1,4 +1,5 @@
 import type { StudyModeId, StudyRoomId, StudySignalId, StudySnapshot } from './types'
+import { emptyDailyXpProgress } from '../../../shared/study-progression'
 
 export const STUDY_SPACE_STORAGE_KEY = 'studiumx:study-space:v1'
 export const STUDY_SPACE_SESSION_CLIENT_KEY = 'studiumx:study-space:session-client:v1'
@@ -42,6 +43,7 @@ export const defaultStudySnapshot: StudySnapshot = {
   totalSessions: 0,
   streakDays: 0,
   xp: 0,
+  dailyXpProgress: emptyDailyXpProgress(''),
   lastStudyDate: '',
   tasks: [
     { id: 'reading', title: '整理下一节课的重点', done: false, categoryId: 'study' },

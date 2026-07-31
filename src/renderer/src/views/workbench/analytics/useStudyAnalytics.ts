@@ -281,6 +281,7 @@ function personalStudyRequest(query: LearningAnalyticsQuery): LearningAnalyticsR
     personalStudy: createPersonalStudyAnalyticsSnapshot(query.scope.personalFocus.clientId, {
       xp: study.xp,
       streakDays: study.streakDays,
+      dailyXpProgress: study.dailyXpProgress,
       tasks: (() => {
         const categories = listStudyTaskCategories()
         return study.tasks.map((task) => {

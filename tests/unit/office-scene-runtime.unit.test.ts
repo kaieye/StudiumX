@@ -226,6 +226,23 @@ describe('OfficeSceneRuntime', () => {
     harness.runtime.dispose()
   })
 
+  it('does not draw a green rectangular highlight around a peer desk', async () => {
+    const harness = createHarness()
+    harness.runtime.mount()
+    harness.runtime.update(seatState({
+      userSeatIndex: 1,
+      occupantsByDeskId: new Map([
+        ['desk-2', { kind: 'peer', name: '林同学', status: 'running', timerMode: 'focus', todayFocusSeconds: 1_500 }]
+      ])
+    }))
+    await settleAssetLoad()
+    renderNextFrame(harness, 480)
+
+    expect(vi.mocked(harness.context.stroke)).not.toHaveBeenCalled()
+    expect(vi.mocked(harness.context.fillText)).toHaveBeenCalledWith('今日 0.4h', expect.any(Number), expect.any(Number))
+    harness.runtime.dispose()
+  })
+
   it('removes pending frame work on dispose without canvas interaction listeners', async () => {
     const harness = createHarness()
     harness.runtime.mount()

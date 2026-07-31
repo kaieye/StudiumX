@@ -3,32 +3,28 @@
  *
  * Wired into the Settings shell under the "account" nav section. The top of
  * the panel renders a Livo-style account card (avatar, display name, login
- * badge, logout). WeChat QR login is driven by loginWithWechatQr (desktop
- * popup + polling flow). The "立即同步" button reads the local canonical
- * study-planning snapshot (READ-ONLY) and pushes it to the server. Sync code
- * NEVER writes back to local teaching authority.
+ * badge and logout. Authentication happens at the application login gate, so
+ * this page only exposes the signed-in account and a manual sync action. The
+ * sync action reads the local canonical study-planning snapshot (READ-ONLY)
+ * and pushes it to the server. Sync code NEVER writes back to local teaching
+ * authority.
  */
 
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GraduationCap, LogOut } from 'lucide-react'
+import { GraduationCap, LogOut, RefreshCw } from 'lucide-react'
 import { useAppStore } from '../app-shell/appStore'
 import {
   SettingsCard,
   SettingsPanel,
-  SettingsRow,
-  ToggleSwitch
+  SettingsRow
 } from '../views/settings/SettingsPrimitives'
 import { createSyncApiClient } from './sync-api-client'
-import { loginWithWechatQr } from './wechat-qr-login'
 import {
   clearSyncAuth,
   ensureDeviceId,
   getSyncAccessToken,
-  setSyncAuth,
-  setSyncEnabled,
-  useSyncState,
-  type SyncAuthUser
+  useSyncState
 } from './sync-store'
 import {
   createStudyPlanningSyncBridge,
@@ -39,7 +35,6 @@ export function AccountSyncSettingsSection() {
   const { t } = useTranslation()
   const syncState = useSyncState()
   const workspaceRoot = useAppStore((state) => state.appState.activeWorkspace?.rootPath ?? null)
-  const [loginProgress, setLoginProgress] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -52,38 +47,6 @@ export function AccountSyncSettingsSection() {
       }),
     [syncState.baseUrl]
   )
-
-  const handleLogin = useCallback(async () => {
-    setBusy(true)
-    setMessage(null)
-    setLoginProgress(t('account.login.opening', { defaultValue: '正在获取登录链接…' }))
-    try {
-      ensureDeviceId()
-      const controller = new AbortController()
-      const result = await loginWithWechatQr(
-        apiClient,
-        (status) => setLoginProgress(status),
-        controller.signal,
-      )
-      if (result.ok) {
-        setSyncAuth({
-          accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
-          user: (result.user as SyncAuthUser | undefined) ?? null,
-        })
-        setMessage(t('account.login.success', { defaultValue: '登录成功' }))
-      } else {
-        setMessage(`${t('account.login.failed', { defaultValue: '登录失败' })}：${result.error}`)
-      }
-    } catch (err) {
-      setMessage(
-        `${t('account.login.failed', { defaultValue: '登录失败' })}：${err instanceof Error ? err.message : String(err)}`,
-      )
-    } finally {
-      setBusy(false)
-      setLoginProgress(null)
-    }
-  }, [apiClient, t])
 
   const handleLogout = useCallback(async () => {
     if (!syncState.refreshToken) {
@@ -108,10 +71,6 @@ export function AccountSyncSettingsSection() {
   }, [apiClient, syncState.refreshToken, t])
 
   const handleSync = useCallback(async () => {
-    if (!syncState.enabled) {
-      setMessage(t('account.sync.enableFirst', { defaultValue: '请先启用同步' }))
-      return
-    }
     if (!workspaceRoot) {
       setMessage(t('account.sync.openWorkspace', { defaultValue: '请先打开工作区' }))
       return
@@ -128,11 +87,31 @@ export function AccountSyncSettingsSection() {
       const bridge = createStudyPlanningSyncBridge({ apiClient, deviceId })
       const result = await bridge.pushStudyPlanning(local.snapshot)
       if (!result.ok) {
+        if (result.code === 'conflict') {
+          setMessage(
+            result.serverRevision !== undefined
+              ? t('account.sync.conflictWithRevisions', {
+                  defaultValue:
+                    '检测到同步冲突：本地 r{{localRevision}}，服务端 r{{serverRevision}}。为保护两端数据，未覆盖任何数据。',
+                  localRevision: local.snapshot.revision,
+                  serverRevision: result.serverRevision
+                })
+              : t('account.sync.conflict', {
+                  defaultValue: '检测到同步冲突：服务端存在更高版本。为保护两端数据，未覆盖任何数据。'
+                })
+          )
+          return
+        }
         setMessage(`${t('account.sync.failed', { defaultValue: '同步失败' })}：${result.message}`)
         return
       }
       const revisionSuffix = result.serverRevision !== undefined ? ` (r${result.serverRevision})` : ''
-      setMessage(`${t('account.sync.done', { defaultValue: '同步完成' })}：${result.status}${revisionSuffix}`)
+      setMessage(
+        `${t(
+          result.status === 'up_to_date' ? 'account.sync.upToDate' : 'account.sync.done',
+          { defaultValue: result.status === 'up_to_date' ? '已是最新状态' : '同步完成' }
+        )}${revisionSuffix}`
+      )
     } catch (err) {
       setMessage(
         `${t('account.sync.error', { defaultValue: '同步出错' })}：${err instanceof Error ? err.message : String(err)}`,
@@ -140,7 +119,7 @@ export function AccountSyncSettingsSection() {
     } finally {
       setBusy(false)
     }
-  }, [apiClient, syncState.enabled, workspaceRoot, t])
+  }, [apiClient, workspaceRoot, t])
 
   const loggedIn = Boolean(syncState.accessToken)
   const displayName =
@@ -199,39 +178,10 @@ export function AccountSyncSettingsSection() {
 
       <SettingsCard>
         <SettingsRow
-          label={t('account.wechat.label', { defaultValue: '微信登录' })}
-          detail={t('account.wechat.detail', { defaultValue: '扫码登录 StudiumX-Server' })}
-        >
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {loggedIn ? null : (
-              <button type="button" onClick={handleLogin} disabled={busy}>
-                {busy && loginProgress
-                  ? t('account.login.inProgress', { defaultValue: '登录中…' })
-                  : t('account.wechat.signIn', { defaultValue: '微信扫码登录' })}
-              </button>
-            )}
-            {loginProgress ? (
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{loginProgress}</span>
-            ) : null}
-          </div>
-        </SettingsRow>
-
-        <SettingsRow
           label={t('account.device.label', { defaultValue: '设备 ID' })}
           detail={t('account.device.detail', { defaultValue: '同步设备标识' })}
         >
           <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{deviceLabel}</span>
-        </SettingsRow>
-
-        <SettingsRow
-          label={t('account.sync.enable', { defaultValue: '启用同步' })}
-          detail={t('account.sync.enableDetail', { defaultValue: '仅用户主动开启后才会同步' })}
-        >
-          <ToggleSwitch
-            checked={syncState.enabled}
-            ariaLabel={t('account.sync.enable', { defaultValue: '启用同步' })}
-            onChange={setSyncEnabled}
-          />
         </SettingsRow>
 
         <SettingsRow
@@ -240,15 +190,25 @@ export function AccountSyncSettingsSection() {
         >
           <button
             type="button"
+            className="ghost-button account-sync-now-button"
             onClick={handleSync}
-            disabled={busy || !syncState.enabled || !workspaceRoot}
+            disabled={busy || !workspaceRoot}
+            aria-label={t('account.sync.now', { defaultValue: '立即同步' })}
+            title={t('account.sync.now', { defaultValue: '立即同步' })}
           >
-            {t('account.sync.now', { defaultValue: '立即同步' })}
+            <RefreshCw
+              size={17}
+              strokeWidth={2}
+              className={busy ? 'account-sync-now-icon--spinning' : undefined}
+              aria-hidden="true"
+            />
           </button>
         </SettingsRow>
 
         {message ? (
-          <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>{message}</div>
+          <div className="settings-card-feedback" role="status" aria-live="polite">
+            {message}
+          </div>
         ) : null}
       </SettingsCard>
     </SettingsPanel>

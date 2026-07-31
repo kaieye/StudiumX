@@ -222,7 +222,9 @@ export class StudySessionLifecycle {
       completed,
       localToday: this.localDate(wallMs),
       ...(current.timerMode === 'focus' ? { focusSecondsByLocalDate: activeSecondsByLocalDate } : {}),
-      ...(completedFact ? { xpEarned: completedFact.xpEarned } : {})
+      // XP is settled from the immutable completion fact by the shared capped
+      // progression layer; transitions only update timer/session counters.
+      ...(completedFact ? { xpEarned: 0 } : {})
     })
     if (!completedFact) return { snapshot: next, completed: false, intents: [] }
 
