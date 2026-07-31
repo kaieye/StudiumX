@@ -28,7 +28,7 @@ export function WorkbenchRoomSwitcher({
           onChange={(event) => setJoinDraft(event.target.value.toUpperCase())}
           placeholder="输入房间码"
           aria-label="输入要加入的房间码"
-          maxLength={18}
+          maxLength={5}
         />
         <button
           className="workbench-room-enter-key"
@@ -45,8 +45,8 @@ export function WorkbenchRoomSwitcher({
         className="workbench-room-random"
         type="button"
         onClick={onEnterRandomSpace}
-        aria-label="随机进入自习室"
-        title="随机进入自习室"
+        aria-label="随机分配新自习室"
+        title="随机分配新自习室"
       >
         <Shuffle size={18} aria-hidden="true" />
       </button>

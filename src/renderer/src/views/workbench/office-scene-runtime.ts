@@ -1,5 +1,5 @@
 import type { PetAppearanceId } from '../../../../shared/teaching-types'
-import { studyMemberStatusLabel } from '../../study-space/domain'
+import { formatStudyHours, studyMemberStatusLabel } from '../../study-space/domain'
 import type { StudyTimerMode, StudyTimerState } from '../../study-space/types'
 import {
   getPetSpriteFrameIndex,
@@ -35,6 +35,7 @@ export type OfficeSceneSeatOccupant = {
   name: string
   status: StudyTimerState
   timerMode: StudyTimerMode
+  todayFocusSeconds: number
 }
 
 export type OfficeSceneSeatState = {
@@ -42,7 +43,6 @@ export type OfficeSceneSeatState = {
   activeRoomName: string
   connectionLabel: string
   cycleLabel: string
-  blockedSeatIndexes: ReadonlySet<number>
   occupantsByDeskId: ReadonlyMap<DeskId, OfficeSceneSeatOccupant>
 }
 
@@ -56,7 +56,6 @@ type CreateOfficeSceneRuntimeOptions = {
   stage: HTMLElement
   canvas: HTMLCanvasElement
   petAppearance: PetAppearanceId
-  onDeskSelectionIntent: (seatIndex: number) => void
 }
 
 const officeWidth = 64 * 17
@@ -127,7 +126,6 @@ function emptySeatState(): OfficeSceneSeatState {
     activeRoomName: '自习室',
     connectionLabel: '本机席位',
     cycleLabel: '',
-    blockedSeatIndexes: new Set(),
     occupantsByDeskId: new Map()
   }
 }
@@ -201,43 +199,50 @@ function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width:
   ctx.closePath()
 }
 
-function drawDeskHitArea(
+function drawDeskBadge(
   ctx: CanvasRenderingContext2D,
   slot: DeskSlot,
-  isHovered: boolean,
   isSelected: boolean,
   occupant: OfficeSceneSeatOccupant | null
 ): void {
-  if (!isHovered && !isSelected && !occupant) return
+  if (!isSelected && !occupant) return
 
   const { x, y, width, height } = slot.hitArea
   const isPeer = occupant?.kind === 'peer'
+  const shouldDrawDeskOutline = occupant?.kind !== 'self'
   ctx.save()
-  roundedRect(ctx, x, y, width, height, 18)
-  ctx.fillStyle = isSelected
-    ? 'rgba(242, 199, 92, 0.16)'
-    : isPeer
-      ? 'rgba(36, 161, 108, 0.12)'
-      : 'rgba(86, 140, 255, 0.08)'
-  ctx.fill()
-  ctx.lineWidth = isSelected || occupant ? 2 : 1.5
-  ctx.strokeStyle = isSelected
-    ? 'rgba(210, 155, 35, 0.88)'
-    : isPeer
-      ? 'rgba(36, 161, 108, 0.68)'
-      : 'rgba(68, 121, 255, 0.46)'
-  ctx.stroke()
+  if (shouldDrawDeskOutline) {
+    roundedRect(ctx, x, y, width, height, 18)
+    ctx.fillStyle = isSelected
+      ? 'rgba(242, 199, 92, 0.16)'
+      : isPeer
+        ? 'rgba(36, 161, 108, 0.12)'
+        : 'rgba(86, 140, 255, 0.08)'
+    ctx.fill()
+    ctx.lineWidth = isSelected || occupant ? 2 : 1.5
+    ctx.strokeStyle = isSelected
+      ? 'rgba(210, 155, 35, 0.88)'
+      : isPeer
+        ? 'rgba(36, 161, 108, 0.68)'
+        : 'rgba(68, 121, 255, 0.46)'
+    ctx.stroke()
+  }
 
-  ctx.font = '600 13px system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
   const statusLabel = occupant
     ? `${occupant.kind === 'self' ? '我' : occupant.name.slice(0, 6)} · ${studyMemberStatusLabel(occupant.status, occupant.timerMode)}`
     : slot.label
-  const badgeWidth = Math.max(64, ctx.measureText(statusLabel).width + 20)
-  const badgeHeight = 26
+  const focusLabel = occupant ? `今日 ${formatStudyHours(occupant.todayFocusSeconds)}h` : '系统分配座位'
+  ctx.font = '600 13px system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const badgeWidth = Math.max(
+    88,
+    ctx.measureText(statusLabel).width + 20,
+    ctx.measureText(focusLabel).width + 20
+  )
+  const badgeHeight = 42
   const badgeX = x + width / 2 - badgeWidth / 2
-  const badgeY = y - 12
+  const badgeY = y - 28
   roundedRect(ctx, badgeX, badgeY, badgeWidth, badgeHeight, 13)
   ctx.fillStyle = isSelected
     ? 'rgba(210, 155, 35, 0.95)'
@@ -246,24 +251,10 @@ function drawDeskHitArea(
       : 'rgba(255, 255, 255, 0.95)'
   ctx.fill()
   ctx.fillStyle = occupant ? '#ffffff' : '#3454a8'
-  ctx.fillText(statusLabel, x + width / 2, badgeY + badgeHeight / 2)
+  ctx.fillText(statusLabel, x + width / 2, badgeY + 13)
+  ctx.font = '600 11px system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
+  ctx.fillText(focusLabel, x + width / 2, badgeY + 29)
   ctx.restore()
-}
-
-function findDeskAt(point: { x: number; y: number }): DeskSlot | null {
-  for (const slot of [...deskSlots].reverse()) {
-    const { x, y, width, height } = slot.hitArea
-    if (point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height) return slot
-  }
-  return null
-}
-
-function canvasPointToScene(event: MouseEvent, canvas: HTMLCanvasElement): { x: number; y: number } {
-  const rect = canvas.getBoundingClientRect()
-  return {
-    x: ((event.clientX - rect.left) / Math.max(rect.width, 1)) * officeWidth - stageShift.x,
-    y: ((event.clientY - rect.top) / Math.max(rect.height, 1)) * officeHeight - stageShift.y
-  }
 }
 
 function drawScene(
@@ -271,7 +262,6 @@ function drawScene(
   assets: WorkbenchAssets,
   elapsed: number,
   seatState: OfficeSceneSeatState,
-  hoveredDeskId: DeskId | null,
   reducedMotion: boolean
 ): void {
   ctx.clearRect(0, 0, officeWidth, officeHeight)
@@ -282,9 +272,8 @@ function drawScene(
   for (const slot of deskSlots) {
     const occupant = seatState.occupantsByDeskId.get(slot.id) ?? null
     const isSelected = seatState.userSeatIndex === slot.slotIndex
-    const isHovered = hoveredDeskId === slot.id
 
-    drawDeskHitArea(ctx, slot, isHovered, isSelected, occupant)
+    drawDeskBadge(ctx, slot, isSelected, occupant)
     drawDeskImage(ctx, assets.deskImage, slot)
     if (occupant) {
       depthLayers.push({
@@ -358,12 +347,10 @@ function selectedDeskLabel(seatState: OfficeSceneSeatState): string {
 export function createOfficeSceneRuntime({
   stage,
   canvas,
-  petAppearance,
-  onDeskSelectionIntent
+  petAppearance
 }: CreateOfficeSceneRuntimeOptions): OfficeSceneRuntime {
   let mounted = false
   let animationFrame: number | null = null
-  let hoveredDeskId: DeskId | null = null
   let seatState = emptySeatState()
   let reducedMotion = false
   let reducedMotionQuery: MediaQueryList | undefined
@@ -372,63 +359,8 @@ export function createOfficeSceneRuntime({
   const syncCanvasAccessibility = (): void => {
     canvas.setAttribute(
       'aria-label',
-      `StudiumX 自习室：${seatState.activeRoomName}，当前在${selectedDeskLabel(seatState)}，${seatState.connectionLabel}，${seatState.cycleLabel}，使用方向键切换座位`
+      `StudiumX 自习室：${seatState.activeRoomName}，系统已自动分配${selectedDeskLabel(seatState)}，${seatState.connectionLabel}，${seatState.cycleLabel}`
     )
-  }
-
-  const canSelect = (slot: DeskSlot): boolean => {
-    if (seatState.blockedSeatIndexes.has(slot.slotIndex)) return false
-    return seatState.occupantsByDeskId.get(slot.id)?.kind !== 'peer'
-  }
-
-  const selectDesk = (slot: DeskSlot): void => {
-    if (!canSelect(slot)) return
-    onDeskSelectionIntent(slot.slotIndex)
-    hoveredDeskId = slot.id
-    canvas.style.cursor = 'pointer'
-    syncCanvasAccessibility()
-  }
-
-  const updateHover = (event: MouseEvent): void => {
-    const slot = findDeskAt(canvasPointToScene(event, canvas))
-    hoveredDeskId = slot?.id ?? null
-    canvas.style.cursor = slot && canSelect(slot) ? 'pointer' : 'default'
-  }
-
-  const handleClick = (event: MouseEvent): void => {
-    const slot = findDeskAt(canvasPointToScene(event, canvas))
-    if (slot) selectDesk(slot)
-  }
-
-  const handleKeyDown = (event: KeyboardEvent): void => {
-    const currentIndex = deskSlots.findIndex((slot) => slot.slotIndex === seatState.userSeatIndex)
-    let nextIndex: number | null = null
-    const selectableIndex = (startIndex: number, direction: 1 | -1): number | null => {
-      for (let offset = 0; offset < deskSlots.length; offset += 1) {
-        const index = (startIndex + offset * direction + deskSlots.length) % deskSlots.length
-        if (canSelect(deskSlots[index])) return index
-      }
-      return null
-    }
-
-    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-      nextIndex = selectableIndex(currentIndex === -1 ? 0 : currentIndex + 1, 1)
-    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-      nextIndex = selectableIndex(currentIndex === -1 ? deskSlots.length - 1 : currentIndex - 1, -1)
-    } else if (event.key === 'Home') {
-      nextIndex = selectableIndex(0, 1)
-    } else if (event.key === 'End') {
-      nextIndex = selectableIndex(deskSlots.length - 1, -1)
-    }
-
-    if (nextIndex === null) return
-    event.preventDefault()
-    selectDesk(deskSlots[nextIndex])
-  }
-
-  const handlePointerLeave = (): void => {
-    hoveredDeskId = null
-    canvas.style.cursor = 'default'
   }
 
   const updateReducedMotion = (event: MediaQueryListEvent): void => {
@@ -454,7 +386,7 @@ export function createOfficeSceneRuntime({
       ctx.imageSmoothingEnabled = true
       ctx.imageSmoothingQuality = 'high'
       ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0)
-      drawScene(ctx, assets, time, seatState, hoveredDeskId, reducedMotion)
+      drawScene(ctx, assets, time, seatState, reducedMotion)
       ctx.restore()
       scheduleFrame(ctx, assets)
     })
@@ -478,10 +410,6 @@ export function createOfficeSceneRuntime({
       reducedMotionQuery?.addEventListener('change', updateReducedMotion)
 
       syncCanvasAccessibility()
-      canvas.addEventListener('pointermove', updateHover)
-      canvas.addEventListener('click', handleClick)
-      canvas.addEventListener('keydown', handleKeyDown)
-      canvas.addEventListener('pointerleave', handlePointerLeave)
 
       void loadWorkbenchAssets(petAppearance)
         .then((assets) => {
@@ -510,12 +438,6 @@ export function createOfficeSceneRuntime({
       window.removeEventListener('resize', updateCanvasSize)
       reducedMotionQuery?.removeEventListener('change', updateReducedMotion)
       reducedMotionQuery = undefined
-      canvas.removeEventListener('pointermove', updateHover)
-      canvas.removeEventListener('click', handleClick)
-      canvas.removeEventListener('keydown', handleKeyDown)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      hoveredDeskId = null
-      canvas.style.cursor = 'default'
     }
   }
 }

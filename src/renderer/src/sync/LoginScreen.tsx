@@ -2,13 +2,10 @@
  * Full-screen login interface.
  *
  * Visual language mirrors Livo's AuthLoginPage (centred glass card, brand
- * title, single primary OAuth button, terms footer) but is adapted to
- * StudiumX's local-first product floor:
+ * title, single primary OAuth button, terms footer):
  *
  * - Reuses the existing renderer-side WeChat QR login flow
  *   (`loginWithWechatQr` + `sync-store`); no new IPC or remote surface.
- * - Login is *optional*. A "continue in local mode" action dismisses the
- *   card so the app stays fully usable offline (teaching authority is local).
  * - The session check (`checkSyncSession`) is driven by AuthGate and only
  *   contacts the server when a token already exists, so first launch makes
  *   no network call.
@@ -26,7 +23,6 @@ import {
   type SyncAuthUser
 } from './sync-store'
 import { loginWithWechatQr } from './wechat-qr-login'
-import { clearContinueLocal, setContinueLocal } from './auth-gate-store'
 
 export function LoginScreen() {
   const { t } = useTranslation()
@@ -60,8 +56,6 @@ export function LoginScreen() {
           refreshToken: result.refreshToken,
           user: (result.user as SyncAuthUser | undefined) ?? null
         })
-        // Logging in abandons any prior "continue local" choice.
-        clearContinueLocal()
         setProgress(null)
       } else {
         setError(result.error)
@@ -75,10 +69,6 @@ export function LoginScreen() {
     }
   }, [t])
 
-  const handleContinueLocal = useCallback(() => {
-    setContinueLocal(true)
-  }, [])
-
   return (
     <div className="auth-screen" role="dialog" aria-modal="true" aria-label={t('auth.title', { defaultValue: '登录 StudiumX' })}>
       <div className="auth-screen-card">
@@ -91,7 +81,7 @@ export function LoginScreen() {
           </h1>
           <p className="auth-screen-subtitle">
             {t('auth.loginPrompt', {
-              defaultValue: '登录以同步学习计划；也可继续使用本地模式。'
+              defaultValue: '请先登录，然后开始使用 StudiumX。'
             })}
           </p>
         </div>
@@ -124,20 +114,11 @@ export function LoginScreen() {
             </span>
             {busy && <Loader2 size={16} className="auth-screen-spinner" aria-hidden="true" />}
           </button>
-
-          <button
-            type="button"
-            className="auth-screen-button auth-screen-button--ghost"
-            onClick={handleContinueLocal}
-            disabled={busy}
-          >
-            {t('auth.continueLocal', { defaultValue: '以本地模式继续' })}
-          </button>
         </div>
 
         <p className="auth-screen-footer">
           {t('auth.termsHint', {
-            defaultValue: '教学资产始终以本地工作区为权威；登录仅用于跨设备同步。'
+            defaultValue: '登录后即可使用学习计划与 StudiumX 的全部功能。'
           })}
         </p>
       </div>

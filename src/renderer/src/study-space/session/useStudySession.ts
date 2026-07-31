@@ -2407,13 +2407,6 @@ export function useStudySession({
     }
   }
 
-  const chooseSeat = (seatIndex: number): void => {
-    if (seatIndex === viewModel.userSeat || viewModel.blockedSeatIndexes.has(seatIndex)) return
-    const current = snapshotRef.current
-    commitSnapshot(chooseStudySeatSnapshot(current, seatIndex))
-    emitRoomEvent('checkin', `${current.nickname} 换到 ${formatStudySeatLabel(seatIndex)}。`)
-  }
-
   const runHostAction = (): void => {
     const current = snapshotRef.current
     const action = deriveStudyHostAction(current, viewModel.followingRoomCycle)
@@ -3088,7 +3081,6 @@ export function useStudySession({
     resetRelayUrl,
     toggleTimer,
     followRoomCycle,
-    chooseSeat,
     runHostAction,
     resetTimer,
     startTimerInMode,

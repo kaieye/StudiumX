@@ -103,4 +103,13 @@ describe('AssistantTodoCapture', () => {
       window.removeEventListener(STUDY_TASKS_CHANGED_EVENT, onTasksChanged)
     }
   })
+
+  it('allocates a five-character random room when importing tasks before Study Session starts', () => {
+    const result = importTasks(['整理笔记'])
+    const persisted = JSON.parse(window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY) ?? 'null')
+
+    expect(result.added).toBe(1)
+    expect(persisted.spaceCode).toMatch(/^[A-Z0-9]{5}$/)
+    expect(persisted.spaceCode).not.toBe('00000')
+  })
 })

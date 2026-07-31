@@ -12,6 +12,11 @@ import { resolveDefaultSyncApiBase } from './sync-api-client'
 
 export const SYNC_STORAGE_KEY = 'studiumx.sync'
 
+// Before July 31, 2026, production builds used this development-only URL as
+// their implicit default. Existing profiles persist the resolved URL, so they
+// do not automatically pick up a later default change.
+const LEGACY_LOCAL_SYNC_API_BASE = 'http://localhost:3000'
+
 export type SyncAuthUser = {
   id?: string
   nickname?: string
@@ -52,11 +57,24 @@ function loadState(): SyncState {
     const raw = localStorage.getItem(SYNC_STORAGE_KEY)
     if (!raw) return { ...DEFAULT_STATE }
     const parsed = JSON.parse(raw) as Partial<SyncState>
-    return {
+    const configuredDefault = resolveDefaultSyncApiBase()
+    const storedBaseUrl = typeof parsed.baseUrl === 'string' ? parsed.baseUrl.trim() : ''
+    const migratedLegacyDefault =
+      storedBaseUrl === LEGACY_LOCAL_SYNC_API_BASE &&
+      configuredDefault !== LEGACY_LOCAL_SYNC_API_BASE
+    const next = {
       ...DEFAULT_STATE,
       ...parsed,
-      baseUrl: typeof parsed.baseUrl === 'string' && parsed.baseUrl.trim() ? parsed.baseUrl.trim() : resolveDefaultSyncApiBase()
+      baseUrl: migratedLegacyDefault
+        ? configuredDefault
+        : storedBaseUrl || configuredDefault
     }
+
+    // Persist the one-time migration immediately. Without this, the stale
+    // localhost value would return after a reload and keep the login gate
+    // permanently disconnected from the production API.
+    if (migratedLegacyDefault) persist(next)
+    return next
   } catch {
     return { ...DEFAULT_STATE }
   }

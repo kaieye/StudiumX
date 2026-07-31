@@ -83,7 +83,6 @@ import { isForbiddenTechnicalComposerToken, parseTeachingCommandInput, resolveTe
 import { SettingsView } from './views/settings/SettingsView'
 import { AuthGate } from './sync/AuthGate'
 import { useSyncState } from './sync/sync-store'
-import { useContinueLocal } from './sync/auth-gate-store'
 import {
   activeModelProvider,
   applySettingsSideEffects,
@@ -214,8 +213,7 @@ function App() {
   // Suppress the floating pet until the user is past the auth gate so it
   // never overlays the login/splash screen.
   const syncState = useSyncState()
-  const continueLocal = useContinueLocal()
-  const appAccessible = Boolean(syncState.accessToken) || continueLocal
+  const appAccessible = Boolean(syncState.accessToken)
 
   useEffect(() => {
     applySettingsSideEffects(settings)

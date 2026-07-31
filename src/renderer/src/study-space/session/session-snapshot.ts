@@ -1,7 +1,6 @@
 import {
   STUDY_PRESENCE_BROKER_URL,
   STUDY_PRESENCE_CLIENT_PREFIX,
-  STUDY_PUBLIC_SPACE_CODE,
   STUDY_SPACE_SESSION_CLIENT_KEY,
   STUDY_SPACE_STORAGE_KEY,
   STUDY_TASK_LIMIT,
@@ -87,12 +86,29 @@ export function normalizeStudySignalId(input: unknown): StudySignalId {
   return studySignals.some((signal) => signal.id === input) ? input as StudySignalId : defaultStudySnapshot.signalId
 }
 
+const STUDY_SPACE_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+const STUDY_SPACE_CODE_LENGTH = 5
+
+/** Creates an opaque five-character room code made of uppercase letters and digits. */
+export function randomStudySpaceCode(): string {
+  const bytes = new Uint8Array(STUDY_SPACE_CODE_LENGTH)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256)
+    }
+  }
+  return Array.from(bytes, (byte) => STUDY_SPACE_CODE_ALPHABET[byte % STUDY_SPACE_CODE_ALPHABET.length]).join('')
+}
+
+/**
+ * Room codes are intentionally fixed to five letters/digits. Invalid or legacy
+ * values receive a fresh room instead of sending a user into a shared default.
+ */
 export function normalizeStudySpaceCode(input: unknown): string {
-  if (typeof input !== 'string') return STUDY_PUBLIC_SPACE_CODE
-  let value = input.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 18)
-  // Legacy generators used a "ROOM-" label; keep only the id segment.
-  if (value.startsWith('ROOM-')) value = value.slice(5)
-  return value.length >= 3 ? value : STUDY_PUBLIC_SPACE_CODE
+  const value = typeof input === 'string' ? input.trim().toUpperCase() : ''
+  return /^[A-Z0-9]{5}$/.test(value) ? value : randomStudySpaceCode()
 }
 
 export function normalizeStudyRelayUrl(input: unknown): string {

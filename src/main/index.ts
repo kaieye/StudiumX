@@ -109,10 +109,16 @@ async function applyAppBehavior(
         }
       }
     }
-    app.setLoginItemSettings({
-      openAtLogin: settings.appBehavior.openAtLogin,
-      args: settings.appBehavior.startMinimized ? ['--hidden'] : []
-    })
+    // Electron's development executable is not an installable macOS app and
+    // macOS rejects login-item registration for it. Skipping this dev-only
+    // operation prevents a noisy native error without changing packaged-app
+    // startup behavior.
+    if (!isDev) {
+      app.setLoginItemSettings({
+        openAtLogin: settings.appBehavior.openAtLogin,
+        args: settings.appBehavior.startMinimized ? ['--hidden'] : []
+      })
+    }
   } catch (error) {
     logger.warn(`Failed to set login item: ${errorMessage(error)}`)
   }

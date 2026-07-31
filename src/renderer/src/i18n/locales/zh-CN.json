@@ -1737,11 +1737,10 @@
   "auth": {
     "title": "登录 StudiumX",
     "welcome": "欢迎使用 StudiumX",
-    "loginPrompt": "登录以同步学习计划；也可继续使用本地模式。",
+    "loginPrompt": "请先登录，然后开始使用 StudiumX。",
     "signingIn": "登录中…",
     "signInWithWechat": "微信扫码登录",
-    "continueLocal": "以本地模式继续",
-    "termsHint": "教学资产始终以本地工作区为权威；登录仅用于跨设备同步。",
+    "termsHint": "登录后即可使用学习计划与 StudiumX 的全部功能。",
     "checking": "正在检查登录状态…",
     "login": {
       "opening": "正在打开系统浏览器…"

@@ -11,13 +11,11 @@ type RuntimeHarness = {
   canvas: HTMLCanvasElement
   context: CanvasRenderingContext2D
   frames: FrameQueue
-  onDeskSelectionIntent: ReturnType<typeof vi.fn<(seatIndex: number) => void>>
   runtime: ReturnType<typeof createOfficeSceneRuntime>
 }
 
 function seatState({
   userSeatIndex = 0,
-  blockedSeatIndexes = new Set<number>(),
   occupantsByDeskId = new Map<`desk-${number}`, OfficeSceneSeatOccupant>()
 }: Partial<OfficeSceneSeatState> = {}): OfficeSceneSeatState {
   return {
@@ -25,7 +23,6 @@ function seatState({
     activeRoomName: '深度自习室',
     connectionLabel: '已连接',
     cycleLabel: '专注中 · 25:00',
-    blockedSeatIndexes,
     occupantsByDeskId
   }
 }
@@ -143,15 +140,13 @@ function createHarness({ reducedMotion = false, failedAssets = false } = {}): Ru
 
   const context = createContext()
   vi.spyOn(canvas, 'getContext').mockReturnValue(context)
-  const onDeskSelectionIntent = vi.fn<(seatIndex: number) => void>()
   const runtime = createOfficeSceneRuntime({
     stage,
     canvas,
-    petAppearance: 'boba',
-    onDeskSelectionIntent
+    petAppearance: 'boba'
   })
 
-  return { canvas, context, frames, onDeskSelectionIntent, runtime }
+  return { canvas, context, frames, runtime }
 }
 
 async function settleAssetLoad(): Promise<void> {
@@ -171,59 +166,64 @@ afterEach(() => {
 })
 
 describe('OfficeSceneRuntime', () => {
-  it('does not emit desk-selection intent for blocked or peer-occupied desks', async () => {
+  it('keeps desk clicks and keyboard events inert because seats are system assigned', async () => {
     const harness = createHarness()
     harness.runtime.mount()
     harness.runtime.update(seatState({
-      blockedSeatIndexes: new Set([0]),
       occupantsByDeskId: new Map([
-        ['desk-2', { kind: 'peer', name: '林同学', status: 'running', timerMode: 'focus' }]
+        ['desk-2', { kind: 'peer', name: '林同学', status: 'running', timerMode: 'focus', todayFocusSeconds: 1_500 }]
       ])
     }))
     await settleAssetLoad()
 
+    const keyEvent = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'ArrowRight' })
     harness.canvas.dispatchEvent(new MouseEvent('click', { clientX: 200, clientY: 140 }))
-    harness.canvas.dispatchEvent(new MouseEvent('click', { clientX: 456, clientY: 140 }))
-    expect(harness.onDeskSelectionIntent).not.toHaveBeenCalled()
+    harness.canvas.dispatchEvent(keyEvent)
 
+    expect(keyEvent.defaultPrevented).toBe(false)
+    expect(harness.canvas.style.cursor).not.toBe('pointer')
     harness.runtime.dispose()
   })
 
-  it('projects keyboard navigation to the next selectable desk and emits one intent', () => {
+  it('draws each occupant today-focus duration above the seat in hours', async () => {
     const harness = createHarness()
     harness.runtime.mount()
     harness.runtime.update(seatState({
-      blockedSeatIndexes: new Set([1]),
       occupantsByDeskId: new Map([
-        ['desk-3', { kind: 'peer', name: '周同学', status: 'paused', timerMode: 'focus' }]
+        ['desk-1', { kind: 'self', name: '我', status: 'running', timerMode: 'focus', todayFocusSeconds: 1_500 }]
       ])
     }))
+    await settleAssetLoad()
+    renderNextFrame(harness, 480)
 
-    const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'ArrowRight' })
-    harness.canvas.dispatchEvent(event)
-
-    expect(event.defaultPrevented).toBe(true)
-    expect(harness.onDeskSelectionIntent).toHaveBeenCalledOnce()
-    expect(harness.onDeskSelectionIntent).toHaveBeenCalledWith(3)
+    expect(vi.mocked(harness.context.fillText)).toHaveBeenCalledWith('今日 0.4h', expect.any(Number), expect.any(Number))
     harness.runtime.dispose()
   })
 
-  it('keeps inactive desks inert and removes listener and frame work on dispose', async () => {
+  it('does not draw a rectangular highlight around the current user desk', async () => {
     const harness = createHarness()
     harness.runtime.mount()
-    harness.runtime.update(seatState({ blockedSeatIndexes: new Set(Array.from({ length: 12 }, (_, index) => index)) }))
+    harness.runtime.update(seatState({
+      occupantsByDeskId: new Map([
+        ['desk-1', { kind: 'self', name: '我', status: 'running', timerMode: 'focus', todayFocusSeconds: 1_500 }]
+      ])
+    }))
+    await settleAssetLoad()
+    renderNextFrame(harness, 480)
+
+    expect(vi.mocked(harness.context.stroke)).not.toHaveBeenCalled()
+    harness.runtime.dispose()
+  })
+
+  it('removes pending frame work on dispose without canvas interaction listeners', async () => {
+    const harness = createHarness()
+    harness.runtime.mount()
     await settleAssetLoad()
 
-    const inactiveKey = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Home' })
-    harness.canvas.dispatchEvent(inactiveKey)
-    expect(inactiveKey.defaultPrevented).toBe(false)
-    expect(harness.onDeskSelectionIntent).not.toHaveBeenCalled()
     expect(harness.frames).toHaveLength(1)
-
     harness.runtime.dispose()
     harness.canvas.dispatchEvent(new MouseEvent('click', { clientX: 200, clientY: 140 }))
 
-    expect(harness.onDeskSelectionIntent).not.toHaveBeenCalled()
     expect(harness.frames).toHaveLength(0)
     expect(cancelAnimationFrame).toHaveBeenCalledOnce()
   })
@@ -262,7 +262,7 @@ describe('OfficeSceneRuntime', () => {
     harness.runtime.mount()
     harness.runtime.update(seatState({
       occupantsByDeskId: new Map([
-        ['desk-1', { kind: 'self', name: '我', status: 'running', timerMode: 'focus' }]
+        ['desk-1', { kind: 'self', name: '我', status: 'running', timerMode: 'focus', todayFocusSeconds: 0 }]
       ])
     }))
     await settleAssetLoad()
@@ -278,7 +278,7 @@ describe('OfficeSceneRuntime', () => {
     harness.runtime.mount()
     harness.runtime.update(seatState({
       occupantsByDeskId: new Map([
-        ['desk-1', { kind: 'self', name: '我', status: 'running', timerMode: 'focus' }]
+        ['desk-1', { kind: 'self', name: '我', status: 'running', timerMode: 'focus', todayFocusSeconds: 0 }]
       ])
     }))
     await settleAssetLoad()

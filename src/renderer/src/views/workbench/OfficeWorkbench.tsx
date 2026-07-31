@@ -300,7 +300,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     selectTask,
     joinSpace,
     enterRandomSpace,
-    chooseSeat,
     toggleTimer,
     resetTimer,
     startTimerInMode,
@@ -346,8 +345,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   })
 
   // STC sync: join a server-backed study room so phone + desktop share one
-  // leaderboard. The hook is inert until a sync access token exists, and only
-  // ever ADDS server members on top of the local relay peers.
+  // leaderboard. It only adds server members on top of local relay peers.
   const syncState = useSyncState()
   const studyRoomPresence = useStudyRoomPresence({
     roomId: snapshot.spaceCode,
@@ -402,7 +400,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<OfficeSceneRuntime | null>(null)
-  const chooseSeatRef = useRef(chooseSeat)
   const analyticsButtonRef = useRef<HTMLButtonElement | null>(null)
   const immersiveToggleRef = useRef<HTMLButtonElement | null>(null)
   const fullscreenButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -467,7 +464,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       kind: 'self',
       name: snapshot.nickname,
       status: snapshot.timerState,
-      timerMode: snapshot.timerMode
+      timerMode: snapshot.timerMode,
+      todayFocusSeconds: snapshot.todayFocusSeconds
     })
   }
   viewModel.peersBySeat.forEach((peer, seatIndex) => {
@@ -478,7 +476,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
       kind: 'peer',
       name: peer.nickname,
       status: peer.status,
-      timerMode: peer.timerMode
+      timerMode: peer.timerMode,
+      todayFocusSeconds: peer.todayFocusSeconds
     })
   })
   const seatState: OfficeSceneSeatState = {
@@ -486,10 +485,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     activeRoomName: viewModel.activeRoom.name,
     connectionLabel: viewModel.connectionLabel,
     cycleLabel: `${viewModel.roomCycle.phase === 'focus' ? '专注中' : '休息中'} · ${formatStudyDuration(viewModel.roomCycle.remainingSeconds)}`,
-    blockedSeatIndexes: viewModel.blockedSeatIndexes,
     occupantsByDeskId
   }
-  chooseSeatRef.current = chooseSeat
 
   routeRef.current = route
 
@@ -582,8 +579,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     const runtime = createOfficeSceneRuntime({
       stage,
       canvas,
-      petAppearance,
-      onDeskSelectionIntent: (seatIndex) => chooseSeatRef.current(seatIndex)
+      petAppearance
     })
     runtimeRef.current = runtime
     runtime.mount()
@@ -897,9 +893,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
         <canvas
           ref={canvasRef}
           className="office-workbench-canvas"
-          aria-label="StudiumX 自习室：当前在座位 1，使用方向键切换座位"
+          aria-label="StudiumX 自习室：系统已自动分配座位"
           aria-live="polite"
-          tabIndex={0}
         />
         <WorkbenchLeaderboard
           members={leaderboardMembers}

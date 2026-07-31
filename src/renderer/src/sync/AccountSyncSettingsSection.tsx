@@ -30,7 +30,6 @@ import {
   useSyncState,
   type SyncAuthUser
 } from './sync-store'
-import { clearContinueLocal } from './auth-gate-store'
 import {
   createStudyPlanningSyncBridge,
   readLocalStudyPlanningSnapshot
@@ -89,7 +88,6 @@ export function AccountSyncSettingsSection() {
   const handleLogout = useCallback(async () => {
     if (!syncState.refreshToken) {
       clearSyncAuth()
-      clearContinueLocal()
       setMessage(t('account.logout.cleared', { defaultValue: '已清除本地登录' }))
       return
     }
@@ -98,13 +96,9 @@ export function AccountSyncSettingsSection() {
     try {
       await apiClient.logout(syncState.refreshToken)
       clearSyncAuth()
-      // Clearing continue-local returns the user to the login screen
-      // (mirrors Livo's logout -> AuthLoginPage behaviour).
-      clearContinueLocal()
       setMessage(t('account.logout.done', { defaultValue: '已退出登录' }))
     } catch (err) {
       clearSyncAuth()
-      clearContinueLocal()
       setMessage(
         `${t('account.logout.error', { defaultValue: '退出登录出错（已清除本地）' })}：${err instanceof Error ? err.message : String(err)}`,
       )

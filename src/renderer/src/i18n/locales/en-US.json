@@ -1737,11 +1737,10 @@
   "auth": {
     "title": "Sign in to StudiumX",
     "welcome": "Welcome to StudiumX",
-    "loginPrompt": "Sign in to sync your study plans, or continue in local mode.",
+    "loginPrompt": "Sign in before using StudiumX.",
     "signingIn": "Signing in…",
     "signInWithWechat": "Sign in with WeChat",
-    "continueLocal": "Continue in local mode",
-    "termsHint": "Teaching assets always stay authoritative in your local workspace; sign-in is only for cross-device sync.",
+    "termsHint": "Sign in to use study plans and all StudiumX features.",
     "checking": "Checking sign-in status…",
     "login": {
       "opening": "Opening your browser…"

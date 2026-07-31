@@ -1,4 +1,4 @@
-import { STUDY_PRESENCE_PEER_TTL_MS, STUDY_PUBLIC_SPACE_CODE, studyModes, studyRooms, studySignals } from './constants'
+import { STUDY_PRESENCE_PEER_TTL_MS, studyModes, studyRooms, studySignals } from './constants'
 import {
   formatStudyDuration,
   formatStudyEventTime,
@@ -359,11 +359,9 @@ export function createStudySpaceViewModel(
     : presence.status === 'online'
       ? '打开一个独立同桌窗口会使用新的 session 身份，连接成功后当前在线人数才会增加。'
       : '连接成功前会保留当前席位；你可以复制邀请或等待同步服务恢复。'
-  const inviteHint = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE
-    ? '公共大厅不用邀请码；新建空间后可只邀请自己的同学进入。'
-    : `把空间码 ${snapshot.spaceCode} 发给同学，对方输入后会进入同一个在线自习室。`
-  const spaceKindLabel = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公共大厅' : '私密空间'
-  const spaceOverviewKindLabel = snapshot.spaceCode === STUDY_PUBLIC_SPACE_CODE ? '公开大厅' : '私密空间'
+  const inviteHint = `把五位房间码 ${snapshot.spaceCode} 发给同学，对方输入后会进入同一个在线自习室。`
+  const spaceKindLabel = '随机自习室'
+  const spaceOverviewKindLabel = '随机自习室'
   const stageStatusLabel = timerStateStageLabel(snapshot.timerState, snapshot.timerMode)
   const contractDisplay = snapshot.contractText.trim() || snapshot.tasks.find((task) => !task.done)?.title || activeMode.name
   const hostActionKind: StudyHostActionKind = snapshot.timerState === 'running'
@@ -397,7 +395,7 @@ export function createStudySpaceViewModel(
       ? `${snapshot.nickname} 正在进行 ${snapshot.focusMinutes} 分钟专注轮次：${contractDisplay}。`
       : `${snapshot.nickname} 已入座，等待开始下一轮。`,
     `学习状态分布：${signalMixSummary}。`,
-    `你的座位是 ${formatStudySeatLabel(userSeat)}；点击空座可换到更合适的位置。`,
+    `你的座位是 ${formatStudySeatLabel(userSeat)}；系统会在座位冲突时自动安排空位。`,
     `第 ${roomCycle.round} 轮正在${roomCycle.phase === 'focus' ? '专注' : '休息'}，${formatStudyDuration(roomCycle.remainingSeconds)} 后切换到${roomCycle.nextLabel}。`,
     completedTasks > 0 ? `今日已完成 ${completedTasks} 个学习任务。` : '先写下本轮目标，再开始番茄钟。',
     presence.status === 'online'

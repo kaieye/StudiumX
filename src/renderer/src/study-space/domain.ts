@@ -43,6 +43,7 @@ export {
   randomStudyClientId,
   readStudySessionClientId,
   readStudySnapshot,
+  randomStudySpaceCode,
   studyRoomSeatCount,
   syncStudyLocation
 } from './session/session-snapshot'
@@ -204,17 +205,6 @@ export function studyRelayCandidates(primaryRelayUrl: string): string[] {
 
 export function displayStudyRelayUrl(relayUrl: string): string {
   return relayUrl.replace(/^wss?:\/\//, '')
-}
-
-export function randomStudySpaceCode(): string {
-  const bytes = new Uint8Array(4)
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-    crypto.getRandomValues(bytes)
-  } else {
-    bytes.forEach((_, index) => { bytes[index] = Math.floor(Math.random() * 256) })
-  }
-  // Short opaque room id only — no "ROOM-" label in product copy or UI.
-  return Array.from(bytes).map((byte) => byte.toString(36).padStart(2, '0').toUpperCase()).join('')
 }
 
 export function studyPresenceTopic(spaceCode: string): string {

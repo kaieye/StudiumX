@@ -1,7 +1,4 @@
-import {
-  STUDY_SPACE_STORAGE_KEY,
-  defaultStudySnapshot
-} from './constants'
+import { STUDY_SPACE_STORAGE_KEY } from './constants'
 import {
   normalizeStudySnapshot,
   persistStudySnapshot
@@ -73,10 +70,12 @@ function parseTodoPayload(payload: string): string[] {
 function readBrowserStudySnapshot(): StudySnapshot {
   try {
     const serialized = window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY)
-    const parsed = serialized ? JSON.parse(serialized) : defaultStudySnapshot
+    // Use an absent payload for cold starts so the snapshot normalizer allocates
+    // a fresh random room code instead of inheriting a static default placeholder.
+    const parsed = serialized ? JSON.parse(serialized) : null
     return normalizeStudySnapshot(parsed)
   } catch {
-    return normalizeStudySnapshot(defaultStudySnapshot)
+    return normalizeStudySnapshot(null)
   }
 }
 

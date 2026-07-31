@@ -13,13 +13,13 @@ export const STUDY_PRESENCE_PEER_TTL_MS = 35_000
 export const STUDY_PRESENCE_HEARTBEAT_MS = 10_000
 export const STUDY_PRESENCE_CONNECT_TIMEOUT_MS = 6500
 export const STUDY_PRESENCE_CLIENT_PREFIX = 'studiumx'
-export const STUDY_PUBLIC_SPACE_CODE = 'PUBLIC'
 export const STUDY_TASK_LIMIT = 48
 
 export const defaultStudySnapshot: StudySnapshot = {
   clientId: '',
   nickname: '',
-  spaceCode: STUDY_PUBLIC_SPACE_CODE,
+  // This placeholder is normalized to a newly generated room code on first launch.
+  spaceCode: '00000',
   presenceRelayUrl: STUDY_PRESENCE_BROKER_URL,
   signalId: 'reading',
   modeId: 'free',

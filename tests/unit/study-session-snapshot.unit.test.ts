@@ -7,6 +7,7 @@ import {
 import {
   applyStudyInviteParams,
   normalizeStudySnapshot,
+  normalizeStudySpaceCode,
   normalizeStudyTimerPlans,
   readStudySnapshot,
   syncStudyLocation
@@ -29,7 +30,7 @@ describe('durable Study Session snapshot', () => {
     const persisted = JSON.parse(window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY) ?? 'null')
 
     expect(snapshot.clientId).toBe('studiumx-stable-tab')
-    expect(snapshot.spaceCode).toBe(defaultStudySnapshot.spaceCode)
+    expect(snapshot.spaceCode).toMatch(/^[A-Z0-9]{5}$/)
     expect(snapshot.tasks).toEqual(defaultStudySnapshot.tasks)
     expect(persisted).toEqual(snapshot)
   })
@@ -38,7 +39,7 @@ describe('durable Study Session snapshot', () => {
     window.history.replaceState(
       null,
       '',
-      '/?studySpace=canonical-room&space=legacy-room&studyRoom=deep&room=exam'
+      '/?studySpace=AB12C&space=ZZZZZ&studyRoom=deep&room=exam'
     )
 
     const invited = applyStudyInviteParams({
@@ -52,7 +53,7 @@ describe('durable Study Session snapshot', () => {
     })
 
     expect(invited).toMatchObject({
-      spaceCode: 'CANONICAL-ROOM',
+      spaceCode: 'AB12C',
       roomId: 'deep',
       focusMinutes: 90,
       breakMinutes: 15,
@@ -78,13 +79,19 @@ describe('durable Study Session snapshot', () => {
     expect(JSON.parse(window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY) ?? 'null').clientId).toBe(first.clientId)
   })
 
+  it('accepts only five-character room codes and replaces invalid values with a generated code', () => {
+    expect(normalizeStudySpaceCode('AB12C')).toBe('AB12C')
+    expect(normalizeStudySpaceCode('PUBLIC')).toMatch(/^[A-Z0-9]{5}$/)
+    expect(normalizeStudySpaceCode('room-123')).toMatch(/^[A-Z0-9]{5}$/)
+  })
+
   it('synchronizes a canonical invite URL while preserving unrelated query and hash state', () => {
     window.history.replaceState(null, '', '/study?space=old&room=deep&studyFreshSession=1&source=share#focus')
 
-    syncStudyLocation('team room', 'exam')
+    syncStudyLocation('AB12C', 'exam')
 
     expect(`${window.location.pathname}${window.location.search}${window.location.hash}`).toBe(
-      '/study?source=share&studySpace=TEAMROOM&studyRoom=exam#focus'
+      '/study?source=share&studySpace=AB12C&studyRoom=exam#focus'
     )
   })
 })
