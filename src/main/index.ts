@@ -20,6 +20,7 @@ import { PREVIEW_PROTOCOL } from '../shared/preview-markdown-bridge'
 import type { TeachingSettingsV1 } from '../shared/teaching-types'
 import { createCrashMarkerStore, installLocalCrashMarkerHooks } from './observability'
 import { installSystemPowerBridge } from './system-power-bridge'
+import { startAppUpdateCheck } from './app-updater'
 import {
   createWebRemoteControlManager,
   type WebRemoteControlManager
@@ -431,6 +432,9 @@ if (!hasSingleInstanceLock) {
     })
 
     await runtime.start()
+
+    // Packaged builds check the GitHub Release feed without delaying startup.
+    startAppUpdateCheck()
 
     // ADR-0129 §4: OS suspend/resume fan-out only (no main-side TimerSession pin).
     installSystemPowerBridge()

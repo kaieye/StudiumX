@@ -38,7 +38,7 @@ export function LoginScreen() {
   const handleWechatLogin = useCallback(async () => {
     setBusy(true)
     setError(null)
-    setProgress(t('auth.login.opening', { defaultValue: '正在打开登录窗口…' }))
+    setProgress(t('auth.login.opening', { defaultValue: '正在打开系统浏览器…' }))
     const controller = new AbortController()
     abortRef.current = controller
 

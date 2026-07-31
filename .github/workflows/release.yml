@@ -1,0 +1,109 @@
+name: Release desktop installers
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }} installer
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A single macOS updater manifest must match its architecture. The
+          # Apple Silicon build is the supported macOS release artifact.
+          - name: macOS (Apple Silicon)
+            os: macos-14
+            artifact: macos-arm64
+            args: --mac --arm64
+          - name: Windows
+            os: windows-2022
+            artifact: windows-x64
+            args: --win --x64
+          - name: Linux
+            os: ubuntu-22.04
+            artifact: linux-x64
+            args: --linux --x64
+    runs-on: ${{ matrix.os }}
+    env:
+      # These are empty for ordinary unsigned builds. Configure the secrets
+      # before publishing macOS builds outside the team; electron-builder
+      # consumes them directly when code signing/notarization is enabled.
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag matches package version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node -e 'const version = require("./package.json").version; if (process.env.TAG !== "v" + version) throw new Error(`Tag ${process.env.TAG} must match package version v${version}`)'
+
+      - name: Build installer and update manifest
+        run: pnpm run dist -- ${{ matrix.args }} --publish never
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          # builder-debug.yml is intentionally omitted: every matrix job
+          # creates one with the same file name, while a GitHub Release may
+          # contain each asset name only once.
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/latest*.yml
+            release/*.blockmap
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" release-assets/**/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "StudiumX ${TAG#v}" \
+            --generate-notes

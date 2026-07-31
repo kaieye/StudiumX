@@ -1744,7 +1744,7 @@
     "termsHint": "Teaching assets always stay authoritative in your local workspace; sign-in is only for cross-device sync.",
     "checking": "Checking sign-in status…",
     "login": {
-      "opening": "Opening login window…"
+      "opening": "Opening your browser…"
     }
   },
   "account": {

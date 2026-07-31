@@ -157,6 +157,7 @@
     "@lezer/highlight": "^1.2.3",
     "@modelcontextprotocol/sdk": "1.29.0",
     "better-sqlite3": "12.11.1",
+    "electron-updater": "^6.8.9",
     "i18next": "^26.3.3",
     "katex": "^0.17.0",
     "lucide-react": "^1.21.0",
@@ -210,6 +211,7 @@
   "build": {
     "appId": "com.local.studiumx",
     "productName": "StudiumX",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
@@ -249,14 +251,37 @@
     ],
     "npmRebuild": false,
     "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build/icon.icns"
     },
     "win": {
+      "target": [
+        "nsis"
+      ],
       "icon": "build/icon.png"
     },
     "linux": {
+      "target": [
+        "AppImage"
+      ],
       "icon": "build/icon.png"
-    }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kaieye",
+        "repo": "StudiumX"
+      }
+    ]
   },
   "engines": {
     "node": ">=22 <25"
