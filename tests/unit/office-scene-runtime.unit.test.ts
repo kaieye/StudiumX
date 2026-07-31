@@ -197,6 +197,7 @@ describe('OfficeSceneRuntime', () => {
     renderNextFrame(harness, 480)
 
     expect(vi.mocked(harness.context.fillText)).toHaveBeenCalledWith('今日 0.4h', expect.any(Number), expect.any(Number))
+    expect(vi.mocked(harness.context.fillText)).not.toHaveBeenCalledWith('我 · 专注中', expect.any(Number), expect.any(Number))
     harness.runtime.dispose()
   })
 

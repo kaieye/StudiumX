@@ -1,5 +1,5 @@
 import type { PetAppearanceId } from '../../../../shared/teaching-types'
-import { formatStudyHours, studyMemberStatusLabel } from '../../study-space/domain'
+import { formatStudyHours } from '../../study-space/domain'
 import type { StudyTimerMode, StudyTimerState } from '../../study-space/types'
 import {
   getPetSpriteFrameIndex,
@@ -228,21 +228,14 @@ function drawDeskBadge(
     ctx.stroke()
   }
 
-  const statusLabel = occupant
-    ? `${occupant.kind === 'self' ? '我' : occupant.name.slice(0, 6)} · ${studyMemberStatusLabel(occupant.status, occupant.timerMode)}`
-    : slot.label
   const focusLabel = occupant ? `今日 ${formatStudyHours(occupant.todayFocusSeconds)}h` : '系统分配座位'
   ctx.font = '600 13px system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  const badgeWidth = Math.max(
-    88,
-    ctx.measureText(statusLabel).width + 20,
-    ctx.measureText(focusLabel).width + 20
-  )
-  const badgeHeight = 42
+  const badgeWidth = Math.max(88, ctx.measureText(focusLabel).width + 20)
+  const badgeHeight = 28
   const badgeX = x + width / 2 - badgeWidth / 2
-  const badgeY = y - 28
+  const badgeY = y - 20
   roundedRect(ctx, badgeX, badgeY, badgeWidth, badgeHeight, 13)
   ctx.fillStyle = isSelected
     ? 'rgba(210, 155, 35, 0.95)'
@@ -251,9 +244,7 @@ function drawDeskBadge(
       : 'rgba(255, 255, 255, 0.95)'
   ctx.fill()
   ctx.fillStyle = occupant ? '#ffffff' : '#3454a8'
-  ctx.fillText(statusLabel, x + width / 2, badgeY + 13)
-  ctx.font = '600 11px system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
-  ctx.fillText(focusLabel, x + width / 2, badgeY + 29)
+  ctx.fillText(focusLabel, x + width / 2, badgeY + badgeHeight / 2)
   ctx.restore()
 }
 
