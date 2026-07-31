@@ -133,6 +133,13 @@ export type SyncStudyRoomHeartbeatBody = {
   focusSecondsToday?: number
 }
 
+export type SyncStudyRoomAssignAndJoinBody = Omit<SyncStudyRoomJoinBody, 'roomId'> & {
+  /** Client-generated room code used only if no live room has a free seat. */
+  fallbackRoomId: string
+  /** Set for an explicit random room switch so the server may retain it when appropriate. */
+  currentRoomId?: string
+}
+
 export type SyncApiClientOptions = {
   baseUrl?: string
   getAccessToken?: () => string | null
@@ -162,6 +169,7 @@ export type SyncApiClient = {
   studyRoomLeave(roomId: string): Promise<{ left: boolean }>
   studyRoomMembers(roomId: string): Promise<SyncStudyRoomMembersResponse>
   studyRoomAssignment(): Promise<{ roomId: string | null }>
+  studyRoomAssignAndJoin(body: SyncStudyRoomAssignAndJoinBody): Promise<{ joined: boolean; roomId: string }>
 }
 
 export class SyncApiError extends Error {
@@ -336,6 +344,11 @@ export function createSyncApiClient(options: SyncApiClientOptions = {}): SyncApi
     },
     async studyRoomAssignment() {
       return asType<{ roomId: string | null }>(await authed('GET', '/sync/study-room/assignment'))
+    },
+    async studyRoomAssignAndJoin(body) {
+      return asType<{ joined: boolean; roomId: string }>(
+        await authed('POST', '/sync/study-room/assign-and-join', body)
+      )
     }
   }
 }

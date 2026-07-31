@@ -174,12 +174,6 @@
   background: color-mix(in srgb, var(--red) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--red) 28%, transparent);
 }
-.auth-screen-alert--info {
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
-}
-
 .auth-screen-footer {
   margin: var(--space-xl) 0 0;
   padding-top: var(--space-lg);
@@ -269,4 +263,66 @@
 
 .account-card-action {
   flex: 0 0 auto;
+}
+
+/* ---- In-card WeChat QR login ---- */
+
+.auth-screen-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+}
+
+.auth-screen-qr-image {
+  display: block;
+  width: 176px;
+  height: 176px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fff;
+  image-rendering: pixelated;
+}
+
+.auth-screen-qr-hint {
+  max-width: 270px;
+  margin: 0;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* Keep the in-card QR state and the initial login state the same size. */
+.auth-screen-card {
+  min-height: 430px;
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-screen-login-stage {
+  display: flex;
+  flex: 0 0 248px;
+  align-items: center;
+  justify-content: center;
+  height: 248px;
+}
+
+.auth-screen-app-icon {
+  display: block;
+  width: 84px;
+  height: 84px;
+  border-radius: 22px;
+  object-fit: cover;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.auth-screen-actions--inline {
+  flex-direction: row;
+}
+
+.auth-screen-actions--inline .auth-screen-button {
+  flex: 1 1 0;
 }

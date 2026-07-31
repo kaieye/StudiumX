@@ -16,6 +16,7 @@ import {
   mapProductAgentChatInvokerPayload
 } from './ai/product-agent-chat-invoker'
 import { openExternalHttpUrl } from './external-links'
+import { checkForAppUpdates } from './app-updater'
 import type { Logger } from './logger'
 import { isPathInsideConfiguredRoot, isRealPathInsideRoot } from './path-access'
 import { fetchUpstreamModels, probeModelProvider } from './provider-connection'
@@ -289,6 +290,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         return { canceled: false as const, fileName: basename(result.filePath), bytesWritten: Buffer.byteLength(prepared.content, 'utf8'), manifest: prepared.manifest }
       }, reply: identityReply, streamCleanup: noStreamCleanup
     }),
+    command({ channel: teachingInvokeChannels.checkForAppUpdates, parser: () => undefined, action: () => checkForAppUpdates(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.getSettings, parser: () => undefined, action: () => settings.load(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.listInterruptedAgentRuns, parser: () => undefined, action: () => service.listInterruptedAgentRuns(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({

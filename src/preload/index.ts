@@ -39,6 +39,7 @@ const api: TeachingSystemApi = {
   getLearningAnalytics: (request) => ipcRenderer.invoke(teachingInvokeChannels.getLearningAnalytics, request),
   exportLearningAnalytics: (request) => ipcRenderer.invoke(teachingInvokeChannels.exportLearningAnalytics, request),
   clearLearningAnalytics: (request) => ipcRenderer.invoke(teachingInvokeChannels.clearLearningAnalytics, request),
+  checkForAppUpdates: () => ipcRenderer.invoke(teachingInvokeChannels.checkForAppUpdates),
   getSettings: () => ipcRenderer.invoke(teachingInvokeChannels.getSettings),
   updateSettings: (patch) => ipcRenderer.invoke(teachingInvokeChannels.updateSettings, patch),
   selectWorkspace: (workspaceId) => ipcRenderer.invoke(teachingInvokeChannels.selectWorkspace, workspaceId),

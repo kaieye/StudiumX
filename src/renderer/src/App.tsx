@@ -298,6 +298,25 @@ function Sidebar() {
   const renameAgentConversation = useAppStore((s) => s.renameAgentConversation)
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
   const removeWorkspace = useAppStore((s) => s.removeWorkspace)
+  const syncState = useSyncState()
+  const [checkingForUpdates, setCheckingForUpdates] = useState(false)
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false)
+  const displayName = syncState.user?.nickname?.trim() || syncState.user?.id?.trim() || t('sidebar.localUser')
+  const avatarInitial = Array.from(displayName)[0]?.toLocaleUpperCase() ?? 'S'
+
+  useEffect(() => {
+    setAvatarLoadFailed(false)
+  }, [syncState.user?.avatarUrl])
+
+  const handleCheckForUpdates = useCallback(async () => {
+    if (checkingForUpdates) return
+    setCheckingForUpdates(true)
+    try {
+      await window.teachingSystem.checkForAppUpdates()
+    } finally {
+      setCheckingForUpdates(false)
+    }
+  }, [checkingForUpdates])
 
   return (
     <aside className={`sidebar${sidebarCollapsed ? ' is-collapsed' : ''}`} aria-label={t('sidebar.aria')}>
@@ -361,6 +380,22 @@ function Sidebar() {
       </div>
 
       <div className="sidebar-footer">
+        <button
+          className="sidebar-user"
+          type="button"
+          title={t('sidebar.account')}
+          aria-label={t('sidebar.account')}
+          onClick={() => openSettings('account')}
+        >
+          <span className="sidebar-user-avatar" aria-hidden="true">
+            {syncState.user?.avatarUrl && !avatarLoadFailed ? (
+              <img src={syncState.user.avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setAvatarLoadFailed(true)} />
+            ) : (
+              avatarInitial
+            )}
+          </span>
+          <span className="sidebar-user-name collapsible-label">{displayName}</span>
+        </button>
         <WorkspaceWebRemoteControlTrigger
           compact
           workspacePath={active?.rootPath}
@@ -369,6 +404,17 @@ function Sidebar() {
         />
         <button className="icon-button" type="button" aria-label={t('sidebar.settings')} onClick={() => openSettings('model')} title={t('sidebar.settings')}>
           <Settings size={16} />
+        </button>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label={t(checkingForUpdates ? 'sidebar.checkingForUpdates' : 'sidebar.checkForUpdates')}
+          title={t(checkingForUpdates ? 'sidebar.checkingForUpdates' : 'sidebar.checkForUpdates')}
+          aria-busy={checkingForUpdates}
+          disabled={checkingForUpdates}
+          onClick={() => void handleCheckForUpdates()}
+        >
+          <RefreshCw className={checkingForUpdates ? 'is-spinning' : undefined} size={16} />
         </button>
       </div>
     </aside>

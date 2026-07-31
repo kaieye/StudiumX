@@ -152,6 +152,8 @@ export type TeachingSystemApi = {
   getLearningAnalytics: (request: LearningAnalyticsRequest) => Promise<LearningAnalyticsBundle>
   exportLearningAnalytics: (request: AnalyticsExportRequest) => Promise<AnalyticsExportResult>
   clearLearningAnalytics: (request: ClearAnalyticsRequest) => Promise<ClearAnalyticsResult>
+  /** Explicit user-initiated desktop release check; a no-op in development. */
+  checkForAppUpdates: () => Promise<void>
   getSettings: () => Promise<TeachingSettingsV1>
   updateSettings: (patch: TeachingSettingsPatch) => Promise<TeachingSettingsV1>
   selectWorkspace: (workspaceId: string) => Promise<TeachingAppState>

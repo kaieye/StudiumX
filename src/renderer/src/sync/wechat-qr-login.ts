@@ -1,15 +1,10 @@
 /**
- * WeChat扫码登录编排 (desktop challenge/poll flow).
+ * WeChat 扫码登录编排（desktop challenge / polling flow）。
  *
- * Mirrors the Livo reference flow but stays renderer-side to reuse the
- * existing StudiumX sync-store + sync-api-client:
- *   1. GET /auth/wechat/login-url?client=desktop  -> { url, loginId, state }
- *   2. 通过受控 preload IPC 在系统浏览器中打开 URL，用户扫码
- *   3. 轮询 GET /auth/desktop/poll?loginId= 直到 completed / expired
- *   4. completed 时返回 { accessToken, refreshToken, user }
- *
- * 服务器作为微信回调目标，完成 challenge 后桌面端通过轮询拿到令牌，
- * 这与 Livo (Redis challenge) 的语义一致，但 StudiumX-Server 无需 Redis。
+ * The server issues a short-lived WeChat login URL and a loginId. The UI may
+ * render that URL as an in-app QR code, while this module owns the common
+ * challenge and polling protocol. The account settings flow retains its
+ * system-browser fallback for callers that do not have room to render a QR.
  */
 
 import type { SyncApiClient, SyncPollResponse } from './sync-api-client'
@@ -18,45 +13,45 @@ export type WechatQrLoginResult =
   | { ok: true; accessToken: string; refreshToken: string; user?: unknown }
   | { ok: false; error: string }
 
+export type WechatQrLoginChallenge = {
+  url: string
+  loginId: string
+}
+
+export type WechatQrLoginChallengeResult =
+  | { ok: true; challenge: WechatQrLoginChallenge }
+  | { ok: false; error: string }
+
 export type WechatLoginUrlOpener = (url: string) => Promise<{ ok: boolean; message?: string }>
 
 const POLL_INTERVAL_MS = 1000
 const POLL_MAX_ATTEMPTS = 300 // 5 分钟，与服务端 challenge TTL 对齐
 
-/**
- * 执行一次完整的微信扫码登录。
- *
- * @param client 已配置 baseUrl 的 sync api client
- * @param onProgress 可选的进度回调 (用于 UI 显示 "等待扫码...")
- * @param signal 可选的 AbortSignal，取消时中止轮询
- * @param openLoginUrl 可替换的 URL opener；默认经 preload IPC 在系统浏览器打开
- */
-export async function loginWithWechatQr(
+/** Fetch the one-time WeChat URL that is encoded into the QR code. */
+export async function requestWechatQrLoginChallenge(
   client: SyncApiClient,
-  onProgress?: (status: string) => void,
-  signal?: AbortSignal,
-  openLoginUrl: WechatLoginUrlOpener = (url) => window.teachingSystem.openExternal(url),
-): Promise<WechatQrLoginResult> {
-  let loginUrlRes
+): Promise<WechatQrLoginChallengeResult> {
   try {
-    loginUrlRes = await client.getWechatLoginUrl()
+    const response = await client.getWechatLoginUrl()
+    return {
+      ok: true,
+      challenge: {
+        url: response.url,
+        loginId: response.loginId,
+      },
+    }
   } catch (err) {
     return { ok: false, error: `获取登录链接失败：${err instanceof Error ? err.message : String(err)}` }
   }
+}
 
-  // 主窗口的 window.open 会被 Electron 的安全策略拒绝并转交系统浏览器，
-  // 因而不能依赖 WindowProxy / popup.closed。显式走 preload IPC，打开后仅轮询服务端。
-  try {
-    const opened = await openLoginUrl(loginUrlRes.url)
-    if (!opened.ok) {
-      return { ok: false, error: `无法打开系统浏览器${opened.message ? `：${opened.message}` : ''}` }
-    }
-  } catch (err) {
-    return { ok: false, error: `无法打开系统浏览器：${err instanceof Error ? err.message : String(err)}` }
-  }
-
-  const { loginId } = loginUrlRes
-
+/** Poll a previously issued challenge until the mobile authorization finishes. */
+export async function pollWechatQrLogin(
+  client: SyncApiClient,
+  loginId: string,
+  onProgress?: (status: string) => void,
+  signal?: AbortSignal,
+): Promise<WechatQrLoginResult> {
   for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) {
       return { ok: false, error: '登录已取消' }
@@ -64,8 +59,8 @@ export async function loginWithWechatQr(
     let result: SyncPollResponse
     try {
       result = await client.pollLoginStatus(loginId)
-    } catch (err) {
-      // 网络错误时继续重试，不立即失败
+    } catch {
+      // 网络错误时继续重试，不立即失败。
       onProgress?.(`等待网络… (${attempt + 1}/${POLL_MAX_ATTEMPTS})`)
       await delay(POLL_INTERVAL_MS, signal)
       continue
@@ -87,6 +82,32 @@ export async function loginWithWechatQr(
     await delay(POLL_INTERVAL_MS, signal)
   }
   return { ok: false, error: '登录超时，请重试' }
+}
+
+/**
+ * Compatibility flow for surfaces that cannot render a QR card themselves.
+ * The login gate uses `requestWechatQrLoginChallenge` + `pollWechatQrLogin`
+ * directly so it never opens the system browser.
+ */
+export async function loginWithWechatQr(
+  client: SyncApiClient,
+  onProgress?: (status: string) => void,
+  signal?: AbortSignal,
+  openLoginUrl: WechatLoginUrlOpener = (url) => window.teachingSystem.openExternal(url),
+): Promise<WechatQrLoginResult> {
+  const challengeResult = await requestWechatQrLoginChallenge(client)
+  if (!challengeResult.ok) return challengeResult
+
+  try {
+    const opened = await openLoginUrl(challengeResult.challenge.url)
+    if (!opened.ok) {
+      return { ok: false, error: `无法打开系统浏览器${opened.message ? `：${opened.message}` : ''}` }
+    }
+  } catch (err) {
+    return { ok: false, error: `无法打开系统浏览器：${err instanceof Error ? err.message : String(err)}` }
+  }
+
+  return pollWechatQrLogin(client, challengeResult.challenge.loginId, onProgress, signal)
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {

@@ -26,6 +26,7 @@ export const teachingInvokeChannels = {
   getLearningAnalytics: 'teach:get-learning-analytics',
   exportLearningAnalytics: 'teach:export-learning-analytics',
   clearLearningAnalytics: 'teach:clear-learning-analytics',
+  checkForAppUpdates: 'teach:check-for-app-updates',
   getSettings: 'teach:get-settings',
   updateSettings: 'teach:update-settings',
   selectWorkspace: 'teach:select-workspace',

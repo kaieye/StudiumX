@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
 import {
   formatStudyDuration,
-  formatStudySeatLabel
+  formatStudySeatLabel,
+  randomStudySpaceCode
 } from '../../study-space/domain'
 import { useStudySession } from '../../study-space/session/useStudySession'
 import {
@@ -312,7 +313,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     selectedTaskId,
     selectTask,
     joinSpace,
-    enterRandomSpace,
     toggleTimer,
     resetTimer,
     startTimerInMode,
@@ -375,6 +375,20 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     studyRoomPresence.members,
     syncState.user?.nickname
   )
+
+  const handleEnterRandomSpace = useCallback(() => {
+    const fallbackRoomId = randomStudySpaceCode()
+    void (async () => {
+      const roomId = await studyRoomPresence.assignAndJoinRoom({
+        fallbackRoomId,
+        currentRoomId: snapshot.spaceCode,
+      })
+      // When offline or the assignment request fails, preserve the previous
+      // local-only behaviour rather than blocking the room switcher.
+      const selectedRoomId = roomId ?? fallbackRoomId
+      if (selectedRoomId !== snapshot.spaceCode) joinSpace(selectedRoomId)
+    })()
+  }, [joinSpace, snapshot.spaceCode, studyRoomPresence])
 
   const openBatchClassify = useCallback((taskIds: string[]) => {
     const ids = taskIds.filter((id) => typeof id === 'string' && id.trim().length > 0)
@@ -939,7 +953,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           members={leaderboardMembers}
           presenceStatus={presence.status}
           spaceCode={snapshot.spaceCode}
-          onEnterRandomSpace={enterRandomSpace}
+          onEnterRandomSpace={handleEnterRandomSpace}
           onJoinSpace={joinSpace}
         />
         <div className="workbench-tools" role="group" aria-label="自习工具">

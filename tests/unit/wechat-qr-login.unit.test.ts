@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { SyncApiClient } from '../../src/renderer/src/sync/sync-api-client'
-import { loginWithWechatQr } from '../../src/renderer/src/sync/wechat-qr-login'
+import {
+  loginWithWechatQr,
+  pollWechatQrLogin,
+  requestWechatQrLoginChallenge
+} from '../../src/renderer/src/sync/wechat-qr-login'
 
 function client(overrides: Partial<SyncApiClient> = {}): SyncApiClient {
   return {
@@ -20,7 +24,37 @@ function client(overrides: Partial<SyncApiClient> = {}): SyncApiClient {
   } as SyncApiClient
 }
 
-describe('loginWithWechatQr', () => {
+describe('WeChat QR login', () => {
+  it('returns the challenge for an in-card QR without opening a system browser', async () => {
+    const api = client()
+
+    const result = await requestWechatQrLoginChallenge(api)
+
+    expect(result).toEqual({
+      ok: true,
+      challenge: {
+        url: 'https://open.weixin.qq.com/connect/qrconnect?state=test',
+        loginId: 'login-1'
+      }
+    })
+    expect(api.pollLoginStatus).not.toHaveBeenCalled()
+  })
+
+  it('polls an already rendered in-card QR challenge to completion', async () => {
+    const api = client()
+
+    const result = await pollWechatQrLogin(api, 'login-1')
+
+    expect(api.getWechatLoginUrl).not.toHaveBeenCalled()
+    expect(api.pollLoginStatus).toHaveBeenCalledWith('login-1')
+    expect(result).toEqual({
+      ok: true,
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      user: { id: 'user-1' }
+    })
+  })
+
   it('opens the remote WeChat URL through the injected system-browser opener and polls to completion', async () => {
     const api = client()
     const openLoginUrl = vi.fn().mockResolvedValue({ ok: true })

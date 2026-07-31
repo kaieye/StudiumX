@@ -19,6 +19,14 @@ export type StudyRoomPresenceState = {
   loading: boolean
   error: string | null
   refresh: () => void
+  /**
+   * Atomically select and enter a room on the server. Returns null when sync
+   * is unavailable or the request fails, allowing the local-only room flow.
+   */
+  assignAndJoinRoom: (input: {
+    fallbackRoomId: string
+    currentRoomId?: string
+  }) => Promise<string | null>
 }
 
 const HEARTBEAT_INTERVAL_MS = 30 * 1000
@@ -70,6 +78,22 @@ export function useStudyRoomPresence(
   statusRef.current = status
   const onAssignedRoomRef = useRef(onAssignedRoom)
   onAssignedRoomRef.current = onAssignedRoom
+  const assignmentPresenceRef = useRef({
+    nickname,
+    avatarUrl,
+    petAppearance,
+    platform,
+    status,
+    focusSecondsToday,
+  })
+  assignmentPresenceRef.current = {
+    nickname,
+    avatarUrl,
+    petAppearance,
+    platform,
+    status,
+    focusSecondsToday,
+  }
   const assignmentAttemptedRef = useRef(false)
   const assignmentUserIdRef = useRef<string | undefined>(undefined)
 
@@ -98,6 +122,29 @@ export function useStudyRoomPresence(
     }
   }, [roomId, syncState.baseUrl])
 
+  const assignAndJoinRoom = useCallback(async (
+    input: { fallbackRoomId: string; currentRoomId?: string }
+  ): Promise<string | null> => {
+    if (!active || !getSyncAccessToken() || !syncState.accessToken) return null
+    try {
+      const presence = assignmentPresenceRef.current
+      const assignment = await client.studyRoomAssignAndJoin({
+        ...input,
+        nickname: presence.nickname ?? undefined,
+        avatarUrl: presence.avatarUrl ?? undefined,
+        petAppearance: presence.petAppearance,
+        platform: presence.platform ?? 'desktop',
+        status: presence.status ?? 'studying',
+        focusSecondsToday: presence.focusSecondsToday ?? 0,
+      })
+      setError(null)
+      return assignment.roomId
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      return null
+    }
+  }, [active, syncState.accessToken, syncState.baseUrl])
+
   // Join + leave lifecycle.
   useEffect(() => {
     if (!active || !roomId || !getSyncAccessToken() || !syncState.accessToken) {
@@ -111,10 +158,15 @@ export function useStudyRoomPresence(
       try {
         if (!assignmentAttemptedRef.current && onAssignedRoomRef.current) {
           assignmentAttemptedRef.current = true
-          const assignment = await client.studyRoomAssignment()
+          const assignedRoomId = await assignAndJoinRoom({ fallbackRoomId: room })
           if (cancelled) return
-          if (assignment.roomId && assignment.roomId !== room) {
-            onAssignedRoomRef.current(assignment.roomId)
+          if (assignedRoomId) {
+            if (assignedRoomId !== room) {
+              onAssignedRoomRef.current(assignedRoomId)
+              return
+            }
+            joinedRef.current = room
+            await refresh()
             return
           }
         }
@@ -146,7 +198,18 @@ export function useStudyRoomPresence(
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, roomId, syncState.accessToken, syncState.baseUrl, nickname, avatarUrl, petAppearance, platform])
+  }, [
+    active,
+    roomId,
+    syncState.accessToken,
+    syncState.baseUrl,
+    nickname,
+    avatarUrl,
+    petAppearance,
+    platform,
+    assignAndJoinRoom,
+    refresh,
+  ])
 
   // Heartbeat + poll loop.
   useEffect(() => {
@@ -172,5 +235,5 @@ export function useStudyRoomPresence(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, roomId, syncState.accessToken, syncState.baseUrl])
 
-  return { members, loading, error, refresh }
+  return { members, loading, error, refresh, assignAndJoinRoom }
 }

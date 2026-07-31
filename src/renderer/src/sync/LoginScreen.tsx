@@ -1,19 +1,16 @@
 /**
  * Full-screen login interface.
  *
- * Visual language mirrors Livo's AuthLoginPage (centred glass card, brand
- * title, single primary OAuth button, terms footer):
- *
- * - Reuses the existing renderer-side WeChat QR login flow
- *   (`loginWithWechatQr` + `sync-store`); no new IPC or remote surface.
- * - The session check (`checkSyncSession`) is driven by AuthGate and only
- *   contacts the server when a token already exists, so first launch makes
- *   no network call.
+ * The server supplies a one-time WeChat URL. This screen encodes it as a QR
+ * code directly in the login card and polls the associated loginId, so signing
+ * in does not hand the user off to the system browser.
  */
 
-import { useCallback, useRef, useState } from 'react'
+import QRCode from 'qrcode'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GraduationCap, Loader2 } from 'lucide-react'
+import appIconRounded from '../assets/auth/app-icon-rounded.png'
+import wechatLoginIcon from '../assets/auth/wechat-login.png'
 import { createSyncApiClient } from './sync-api-client'
 import {
   clearSyncAuth,
@@ -22,21 +19,26 @@ import {
   setSyncAuth,
   type SyncAuthUser
 } from './sync-store'
-import { loginWithWechatQr } from './wechat-qr-login'
+import {
+  pollWechatQrLogin,
+  requestWechatQrLoginChallenge
+} from './wechat-qr-login'
 
 export function LoginScreen() {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
-  const [progress, setProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
+  useEffect(() => () => abortRef.current?.abort(), [])
+
   const handleWechatLogin = useCallback(async () => {
-    setBusy(true)
-    setError(null)
-    setProgress(t('auth.login.opening', { defaultValue: '正在打开系统浏览器…' }))
+    abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
+    setBusy(true)
+    setError(null)
 
     try {
       ensureDeviceId()
@@ -45,45 +47,70 @@ export function LoginScreen() {
         getAccessToken: () => null,
         onTokenExpired: clearSyncAuth
       })
-      const result = await loginWithWechatQr(
+      const challengeResult = await requestWechatQrLoginChallenge(client)
+      if (!challengeResult.ok) {
+        setError(challengeResult.error)
+        return
+      }
+
+      const dataUrl = await QRCode.toDataURL(challengeResult.challenge.url, {
+        margin: 1,
+        width: 256,
+        color: { dark: '#182033', light: '#ffffff' },
+        errorCorrectionLevel: 'M'
+      })
+      if (controller.signal.aborted) return
+
+      setQrDataUrl(dataUrl)
+      setBusy(false)
+
+      // The login card deliberately has no polling status UI: the QR remains
+      // stable while the server waits for the mobile authorization.
+      const result = await pollWechatQrLogin(
         client,
-        (status) => setProgress(status),
+        challengeResult.challenge.loginId,
+        undefined,
         controller.signal
       )
+      if (controller.signal.aborted) return
+
       if (result.ok) {
         setSyncAuth({
           accessToken: result.accessToken,
           refreshToken: result.refreshToken,
           user: (result.user as SyncAuthUser | undefined) ?? null
         })
-        setProgress(null)
-      } else {
-        setError(result.error)
+        return
       }
+
+      setQrDataUrl(null)
+      setError(result.error)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (!controller.signal.aborted) {
+        setError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
-      setBusy(false)
-      setProgress(null)
-      abortRef.current = null
+      if (abortRef.current === controller) {
+        setBusy(false)
+        abortRef.current = null
+      }
     }
-  }, [t])
+  }, [])
+
+  const handleCancel = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setBusy(false)
+    setQrDataUrl(null)
+  }, [])
 
   return (
     <div className="auth-screen" role="dialog" aria-modal="true" aria-label={t('auth.title', { defaultValue: '登录 StudiumX' })}>
       <div className="auth-screen-card">
         <div className="auth-screen-brand">
-          <span className="auth-screen-logo">
-            <GraduationCap size={34} strokeWidth={1.8} aria-hidden="true" />
-          </span>
           <h1 className="auth-screen-title">
             {t('auth.welcome', { defaultValue: '欢迎使用 StudiumX' })}
           </h1>
-          <p className="auth-screen-subtitle">
-            {t('auth.loginPrompt', {
-              defaultValue: '请先登录，然后开始使用 StudiumX。'
-            })}
-          </p>
         </div>
 
         {error && (
@@ -91,30 +118,65 @@ export function LoginScreen() {
             {error}
           </div>
         )}
-        {progress && (
-          <div className="auth-screen-alert auth-screen-alert--info" role="status">
-            {progress}
+
+        <div className="auth-screen-login-stage">
+          {qrDataUrl ? (
+            <div className="auth-screen-qr">
+              <img
+                className="auth-screen-qr-image"
+                src={qrDataUrl}
+                alt={t('auth.login.qrAlt', { defaultValue: '微信登录二维码' })}
+              />
+              <p className="auth-screen-qr-hint">
+                {t('auth.login.qrHint', { defaultValue: '请使用微信扫一扫，确认后将自动登录。' })}
+              </p>
+            </div>
+          ) : (
+            <img
+              className="auth-screen-app-icon"
+              src={appIconRounded}
+              alt=""
+              aria-hidden="true"
+            />
+          )}
+        </div>
+
+        {qrDataUrl ? (
+          <div className="auth-screen-actions auth-screen-actions--inline">
+            <button
+              type="button"
+              className="auth-screen-button auth-screen-button--ghost"
+              onClick={handleWechatLogin}
+              disabled={busy}
+            >
+              {t('auth.login.refreshQr', { defaultValue: '刷新二维码' })}
+            </button>
+            <button
+              type="button"
+              className="auth-screen-button auth-screen-button--ghost"
+              onClick={handleCancel}
+            >
+              {t('auth.login.cancel', { defaultValue: '取消登录' })}
+            </button>
+          </div>
+        ) : (
+          <div className="auth-screen-actions">
+            <button
+              type="button"
+              className="auth-screen-button auth-screen-button--wechat"
+              onClick={handleWechatLogin}
+              disabled={busy}
+            >
+              <img
+                className="auth-screen-wechat-icon"
+                src={wechatLoginIcon}
+                alt=""
+                aria-hidden="true"
+              />
+              <span>{t('auth.signInWithWechat', { defaultValue: '微信扫码登录' })}</span>
+            </button>
           </div>
         )}
-
-        <div className="auth-screen-actions">
-          <button
-            type="button"
-            className="auth-screen-button auth-screen-button--wechat"
-            onClick={handleWechatLogin}
-            disabled={busy}
-          >
-            <svg className="auth-screen-wechat-icon" viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true">
-              <path d="M680.832 390.656c10.24 0 20.48 0.512 30.208 1.536-27.136-126.464-162.304-220.672-317.44-220.672-175.616 0-318.464 119.808-318.464 267.264 0 86.528 47.104 157.696 125.952 213.504l-31.488 94.72 110.08-55.296c39.424 7.68 70.656 15.872 110.08 15.872 9.984 0 19.968-0.512 29.696-1.536-6.144-21.504-9.728-43.776-9.728-67.072 0.512-137.728 118.272-248.32 271.104-248.32z m-172.032-86.016c23.552 0 39.424 15.872 39.424 39.424s-15.872 39.424-39.424 39.424c-23.552 0-47.104-15.872-47.104-39.424s23.552-39.424 47.104-39.424z m-212.992 78.848c-23.552 0-47.104-15.872-47.104-39.424s23.552-39.424 47.104-39.424c23.552 0 39.424 15.872 39.424 39.424s-15.872 39.424-39.424 39.424z m606.72 114.176c0-126.464-126.464-229.376-267.264-229.376-148.48 0-267.776 102.912-267.776 229.376 0 126.976 119.296 229.376 267.776 229.376 31.488 0 63.488-7.68 94.72-15.872l86.528 47.104-23.552-78.848c63.488-47.104 109.568-110.08 109.568-181.76z m-356.352-39.424c-15.872 0-31.488-15.872-31.488-31.488s15.872-31.488 31.488-31.488c23.552 0 39.424 15.872 39.424 31.488s-15.872 31.488-39.424 31.488z m173.056 0c-15.872 0-31.488-15.872-31.488-31.488s15.872-31.488 31.488-31.488c23.552 0 39.424 15.872 39.424 31.488s-15.872 31.488-39.424 31.488z" />
-            </svg>
-            <span>
-              {busy
-                ? t('auth.signingIn', { defaultValue: '登录中…' })
-                : t('auth.signInWithWechat', { defaultValue: '微信扫码登录' })}
-            </span>
-            {busy && <Loader2 size={16} className="auth-screen-spinner" aria-hidden="true" />}
-          </button>
-        </div>
 
         <p className="auth-screen-footer">
           {t('auth.termsHint', {

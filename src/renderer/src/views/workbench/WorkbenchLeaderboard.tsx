@@ -42,14 +42,6 @@ export function WorkbenchLeaderboard({
       <button
         type="button"
         className="workbench-disclosure-toggle workbench-leaderboard-toggle workbench-leaderboard-header"
-        onPointerDown={(event) => {
-          // The workbench sits inside a smooth-scrolling application shell. Give
-          // this disclosure focus without allowing the browser to scroll an
-          // ancestor into view first; that focus scroll was visible as a brief
-          // whole-room jump before the height reveal began.
-          event.stopPropagation()
-          event.currentTarget.focus({ preventScroll: true })
-        }}
         onClick={toggleLeaderboard}
         aria-expanded={open}
         aria-controls="workbench-leaderboard-panel"
