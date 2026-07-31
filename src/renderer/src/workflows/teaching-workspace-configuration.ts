@@ -430,7 +430,7 @@ export function createTeachingWorkspaceConfiguration({
         await refreshMemory()
         return
       }
-      if (section === 'worktree') {
+      if (section === 'workspace') {
         await refreshWorktrees()
       }
     },
@@ -575,7 +575,7 @@ export function useTeachingWorkspaceConfiguration({
     void configuration.refreshMemory()
   }, [configuration, section, activeWorkspace?.rootPath])
   useEffect(() => {
-    if (section !== 'worktree') return
+    if (section !== 'workspace') return
     void configuration.refreshWorktrees()
   }, [configuration, section, activeWorkspace?.rootPath, settings.worktree.rootPath])
   return configuration

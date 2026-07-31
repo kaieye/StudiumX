@@ -676,10 +676,6 @@
       "label": "工作区",
       "detail": "默认目录和文件行为"
     },
-    "worktree": {
-      "label": "工作树",
-      "detail": "Git worktree 池与清理"
-    },
     "memory": {
       "label": "记忆",
       "detail": "长期上下文与注入"
@@ -723,6 +719,10 @@
     "remote": {
       "label": "远程控制",
       "detail": "手机局域网配对"
+    },
+    "account": {
+      "label": "账号与同步",
+      "detail": "微信登录、跨设备同步"
     }
   },
   "general": {
@@ -903,8 +903,6 @@
     "import": "导入"
   },
   "worktree": {
-    "title": "工作树",
-    "subtitle": "查看当前教学工作区所在仓库的 Git worktrees，并清理受管副本。",
     "root": {
       "label": "工作树池目录",
       "none": "未设置",
@@ -1014,6 +1012,7 @@
     },
     "proxy": {
       "label": "Provider Proxy",
+      "urlLabel": "代理地址",
       "on": "已启用",
       "off": "未启用",
       "placeholder": "http://127.0.0.1:7890"
@@ -1733,6 +1732,65 @@
         "description": "Telegram Bot API 接入。"
       },
       "back": "返回"
+    }
+  },
+  "auth": {
+    "title": "登录 StudiumX",
+    "welcome": "欢迎使用 StudiumX",
+    "loginPrompt": "登录以同步学习计划；也可继续使用本地模式。",
+    "signingIn": "登录中…",
+    "signInWithWechat": "微信扫码登录",
+    "continueLocal": "以本地模式继续",
+    "termsHint": "教学资产始终以本地工作区为权威；登录仅用于跨设备同步。",
+    "checking": "正在检查登录状态…",
+    "login": {
+      "opening": "正在打开登录窗口…"
+    }
+  },
+  "account": {
+    "title": "账号与同步",
+    "subtitle": "登录 StudiumX-Server 以同步学习计划（教学资产始终以本地为权威）。",
+    "status": {
+      "loggedIn": "已登录",
+      "local": "本地模式"
+    },
+    "badge": {
+      "online": "已登录",
+      "local": "本地"
+    },
+    "wechat": {
+      "label": "微信登录",
+      "detail": "扫码登录 StudiumX-Server",
+      "signIn": "微信扫码登录"
+    },
+    "device": {
+      "label": "设备 ID",
+      "detail": "同步设备标识",
+      "none": "未生成"
+    },
+    "login": {
+      "opening": "正在获取登录链接…",
+      "success": "登录成功",
+      "failed": "登录失败",
+      "inProgress": "登录中…"
+    },
+    "logout": {
+      "cleared": "已清除本地登录",
+      "done": "已退出登录",
+      "error": "退出登录出错（已清除本地）",
+      "label": "退出登录"
+    },
+    "sync": {
+      "enable": "启用同步",
+      "enableDetail": "仅用户主动开启后才会同步",
+      "now": "立即同步",
+      "nowDetail": "将本地学习计划快照推送至服务端",
+      "enableFirst": "请先启用同步",
+      "openWorkspace": "请先打开工作区",
+      "readFailed": "无法读取本地规划",
+      "failed": "同步失败",
+      "done": "同步完成",
+      "error": "同步出错"
     }
   }
 }

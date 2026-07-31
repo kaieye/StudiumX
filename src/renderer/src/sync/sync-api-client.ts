@@ -88,6 +88,49 @@ export type SyncConversationUploadBody = {
   updatedAtMs: number
 }
 
+export type SyncWechatLoginUrlResponse = {
+  url: string
+  loginId: string
+  state: string
+}
+
+export type SyncPollResponse = {
+  status: 'pending' | 'completed' | 'expired'
+  accessToken?: string
+  refreshToken?: string
+  user?: SyncAuthUser
+}
+
+export type SyncStudyRoomMember = {
+  userId: string
+  nickname: string | null
+  avatarUrl: string | null
+  platform: string | null
+  status: string | null
+  focusSecondsToday: number
+  isSelf: boolean
+}
+
+export type SyncStudyRoomMembersResponse = {
+  roomId: string
+  members: SyncStudyRoomMember[]
+}
+
+export type SyncStudyRoomJoinBody = {
+  roomId: string
+  nickname?: string
+  avatarUrl?: string
+  platform?: string
+  status?: 'studying' | 'break' | 'idle'
+  focusSecondsToday?: number
+}
+
+export type SyncStudyRoomHeartbeatBody = {
+  roomId: string
+  status?: 'studying' | 'break' | 'idle'
+  focusSecondsToday?: number
+}
+
 export type SyncApiClientOptions = {
   baseUrl?: string
   getAccessToken?: () => string | null
@@ -110,6 +153,12 @@ export type SyncApiClient = {
   listConversations(): Promise<SyncConversationListItem[]>
   downloadConversation(id: string): Promise<SyncConversationContent>
   uploadConversation(id: string, body: SyncConversationUploadBody): Promise<Record<string, unknown>>
+  getWechatLoginUrl(): Promise<SyncWechatLoginUrlResponse>
+  pollLoginStatus(loginId: string): Promise<SyncPollResponse>
+  studyRoomJoin(body: SyncStudyRoomJoinBody): Promise<{ joined: boolean; roomId: string }>
+  studyRoomHeartbeat(body: SyncStudyRoomHeartbeatBody): Promise<{ ok: boolean }>
+  studyRoomLeave(roomId: string): Promise<{ left: boolean }>
+  studyRoomMembers(roomId: string): Promise<SyncStudyRoomMembersResponse>
 }
 
 export class SyncApiError extends Error {
@@ -263,6 +312,24 @@ export function createSyncApiClient(options: SyncApiClientOptions = {}): SyncApi
     },
     async uploadConversation(id, body) {
       return asType<Record<string, unknown>>(await authed('PUT', `/conversations/${encodeURIComponent(id)}`, body))
+    },
+    async getWechatLoginUrl() {
+      return asType<SyncWechatLoginUrlResponse>(await anon('GET', '/auth/wechat/login-url?client=desktop'))
+    },
+    async pollLoginStatus(loginId) {
+      return asType<SyncPollResponse>(await anon('GET', `/auth/desktop/poll?loginId=${encodeURIComponent(loginId)}`))
+    },
+    async studyRoomJoin(body) {
+      return asType<{ joined: boolean; roomId: string }>(await authed('POST', '/sync/study-room/join', body))
+    },
+    async studyRoomHeartbeat(body) {
+      return asType<{ ok: boolean }>(await authed('POST', '/sync/study-room/heartbeat', body))
+    },
+    async studyRoomLeave(roomId) {
+      return asType<{ left: boolean }>(await authed('POST', '/sync/study-room/leave', { roomId }))
+    },
+    async studyRoomMembers(roomId) {
+      return asType<SyncStudyRoomMembersResponse>(await authed('GET', `/sync/study-room/members?roomId=${encodeURIComponent(roomId)}`))
     }
   }
 }

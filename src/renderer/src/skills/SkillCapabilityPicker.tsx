@@ -219,14 +219,13 @@ export function useSkillCapabilityPicker(options: {
     options.workspaceId
   ])
 
+  // ADR-0165: the always-on "教学内核已启用" chip is removed from above the
+  // composer input. The teaching kernel is host-injected, fail-closed, and
+  // never a learner-selectable slot (ADR-0151 §2.1), so the chip conveyed no
+  // actionable state. Selected-capability chips still render when chosen.
   const chips =
-    options.isTeachingMode || selectedSkillIds.length > 0 ? (
+    selectedSkillIds.length > 0 ? (
       <div className="skill-capability-chips" aria-label="已选教学能力">
-        {options.isTeachingMode ? (
-          <span className="skill-capability-chip is-kernel" title="教学内核由应用提供，始终启用">
-            教学内核已启用
-          </span>
-        ) : null}
         {selectedSkillIds.map((skillId) => (
           <span key={skillId} className="skill-capability-chip">
             {skillLabel(skillId, catalog.skills)}

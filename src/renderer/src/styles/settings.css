@@ -125,6 +125,7 @@
   min-height: 0;
   overflow: auto;
   padding: 24px 48px 24px;
+  background: #fff;
 }
 
 .settings-panel-heading {
@@ -149,6 +150,10 @@
 .settings-panel-body {
   display: grid;
   gap: 16px;
+}
+
+.settings-subsection {
+  margin-top: 24px;
 }
 
 .settings-card {
@@ -282,7 +287,7 @@
 
 .settings-input,
 .settings-number {
-  height: 34px;
+  height: 32px;
   padding: 0 10px;
   border: 1px solid var(--lg-line, var(--line));
   border-radius: var(--lg-radius-sm, 11px);
@@ -363,7 +368,7 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 42px;
+  min-height: 32px;
   gap: 10px;
   padding: 0 12px 0 14px;
   color: var(--text);
@@ -1722,6 +1727,10 @@
 
 :root[data-resolved-theme="dark"] .settings-nav {
   background: var(--surface-subtle);
+}
+
+:root[data-resolved-theme="dark"] .settings-content {
+  background: var(--surface-solid);
 }
 
 :root[data-resolved-theme="dark"] .settings-close-button,

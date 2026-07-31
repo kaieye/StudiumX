@@ -23,6 +23,10 @@ import { useDialogAsk } from './useDialogAsk'
 import { ImmersiveScenePicker } from './ImmersiveScenePicker'
 import { ClockDisplay } from './immersive-clock-display'
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
+import { useStudyRoomPresence } from '../../sync/study-room-presence'
+import { useSyncState } from '../../sync/sync-store'
+import type { SyncStudyRoomMember } from '../../sync/sync-api-client'
+import type { StudyRoomMember } from '../../study-space/viewModel'
 import { readBrowserNotificationPermission } from '../../study-space/planning-notification-host'
 import { WorkbenchPomodoro } from './WorkbenchPomodoro'
 import { EmptyStartSheet, type EmptyStartSheetResult } from './EmptyStartSheet'
@@ -86,6 +90,71 @@ type OfficeWorkbenchProps = {
 export type WorkbenchAnalyticsPageProps = StudyAnalyticsPageProps
 
 const WorkbenchAnalyticsPage = StudyAnalyticsPage
+
+/**
+ * Map a server-side study-room member (phone / other devices) into the
+ * desktop leaderboard shape. Server members carry only presence essentials
+ * (nickname, today's focus, status); relay-only peer fields get neutral
+ * defaults since the leaderboard renders nickname + focus only.
+ */
+function mapServerMemberToRoomMember(member: SyncStudyRoomMember): StudyRoomMember {
+  return {
+    clientId: `server:${member.userId}`,
+    roomId: 'silent',
+    spaceCode: '',
+    nickname: member.nickname?.trim() || '匿名同学',
+    signalId: 'practice',
+    seatIndex: -1,
+    seatClaimedAt: 0,
+    status: member.status === 'studying' ? 'running' : 'idle',
+    timerMode: 'focus',
+    focusMinutes: 0,
+    todayFocusSeconds: member.focusSecondsToday ?? 0,
+    todaySessions: 0,
+    streakDays: 0,
+    updatedAt: Date.now(),
+    isSelf: false
+  }
+}
+
+/** Translate the local timer state/mode into the server presence status vocabulary. */
+function deriveServerPresenceStatus(
+  timerState: 'idle' | 'running' | 'paused',
+  timerMode: 'focus' | 'break'
+): 'studying' | 'break' | 'idle' {
+  if (timerState === 'running' && timerMode === 'focus') return 'studying'
+  if (timerMode === 'break' && timerState !== 'idle') return 'break'
+  return 'idle'
+}
+
+/**
+ * Merge server-backed members into the relay-based leaderboard.
+ *
+ * Additive only: server members whose nickname is not already present locally
+ * are appended, then the combined list is re-sorted by today's focus. The
+ * server's own self row is skipped (the local self row is authoritative).
+ * Returns the local list unchanged when there is nothing to merge, so the
+ * leaderboard is fully inert when sync is not logged in.
+ */
+function mergeServerMembers(
+  local: StudyRoomMember[],
+  server: SyncStudyRoomMember[]
+): StudyRoomMember[] {
+  if (server.length === 0) return local
+  const seen = new Set(local.map((member) => member.nickname))
+  const added: StudyRoomMember[] = []
+  for (const member of server) {
+    if (member.isSelf) continue
+    const nickname = member.nickname?.trim() || '匿名同学'
+    if (seen.has(nickname)) continue
+    seen.add(nickname)
+    added.push(mapServerMemberToRoomMember(member))
+  }
+  if (added.length === 0) return local
+  return [...local, ...added].sort(
+    (left, right) => right.todayFocusSeconds - left.todayFocusSeconds
+  )
+}
 
 export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const petAppearance = useAppStore((state) => state.settings.pet.appearance)
@@ -275,6 +344,22 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     onReconcileAsk: askReconcile,
     getNotificationHostContext: () => notificationHostLiveRef.current
   })
+
+  // STC sync: join a server-backed study room so phone + desktop share one
+  // leaderboard. The hook is inert until a sync access token exists, and only
+  // ever ADDS server members on top of the local relay peers.
+  const syncState = useSyncState()
+  const studyRoomPresence = useStudyRoomPresence({
+    roomId: snapshot.spaceCode,
+    nickname: snapshot.nickname,
+    focusSecondsToday: snapshot.todayFocusSeconds,
+    status: deriveServerPresenceStatus(snapshot.timerState, snapshot.timerMode),
+    active: Boolean(syncState.accessToken)
+  })
+  const leaderboardMembers = mergeServerMembers(
+    viewModel.roomMembers,
+    studyRoomPresence.members
+  )
 
   const openBatchClassify = useCallback((taskIds: string[]) => {
     const ids = taskIds.filter((id) => typeof id === 'string' && id.trim().length > 0)
@@ -817,7 +902,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           tabIndex={0}
         />
         <WorkbenchLeaderboard
-          members={viewModel.roomMembers}
+          members={leaderboardMembers}
           presenceStatus={presence.status}
           spaceCode={snapshot.spaceCode}
           onEnterRandomSpace={enterRandomSpace}

@@ -19,8 +19,6 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   type CreateTeachingMemoryPayload,
-  type ConnectorStatus,
-  type ConnectorStatusesResult,
   type ListUpstreamModelsResult,
   type ProbeProviderPayload,
   type ProbeProviderResult,
@@ -145,21 +143,8 @@ export function SettingsView({
   const worktreeBusyPath = worktrees.busyPath
   const worktreeLoading = worktrees.loading
   const filteredMemoryRecords = configuration.filterMemoryRecords(memoryRecords)
-  const [connectorStatuses, setConnectorStatuses] = useState<ConnectorStatusesResult | null>(null)
-  const [connectorStatusesLoading, setConnectorStatusesLoading] = useState(false)
   const [sandboxReadiness, setSandboxReadiness] = useState<AgentSandboxReadiness | null>(null)
   const [sandboxReadinessLoading, setSandboxReadinessLoading] = useState(false)
-
-  const refreshConnectorStatuses = async (): Promise<void> => {
-    const api = window.teachingSystem
-    if (!api) return
-    setConnectorStatusesLoading(true)
-    try {
-      setConnectorStatuses(await api.getConnectorStatuses())
-    } finally {
-      setConnectorStatusesLoading(false)
-    }
-  }
 
   useEffect(() => {
     if (section !== 'tools') return
@@ -190,27 +175,6 @@ export function SettingsView({
     settings.tools.sandboxMode,
     settings.tools.workspaceShell,
     settings.tools.windowsSandboxLevel
-  ])
-
-  useEffect(() => {
-    if (section !== 'connectors') return
-    void refreshConnectorStatuses()
-  }, [
-    section,
-    activeWorkspace?.id,
-    settings.tools.enabled,
-    settings.tools.workspaceRead,
-    settings.tools.webSearch,
-    settings.tools.webFetch,
-    settings.webSearch.backend,
-    settings.webSearch.firecrawlApiKey,
-    settings.webSearch.firecrawlApiUrl,
-    settings.webSearch.parallelApiKey,
-    settings.webSearch.tavilyApiKey,
-    settings.webSearch.exaApiKey,
-    settings.webSearch.searxngUrl,
-    settings.webSearch.braveApiKey,
-    settings.webSearch.xaiApiKey
   ])
 
   return (
@@ -255,6 +219,39 @@ export function SettingsView({
             subtitle={t('general.subtitle')}
           >
             <SettingsCard>
+              <SettingsRow label={t('general.theme.label')} detail={t('general.theme.detail')}>
+                <SettingsSelect
+                  value={settings.theme}
+                  position="item-aligned"
+                  options={[
+                    { value: 'system', label: t('general.theme.system'), icon: Monitor },
+                    { value: 'light', label: t('general.theme.light'), icon: Sun },
+                    { value: 'dark', label: t('general.theme.dark'), icon: Moon }
+                  ]}
+                  onChange={(theme) => void configuration.updateSetting('theme', theme)}
+                />
+              </SettingsRow>
+              <SettingsRow label={t('general.density.label')} detail={settings.density === 'compact' ? t('general.density.compact') : t('general.density.comfortable')}>
+                <SegmentedControl
+                  value={settings.density}
+                  options={[
+                    { value: 'comfortable', label: t('general.density.comfortable') },
+                    { value: 'compact', label: t('general.density.compact') }
+                  ]}
+                  onChange={(density) => void configuration.updateSetting('density', density)}
+                />
+              </SettingsRow>
+              <SettingsRow label={t('general.fontScale.label')} detail={`${Math.round(settings.uiFontScale * 100)}%`}>
+                <input
+                  className="settings-range"
+                  min="0.8"
+                  max="1.2"
+                  step="0.05"
+                  type="range"
+                  value={settings.uiFontScale}
+                  onChange={(event) => void configuration.updateSetting('uiFontScale', Number(event.target.value))}
+                />
+              </SettingsRow>
               <SettingsRow label={t('general.closeAction.label')} detail={settings.appBehavior.closeAction === 'tray' ? t('general.closeAction.detailTray') : t('general.closeAction.detailQuit')}>
                 <SegmentedControl
                   value={settings.appBehavior.closeAction}
@@ -292,49 +289,21 @@ export function SettingsView({
                   />
                 </div>
               </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
-        {section === 'appearance' && (
-          <SettingsPanel
-            title={t('appearance.title')}
-            subtitle={t('appearance.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('general.theme.label')} detail={t('general.theme.detail')}>
-                <SettingsSelect
-                  value={settings.theme}
-                  position="item-aligned"
-                  options={[
-                    { value: 'system', label: t('general.theme.system'), icon: Monitor },
-                    { value: 'light', label: t('general.theme.light'), icon: Sun },
-                    { value: 'dark', label: t('general.theme.dark'), icon: Moon }
-                  ]}
-                  onChange={(theme) => void configuration.updateSetting('theme', theme)}
+              <SettingsRow label={t('privacy.proxy.label')} detail={settings.provider.proxy.enabled ? (settings.provider.proxy.url || t('privacy.proxy.on')) : t('privacy.proxy.off')}>
+                <ToggleSwitch
+                  checked={settings.provider.proxy.enabled}
+                  onChange={(enabled) => void configuration.updateSetting('provider.proxy.enabled', enabled)}
                 />
               </SettingsRow>
-              <SettingsRow label={t('general.density.label')} detail={settings.density === 'compact' ? t('general.density.compact') : t('general.density.comfortable')}>
-                <SegmentedControl
-                  value={settings.density}
-                  options={[
-                    { value: 'comfortable', label: t('general.density.comfortable') },
-                    { value: 'compact', label: t('general.density.compact') }
-                  ]}
-                  onChange={(density) => void configuration.updateSetting('density', density)}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('general.fontScale.label')} detail={`${Math.round(settings.uiFontScale * 100)}%`}>
-                <input
-                  className="settings-range"
-                  min="0.8"
-                  max="1.2"
-                  step="0.05"
-                  type="range"
-                  value={settings.uiFontScale}
-                  onChange={(event) => void configuration.updateSetting('uiFontScale', Number(event.target.value))}
-                />
-              </SettingsRow>
+              {settings.provider.proxy.enabled && (
+                <SettingsRow label={t('privacy.proxy.urlLabel')} detail="">
+                  <SettingsTextInput
+                    value={settings.provider.proxy.url}
+                    placeholder={t('privacy.proxy.placeholder')}
+                    onChange={(url) => void configuration.updateSetting('provider.proxy.url', url)}
+                  />
+                </SettingsRow>
+              )}
             </SettingsCard>
           </SettingsPanel>
         )}
@@ -618,42 +587,8 @@ export function SettingsView({
           />
         )}
 
-        {section === 'connectors' && (
-          <SettingsPanel
-            title={t('connectors.title')}
-            subtitle={t('connectors.subtitle')}
-          >
-            <SettingsCard>
-              <div className="settings-toolbar">
-                <span className="settings-connector-refresh-copy">
-                  {connectorStatuses
-                    ? t('connectors.generatedAt', { time: new Date(connectorStatuses.generatedAt).toLocaleString() })
-                    : t('connectors.notLoaded')}
-                </span>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => void refreshConnectorStatuses()}
-                  disabled={connectorStatusesLoading}
-                >
-                  <RefreshCw size={15} className={connectorStatusesLoading ? 'spin' : undefined} />
-                  {t('connectors.refresh')}
-                </button>
-              </div>
-              {connectorStatuses?.connectors.length ? (
-                connectorStatuses.connectors.map((connector) => (
-                  <ConnectorStatusRow key={connector.id} connector={connector} />
-                ))
-              ) : (
-                <div className="settings-empty-note">
-                  {connectorStatusesLoading ? t('connectors.loading') : t('connectors.empty')}
-                </div>
-              )}
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
         {section === 'workspace' && (
+          <>
           <SettingsPanel
             title={t('workspace.title')}
             subtitle={t('workspace.subtitle')}
@@ -707,13 +642,7 @@ export function SettingsView({
               </SettingsRow>
             </SettingsCard>
           </SettingsPanel>
-        )}
-
-        {section === 'worktree' && (
-          <SettingsPanel
-            title={t('worktree.title')}
-            subtitle={t('worktree.subtitle')}
-          >
+          <div className="settings-panel-body settings-subsection">
             <SettingsCard>
               <SettingsRow label={t('worktree.root.label')} detail={worktreeRootPath || t('worktree.root.none')}>
                 <div className="settings-actions">
@@ -735,7 +664,6 @@ export function SettingsView({
                 </div>
               </SettingsRow>
             </SettingsCard>
-
             <SettingsCard>
               {worktreeResult?.ok === false ? (
                 <div className="settings-empty-note">{worktreeResult.message}</div>
@@ -767,8 +695,10 @@ export function SettingsView({
                 ))
               )}
             </SettingsCard>
-          </SettingsPanel>
+          </div>
+          </>
         )}
+
 
         {section === 'memory' && (
           <SettingsPanel
@@ -931,41 +861,6 @@ export function SettingsView({
           </SettingsPanel>
         )}
 
-        {section === 'privacy' && (
-          <SettingsPanel
-            title={t('privacy.title')}
-            subtitle={t('privacy.subtitle')}
-          >
-            <SettingsCard>
-              <SettingsRow label={t('privacy.maskKey.label')} detail={t('privacy.maskKey.detail')}>
-                <ToggleSwitch
-                  checked={settings.privacy.maskApiKeys}
-                  onChange={(maskApiKeys) => void configuration.updateSetting('privacy.maskApiKeys', maskApiKeys)}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('privacy.externalLinks.label')} detail={t('privacy.externalLinks.detail')}>
-                <ToggleSwitch
-                  checked={settings.privacy.allowExternalLinks}
-                  onChange={(allowExternalLinks) => void configuration.updateSetting('privacy.allowExternalLinks', allowExternalLinks)}
-                />
-              </SettingsRow>
-              <SettingsRow label={t('privacy.proxy.label')} detail={settings.provider.proxy.enabled ? (settings.provider.proxy.url || t('privacy.proxy.on')) : t('privacy.proxy.off')}>
-                <div className="settings-inline-group">
-                  <ToggleSwitch
-                    checked={settings.provider.proxy.enabled}
-                    onChange={(enabled) => void configuration.updateSetting('provider.proxy.enabled', enabled)}
-                  />
-                  <SettingsTextInput
-                    value={settings.provider.proxy.url}
-                    placeholder={t('privacy.proxy.placeholder')}
-                    onChange={(url) => void configuration.updateSetting('provider.proxy.url', url)}
-                  />
-                </div>
-              </SettingsRow>
-            </SettingsCard>
-          </SettingsPanel>
-        )}
-
         {section === 'review' && (
           <TeachingTurnReviewSettingsSection />
         )}
@@ -1006,25 +901,6 @@ export function SettingsView({
         )}
       </div>
       </section>
-    </div>
-  )
-}
-
-function ConnectorStatusRow({ connector }: { connector: ConnectorStatus }) {
-  const { t } = useTranslation()
-  return (
-    <div className="settings-connector-row" data-state={connector.state}>
-      <div className="settings-connector-main">
-        <span className="settings-connector-dot" aria-hidden="true" />
-        <div className="settings-list-copy">
-          <strong>{t(`connectors.items.${connector.id}`, { defaultValue: connector.name })}</strong>
-          <span>{connector.detail}</span>
-          {connector.repairAction ? <span>{connector.repairAction}</span> : null}
-        </div>
-      </div>
-      <span className="settings-status-badge" data-state={connector.state}>
-        {t(`connectors.status.${connector.state}`)}
-      </span>
     </div>
   )
 }

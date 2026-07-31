@@ -4,18 +4,15 @@ import {
   Bot,
   BrainCircuit,
   FolderOpen,
-  GitBranch,
   Info,
-  Lock,
-  Palette,
-  Plug,
   Network,
   Search,
   Settings,
   Smartphone,
+  User,
   SlidersHorizontal,
-  FileCheck2,
-  Stethoscope,
+  // ADR-0166：FileCheck2 / Stethoscope 随教学 review / doctor 导航项一并下线；
+  // 重新挂载时需连同这两个图标 import 一起恢复。
   Wrench
 } from 'lucide-react'
 import i18n from '../i18n'
@@ -57,21 +54,21 @@ export function normalizeRendererSettings(input: TeachingSettingsPatch | Teachin
 
 export const settingsNavItems = [
   { id: 'general', icon: Settings },
-  { id: 'appearance', icon: Palette },
+  { id: 'account', icon: User },
   { id: 'model', icon: Bot },
   { id: 'generation', icon: SlidersHorizontal },
   { id: 'tools', icon: Wrench },
   { id: 'search', icon: Search },
-  { id: 'connectors', icon: Plug },
   { id: 'mcp', icon: Network },
   { id: 'remote', icon: Smartphone },
   { id: 'workspace', icon: FolderOpen },
-  { id: 'worktree', icon: GitBranch },
   { id: 'memory', icon: BrainCircuit },
   { id: 'notifications', icon: Bell },
-  { id: 'privacy', icon: Lock },
-  { id: 'doctor', icon: Stethoscope },
-  { id: 'review', icon: FileCheck2 },
+  // ADR-0166：教学诊断 / turn-review 展示面延期下线（暂未找到合适展示方式）。
+  // 两项均无条件常驻，但 review 仅是 demo 脚手架、doctor 是小众排障工具，
+  // 从导航面下线；section 渲染分支与组件逻辑、单测均保留，待未来重新挂载。
+  // { id: 'doctor', icon: Stethoscope },
+  // { id: 'review', icon: FileCheck2 },
   { id: 'about', icon: Info }
 ] satisfies Array<{ id: SettingsSection; icon: LucideIcon }>
 

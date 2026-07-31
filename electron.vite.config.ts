@@ -19,6 +19,7 @@ export default defineConfig({
     }
   },
   renderer: {
-    plugins: [react(), tailwindcss()]
+    plugins: [react(), tailwindcss()],
+    assetsInclude: ['**/*.m4a']
   }
 })

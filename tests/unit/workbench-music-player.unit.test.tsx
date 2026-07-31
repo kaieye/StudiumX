@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MusicPlaybackSnapshot } from '../../src/renderer/src/views/workbench/music/music-playback-session'
 
@@ -100,4 +100,22 @@ describe('WorkbenchMusicPlayer', () => {
       })
     })
   })
+  it('lists the bundled StudiumX local tracks instead of placeholder playlists', async () => {
+    const { WorkbenchMusicPlayer } = await import('../../src/renderer/src/views/workbench/WorkbenchMusicPlayer')
+    const { getByRole, getByText, queryByText, container } = render(<WorkbenchMusicPlayer />)
+
+    // The footer toggle is always interactive; open the panel so the surface
+    // switch can receive clicks.
+    fireEvent.click(container.querySelector('.workbench-music-expand') as HTMLElement)
+    fireEvent.click(getByRole('tab', { name: 'StudiumX' }))
+
+    // The two real bundled tracks are listed ...
+    expect(getByRole('list', { name: 'StudiumX 本地音乐' })).toBeInTheDocument()
+    expect(getByText('Garden Bench Bliss')).toBeInTheDocument()
+    expect(getByText('Rainsoft Leaves')).toBeInTheDocument()
+    // ... and the previous placeholder entries are gone.
+    expect(queryByText('专注自习')).not.toBeInTheDocument()
+    expect(queryByText('白噪音')).not.toBeInTheDocument()
+  })
+
 })

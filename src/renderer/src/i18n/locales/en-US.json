@@ -676,10 +676,6 @@
       "label": "Workspace",
       "detail": "Default folder & file behavior"
     },
-    "worktree": {
-      "label": "Worktree",
-      "detail": "Git worktree pool & cleanup"
-    },
     "memory": {
       "label": "Memory",
       "detail": "Long-term context injection"
@@ -723,6 +719,10 @@
     "remote": {
       "label": "Remote control",
       "detail": "Phone LAN pairing"
+    },
+    "account": {
+      "label": "Account & sync",
+      "detail": "WeChat login, cross-device sync"
     }
   },
   "general": {
@@ -903,8 +903,6 @@
     "import": "Import"
   },
   "worktree": {
-    "title": "Worktree",
-    "subtitle": "Inspect Git worktrees for the current teaching workspace repository and remove managed copies.",
     "root": {
       "label": "Worktree pool root",
       "none": "Not set",
@@ -1014,6 +1012,7 @@
     },
     "proxy": {
       "label": "Provider Proxy",
+      "urlLabel": "Proxy URL",
       "on": "Enabled",
       "off": "Disabled",
       "placeholder": "http://127.0.0.1:7890"
@@ -1733,6 +1732,65 @@
         "description": "Telegram Bot API bridge."
       },
       "back": "Back"
+    }
+  },
+  "auth": {
+    "title": "Sign in to StudiumX",
+    "welcome": "Welcome to StudiumX",
+    "loginPrompt": "Sign in to sync your study plans, or continue in local mode.",
+    "signingIn": "Signing in…",
+    "signInWithWechat": "Sign in with WeChat",
+    "continueLocal": "Continue in local mode",
+    "termsHint": "Teaching assets always stay authoritative in your local workspace; sign-in is only for cross-device sync.",
+    "checking": "Checking sign-in status…",
+    "login": {
+      "opening": "Opening login window…"
+    }
+  },
+  "account": {
+    "title": "Account & sync",
+    "subtitle": "Sign in to StudiumX-Server to sync study plans (teaching assets always stay local-authoritative).",
+    "status": {
+      "loggedIn": "Signed in",
+      "local": "Local mode"
+    },
+    "badge": {
+      "online": "Signed in",
+      "local": "Local"
+    },
+    "wechat": {
+      "label": "WeChat sign-in",
+      "detail": "Scan to sign in to StudiumX-Server",
+      "signIn": "Sign in with WeChat QR"
+    },
+    "device": {
+      "label": "Device ID",
+      "detail": "Sync device identifier",
+      "none": "Not generated"
+    },
+    "login": {
+      "opening": "Fetching login link…",
+      "success": "Signed in",
+      "failed": "Sign-in failed",
+      "inProgress": "Signing in…"
+    },
+    "logout": {
+      "cleared": "Local sign-in cleared",
+      "done": "Signed out",
+      "error": "Sign-out error (local cleared)",
+      "label": "Sign out"
+    },
+    "sync": {
+      "enable": "Enable sync",
+      "enableDetail": "Sync only runs after you explicitly enable it",
+      "now": "Sync now",
+      "nowDetail": "Push the local study-plan snapshot to the server",
+      "enableFirst": "Enable sync first",
+      "openWorkspace": "Open a workspace first",
+      "readFailed": "Could not read local plan",
+      "failed": "Sync failed",
+      "done": "Sync complete",
+      "error": "Sync error"
     }
   }
 }

@@ -326,7 +326,7 @@ MCP / tool 返回成功       ≠ teaching evidence
 - 教学模式下始终可用；
 - 不可被普通卸载流程移除；
 - `teach` ID 保留，不允许 personal skill 静默覆盖；
-- UI 显示“教学内核已启用”，但不要求用户每次勾选。
+- 教学内核始终启用、不要求用户每次勾选；UI 不再常驻显示“教学内核已启用”chip（[ADR-0165](adr/0165-teaching-capability-trigger-surface-deferral.md)）。
 
 `/teach` 仍可保留为显式进入交互教师模式的命令，但其 Teaching Kernel 不再依赖复制到 personal root 后才可加载。
 
@@ -503,10 +503,9 @@ host-owned registry 是 authority；skill 自身文档只提供建议。
 
 ### 9.1 从“单 slash 命令”升级为“能力选择 + 计划预览”
 
-保留 `/skill-id` 作为快速入口，但 composer 应增加多选 chip：
+保留 `/skill-id` 作为快速入口，但 composer 应增加多选 chip（教学内核由应用注入、始终启用，不再常驻显示，见 [ADR-0165](adr/0165-teaching-capability-trigger-surface-deferral.md)）：
 
 ```text
-教学内核：Teach（始终启用）
 已选能力：Learning Assessor · Teaching Resource Generator
 ```
 

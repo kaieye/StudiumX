@@ -48,6 +48,11 @@ import {
   songKey
 } from './music/music-client'
 import './music/workbench-music-player.css'
+import {
+  STUDIUMX_LOCAL_TRACKS,
+  getStudiumxLocalTrackUrl,
+  isStudiumxLocalSong
+} from './music/studiumx-local-tracks'
 
 type PanelTab = 'player' | 'search' | 'library' | 'account'
 
@@ -117,31 +122,6 @@ const emptyProviderUi = () => ({
   libraryTitle: '歌单',
   statusText: ''
 })
-
-/** Built-in StudiumX playlists (local catalog — no external account). */
-const STUDIUMX_PLAYLISTS: MusicPlaylistSummary[] = [
-  {
-    provider: 'netease',
-    id: 'studiumx-focus',
-    name: '专注自习',
-    cover: '',
-    trackCount: 0
-  },
-  {
-    provider: 'netease',
-    id: 'studiumx-lofi',
-    name: 'Lo-fi 背景',
-    cover: '',
-    trackCount: 0
-  },
-  {
-    provider: 'netease',
-    id: 'studiumx-white-noise',
-    name: '白噪音',
-    cover: '',
-    trackCount: 0
-  }
-]
 
 function emptyAccount(provider: MusicProvider): MusicAccountStatus {
   return { provider, loggedIn: false, userId: null, nickname: '' }
@@ -249,7 +229,7 @@ export function WorkbenchMusicPlayer() {
     ? []
     : activeUi.searchResults.filter((song) => song.provider === provider)
   const playlists = isStudiumxSurface
-    ? STUDIUMX_PLAYLISTS
+    ? []
     : activeUi.playlists.filter((item) => item.provider === provider)
   const librarySongs = isStudiumxSurface
     ? []
@@ -469,18 +449,28 @@ export function WorkbenchMusicPlayer() {
     const audio = getMusicPlaybackAudio()
     audioRef.current = audio
     setBusy(true)
+    // StudiumX local tracks resolve to a bundled asset URL without crossing IPC
+    // to an external provider, so they must not leak status into provider UI.
     const report = (message: string): void => {
+      if (isStudiumxLocalSong(song)) return
       patchProviderUi(song.provider, { statusText: message })
     }
-    report('正在获取播放地址…')
     try {
-      const result = await musicGetPlaybackUrl(song)
-      if (!result.playable || !result.url) {
-        report(result.message || '无法播放该歌曲')
-        updateMusicPlaybackSnapshot({ wasPlaying: false })
-        return false
+      let url: string
+      const localUrl = getStudiumxLocalTrackUrl(song)
+      if (localUrl) {
+        url = localUrl
+      } else {
+        report('正在获取播放地址…')
+        const result = await musicGetPlaybackUrl(song)
+        if (!result.playable || !result.url) {
+          report(result.message || '无法播放该歌曲')
+          updateMusicPlaybackSnapshot({ wasPlaying: false })
+          return false
+        }
+        url = result.url
       }
-      audio.src = result.url
+      audio.src = url
       audio.load()
 
       const resumeAt = options.resumeAt ?? 0
@@ -814,7 +804,7 @@ export function WorkbenchMusicPlayer() {
     playbackMode === 'shuffle' ? Shuffle : playbackMode === 'loop' ? Repeat : ListMusic
   const collapsedMeta = useMemo(() => {
     if (currentSong) return currentSong.name
-    if (isStudiumxSurface) return 'StudiumX 歌单'
+    if (isStudiumxSurface) return 'StudiumX 本地音乐'
     if (activeAccount.loggedIn) return `${PROVIDER_LABEL[provider]} · 已登录`
     return '搜索 / 登录'
   }, [activeAccount.loggedIn, currentSong, isStudiumxSurface, provider])
@@ -862,127 +852,134 @@ export function WorkbenchMusicPlayer() {
               </div>
             </div>
 
+            <div className="workbench-music-now">
+              <div className="workbench-music-cover" aria-hidden="true">
+                <span className={`workbench-music-cover-disc${isPlaying ? ' is-playing' : ''}`}>
+                  {currentSong?.cover ? (
+                    <img src={currentSong.cover} alt="" />
+                  ) : (
+                    <Disc3 size={28} />
+                  )}
+                </span>
+              </div>
+              <div className="workbench-music-now-meta">
+                <div className="workbench-music-now-title-row">
+                  <strong>
+                    <MusicTitleMarquee title={currentSong?.name || '尚未播放'} />
+                  </strong>
+                  <div className="workbench-music-now-actions">
+                    <button
+                      type="button"
+                      className="workbench-music-now-action"
+                      onClick={() => {
+                        setPlaybackMode((mode) => {
+                          const index = playbackModeOrder.indexOf(mode)
+                          return playbackModeOrder[(index + 1) % playbackModeOrder.length]
+                        })
+                      }}
+                      aria-label={`播放模式：${playbackModeLabel[playbackMode]}，点击切换`}
+                      title={`播放模式：${playbackModeLabel[playbackMode]}`}
+                    >
+                      <PlaybackModeIcon size={15} />
+                    </button>
+                    <div ref={volumeControlRef} className="workbench-music-volume-control">
+                      <button
+                        type="button"
+                        className="workbench-music-now-action"
+                        onClick={() => setIsVolumeOpen((value) => !value)}
+                        aria-label="调节音量"
+                        aria-controls="workbench-music-volume-popover"
+                        aria-expanded={isVolumeOpen}
+                        title="调节音量"
+                      >
+                        {volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                      </button>
+                      {isVolumeOpen ? (
+                        <div
+                          id="workbench-music-volume-popover"
+                          className="workbench-music-volume-popover"
+                          role="dialog"
+                          aria-label="音量调节"
+                        >
+                          <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={volume}
+                            style={volumeStyle}
+                            className="workbench-music-volume-slider"
+                            aria-label="音量"
+                            onChange={(event) => setVolume(Number(event.target.value))}
+                          />
+                          <output className="workbench-music-volume-value" aria-live="polite">
+                            {Math.round(volume * 100)}%
+                          </output>
+                          <button
+                            type="button"
+                            className="workbench-music-mute-button"
+                            onClick={toggleMute}
+                            aria-label={volume === 0 ? '取消静音' : '静音'}
+                            title={volume === 0 ? '取消静音' : '静音'}
+                          >
+                            {volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                <small>
+                  {currentSong
+                    ? `${currentSong.artist}${currentSong.album ? ` · ${currentSong.album}` : ''}`
+                    : isStudiumxSurface
+                      ? '从下方选择 StudiumX 本地音乐'
+                      : '搜索歌曲，或登录后打开歌单'}
+                </small>
+              </div>
+            </div>
+
+            <div className="workbench-music-progress">
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.001}
+                value={progressRatio}
+                style={progressStyle}
+                aria-label="播放进度"
+                onChange={(event) => seekTo(Number(event.target.value))}
+              />
+              <div className="workbench-music-time">
+                <span>{formatMusicDuration(currentTime)}</span>
+                <span>{formatMusicDuration(duration)}</span>
+              </div>
+            </div>
+
             {isStudiumxSurface ? (
               <div className="workbench-music-studiumx">
-                <div className="workbench-music-section-title">StudiumX 歌单</div>
-                <div className="workbench-music-list" role="list" aria-label="StudiumX 歌单">
-                  {STUDIUMX_PLAYLISTS.map((playlist) => (
-                    <div
-                      key={`studiumx:${playlist.id}`}
-                      className="workbench-music-row workbench-music-row-static"
-                    >
-                      <span className="workbench-music-row-meta">
-                        <strong>{playlist.name}</strong>
-                        <small>StudiumX</small>
-                      </span>
-                    </div>
-                  ))}
+                <div className="workbench-music-section-title">StudiumX 本地音乐</div>
+                <div className="workbench-music-list workbench-music-list--fill" role="list" aria-label="StudiumX 本地音乐">
+                  {STUDIUMX_LOCAL_TRACKS.map((song, index) => {
+                    const isCurrent = currentSong ? songKey(currentSong) === songKey(song) : false
+                    return (
+                      <button
+                        key={songKey(song)}
+                        type="button"
+                        className={`workbench-music-row${isCurrent ? ' is-current' : ''}`}
+                        onClick={() => void playQueue(STUDIUMX_LOCAL_TRACKS, index)}
+                      >
+                        <span className="workbench-music-row-meta">
+                          <strong>{song.name}</strong>
+                          <small> · {song.artist}</small>
+                        </span>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ) : (
               <>
-              <div className="workbench-music-now">
-                <div className="workbench-music-cover" aria-hidden="true">
-                  <span className={`workbench-music-cover-disc${isPlaying ? ' is-playing' : ''}`}>
-                    {currentSong?.cover ? (
-                      <img src={currentSong.cover} alt="" />
-                    ) : (
-                      <Disc3 size={28} />
-                    )}
-                  </span>
-                </div>
-                <div className="workbench-music-now-meta">
-                  <div className="workbench-music-now-title-row">
-                    <strong>
-                      <MusicTitleMarquee title={currentSong?.name || '尚未播放'} />
-                    </strong>
-                    <div className="workbench-music-now-actions">
-                      <button
-                        type="button"
-                        className="workbench-music-now-action"
-                        onClick={() => {
-                          setPlaybackMode((mode) => {
-                            const index = playbackModeOrder.indexOf(mode)
-                            return playbackModeOrder[(index + 1) % playbackModeOrder.length]
-                          })
-                        }}
-                        aria-label={`播放模式：${playbackModeLabel[playbackMode]}，点击切换`}
-                        title={`播放模式：${playbackModeLabel[playbackMode]}`}
-                      >
-                        <PlaybackModeIcon size={15} />
-                      </button>
-                      <div ref={volumeControlRef} className="workbench-music-volume-control">
-                        <button
-                          type="button"
-                          className="workbench-music-now-action"
-                          onClick={() => setIsVolumeOpen((value) => !value)}
-                          aria-label="调节音量"
-                          aria-controls="workbench-music-volume-popover"
-                          aria-expanded={isVolumeOpen}
-                          title="调节音量"
-                        >
-                          {volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
-                        </button>
-                        {isVolumeOpen ? (
-                          <div
-                            id="workbench-music-volume-popover"
-                            className="workbench-music-volume-popover"
-                            role="dialog"
-                            aria-label="音量调节"
-                          >
-                            <input
-                              type="range"
-                              min={0}
-                              max={1}
-                              step={0.01}
-                              value={volume}
-                              style={volumeStyle}
-                              className="workbench-music-volume-slider"
-                              aria-label="音量"
-                              onChange={(event) => setVolume(Number(event.target.value))}
-                            />
-                            <output className="workbench-music-volume-value" aria-live="polite">
-                              {Math.round(volume * 100)}%
-                            </output>
-                            <button
-                              type="button"
-                              className="workbench-music-mute-button"
-                              onClick={toggleMute}
-                              aria-label={volume === 0 ? '取消静音' : '静音'}
-                              title={volume === 0 ? '取消静音' : '静音'}
-                            >
-                              {volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                  <small>
-                    {currentSong
-                      ? `${currentSong.artist}${currentSong.album ? ` · ${currentSong.album}` : ''}`
-                      : '搜索歌曲，或登录后打开歌单'}
-                  </small>
-                </div>
-              </div>
-
-              <div className="workbench-music-progress">
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.001}
-                  value={progressRatio}
-                  style={progressStyle}
-                  aria-label="播放进度"
-                  onChange={(event) => seekTo(Number(event.target.value))}
-                />
-                <div className="workbench-music-time">
-                  <span>{formatMusicDuration(currentTime)}</span>
-                  <span>{formatMusicDuration(duration)}</span>
-                </div>
-              </div>
-
               <div
                 className={`workbench-music-panel-rail${tab === 'search' ? ' is-search' : ''}`}
                 data-active-tab={tab}

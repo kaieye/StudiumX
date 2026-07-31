@@ -81,6 +81,9 @@ import { mergeComposerSkillIds, useSkillCapabilityPicker } from './skills/SkillC
 import { useTeachingComposerCommands } from './teaching/TeachingComposerCommandMenu'
 import { isForbiddenTechnicalComposerToken, parseTeachingCommandInput, resolveTeachingCommandSubmission } from '../../shared/teaching-command'
 import { SettingsView } from './views/settings/SettingsView'
+import { AuthGate } from './sync/AuthGate'
+import { useSyncState } from './sync/sync-store'
+import { useContinueLocal } from './sync/auth-gate-store'
 import {
   activeModelProvider,
   applySettingsSideEffects,
@@ -208,6 +211,11 @@ function App() {
   const { settings, sidebarCollapsed, setSidebarCollapsed } = useAppStore()
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth)
   const sidebarResizePolicy = resolveSidebarResizePolicy(sidebarCollapsed)
+  // Suppress the floating pet until the user is past the auth gate so it
+  // never overlays the login/splash screen.
+  const syncState = useSyncState()
+  const continueLocal = useContinueLocal()
+  const appAccessible = Boolean(syncState.accessToken) || continueLocal
 
   useEffect(() => {
     applySettingsSideEffects(settings)
@@ -224,14 +232,16 @@ function App() {
       <DesktopAppFrame
         chrome={chrome}
         density={settings.density}
-        floatingContent={<AppPet />}
+        floatingContent={appAccessible ? <AppPet /> : null}
         onSidebarToggle={() => setSidebarCollapsed(!useAppStore.getState().sidebarCollapsed)}
         sidebarCollapsed={sidebarCollapsed}
         sidebarWidth={sidebarWidth}
       >
-        <Sidebar />
-        <SidebarResizeHandle policy={sidebarResizePolicy} onResize={setSidebarWidth} width={sidebarWidth} />
-        <MainArea />
+        <AuthGate>
+          <Sidebar />
+          <SidebarResizeHandle policy={sidebarResizePolicy} onResize={setSidebarWidth} width={sidebarWidth} />
+          <MainArea />
+        </AuthGate>
       </DesktopAppFrame>
     </AppErrorBoundary>
   )
@@ -2036,7 +2046,9 @@ function OverviewLessonComposer({
           <div className="overview-dialog-footer">
             <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
-              {skillCapabilities.toggle}
+              {/* ADR-0165: teaching-intent & capability trigger withdrawn from the
+                  composer toolbar pending a suitable display surface. */}
+              {/* {skillCapabilities.toggle} */}
               <OverviewModelPicker />
               <OverviewReasoningPicker />
               <button className="send-button overview-dialog-send" type="submit" aria-label={t('lessons.send')} disabled={!canSend}>
@@ -2584,7 +2596,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           <div className="overview-dialog-footer">
             <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
-              {skillCapabilities.toggle}
+              {/* ADR-0165: teaching-intent & capability trigger withdrawn from the
+                  composer toolbar pending a suitable display surface. */}
+              {/* {skillCapabilities.toggle} */}
               <OverviewModelPicker />
               <OverviewReasoningPicker />
               <button

@@ -125,6 +125,7 @@ export function ModelProviderSettingsSection({
             />
           ) : (
             <SettingsSelect
+              position="item-aligned"
               value={
                 activeModelSettingsProvider.models.includes(settings.generator.model)
                   ? settings.generator.model
@@ -140,7 +141,7 @@ export function ModelProviderSettingsSection({
             />
           )}
         </SettingsRow>
-        <SettingsRow label={t('reasoning.title')} detail={t('reasoning.settingsDetail')}>
+        <SettingsRow label={t('reasoning.title')}>
           <SegmentedControl
             value={selectedReasoningEffort(settings)}
             options={reasoningEffortOptionsForSettings(settings).map((effort) => ({

@@ -13,7 +13,6 @@ export type SettingsSection =
   | 'mcp'
   | 'remote'
   | 'workspace'
-  | 'worktree'
   | 'memory'
   | 'notifications'
   | 'privacy'

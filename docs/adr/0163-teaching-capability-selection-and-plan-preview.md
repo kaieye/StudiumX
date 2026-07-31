@@ -31,6 +31,7 @@ IPC 命令与 gateway：
 - active/later/advisory/blocked/excluded 分组及理由；
 - dialog semantics、键盘 Escape、focus restore 与 live region；
 - picker 仅改变 capability selection，不授予工具权限，不绕过 effect lattice 或三态审批；personal/custom 文件可在资源面管理，但不自动进入正式教学链路。
+- **展示面限定（[ADR-0165](0165-teaching-capability-trigger-surface-deferral.md)）：** 显式「教学意图与能力设置」触发按钮已从两个 composer 工具栏注释下线，输入框上方「教学内核已启用」chip 已移除；picker 逻辑保留、slash 入口仍可用，本节其余 UX 行为由 `tests/unit/skill-capability-picker.unit.test.tsx` 经 harness 继续覆盖。
 
 ## 4. Builtin skill 治理
 
