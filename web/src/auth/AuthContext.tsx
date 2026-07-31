@@ -33,6 +33,7 @@ import {
 import {
   fetchMe,
   loginWithWeChatCode,
+  pollWeChatLoginChallenge,
   logoutServer,
   type AuthUser
 } from './auth-client'
@@ -48,6 +49,8 @@ export interface AuthState {
 export interface AuthContextValue extends AuthState {
   /** Exchange a WeChat `code` for a session and authenticate. */
   login: (code: string) => Promise<void>
+  /** Poll a server-owned WeChat QR challenge and authenticate. */
+  loginWithChallenge: (loginId: string) => Promise<void>
   /** End the server session (best-effort) and clear local tokens. */
   logout: () => Promise<void>
 }
@@ -90,6 +93,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ user: session.user, status: 'authenticated' })
   }, [])
 
+  const loginWithChallenge = useCallback(async (loginId: string): Promise<void> => {
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < 5 * 60 * 1000) {
+      const result = await pollWeChatLoginChallenge(loginId)
+      if ('accessToken' in result) {
+        setTokens(result.accessToken, result.refreshToken)
+        setState({ user: result.user, status: 'authenticated' })
+        return
+      }
+      if (result.status === 'expired') throw new Error('二维码已过期，请重新扫码。')
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 1500))
+    }
+    throw new Error('登录等待超时，请重新扫码。')
+  }, [])
+
   const logout = useCallback(async (): Promise<void> => {
     try {
       await logoutServer()
@@ -101,8 +119,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, login, logout }),
-    [state, login, logout]
+    () => ({ ...state, login, loginWithChallenge, logout }),
+    [state, login, loginWithChallenge, logout]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

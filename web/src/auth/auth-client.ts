@@ -33,6 +33,16 @@ export interface AuthSession {
   user: AuthUser
 }
 
+export interface WeChatLoginChallenge {
+  url: string
+  loginId: string
+  state: string
+}
+
+export type WeChatPollResult =
+  | { status: 'pending' | 'expired' }
+  | AuthSession
+
 /** Shape returned by GET /auth/me (id + deviceId from the access-token payload). */
 export interface MeResponse {
   user: { id: string; deviceId: string }
@@ -95,6 +105,21 @@ export async function loginWithWeChatCode(code: string): Promise<AuthSession> {
     method: 'POST',
     body: JSON.stringify({ code, platform: 'web' })
   })
+}
+
+/** Start the server-owned WeChat QR flow using its registered callback URL. */
+export async function createWeChatLoginChallenge(): Promise<WeChatLoginChallenge> {
+  return request<WeChatLoginChallenge>('/auth/wechat/login-url?client=web', {
+    method: 'GET'
+  })
+}
+
+/** Poll a server-owned QR challenge until it returns the browser session. */
+export async function pollWeChatLoginChallenge(loginId: string): Promise<WeChatPollResult> {
+  return request<WeChatPollResult>(
+    `/auth/desktop/poll?loginId=${encodeURIComponent(loginId)}`,
+    { method: 'GET' }
+  )
 }
 
 /**

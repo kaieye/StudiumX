@@ -1,0 +1,16 @@
+{
+  "name": "StudiumX Web",
+  "short_name": "StudiumX",
+  "start_url": "/app/",
+  "display": "standalone",
+  "background_color": "#f5f5f5",
+  "theme_color": "#171717",
+  "icons": [
+    {
+      "src": "/app/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

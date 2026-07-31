@@ -16,6 +16,10 @@ import tailwindcss from '@tailwindcss/vite'
  */
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
+  // Production is served beside the static landing page at /app/.
+  // Keeping this explicit makes asset URLs and client-side routes work after
+  // a direct visit or refresh at /app/study-room.
+  base: '/app/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
