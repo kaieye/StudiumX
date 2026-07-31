@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 
-const args = process.argv.slice(2)
+const args = process.argv.slice(2).filter((arg) => arg !== "--")
 const selectedPlatforms = collectFlagValues(args, '--platform').concat(
   args.includes('--mac') ? ['darwin'] : [],
   args.includes('--linux') ? ['linux'] : [],
@@ -59,7 +59,7 @@ function normalizePlatform(value) {
 }
 
 function run(command, commandArgs) {
-  const result = spawnSync(command, commandArgs, { stdio: 'inherit' })
+  const result = spawnSync(command, commandArgs, { stdio: 'inherit', shell: true })
   if (result.error) throw result.error
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
