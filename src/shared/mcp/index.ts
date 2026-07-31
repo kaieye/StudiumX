@@ -22,6 +22,8 @@ export * from './source-resolver'
 export * from './effective-view-public'
 // Phase G — plugin MCP declarations (ADR-0139)
 export * from './plugin-types'
-// Phase H — local marketplace catalog (ADR-0140)
+// Phase H - local marketplace catalog (ADR-0140)
 export * from './marketplace-types'
 export * from './marketplace-catalog'
+// System-default MCP servers (built-in, disabled by default)
+export * from './system-defaults'

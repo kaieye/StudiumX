@@ -102,6 +102,12 @@ export type McpSessionManagerOptions = {
    * Must never surface token material into runtime/public DTOs.
    */
   resolveAuthorizationHeader?: (server: UserMcpServerV1) => string | null
+  /**
+   * Main-only resolver for StudiumX user access token (for system-default
+   * servers marked with X-StudiumX-Auth: auto). Returns Bearer header value
+   * or null when no session is active.
+   */
+  resolveStudiumxAuthHeader?: () => string | null
   /** Secret-free OAuth public projection attached to runtime views. */
   getAuthorizationPublicState?: (
     serverId: string
@@ -573,6 +579,20 @@ export class McpSessionManager {
     }
 
     const headers = { ...headersResult.headers }
+
+    // System-default servers marked with X-StudiumX-Auth: auto get the user's
+    // StudiumX access token injected as a Bearer header. The marker is stripped.
+    const authMarkerKey = Object.keys(headers).find(
+      (k) => k.toLowerCase() === 'x-studiumx-auth'
+    )
+    if (authMarkerKey && headers[authMarkerKey] === 'auto') {
+      delete headers[authMarkerKey]
+      const studiumxAuth = this.options.resolveStudiumxAuthHeader?.() ?? null
+      if (studiumxAuth) {
+        headers.Authorization = studiumxAuth
+      }
+    }
+
     if (server.oauth && server.transport !== 'stdio') {
       // Fail closed when static Authorization coexists with OAuth config.
       if (Object.keys(headers).some((key) => key.toLowerCase() === 'authorization')) {

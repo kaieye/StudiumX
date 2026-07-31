@@ -104,6 +104,8 @@ export class McpHost {
   private lastWorkspaceRoot: string | null = null
   /** Last known marketplace emergency flag for secret-free Doctor aggregates. */
   private lastMarketplaceEmergencyDisabled: boolean | null = null
+  /** Current StudiumX user access token (set from renderer via IPC). */
+  private studiumxAccessToken: string | null = null
 
   constructor(options: McpHostOptions) {
     this.userDataPath = options.userDataPath
@@ -165,6 +167,7 @@ export class McpHost {
         // persistence, telemetry, or settlement authority.
         traceStore: createMcpTraceStore(),
         resolveAuthorizationHeader: (server) => this.resolveAuthorizationHeader(server),
+        resolveStudiumxAuthHeader: () => this.resolveStudiumxAuthHeader(),
         getAuthorizationPublicState: (serverId) => this.oauth.getPublicState(serverId)
       })
 
@@ -748,6 +751,23 @@ export class McpHost {
     if (!server.oauth || server.transport === 'stdio') return null
     const accessToken = this.oauth.resolveAccessToken(server.id)
     return accessToken ? `Bearer ${accessToken}` : null
+  }
+
+  /**
+   * Returns the current StudiumX user access token as a Bearer header value,
+   * or null when no session is active. Used by system-default MCP servers
+   * marked with X-StudiumX-Auth: auto.
+   */
+  private resolveStudiumxAuthHeader(): string | null {
+    return this.studiumxAccessToken ? `Bearer ${this.studiumxAccessToken}` : null
+  }
+
+  /**
+   * Set the current StudiumX user access token (called from renderer via IPC
+   * on login/refresh/logout). Passing null clears the token.
+   */
+  setStudiumxAccessToken(token: string | null): void {
+    this.studiumxAccessToken = token
   }
 
   private async loadEncryptedOAuthTokenIndex(): Promise<void> {

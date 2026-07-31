@@ -43,6 +43,11 @@ const DEFAULT_STATE: SyncState = {
 const listeners = new Set<() => void>()
 let state: SyncState = loadState()
 
+// Push persisted token to main process on startup (for system-default MCP auth).
+if (state.accessToken) {
+  queueMicrotask(pushAccessTokenToMain)
+}
+
 function generateDeviceId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
@@ -94,6 +99,17 @@ function setState(patch: Partial<SyncState>): void {
   listeners.forEach((listener) => listener())
 }
 
+/**
+ * Push the current access token to the main process for system-default MCP
+ * server authentication. Called on login, refresh, logout, and app startup.
+ */
+function pushAccessTokenToMain(): void {
+  const token = state.accessToken
+  // teachingSystem is exposed via preload; may be undefined in tests/SSR.
+  const api = (globalThis as { teachingSystem?: { mcpSetStudiumxAccessToken?: (token: string | null) => Promise<void> } }).teachingSystem
+  api?.mcpSetStudiumxAccessToken?.(token)?.catch?.(() => {})
+}
+
 export function getSyncState(): SyncState {
   return state
 }
@@ -119,10 +135,12 @@ export function setSyncAuth(auth: {
   user?: SyncAuthUser | null
 }): void {
   setState({ accessToken: auth.accessToken, refreshToken: auth.refreshToken, user: auth.user ?? null })
+  pushAccessTokenToMain()
 }
 
 export function clearSyncAuth(): void {
   setState({ accessToken: null, refreshToken: null, user: null })
+  pushAccessTokenToMain()
 }
 
 export function ensureDeviceId(): string {

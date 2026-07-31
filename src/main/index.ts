@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeTheme, protocol, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, protocol, safeStorage, shell } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TeachingSettingsService } from './teaching-settings'
@@ -8,6 +8,7 @@ import { LearningAnalyticsService } from './teaching/services/learning-analytics
 import { LocalDataIndex } from './local-data-index'
 import { TeachingMemoryCatalog } from './teaching-memory-catalog'
 import { registerTeachingIpcGateway } from './teaching-ipc-gateway'
+import { teachingInvokeChannels } from '../shared/teaching-ipc-contract'
 import { createTeachingTurnCoordinatorHost } from './teaching-turn-coordinator-host'
 import { registerMusicIpcGateway } from './music/music-ipc-gateway'
 import { McpHost, registerMcpIpcGateway } from './mcp'
@@ -261,6 +262,11 @@ if (!hasSingleInstanceLock) {
       }
     })
     await mcpHost.start()
+
+    // Renderer → main: push StudiumX user access token for system-default MCP auth.
+    ipcMain.handle(teachingInvokeChannels.mcpSetStudiumxAccessToken, (_event, token: string | null) => {
+      mcpHost?.setStudiumxAccessToken(token)
+    })
 
     // ADR-0135: fixed studiumx://mcp-oauth/callback only. No arbitrary deep-link routes.
     installMcpOAuthDeepLinkBridge({

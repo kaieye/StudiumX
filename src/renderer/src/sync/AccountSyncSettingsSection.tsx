@@ -24,6 +24,8 @@ import {
   clearSyncAuth,
   ensureDeviceId,
   getSyncAccessToken,
+  getSyncState,
+  setSyncAuth,
   useSyncState
 } from './sync-store'
 import {
@@ -43,6 +45,9 @@ export function AccountSyncSettingsSection() {
       createSyncApiClient({
         baseUrl: syncState.baseUrl,
         getAccessToken: getSyncAccessToken,
+        getRefreshToken: () => getSyncState().refreshToken,
+        onTokenRefreshed: (accessToken, refreshToken) =>
+          setSyncAuth({ accessToken, refreshToken, user: getSyncState().user }),
         onTokenExpired: clearSyncAuth
       }),
     [syncState.baseUrl]

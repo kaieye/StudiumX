@@ -8,6 +8,7 @@ import { join } from 'node:path'
 
 import { parseMcpImportText, type McpImportServerDraft } from '../../shared/mcp/import-export'
 import { resolveFilesystemInjectionDefaults } from '../../shared/mcp/filesystem-mcp-defaults'
+import { SYSTEM_DEFAULT_MCP_SERVERS } from '../../shared/mcp/system-defaults'
 import {
   resolveMcpConfigSources,
   userGateFromConfig,
@@ -134,10 +135,11 @@ export async function loadMcpSourceLayers(
     })
   }
 
-  if (options.systemServers && options.systemServers.length > 0) {
+  const systemServers = options.systemServers ?? SYSTEM_DEFAULT_MCP_SERVERS
+  if (systemServers.length > 0) {
     layers.push({
       origin: { kind: 'system', label: 'system' },
-      servers: options.systemServers
+      servers: systemServers
     })
   }
 

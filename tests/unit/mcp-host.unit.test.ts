@@ -69,7 +69,7 @@ describe('McpHost refreshServer', () => {
     expect(applyConfig).toHaveBeenCalled()
     const applied = applyConfig.mock.calls[0][0]
     expect(applied.enabled).toBe(config.enabled)
-    expect(applied.servers).toEqual(config.servers)
+    expect(applied.servers).toEqual(expect.arrayContaining(config.servers))
     expect(refreshServer).toHaveBeenCalledWith('demo-server', '/tmp/studiumx-workspace')
   })
 })

@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PetAppearanceId } from '../../../shared/teaching-types'
 import { createSyncApiClient, type SyncStudyRoomMember } from './sync-api-client'
-import { getSyncAccessToken, useSyncState } from './sync-store'
+import { clearSyncAuth, getSyncAccessToken, getSyncState, setSyncAuth, useSyncState } from './sync-store'
 
 export type StudyRoomPresenceState = {
   members: SyncStudyRoomMember[]
@@ -115,6 +115,10 @@ export function useStudyRoomPresence(
   const client = createSyncApiClient({
     baseUrl: syncState.baseUrl,
     getAccessToken: getSyncAccessToken,
+    getRefreshToken: () => getSyncState().refreshToken,
+    onTokenRefreshed: (accessToken, refreshToken) =>
+      setSyncAuth({ accessToken, refreshToken, user: getSyncState().user }),
+    onTokenExpired: clearSyncAuth
   })
 
   const refresh = useCallback(async () => {

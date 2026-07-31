@@ -184,7 +184,9 @@ const api: TeachingSystemApi = {
   mcpMarketplaceSetCatalogUrls: (payload) =>
     ipcRenderer.invoke(teachingInvokeChannels.mcpMarketplaceSetCatalogUrls, payload),
   mcpMarketplaceRefreshCatalog: () =>
-    ipcRenderer.invoke(teachingInvokeChannels.mcpMarketplaceRefreshCatalog)
+    ipcRenderer.invoke(teachingInvokeChannels.mcpMarketplaceRefreshCatalog),
+  mcpSetStudiumxAccessToken: (token) =>
+    ipcRenderer.invoke(teachingInvokeChannels.mcpSetStudiumxAccessToken, token)
 }
 
 const musicApi: StudiumxMusicApi = {

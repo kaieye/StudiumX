@@ -421,4 +421,6 @@ export type TeachingSystemApi = {
   mcpMarketplaceRefreshCatalog: () => Promise<
     import('../mcp/ipc-contract').McpMarketplaceRefreshCatalogResult
   >
+  /** Push StudiumX user access token to main for system-default MCP auth. */
+  mcpSetStudiumxAccessToken: (token: string | null) => Promise<void>
 }

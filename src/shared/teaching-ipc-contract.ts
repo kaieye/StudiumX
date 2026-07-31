@@ -128,7 +128,8 @@ export const teachingInvokeChannels = {
   mcpMarketplaceInstall: 'teach:mcp-marketplace-install',
   mcpMarketplaceUninstall: 'teach:mcp-marketplace-uninstall',
   mcpMarketplaceSetCatalogUrls: 'teach:mcp-marketplace-set-catalog-urls',
-  mcpMarketplaceRefreshCatalog: 'teach:mcp-marketplace-refresh-catalog'
+  mcpMarketplaceRefreshCatalog: 'teach:mcp-marketplace-refresh-catalog',
+  mcpSetStudiumxAccessToken: 'mcp:set-studiumx-access-token'
 } satisfies Record<TeachingInvokeCapability, string>
 
 export const teachingEventChannels = {

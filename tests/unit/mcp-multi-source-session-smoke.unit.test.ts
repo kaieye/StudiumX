@@ -66,7 +66,7 @@ describe('MCP multi-source + session smoke (no catalog)', () => {
         autoConnect: true,
         servers: [server('user_tool')]
       }
-      const view = await resolveEffectiveMcpConfig(userConfig, { workspaceRoot: root })
+      const view = await resolveEffectiveMcpConfig(userConfig, { workspaceRoot: root, systemServers: [] })
       const shape = effectiveViewToUserConfigShape(view)
       expect(shape.servers.map((s) => s.id).sort()).toEqual(['user_tool', 'ws_tool'])
 

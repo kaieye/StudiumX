@@ -2,7 +2,8 @@
  * Thin fetch-based sync API client for StudiumX-Server.
  *
  * User-initiated + login-gated only; no default remote telemetry.
- * Bearer auth header; 401 -> onTokenExpired callback (clears local auth).
+ * Bearer auth header; on 401 the client transparently rotates the refresh
+ * token and retries the request once before clearing local auth.
  * Never writes to local teaching authority — uploads/archives only.
  */
 
@@ -150,6 +151,8 @@ export type SyncStudyRoomAssignAndJoinBody = Omit<SyncStudyRoomJoinBody, 'roomId
 export type SyncApiClientOptions = {
   baseUrl?: string
   getAccessToken?: () => string | null
+  getRefreshToken?: () => string | null
+  onTokenRefreshed?: (accessToken: string, refreshToken: string) => void
   onTokenExpired?: () => void
 }
 
@@ -232,7 +235,6 @@ type RequestOptions = {
   query?: Record<string, string | undefined>
   nullOnStatus?: number[]
   getAccessToken?: () => string | null
-  onTokenExpired?: () => void
 }
 
 async function request(baseUrl: string, method: string, path: string, opts: RequestOptions): Promise<unknown> {
@@ -254,7 +256,6 @@ async function request(baseUrl: string, method: string, path: string, opts: Requ
     throw new SyncApiError(0, null, err instanceof Error ? err.message : 'network error')
   }
   if (res.status === 401 && opts.auth) {
-    opts.onTokenExpired?.()
     const body = await parseBody(res)
     throw new SyncUnauthorizedError(body)
   }
@@ -269,15 +270,58 @@ async function request(baseUrl: string, method: string, path: string, opts: Requ
 export function createSyncApiClient(options: SyncApiClientOptions = {}): SyncApiClient {
   const baseUrl = options.baseUrl?.trim() || resolveDefaultSyncApiBase()
   const getAccessToken = options.getAccessToken ?? (() => null)
+  const getRefreshToken = options.getRefreshToken
+  const onTokenRefreshed = options.onTokenRefreshed
   const onTokenExpired = options.onTokenExpired
 
-  const authed = (
+  // Shared refresh lock – concurrent 401s share a single refresh attempt so
+  // that a burst of heartbeats doesn't fire N simultaneous /auth/refresh calls.
+  let refreshInFlight: Promise<{ accessToken: string; refreshToken: string } | null> | null = null
+
+  async function tryRefresh(): Promise<{ accessToken: string; refreshToken: string } | null> {
+    if (refreshInFlight) return refreshInFlight
+    const refreshToken = getRefreshToken?.() ?? null
+    if (!refreshToken) return null
+    refreshInFlight = (async () => {
+      try {
+        const raw = await request(baseUrl, 'POST', '/auth/refresh', { body: { refreshToken } })
+        const typed = raw as { accessToken: string; refreshToken: string }
+        onTokenRefreshed?.(typed.accessToken, typed.refreshToken)
+        return typed
+      } catch {
+        return null
+      } finally {
+        refreshInFlight = null
+      }
+    })()
+    return refreshInFlight
+  }
+
+  const authed = async (
     method: string,
     path: string,
     body?: unknown,
     query?: Record<string, string | undefined>,
     nullOnStatus?: number[]
-  ): Promise<unknown> => request(baseUrl, method, path, { body, auth: true, query, nullOnStatus, getAccessToken, onTokenExpired })
+  ): Promise<unknown> => {
+    try {
+      return await request(baseUrl, method, path, { body, auth: true, query, nullOnStatus, getAccessToken })
+    } catch (err) {
+      if (!(err instanceof SyncUnauthorizedError)) throw err
+      // 401 – try to rotate the refresh token and retry once.
+      const refreshed = await tryRefresh()
+      if (!refreshed) {
+        onTokenExpired?.()
+        throw err
+      }
+      try {
+        return await request(baseUrl, method, path, { body, auth: true, query, nullOnStatus, getAccessToken })
+      } catch (retryErr) {
+        if (retryErr instanceof SyncUnauthorizedError) onTokenExpired?.()
+        throw retryErr
+      }
+    }
+  }
 
   const anon = (method: string, path: string, body?: unknown): Promise<unknown> =>
     request(baseUrl, method, path, { body })
