@@ -16,6 +16,7 @@ export type WechatQrLoginResult =
 export type WechatQrLoginChallenge = {
   url: string
   loginId: string
+  state: string
 }
 
 export type WechatQrLoginChallengeResult =
@@ -38,6 +39,7 @@ export async function requestWechatQrLoginChallenge(
       challenge: {
         url: response.url,
         loginId: response.loginId,
+        state: response.state,
       },
     }
   } catch (err) {

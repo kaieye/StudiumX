@@ -1,12 +1,12 @@
 /**
  * Full-screen login interface.
  *
- * The server supplies a one-time WeChat URL. This screen encodes it as a QR
- * code directly in the login card and polls the associated loginId, so signing
- * in does not hand the user off to the system browser.
+ * The official WeChat login widget renders the QR challenge in this card. We
+ * must not re-encode the server's qrconnect URL with a generic QR library: the
+ * phone confirmation flow belongs to WeChat's widget. The desktop client only
+ * polls the associated loginId and stores the server-issued session.
  */
 
-import QRCode from 'qrcode'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import appIconRounded from '../assets/auth/app-icon-rounded.png'
@@ -21,17 +21,22 @@ import {
 } from './sync-store'
 import {
   pollWechatQrLogin,
-  requestWechatQrLoginChallenge
+  requestWechatQrLoginChallenge,
+  type WechatQrLoginChallenge
 } from './wechat-qr-login'
+import { preloadWechatLoginSdk, WechatLoginWidget } from './WechatLoginWidget'
 
 export function LoginScreen() {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [challenge, setChallenge] = useState<WechatQrLoginChallenge | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  useEffect(() => () => abortRef.current?.abort(), [])
+  useEffect(() => {
+    preloadWechatLoginSdk()
+    return () => abortRef.current?.abort()
+  }, [])
 
   const handleWechatLogin = useCallback(async () => {
     abortRef.current?.abort()
@@ -39,6 +44,7 @@ export function LoginScreen() {
     abortRef.current = controller
     setBusy(true)
     setError(null)
+    setChallenge(null)
 
     try {
       ensureDeviceId()
@@ -48,24 +54,19 @@ export function LoginScreen() {
         onTokenExpired: clearSyncAuth
       })
       const challengeResult = await requestWechatQrLoginChallenge(client)
+      if (controller.signal.aborted) return
       if (!challengeResult.ok) {
         setError(challengeResult.error)
         return
       }
 
-      const dataUrl = await QRCode.toDataURL(challengeResult.challenge.url, {
-        margin: 1,
-        width: 256,
-        color: { dark: '#182033', light: '#ffffff' },
-        errorCorrectionLevel: 'M'
-      })
-      if (controller.signal.aborted) return
-
-      setQrDataUrl(dataUrl)
+      // The widget renders WeChat's own QR challenge in this card. Do not turn
+      // challenge.url into a second, generic QR code.
+      setChallenge(challengeResult.challenge)
+      // Polling continues in the background. Re-enable the controls so a
+      // user can refresh an expired QR or cancel while waiting for WeChat.
       setBusy(false)
 
-      // The login card deliberately has no polling status UI: the QR remains
-      // stable while the server waits for the mobile authorization.
       const result = await pollWechatQrLogin(
         client,
         challengeResult.challenge.loginId,
@@ -83,10 +84,11 @@ export function LoginScreen() {
         return
       }
 
-      setQrDataUrl(null)
+      setChallenge(null)
       setError(result.error)
     } catch (err) {
       if (!controller.signal.aborted) {
+        setChallenge(null)
         setError(err instanceof Error ? err.message : String(err))
       }
     } finally {
@@ -95,13 +97,19 @@ export function LoginScreen() {
         abortRef.current = null
       }
     }
-  }, [])
+  }, [t])
 
   const handleCancel = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
     setBusy(false)
-    setQrDataUrl(null)
+    setChallenge(null)
+  }, [])
+
+  const handleWidgetError = useCallback((message: string) => {
+    setChallenge(null)
+    setError(message)
+    abortRef.current?.abort()
   }, [])
 
   return (
@@ -120,16 +128,9 @@ export function LoginScreen() {
         )}
 
         <div className="auth-screen-login-stage">
-          {qrDataUrl ? (
+          {challenge ? (
             <div className="auth-screen-qr">
-              <img
-                className="auth-screen-qr-image"
-                src={qrDataUrl}
-                alt={t('auth.login.qrAlt', { defaultValue: '微信登录二维码' })}
-              />
-              <p className="auth-screen-qr-hint">
-                {t('auth.login.qrHint', { defaultValue: '请使用微信扫一扫，确认后将自动登录。' })}
-              </p>
+              <WechatLoginWidget challenge={challenge} onError={handleWidgetError} />
             </div>
           ) : (
             <img
@@ -141,7 +142,7 @@ export function LoginScreen() {
           )}
         </div>
 
-        {qrDataUrl ? (
+        {challenge ? (
           <div className="auth-screen-actions auth-screen-actions--inline">
             <button
               type="button"

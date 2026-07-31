@@ -17,6 +17,7 @@
   align-items: center;
   justify-content: center;
   padding: var(--space-xl);
+  overflow: auto;
   background:
     radial-gradient(120% 120% at 50% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
     var(--surface-subtle);
@@ -295,6 +296,30 @@
   color: var(--text-muted);
 }
 
+.auth-screen-wechat-widget {
+  position: relative;
+  width: 256px;
+  height: 256px;
+  /* The official frame includes title/helper copy above and below the QR.
+     Keep a generous frame around the central 200px QR so its quiet zone is
+     never clipped while the host card remains compact. */
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.auth-screen-wechat-widget iframe {
+  position: absolute;
+  /* The live WxLogin frame places the QR lower than its nominal layout. Shift
+     it up slightly so the bottom finder patterns and quiet zone stay visible. */
+  top: -58px;
+  left: -22px;
+  width: 300px;
+  height: 400px;
+  border: 0;
+}
+
 /* Keep the in-card QR state and the initial login state the same size. */
 .auth-screen-card {
   min-height: 430px;
@@ -304,10 +329,10 @@
 
 .auth-screen-login-stage {
   display: flex;
-  flex: 0 0 248px;
+  flex: 0 0 276px;
   align-items: center;
   justify-content: center;
-  height: 248px;
+  height: 276px;
 }
 
 .auth-screen-app-icon {
