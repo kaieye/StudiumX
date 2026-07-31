@@ -8,7 +8,7 @@
 
 import type { StudyPlanningSnapshotV1 } from '../../../shared/study-planning/study-planning-store'
 
-const DEFAULT_SYNC_API_BASE = 'http://localhost:3000'
+const DEFAULT_SYNC_API_BASE = 'https://api.studiumx.cn'
 
 export function resolveDefaultSyncApiBase(): string {
   const raw = import.meta.env.STUDIUMX_SYNC_API_BASE
