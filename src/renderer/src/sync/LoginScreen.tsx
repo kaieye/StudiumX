@@ -25,9 +25,14 @@ import {
   type WechatQrLoginChallenge
 } from './wechat-qr-login'
 import { preloadWechatLoginSdk, WechatLoginWidget } from './WechatLoginWidget'
+import { useAppStore } from '../app-shell/appStore'
+
+const PRIVACY_POLICY_URL = 'https://studiumx.cn/privacy.html'
+const TERMS_OF_SERVICE_URL = 'https://studiumx.cn/terms.html'
 
 export function LoginScreen() {
   const { t } = useTranslation()
+  const openExternal = useAppStore((state) => state.openExternal)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [challenge, setChallenge] = useState<WechatQrLoginChallenge | null>(null)
@@ -180,9 +185,34 @@ export function LoginScreen() {
         )}
 
         <p className="auth-screen-footer">
-          {t('auth.termsHint', {
-            defaultValue: '登录后即可使用学习计划与 StudiumX 的全部功能。'
+          {t('auth.termsAgreementPrefix', {
+            defaultValue: '登录即代表您同意并遵守'
           })}
+          <a
+            className="auth-screen-footer-link"
+            href={PRIVACY_POLICY_URL}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => {
+              event.preventDefault()
+              void openExternal(PRIVACY_POLICY_URL)
+            }}
+          >
+            {t('auth.privacyPolicy', { defaultValue: '《隐私协议》' })}
+          </a>
+          {t('auth.termsAgreementJoin', { defaultValue: '和' })}
+          <a
+            className="auth-screen-footer-link"
+            href={TERMS_OF_SERVICE_URL}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => {
+              event.preventDefault()
+              void openExternal(TERMS_OF_SERVICE_URL)
+            }}
+          >
+            {t('auth.userServiceAgreement', { defaultValue: '《用户服务协议》' })}
+          </a>
         </p>
       </div>
     </div>

@@ -1744,7 +1744,10 @@
     "loginPrompt": "请先登录，然后开始使用 StudiumX。",
     "signingIn": "登录中…",
     "signInWithWechat": "微信扫码登录",
-    "termsHint": "登录后即可使用学习计划与 StudiumX 的全部功能。",
+    "termsAgreementPrefix": "登录即代表您同意并遵守",
+    "privacyPolicy": "《隐私协议》",
+    "termsAgreementJoin": "和",
+    "userServiceAgreement": "《用户服务协议》",
     "checking": "正在检查登录状态…",
     "login": {
       "opening": "正在打开系统浏览器…"

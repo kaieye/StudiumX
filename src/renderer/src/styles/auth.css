@@ -185,6 +185,17 @@
   color: var(--text-soft);
 }
 
+.auth-screen-footer-link {
+  color: var(--accent);
+  font-weight: 550;
+  text-decoration: none;
+  transition: color 0.18s ease, text-decoration 0.18s ease;
+}
+
+.auth-screen-footer-link:hover {
+  text-decoration: underline;
+}
+
 /* ---- Account card (settings > account) ---- */
 
 .account-card {

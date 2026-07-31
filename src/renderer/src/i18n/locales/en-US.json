@@ -1744,7 +1744,10 @@
     "loginPrompt": "Sign in before using StudiumX.",
     "signingIn": "Signing in…",
     "signInWithWechat": "Sign in with WeChat",
-    "termsHint": "Sign in to use study plans and all StudiumX features.",
+    "termsAgreementPrefix": "By signing in, you agree to and accept the ",
+    "privacyPolicy": "Privacy Policy",
+    "termsAgreementJoin": " and ",
+    "userServiceAgreement": "Terms of Service",
     "checking": "Checking sign-in status…",
     "login": {
       "opening": "Opening your browser…"
