@@ -302,7 +302,43 @@
   background: color-mix(in srgb, var(--accent) 12%, var(--surface-solid));
 }
 .web-desktop-download-notice__copy {
+  flex: 1 1 auto;
   min-width: 0;
+}
+.web-desktop-download-notice__action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  align-self: center;
+  min-height: 32px;
+  padding: 7px 10px;
+  color: var(--accent-ink, var(--accent));
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
+  border-radius: 9px;
+  background: var(--surface-solid);
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+.web-desktop-download-notice__action:hover {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-solid));
+}
+.web-desktop-download-notice__action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+.web-desktop-download-notice__action:active {
+  transform: translateY(1px);
+}
+.web-desktop-download-notice__action[aria-busy='true'] {
+  cursor: progress;
+  opacity: 0.72;
 }
 .web-desktop-download-notice__copy strong {
   display: block;
@@ -326,5 +362,8 @@
     width: 100%;
     margin-top: 10px;
     padding: 10px 12px;
+  }
+  .web-desktop-download-notice__action {
+    width: 100%;
   }
 }

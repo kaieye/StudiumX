@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="build/icon.png" alt="StudiumX" width="96" height="96" />
+  <img src="docs/images/studiumx-icon-rounded.png" alt="StudiumX" width="96" height="96" />
 </p>
 
 <h1 align="center">StudiumX</h1>
@@ -14,6 +14,16 @@
   <img src="https://img.shields.io/badge/SQLite-3-0f7a8c" alt="SQLite" />
   <img src="https://img.shields.io/badge/Node.js-22%2B-339933" alt="Node.js" />
   <img src="https://img.shields.io/badge/License-AGPL--3.0-0f766e" alt="AGPL-3.0" />
+</p>
+
+<p align="center">
+  <img src="docs/images/ai-teaching-conversation.png" alt="StudiumX 的 AI 教学对话与学习诊断界面" width="48%" />
+  <img src="docs/images/lesson-handout.png" alt="StudiumX 生成的课程讲义界面" width="48%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/study-room.png" alt="StudiumX 自习室与专注计时界面" width="48%" />
+  <img src="docs/images/learning-analytics.png" alt="StudiumX 学习分析界面" width="48%" />
 </p>
 
 StudiumX 是一个以**学习工作区**为中心的桌面应用。它将 AI 辅助教学、学习计划、专注任务、资源库和学习分析放入同一个本地工作流；学习目标、课程讲义、可信资源与学习记录保存在你自己的工作区中，而不是被普通聊天记录替代。
@@ -171,6 +181,10 @@ pnpm run check:teaching-evidence
 - [`docs/tools/TOOL_CONTRACT.md`](docs/tools/TOOL_CONTRACT.md) — 工具 effect、审批与写入契约
 - [`studiumx-settings.example.json`](studiumx-settings.example.json) — 不含密钥的设置文件示例
 - [`docs/desktop-release.md`](docs/desktop-release.md) — 桌面端发布说明
+
+## 社区
+
+本开源项目已链接并感谢 [LINUX DO 社区](https://linux.do) 的支持与交流。
 
 ## 许可证
 
