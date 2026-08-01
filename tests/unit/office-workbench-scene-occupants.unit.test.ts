@@ -127,7 +127,7 @@ describe('buildOfficeSceneOccupants', () => {
     expect(occupants.get('desk-2')?.name).toBe('小明')
   })
 
-  it('does not draw self when its seat is in conflict', () => {
+  it('draws self from the authoritative server roster even when a stale relay claim conflicts', () => {
     const roster = [serverMember('u-1', '我', true)]
 
     const occupants = buildOfficeSceneOccupants({
@@ -140,6 +140,7 @@ describe('buildOfficeSceneOccupants', () => {
       seatCount
     })
 
-    expect(occupants.size).toBe(0)
+    expect(occupants.size).toBe(1)
+    expect(occupants.get('desk-1')).toEqual(selfOccupant)
   })
 })

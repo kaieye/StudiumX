@@ -202,7 +202,8 @@ export function buildOfficeSceneOccupants(
   } = input
   const occupantsByDeskId = new Map<DeskId, OfficeSceneSeatOccupant>()
 
-  if (!userSeatConflict && workbenchUserSeatIndex >= 0) {
+  const serverRosterConfirmsSelf = serverRosterAvailable && leaderboardMembers.some((member) => member.isSelf)
+  if ((!userSeatConflict || serverRosterConfirmsSelf) && workbenchUserSeatIndex >= 0) {
     occupantsByDeskId.set(deskIdForSeatIndex(workbenchUserSeatIndex), self)
   }
 

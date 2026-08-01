@@ -42,9 +42,9 @@ export type WeChatPollResult =
   | { status: 'pending' | 'expired' }
   | AuthSession
 
-/** Shape returned by GET /auth/me (id + deviceId from the access-token payload). */
+/** Shape returned by GET /auth/me (public profile + device id from the access-token payload). */
 export interface MeResponse {
-  user: { id: string; deviceId: string }
+  user: AuthUser & { deviceId: string }
 }
 
 /**

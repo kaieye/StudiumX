@@ -77,6 +77,9 @@ export function useStudyRoomPresence(
   const [members, setMembers] = useState<SyncStudyRoomMember[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Joining is asynchronous. Keep the completed room in React state so the
+  // heartbeat/poll effect re-runs after a successful join.
+  const [joinedRoomId, setJoinedRoomId] = useState<string | null>(null)
   const joinedRef = useRef<string | null>(null)
   const focusRef = useRef(focusSecondsToday)
   focusRef.current = focusSecondsToday
@@ -201,6 +204,7 @@ export function useStudyRoomPresence(
               return
             }
             joinedRef.current = room
+            setJoinedRoomId(room)
             await refresh()
             return
           }
@@ -217,6 +221,7 @@ export function useStudyRoomPresence(
         })
         if (cancelled) return
         joinedRef.current = room
+        setJoinedRoomId(room)
         await refresh()
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err))
@@ -229,6 +234,7 @@ export function useStudyRoomPresence(
       cancelled = true
       if (joinedRef.current === room) {
         joinedRef.current = null
+        setJoinedRoomId((joinedRoom) => joinedRoom === room ? null : joinedRoom)
         void client.studyRoomLeave(room).catch(() => {})
       }
     }
@@ -248,7 +254,7 @@ export function useStudyRoomPresence(
 
   // Heartbeat + poll loop.
   useEffect(() => {
-    if (!active || !roomId || !joinedRef.current) return
+    if (!active || !roomId || joinedRoomId !== roomId) return
     const hb = () => {
       void client
         .studyRoomHeartbeat({
@@ -268,7 +274,7 @@ export function useStudyRoomPresence(
       clearInterval(pollTimer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, roomId, syncState.accessToken, syncState.baseUrl])
+  }, [active, roomId, joinedRoomId, syncState.accessToken, syncState.baseUrl])
 
   return { members, loading, error, refresh, joinExistingRoom, assignAndJoinRoom }
 }

@@ -92,12 +92,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const accessToken = getAccessToken()
         const refreshToken = getRefreshToken()
         if (accessToken && refreshToken) {
-          setSyncAuth({ accessToken, refreshToken, user: { id: me.user.id } })
+          setSyncAuth({
+            accessToken,
+            refreshToken,
+            user: {
+              id: me.user.id,
+              nickname: me.user.nickname ?? undefined,
+              avatarUrl: me.user.avatarUrl ?? undefined,
+            },
+          })
         }
-        setState({
-          user: { id: me.user.id, nickname: null, avatarUrl: null },
-          status: 'authenticated'
-        })
+        setState({ user: me.user, status: 'authenticated' })
       } catch {
         if (cancelled) return
         clearTokens()
