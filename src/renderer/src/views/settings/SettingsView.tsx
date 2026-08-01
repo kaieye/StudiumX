@@ -153,7 +153,9 @@ export function SettingsView({
   const [checkingForUpdates, setCheckingForUpdates] = useState(false)
 
   useEffect(() => {
-    if (section !== 'about') return
+    // The updater is desktop-only: the Web adapter exposes a throwing stub for
+    // getAppVersion, so skip the version fetch when hosted by the browser shell.
+    if (section !== 'about' || window.teachingSystem?.platform === 'web') return
     let cancelled = false
     const getAppVersion = window.teachingSystem?.getAppVersion
     if (!getAppVersion) return

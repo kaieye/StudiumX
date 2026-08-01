@@ -170,6 +170,10 @@ function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
  * does not provide an updater).
  */
 function requestAppUpdateCheck(): Promise<void> {
+  // The updater is desktop-only. On Web the adapter exposes a throwing stub
+  // for checkForAppUpdates, so no-op here instead of rejecting with a
+  // WebNotSupportedError from a user-initiated click.
+  if (window.teachingSystem?.platform === 'web') return Promise.resolve()
   try {
     const checkForAppUpdates = window.teachingSystem?.checkForAppUpdates
     return checkForAppUpdates ? checkForAppUpdates() : Promise.resolve()
@@ -331,6 +335,8 @@ function Sidebar() {
   }, [syncState.user?.avatarUrl])
 
   const openUpdateDialog = useCallback((): void => {
+    // Updater is desktop-only; the Web adapter's stub would throw.
+    if (window.teachingSystem?.platform === 'web') return
     void window.teachingSystem?.openAppUpdateDialog?.()
   }, [])
 

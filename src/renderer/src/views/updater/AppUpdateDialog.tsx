@@ -18,7 +18,15 @@ export function AppUpdateDialog() {
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const autoDismissTimer = useRef<number | null>(null)
 
+  // The Web adapter deliberately exposes desktop-only updater methods as
+  // throwing stubs, so the `if (!api?.onAppUpdateEvent)` guard alone is not
+  // enough: subscribing on Web would throw and tear down the shared renderer
+  // UI via the error boundary. The updater is a desktop-only surface; skip it
+  // entirely when hosted by the browser shell.
+  const isWeb = typeof window !== 'undefined' && window.teachingSystem?.platform === 'web'
+
   useEffect(() => {
+    if (isWeb) return
     const api = window.teachingSystem
     if (!api?.onAppUpdateEvent) return
     const unsubscribe = api.onAppUpdateEvent((next) => {
@@ -39,10 +47,11 @@ export function AppUpdateDialog() {
       unsubscribe()
       if (autoDismissTimer.current !== null) window.clearTimeout(autoDismissTimer.current)
     }
-  }, [])
+  }, [isWeb])
 
   // Current installed version, shown in the dialog's check-for-updates menu.
   useEffect(() => {
+    if (isWeb) return
     const getAppVersion = window.teachingSystem?.getAppVersion
     if (!getAppVersion) return
     let cancelled = false
@@ -54,9 +63,10 @@ export function AppUpdateDialog() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isWeb])
 
   const act = (action: AppUpdateAction): void => {
+    if (isWeb) return
     void window.teachingSystem?.appUpdateAction(action).catch(() => {})
   }
 
@@ -72,7 +82,7 @@ export function AppUpdateDialog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state])
 
-  if (!state) return null
+  if (!state || isWeb) return null
 
   const dismissible = state.kind !== 'checking'
   const version = state.kind === 'available' || state.kind === 'downloading' || state.kind === 'downloaded' ? state.version : ''
