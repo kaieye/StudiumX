@@ -456,9 +456,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     studyRoomPresence.members,
     syncState.user?.nickname
   )
-  // Analytics sync (opt-in "学习分析同步"): uploads the today summary and
-  // polls everyone on the server with same-day focus records for the
-  // 专注超越 percentile card.
   const todayAnalytics = useTodayAnalyticsSync({
     focusSecondsToday: snapshot.todayFocusSeconds,
     todaySessions: snapshot.todaySessions
@@ -976,8 +973,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           presenceSnapshot={buildLivePresenceSnapshot({
             spaceCode: snapshot.spaceCode,
             myFocusSecondsToday: snapshot.todayFocusSeconds,
-            // Server already excludes the requester; the userId check is a
-            // cheap defense if that ever changes.
             members: todayAnalytics.peers.map((peer) => ({
               focusSecondsToday: peer.focusSeconds,
               isSelf: peer.userId === syncState.user?.id

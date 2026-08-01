@@ -17,8 +17,7 @@ import { useAppStore } from '../app-shell/appStore'
 import {
   SettingsCard,
   SettingsPanel,
-  SettingsRow,
-  ToggleSwitch
+  SettingsRow
 } from '../views/settings/SettingsPrimitives'
 import { createSyncApiClient } from './sync-api-client'
 import {
@@ -26,11 +25,9 @@ import {
   ensureDeviceId,
   getSyncAccessToken,
   getSyncState,
-  setAnalyticsSyncEnabled,
   setSyncAuth,
   useSyncState
 } from './sync-store'
-import { useAnalyticsUploadBlocked } from './today-analytics-sync'
 import {
   createStudyPlanningSyncBridge,
   readLocalStudyPlanningSnapshot
@@ -130,7 +127,6 @@ export function AccountSyncSettingsSection() {
   }, [apiClient, workspaceRoot, t])
 
   const loggedIn = Boolean(syncState.accessToken)
-  const uploadBlocked = useAnalyticsUploadBlocked()
   const displayName =
     syncState.user?.nickname || syncState.user?.id || t('account.status.loggedIn', { defaultValue: '已登录' })
   const localName = t('account.status.local', { defaultValue: '本地模式' })
@@ -192,27 +188,6 @@ export function AccountSyncSettingsSection() {
         >
           <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{deviceLabel}</span>
         </SettingsRow>
-
-        <SettingsRow
-          label={t('account.analyticsSync.label', { defaultValue: '学习分析同步' })}
-          detail={t('account.analyticsSync.detail', {
-            defaultValue: '上传今日专注数据并参与全平台专注超越对比'
-          })}
-        >
-          <ToggleSwitch
-            checked={syncState.analyticsSyncEnabled === true}
-            disabled={!loggedIn}
-            ariaLabel={t('account.analyticsSync.label', { defaultValue: '学习分析同步' })}
-            onChange={setAnalyticsSyncEnabled}
-          />
-        </SettingsRow>
-        {uploadBlocked && syncState.analyticsSyncEnabled === true ? (
-          <div className="settings-card-feedback" role="status" aria-live="polite">
-            {t('account.analyticsSync.uploadBlocked', {
-              defaultValue: '服务端未开启上传，已暂停学习分析同步'
-            })}
-          </div>
-        ) : null}
 
         <SettingsRow
           label={t('account.sync.now', { defaultValue: '立即同步' })}

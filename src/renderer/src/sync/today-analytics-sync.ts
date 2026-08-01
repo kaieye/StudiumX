@@ -1,13 +1,11 @@
 /**
  * Same-day analytics sync (MASTER_PLAN §5.4 "学习分析同步").
  *
- * While the user has explicitly enabled analytics sync, the desktop uploads
- * its derived `today` summary (focusSeconds / sessions / planned 0 — task-plan
- * history is not reconstructable) every 60s and polls the peers-today
- * leaderboard: everyone on the server with a fresh same-day focus record,
- * excluding the requester. Uploads are gated server-side; a 403 stops the
- * upload loop (surfaced via {@link useAnalyticsUploadBlocked}) while the
- * read-only peer poll keeps running.
+ * Once authenticated, the desktop uploads its derived `today` summary
+ * (focusSeconds / sessions / planned 0 — task-plan history is not
+ * reconstructable) immediately, then every hour while the app remains online.
+ * It also polls the peers-today leaderboard on that cadence. Server-side
+ * upload failures are retried on the next hourly tick.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -28,8 +26,7 @@ import {
   useSyncState
 } from './sync-store'
 
-const UPLOAD_INTERVAL_MS = 60 * 1000
-const PEERS_POLL_INTERVAL_MS = 60 * 1000
+const SYNC_INTERVAL_MS = 60 * 60 * 1000
 
 /**
  * Derived `today` summary payload. `plannedFocusSeconds` stays 0 — the
@@ -79,14 +76,14 @@ export function useAnalyticsUploadBlocked(): boolean {
 
 /**
  * Upload the today summary and poll the peers-today pool while the user is
- * signed in AND has enabled analytics sync. Inert otherwise (`peers: []`).
+ * signed in. It is inert when offline (`peers: []`).
  */
 export function useTodayAnalyticsSync(
   options: { focusSecondsToday: number; todaySessions: number },
   createClient: (clientOptions: SyncApiClientOptions) => SyncApiClient = createSyncApiClient
 ): { peers: SyncAnalyticsPeer[] } {
   const syncState = useSyncState()
-  const enabled = Boolean(syncState.accessToken) && syncState.analyticsSyncEnabled === true
+  const enabled = Boolean(syncState.accessToken)
 
   // Live counters tick every second while the timer runs — keep them in refs
   // so the interval callbacks always read the latest value without
@@ -111,13 +108,10 @@ export function useTodayAnalyticsSync(
         setSyncAuth({ accessToken, refreshToken, user: getSyncState().user }),
       onTokenExpired: clearSyncAuth
     })
-    // Local flag: resets whenever the effect re-runs (toggle re-enabled,
-    // token/baseUrl change). Stops only the upload loop; the peer poll is
-    // read-only and keeps running.
-    let uploadStopped = false
-
+    // This loop is intentionally kept alive across individual failed uploads:
+    // an online user gets another attempt at the next hourly sync.
     const upload = async () => {
-      if (uploadStopped) return
+      if (!enabled) return
       const focusSecondsToday = focusRef.current
       const todaySessions = sessionsRef.current
       // A zero-day would create a row the peers pool filters out anyway.
@@ -132,10 +126,8 @@ export function useTodayAnalyticsSync(
         setAnalyticsUploadBlocked(false)
       } catch (err) {
         if (err instanceof SyncApiError && err.status === 403) {
-          uploadStopped = true
           setAnalyticsUploadBlocked(true)
         }
-        // Network/5xx errors retry on the next tick (room-heartbeat behavior).
       }
     }
 
@@ -148,13 +140,14 @@ export function useTodayAnalyticsSync(
       }
     }
 
-    void upload()
-    void poll()
-    const uploadTimer = setInterval(() => void upload(), UPLOAD_INTERVAL_MS)
-    const pollTimer = setInterval(() => void poll(), PEERS_POLL_INTERVAL_MS)
+    const sync = () => {
+      void upload()
+      void poll()
+    }
+    sync()
+    const syncTimer = setInterval(sync, SYNC_INTERVAL_MS)
     return () => {
-      clearInterval(uploadTimer)
-      clearInterval(pollTimer)
+      clearInterval(syncTimer)
       setAnalyticsUploadBlocked(false)
     }
   }, [createClient, enabled, syncState.accessToken, syncState.baseUrl])
