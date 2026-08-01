@@ -35,9 +35,7 @@ jobs:
             args: --linux --x64
     runs-on: ${{ matrix.os }}
     env:
-      # These are empty for ordinary unsigned builds. Configure the secrets
-      # before publishing macOS builds outside the team; electron-builder
-      # consumes them directly when code signing/notarization is enabled.
+      # electron-builder consumes these directly for signed macOS releases.
       CSC_LINK: ${{ secrets.CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -68,6 +66,12 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: node -e 'const version = require("./package.json").version; if (process.env.TAG !== "v" + version) throw new Error(`Tag ${process.env.TAG} must match package version v${version}`)'
+
+      - name: Require macOS signing credentials for auto-update releases
+        if: matrix.os == 'macos-14'
+        run: |
+          test -n "$CSC_LINK" || { echo "::error::CSC_LINK is required to publish a macOS build that supports automatic updates."; exit 1; }
+          test -n "$CSC_KEY_PASSWORD" || { echo "::error::CSC_KEY_PASSWORD is required to publish a macOS build that supports automatic updates."; exit 1; }
 
       - name: Build installer and update manifest
         run: pnpm run dist -- ${{ matrix.args }} --publish never

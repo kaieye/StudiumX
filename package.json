@@ -259,8 +259,7 @@
         "dmg",
         "zip"
       ],
-      "icon": "build/icon.icns",
-      "identity": null
+      "icon": "build/icon.icns"
     },
     "win": {
       "target": [

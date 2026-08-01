@@ -34,10 +34,15 @@ type UpdateScheduler = {
 
 type UpdateLogger = Pick<Console, 'warn'>
 
+type UpdateCheckOutcome =
+  | { kind: 'available'; version?: string }
+  | { kind: 'not-available' }
+  | { kind: 'failed' }
+
 export type AppUpdaterController = {
   start(): void
   stop(): void
-  /** Runs one explicit update check. No network request is made in development. */
+  /** Runs one explicit update check and reports its result to the user. No network request is made in development. */
   checkNow(): Promise<void>
 }
 
@@ -65,24 +70,29 @@ export function createAppUpdaterController({
 }: AppUpdaterDependencies): AppUpdaterController {
   let hasStarted = false
   let checkInFlight = false
-  let activeCheck: Promise<void> | null = null
+  let activeCheck: Promise<UpdateCheckOutcome> | null = null
   let updatePromptShown = false
   let hasStopped = false
   let interval: ReturnType<typeof setInterval> | undefined
 
-  const checkForUpdates = (): Promise<void> => {
-    if (hasStopped || !currentApp.isPackaged) return Promise.resolve()
+  const checkForUpdates = (): Promise<UpdateCheckOutcome> => {
+    if (hasStopped || !currentApp.isPackaged) return Promise.resolve({ kind: 'not-available' })
     if (checkInFlight) {
       const inFlightCheck = activeCheck
-      return inFlightCheck ?? Promise.resolve()
+      return inFlightCheck ?? Promise.resolve({ kind: 'not-available' })
     }
     checkInFlight = true
-    const nextCheck = (updater
+    const nextCheck = updater
       .checkForUpdates()
-      .catch((error: unknown): void => {
+      .then((result): UpdateCheckOutcome => {
+        if (result === null || result === undefined) return { kind: 'not-available' }
+        return { kind: 'available', version: updateVersion(result) }
+      })
+      .catch((error: unknown): UpdateCheckOutcome => {
         // A failed check must not block startup. The next scheduled check retries it.
         logger.warn('[updater] Update check failed:', error)
-      }) as Promise<void>)
+        return { kind: 'failed' }
+      })
       .finally(() => {
         checkInFlight = false
         activeCheck = null
@@ -141,15 +151,56 @@ export function createAppUpdaterController({
     currentApp.once('before-quit', stop)
   }
 
+  const reportManualCheckOutcome = async (outcome: UpdateCheckOutcome): Promise<void> => {
+    const options: Electron.MessageBoxOptions = outcome.kind === 'available'
+      ? {
+          type: 'info',
+          buttons: ['好'],
+          defaultId: 0,
+          title: '发现 StudiumX 更新',
+          message: outcome.version
+            ? `发现 StudiumX ${outcome.version}，正在后台下载。`
+            : '发现新版本 StudiumX，正在后台下载。',
+          detail: '下载完成后会提示你重启以完成更新。'
+        }
+      : outcome.kind === 'not-available'
+        ? {
+            type: 'info',
+            buttons: ['好'],
+            defaultId: 0,
+            title: 'StudiumX 已是最新版本',
+            message: '当前安装的版本已经是最新版本。'
+          }
+        : {
+            type: 'error',
+            buttons: ['好'],
+            defaultId: 0,
+            title: '无法检查 StudiumX 更新',
+            message: '请检查网络连接后重试。'
+          }
+    try {
+      await currentDialog.showMessageBox(options)
+    } catch (error) {
+      logger.warn('[updater] Unable to show the update-check result:', error)
+    }
+  }
+
   return {
     start,
     stop,
     checkNow(): Promise<void> {
       if (hasStopped || !currentApp.isPackaged) return Promise.resolve()
       start()
-      return checkForUpdates()
+      return checkForUpdates().then(reportManualCheckOutcome)
     }
   }
+}
+
+function updateVersion(result: unknown): string | undefined {
+  if (!result || typeof result !== 'object' || !('updateInfo' in result)) return undefined
+  const updateInfo = result.updateInfo
+  if (!updateInfo || typeof updateInfo !== 'object' || !('version' in updateInfo)) return undefined
+  return typeof updateInfo.version === 'string' && updateInfo.version.trim() ? updateInfo.version.trim() : undefined
 }
 
 let controller: AppUpdaterController | undefined

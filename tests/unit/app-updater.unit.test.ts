@@ -64,8 +64,7 @@ describe('createAppUpdaterController', () => {
     const harness = createHarness()
 
     harness.controller.start()
-    await Promise.resolve()
-    await Promise.resolve()
+    await new Promise<void>((resolve) => setImmediate(resolve))
 
     expect(harness.updater.autoDownload).toBe(true)
     expect(harness.updater.autoInstallOnAppQuit).toBe(true)
@@ -75,8 +74,6 @@ describe('createAppUpdaterController', () => {
 
     const scheduledCheck = harness.setInterval.mock.calls[0]?.[0]
     scheduledCheck?.()
-    await Promise.resolve()
-    await Promise.resolve()
     expect(harness.updater.checkForUpdates).toHaveBeenCalledTimes(2)
   })
 
@@ -95,8 +92,7 @@ describe('createAppUpdaterController', () => {
     expect(harness.updater.checkForUpdates).toHaveBeenCalledTimes(1)
 
     resolveCheck?.()
-    await Promise.resolve()
-    await Promise.resolve()
+    await new Promise<void>((resolve) => setImmediate(resolve))
     scheduledCheck?.()
     expect(harness.updater.checkForUpdates).toHaveBeenCalledTimes(2)
   })
@@ -116,6 +112,40 @@ describe('createAppUpdaterController', () => {
 
     resolveCheck?.()
     await explicitCheck
+  })
+
+  it('confirms a manually requested check when the installed version is current', async () => {
+    const harness = createHarness()
+
+    await harness.controller.checkNow()
+
+    expect(harness.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'StudiumX 已是最新版本',
+      message: '当前安装的版本已经是最新版本。'
+    }))
+  })
+
+  it('acknowledges a discovered update immediately instead of waiting silently for download completion', async () => {
+    const harness = createHarness({
+      check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } })
+    })
+
+    await harness.controller.checkNow()
+
+    expect(harness.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      title: '发现 StudiumX 更新',
+      message: expect.stringContaining('0.0.2')
+    }))
+  })
+
+  it('reports a manually requested check failure instead of only logging it', async () => {
+    const harness = createHarness({ check: () => Promise.reject(new Error('offline')) })
+
+    await harness.controller.checkNow()
+
+    expect(harness.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      title: '无法检查 StudiumX 更新'
+    }))
   })
 
   it('prompts once after a download and restarts only after user confirmation', async () => {
