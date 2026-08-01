@@ -112,7 +112,12 @@ export function createAppUpdaterController({
     const nextCheck = updater
       .checkForUpdates()
       .then((result): UpdateCheckOutcome => {
-        if (result === null || result === undefined) return { kind: 'not-available' }
+        // electron-updater resolves with a non-null object even when the app is
+        // already current ({ isUpdateAvailable: false }), so a non-null result
+        // is not a signal of an update. Only an explicitly-flagged available
+        // update may surface the dialog; the update-not-available event already
+        // emitted the idle/not-available state for the other branch.
+        if (!isAvailableResult(result)) return { kind: 'not-available' }
         const version = updateVersion(result)
         pendingVersion = version
         // If this version was already downloaded, remind the user to restart
@@ -266,6 +271,17 @@ export function createAppUpdaterController({
     act,
     openDialog
   }
+}
+
+/**
+ * True only when electron-updater explicitly reports an available update.
+ * checkForUpdates() resolves with an object even when the installed version is
+ * current ({ isUpdateAvailable: false }); relying on "non-null" misreads the
+ * latest release version and pops the update dialog on every launch.
+ */
+function isAvailableResult(result: unknown): boolean {
+  if (result === null || result === undefined || typeof result !== 'object') return false
+  return (result as { isUpdateAvailable?: unknown }).isUpdateAvailable === true
 }
 
 function updateVersion(result: unknown): string | undefined {

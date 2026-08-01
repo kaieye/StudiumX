@@ -34,7 +34,11 @@ function createHarness(options: {
   const updater = {
     autoDownload: false,
     autoInstallOnAppQuit: false,
-    checkForUpdates: vi.fn(() => (options.check ? options.check(handlers) : Promise.resolve(undefined))),
+    checkForUpdates: vi.fn(() =>
+      options.check
+        ? options.check(handlers)
+        : Promise.resolve({ isUpdateAvailable: false, updateInfo: { version: '0.0.1' } })
+    ),
     downloadUpdate: vi.fn(() => Promise.resolve([])),
     on: vi.fn((event: string, handler: Handler) => {
       handlers.set(event, handler)
@@ -131,7 +135,7 @@ describe('createAppUpdaterController', () => {
   })
 
   it('surfaces a found update as an ask-to-download state', async () => {
-    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    const harness = createHarness({ check: () => Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: '0.0.2' } }) })
 
     await harness.controller.checkNow()
 
@@ -143,7 +147,7 @@ describe('createAppUpdaterController', () => {
     const harness = createHarness({
       check: (handlers) => {
         handlers.get('update-not-available')?.({})
-        return Promise.resolve(undefined)
+        return Promise.resolve({ isUpdateAvailable: false, updateInfo: { version: '0.0.1' } })
       }
     })
 
@@ -156,7 +160,7 @@ describe('createAppUpdaterController', () => {
     const harness = createHarness({
       check: (handlers) => {
         handlers.get('update-not-available')?.({})
-        return Promise.resolve(undefined)
+        return Promise.resolve({ isUpdateAvailable: false, updateInfo: { version: '0.0.1' } })
       }
     })
 
@@ -167,8 +171,25 @@ describe('createAppUpdaterController', () => {
     expect(harness.emit).not.toHaveBeenCalledWith({ kind: 'not-available' })
   })
 
+  it('does not pop the dialog when the installed version is already current', async () => {
+    // electron-updater 6.x resolves with { isUpdateAvailable: false } (not null)
+    // when the app is up to date; it must not be misread as a new release.
+    const harness = createHarness({
+      check: (handlers) => {
+        handlers.get('update-not-available')?.({ version: '0.0.7' })
+        return Promise.resolve({ isUpdateAvailable: false, updateInfo: { version: '0.0.7' } })
+      }
+    })
+
+    harness.controller.start()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    expect(harness.emit).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'available' }))
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'idle' })
+  })
+
   it('does not download until the user explicitly asks to', async () => {
-    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    const harness = createHarness({ check: () => Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: '0.0.2' } }) })
 
     harness.controller.start()
     await new Promise<void>((resolve) => setImmediate(resolve))
@@ -177,7 +198,7 @@ describe('createAppUpdaterController', () => {
   })
 
   it('starts a download on explicit action and streams progress states', async () => {
-    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    const harness = createHarness({ check: () => Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: '0.0.2' } }) })
     harness.controller.start()
     await new Promise<void>((resolve) => setImmediate(resolve))
 
@@ -199,7 +220,7 @@ describe('createAppUpdaterController', () => {
   })
 
   it('surfaces a download failure instead of only logging it', async () => {
-    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    const harness = createHarness({ check: () => Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: '0.0.2' } }) })
     harness.controller.start()
     await new Promise<void>((resolve) => setImmediate(resolve))
     harness.updater.downloadUpdate.mockRejectedValue(new Error('network'))
@@ -211,7 +232,7 @@ describe('createAppUpdaterController', () => {
   })
 
   it('emits a restart prompt and nudges a hidden window when the download finishes', async () => {
-    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    const harness = createHarness({ check: () => Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: '0.0.2' } }) })
     harness.controller.start()
     await new Promise<void>((resolve) => setImmediate(resolve))
 
@@ -233,7 +254,7 @@ describe('createAppUpdaterController', () => {
   })
 
   it('reminds to restart instead of re-asking when an already-downloaded version is found again', async () => {
-    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    const harness = createHarness({ check: () => Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: '0.0.2' } }) })
     harness.controller.start()
     await new Promise<void>((resolve) => setImmediate(resolve))
     harness.handlers.get('update-downloaded')?.({ version: '0.0.2' })
@@ -264,7 +285,7 @@ describe('createAppUpdaterController', () => {
   })
 
   it('runs a manual check from the dialog check button', async () => {
-    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    const harness = createHarness({ check: () => Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: '0.0.2' } }) })
 
     await harness.controller.act('check')
 
@@ -284,7 +305,7 @@ describe('createAppUpdaterController', () => {
   })
 
   it('re-checks when the user retries', async () => {
-    const harness = createHarness({ check: () => Promise.resolve(undefined) })
+    const harness = createHarness({ check: () => Promise.resolve({ isUpdateAvailable: false, updateInfo: { version: '0.0.1' } }) })
     harness.controller.start()
     await new Promise<void>((resolve) => setImmediate(resolve))
     expect(harness.updater.checkForUpdates).toHaveBeenCalledTimes(1)
