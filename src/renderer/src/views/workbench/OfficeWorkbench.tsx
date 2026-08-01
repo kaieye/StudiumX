@@ -27,6 +27,7 @@ import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { useStudyRoomPresence } from '../../sync/study-room-presence'
 import { useSyncState } from '../../sync/sync-store'
 import type { SyncStudyRoomMember } from '../../sync/sync-api-client'
+import type { StudyPresencePeer } from '../../study-space/types'
 import type { StudyRoomMember } from '../../study-space/viewModel'
 import { normalizePetAppearanceId } from '../../../../shared/teaching-types'
 import { readBrowserNotificationPermission } from '../../study-space/planning-notification-host'
@@ -156,6 +157,93 @@ function mergeServerMembers(
   return server.map(mapServerMemberToRoomMember).sort(
     (left, right) => right.todayFocusSeconds - left.todayFocusSeconds
   )
+}
+
+export type BuildOfficeSceneOccupantsInput = {
+  /** The desktop user's own seat occupant (drawn at their claimed desk). */
+  self: OfficeSceneSeatOccupant
+  userSeatConflict: boolean
+  workbenchUserSeatIndex: number
+  /** Relay-announced peers keyed by claimed seat index. */
+  relayPeersBySeat: ReadonlyMap<number, StudyPresencePeer>
+  /**
+   * True once a server roster has been received. The server stores one row per
+   * account per room, so its roster is the authoritative scene source while
+   * available; relay peers only fill desks as the pre-roster fallback.
+   */
+  serverRosterAvailable: boolean
+  /** Merged leaderboard roster (server members when available, else local). */
+  leaderboardMembers: readonly StudyRoomMember[]
+  seatCount: number
+}
+
+/**
+ * Assign one occupant (pet) per desk.
+ *
+ * The leaderboard and the scene must agree on who is in the room. The server
+ * roster is deduplicated per account (one row per user per room), so while it
+ * is available it is the only peer source: relay peers from other sessions of
+ * the same account (e.g. the same person logged in on desktop and web) would
+ * otherwise each claim a desk, drawing two or more pets for a single person
+ * while the leaderboard shows one row. Relay peers fill desks only before the
+ * first server roster arrives.
+ */
+export function buildOfficeSceneOccupants(
+  input: BuildOfficeSceneOccupantsInput
+): Map<DeskId, OfficeSceneSeatOccupant> {
+  const {
+    self,
+    userSeatConflict,
+    workbenchUserSeatIndex,
+    relayPeersBySeat,
+    serverRosterAvailable,
+    leaderboardMembers,
+    seatCount
+  } = input
+  const occupantsByDeskId = new Map<DeskId, OfficeSceneSeatOccupant>()
+
+  if (!userSeatConflict && workbenchUserSeatIndex >= 0) {
+    occupantsByDeskId.set(deskIdForSeatIndex(workbenchUserSeatIndex), self)
+  }
+
+  if (!serverRosterAvailable) {
+    relayPeersBySeat.forEach((peer, seatIndex) => {
+      if (seatIndex >= seatCount) return
+      const deskId = deskIdForSeatIndex(seatIndex)
+      if (occupantsByDeskId.has(deskId)) return
+      occupantsByDeskId.set(deskId, {
+        kind: 'peer',
+        name: peer.nickname,
+        petAppearance: peer.petAppearance,
+        status: peer.status,
+        timerMode: peer.timerMode,
+        todayFocusSeconds: peer.todayFocusSeconds
+      })
+    })
+  }
+
+  // Server-backed members (for example a phone or web user) do not have a
+  // public-relay seat claim. Show them in the remaining desks so their own
+  // selected pet is still represented in the shared self-study room.
+  let nextServerSeat = 0
+  for (const member of leaderboardMembers) {
+    if (member.isSelf || member.seatIndex >= 0) continue
+    while (nextServerSeat < seatCount && occupantsByDeskId.has(deskIdForSeatIndex(nextServerSeat))) {
+      nextServerSeat += 1
+    }
+    if (nextServerSeat >= seatCount) break
+    occupantsByDeskId.set(deskIdForSeatIndex(nextServerSeat), {
+      kind: 'peer',
+      name: member.nickname,
+      petAppearance: member.petAppearance,
+      status: member.status,
+      timerMode: member.timerMode,
+      todayFocusSeconds: member.todayFocusSeconds
+    })
+    nextServerSeat += 1
+  }
+
+  return occupantsByDeskId
 }
 
 export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
@@ -484,51 +572,22 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
 
   const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
   const clockTime = clockState.current
-  const occupantsByDeskId = new Map<DeskId, OfficeSceneSeatOccupant>()
-
-  if (!viewModel.userSeatConflict && workbenchUserSeatIndex >= 0) {
-    occupantsByDeskId.set(deskIdForSeatIndex(workbenchUserSeatIndex), {
+  const occupantsByDeskId = buildOfficeSceneOccupants({
+    self: {
       kind: 'self',
       name: snapshot.nickname,
       petAppearance,
       status: snapshot.timerState,
       timerMode: snapshot.timerMode,
       todayFocusSeconds: snapshot.todayFocusSeconds
-    })
-  }
-  viewModel.peersBySeat.forEach((peer, seatIndex) => {
-    if (seatIndex >= workbenchSeatCount) return
-    const deskId = deskIdForSeatIndex(seatIndex)
-    if (occupantsByDeskId.has(deskId)) return
-    occupantsByDeskId.set(deskId, {
-      kind: 'peer',
-      name: peer.nickname,
-      petAppearance: peer.petAppearance,
-      status: peer.status,
-      timerMode: peer.timerMode,
-      todayFocusSeconds: peer.todayFocusSeconds
-    })
+    },
+    userSeatConflict: viewModel.userSeatConflict,
+    workbenchUserSeatIndex,
+    relayPeersBySeat: viewModel.peersBySeat,
+    serverRosterAvailable: studyRoomPresence.members.length > 0,
+    leaderboardMembers,
+    seatCount: workbenchSeatCount
   })
-  // Server-only peers (for example a phone user) do not have a public-relay
-  // seat claim. Show them in the remaining desks so their own selected pet is
-  // still represented in the shared self-study room.
-  let nextServerSeat = 0
-  for (const member of leaderboardMembers) {
-    if (member.isSelf || member.seatIndex >= 0) continue
-    while (nextServerSeat < workbenchSeatCount && occupantsByDeskId.has(deskIdForSeatIndex(nextServerSeat))) {
-      nextServerSeat += 1
-    }
-    if (nextServerSeat >= workbenchSeatCount) break
-    occupantsByDeskId.set(deskIdForSeatIndex(nextServerSeat), {
-      kind: 'peer',
-      name: member.nickname,
-      petAppearance: member.petAppearance,
-      status: member.status,
-      timerMode: member.timerMode,
-      todayFocusSeconds: member.todayFocusSeconds
-    })
-    nextServerSeat += 1
-  }
   const seatState: OfficeSceneSeatState = {
     userSeatIndex: viewModel.userSeatConflict ? -1 : workbenchUserSeatIndex,
     activeRoomName: viewModel.activeRoom.name,

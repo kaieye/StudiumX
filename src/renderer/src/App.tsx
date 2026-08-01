@@ -163,6 +163,20 @@ function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
   return Boolean(nativeEvent.isComposing || nativeEvent.keyCode === 229)
 }
 
+/**
+ * Requests a desktop update check without making shared renderer surfaces
+ * depend on the Electron preload being present (the Web adapter intentionally
+ * does not provide an updater).
+ */
+function requestAppUpdateCheck(): Promise<void> {
+  try {
+    const checkForAppUpdates = window.teachingSystem?.checkForAppUpdates
+    return checkForAppUpdates ? checkForAppUpdates() : Promise.resolve()
+  } catch (error) {
+    return Promise.reject(error)
+  }
+}
+
 // ================================================================
 // App Error Boundary
 // ================================================================
@@ -315,18 +329,12 @@ function Sidebar() {
     setAvatarLoadFailed(false)
   }, [syncState.user?.avatarUrl])
 
-  const handleCheckForUpdates = useCallback(async () => {
+  const handleCheckForUpdates = useCallback((): void => {
     if (checkingForUpdates) return
     setCheckingForUpdates(true)
-    try {
-      await window.teachingSystem.checkForAppUpdates()
-    } catch (error) {
-      // The browser adapter deliberately fails closed for desktop-only update
-      // checks. The shared button remains visible for parity but inert on Web.
-      console.debug('[StudiumX] app update check unavailable:', error)
-    } finally {
-      setCheckingForUpdates(false)
-    }
+    void requestAppUpdateCheck()
+      .catch(() => undefined)
+      .finally(() => setCheckingForUpdates(false))
   }, [checkingForUpdates])
 
   return (
@@ -1382,7 +1390,7 @@ function MainArea() {
             const result = await window.teachingSystem?.openAppDataDir()
             if (!result?.ok) throw new Error(result?.message ?? i18n.t('errors.openAppData'))
           }}
-          onCheckForUpdates={async () => { await window.teachingSystem?.checkForAppUpdates() }}
+          onCheckForUpdates={requestAppUpdateCheck}
         />
       )}
 
