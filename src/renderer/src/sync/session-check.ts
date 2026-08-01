@@ -8,7 +8,7 @@
  * startup does not log the user out.
  */
 
-import { createSyncApiClient, SyncUnauthorizedError } from './sync-api-client'
+import { createSyncApiClient, SyncApiError, SyncUnauthorizedError } from './sync-api-client'
 import { clearSyncAuth, getSyncState, setSyncAuth } from './sync-store'
 
 export type SessionCheckResult =
@@ -45,9 +45,16 @@ export async function checkSyncSession(): Promise<SessionCheckResult> {
         user: refreshed.user ?? st.user,
       })
       return { isValid: true }
-    } catch {
-      clearSyncAuth()
-      return { isValid: false, reason: 'refresh_failed' }
+    } catch (refreshError) {
+      // A rejected refresh token means this local session is no longer valid.
+      // Network failures and 5xx responses are transient; preserving the
+      // stored session lets startup and hot reload work while offline or when
+      // the backend is being restarted during development.
+      if (refreshError instanceof SyncApiError && refreshError.status === 401) {
+        clearSyncAuth()
+        return { isValid: false, reason: 'refresh_failed' }
+      }
+      return { isValid: true }
     }
   }
 }
