@@ -19,12 +19,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # A single macOS updater manifest must match its architecture. The
-          # Apple Silicon build is the supported macOS release artifact.
-          - name: macOS (Apple Silicon)
-            os: macos-14
-            artifact: macos-arm64
-            args: --mac --arm64
           - name: Windows
             os: windows-2022
             artifact: windows-x64
@@ -34,15 +28,6 @@ jobs:
             artifact: linux-x64
             args: --linux --x64
     runs-on: ${{ matrix.os }}
-    env:
-      # electron-builder consumes these directly for signed macOS releases.
-      CSC_LINK: ${{ secrets.CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -66,12 +51,6 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: node -e 'const version = require("./package.json").version; if (process.env.TAG !== "v" + version) throw new Error(`Tag ${process.env.TAG} must match package version v${version}`)'
-
-      - name: Require macOS signing credentials for auto-update releases
-        if: matrix.os == 'macos-14'
-        run: |
-          test -n "$CSC_LINK" || { echo "::error::CSC_LINK is required to publish a macOS build that supports automatic updates."; exit 1; }
-          test -n "$CSC_KEY_PASSWORD" || { echo "::error::CSC_KEY_PASSWORD is required to publish a macOS build that supports automatic updates."; exit 1; }
 
       - name: Build installer and update manifest
         run: pnpm run dist -- ${{ matrix.args }} --publish never

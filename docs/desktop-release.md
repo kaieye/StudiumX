@@ -38,14 +38,15 @@ intentionally inactive for `pnpm dev` and unpackaged local builds.
 2. Merge the change into `main` and create a matching annotated tag, for
    example `v0.1.1` for version `0.1.1`.
 3. Push the tag. The `Release desktop installers` workflow builds the native
-   installers on macOS (Apple Silicon), Windows x64, and Linux x64.
+   installers on Windows x64 and Linux x64. macOS artifacts are intentionally
+   not published by the current release workflow.
 4. After every platform build succeeds, the workflow publishes one GitHub
    Release containing both installers and updater manifests.
 
 The workflow deliberately publishes only after the matrix completes. This
 prevents a running app from finding a partially uploaded release.
 
-## macOS signing
+## macOS signing (when macOS publishing resumes)
 
 The installer built locally is unsigned. Before distributing macOS releases to
 other users, configure the repository secrets `CSC_LINK`, `CSC_KEY_PASSWORD`,
