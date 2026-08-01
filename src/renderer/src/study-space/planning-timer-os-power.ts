@@ -42,9 +42,16 @@ export function subscribePlanningTimerOsPower(input: {
 }): () => void {
   const subscribe = input.api?.onSystemPower
   if (typeof subscribe !== 'function') return () => {}
-  return subscribe((event) => {
-    const signal = mapSystemPowerToTimerWakeSignal(event)
-    if (!signal) return
-    input.onWake(signal)
-  })
+  try {
+    return subscribe((event) => {
+      const signal = mapSystemPowerToTimerWakeSignal(event)
+      if (!signal) return
+      input.onWake(signal)
+    })
+  } catch {
+    // Browser adapters expose unsupported event bridges as throwing methods.
+    // Timer wake handling is an optional native enhancement, so a missing
+    // bridge must not prevent the shared study UI from mounting.
+    return () => {}
+  }
 }

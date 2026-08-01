@@ -2184,9 +2184,17 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   useEffect(() => {
     if (!isTeachingMode) { setTeachingSnapshot(null); return }
     let cancelled = false
-    void window.teachingSystem?.getTeachingPresentation().then((snapshot) => {
-      if (!cancelled) setTeachingSnapshot(snapshot)
-    }).catch(() => { if (!cancelled) setTeachingSnapshot(null) })
+    // The browser adapter deliberately exposes unsupported capabilities as a
+    // throwing function. Start the call in a microtask so a synchronous
+    // capability failure is normalized into the same rejected-Promise path as
+    // an asynchronous host failure; switching to Teaching mode must never
+    // tear down the shared renderer UI on Web.
+    void Promise.resolve()
+      .then(() => window.teachingSystem?.getTeachingPresentation())
+      .then((snapshot) => {
+        if (!cancelled) setTeachingSnapshot(snapshot ?? null)
+      })
+      .catch(() => { if (!cancelled) setTeachingSnapshot(null) })
     return () => { cancelled = true }
   }, [isTeachingMode, agentTurns.length])
   const teachingPresentation = teachingSnapshot
@@ -2223,6 +2231,11 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           : '请根据已结算的学习记录，先开展一项到期复习练习；在获得新的学习者作答证据前，不要结算学习结果。',
         { mode: 'teaching' }
       )
+    } catch (error) {
+      // Browser adapters fail closed for host-owned teaching actions. Treat a
+      // missing capability as an inert action rather than surfacing an
+      // unhandled rejection from a button click in the shared renderer.
+      console.debug('[StudiumX] teaching presentation action unavailable:', error)
     } finally {
       setTeachingActionBusy(false)
     }
@@ -2403,25 +2416,34 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const answerAsk = (answers: AskAnswer[]): void => {
     const command = blockedAsk?.command
     if (!command) return
-    void window.teachingSystem?.answerAgentChatTool(
-      command.streamId,
-      command.toolCallId,
-      answers
-    )
+    void Promise.resolve()
+      .then(() => window.teachingSystem?.answerAgentChatTool(
+        command.streamId,
+        command.toolCallId,
+        answers
+      ))
+      .catch(() => {
+        // Unsupported browser capabilities fail closed; keep the shared dialog
+        // usable instead of allowing a click to escape into the global boundary.
+      })
   }
   const answerPermission = (decision: 'allow_once' | 'allow_for_run' | 'allow_for_directory' | 'deny'): void => {
     const command = blockedPermission?.command
     if (!command) return
-    void window.teachingSystem?.answerAgentChatTool(
-      command.streamId,
-      command.toolCallId,
-      [
-        { questionId: 'permission', selected: [decision] },
-        ...(decision === 'allow_for_directory' && blockedPermission.request.directoryScopePath
-          ? [{ questionId: 'scope', selected: [blockedPermission.request.directoryScopePath] }]
-          : [])
-      ]
-    )
+    void Promise.resolve()
+      .then(() => window.teachingSystem?.answerAgentChatTool(
+        command.streamId,
+        command.toolCallId,
+        [
+          { questionId: 'permission', selected: [decision] },
+          ...(decision === 'allow_for_directory' && blockedPermission.request.directoryScopePath
+            ? [{ questionId: 'scope', selected: [blockedPermission.request.directoryScopePath] }]
+            : [])
+        ]
+      ))
+      .catch(() => {
+        // See answerAsk: a Web capability denial is intentionally inert.
+      })
   }
   const setInputFromHistory = (value: string): void => {
     setAgentInput(value)

@@ -188,15 +188,18 @@ export function useSkillCapabilityPicker(options: {
     if (!api?.previewSkillOrchestration) return
     const seq = ++requestSeq.current
     const timer = window.setTimeout(() => {
-      void api
-        .previewSkillOrchestration({
+      // Web's fail-closed adapter may throw before returning a Promise. Start
+      // from a resolved Promise so the preview remains an inert, dismissible
+      // enhancement instead of producing an uncaught timer exception.
+      void Promise.resolve()
+        .then(() => api.previewSkillOrchestration({
           selectedSkillIds,
           userInput: userInputRef.current,
           isTeachingConversation: options.isTeachingMode,
           ...(presetId ? { presetId } : {}),
           ...(options.conversationId ? { conversationId: options.conversationId } : {}),
           ...(options.workspaceId ? { workspaceId: options.workspaceId } : {})
-        })
+        }))
         .then((result) => {
           // Drop stale responses so the panel never shows an older plan.
           if (seq === requestSeq.current) setPreview(result)
