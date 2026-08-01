@@ -11,13 +11,12 @@
  * Token security (plan §9.3): access token in localStorage (15 min), refresh
  * token in localStorage (30 d, rotated). WeChat credentials are NEVER stored.
  *
- * API base URL convention (shared with web/src/api/http.ts):
- *   `import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'`
+ * API base URL is the single `API_BASE` exported by web/src/api/http.ts
+ * (`import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'`).
  */
 
 import { getAccessToken, getRefreshToken, setTokens } from './tokens'
-
-const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
+import { API_BASE } from '../api/http'
 
 /** Public user DTO returned by login/refresh (`toPublicUser`). */
 export interface AuthUser {

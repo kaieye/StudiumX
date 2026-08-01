@@ -17,7 +17,7 @@
  */
 
 /** Base URL for StudiumX-Server; overridable via VITE_API_BASE_URL. */
-const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
+export const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
 
 /** localStorage keys shared with the login flow (shared convention). */
 const ACCESS_TOKEN_KEY = 'studiumx.accessToken'
