@@ -78,9 +78,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ user: null, status: 'unauthenticated' })
   }, [state.status, syncState.accessToken])
 
-  // Restore any persisted session on mount.
+  // Restore any persisted session on mount. Only a definitive rejection
+  // (AuthError 401) wipes the stored session; transient server/network
+  // failures retry with backoff while staying 'loading', so a backend restart
+  // or a momentary outage cannot force a re-login. If the retry budget runs
+  // out the login screen is shown with the tokens intact — a reload retries.
   useEffect(() => {
     let cancelled = false
+    let attempts = 0
+    const MAX_RESTORE_ATTEMPTS = 3
     async function restore(): Promise<void> {
       if (!hasRefreshToken()) {
         if (!cancelled) setState({ user: null, status: 'unauthenticated' })
@@ -89,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const me = await fetchMe()
         if (cancelled) return
+        attempts = 0
         const accessToken = getAccessToken()
         const refreshToken = getRefreshToken()
         if (accessToken && refreshToken) {
@@ -103,9 +110,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })
         }
         setState({ user: me.user, status: 'authenticated' })
-      } catch {
+      } catch (err) {
         if (cancelled) return
-        clearTokens()
+        if (err instanceof AuthError && err.status === 401) {
+          // Definitive: the session can no longer be renewed.
+          clearTokens()
+          clearSyncAuth()
+          setState({ user: null, status: 'unauthenticated' })
+          return
+        }
+        // Transient — retry with backoff (1s / 2s / 4s).
+        attempts += 1
+        if (attempts <= MAX_RESTORE_ATTEMPTS) {
+          window.setTimeout(() => {
+            void restore()
+          }, 1000 * 2 ** (attempts - 1))
+          return
+        }
         clearSyncAuth()
         setState({ user: null, status: 'unauthenticated' })
       }
@@ -126,9 +147,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await fetchMe()
       } catch (err) {
-        // Do not turn a transient network outage into a local logout. The
-        // auth client raises AuthError only when the session is unrecoverable.
-        if (cancelled || !(err instanceof AuthError)) return
+        // Do not turn a transient network outage or server 5xx into a local
+        // logout. Only a definitive rejection (AuthError with status 401 —
+        // revoked/expired refresh token) ends the session.
+        if (cancelled || !(err instanceof AuthError) || err.status !== 401) return
         clearTokens()
         clearSyncAuth()
         setState({ user: null, status: 'unauthenticated' })

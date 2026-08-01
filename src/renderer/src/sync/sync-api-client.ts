@@ -306,35 +306,64 @@ async function request(baseUrl: string, method: string, path: string, opts: Requ
   return parsed
 }
 
+export type RefreshOutcome =
+  | { ok: true; accessToken: string; refreshToken: string }
+  | { ok: false; reason: 'rejected' | 'transient' }
+
+/**
+ * Module-level single-flight refresh lock, shared by every SyncApiClient
+ * instance AND the startup session check. Server-side rotation revokes the
+ * old refresh token, so concurrent 401s (study-room heartbeat, analytics
+ * sync, account card, startup check) must share one rotation — the loser of a
+ * race would otherwise receive a 401 for an already-rotated token and clear a
+ * perfectly healthy session.
+ */
+let refreshInFlight: Promise<RefreshOutcome> | null = null
+
+/**
+ * Rotate the refresh token once, single-flight. Only the first caller talks
+ * to the server; concurrent callers receive the same outcome.
+ *
+ * `reason: 'rejected'` (server 401, or no refresh token) means the session
+ * can no longer be renewed — the caller may end it. `reason: 'transient'`
+ * (5xx / network) means the session is intact and must be preserved.
+ */
+export function refreshSessionTokens(options: {
+  baseUrl: string
+  getRefreshToken?: () => string | null
+  onTokenRefreshed?: (accessToken: string, refreshToken: string) => void
+}): Promise<RefreshOutcome> {
+  if (refreshInFlight) return refreshInFlight
+  const refreshToken = options.getRefreshToken?.() ?? null
+  if (!refreshToken) {
+    return Promise.resolve({ ok: false, reason: 'rejected' })
+  }
+  refreshInFlight = (async () => {
+    try {
+      const raw = await request(options.baseUrl, 'POST', '/auth/refresh', {
+        body: { refreshToken },
+      })
+      const typed = raw as { accessToken: string; refreshToken: string }
+      options.onTokenRefreshed?.(typed.accessToken, typed.refreshToken)
+      return { ok: true, ...typed }
+    } catch (err) {
+      if (err instanceof SyncApiError && err.status === 401) {
+        return { ok: false, reason: 'rejected' }
+      }
+      return { ok: false, reason: 'transient' }
+    } finally {
+      refreshInFlight = null
+    }
+  })()
+  return refreshInFlight
+}
+
 export function createSyncApiClient(options: SyncApiClientOptions = {}): SyncApiClient {
   const baseUrl = options.baseUrl?.trim() || resolveDefaultSyncApiBase()
   const getAccessToken = options.getAccessToken ?? (() => null)
   const getRefreshToken = options.getRefreshToken
   const onTokenRefreshed = options.onTokenRefreshed
   const onTokenExpired = options.onTokenExpired
-
-  // Shared refresh lock – concurrent 401s share a single refresh attempt so
-  // that a burst of heartbeats doesn't fire N simultaneous /auth/refresh calls.
-  let refreshInFlight: Promise<{ accessToken: string; refreshToken: string } | null> | null = null
-
-  async function tryRefresh(): Promise<{ accessToken: string; refreshToken: string } | null> {
-    if (refreshInFlight) return refreshInFlight
-    const refreshToken = getRefreshToken?.() ?? null
-    if (!refreshToken) return null
-    refreshInFlight = (async () => {
-      try {
-        const raw = await request(baseUrl, 'POST', '/auth/refresh', { body: { refreshToken } })
-        const typed = raw as { accessToken: string; refreshToken: string }
-        onTokenRefreshed?.(typed.accessToken, typed.refreshToken)
-        return typed
-      } catch {
-        return null
-      } finally {
-        refreshInFlight = null
-      }
-    })()
-    return refreshInFlight
-  }
 
   const authed = async (
     method: string,
@@ -347,10 +376,12 @@ export function createSyncApiClient(options: SyncApiClientOptions = {}): SyncApi
       return await request(baseUrl, method, path, { body, auth: true, query, nullOnStatus, getAccessToken })
     } catch (err) {
       if (!(err instanceof SyncUnauthorizedError)) throw err
-      // 401 – try to rotate the refresh token and retry once.
-      const refreshed = await tryRefresh()
-      if (!refreshed) {
-        onTokenExpired?.()
+      // 401 – try to rotate the refresh token and retry once. Only a
+      // definitive rejection (server 401 / absent refresh token) ends the
+      // session; transient failures leave it intact for the next call.
+      const outcome = await refreshSessionTokens({ baseUrl, getRefreshToken, onTokenRefreshed })
+      if (!outcome.ok) {
+        if (outcome.reason === 'rejected') onTokenExpired?.()
         throw err
       }
       try {

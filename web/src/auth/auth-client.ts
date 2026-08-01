@@ -122,12 +122,31 @@ export async function pollWeChatLoginChallenge(loginId: string): Promise<WeChatP
 }
 
 /**
+ * Single-flight rotation guard. Server-side rotation revokes the old refresh
+ * token, so concurrent 401s (restore + the 15s session poll + API calls) must
+ * share one rotation — the loser of a race would get a 401 for an
+ * already-rotated token and clear a perfectly healthy session.
+ */
+let refreshInFlight: Promise<AuthSession> | null = null
+
+/**
  * Rotate the refresh token. Reads the current refresh token from storage, posts
  * it to `/auth/refresh`, and persists the newly rotated pair (the old refresh
  * token is revoked server-side). No Bearer required. Throws `AuthError(401)`
  * if there is no refresh token or the server rejects the rotation.
+ *
+ * Concurrent callers share the same in-flight rotation; only the first caller
+ * actually talks to the server.
  */
-export async function refreshTokens(): Promise<AuthSession> {
+export function refreshTokens(): Promise<AuthSession> {
+  if (refreshInFlight) return refreshInFlight
+  refreshInFlight = doRefreshTokens().finally(() => {
+    refreshInFlight = null
+  })
+  return refreshInFlight
+}
+
+async function doRefreshTokens(): Promise<AuthSession> {
   const refreshToken = getRefreshToken()
   if (!refreshToken) {
     throw new AuthError(401, 'NO_REFRESH_TOKEN', 'no refresh token available')
@@ -167,6 +186,11 @@ export async function logoutServer(): Promise<void> {
  * rotates via `refreshTokens()` and retries exactly once. If there is no
  * access token at all (e.g. page reload with only a refresh token), it rotates
  * first then probes. Throws `AuthError` if the refresh also fails.
+ *
+ * A 401 from `/auth/refresh` is ambiguous: the session may be dead, or another
+ * tab may have just rotated this pair (rotation revokes the old refresh
+ * token). In the latter case localStorage already holds a fresher pair — reuse
+ * it once before surfacing the rejection to the caller.
  */
 export async function fetchMe(): Promise<MeResponse> {
   const fetchWith = (token: string): Promise<MeResponse> =>
@@ -183,10 +207,16 @@ export async function fetchMe(): Promise<MeResponse> {
   try {
     return await fetchWith(accessToken)
   } catch (err) {
-    if (err instanceof AuthError && err.status === 401) {
+    if (!(err instanceof AuthError) || err.status !== 401) throw err
+    try {
       const session = await refreshTokens()
       return fetchWith(session.accessToken)
+    } catch (refreshErr) {
+      if (refreshErr instanceof AuthError && refreshErr.status === 401) {
+        const current = getAccessToken()
+        if (current && current !== accessToken) return fetchWith(current)
+      }
+      throw refreshErr
     }
-    throw err
   }
 }

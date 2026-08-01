@@ -8,7 +8,7 @@
  * startup does not log the user out.
  */
 
-import { createSyncApiClient, SyncApiError, SyncUnauthorizedError } from './sync-api-client'
+import { createSyncApiClient, refreshSessionTokens, SyncUnauthorizedError } from './sync-api-client'
 import { clearSyncAuth, getSyncState, setSyncAuth } from './sync-store'
 
 export type SessionCheckResult =
@@ -32,29 +32,28 @@ export async function checkSyncSession(): Promise<SessionCheckResult> {
       // Network/server error - keep existing token, assume valid for offline use.
       return { isValid: true }
     }
-    // Access token expired/invalid -> try refresh.
+    // Access token expired/invalid -> try refresh. Uses the same single-flight
+    // rotation as the authenticated sync calls so the startup check and a
+    // concurrent heartbeat never race the server-side token rotation.
     if (!st.refreshToken) {
       clearSyncAuth()
       return { isValid: false, reason: 'unauthorized' }
     }
-    try {
-      const refreshed = await client.refresh(st.refreshToken)
-      setSyncAuth({
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken,
-        user: refreshed.user ?? st.user,
-      })
-      return { isValid: true }
-    } catch (refreshError) {
+    const outcome = await refreshSessionTokens({
+      baseUrl: st.baseUrl,
+      getRefreshToken: () => st.refreshToken,
+      onTokenRefreshed: (accessToken, refreshToken) =>
+        setSyncAuth({ accessToken, refreshToken, user: getSyncState().user }),
+    })
+    if (!outcome.ok && outcome.reason === 'rejected') {
       // A rejected refresh token means this local session is no longer valid.
-      // Network failures and 5xx responses are transient; preserving the
-      // stored session lets startup and hot reload work while offline or when
-      // the backend is being restarted during development.
-      if (refreshError instanceof SyncApiError && refreshError.status === 401) {
-        clearSyncAuth()
-        return { isValid: false, reason: 'refresh_failed' }
-      }
-      return { isValid: true }
+      clearSyncAuth()
+      return { isValid: false, reason: 'refresh_failed' }
     }
+    // A successful rotation already persisted the new pair via
+    // onTokenRefreshed. Network failures and 5xx responses are transient;
+    // preserving the stored session lets startup and hot reload work while
+    // offline or when the backend is being restarted during development.
+    return { isValid: true }
   }
 }

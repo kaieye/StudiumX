@@ -9,9 +9,10 @@
  *
  * On HTTP 401 the client performs a single token refresh: POST /auth/refresh
  * with `studiumx.refreshToken` (rotation), persists the new access+refresh
- * pair, then retries the original request once. If the refresh fails or no
- * refresh token exists, both tokens are cleared and an `AuthError` is thrown.
- * Any other non-2xx response throws an `ApiError` carrying status + parsed body.
+ * pair, then retries the original request once. Both tokens are cleared only
+ * when the refresh token is definitively rejected (missing or server 401);
+ * transient failures (network, 5xx) leave the session intact. Any other
+ * non-2xx response throws an `ApiError` carrying status + parsed body.
  *
  * Response/error shapes: see /tmp/studiumx-agents/server-contracts.md §0/§1.
  */
@@ -52,8 +53,9 @@ export class ApiError extends Error {
 
 /**
  * Thrown when authentication cannot be established or recovered: no refresh
- * token, a failed refresh request, or a second 401 after a successful refresh.
- * Both localStorage tokens are cleared before this is thrown.
+ * token, a definitively rejected refresh, or a second 401 after a successful
+ * refresh. Tokens are cleared before this is thrown in those (definitive)
+ * cases; a transient refresh failure throws it with the tokens left intact.
  */
 export class AuthError extends Error {
   readonly code = 'AUTH_ERROR' as const
@@ -117,15 +119,28 @@ function buildUrl(path: string, query?: ApiQuery): string {
 }
 
 /**
- * Perform one refresh attempt. Reads `studiumx.refreshToken`, POSTs
- * `/auth/refresh`, persists the rotated pair, and returns the new access token.
- * On any failure both tokens are cleared and an `AuthError` is thrown.
+ * Outcome of one refresh attempt. `definitive: true` means the refresh token
+ * itself was rejected (missing, or the server answered 401) — the session can
+ * no longer be renewed. `definitive: false` covers transient failures (network
+ * outage, 5xx, malformed response) where the session must be preserved and
+ * retried later.
  */
-async function doRefreshAccessToken(): Promise<string> {
+type RefreshOutcome =
+  | { ok: true; accessToken: string }
+  | { ok: false; definitive: boolean }
+
+/**
+ * Perform one refresh attempt. Reads `studiumx.refreshToken`, POSTs
+ * `/auth/refresh`, persists the rotated pair, and reports the outcome.
+ *
+ * Tokens are cleared ONLY on a definitive rejection — never on transient
+ * failures — so a server hiccup or a momentary network drop during a refresh
+ * cannot log the user out (the desktop client applies the same rule).
+ */
+async function doRefreshAccessToken(): Promise<RefreshOutcome> {
   const refreshToken = readToken(REFRESH_TOKEN_KEY)
   if (!refreshToken) {
-    clearTokens()
-    throw new AuthError('No refresh token available; please sign in again.')
+    return { ok: false, definitive: true }
   }
 
   let res: Response
@@ -135,41 +150,43 @@ async function doRefreshAccessToken(): Promise<string> {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ refreshToken })
     })
-  } catch (err) {
-    clearTokens()
-    throw new AuthError(`Token refresh request failed: ${(err as Error).message}`)
+  } catch {
+    // Network outage — transient; keep the potentially valid session.
+    return { ok: false, definitive: false }
   }
 
+  if (res.status === 401) {
+    // The server rejected the refresh token (revoked or expired).
+    return { ok: false, definitive: true }
+  }
   if (!res.ok) {
-    clearTokens()
-    throw new AuthError(`Token refresh rejected by server (status ${res.status}).`)
+    // 5xx / rate-limit etc. — transient; keep the session for the next attempt.
+    return { ok: false, definitive: false }
   }
 
   let data: RefreshResponse
   try {
     data = (await res.json()) as RefreshResponse
-  } catch (err) {
-    clearTokens()
-    throw new AuthError(`Invalid token refresh response: ${(err as Error).message}`)
+  } catch {
+    return { ok: false, definitive: false }
   }
 
   if (!data.accessToken || !data.refreshToken) {
-    clearTokens()
-    throw new AuthError('Token refresh response is missing access or refresh token.')
+    return { ok: false, definitive: false }
   }
 
   writeToken(ACCESS_TOKEN_KEY, data.accessToken)
   writeToken(REFRESH_TOKEN_KEY, data.refreshToken)
-  return data.accessToken
+  return { ok: true, accessToken: data.accessToken }
 }
 
 /**
  * In-flight refresh singleton: concurrent 401s share one refresh so token
  * rotation (which revokes the old refresh token) is not stampeded.
  */
-let refreshInFlight: Promise<string> | null = null
+let refreshInFlight: Promise<RefreshOutcome> | null = null
 
-function refreshAccessToken(): Promise<string> {
+function refreshAccessToken(): Promise<RefreshOutcome> {
   if (refreshInFlight) return refreshInFlight
   refreshInFlight = doRefreshAccessToken().finally(() => {
     refreshInFlight = null
@@ -217,8 +234,23 @@ async function request<T>(
       clearTokens()
       throw new AuthError('Authentication failed after token refresh.')
     }
-    // Throws AuthError on failure; otherwise retries once with the fresh token.
-    await refreshAccessToken()
+    const outcome = await refreshAccessToken()
+    if (!outcome.ok) {
+      if (outcome.definitive) {
+        // The refresh token was rejected. Another tab may have just rotated
+        // this pair (rotation revokes the old token) and already persisted a
+        // fresher access token — reuse it once before giving up.
+        const current = readToken(ACCESS_TOKEN_KEY)
+        if (current && current !== accessToken) {
+          return request<T>(method, path, query, body, true)
+        }
+        clearTokens()
+        throw new AuthError('Token refresh rejected; please sign in again.')
+      }
+      // Transient refresh failure — the session stays valid; the caller can
+      // retry the request later.
+      throw new AuthError('Token refresh temporarily unavailable.')
+    }
     return request<T>(method, path, query, body, true)
   }
 
