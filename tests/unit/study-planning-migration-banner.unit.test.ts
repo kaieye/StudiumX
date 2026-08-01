@@ -80,7 +80,7 @@ describe('study-planning migration banner model (cutover B UX)', () => {
     expect(model.copy.busyLabel).toContain('写入')
   })
 
-  it('shouldOfferMigrationBanner only when suggested + host tasks and not race-unknown', () => {
+  it('shouldOfferMigrationBanner only for an actionable empty canonical store', () => {
     expect(
       shouldOfferMigrationBanner({
         migrationSuggested: true,
@@ -107,6 +107,21 @@ describe('study-planning migration banner model (cutover B UX)', () => {
         migrationSuggested: true,
         hostTaskCount: 2,
         reason: 'unknown'
+      })
+    ).toBe(false)
+    expect(
+      shouldOfferMigrationBanner({
+        migrationSuggested: true,
+        hostTaskCount: 2,
+        reason: 'io_failed'
+      })
+    ).toBe(false)
+    expect(
+      shouldOfferMigrationBanner({
+        migrationSuggested: true,
+        hostTaskCount: 2,
+        hostHasOnlyDefaultTasks: true,
+        reason: 'canonical_empty'
       })
     ).toBe(false)
   })

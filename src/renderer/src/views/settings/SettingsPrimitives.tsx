@@ -113,15 +113,18 @@ export function SettingsTextInput({
   value,
   placeholder,
   type = 'text',
+  ariaLabel,
   onChange
 }: {
   value: string
   placeholder?: string
   type?: 'text' | 'password'
+  ariaLabel?: string
   onChange: (value: string) => void
 }) {
   return (
     <GlassTextField
+      aria-label={ariaLabel}
       className="settings-input"
       type={type}
       value={value}
@@ -135,11 +138,13 @@ export function SettingsSelect<T extends string>({
   value,
   options,
   onChange,
+  ariaLabel,
   position = 'item-aligned'
 }: {
   value: T
   options: Array<{ value: T; label: string; icon?: LucideIcon }>
   onChange: (value: T) => void
+  ariaLabel?: string
   position?: 'below' | 'item-aligned'
 }) {
   const [open, setOpen] = useState(false)
@@ -308,6 +313,7 @@ export function SettingsSelect<T extends string>({
   return (
     <div className={`settings-select ${position === 'item-aligned' ? 'settings-select--item-aligned' : ''} ${open ? 'is-open' : ''}`} ref={rootRef}>
       <button
+        aria-label={ariaLabel}
         aria-controls={listId}
         aria-expanded={open}
         className="settings-select-trigger"

@@ -242,6 +242,10 @@
       {
         "from": "build/trayIcon@2x.png",
         "to": "trayIcon@2x.png"
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
       }
     ],
     "asarUnpack": [
@@ -262,7 +266,7 @@
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.ico"
     },
     "linux": {
       "target": [

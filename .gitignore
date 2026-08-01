@@ -4,6 +4,7 @@ out/
 dist/
 build/*
 !build/icon.png
+!build/icon.ico
 !build/icon.icns
 !build/tray*
 !build/icon-dock.png
@@ -24,6 +25,9 @@ Thumbs.db
 
 .studiumx/
 conversations/
+# The product Web route is source code, not a transient conversation artifact.
+!web/src/views/conversations/
+!web/src/views/conversations/**
 # Transient command artifacts written to the repository root.
 /*.err
 /*.exit

@@ -1,6 +1,7 @@
 import {
   ArrowUpRight,
   Bell,
+  BrainCircuit,
   FileCheck2,
   FileText,
   FolderOpen,
@@ -727,29 +728,6 @@ export function SettingsView({
                   {t('memory.refresh')}
                 </button>
               </SettingsRow>
-              {memoryDiagnostics && (
-                <>
-                  <SettingsRow
-                    label={t('memory.platformProfile.label')}
-                    detail={platformIoProfileDetail(memoryDiagnostics.platformIoProfile, t)}
-                  >
-                    <span className="settings-status-badge">
-                      {platformIoProfileBadge(memoryDiagnostics.platformIoProfile, t)}
-                    </span>
-                  </SettingsRow>
-                  <SettingsRow
-                    label={t('memory.diagnostics.migrationPreflightLabel')}
-                    detail={t('memory.diagnostics.migrationPreflight', {
-                      eligible: memoryDiagnostics.legacyMigrationPreflight.legacyFlatEligibleCount,
-                      partitioned: memoryDiagnostics.legacyMigrationPreflight.alreadyPartitionedCount,
-                      duplicates: memoryDiagnostics.legacyMigrationPreflight.blockedDuplicateCount,
-                      recovery: memoryDiagnostics.legacyMigrationPreflight.blockedRecoveryIssueCount
-                    })}
-                  >
-                    <span className="settings-status-badge">{memoryDiagnostics.legacyMigrationPreflight.migrationReady ? t('memory.diagnostics.migrationReady') : t('memory.diagnostics.migrationBlocked')}</span>
-                  </SettingsRow>
-                </>
-              )}
             </SettingsCard>
 
             <SettingsCard>
@@ -929,6 +907,12 @@ function MemoryDialog({
     : dialog.mode === 'edit'
       ? t('memory.dialog.edit')
       : t('memory.dialog.view')
+  const description = dialog.mode === 'create'
+    ? t('memory.dialog.createDescription')
+    : dialog.mode === 'edit'
+      ? t('memory.dialog.editDescription')
+      : null
+  const confidencePercent = Math.round(Math.max(0, Math.min(1, draft.confidence)) * 100)
 
   return (
     <div className="memory-dialog-backdrop" role="presentation" onMouseDown={(event) => {
@@ -936,13 +920,19 @@ function MemoryDialog({
     }}>
       <section className="memory-dialog" role="dialog" aria-modal="true" aria-label={title}>
         <div className="memory-dialog-header">
-          <div>
-            <strong>{title}</strong>
-            {memory && (
-              <span>
-                {memory.scope} · {new Date(memory.updatedAt).toLocaleString(locale)}
-              </span>
-            )}
+          <div className="memory-dialog-title-group">
+            <span className="memory-dialog-title-icon" aria-hidden="true">
+              <BrainCircuit size={19} strokeWidth={2.2} />
+            </span>
+            <div>
+              <strong>{title}</strong>
+              {description ? <span>{description}</span> : null}
+              {memory && (
+                <span className="memory-dialog-meta">
+                  {t(`memory.scope.${memory.scope}`)} · {new Date(memory.updatedAt).toLocaleString(locale)}
+                </span>
+              )}
+            </div>
           </div>
           <GlassIconButton
             className="settings-close-button"
@@ -956,39 +946,75 @@ function MemoryDialog({
         </div>
         <div className="memory-dialog-body">
           {editable ? (
-            <>
-              <textarea
-                className="settings-textarea"
-                value={draft.content}
-                placeholder={t('memory.dialog.contentPlaceholder')}
-                onChange={(event) => onChange({ ...draft, content: event.target.value })}
-              />
-              <div className="settings-inline-group">
+            <div className="memory-dialog-form">
+              <label className="memory-dialog-field memory-dialog-field--content">
+                <span className="memory-dialog-field-label">
+                  <strong>{t('memory.dialog.contentLabel')}</strong>
+                  <small>{t('memory.dialog.contentHint')}</small>
+                </span>
+                <textarea
+                  aria-label={t('memory.dialog.contentLabel')}
+                  className="settings-textarea"
+                  value={draft.content}
+                  placeholder={t('memory.dialog.contentPlaceholder')}
+                  onChange={(event) => onChange({ ...draft, content: event.target.value })}
+                />
+              </label>
+
+              <div className="memory-dialog-field-grid">
                 {dialog.mode === 'create' && (
-                  <SettingsSelect
-                    value={draft.scope}
-                    options={[
-                      { value: 'workspace', label: t('memory.scope.workspace') },
-                      { value: 'project', label: t('memory.scope.project') },
-                      { value: 'user', label: t('memory.scope.user') }
-                    ]}
-                    onChange={(scope) => onChange({ ...draft, scope })}
-                  />
+                  <div className="memory-dialog-field">
+                    <span className="memory-dialog-field-label">
+                      <strong>{t('memory.dialog.scopeLabel')}</strong>
+                    </span>
+                    <SettingsSelect
+                      ariaLabel={t('memory.dialog.scopeLabel')}
+                      value={draft.scope}
+                      options={[
+                        { value: 'workspace', label: t('memory.scope.workspace') },
+                        { value: 'project', label: t('memory.scope.project') },
+                        { value: 'user', label: t('memory.scope.user') }
+                      ]}
+                      onChange={(scope) => onChange({ ...draft, scope })}
+                    />
+                  </div>
                 )}
-                <SettingsTextInput
-                  value={draft.tags}
-                  placeholder={t('memory.dialog.tagsPlaceholder')}
-                  onChange={(tags) => onChange({ ...draft, tags })}
-                />
-                <NumberInput
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  value={draft.confidence}
-                  onChange={(confidence) => onChange({ ...draft, confidence })}
-                />
+                <label className="memory-dialog-field memory-dialog-field--tags">
+                  <span className="memory-dialog-field-label">
+                    <strong>{t('memory.dialog.tagsLabel')}</strong>
+                    <small>{t('memory.dialog.tagsHint')}</small>
+                  </span>
+                  <SettingsTextInput
+                    ariaLabel={t('memory.dialog.tagsLabel')}
+                    value={draft.tags}
+                    placeholder={t('memory.dialog.tagsPlaceholder')}
+                    onChange={(tags) => onChange({ ...draft, tags })}
+                  />
+                </label>
               </div>
-            </>
+
+              <label className="memory-dialog-field memory-dialog-field--confidence">
+                <span className="memory-dialog-field-label memory-dialog-field-label--inline">
+                  <span>
+                    <strong>{t('memory.dialog.confidenceLabel')}</strong>
+                    <small>{t('memory.dialog.confidenceHint')}</small>
+                  </span>
+                  <output className="memory-dialog-confidence-value">
+                    {t('memory.dialog.confidenceValue', { value: confidencePercent })}
+                  </output>
+                </span>
+                <input
+                  aria-label={t('memory.dialog.confidenceLabel')}
+                  className="memory-dialog-confidence-range"
+                  max={1}
+                  min={0}
+                  step={0.1}
+                  type="range"
+                  value={draft.confidence}
+                  onChange={(event) => onChange({ ...draft, confidence: Number(event.target.value) })}
+                />
+              </label>
+            </div>
           ) : (
             <div className="memory-dialog-readonly">{memory?.content}</div>
           )}
@@ -1006,39 +1032,4 @@ function MemoryDialog({
       </section>
     </div>
   )
-}
-
-
-function platformIoProfileBadge(
-  profile: TeachingMemoryDiagnostics['platformIoProfile'],
-  t: (key: string) => string
-): string {
-  switch (profile) {
-    case 'pathname_default':
-      return t('memory.platformProfile.pathnameDefault')
-    case 'posix_descriptor_strict':
-      return t('memory.platformProfile.posix')
-    case 'windows_direct_path_non_cas':
-      return t('memory.platformProfile.windowsLimited')
-    case 'unavailable':
-    default:
-      return t('memory.platformProfile.unavailable')
-  }
-}
-
-function platformIoProfileDetail(
-  profile: TeachingMemoryDiagnostics['platformIoProfile'],
-  t: (key: string) => string
-): string {
-  switch (profile) {
-    case 'pathname_default':
-      return t('platformCapability.pathnameDefault')
-    case 'posix_descriptor_strict':
-      return t('platformCapability.posixDescriptorStrict')
-    case 'windows_direct_path_non_cas':
-      return t('platformCapability.windowsMemoryLimitedPersistence')
-    case 'unavailable':
-    default:
-      return t('platformCapability.unavailable')
-  }
 }

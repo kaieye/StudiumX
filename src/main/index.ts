@@ -95,6 +95,18 @@ function buildWindowsTitleBarOverlay(): Electron.TitleBarOverlay {
 
 const MAC_WINDOW_BUTTON_POSITION = { x: 22, y: 23 }
 
+/**
+ * Windows runs the Electron executable during development, so its taskbar
+ * button otherwise falls back to Electron's stock icon. Packaged builds keep
+ * the same rounded icon available as a resource for the window as well.
+ */
+function resolveWindowsWindowIcon(): string | undefined {
+  if (process.platform !== 'win32') return undefined
+  return app.isPackaged
+    ? join(process.resourcesPath, 'icon.ico')
+    : join(__dirname, '../../build/icon.ico')
+}
+
 /** Apply app-behavior settings (login item, tray, logging) to the live process. */
 async function applyAppBehavior(
   settings: TeachingSettingsV1,
@@ -174,6 +186,7 @@ function createWindow(
     title: APP_NAME,
     autoHideMenuBar: true,
     show: false,
+    icon: resolveWindowsWindowIcon(),
     ...buildDesktopWindowVisualOptions(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),

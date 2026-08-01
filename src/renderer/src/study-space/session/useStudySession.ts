@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatStudySeatLabel, randomStudySpaceCode } from '../domain'
-import { persistStudySnapshot, readStudySnapshot, syncStudyLocation } from './session-snapshot'
+import {
+  isDefaultStudyTaskSeed,
+  persistStudySnapshot,
+  readStudySnapshot,
+  syncStudyLocation
+} from './session-snapshot'
 import type {
   StudyRoomEventKind,
   StudyRoomId,
@@ -1478,6 +1483,7 @@ export function useStudySession({
           shouldOfferMigrationBanner({
             migrationSuggested: result.migrationSuggested,
             hostTaskCount: snapshotRef.current.tasks.length,
+            hostHasOnlyDefaultTasks: isDefaultStudyTaskSeed(snapshotRef.current.tasks),
             reason: result.reason
           })
         ) {

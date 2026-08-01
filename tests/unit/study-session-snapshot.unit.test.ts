@@ -6,6 +6,7 @@ import {
 } from '../../src/renderer/src/study-space/constants'
 import {
   applyStudyInviteParams,
+  isDefaultStudyTaskSeed,
   normalizeStudySnapshot,
   normalizeStudySpaceCode,
   normalizeStudyTimerPlans,
@@ -19,6 +20,22 @@ describe('durable Study Session snapshot', () => {
     window.localStorage.clear()
     window.sessionStorage.clear()
     window.history.replaceState(null, '', '/')
+  })
+
+  it('recognizes the untouched first-run task seed but not user-authored changes', () => {
+    expect(isDefaultStudyTaskSeed(defaultStudySnapshot.tasks)).toBe(true)
+    expect(
+      isDefaultStudyTaskSeed([
+        ...defaultStudySnapshot.tasks,
+        { id: 'user-task', title: '我的任务', done: false, categoryId: 'study' }
+      ])
+    ).toBe(false)
+    expect(
+      isDefaultStudyTaskSeed([
+        { ...defaultStudySnapshot.tasks[0], title: '我改过的任务' },
+        defaultStudySnapshot.tasks[1]
+      ])
+    ).toBe(false)
   })
 
 

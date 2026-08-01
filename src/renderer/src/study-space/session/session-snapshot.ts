@@ -156,6 +156,27 @@ export type NormalizeStudyTasksOptions = {
   allowEmpty?: boolean
 }
 
+/**
+ * Returns true when the task list is exactly the first-run seed.
+ *
+ * Seed tasks are onboarding content, not user-authored legacy data. They must
+ * not trigger a migration prompt while the workspace canonical store is empty.
+ */
+export function isDefaultStudyTaskSeed(tasks: readonly StudyTask[]): boolean {
+  if (tasks.length !== defaultStudySnapshot.tasks.length) return false
+  return tasks.every((task, index) => {
+    const seed = defaultStudySnapshot.tasks[index]
+    return (
+      task.id === seed.id &&
+      task.title === seed.title &&
+      task.done === seed.done &&
+      task.categoryId === seed.categoryId &&
+      !task.schedule &&
+      task.estimateMinutes === undefined
+    )
+  })
+}
+
 export function normalizeStudyTasks(
   input: unknown,
   options?: NormalizeStudyTasksOptions

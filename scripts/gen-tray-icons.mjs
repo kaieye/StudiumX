@@ -24,6 +24,7 @@ function encodePNG(W,H,rgba){
 }
 // ---------- source ----------
 const{W,H,ch,data}=decodePNG('build/icon.png') // RGB ch=3
+const roundedAppIcon=decodePNG('build/icon-dock.png')
 const lum=(x,y)=>{const i=(y*W+x)*ch;return 0.299*data[i]+0.587*data[i+1]+0.114*data[i+2]}
 // logo bbox (lum>100)
 let minX=W,maxX=0,minY=H,maxY=0
@@ -42,26 +43,6 @@ function covDown(x0,y0,side,N){
 // smoothstep contrast: lo->0, hi->1, smooth between (keeps bg clean, bolds strokes)
 const ss=(v,lo,hi)=>{if(v<=lo)return 0;if(v>=hi)return 1;const t=(v-lo)/(hi-lo);return t*t*(3-2*t)}
 const LO=0.05,HI=0.22
-// brand blue #4f7cf5
-const BL=[79,124,245],WH=[255,255,255]
-// rounded-square opacity mask (AA) for a filled tile
-function tileMask(N,radius){
-  const m=new Float32Array(N*N);const r=radius
-  for(let y=0;y<N;y++)for(let x=0;x<N;x++){
-    // distance from rounded-rect edge (inside positive)
-    const dx=Math.max(r-x,x-(N-1-r)),dy=Math.max(r-y,y-(N-1-r))
-    let d
-    if(dx<=0&&dy<=0)d=1 // fully inside, far from corners
-    else if(dx<=0)d=Math.min(1,1+dy) // edge along x (dy>0 means beyond top/bottom)
-    else if(dy<=0)d=Math.min(1,1+dx)
-    else{ // corner: distance from corner center
-      const cd=Math.sqrt(dx*dx+dy*dy)-r // 0 at corner arc
-      d=cd<=0?1:cd>=1?0:1-cd
-    }
-    m[y*N+x]=Math.max(0,Math.min(1,d))
-  }
-  return m
-}
 // ---- mac template: bbox-crop (fill ~0.82), black rgb, alpha=smoothstep(coverage) ----
 function macIcon(N){
   const side=Math.round(maxd/0.82)
@@ -71,24 +52,43 @@ function macIcon(N){
   for(let i=0;i<N*N;i++){const b=ss(cov[i],LO,HI);rgba[i*4]=0;rgba[i*4+1]=0;rgba[i*4+2]=0;rgba[i*4+3]=Math.round(b*255)}
   return rgba
 }
-// ---- win/linux color: full icon, blue tile bg + white emblem, smoothstep blend, rounded opaque tile ----
+// ---- Windows/Linux: shrink the actual rounded app icon rather than drawing
+// a separate tray-only blue tile, so every Windows surface uses one identity.
 function winIcon(N){
-  const cov=covDown(0,0,W,N);const rgba=Buffer.alloc(N*N*4)
-  const m=tileMask(N,Math.round(N*0.18))
-  for(let i=0;i<N*N;i++){
-    const b=ss(cov[i],LO,HI) // 0=bg(blue) 1=emblem(white)
-    let r=BL[0]*(1-b)+WH[0]*b,g=BL[1]*(1-b)+WH[1]*b,bl=BL[2]*(1-b)+WH[2]*b
-    const a=m[i];r*=a;g*=a;bl*=a // premult by tile opacity (clean rounded edges)
-    rgba[i*4]=Math.round(r);rgba[i*4+1]=Math.round(g);rgba[i*4+2]=Math.round(bl);rgba[i*4+3]=Math.round(a*255)
+  const {W:sourceWidth,H:sourceHeight,ch:sourceChannels,data:source}=roundedAppIcon
+  const rgba=Buffer.alloc(N*N*4)
+  for(let oy=0;oy<N;oy++)for(let ox=0;ox<N;ox++){
+    const x0=Math.floor(ox*sourceWidth/N),x1=Math.floor((ox+1)*sourceWidth/N)
+    const y0=Math.floor(oy*sourceHeight/N),y1=Math.floor((oy+1)*sourceHeight/N)
+    let r=0,g=0,b=0,a=0,count=0
+    for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){
+      const i=(y*sourceWidth+x)*sourceChannels
+      r+=source[i];g+=source[i+1];b+=source[i+2];a+=sourceChannels===4?source[i+3]:255;count++
+    }
+    const output=(oy*N+ox)*4
+    rgba[output]=Math.round(r/count);rgba[output+1]=Math.round(g/count)
+    rgba[output+2]=Math.round(b/count);rgba[output+3]=Math.round(a/count)
   }
   return rgba
+}
+function encodeIco(sizes){
+  const images=sizes.map((size)=>encodePNG(size,size,winIcon(size)))
+  const header=Buffer.alloc(6);header.writeUInt16LE(0,0);header.writeUInt16LE(1,2);header.writeUInt16LE(images.length,4)
+  let offset=6+16*images.length
+  const entries=images.map((image,index)=>{
+    const size=sizes[index],dimension=size===256?0:size,entry=Buffer.alloc(16)
+    entry[0]=dimension;entry[1]=dimension;entry.writeUInt16LE(1,4);entry.writeUInt16LE(32,6);entry.writeUInt32LE(image.length,8);entry.writeUInt32LE(offset,12);offset+=image.length
+    return entry
+  })
+  return Buffer.concat([header,...entries,...images])
 }
 // ---------- write ----------
 writeFileSync('build/trayTemplate.png',encodePNG(16,16,macIcon(16)))
 writeFileSync('build/trayTemplate@2x.png',encodePNG(32,32,macIcon(32)))
 writeFileSync('build/trayIcon.png',encodePNG(16,16,winIcon(16)))
 writeFileSync('build/trayIcon@2x.png',encodePNG(32,32,winIcon(32)))
-console.log('wrote: trayTemplate.png, trayTemplate@2x.png, trayIcon.png, trayIcon@2x.png')
+writeFileSync('build/icon.ico',encodeIco([16,24,32,48,64,128,256]))
+console.log('wrote: icon.ico, trayTemplate.png, trayTemplate@2x.png, trayIcon.png, trayIcon@2x.png')
 // ---------- verify: ASCII grids + alpha counts ----------
 const ramp=' .:-=+*#%@'
 function show(rgba,N,label,mode){
@@ -97,7 +97,7 @@ function show(rgba,N,label,mode){
     for(let x=0;x<N;x++){const i=(y*N+x)*4;const a=rgba[i+3]
       let ch
       if(mode==='mac'){const t=a/255;line+=a<10?' ':ramp[Math.min(ramp.length-1,Math.floor(t*ramp.length))];ch=0}
-      else{ // win: show blue(#)/white(@)/transparent(space)
+      else{ // win: show the rounded app icon's light/dark detail
         if(a<20)ch=' ';else{const r=rgba[i],g=rgba[i+1],b=rgba[i+2];const wh=(r+g+b)/(3*255);ch=wh>0.85?'@':wh>0.55?'+':wh>0.3?'=':'#'}}
       line+=ch
       if(a>200)op++;else if(a<10)tr++;else mid++
@@ -108,4 +108,4 @@ function show(rgba,N,label,mode){
   return out
 }
 process.stdout.write(show(macIcon(16),16,'MAC template','mac'))
-process.stdout.write(show(winIcon(16),16,'WIN color (#=blue @=white)','win'))
+process.stdout.write(show(winIcon(16),16,'WIN rounded app icon','win'))

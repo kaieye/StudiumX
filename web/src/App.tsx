@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode } from 'react'
+import { type ReactElement, type ReactNode, useCallback, useMemo, useState } from 'react'
 import {
   BrowserRouter,
   Navigate,
@@ -8,8 +8,18 @@ import {
   Routes,
   useLocation
 } from 'react-router-dom'
+import {
+  Activity, BarChart3, BookOpen, Bot, ChevronLeft, ChevronRight, CircleHelp,
+  ClipboardList, FolderKanban, GraduationCap, LogOut, Monitor, Moon, Settings,
+  Sparkles, Sun, Timer, Users, Wrench
+} from 'lucide-react'
+import appIcon from '../../src/renderer/src/assets/auth/app-icon-rounded.png'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { LoginView } from './views/LoginView'
+import {
+  DesktopOnlyChatDialogProvider,
+  useDesktopOnlyChatDialog
+} from './chat/DesktopOnlyChatDialog'
 
 /**
  * Route-module contract (auto-discovered below):
@@ -44,59 +54,146 @@ const discoveredRoutes = Object.values(routeModules)
 
 function Shell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
+  const { openDesktopOnlyChatDialog } = useDesktopOnlyChatDialog()
+  const location = useLocation()
+  const [collapsed, setCollapsed] = useState(false)
+  const [darkTheme, setDarkTheme] = useState(() =>
+    typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark'
+  )
+  const toggleTheme = useCallback(() => {
+    const nextDark = !darkTheme
+    setDarkTheme(nextDark)
+    const theme = nextDark ? 'dark' : 'light'
+    document.documentElement.style.colorScheme = theme
+    document.documentElement.setAttribute('data-theme', theme)
+    void window.teachingSystem.updateSettings({ theme }).catch(() => {
+      // The visual toggle remains useful even when browser storage is unavailable.
+    })
+  }, [darkTheme])
+  const displayName = user?.nickname?.trim() || (user ? '学习者' : '学习者')
+  const initials = Array.from(displayName)[0]?.toUpperCase() ?? 'S'
+  const routeFor = (path: string) => discoveredRoutes.find((route) => route.path === path)
+  const primary = [
+    { path: '/', label: '学习总览', icon: Bot, end: true },
+    { path: '/planning', label: '学习计划', icon: ClipboardList },
+    { path: '/study-room', label: '自习室', icon: Timer },
+  ]
+  const library = [
+    { path: '/lessons', label: '课程资料', icon: BookOpen },
+    { path: '/conversations', label: '对话记录', icon: Activity },
+    { path: '/analytics', label: '学习分析', icon: BarChart3 },
+    { path: '/devices', label: '设备同步', icon: Monitor },
+  ]
+  const currentLabel = useMemo(() => {
+    if (location.pathname === '/') return '学习总览'
+    return routeFor(location.pathname)?.label ?? '学习总览'
+  }, [location.pathname])
+  const navLink = (item: { path: string; label: string; icon: typeof Bot; end?: boolean }) => {
+    const Icon = item.icon
+    if (item.path === '/conversations') {
+      return (
+        <button
+          key={item.path}
+          type="button"
+          title={collapsed ? item.label : '对话服务仅限桌面端'}
+          className="web-nav-item web-nav-button"
+          onClick={openDesktopOnlyChatDialog}
+        >
+          <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
+          <span>{item.label}</span>
+        </button>
+      )
+    }
+    return <NavLink
+      key={item.path}
+      to={item.path}
+      end={item.end}
+      title={collapsed ? item.label : undefined}
+      className={({ isActive }) => `web-nav-item${isActive ? ' is-active' : ''}`}
+    >
+      <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
+      <span>{item.label}</span>
+    </NavLink>
+  }
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900">
-      <header className="border-b border-neutral-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 px-6 py-3">
-          <span className="text-base font-semibold">StudiumX Web</span>
-          <span className="text-xs text-neutral-400">学习伴侣仪表盘</span>
-          <nav aria-label="主导航" className="ml-4 flex flex-wrap gap-1">
-            {discoveredRoutes.map((route) => (
-              <NavLink
-                key={route.path}
-                to={route.path}
-                className={({ isActive }) =>
-                  'rounded-md px-3 py-1.5 text-sm font-medium transition ' +
-                  (isActive
-                    ? 'bg-neutral-900 text-white'
-                    : 'text-neutral-600 hover:bg-neutral-100')
-                }
-              >
-                {route.label ?? route.path}
-              </NavLink>
-            ))}
-          </nav>
-          <div className="ml-auto flex items-center gap-3">
-            <span className="text-sm text-neutral-500">
-              {user?.nickname ?? (user ? '已登录' : '')}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                void logout()
-              }}
-              className="rounded-md border border-neutral-200 px-3 py-1 text-sm text-neutral-700 transition hover:bg-neutral-100"
-            >
-              退出
-            </button>
+    <div className={`web-app-shell${collapsed ? ' is-sidebar-collapsed' : ''}`}>
+      <aside className="web-sidebar" aria-label="主导航">
+        <div className="web-sidebar-brand">
+          <img src={appIcon} alt="" aria-hidden="true" />
+          <span className="web-brand-copy"><strong>StudiumX</strong><small>学习伴侣</small></span>
+        </div>
+        <nav className="web-sidebar-nav">
+          <div className="web-nav-group">工作区</div>
+          {primary.map(navLink)}
+          <div className="web-nav-group web-nav-group-spaced">资料与洞察</div>
+          {library.map(navLink)}
+        </nav>
+        <div className="web-sidebar-bottom">
+          <NavLink to="/settings" className={({ isActive }) => `web-nav-item${isActive ? ' is-active' : ''}`} title={collapsed ? '设置' : undefined}>
+            <Settings size={17} strokeWidth={1.8} aria-hidden="true" /><span>设置</span>
+          </NavLink>
+          <a className="web-nav-item" href="mailto:support@studiumx.app" title={collapsed ? '帮助与反馈' : undefined}>
+            <CircleHelp size={17} strokeWidth={1.8} aria-hidden="true" /><span>帮助与反馈</span>
+          </a>
+          <div className="web-sidebar-user">
+            <span className="web-avatar" aria-hidden="true">{initials}</span>
+            <span className="web-user-copy"><strong>{displayName}</strong><small>已同步</small></span>
+            <button type="button" className="web-logout-button" onClick={() => void logout()} aria-label="退出登录" title="退出登录"><LogOut size={15} /></button>
           </div>
         </div>
-      </header>
-      {children}
+      </aside>
+      <section className="web-main-shell">
+        <header className="web-topbar">
+          <div className="web-topbar-leading">
+            <button type="button" className="web-icon-button" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? '展开侧栏' : '收起侧栏'} title={collapsed ? '展开侧栏' : '收起侧栏'}>
+              {collapsed ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
+            </button>
+            <span className="web-breadcrumb-muted">StudiumX</span><span className="web-breadcrumb-separator">/</span><strong>{currentLabel}</strong>
+          </div>
+          <div className="web-topbar-actions">
+            <span className="web-sync-pill"><span className="web-sync-dot" />本地优先</span>
+            <button
+              type="button"
+              className="web-icon-button"
+              aria-label={darkTheme ? '切换为浅色主题' : '切换为深色主题'}
+              aria-pressed={darkTheme}
+              title={darkTheme ? '切换为浅色主题' : '切换为深色主题'}
+              onClick={toggleTheme}
+            >
+              {darkTheme ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <NavLink to="/settings" className="web-icon-button" aria-label="打开设置" title="打开设置"><Wrench size={16} /></NavLink>
+          </div>
+        </header>
+        <div className="web-content">{children}</div>
+      </section>
     </div>
   )
 }
 
 function Home() {
+  const { openDesktopOnlyChatDialog } = useDesktopOnlyChatDialog()
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
-      <h1 className="text-3xl font-semibold tracking-tight">
-        StudiumX Web - 学习伴侣仪表盘
-      </h1>
-      <p className="mt-3 max-w-2xl text-neutral-600">
-        登录成功。可查看学习分析、管理学习计划、参与自习室、浏览已归档的课程与对话。
-        功能将在后续阶段逐步接入（plan §8 Phase 4+）。
-      </p>
+    <main className="web-home-page">
+      <section className="web-home-hero">
+        <div>
+          <span className="web-eyebrow"><Sparkles size={14} /> 今日学习空间</span>
+          <h1>准备好开始学习了吗？</h1>
+          <p>从你的学习计划继续，或让 StudiumX 帮你整理下一步。</p>
+          <div className="web-home-actions">
+            <NavLink to="/planning" className="web-primary-button"><ClipboardList size={16} />打开学习计划</NavLink>
+            <NavLink to="/lessons" className="web-secondary-button"><BookOpen size={16} />浏览课程</NavLink>
+            <button type="button" className="web-secondary-button" onClick={openDesktopOnlyChatDialog}><Bot size={16} />打开学习助手</button>
+          </div>
+        </div>
+        <div className="web-hero-orbit" aria-hidden="true"><GraduationCap size={42} strokeWidth={1.35} /></div>
+      </section>
+      <section className="web-home-grid">
+        <article className="web-stat-card"><span className="web-stat-icon"><Timer size={17} /></span><div><small>今日专注</small><strong>0 分钟</strong><span>开始你的第一个专注时段</span></div></article>
+        <article className="web-stat-card"><span className="web-stat-icon"><FolderKanban size={17} /></span><div><small>进行中的课程</small><strong>—</strong><span>从课程资料中选择一个课程</span></div></article>
+        <article className="web-stat-card"><span className="web-stat-icon"><Users size={17} /></span><div><small>自习室状态</small><strong>准备就绪</strong><span>和其他学习者一起专注</span></div></article>
+      </section>
+      <section className="web-home-panel"><div><span className="web-eyebrow">学习助手</span><h2>你的学习数据只属于你</h2><p>Web 端显示由桌面端同步的只读数据，不会自动上传或修改教学事实。</p></div><NavLink to="/settings" className="web-secondary-button">查看同步设置</NavLink></section>
     </main>
   )
 }
@@ -129,9 +226,11 @@ function ProtectedLayout() {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
   return (
-    <Shell>
-      <Outlet />
-    </Shell>
+    <DesktopOnlyChatDialogProvider>
+      <Shell>
+        <Outlet />
+      </Shell>
+    </DesktopOnlyChatDialogProvider>
   )
 }
 

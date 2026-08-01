@@ -890,8 +890,8 @@
 .memory-dialog {
   display: grid;
   gap: 0;
-  width: min(720px, calc(100vw - 48px));
-  max-height: min(80vh, 720px);
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(88vh, 760px);
   overflow: hidden;
   border: 1px solid var(--lg-line, rgba(255, 255, 255, 0.72));
   border-radius: var(--lg-radius-xl, 24px);
@@ -910,31 +910,148 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 18px;
+  padding: 20px 22px;
 }
 
 .memory-dialog-header {
   border-bottom: 1px solid var(--line-muted);
 }
 
+.memory-dialog-title-group {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  gap: 12px;
+}
+
+.memory-dialog-title-group > div {
+  min-width: 0;
+}
+
+.memory-dialog-title-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  margin-top: 0;
+  place-items: center;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 .memory-dialog-header strong {
   display: block;
   color: var(--text);
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
 }
 
-.memory-dialog-header span {
+.memory-dialog-title-group > div > span {
   display: block;
   margin-top: 4px;
   color: var(--text-muted);
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.memory-dialog-header .memory-dialog-meta {
+  margin-top: 6px;
+  color: var(--text-subtle, var(--text-muted));
+  font-size: 11px;
 }
 
 .memory-dialog-body {
   display: grid;
   gap: 12px;
-  padding: 18px;
+  padding: 22px;
   overflow: auto;
+}
+
+.memory-dialog-form {
+  display: grid;
+  gap: 20px;
+}
+
+.memory-dialog-field {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.memory-dialog-field-label {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.memory-dialog-field-label strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.memory-dialog-field-label small {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.memory-dialog .settings-textarea,
+.memory-dialog .settings-input,
+.memory-dialog .settings-select {
+  width: 100%;
+}
+
+.memory-dialog-field--content .settings-textarea {
+  min-height: 148px;
+  resize: vertical;
+}
+
+.memory-dialog-field-grid {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.2fr);
+  gap: 14px;
+}
+
+.memory-dialog-field-label--inline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.memory-dialog-field-label--inline > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.memory-dialog-confidence-value {
+  flex: 0 0 auto;
+  margin-top: -2px;
+  padding: 4px 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.2;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.memory-dialog-confidence-range {
+  width: 100%;
+  height: 6px;
+  margin: 3px 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.memory-dialog-confidence-range:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 5px;
 }
 
 .memory-dialog-readonly {
@@ -952,6 +1069,23 @@
 .memory-dialog-footer {
   justify-content: flex-end;
   border-top: 1px solid var(--line-muted);
+}
+
+@media (max-width: 560px) {
+  .memory-dialog-backdrop {
+    padding: 12px;
+  }
+
+  .memory-dialog-field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .memory-dialog-header,
+  .memory-dialog-body,
+  .memory-dialog-footer {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
 }
 
 

@@ -99,11 +99,15 @@ export function buildMigrationBannerModel(
 export function shouldOfferMigrationBanner(input: {
   migrationSuggested: boolean
   hostTaskCount: number
+  /** First-run seed tasks are onboarding content, not migration candidates. */
+  hostHasOnlyDefaultTasks?: boolean
   reason?: string
 }): boolean {
   if (!input.migrationSuggested) return false
   if (input.hostTaskCount <= 0) return false
-  // Race skip must not pop migration UI.
-  if (input.reason === 'unknown') return false
-  return true
+  if (input.hostHasOnlyDefaultTasks) return false
+  // A migration prompt is actionable only after a successful read confirms an
+  // empty canonical store. Missing workspace/API and IO failures need a normal
+  // error/retry path, not a misleading migration dialog.
+  return input.reason === 'canonical_empty'
 }
