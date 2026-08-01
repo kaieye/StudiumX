@@ -36,6 +36,11 @@ vi.mock('electron', () => ({
   Notification: { isSupported: vi.fn() },
   shell: { openPath: vi.fn(), openExternal: vi.fn() }
 }))
+vi.mock('electron-updater', () => ({
+  default: {
+    autoUpdater: {}
+  }
+}))
 vi.mock('../../src/main/ai/ask-pending', () => ({
   cancelStreamAskPending: pending.cancelStreamAskPending,
   resolveAskPending: pending.resolveAskPending
@@ -951,9 +956,12 @@ describe('Teaching IPC gateway', () => {
     registerTeachingIpcGateway(registration())
 
     // ADR-0128/0142: teach:mcp-* invoke channels are owned by the dedicated
-    // registerMcpIpcGateway registrar, not this gateway.
+    // registerMcpIpcGateway registrar. The access-token channel is registered
+    // in the main-process bootstrap because it configures that gateway.
     const channels = Object.values(teachingInvokeChannels)
-    const gatewayChannels = channels.filter((channel) => !channel.startsWith('teach:mcp-'))
+    const gatewayChannels = channels.filter((channel) =>
+      !channel.startsWith('teach:mcp-') && channel !== teachingInvokeChannels.mcpSetStudiumxAccessToken
+    )
     expect(electron.handle).toHaveBeenCalledTimes(gatewayChannels.length)
     expect(electron.handlers.size).toBe(gatewayChannels.length)
     expect([...electron.handlers.keys()].sort()).toEqual([...gatewayChannels].sort())

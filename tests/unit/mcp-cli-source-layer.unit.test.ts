@@ -89,7 +89,10 @@ describe('CLI MCP source layer (ADR-0137)', () => {
       servers: [server('shared', { label: 'from-user', command: 'user-cmd' })]
     }
     const view = await resolveEffectiveMcpConfig(userConfig, {
-      cliServers: [server('shared', { label: 'from-cli', command: 'cli-cmd' })]
+      cliServers: [server('shared', { label: 'from-cli', command: 'cli-cmd' })],
+      // This test isolates the user/CLI precedence contract. System defaults
+      // are exercised by host-level coverage below.
+      systemServers: []
     })
     expect(view.effectiveServers).toHaveLength(1)
     expect(view.effectiveServers[0]!.server.command).toBe('cli-cmd')
@@ -115,7 +118,12 @@ describe('CLI MCP source layer (ADR-0137)', () => {
         enabled: true,
         servers: [server('shared', { command: 'user-shared' })]
       }
-      const view = await resolveEffectiveMcpConfig(userConfig, { workspaceRoot: root })
+      const view = await resolveEffectiveMcpConfig(userConfig, {
+        workspaceRoot: root,
+        // Keep this focused on workspace-versus-user precedence rather than
+        // the independently tested built-in system layer.
+        systemServers: []
+      })
       const ids = view.effectiveServers.map((e) => e.server.id).sort()
       expect(ids).toEqual(['shared', 'ws_only'])
       expect(view.effectiveServers.find((e) => e.server.id === 'shared')!.server.command).toBe(
@@ -147,7 +155,7 @@ describe('McpHost CLI session override', () => {
       vi.spyOn(host.sessionManager, 'applyConfig').mockResolvedValue()
 
       const view = await host.applyEffectiveConfig()
-      expect(view.effectiveServers.map((e) => e.server.id).sort()).toEqual(['boot_cli', 'user1'])
+      expect(view.effectiveServers.map((e) => e.server.id).sort()).toEqual(['boot_cli', 'context-docs', 'user1'])
 
       await host.setCliServers([server('runtime_cli')])
       const v2 = host.getLastEffectiveView()
@@ -155,9 +163,9 @@ describe('McpHost CLI session override', () => {
       expect(v2?.effectiveServers.some((e) => e.server.id === 'boot_cli')).toBe(false)
 
       await host.setCliServers(null)
-      // without env CLI, only user remains from mocked load
+      // Without an env CLI, the user layer and built-in system layer remain.
       const v3 = host.getLastEffectiveView()
-      expect(v3?.effectiveServers.map((e) => e.server.id)).toEqual(['user1'])
+      expect(v3?.effectiveServers.map((e) => e.server.id).sort()).toEqual(['context-docs', 'user1'])
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

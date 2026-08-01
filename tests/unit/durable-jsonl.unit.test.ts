@@ -100,7 +100,10 @@ describe('durable JSONL', () => {
       activePath,
       now: () => new Date('2026-07-01T00:00:00.000Z')
     }, '{"id":"july"}')
-    const firstJulySeal = await rotateDurableJsonl({ activePath })
+    const firstJulySeal = await rotateDurableJsonl({
+      activePath,
+      now: () => new Date('2026-07-01T00:00:00.000Z')
+    })
 
     expect(firstJulySeal).toContain(durableJsonlSealedSegmentFileName('ledger.jsonl', '2026-07', 1))
     await expect(readFile(activePath, 'utf8')).resolves.toBe('')

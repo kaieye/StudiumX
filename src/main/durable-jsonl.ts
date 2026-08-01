@@ -134,8 +134,7 @@ async function appendLine(options: DurableJsonlOptions, line: string): Promise<v
     throw new Error('Durable JSONL active path is not a regular file.')
   }
 
-  const now = (options.now ?? (() => new Date()))()
-  if (Number.isNaN(now.getTime())) throw new Error('Durable JSONL clock returned an invalid date.')
+  const now = currentTime(options)
   const lineBytes = Buffer.byteLength(line, 'utf8')
   if (activeInfo && activeInfo.size > 0 && (
     monthKey(activeInfo.mtime) !== monthKey(now) || activeInfo.size + lineBytes > maxBytes
@@ -173,7 +172,10 @@ async function rotateActiveFile(options: DurableJsonlOptions, knownMtime?: Date)
 
   const directory = dirname(activePath)
   const activeName = basename(activePath)
-  const month = monthKey(knownMtime ?? activeInfo.mtime)
+  // Automatic rotations preserve the month of the pre-existing file. An
+  // explicit rotation instead represents a caller-created boundary, so use
+  // the injectable clock rather than the filesystem's wall-clock mtime.
+  const month = monthKey(knownMtime ?? currentTime(options))
   const sealedPath = await nextSealedSegmentPath(directory, activeName, month)
   await rename(activePath, sealedPath)
   await createSyncedEmptyActiveFile(activePath)
@@ -248,6 +250,12 @@ function normalizeJsonlLine(line: string): string {
 
 function monthKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function currentTime(options: DurableJsonlOptions): Date {
+  const now = (options.now ?? (() => new Date()))()
+  if (Number.isNaN(now.getTime())) throw new Error('Durable JSONL clock returned an invalid date.')
+  return now
 }
 
 async function serialize(activePath: string, operation: () => Promise<void>): Promise<void> {
