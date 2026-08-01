@@ -43,7 +43,7 @@ import { WorkspaceWebRemoteControlTrigger } from './views/web-remote-control/Web
 import type { TeachingPresentationSnapshot } from '../../shared/teaching-types/teaching-presentation'
 import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Component, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Component, lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { type Components } from 'react-markdown'
@@ -51,7 +51,10 @@ import remarkGfm from 'remark-gfm'
 import i18n from './i18n'
 import { MarkdownEditor } from './markdown-editor'
 import { MarkdownPreview } from './markdown-preview'
-import { OfficeWorkbench } from './views/workbench/OfficeWorkbench'
+const OfficeWorkbench = lazy(async () => {
+  const module = await import('./views/workbench/OfficeWorkbench')
+  return { default: module.OfficeWorkbench }
+})
 import { readStudySnapshot } from './study-space/domain'
 import {
   defaultSidebarWidth,
@@ -1562,7 +1565,16 @@ function MainArea() {
       )}
 
       {view === 'workbench' && (
-        <OfficeWorkbench showNotification={showNotification} />
+        <Suspense
+          fallback={(
+            <section className="workbench-loading" aria-live="polite">
+              <span className="workbench-loading-spinner" aria-hidden="true" />
+              <span>正在加载自习室…</span>
+            </section>
+          )}
+        >
+          <OfficeWorkbench showNotification={showNotification} />
+        </Suspense>
       )}
 
       {changeDiff && (

@@ -1,6 +1,5 @@
 import {
   normalizePetAppearanceId,
-  PET_APPEARANCE_IDS,
   type PetAppearanceId
 } from '../../../../shared/teaching-types'
 import { formatStudyHours } from '../../study-space/domain'
@@ -16,7 +15,8 @@ import {
 
 type WorkbenchAssets = {
   deskImage: HTMLImageElement
-  petImages: Record<PetAppearanceId, HTMLImageElement>
+  petImages: Partial<Record<PetAppearanceId, HTMLImageElement>>
+  loadingPetImages: Set<PetAppearanceId>
 }
 
 type DeskId = `desk-${number}`
@@ -145,17 +145,28 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 async function loadWorkbenchAssets(appearance: PetAppearanceId): Promise<WorkbenchAssets> {
-  const petImages = {} as Record<PetAppearanceId, HTMLImageElement>
-  const [deskImage] = await Promise.all([
+  const [deskImage, petImage] = await Promise.all([
     loadImage(deskImageUrl),
-    ...PET_APPEARANCE_IDS.map(async (petAppearance) => {
-      petImages[petAppearance] = await loadImage(getPetSpriteSheetUrl(petAppearance))
-    })
+    loadImage(getPetSpriteSheetUrl(appearance))
   ])
-  // `appearance` is the documented fallback for legacy peers that predate
-  // public pet-presence data.
-  petImages[appearance] ??= await loadImage(getPetSpriteSheetUrl(appearance))
-  return { deskImage, petImages }
+  return {
+    deskImage,
+    petImages: { [appearance]: petImage },
+    loadingPetImages: new Set()
+  }
+}
+
+function ensurePetImage(assets: WorkbenchAssets, appearance: PetAppearanceId): void {
+  if (assets.petImages[appearance] || assets.loadingPetImages.has(appearance)) return
+  assets.loadingPetImages.add(appearance)
+  void loadImage(getPetSpriteSheetUrl(appearance))
+    .then((image) => {
+      assets.petImages[appearance] = image
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      assets.loadingPetImages.delete(appearance)
+    })
 }
 
 function drawDeskImage(ctx: CanvasRenderingContext2D, image: HTMLImageElement, slot: DeskSlot): void {
@@ -281,11 +292,16 @@ function drawScene(
     drawDeskBadge(ctx, slot, isSelected, occupant)
     drawDeskImage(ctx, assets.deskImage, slot)
     if (occupant) {
+      const petAppearance = normalizePetAppearanceId(occupant.petAppearance, fallbackPetAppearance)
+      ensurePetImage(assets, petAppearance)
+      const petImage = assets.petImages[petAppearance] ?? assets.petImages[fallbackPetAppearance]
+      if (!petImage) continue
+      const readyPetImage = petImage
       depthLayers.push({
         z: slot.z,
         draw: () => drawSeatedPet(
           ctx,
-          assets.petImages[normalizePetAppearanceId(occupant.petAppearance, fallbackPetAppearance)],
+          readyPetImage,
           slot,
           occupant,
           elapsed,
