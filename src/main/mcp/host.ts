@@ -764,10 +764,13 @@ export class McpHost {
 
   /**
    * Set the current StudiumX user access token (called from renderer via IPC
-   * on login/refresh/logout). Passing null clears the token.
+   * on login/refresh/logout). Token-bound HTTP sessions must be dropped after
+   * a change so the next connection cannot reuse a stale Authorization header.
    */
-  setStudiumxAccessToken(token: string | null): void {
+  async setStudiumxAccessToken(token: string | null): Promise<void> {
+    if (this.studiumxAccessToken === token) return
     this.studiumxAccessToken = token
+    await this.sessionManager.invalidateServer('context-docs')
   }
 
   private async loadEncryptedOAuthTokenIndex(): Promise<void> {

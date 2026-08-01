@@ -277,8 +277,8 @@ if (!hasSingleInstanceLock) {
     await mcpHost.start()
 
     // Renderer → main: push StudiumX user access token for system-default MCP auth.
-    ipcMain.handle(teachingInvokeChannels.mcpSetStudiumxAccessToken, (_event, token: string | null) => {
-      mcpHost?.setStudiumxAccessToken(token)
+    ipcMain.handle(teachingInvokeChannels.mcpSetStudiumxAccessToken, async (_event, token: string | null) => {
+      await mcpHost?.setStudiumxAccessToken(token)
     })
 
     // ADR-0135: fixed studiumx://mcp-oauth/callback only. No arbitrary deep-link routes.

@@ -74,6 +74,17 @@ describe('McpHost refreshServer', () => {
   })
 })
 
+describe('McpHost StudiumX access-token lifecycle', () => {
+  it('invalidates the context-docs session after a token change so the next request uses the new token', async () => {
+    const host = new McpHost({ userDataPath: '/tmp/studiumx-mcp-host-token-refresh' })
+    const invalidateServer = vi.spyOn(host.sessionManager, 'invalidateServer').mockResolvedValue(undefined)
+
+    await host.setStudiumxAccessToken('fresh-access-token')
+
+    expect(invalidateServer).toHaveBeenCalledWith('context-docs')
+  })
+})
+
 describe('McpHost OAuth authorize and revoke', () => {
   it('authorizeServer loads config, opens external with PKCE challenge, and returns secret-free authorizing state', async () => {
     const openExternal = vi.fn().mockResolvedValue(undefined)
