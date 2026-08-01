@@ -118,6 +118,8 @@ export type SyncStudyRoomMember = {
   platform: string | null
   status: string | null
   focusSecondsToday: number
+  /** Server-authoritative 0-based desk position for this active room membership. */
+  seatIndex: number
   isSelf: boolean
 }
 
@@ -211,12 +213,12 @@ export type SyncApiClient = {
   uploadConversation(id: string, body: SyncConversationUploadBody): Promise<Record<string, unknown>>
   getWechatLoginUrl(): Promise<SyncWechatLoginUrlResponse>
   pollLoginStatus(loginId: string): Promise<SyncPollResponse>
-  studyRoomJoin(body: SyncStudyRoomJoinBody): Promise<{ joined: boolean; roomId: string }>
+  studyRoomJoin(body: SyncStudyRoomJoinBody): Promise<{ joined: boolean; roomId: string; seatIndex: number }>
   studyRoomHeartbeat(body: SyncStudyRoomHeartbeatBody): Promise<{ ok: boolean }>
   studyRoomLeave(roomId: string): Promise<{ left: boolean }>
   studyRoomMembers(roomId: string): Promise<SyncStudyRoomMembersResponse>
   studyRoomAssignment(): Promise<{ roomId: string | null }>
-  studyRoomAssignAndJoin(body: SyncStudyRoomAssignAndJoinBody): Promise<{ joined: boolean; roomId: string }>
+  studyRoomAssignAndJoin(body: SyncStudyRoomAssignAndJoinBody): Promise<{ joined: boolean; roomId: string; seatIndex: number }>
   getAnalyticsPeersToday(): Promise<SyncAnalyticsPeersResponse>
   putAnalyticsSummary(body: SyncAnalyticsSummaryBody): Promise<SyncAnalyticsSummaryResponse>
 }
@@ -452,7 +454,7 @@ export function createSyncApiClient(options: SyncApiClientOptions = {}): SyncApi
       return asType<SyncPollResponse>(await anon('GET', `/auth/desktop/poll?loginId=${encodeURIComponent(loginId)}`))
     },
     async studyRoomJoin(body) {
-      return asType<{ joined: boolean; roomId: string }>(await authed('POST', '/sync/study-room/join', body))
+      return asType<{ joined: boolean; roomId: string; seatIndex: number }>(await authed('POST', '/sync/study-room/join', body))
     },
     async studyRoomHeartbeat(body) {
       return asType<{ ok: boolean }>(await authed('POST', '/sync/study-room/heartbeat', body))
@@ -467,7 +469,7 @@ export function createSyncApiClient(options: SyncApiClientOptions = {}): SyncApi
       return asType<{ roomId: string | null }>(await authed('GET', '/sync/study-room/assignment'))
     },
     async studyRoomAssignAndJoin(body) {
-      return asType<{ joined: boolean; roomId: string }>(
+      return asType<{ joined: boolean; roomId: string; seatIndex: number }>(
         await authed('POST', '/sync/study-room/assign-and-join', body)
       )
     },

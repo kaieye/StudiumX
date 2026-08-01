@@ -1,63 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import { buildOfficeSceneOccupants } from '../../src/renderer/src/views/workbench/OfficeWorkbench'
-import type { OfficeSceneSeatOccupant } from '../../src/renderer/src/views/workbench/office-scene-runtime'
-import type {
-  StudyPresencePeer,
-  StudyTimerMode,
-  StudyTimerState
-} from '../../src/renderer/src/study-space/types'
+import type { StudyTimerMode, StudyTimerState } from '../../src/renderer/src/study-space/types'
 import type { StudyRoomMember } from '../../src/renderer/src/study-space/viewModel'
 
 const spaceCode = 'ABC12'
+const seatCount = 12
 
-const selfOccupant: OfficeSceneSeatOccupant = {
-  kind: 'self',
-  name: '我',
-  petAppearance: 'lulu-capybara',
-  status: 'running',
-  timerMode: 'focus',
-  todayFocusSeconds: 1800
-}
-
-function relayPeer(
-  clientId: string,
+function serverMember(
+  userId: string,
   nickname: string,
-  petAppearance: OfficeSceneSeatOccupant['petAppearance'],
-  seatIndex: number
-): StudyPresencePeer {
+  seatIndex: number,
+  isSelf: boolean,
+  todayFocusSeconds = 1200
+): StudyRoomMember {
   return {
-    clientId,
+    clientId: `server:${userId}`,
     roomId: 'silent',
     spaceCode,
     nickname,
-    petAppearance,
+    petAppearance: isSelf ? 'lulu-capybara' : 'usagi',
     signalId: 'practice',
     seatIndex,
     seatClaimedAt: 0,
     status: 'running' as StudyTimerState,
     timerMode: 'focus' as StudyTimerMode,
     focusMinutes: 25,
-    todayFocusSeconds: 900,
-    todaySessions: 1,
-    streakDays: 0,
-    updatedAt: Date.now()
-  }
-}
-
-function serverMember(userId: string, nickname: string, isSelf: boolean): StudyRoomMember {
-  return {
-    clientId: `server:${userId}`,
-    roomId: 'silent',
-    spaceCode,
-    nickname,
-    petAppearance: selfOccupant.petAppearance,
-    signalId: 'practice',
-    seatIndex: -1,
-    seatClaimedAt: 0,
-    status: 'running' as StudyTimerState,
-    timerMode: 'focus' as StudyTimerMode,
-    focusMinutes: 25,
-    todayFocusSeconds: 1200,
+    todayFocusSeconds,
     todaySessions: 1,
     streakDays: 0,
     updatedAt: Date.now(),
@@ -65,82 +33,45 @@ function serverMember(userId: string, nickname: string, isSelf: boolean): StudyR
   }
 }
 
-const seatCount = 12
-
 describe('buildOfficeSceneOccupants', () => {
-  it('draws one pet for self when the same account is also a relay peer and a server roster exists', () => {
-    // Desktop + web of the same account: the web session announces as a relay
-    // peer, but the server roster (deduplicated per account) only lists self.
-    // The scene must follow the roster so the person gets exactly one pet.
-    const webSession = relayPeer('web-session', '我', 'lulu-capybara', 2)
-    const roster = [serverMember('u-1', '我', true)]
-
+  it('uses every server member’s assigned seat, including self', () => {
     const occupants = buildOfficeSceneOccupants({
-      self: selfOccupant,
-      userSeatConflict: false,
-      workbenchUserSeatIndex: 0,
-      relayPeersBySeat: new Map([[webSession.seatIndex, webSession]]),
       serverRosterAvailable: true,
-      leaderboardMembers: roster,
-      seatCount
+      leaderboardMembers: [
+        serverMember('alice', '我', 5, true),
+        serverMember('bob', '小明', 1, false),
+      ],
+      seatCount,
     })
 
-    expect(occupants.size).toBe(1)
-    expect(occupants.get('desk-1')).toEqual(selfOccupant)
-    expect(occupants.has('desk-3')).toBe(false)
+    expect(occupants.size).toBe(2)
+    expect(occupants.get('desk-6')).toMatchObject({ kind: 'self', name: '我' })
+    expect(occupants.get('desk-2')).toMatchObject({ kind: 'peer', name: '小明' })
   })
 
-  it('falls back to relay peers while no server roster has been received', () => {
-    const webSession = relayPeer('web-session', '我', 'lulu-capybara', 2)
+  it('keeps seat placement independent of leaderboard order and focus duration', () => {
+    const roster = [
+      serverMember('alice', '我', 8, true, 60),
+      serverMember('bob', '小明', 2, false, 7200),
+    ]
 
     const occupants = buildOfficeSceneOccupants({
-      self: selfOccupant,
-      userSeatConflict: false,
-      workbenchUserSeatIndex: 0,
-      relayPeersBySeat: new Map([[webSession.seatIndex, webSession]]),
+      serverRosterAvailable: true,
+      leaderboardMembers: [...roster].sort((left, right) => right.todayFocusSeconds - left.todayFocusSeconds),
+      seatCount,
+    })
+
+    expect(occupants.get('desk-9')?.name).toBe('我')
+    expect(occupants.get('desk-3')?.name).toBe('小明')
+  })
+
+  it('does not render a local or relay fallback before a server roster is received', () => {
+    const occupants = buildOfficeSceneOccupants({
       serverRosterAvailable: false,
-      leaderboardMembers: [],
-      seatCount
+      leaderboardMembers: [serverMember('alice', '我', 0, true)],
+      seatCount,
     })
 
-    expect(occupants.size).toBe(2)
-    expect(occupants.get('desk-1')).toEqual(selfOccupant)
-    expect(occupants.get('desk-3')?.name).toBe('我')
-  })
-
-  it('places other server users at free desks when the roster is available', () => {
-    const webSession = relayPeer('web-session', '我', 'lulu-capybara', 2)
-    const roster = [serverMember('u-1', '我', true), serverMember('u-2', '小明', false)]
-
-    const occupants = buildOfficeSceneOccupants({
-      self: selfOccupant,
-      userSeatConflict: false,
-      workbenchUserSeatIndex: 0,
-      relayPeersBySeat: new Map([[webSession.seatIndex, webSession]]),
-      serverRosterAvailable: true,
-      leaderboardMembers: roster,
-      seatCount
-    })
-
-    expect(occupants.size).toBe(2)
-    expect(occupants.get('desk-1')).toEqual(selfOccupant)
-    expect(occupants.get('desk-2')?.name).toBe('小明')
-  })
-
-  it('draws self from the authoritative server roster even when a stale relay claim conflicts', () => {
-    const roster = [serverMember('u-1', '我', true)]
-
-    const occupants = buildOfficeSceneOccupants({
-      self: selfOccupant,
-      userSeatConflict: true,
-      workbenchUserSeatIndex: 0,
-      relayPeersBySeat: new Map(),
-      serverRosterAvailable: true,
-      leaderboardMembers: roster,
-      seatCount
-    })
-
-    expect(occupants.size).toBe(1)
-    expect(occupants.get('desk-1')).toEqual(selfOccupant)
+    expect(occupants).toEqual(new Map())
   })
 })

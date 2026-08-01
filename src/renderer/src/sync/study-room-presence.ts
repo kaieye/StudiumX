@@ -18,6 +18,8 @@ export type StudyRoomPresenceState = {
   members: SyncStudyRoomMember[]
   loading: boolean
   error: string | null
+  /** True after the current room’s roster was successfully fetched, including an empty roster. */
+  hasReceivedRoster: boolean
   refresh: () => void
   /**
    * Join a room found by an explicit room-code search. The server rejects
@@ -77,6 +79,7 @@ export function useStudyRoomPresence(
   const [members, setMembers] = useState<SyncStudyRoomMember[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hasReceivedRoster, setHasReceivedRoster] = useState(false)
   // Joining is asynchronous. Keep the completed room in React state so the
   // heartbeat/poll effect re-runs after a successful join.
   const [joinedRoomId, setJoinedRoomId] = useState<string | null>(null)
@@ -106,6 +109,12 @@ export function useStudyRoomPresence(
   const assignmentAttemptedRef = useRef(false)
   const assignmentUserIdRef = useRef<string | undefined>(undefined)
 
+  // Do not paint members from the previous room while the current room is joining.
+  useEffect(() => {
+    setMembers([])
+    setHasReceivedRoster(false)
+  }, [roomId, active, syncState.accessToken])
+
   // A fresh authenticated user entering the workbench gets one assignment
   // attempt. Subsequent explicit room switches stay under the user's control.
   useEffect(() => {
@@ -132,6 +141,7 @@ export function useStudyRoomPresence(
       // the local scene usable instead of leaking `undefined` into the
       // leaderboard merge.
       setMembers(Array.isArray(res.members) ? res.members : [])
+      setHasReceivedRoster(true)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -276,5 +286,5 @@ export function useStudyRoomPresence(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, roomId, joinedRoomId, syncState.accessToken, syncState.baseUrl])
 
-  return { members, loading, error, refresh, joinExistingRoom, assignAndJoinRoom }
+  return { members, loading, error, hasReceivedRoster, refresh, joinExistingRoom, assignAndJoinRoom }
 }

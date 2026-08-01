@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
 import {
   formatStudyDuration,
-  formatStudySeatLabel,
   randomStudySpaceCode
 } from '../../study-space/domain'
 import { useStudySession } from '../../study-space/session/useStudySession'
@@ -27,7 +26,6 @@ import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
 import { useStudyRoomPresence } from '../../sync/study-room-presence'
 import { useSyncState } from '../../sync/sync-store'
 import type { SyncStudyRoomMember } from '../../sync/sync-api-client'
-import type { StudyPresencePeer } from '../../study-space/types'
 import type { StudyRoomMember } from '../../study-space/viewModel'
 import { normalizePetAppearanceId } from '../../../../shared/teaching-types'
 import { readBrowserNotificationPermission } from '../../study-space/planning-notification-host'
@@ -112,10 +110,10 @@ function mapServerMemberToRoomMember(member: SyncStudyRoomMember): StudyRoomMemb
     nickname: member.nickname?.trim() || '未设置昵称',
     petAppearance: normalizePetAppearanceId(member.petAppearance),
     signalId: 'practice',
-    seatIndex: -1,
+    seatIndex: member.seatIndex,
     seatClaimedAt: 0,
     status: member.status === 'studying' ? 'running' : 'idle',
-    timerMode: 'focus',
+    timerMode: member.status === 'break' ? 'break' : 'focus',
     focusMinutes: 0,
     todayFocusSeconds: member.focusSecondsToday ?? 0,
     todaySessions: 0,
@@ -142,111 +140,48 @@ function deriveServerPresenceStatus(
  * roster whenever it is available. The local relay remains a fallback only
  * while no server roster has been received.
  */
-function mergeServerMembers(
-  local: StudyRoomMember[],
-  server: SyncStudyRoomMember[],
-  authenticatedNickname?: string | null
-): StudyRoomMember[] {
-  const serverSelf = server.find((member) => member.isSelf)
-  const withAuthenticatedSelfName = local.map((member) => {
-    if (!member.isSelf) return member
-    return {
-      ...member,
-      nickname: serverSelf?.nickname?.trim() || authenticatedNickname?.trim() || member.nickname,
-      petAppearance: serverSelf
-        ? normalizePetAppearanceId(serverSelf.petAppearance, member.petAppearance)
-        : member.petAppearance
-    }
-  })
-  if (server.length === 0) return withAuthenticatedSelfName
-  return server.map(mapServerMemberToRoomMember).sort(
-    (left, right) => right.todayFocusSeconds - left.todayFocusSeconds
-  )
+function mergeServerMembers(server: SyncStudyRoomMember[]): StudyRoomMember[] {
+  return server
+    .map(mapServerMemberToRoomMember)
+    .sort((left, right) => right.todayFocusSeconds - left.todayFocusSeconds)
 }
 
 export type BuildOfficeSceneOccupantsInput = {
-  /** The desktop user's own seat occupant (drawn at their claimed desk). */
-  self: OfficeSceneSeatOccupant
-  userSeatConflict: boolean
-  workbenchUserSeatIndex: number
-  /** Relay-announced peers keyed by claimed seat index. */
-  relayPeersBySeat: ReadonlyMap<number, StudyPresencePeer>
-  /**
-   * True once a server roster has been received. The server stores one row per
-   * account per room, so its roster is the authoritative scene source while
-   * available; relay peers only fill desks as the pre-roster fallback.
-   */
+  /** True after the current room’s server roster has been fetched. */
   serverRosterAvailable: boolean
-  /** Merged leaderboard roster (server members when available, else local). */
+  /** Server roster only: each member carries its authoritative desk position. */
   leaderboardMembers: readonly StudyRoomMember[]
   seatCount: number
 }
 
 /**
- * Assign one occupant (pet) per desk.
+ * Assign one occupant (pet) per desk from the server-authoritative roster.
  *
- * The leaderboard and the scene must agree on who is in the room. The server
- * roster is deduplicated per account (one row per user per room), so while it
- * is available it is the only peer source: relay peers from other sessions of
- * the same account (e.g. the same person logged in on desktop and web) would
- * otherwise each claim a desk, drawing two or more pets for a single person
- * while the leaderboard shows one row. Relay peers fill desks only before the
- * first server roster arrives.
+ * Local relay claims and focus-duration ordering are intentionally excluded:
+ * all clients render the same account at the `seatIndex` assigned by the
+ * study-room service.
  */
 export function buildOfficeSceneOccupants(
   input: BuildOfficeSceneOccupantsInput
 ): Map<DeskId, OfficeSceneSeatOccupant> {
-  const {
-    self,
-    userSeatConflict,
-    workbenchUserSeatIndex,
-    relayPeersBySeat,
-    serverRosterAvailable,
-    leaderboardMembers,
-    seatCount
-  } = input
+  const { serverRosterAvailable, leaderboardMembers, seatCount } = input
   const occupantsByDeskId = new Map<DeskId, OfficeSceneSeatOccupant>()
+  if (!serverRosterAvailable) return occupantsByDeskId
 
-  const serverRosterConfirmsSelf = serverRosterAvailable && leaderboardMembers.some((member) => member.isSelf)
-  if ((!userSeatConflict || serverRosterConfirmsSelf) && workbenchUserSeatIndex >= 0) {
-    occupantsByDeskId.set(deskIdForSeatIndex(workbenchUserSeatIndex), self)
-  }
-
-  if (!serverRosterAvailable) {
-    relayPeersBySeat.forEach((peer, seatIndex) => {
-      if (seatIndex >= seatCount) return
-      const deskId = deskIdForSeatIndex(seatIndex)
-      if (occupantsByDeskId.has(deskId)) return
-      occupantsByDeskId.set(deskId, {
-        kind: 'peer',
-        name: peer.nickname,
-        petAppearance: peer.petAppearance,
-        status: peer.status,
-        timerMode: peer.timerMode,
-        todayFocusSeconds: peer.todayFocusSeconds
-      })
-    })
-  }
-
-  // Server-backed members (for example a phone or web user) do not have a
-  // public-relay seat claim. Show them in the remaining desks so their own
-  // selected pet is still represented in the shared self-study room.
-  let nextServerSeat = 0
   for (const member of leaderboardMembers) {
-    if (member.isSelf || member.seatIndex >= 0) continue
-    while (nextServerSeat < seatCount && occupantsByDeskId.has(deskIdForSeatIndex(nextServerSeat))) {
-      nextServerSeat += 1
-    }
-    if (nextServerSeat >= seatCount) break
-    occupantsByDeskId.set(deskIdForSeatIndex(nextServerSeat), {
-      kind: 'peer',
+    if (!Number.isInteger(member.seatIndex) || member.seatIndex < 0 || member.seatIndex >= seatCount) continue
+    const deskId = deskIdForSeatIndex(member.seatIndex)
+    // The server enforces unique (roomId, seatIndex); keeping the first makes a
+    // malformed legacy response harmless rather than moving anyone locally.
+    if (occupantsByDeskId.has(deskId)) continue
+    occupantsByDeskId.set(deskId, {
+      kind: member.isSelf ? 'self' : 'peer',
       name: member.nickname,
       petAppearance: member.petAppearance,
       status: member.status,
       timerMode: member.timerMode,
       todayFocusSeconds: member.todayFocusSeconds
     })
-    nextServerSeat += 1
   }
 
   return occupantsByDeskId
@@ -439,8 +374,8 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     getNotificationHostContext: () => notificationHostLiveRef.current
   })
 
-  // STC sync: join a server-backed study room so phone + desktop share one
-  // leaderboard. It only adds server members on top of local relay peers.
+  // STC sync: the server roster is the sole shared-room source for both
+  // desktop and phone/web, including each member's authoritative seat.
   const syncState = useSyncState()
   const studyRoomPresence = useStudyRoomPresence({
     roomId: snapshot.spaceCode,
@@ -452,11 +387,9 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     active: Boolean(syncState.accessToken),
     onAssignedRoom: joinSpace
   })
-  const leaderboardMembers = mergeServerMembers(
-    viewModel.roomMembers,
-    studyRoomPresence.members,
-    syncState.user?.nickname
-  )
+  const leaderboardMembers = studyRoomPresence.hasReceivedRoster
+    ? mergeServerMembers(studyRoomPresence.members)
+    : []
   const todayAnalytics = useTodayAnalyticsSync({
     focusSecondsToday: snapshot.todayFocusSeconds,
     todaySessions: snapshot.todaySessions
@@ -583,26 +516,19 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     }
   }, [isFullscreen, notificationsEnabled, quietUntilMs])
 
-  const workbenchUserSeatIndex = viewModel.userSeat < workbenchSeatCount ? viewModel.userSeat : -1
+  const serverSelfSeatIndex = studyRoomPresence.hasReceivedRoster
+    ? studyRoomPresence.members.find((member) => member.isSelf)?.seatIndex ?? -1
+    : -1
   const clockTime = clockState.current
   const occupantsByDeskId = buildOfficeSceneOccupants({
-    self: {
-      kind: 'self',
-      name: snapshot.nickname,
-      petAppearance,
-      status: snapshot.timerState,
-      timerMode: snapshot.timerMode,
-      todayFocusSeconds: snapshot.todayFocusSeconds
-    },
-    userSeatConflict: viewModel.userSeatConflict,
-    workbenchUserSeatIndex,
-    relayPeersBySeat: viewModel.peersBySeat,
-    serverRosterAvailable: studyRoomPresence.members.length > 0,
+    serverRosterAvailable: studyRoomPresence.hasReceivedRoster,
     leaderboardMembers,
     seatCount: workbenchSeatCount
   })
   const seatState: OfficeSceneSeatState = {
-    userSeatIndex: viewModel.userSeatConflict ? -1 : workbenchUserSeatIndex,
+    userSeatIndex: serverSelfSeatIndex >= 0 && serverSelfSeatIndex < workbenchSeatCount
+      ? serverSelfSeatIndex
+      : -1,
     activeRoomName: viewModel.activeRoom.name,
     connectionLabel: viewModel.connectionLabel,
     cycleLabel: `${viewModel.roomCycle.phase === 'focus' ? '专注中' : '休息中'} · ${formatStudyDuration(viewModel.roomCycle.remainingSeconds)}`,
@@ -1036,13 +962,6 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           onJoinSpace={handleJoinExistingSpace}
         />
         <div className="workbench-tools" role="group" aria-label="自习工具">
-          {viewModel.userSeatConflict ? (
-            <div className="workbench-seat-alert" role="status">
-              {viewModel.nextAvailableSeat === null
-                ? '当前座位已被更早入座的同学占用，房间暂无空座。'
-                : `座位冲突，正在换到 ${formatStudySeatLabel(viewModel.nextAvailableSeat)}。`}
-            </div>
-          ) : null}
           <WorkbenchPomodoro
             snapshot={snapshot}
             timerProgress={viewModel.timerProgress}
