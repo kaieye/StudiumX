@@ -39,6 +39,8 @@ function iconFor(kind: TeachingCommandKind) {
  */
 export function useTeachingComposerCommands(options: {
   enabled: boolean
+  /** Keep command discovery available without mounting its slash suggestion menu. */
+  showMenu?: boolean
   value: string
   onChange: (value: string) => void
   inputRef: RefObject<HTMLTextAreaElement | null>
@@ -63,7 +65,7 @@ export function useTeachingComposerCommands(options: {
       teachingContext.diagnosticMode
     ]
   )
-  const open = query !== null && dismissedValue !== options.value && options.enabled
+  const open = query !== null && dismissedValue !== options.value && options.enabled && options.showMenu !== false
 
   useEffect(() => {
     setActiveIndex(0)

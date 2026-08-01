@@ -11,11 +11,16 @@ export function isSafeSkillId(value: unknown): value is string {
  * input is a single `/token` without arguments or line breaks.
  */
 export function skillSlashQuery(input: string): string | null {
-  const match = input.match(/^\/([^\s/]*)$/)
+  const match = input.match(/^\/(?:skill:)?([^\s/]*)$/i)
   return match ? (match[1] ?? '').toLocaleLowerCase() : null
 }
 
-export function filterSkillSlashMatches(input: string, skills: SkillSummary[], limit = 8): SkillSummary[] {
+/**
+ * Return every installed match by default. The slash menu is scrollable, so a
+ * personal catalogue is never silently hidden after an arbitrary first eight.
+ * Callers that need a compact projection may pass an explicit limit.
+ */
+export function filterSkillSlashMatches(input: string, skills: SkillSummary[], limit?: number): SkillSummary[] {
   const query = skillSlashQuery(input)
   if (query === null) return []
   return skills
@@ -25,7 +30,7 @@ export function filterSkillSlashMatches(input: string, skills: SkillSummary[], l
       return `${skill.name} ${skill.description} ${skill.id}`.toLocaleLowerCase().includes(query)
     })
     .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(0, Math.max(1, limit))
+    .slice(0, limit === undefined ? undefined : Math.max(1, limit))
 }
 
 export function leadingSkillIds(input: string, skills: SkillSummary[]): string[] {
@@ -64,6 +69,7 @@ export function leadingSkillIdSequence(input: string, skills: SkillSummary[], li
   return found
 }
 
+/** Canonical renderer output for ADR-0168; catalog command remains display-only legacy data. */
 export function skillCommandValue(skill: SkillSummary): string {
-  return `${skill.command} `
+  return `/skill:${skill.id} `
 }

@@ -223,7 +223,7 @@ function makeService(
   },
   localDataIndex?: LocalDataIndex
 ) {
-  const skills: SkillCatalogResult = { rootPath: runtime.rootDir, skills: [] }
+  const skills: SkillCatalogResult = { skills: [] }
   const diagnostics: TeachingMemoryDiagnostics = {
     enabled: true,
     activeCount: 0,
@@ -745,4 +745,3 @@ describe('teaching analytics integration', () => {
     await expect(stat(join(runtime.userDataDir, 'analytics', 'cache'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })
-

@@ -212,6 +212,8 @@ export type AgentFileTouchMetadata = {
 
 export type AgentTurnMetadata = {
   version: 1
+  /** Host-authored, redacted audit projection for an explicit Skill invocation (ADR-0168). */
+  skillInvocation?: import('../explicit-skill-invocation').SkillInvocationPresentation
   sources?: AgentSourceMetadata[]
   childRuns?: AgentChildRunMetadata[]
   compactions?: AgentCompactionMetadata[]
@@ -563,7 +565,14 @@ export type AgentChatStreamDone =
       stopReason?: string
     }
   | { streamId: string; canceled: true; usage?: AgentRunUsageAggregate }
-  | { streamId: string; error: true; message: string; usage?: AgentRunUsageAggregate }
+  | {
+      streamId: string
+      error: true
+      message: string
+      usage?: AgentRunUsageAggregate
+      /** Safe local evidence for an explicit Skill invocation that did not start a provider turn. */
+      skillInvocation?: import('../explicit-skill-invocation').SkillInvocationPresentation
+    }
 
 /** The non-streamId portion of {@link AgentChatStreamDone}, as a clean
  *  discriminated union (avoids Omit-over-union narrowing quirks). */
@@ -580,7 +589,13 @@ export type AgentChatStreamResult =
       stopReason?: string
     }
   | { canceled: true; usage?: AgentRunUsageAggregate }
-  | { error: true; message: string; usage?: AgentRunUsageAggregate }
+  | {
+      error: true
+      message: string
+      usage?: AgentRunUsageAggregate
+      /** Safe local evidence for an explicit Skill invocation that did not start a provider turn. */
+      skillInvocation?: import('../explicit-skill-invocation').SkillInvocationPresentation
+    }
 
 export type AgentConversationRecord = AgentConversationSummary & {
   /** Main-process-generated opaque correlation id; never supplied by renderer payloads. */

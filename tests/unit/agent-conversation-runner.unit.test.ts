@@ -723,7 +723,17 @@ describe('AgentConversationTurnRunner', () => {
     const harness = makeHarness({
       agentChatStream: vi.fn(async (_payload, onChunk) => {
         onChunk({ streamId: 'pending-42', channel: 'reasoning', delta: '已完成课程规划。' })
-        return { streamId: 'pending-42', error: true, message: toolLimitMessage }
+        return {
+          streamId: 'pending-42',
+          error: true,
+          message: toolLimitMessage,
+          skillInvocation: {
+            skillId: 'missing-skill',
+            bodyTruncated: false,
+            state: 'rejected',
+            reason: 'not_installed'
+          }
+        }
       }),
       saveAgentConversation: save,
       cancelAgentChatStream: vi.fn()
@@ -736,7 +746,20 @@ describe('AgentConversationTurnRunner', () => {
       mode: 'teaching',
       conversationId: null,
       turns: [
-        expect.objectContaining({ id: 'u-42', role: 'user', content: '生成课程' }),
+        expect.objectContaining({
+          id: 'u-42',
+          role: 'user',
+          content: '生成课程',
+          metadata: {
+            version: 1,
+            skillInvocation: {
+              skillId: 'missing-skill',
+              bodyTruncated: false,
+              state: 'rejected',
+              reason: 'not_installed'
+            }
+          }
+        }),
         expect.objectContaining({
           id: 'a-42',
           role: 'assistant',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { leadingSkillIdSequence, leadingSkillIds } from '../../src/shared/skill-command'
+import { filterSkillSlashMatches, leadingSkillIdSequence, leadingSkillIds, skillCommandValue, skillSlashQuery } from '../../src/shared/skill-command'
 import type { SkillSummary } from '../../src/shared/teaching-types'
 
 function skill(id: string, installed = true): SkillSummary {
@@ -33,5 +33,28 @@ describe('leadingSkillIdSequence', () => {
 
   it('keeps leadingSkillIds as first-only helper', () => {
     expect(leadingSkillIds('/teaching-site /learning-assessor x', skills)).toEqual(['teaching-site'])
+  })
+})
+
+describe('filterSkillSlashMatches', () => {
+  it('returns every installed match by default, including a catalogue larger than eight Skills', () => {
+    const skills = Array.from({ length: 9 }, (_, index) => skill(`personal-skill-${index + 1}`))
+
+    expect(filterSkillSlashMatches('/', skills)).toHaveLength(9)
+  })
+
+  it('still supports an explicit compact limit', () => {
+    const skills = Array.from({ length: 3 }, (_, index) => skill(`personal-skill-${index + 1}`))
+
+    expect(filterSkillSlashMatches('/', skills, 2)).toHaveLength(2)
+  })
+})
+
+describe('Pi-compatible canonical Skill command syntax', () => {
+  it('discovers /skill: prefixes and only emits the canonical command value', () => {
+    const learningAssessor = skill('learning-assessor')
+    expect(skillSlashQuery('/skill:lea')).toBe('lea')
+    expect(filterSkillSlashMatches('/skill:lea', [learningAssessor])).toEqual([learningAssessor])
+    expect(skillCommandValue(learningAssessor)).toBe('/skill:learning-assessor ')
   })
 })

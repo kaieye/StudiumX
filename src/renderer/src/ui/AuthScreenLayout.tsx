@@ -27,6 +27,7 @@ export function AuthScreenLayout({
 }: AuthScreenLayoutProps) {
   return (
     <div className="auth-screen" role="dialog" aria-modal="true" aria-label={ariaLabel}>
+      <div className="auth-screen-drag-region" aria-hidden="true" />
       <div className="auth-screen-card">
         <div className="auth-screen-brand">
           <h1 className="auth-screen-title">{title}</h1>

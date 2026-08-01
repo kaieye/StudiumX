@@ -137,13 +137,19 @@ describe('core teaching kernel load (ADR-0151 Phase 1)', () => {
     const service = new SkillLibraryService({ builtInRoots: [builtInRoot], personalRoot })
     const catalog = await service.listSkills()
     expect(catalog.skills.find((skill) => skill.id === 'teach')?.installed).toBe(true)
-    expect(catalog.skills.find((skill) => skill.id === 'teach')?.installedPath).toBe(join(personalRoot, 'teach'))
+    expect(catalog.skills.find((skill) => skill.id === 'teach')).not.toHaveProperty('installedPath')
 
     const kernel = await service.readCoreTeachingKernel()
     expect(kernel.content).toMatch(/APP_SHIPPED_CORE_MARKER/)
     expect(kernel.content).not.toMatch(/PERSONAL_SHADOW_MARKER/)
     expect(kernel.source.toLocaleLowerCase()).toContain(join(builtInRoot, 'teach').toLocaleLowerCase())
     expect(kernel.source.toLocaleLowerCase()).not.toContain(join(personalRoot, 'teach').toLocaleLowerCase())
+
+    const explicitInvocation = await service.readExplicitSkillInvocationSource('teach')
+    expect(explicitInvocation?.content).toMatch(/APP_SHIPPED_CORE_MARKER/)
+    expect(explicitInvocation?.content).not.toMatch(/PERSONAL_SHADOW_MARKER/)
+    expect(explicitInvocation?.filePath.toLocaleLowerCase()).toContain(join(builtInRoot, 'teach').toLocaleLowerCase())
+    expect(explicitInvocation?.resourceReference?.source.toLocaleLowerCase()).toContain(join(builtInRoot, 'teach').toLocaleLowerCase())
 
     const viaReferences = await service.readInvokedSkillReferences('/teach explain', ['teach'])
     expect(viaReferences).toHaveLength(1)

@@ -1,4 +1,6 @@
 import { runAgentLoop, type AgentLoopEvent } from './ai/agent-loop'
+import { parseExplicitSkillInvocation } from '../shared/explicit-skill-invocation'
+import type { ExplicitSkillInvocationResolution } from './explicit-skill-invocation'
 import { createAgentEventBus, type AgentEventBus } from './ai/agent-event-bus'
 import { attachAgentRunAuditMetadata } from './ai/agent-run-audit'
 import { resolveActiveProvider, type ChatMessage } from './ai/provider-adapter'
@@ -101,6 +103,8 @@ export type TeachingConversationRuntimeDeps = {
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
   deleteMemory?: (memoryId: string, workspaceRoot?: string) => Promise<void>
   loadSkillReferences: (skillIds: string[], userInput: string) => Promise<InstalledSkillReference[]>
+  /** Main-only resolver; the renderer never supplies paths or Skill content (ADR-0168). */
+  resolveExplicitSkillInvocation?: (input: string) => Promise<ExplicitSkillInvocationResolution>
   /**
    * Optional skill catalog for orchestration readiness (ADR-0151).
    * When omitted, registered builtins are treated as ready; body load remains fail-closed.
@@ -269,6 +273,27 @@ async function runTeachingConversationTurnActive(
     toolsEnabled: settings.tools.enabled,
     hasLessonGenerator: typeof deps.generateLessonFromBrief === 'function'
   })
+  const parsedExplicitInvocation = parseExplicitSkillInvocation(userInput)
+  const explicitResolution = parsedExplicitInvocation.kind === 'none'
+    ? ({ kind: 'none' } as const)
+    : deps.resolveExplicitSkillInvocation
+      ? await deps.resolveExplicitSkillInvocation(userInput)
+      : {
+          kind: 'rejected' as const,
+          message: '此版本无法解析显式 Skill 调用。',
+          presentation: { bodyTruncated: false as const, state: 'rejected' as const, reason: 'read_failed' as const }
+        }
+  if (explicitResolution.kind === 'invalid' || explicitResolution.kind === 'rejected') {
+    // This occurs before provider invocation, registry tool execution, memory capture,
+    // or any teaching settlement. The outer run record is marked failed only.
+    return {
+      error: true,
+      message: explicitResolution.message,
+      skillInvocation: explicitResolution.presentation
+    }
+  }
+  const explicitInvocation = explicitResolution.kind === 'resolved' ? explicitResolution.value : null
+  const providerUserInput = explicitInvocation?.expandedUserText ?? userInput
   // Memory catalog is POSIX descriptor-bound. On Windows (or when the native
   // addon is missing) discovery throws unsupported_platform/native_unavailable.
   // Chat must not fail closed for that platform boundary: degrade to empty
@@ -564,7 +589,12 @@ async function runTeachingConversationTurnActive(
       .catch(() => undefined)
   }
 
-  const skillResourceTool = settings.tools.enabled ? createReadSkillResourceTool(skillReferences) : null
+  // Explicit invocation is a user-message overlay, not a planner body. Its verified
+  // resource root may still be read through the existing fenced read tool only.
+  const skillResourceReferences = explicitInvocation?.resourceReference
+    ? [...skillReferences, explicitInvocation.resourceReference]
+    : skillReferences
+  const skillResourceTool = settings.tools.enabled ? createReadSkillResourceTool(skillResourceReferences) : null
   if (skillResourceTool) baseRegistry.register(skillResourceTool)
   // Slice F: memory search + human-approved synthetic teaching memory (no FTS).
   // Skip registration when the durable catalog cannot open on this host so the
@@ -660,7 +690,7 @@ async function runTeachingConversationTurnActive(
       content: buildSessionStablePrefix(promptOptions)
     },
     ...priorMessagesWithTurnIds.map(({ message }) => message),
-    { role: 'user', content: [composeTeachingUserTurn(promptOptions), userInput].filter(Boolean).join('\n\n') }
+    { role: 'user', content: [composeTeachingUserTurn(promptOptions), providerUserInput].filter(Boolean).join('\n\n') }
   ]
   const messageTurnIds = [
     undefined,
@@ -775,7 +805,10 @@ async function runTeachingConversationTurnActive(
   // not the provider-only teaching-context packet composed for this model turn.
   return {
     turns: attachAgentRunAuditMetadata(
-      toAgentTurns(withDurableUserInput(memoryOutcome.messages, userInput)),
+      attachExplicitSkillInvocationPresentation(
+        toAgentTurns(withDurableUserInput(memoryOutcome.messages, userInput)),
+        explicitInvocation?.presentation
+      ),
       runEvents,
       result.usage
     ),
@@ -897,6 +930,25 @@ function directAgentTurns(messages: AgentChatMessage[], userInput: string, assis
   ]
 }
 
+
+function attachExplicitSkillInvocationPresentation(
+  turns: AgentChatTurn[],
+  presentation: import('../shared/explicit-skill-invocation').SkillInvocationPresentation | undefined
+): AgentChatTurn[] {
+  if (!presentation) return turns
+  const next = turns.slice()
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    if (next[index]?.role !== 'user') continue
+    const turn = next[index]!
+    next[index] = {
+      ...turn,
+      metadata: { ...(turn.metadata ?? { version: 1 as const }), skillInvocation: presentation }
+    }
+    break
+  }
+  return next
+}
+
 function appendToLastAssistantMessage(messages: ChatMessage[], extra: string): ChatMessage[] {
   const next = [...messages]
   for (let index = next.length - 1; index >= 0; index -= 1) {
@@ -994,4 +1046,3 @@ function collectToolUsageFromResult(result: AgentChatStreamResult): Array<{
   }
   return tools
 }
-

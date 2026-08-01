@@ -9,8 +9,8 @@ import type {
 import { useTranslation } from 'react-i18next'
 import type { WindowControlAction } from '../../../shared/teaching-types'
 
-export type WindowChromeAdapter = 'windows' | 'macos' | 'fallback'
-export type WindowTitlebarKind = 'native-overlay' | 'native-traffic-lights' | 'custom'
+export type WindowChromeAdapter = 'windows' | 'macos' | 'fallback' | 'web'
+export type WindowTitlebarKind = 'native-overlay' | 'native-traffic-lights' | 'custom' | 'none'
 export type SidebarTogglePlacement = 'window-chrome' | 'inline-topbar'
 
 export interface WindowChromePolicy {
@@ -45,9 +45,18 @@ const FALLBACK_WINDOW_CHROME_POLICY: WindowChromePolicy = {
   sidebarDragRegionClass: null
 }
 
+const WEB_WINDOW_CHROME_POLICY: WindowChromePolicy = {
+  adapter: 'web',
+  platformClass: '',
+  titlebar: 'none',
+  sidebarTogglePlacement: 'inline-topbar',
+  sidebarDragRegionClass: null
+}
+
 export function resolveWindowChromePolicy(platform: string | undefined): WindowChromePolicy {
   if (platform === 'win32') return WINDOWS_WINDOW_CHROME_POLICY
   if (platform === 'darwin') return MACOS_WINDOW_CHROME_POLICY
+  if (platform === 'web') return WEB_WINDOW_CHROME_POLICY
   return FALLBACK_WINDOW_CHROME_POLICY
 }
 
@@ -142,6 +151,7 @@ interface WindowChromeProps {
 }
 
 function WindowChrome({ chrome, sidebarCollapsed, onSidebarToggle }: WindowChromeProps) {
+  if (chrome.titlebar === 'none') return null
   if (chrome.titlebar === 'native-overlay') {
     return (
       <WindowsWindowChromeAdapter

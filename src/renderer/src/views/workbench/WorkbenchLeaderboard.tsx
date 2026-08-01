@@ -49,7 +49,11 @@ export function WorkbenchLeaderboard({
         <span className="workbench-disclosure-label workbench-leaderboard-label">
           <Trophy size={15} aria-hidden="true" />
           <span className="workbench-leaderboard-title">自习室榜单</span>
-          <i className={`workbench-heartbeat-dot is-${presenceStatus}`} title={presenceStatusLabel(presenceStatus)} aria-label={presenceStatusLabel(presenceStatus)} />
+          <i
+            className={`workbench-heartbeat-dot is-${presenceStatus}`}
+            title={presenceStatusLabel(presenceStatus)}
+            aria-label={presenceStatusLabel(presenceStatus)}
+          />
           <code className="workbench-leaderboard-space-code">{spaceCode}</code>
         </span>
         <strong>#{selfRank}/{totalMembers}</strong>

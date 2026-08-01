@@ -103,6 +103,51 @@ describe('Teaching Agent conversation catalog', () => {
     })
   })
 
+  it('persists only the allow-listed explicit Skill invocation evidence', async () => {
+    const root = await createRoot()
+    await mkdir(join(root, 'conversations'), { recursive: true })
+    await writeFile(
+      join(root, 'conversations', 'skill-evidence.json'),
+      `${JSON.stringify({
+        version: 2,
+        id: 'skill-evidence',
+        title: 'Skill evidence',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:01:00.000Z',
+        relativePath: 'conversations/skill-evidence.md',
+        turns: [{
+          id: 'turn-1', role: 'user', content: '/skill:learning-assessor assess this', createdAt: '2026-08-01T00:00:00.000Z',
+          metadata: {
+            version: 1,
+            skillInvocation: {
+              skillId: 'learning-assessor', displayName: 'Learning Assessor', args: 'assess this', bodyChars: 123,
+              bodySha256: 'cfd96c35bebccf34a1110719f8bf3f0944c91ac60c0d808b1d2ed7add2ba6646',
+              invokedAt: '2026-08-01T02:03:04.000Z',
+              bodyTruncated: false, state: 'applied', reason: 'not_installed',
+              filePath: '/private/skills/learning-assessor/SKILL.md', baseDir: '/private/skills/learning-assessor', body: 'secret body'
+            }
+          }
+        }]
+      }, null, 2)}\n`,
+      'utf8'
+    )
+
+    const record = await readAgentConversationRecord(root, 'skill-evidence')
+    expect(record.turns[0]?.metadata?.skillInvocation).toEqual({
+      skillId: 'learning-assessor',
+      displayName: 'Learning Assessor',
+      args: 'assess this',
+      bodySha256: 'cfd96c35bebccf34a1110719f8bf3f0944c91ac60c0d808b1d2ed7add2ba6646',
+      bodyChars: 123,
+      invokedAt: '2026-08-01T02:03:04.000Z',
+      bodyTruncated: false,
+      state: 'applied',
+      reason: 'not_installed'
+    })
+    expect(JSON.stringify(record.turns[0]?.metadata?.skillInvocation)).not.toContain('/private')
+    expect(JSON.stringify(record.turns[0]?.metadata?.skillInvocation)).not.toContain('secret body')
+  })
+
   it('round-trips version 2 branch metadata and rebuilds an archived child from disk', async () => {
     const root = await createRoot()
     const workspace = { id: 'workspace-phase-9', name: 'Phase 9', rootPath: root }

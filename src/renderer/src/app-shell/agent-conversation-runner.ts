@@ -2,6 +2,7 @@ import {
   applyAgentChatChunkToPending,
   applyAgentChatStatusToPending,
   applyAgentChatToolEventToPending,
+  attachSkillInvocationToPending,
   cancelPendingAgentConversation,
   createAgentConversationTurnDraft,
   failPendingAgentConversation,
@@ -324,6 +325,15 @@ export class AgentConversationTurnRunner<TError> {
       }
 
       if ('error' in done && done.error) {
+        if (done.skillInvocation) {
+          const state = this.dependencies.getState()
+          const patch = attachSkillInvocationToPending({
+            pending: state.pendingAgentConversation,
+            activeConversationId: state.activeConversationId,
+            presentation: done.skillInvocation
+          })
+          if (patch) this.dependencies.setState(patch)
+        }
         await this.failAndSave({
           api,
           workspaceId: workspace.id,

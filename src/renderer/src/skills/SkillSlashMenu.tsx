@@ -29,9 +29,14 @@ export function useSkillSlashInput(options: {
   const [activeIndex, setActiveIndex] = useState(0)
   const [dismissedValue, setDismissedValue] = useState<string | null>(null)
   const query = skillSlashQuery(options.value)
-  // Slash is an advanced raw capability entry, but still uses the same
-  // main-process host admission projection as the ordinary picker.
-  const formalSlashSkills = useMemo(
+  // Slash discovery is the installed Skill catalogue, not the formal-teaching
+  // capability picker. This intentionally includes personal packs in
+  // ~/.studiumx/skills and installed packs whose orchestration mode differs
+  // from the active composer.
+  const installedSlashSkills = catalog.skills
+  // Keep the host-admission projection separate from discovery: only governed
+  // skills valid for the current mode may be sent as formal selection IDs.
+  const admittedFormalSkillIds = useMemo(
     () =>
       catalog.skills.filter(
         (skill) =>
@@ -43,8 +48,8 @@ export function useSkillSlashInput(options: {
     [catalog.skills, options.mode]
   )
   const matches = useMemo(
-    () => filterSkillSlashMatches(options.value, formalSlashSkills),
-    [formalSlashSkills, options.value]
+    () => filterSkillSlashMatches(options.value, installedSlashSkills),
+    [installedSlashSkills, options.value]
   )
   const open = query !== null && dismissedValue !== options.value
 
@@ -63,7 +68,8 @@ export function useSkillSlashInput(options: {
     })
   }
 
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>): boolean => {
+  /** Returns completed raw input only for Enter, so the composer can submit it once. */
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>): boolean | string => {
     if (!open) return false
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -80,8 +86,11 @@ export function useSkillSlashInput(options: {
     if (event.key === 'Enter' || event.key === 'Tab') {
       event.preventDefault()
       const selected = matches[activeIndex]
-      if (selected) pick(selected)
-      return true
+      if (!selected) return true
+      const completed = skillCommandValue(selected)
+      pick(selected)
+      // Pi-compatible behavior: Tab completes only; Enter completes and submits.
+      return event.key === 'Enter' ? completed.trim() : true
     }
     return false
   }
@@ -96,7 +105,7 @@ export function useSkillSlashInput(options: {
       />
     ) : null,
     handleKeyDown,
-    skillIdsFor: (value: string) => leadingSkillIdSequence(value, formalSlashSkills)
+    skillIdsFor: (value: string) => leadingSkillIdSequence(value, admittedFormalSkillIds)
   }
 }
 
@@ -135,7 +144,7 @@ function SkillSlashMenu({
             {skill.icon === 'graduation-cap' ? <GraduationCap size={17} /> : <Sparkles size={17} />}
           </span>
           <span className="skill-slash-menu__copy">
-            <strong>{skill.command}</strong>
+            <strong>{skillCommandValue(skill).trim()}</strong>
             <span>{skill.description}</span>
           </span>
           {skill.argumentHint ? <small>{skill.argumentHint}</small> : null}

@@ -4,7 +4,7 @@ import type { SkillCatalogResult } from '../../../shared/teaching-types'
 
 export const SKILL_CATALOG_CHANGED_EVENT = 'studiumx:skill-catalog-changed'
 
-const EMPTY_CATALOG: SkillCatalogResult = { rootPath: '', skills: [] }
+const EMPTY_CATALOG: SkillCatalogResult = { skills: [] }
 let cachedCatalog: SkillCatalogResult | null = null
 let pendingCatalog: Promise<SkillCatalogResult> | null = null
 let catalogRequestVersion = 0

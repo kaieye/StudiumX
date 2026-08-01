@@ -22,6 +22,7 @@ describe('AgentConversationReader reasoning disclosure', () => {
     const user = setupUser()
     renderUi(<AgentConversationReader presentation={presentation('complete')} />)
 
+    await user.click(screen.getByRole('button', { name: '展开思考过程' }))
     const toggle = screen.getByRole('button', { name: '展开思考过程' })
     const detail = screen.getByText(/第一行/)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
@@ -36,6 +37,34 @@ describe('AgentConversationReader reasoning disclosure', () => {
     renderUi(<AgentConversationReader presentation={presentation('active')} />)
     expect(screen.getByText(/第一行/)).not.toHaveClass('is-collapsed')
     expect(screen.queryByRole('button', { name: /思考过程/ })).toBeNull()
+  })
+})
+
+describe('AgentConversationReader file-touch projection', () => {
+  it('does not render the files-touched card or create a standalone process panel', () => {
+    renderUi(
+      <AgentConversationReader
+        presentation={{
+          turnId: 'file-touch-only',
+          active: false,
+          status: { kind: 'completed' },
+          answeredAsks: [],
+          sources: [],
+          items: [],
+          fileTouches: {
+            title: '本回合触碰的文件',
+            role: 'reference_projection',
+            caption: '参考投影',
+            empty: false,
+            rows: [{ id: 'readme', displayPath: 'README.md', kind: 'read', kindLabel: '已读取' }]
+          }
+        }}
+      />
+    )
+
+    expect(screen.queryByRole('region', { name: 'AI 处理过程' })).toBeNull()
+    expect(screen.queryByText('本回合触碰的文件')).toBeNull()
+    expect(document.querySelector('.agent-process-files-touched')).toBeNull()
   })
 })
 
@@ -104,6 +133,30 @@ describe('AgentConversationReader repeated process descriptions', () => {
 
 
 describe('AgentConversationReader process outcomes', () => {
+  it('folds the completed planning card and lets the learner expand it again', async () => {
+    const user = setupUser()
+    const { rerender } = renderUi(<AgentConversationReader presentation={presentation('active')} />)
+
+    expect(screen.queryByRole('button', { name: '展开思考过程' })).toBeNull()
+
+    rerender(<AgentConversationReader presentation={presentation('complete')} />)
+
+    const expand = await screen.findByRole('button', { name: '展开思考过程' })
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    const content = document.getElementById('agent-process-content-assistant-1')
+    expect(panel).toHaveClass('is-collapsed')
+    expect(panel).toHaveTextContent('思考结束')
+    expect(panel).not.toHaveTextContent('规划中')
+    expect(expand).toHaveAttribute('aria-expanded', 'false')
+    expect(content).toHaveAttribute('aria-hidden', 'true')
+
+    await user.click(expand)
+
+    expect(screen.getByRole('button', { name: '收起思考过程' })).toHaveAttribute('aria-expanded', 'true')
+    expect(panel).not.toHaveClass('is-collapsed')
+    expect(content).not.toHaveAttribute('aria-hidden')
+  })
+
   it('falls back to legacy active/completed semantics when status is missing or unknown', () => {
     const legacy = (active: boolean, status?: unknown) => ({
       turnId: `legacy-${active}-${String(status)}`,
@@ -115,11 +168,11 @@ describe('AgentConversationReader process outcomes', () => {
     })
 
     const { rerender } = renderUi(<AgentConversationReader presentation={legacy(true)} />)
-    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('规划中进行中')
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('思考中进行中')
 
     rerender(<AgentConversationReader presentation={legacy(false, { kind: 'future_status' })} />)
     const panel = screen.getByRole('region', { name: 'AI 处理过程' })
-    expect(panel).toHaveTextContent('规划中已完成')
+    expect(panel).toHaveTextContent('思考结束已完成')
     expect(panel).not.toHaveTextContent('运行中断')
     expect(panel).not.toHaveTextContent('发生错误')
   })
@@ -171,7 +224,7 @@ describe('AgentConversationReader process outcomes', () => {
     expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('处理已取消已取消')
 
     rerender(<AgentConversationReader presentation={makePresentation('completed')} />)
-    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('规划中已完成')
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('思考结束已完成')
   })
 })
 
@@ -395,6 +448,7 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
       />
     )
 
+    await user.click(screen.getByRole('button', { name: '展开思考过程' }))
     const expand = screen.getByRole('button', { name: '展开辅助任务历史' })
     expect(expand).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByRole('button', { name: new RegExp(maliciousLabel) })).toBeNull()

@@ -144,7 +144,6 @@ describe('Teaching IPC gateway', () => {
 
   it('projects host-owned formal admission on the skill catalog without changing catalog ownership', async () => {
     const listSkills = vi.fn().mockResolvedValue({
-      rootPath: '/tmp/skills',
       skills: [
         {
           id: 'teach', name: 'Teach', description: 'Kernel', category: 'learning', icon: 'graduation-cap',

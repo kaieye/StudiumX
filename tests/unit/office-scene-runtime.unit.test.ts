@@ -13,6 +13,8 @@ type RuntimeHarness = {
   context: CanvasRenderingContext2D
   frames: FrameQueue
   images: Array<{ srcValue: string }>
+  onAssetsLoadFailed: ReturnType<typeof vi.fn>
+  onFirstFrameRendered: ReturnType<typeof vi.fn>
   runtime: ReturnType<typeof createOfficeSceneRuntime>
 }
 
@@ -150,13 +152,17 @@ function createHarness({ reducedMotion = false, failedAssets = false } = {}): Ru
 
   const context = createContext()
   vi.spyOn(canvas, 'getContext').mockReturnValue(context)
+  const onFirstFrameRendered = vi.fn()
+  const onAssetsLoadFailed = vi.fn()
   const runtime = createOfficeSceneRuntime({
     stage,
     canvas,
-    petAppearance: 'boba'
+    petAppearance: 'boba',
+    onFirstFrameRendered,
+    onAssetsLoadFailed
   })
 
-  return { canvas, context, frames, images, runtime }
+  return { canvas, context, frames, images, onAssetsLoadFailed, onFirstFrameRendered, runtime }
 }
 
 async function settleAssetLoad(): Promise<void> {
@@ -267,6 +273,22 @@ describe('OfficeSceneRuntime', () => {
       expect.any(Event)
     )
     expect(requestAnimationFrame).not.toHaveBeenCalled()
+    expect(harness.onFirstFrameRendered).not.toHaveBeenCalled()
+    expect(harness.onAssetsLoadFailed).toHaveBeenCalledOnce()
+    harness.runtime.dispose()
+  })
+
+  it('reports scene readiness only after the first local-assets frame is painted', async () => {
+    const harness = createHarness()
+    harness.runtime.mount()
+    await settleAssetLoad()
+
+    expect(harness.onFirstFrameRendered).not.toHaveBeenCalled()
+    renderNextFrame(harness, 480)
+    expect(harness.onFirstFrameRendered).toHaveBeenCalledOnce()
+
+    renderNextFrame(harness, 496)
+    expect(harness.onFirstFrameRendered).toHaveBeenCalledOnce()
     harness.runtime.dispose()
   })
 
@@ -318,6 +340,8 @@ describe('OfficeSceneRuntime', () => {
     }))
     await settleAssetLoad()
     renderNextFrame(harness, 480)
+    await settleAssetLoad()
+    renderNextFrame(harness, 496)
 
     const usagiImage = harness.images.find((image) => image.srcValue === getPetSpriteSheetUrl('usagi'))
     expect(usagiImage).toBeDefined()

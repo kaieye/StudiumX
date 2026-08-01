@@ -25,7 +25,6 @@ afterEach(() => {
 })
 
 const snapshot = (id: string): SkillCatalogResult => ({
-  rootPath: '',
   skills: [{
     id,
     name: id,

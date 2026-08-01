@@ -34,6 +34,13 @@ describe('window chrome policy', () => {
       sidebarTogglePlacement: 'inline-topbar',
       sidebarDragRegionClass: null
     })
+    expect(resolveWindowChromePolicy('web')).toMatchObject({
+      adapter: 'web',
+      platformClass: '',
+      titlebar: 'none',
+      sidebarTogglePlacement: 'inline-topbar',
+      sidebarDragRegionClass: null
+    })
   })
 
   it('keeps the established sidebar resize geometry and keyboard increments', () => {
@@ -116,6 +123,23 @@ describe('window chrome policy', () => {
     expect(fallback.container.querySelector('.windows-sidebar-toggle-chrome')).not.toBeInTheDocument()
     expect(fallback.container.querySelector('.window-titlebar')).toBeInTheDocument()
     expect(fallback.container.querySelectorAll('.window-control-btn')).toHaveLength(3)
+
+    fallback.unmount()
+    const web = renderUi(
+      <DesktopAppFrame
+        chrome={resolveWindowChromePolicy('web')}
+        density="comfortable"
+        onSidebarToggle={onSidebarToggle}
+        sidebarCollapsed={false}
+        sidebarWidth={232}
+      >
+        <div>workspace</div>
+      </DesktopAppFrame>
+    )
+
+    expect(web.container.querySelector('.window-chrome-drag-region')).not.toBeInTheDocument()
+    expect(web.container.querySelector('.window-titlebar')).not.toBeInTheDocument()
+    expect(web.container.querySelectorAll('.window-control-btn')).toHaveLength(0)
   })
 
   it('keeps the policy-owned drag and no-drag contract in the global stylesheet', () => {

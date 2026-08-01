@@ -7,6 +7,7 @@ import { AgentRunStore } from '../../src/main/ai/agent-run-store'
 import { ToolRegistry, type ToolContext } from '../../src/main/ai/tools/registry'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { runTeachingConversationTurn } from '../../src/main/teaching-conversation-runtime'
+import { resolveExplicitSkillInvocation } from '../../src/main/explicit-skill-invocation'
 import type { LessonSummary, TeachingSettingsV1 } from '../../src/shared/teaching-types'
 
 const originalFetch = globalThis.fetch
@@ -393,7 +394,10 @@ describe('teaching workspace trust runtime boundary', () => {
         loadSettings: async () => settings,
         listMemories,
         createMemory: async () => { throw new Error('memory should not be created') },
-        loadSkillReferences: async () => [fixtureCoreTeachingKernelReference()],
+        loadSkillReferences: async () => [
+          fixtureCoreTeachingKernelReference(),
+          { id: 'learning-assessor', name: 'Learning Assessor', source: 'builtin-skills/learning-assessor/SKILL.md', content: '# Planner body\nThis is unrelated.' }
+        ],
         generateLessonFromBrief: async () => fixtureLesson(root),
         buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
         runStore: new AgentRunStore(root)
@@ -472,7 +476,10 @@ describe('teaching workspace trust runtime boundary', () => {
         loadSettings: async () => settings,
         listMemories: async () => [],
         createMemory: async () => { throw new Error('memory should not be created') },
-        loadSkillReferences: async () => [fixtureCoreTeachingKernelReference()],
+        loadSkillReferences: async () => [
+          fixtureCoreTeachingKernelReference(),
+          { id: 'learning-assessor', name: 'Learning Assessor', source: 'builtin-skills/learning-assessor/SKILL.md', content: '# Planner body\nThis is unrelated.' }
+        ],
         buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
         runStore: new AgentRunStore(root)
       }
@@ -831,5 +838,113 @@ describe('skill orchestration runtime evaluation (ADR-0151 / ADR-0163)', () => {
     expect(result).toMatchObject({ canceled: true })
     expect(savedStates.length).toBeGreaterThan(0)
     expect(savedStates.flatMap((state) => state.stages).some((stage) => stage.status === 'completed')).toBe(false)
+  })
+
+  it('places an explicit Skill overlay in the dynamic user message without planner active_now filtering', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-explicit-skill-overlay-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.tools.enabled = false
+    const requests: Array<{ messages?: Array<{ role: string; content?: string }> }> = []
+    globalThis.fetch = (async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as typeof requests[number])
+      return jsonResponse({ choices: [{ message: { content: '已使用显式 Skill。' } }] })
+    }) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'explicit-skill-overlay-run',
+        conversationId: 'explicit-skill-overlay-conversation',
+        mode: 'teaching',
+        messages: [],
+        // This selected capability is intentionally not active_now. The explicit
+        // overlay must bypass that planner body filter without changing the plan.
+        skillIds: ['learning-assessor'],
+        userInput: '/skill:personal-study-style assess the answer'
+      },
+      { streamId: 'explicit-skill-overlay-run', onChunk: vi.fn(), onStatus: vi.fn(), onTool: vi.fn() },
+      null,
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => { throw new Error('memory should not be created') },
+        listSkillCatalog: async () => [
+          { id: 'teach', installed: true, source: 'builtin' },
+          { id: 'learning-assessor', installed: true, source: 'builtin' }
+        ],
+        loadSkillReferences: async () => [
+          fixtureCoreTeachingKernelReference(),
+          { id: 'learning-assessor', name: 'Learning Assessor', source: 'builtin-skills/learning-assessor/SKILL.md', content: '# Planner body\nThis is unrelated.' }
+        ],
+        resolveExplicitSkillInvocation: (input) => resolveExplicitSkillInvocation({
+          input,
+          findSkill: async () => ({
+            skillId: 'personal-study-style',
+            displayName: 'Personal Study Style',
+            filePath: '/private/skills/personal-study-style/SKILL.md',
+            baseDir: '/private/skills/personal-study-style',
+            content: '---\nname: Personal Study Style\n---\n# Private overlay\nUse this exact instruction.'
+          })
+        }),
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(result).toMatchObject({ finalText: '已使用显式 Skill。' })
+    const messages = requests[0]?.messages ?? []
+    const system = messages.find((message) => message.role === 'system')?.content ?? ''
+    const user = messages.at(-1)?.content ?? ''
+    expect(system).not.toContain('Private overlay')
+    expect(user).toContain('<skill name="Personal Study Style" location="skill://personal-study-style/SKILL.md">')
+    expect(user).toContain('# Private overlay\nUse this exact instruction.')
+    expect(user).toContain('assess the answer')
+    expect(user).not.toContain('/private/skills')
+    const userTurn = 'turns' in result ? result.turns.find((turn) => turn.role === 'user') : undefined
+    expect(userTurn?.content).toBe('/skill:personal-study-style assess the answer')
+    expect(userTurn?.metadata?.skillInvocation).toMatchObject({
+      state: 'applied', skillId: 'personal-study-style', bodyTruncated: false
+    })
+  })
+
+  it('fails an explicit Skill resolver before provider, tools, memory capture, or settlement success', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-explicit-skill-fail-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    const provider = vi.fn()
+    globalThis.fetch = provider as unknown as typeof fetch
+    const onTool = vi.fn()
+    const createMemory = vi.fn()
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'explicit-skill-fail-run', mode: 'temporary', messages: [], userInput: '/skill:missing do work'
+      },
+      { streamId: 'explicit-skill-fail-run', onChunk: vi.fn(), onStatus: vi.fn(), onTool },
+      null,
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory,
+        loadSkillReferences: async () => [],
+        resolveExplicitSkillInvocation: async () => ({
+          kind: 'rejected',
+          message: 'Skill "missing" 未安装或不存在。',
+          presentation: {
+            skillId: 'missing', bodyTruncated: false, state: 'rejected', reason: 'not_installed'
+          }
+        }),
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(result).toMatchObject({
+      error: true,
+      skillInvocation: { state: 'rejected', reason: 'not_installed', bodyTruncated: false }
+    })
+    expect(provider).not.toHaveBeenCalled()
+    expect(onTool).not.toHaveBeenCalled()
+    expect(createMemory).not.toHaveBeenCalled()
   })
 })

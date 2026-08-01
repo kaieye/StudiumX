@@ -617,6 +617,7 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
   const toolResults = normalizeToolResults(record.toolResults)
   const runUsage = normalizeRunUsage(record.runUsage)
   const fileTouches = normalizeFileTouches(record.fileTouches)
+  const skillInvocation = normalizeSkillInvocationPresentation(record.skillInvocation)
   const runId = typeof record.runId === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(record.runId) ? record.runId : undefined
   // Legacy raw parent-turn digests are intentionally discarded while
   // normalizing durable input: they allow offline equality checks against a
@@ -633,6 +634,7 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     toolResults: toolResults.length > 0 ? toolResults : undefined,
     runUsage,
     fileTouches,
+    skillInvocation,
     runId,
     parentTurnProof,
     provenance
@@ -645,11 +647,50 @@ function normalizeAgentTurnMetadata(value: unknown): AgentTurnMetadata | undefin
     metadata.toolResults ||
     metadata.runUsage ||
     metadata.fileTouches ||
+    metadata.skillInvocation ||
     metadata.runId ||
     metadata.parentTurnProof ||
     metadata.provenance
     ? metadata
     : undefined
+}
+
+function normalizeSkillInvocationPresentation(
+  value: unknown
+): AgentTurnMetadata['skillInvocation'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const state = record.state === 'applied' || record.state === 'rejected' || record.state === 'failed' ? record.state : null
+  if (!state || record.bodyTruncated !== false) return undefined
+  const reason = record.reason === 'malformed' || record.reason === 'not_installed' || record.reason === 'read_failed' ||
+    record.reason === 'empty_body' || record.reason === 'budget_exceeded' ? record.reason : undefined
+  const skillId = typeof record.skillId === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}$/i.test(record.skillId)
+    ? record.skillId.toLocaleLowerCase()
+    : undefined
+  const displayName = textValue(record.displayName, 160)
+  const args = textValue(record.args, 4_000)
+  const bodySha256 = typeof record.bodySha256 === 'string' && /^[a-f0-9]{64}$/.test(record.bodySha256)
+    ? record.bodySha256
+    : undefined
+  const bodyChars = nonNegativeInteger(record.bodyChars) ?? undefined
+  const invokedAt = validIsoTimestamp(record.invokedAt)
+  return {
+    skillId,
+    displayName,
+    args,
+    ...(bodySha256 ? { bodySha256 } : {}),
+    bodyChars,
+    ...(invokedAt ? { invokedAt } : {}),
+    bodyTruncated: false,
+    state,
+    reason
+  }
+}
+
+function validIsoTimestamp(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return undefined
+  return Number.isFinite(Date.parse(value)) ? value : undefined
 }
 
 function normalizePersistedParentTurnProof(value: unknown): AgentTurnMetadata['parentTurnProof'] | undefined {

@@ -1,5 +1,6 @@
-import { GraduationCap, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import appIconRounded from '../assets/auth/app-icon-rounded.png'
 
 /**
  * Shared auth/session restoration splash.
@@ -16,9 +17,12 @@ export function AuthLoadingScreen({ label }: { label?: string }) {
   return (
     <div className="auth-screen auth-screen--splash" role="status" aria-live="polite">
       <div className="auth-screen-splash">
-        <span className="auth-screen-logo auth-screen-logo--splash">
-          <GraduationCap size={40} strokeWidth={1.7} aria-hidden="true" />
-        </span>
+        <img
+          className="auth-screen-app-icon auth-screen-app-icon--splash"
+          src={appIconRounded}
+          alt=""
+          aria-hidden="true"
+        />
         <span className="auth-screen-splash-text">
           <Loader2 size={16} className="auth-screen-spinner" aria-hidden="true" />
           {resolvedLabel}

@@ -8,7 +8,8 @@ import { AgentInputQueueRegistry } from './ai/agent-input-queue'
 import { AgentSessionFacade, AgentSessionFacadeRegistry } from './ai/agent-session-facade'
 import {
   mapAgentSessionPromptResultToIpc,
-  noActiveAgentSessionIpcResult
+  noActiveAgentSessionIpcResult,
+  rejectExplicitSkillInvocationSteerFollowUp
 } from './ai/agent-chat-steer-followup-ipc'
 import { runProjectAgentSessionQueueIpc } from './ai/agent-session-queue-ipc'
 import {
@@ -523,6 +524,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         // Mid-run steer delegates to the attached façade (≠ abort). Product autoDrain stays false.
         const facade = context.agentSessionFacades.get(payload.streamId)
         if (!facade) return noActiveAgentSessionIpcResult()
+        const explicitSkillRejection = rejectExplicitSkillInvocationSteerFollowUp(payload.text, facade.snapshot())
+        if (explicitSkillRejection) return explicitSkillRejection
         const result = await facade.steer({
           text: payload.text,
           conversationId: payload.conversationId,
@@ -540,6 +543,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         // Mid-run follow-up: busy policy queues by default; does not flip autoDrain.
         const facade = context.agentSessionFacades.get(payload.streamId)
         if (!facade) return noActiveAgentSessionIpcResult()
+        const explicitSkillRejection = rejectExplicitSkillInvocationSteerFollowUp(payload.text, facade.snapshot())
+        if (explicitSkillRejection) return explicitSkillRejection
         const result = await facade.followUp({
           text: payload.text,
           conversationId: payload.conversationId,
@@ -942,4 +947,3 @@ function resolveProxyUrl(settings: TeachingSettingsV1): string {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
-

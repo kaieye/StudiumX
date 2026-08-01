@@ -28,6 +28,7 @@ import {
   resolvePetActivityNavigation,
   resolvePetBubbleLayout,
   petSurfaceSize,
+  projectPetPlacementForViewport,
   serializePetPlacement,
   shouldDismissPetContextMenu,
   shouldRestorePetFocusAfterContextMenuDismissal,
@@ -138,6 +139,7 @@ export function AppPet() {
   const announcedNotificationKeyRef = useRef<string | null>(null)
   const dragRef = useRef<PetDragSession | null>(null)
   const resizeRef = useRef<PetResizeSession | null>(null)
+  const viewportRef = useRef<ReturnType<typeof viewport> | null>(null)
   const [position, setPosition] = useState<PetPlacement | null>(() => storedPosition())
   const [dragDirection, setDragDirection] = useState<'left' | 'right' | null>(null)
   const [displaySize, setDisplaySize] = useState(settings.size)
@@ -407,7 +409,15 @@ export function AppPet() {
 
   useEffect(() => {
     const handleResize = (): void => {
-      setPosition((current) => current ? clampPetPlacement(current, viewport(), petSize(petRef.current)) : null)
+      const nextViewport = viewport()
+      const previousViewport = viewportRef.current
+      viewportRef.current = nextViewport
+      setPosition((current) => {
+        if (!current) return null
+        const size = petSize(petRef.current)
+        if (!previousViewport || dragRef.current) return clampPetPlacement(current, nextViewport, size)
+        return projectPetPlacementForViewport(current, previousViewport, nextViewport, size)
+      })
     }
     handleResize()
     window.addEventListener('resize', handleResize)

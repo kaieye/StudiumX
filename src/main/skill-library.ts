@@ -2,6 +2,8 @@ import { cp, lstat, mkdir, realpath, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
+import type { ExplicitSkillInvocationSource } from './explicit-skill-invocation'
+
 import { isSafeSkillId, leadingSkillIds } from '../shared/skill-command'
 import type {
   InstalledSkillReference,
@@ -74,13 +76,12 @@ export class SkillLibraryService {
       installedById.delete(skill.id.toLocaleLowerCase())
       return {
         ...skill,
-        installed: true,
-        installedPath: personal.installedPath
+        installed: true
       }
     })
     merged.push(...installedById.values())
     merged.sort((a, b) => Number(b.installed) - Number(a.installed) || a.name.localeCompare(b.name))
-    return { rootPath: this.personalRoot, skills: merged }
+    return { skills: merged }
   }
 
   async installSkill(rawSkillId: string): Promise<SkillSummary> {
@@ -164,6 +165,74 @@ export class SkillLibraryService {
     return this.readReferencesFromCatalog([...explicitIds, ...inferredIds], catalog)
   }
 
+  /** Returns one verified installed Skill for an ADR-0168 explicit invocation. */
+  async readExplicitSkillInvocationSource(rawSkillId: string): Promise<ExplicitSkillInvocationSource | null> {
+    const skillId = requireSkillId(rawSkillId)
+    // The core Teaching Kernel is built in and must never be shadowed by a
+    // same-id personal pack. `/skill:teach` remains a valid explicit command
+    // even though the built-in catalogue entry is not an installable personal
+    // Skill, so resolve it through the same verified builtin-only path as the
+    // normal kernel loader.
+    if (isCoreTeachingKernelId(skillId)) {
+      const kernel = await this.readCoreTeachingKernel()
+      return {
+        skillId,
+        displayName: kernel.name || skillId,
+        filePath: kernel.source,
+        baseDir: dirname(kernel.source),
+        content: kernel.content,
+        resourceReference: kernel
+      }
+    }
+    const catalog = await this.listSkills()
+    const installed = catalog.skills.find((skill) => skill.installed && skill.id.toLocaleLowerCase() === skillId)
+    if (!installed) return null
+    const directory = join(this.personalRoot, skillId)
+
+    const manifestInfo = await lstat(join(directory, SKILL_PACK_MANIFEST)).catch(() => null)
+    if (manifestInfo) {
+      const pack = await verifySkillPack(directory, {
+        containingRoot: this.personalRoot,
+        expectedId: skillId,
+        manifestRequired: true,
+        requireCompleteResourceList: true
+      })
+      if (!pack) return null
+      return {
+        skillId,
+        displayName: pack.instructions.metadata.name || installed.name || skillId,
+        filePath: pack.instructions.source,
+        baseDir: pack.realDirectory,
+        content: pack.instructions.content,
+        resourceReference: {
+          id: skillId,
+          name: pack.instructions.metadata.name || installed.name || skillId,
+          source: pack.instructions.source,
+          content: pack.instructions.content,
+          ...(pack.manifest.capabilities.includes('read-shared-resources') ? { sharedRoot: join(this.personalRoot, '_shared') } : {}),
+          manifest: pack.manifest
+        }
+      }
+    }
+
+    const legacy = await readVerifiedLegacySkillFile(directory, this.personalRoot)
+    if (!legacy) return null
+    return {
+      skillId,
+      displayName: legacy.metadata.name || installed.name || skillId,
+      filePath: legacy.source,
+      baseDir: dirname(legacy.source),
+      content: legacy.content,
+      resourceReference: {
+        id: skillId,
+        name: legacy.metadata.name || installed.name || skillId,
+        source: legacy.source,
+        sharedRoot: join(this.personalRoot, '_shared'),
+        content: legacy.content
+      }
+    }
+  }
+
   /**
    * Load the app-shipped Teaching Kernel (`teach`) from verified builtin roots.
    * Does not require personal install; fails closed if the pack is missing or corrupt (ADR-0151).
@@ -186,8 +255,8 @@ export class SkillLibraryService {
       }
 
       const installed = catalog.skills.find((skill) => skill.installed && skill.id.toLocaleLowerCase() === id)
-      const directory = installed?.installedPath
-      if (!directory) continue
+      if (!installed) continue
+      const directory = join(this.personalRoot, id)
 
       const manifestInfo = await lstat(join(directory, SKILL_PACK_MANIFEST)).catch(() => null)
       if (manifestInfo) {
@@ -261,7 +330,7 @@ export class SkillLibraryService {
       if ((!pack && !legacy) || byId.has(id)) continue
       const metadata = pack?.instructions.metadata ?? legacy?.metadata
       if (!metadata) continue
-      byId.set(id, toSkillSummary(id, metadata, source, directory, pack?.manifest))
+      byId.set(id, toSkillSummary(id, metadata, source, pack?.manifest))
     }
     return [...byId.values()]
   }
@@ -271,7 +340,6 @@ function toSkillSummary(
   id: string,
   metadata: SkillFrontmatter,
   source: SkillSummary['source'],
-  directory: string,
   manifest?: SkillPackManifest
 ): SkillSummary {
   const category = VALID_CATEGORIES.has(metadata.category as SkillCategory)
@@ -285,10 +353,9 @@ function toSkillSummary(
     category,
     icon: metadata.icon || (id === 'teach' ? 'graduation-cap' : 'sparkles'),
     author: metadata.author || (source === 'builtin' ? 'StudiumX' : 'Personal'),
-    command: `/${id}`,
+    command: `/skill:${id}`,
     source,
     installed: source === 'personal',
-    ...(source === 'personal' ? { installedPath: directory } : {}),
     ...(manifest ? { version: manifest.version, capabilities: [...manifest.capabilities] } : {})
   }
 }

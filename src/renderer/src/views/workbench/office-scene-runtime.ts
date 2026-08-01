@@ -61,6 +61,10 @@ type CreateOfficeSceneRuntimeOptions = {
   stage: HTMLElement
   canvas: HTMLCanvasElement
   petAppearance: PetAppearanceId
+  /** Called after the local scene assets have been painted for the first time. */
+  onFirstFrameRendered?: () => void
+  /** Called when the local scene assets cannot be loaded. */
+  onAssetsLoadFailed?: () => void
 }
 
 const officeWidth = 64 * 17
@@ -375,7 +379,9 @@ function selectedDeskLabel(seatState: OfficeSceneSeatState): string {
 export function createOfficeSceneRuntime({
   stage,
   canvas,
-  petAppearance
+  petAppearance,
+  onFirstFrameRendered,
+  onAssetsLoadFailed
 }: CreateOfficeSceneRuntimeOptions): OfficeSceneRuntime {
   let mounted = false
   let animationFrame: number | null = null
@@ -383,6 +389,7 @@ export function createOfficeSceneRuntime({
   let reducedMotion = false
   let reducedMotionQuery: MediaQueryList | undefined
   let resizeObserver: ResizeObserver | null = null
+  let hasRenderedFirstFrame = false
 
   const syncCanvasAccessibility = (): void => {
     canvas.setAttribute(
@@ -416,6 +423,10 @@ export function createOfficeSceneRuntime({
       ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0)
       drawScene(ctx, assets, time, seatState, reducedMotion, petAppearance)
       ctx.restore()
+      if (!hasRenderedFirstFrame) {
+        hasRenderedFirstFrame = true
+        onFirstFrameRendered?.()
+      }
       scheduleFrame(ctx, assets)
     })
   }
@@ -426,6 +437,7 @@ export function createOfficeSceneRuntime({
     mount(): void {
       if (mounted) return
       mounted = true
+      hasRenderedFirstFrame = false
       updateCanvasSize()
       resizeObserver = new ResizeObserver(updateCanvasSize)
       resizeObserver.observe(stage)
@@ -447,7 +459,9 @@ export function createOfficeSceneRuntime({
           scheduleFrame(ctx, assets)
         })
         .catch((error: unknown) => {
-          if (mounted) console.error('Failed to load StudiumX workbench assets', error)
+          if (!mounted) return
+          console.error('Failed to load StudiumX workbench assets', error)
+          onAssetsLoadFailed?.()
         })
     },
 

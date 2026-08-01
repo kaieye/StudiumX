@@ -62,11 +62,7 @@ export function AgentConversationReader({
       />
     )
   }
-  const hasFileTouches = Boolean(presentation?.fileTouches && !presentation.fileTouches.empty)
-  if (
-    !presentation ||
-    (presentation.items.length === 0 && presentation.answeredAsks.length === 0 && !hasFileTouches)
-  ) {
+  if (!presentation || (presentation.items.length === 0 && presentation.answeredAsks.length === 0)) {
     return null
   }
   return <AgentProcessReader presentation={presentation} compact={compact} />
@@ -168,42 +164,61 @@ function AgentProcessReader({ presentation, compact }: {
 }) {
   const rows = groupRepeatedProcessDescriptions(presentation.items)
   const header = processHeaderFor(presentation.status?.kind, presentation.active)
-    const fileTouches = presentation.fileTouches
+  const canCollapse = header.title === '思考结束' && !presentation.active
+  const [expanded, setExpanded] = useState(() => !canCollapse)
+  const previous = useRef({ turnId: presentation.turnId, canCollapse })
+  const contentId = `agent-process-content-${presentation.turnId}`
+
+  useEffect(() => {
+    if (previous.current.turnId !== presentation.turnId) {
+      setExpanded(!canCollapse)
+    } else if (!previous.current.canCollapse && canCollapse) {
+      // The active thinking panel stays open until the turn settles, then folds away.
+      setExpanded(false)
+    } else if (previous.current.canCollapse && !canCollapse) {
+      setExpanded(true)
+    }
+    previous.current = { turnId: presentation.turnId, canCollapse }
+  }, [canCollapse, presentation.turnId])
+
   return (
-    <section className={`agent-process-panel${compact ? ' is-compact' : ''}`} aria-label="AI 处理过程">
-      <header className="agent-process-header">
-        {header.icon === 'attention' ? <Bell size={compact ? 13 : 14} /> : <BrainCircuit size={compact ? 13 : 14} />}
-        <strong>{header.title}</strong>
-        <span>{header.label}</span>
-      </header>
-      <div className="agent-process-list" aria-live="polite">
-        {rows.map((row) => row.type === 'rollup'
-          ? <RepeatedProcessRow key={`${presentation.turnId}:${row.id}`} items={row.items} />
-          : <AgentProcessRow key={row.id} item={row.item} />)}
-      </div>
-      {fileTouches && !fileTouches.empty ? (
-        <aside
-          className="agent-process-files-touched"
-          aria-label={fileTouches.title}
-          data-role={fileTouches.role}
-          data-not-teaching-evidence="true"
+    <section
+      className={`agent-process-panel${compact ? ' is-compact' : ''}${canCollapse && !expanded ? ' is-collapsed' : ''}`}
+      aria-label="AI 处理过程"
+    >
+      {canCollapse ? (
+        <button
+          type="button"
+          className="agent-process-header agent-process-header--toggle"
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          aria-label={expanded ? '收起思考过程' : '展开思考过程'}
+          onClick={() => setExpanded((value) => !value)}
         >
-          <header className="agent-process-files-touched__header">
-            <FileText size={compact ? 12 : 13} />
-            <strong>{fileTouches.title}</strong>
-            <span className="agent-process-files-touched__badge">参考投影</span>
-          </header>
-          <p className="agent-process-files-touched__caption">{fileTouches.caption}</p>
-          <ul className="agent-process-files-touched__list">
-            {fileTouches.rows.map((row) => (
-              <li key={row.id} data-kind={row.kind}>
-                <span className="agent-process-files-touched__kind">{row.kindLabel}</span>
-                <code className="agent-process-files-touched__path">{row.displayPath}</code>
-              </li>
-            ))}
-          </ul>
-        </aside>
-      ) : null}
+          <BrainCircuit size={compact ? 13 : 14} />
+          <strong>{header.title}</strong>
+          <span>{header.label}</span>
+          <ChevronDown className={expanded ? 'is-open' : undefined} size={15} aria-hidden="true" />
+        </button>
+      ) : (
+        <header className="agent-process-header">
+          {header.icon === 'attention' ? <Bell size={compact ? 13 : 14} /> : <BrainCircuit size={compact ? 13 : 14} />}
+          <strong>{header.title}</strong>
+          <span>{header.label}</span>
+        </header>
+      )}
+      <div
+        id={contentId}
+        className="agent-process-content"
+        aria-hidden={canCollapse && !expanded ? true : undefined}
+        inert={canCollapse && !expanded ? true : undefined}
+      >
+        <div className="agent-process-list" aria-live="polite">
+          {rows.map((row) => row.type === 'rollup'
+            ? <RepeatedProcessRow key={`${presentation.turnId}:${row.id}`} items={row.items} />
+            : <AgentProcessRow key={row.id} item={row.item} />)}
+        </div>
+      </div>
     </section>
   )
 }
@@ -213,12 +228,12 @@ function processHeaderFor(status: unknown, active: boolean): {
   icon?: 'attention'
 } {
   switch (status) {
-    case 'active': return { title: '规划中', label: '进行中' }
-    case 'completed': return { title: '规划中', label: '已完成' }
+    case 'active': return { title: '思考中', label: '进行中' }
+    case 'completed': return { title: '思考结束', label: '已完成' }
     case 'failed': return { title: '处理失败', label: '发生错误' }
     case 'canceled': return { title: '处理已取消', label: '已取消' }
     case 'interrupted': return { title: '运行中断', label: '需确认', icon: 'attention' }
-    default: return { title: '规划中', label: active ? '进行中' : '已完成' }
+    default: return { title: active ? '思考中' : '思考结束', label: active ? '进行中' : '已完成' }
   }
 }
 
@@ -521,4 +536,3 @@ function ProcessIcon({ item }: { item: AgentConversationProvenanceItem }) {
   if (item.state === 'pending') return <Wrench size={13} />
   return <Clock3 size={13} />
 }
-

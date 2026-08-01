@@ -27,6 +27,20 @@
   background: var(--surface-subtle);
 }
 
+/* The auth gate covers the application shell, so it needs its own window drag
+   target instead of relying on chrome beneath the overlay. Interactive controls
+   remain outside this narrow strip (and retain the global no-drag policy). */
+.auth-screen-drag-region {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  height: var(--window-chrome-height);
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
 .auth-screen-splash {
   display: flex;
   flex-direction: column;
@@ -43,6 +57,8 @@
 }
 
 .auth-screen-card {
+  position: relative;
+  z-index: 2;
   width: 100%;
   max-width: 420px;
   padding: var(--space-2xl) var(--space-2xl) var(--space-xl);
@@ -378,6 +394,12 @@
   border-radius: 22px;
   object-fit: cover;
   box-shadow: 0 10px 24px color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.auth-screen-app-icon--splash {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-lg);
 }
 
 .auth-screen-actions--inline {

@@ -14,6 +14,7 @@ import {
   parseStoredAssistantDialogGeometry,
   parseStoredPetPlacement,
   petSurfaceSize,
+  projectPetPlacementForViewport,
   projectAssistantDialogInteraction,
   resolvePetActivityFocusAfterRemoval,
   resolvePetActivityNavigation,
@@ -53,6 +54,24 @@ describe('pet-interaction contract', () => {
       y: 14
     })
     expect(clampPetContextMenuPlacement({ x: 990, y: 790 }, desktop)).toEqual({ x: 796, y: 600 })
+  })
+
+  it('preserves a Pet placement relative to its usable viewport area when the window changes size', () => {
+    const size = { width: 150, height: 130 }
+    const centered = { x: 425, y: 335 }
+
+    expect(projectPetPlacementForViewport(centered, desktop, { width: 1_500, height: 1_200 }, size)).toEqual({
+      x: 675,
+      y: 535
+    })
+    expect(projectPetPlacementForViewport(centered, desktop, { width: 500, height: 400 }, size)).toEqual({
+      x: 175,
+      y: 135
+    })
+    expect(projectPetPlacementForViewport(centered, desktop, { width: 80, height: 60 }, size)).toEqual({
+      x: 14,
+      y: 14
+    })
   })
 
   it('keeps Pet bubbles inside left and right viewport edges without moving the Pet anchor', () => {

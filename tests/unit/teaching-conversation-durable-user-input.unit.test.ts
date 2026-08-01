@@ -7,6 +7,7 @@ import { parentTurnStageSafeTextDigest } from '../../src/main/ai/agent-parent-tu
 import { AgentRunStore } from '../../src/main/ai/agent-run-store'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { runTeachingConversationTurn } from '../../src/main/teaching-conversation-runtime'
+import { resolveExplicitSkillInvocation } from '../../src/main/explicit-skill-invocation'
 import type { TeachingSettingsV1 } from '../../src/shared/teaching-types'
 
 const originalFetch = globalThis.fetch
@@ -97,6 +98,20 @@ describe('durable conversation user input vs parent-turn staging', () => {
             content: '# Course ebook publishing\nPublish a course.'
           }
         ],
+        resolveExplicitSkillInvocation: (input) =>
+          resolveExplicitSkillInvocation({
+            input,
+            findSkill: async (skillId) =>
+              skillId === 'course-ebook-publishing'
+                ? {
+                    skillId,
+                    displayName: 'course-ebook-publishing',
+                    filePath: '/private/skills/course-ebook-publishing/SKILL.md',
+                    baseDir: '/private/skills/course-ebook-publishing',
+                    content: '# Course ebook publishing\nPublish a course.'
+                  }
+                : null
+          }),
         generateLessonFromBrief: async () => ({
           id: 'lesson-1',
           title: 'MCP',
@@ -131,7 +146,9 @@ describe('durable conversation user input vs parent-turn staging', () => {
     // Provider still receives the composed packet for this turn.
     const firstUserToProvider = providerMessages[0]?.find((message) => message.role === 'user')
     expect(firstUserToProvider?.content).toContain('<teaching-context-packet>')
-    expect(firstUserToProvider?.content).toContain(userInput)
+    expect(firstUserToProvider?.content).toContain('location="skill://course-ebook-publishing/SKILL.md"')
+    expect(firstUserToProvider?.content).toContain('我要学习MCP')
+    expect(firstUserToProvider?.content).not.toContain(userInput)
 
     const stage = await runStore.readParentTurnStage('durable-user-input-run')
     expect(parentTurnStageSafeTextDigest(finalUser!.content)).toBe(stage.userInput.sha256)

@@ -418,6 +418,38 @@ export function failPendingAgentConversation({
   }
 }
 
+/**
+ * Attach a host-authored, redacted Skill invocation result to the raw user
+ * input already present in a pending transcript. This is used for local
+ * resolver failures: no assistant success, provider call, or settlement is
+ * fabricated merely to show the evidence.
+ */
+export function attachSkillInvocationToPending({
+  pending,
+  activeConversationId,
+  presentation
+}: {
+  pending: PendingAgentConversation | null
+  activeConversationId: string | null
+  presentation: NonNullable<AgentTurnMetadata['skillInvocation']>
+}): PendingConversationStorePatch | null {
+  if (!pending) return null
+  const userIndex = pending.turns.map((turn) => turn.role).lastIndexOf('user')
+  if (userIndex < 0) return null
+  const turns = [...pending.turns]
+  const userTurn = turns[userIndex]!
+  turns[userIndex] = {
+    ...userTurn,
+    metadata: { ...(userTurn.metadata ?? { version: 1 }), skillInvocation: presentation }
+  }
+  return syncPendingAgentConversation({
+    pending,
+    pendingConversationId: pending.summary.id,
+    activeConversationId,
+    patch: { turns }
+  })
+}
+
 export function finishPendingAgentConversationSave({
   pending,
   activeConversationId,
@@ -918,6 +950,8 @@ function mergeAgentTurnMetadata(
     contextEstimate: server.contextEstimate ?? local.contextEstimate,
     toolResults: mergeMetadataItems(server.toolResults, local.toolResults, (tool) => `${tool.toolCallId}:${tool.toolName}`),
     runUsage: server.runUsage ?? local.runUsage,
+    skillInvocation: server.skillInvocation ?? local.skillInvocation,
+    fileTouches: server.fileTouches ?? local.fileTouches,
     runId: server.runId ?? local.runId,
     parentTurnProof: server.parentTurnProof ?? local.parentTurnProof,
     provenance: server.provenance ?? local.provenance

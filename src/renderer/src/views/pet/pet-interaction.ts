@@ -125,6 +125,35 @@ export function clampPetPlacement(
   }
 }
 
+/**
+ * Reprojects a placed pet into a resized viewport while retaining its relative
+ * location in the area where the whole pet can be displayed. This avoids
+ * treating a stored pixel offset as a fixed distance from the top-left corner.
+ */
+export function projectPetPlacementForViewport(
+  placement: PetPlacement,
+  sourceViewport: InteractionViewport,
+  targetViewport: InteractionViewport,
+  size: FloatingSurfaceSize = { width: PET_DEFAULT_WIDTH, height: PET_DEFAULT_HEIGHT }
+): PetPlacement {
+  const source = clampPetPlacement(placement, sourceViewport, size)
+  const sourceMaximumX = Math.max(PET_EDGE_GAP, sourceViewport.width - size.width - PET_EDGE_GAP)
+  const sourceMaximumY = Math.max(PET_EDGE_GAP, sourceViewport.height - size.height - PET_EDGE_GAP)
+  const targetMaximumX = Math.max(PET_EDGE_GAP, targetViewport.width - size.width - PET_EDGE_GAP)
+  const targetMaximumY = Math.max(PET_EDGE_GAP, targetViewport.height - size.height - PET_EDGE_GAP)
+  const relativeX = sourceMaximumX === PET_EDGE_GAP
+    ? 0
+    : (source.x - PET_EDGE_GAP) / (sourceMaximumX - PET_EDGE_GAP)
+  const relativeY = sourceMaximumY === PET_EDGE_GAP
+    ? 0
+    : (source.y - PET_EDGE_GAP) / (sourceMaximumY - PET_EDGE_GAP)
+
+  return clampPetPlacement({
+    x: PET_EDGE_GAP + relativeX * (targetMaximumX - PET_EDGE_GAP),
+    y: PET_EDGE_GAP + relativeY * (targetMaximumY - PET_EDGE_GAP)
+  }, targetViewport, size)
+}
+
 export function resolvePetBubbleLayout(
   anchor: FloatingSurfaceRect,
   bubble: FloatingSurfaceSize,

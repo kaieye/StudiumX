@@ -40,6 +40,7 @@ import {
   type TimerPlanDraft
 } from './workbench-pomodoro-draft'
 import { WorkbenchPomodoroSettings } from './WorkbenchPomodoroSettings'
+import { useImmersiveCardDrag } from './useImmersiveCardDrag'
 
 export type WorkbenchPomodoroProps = {
   snapshot: StudySnapshot
@@ -74,6 +75,8 @@ export type WorkbenchPomodoroProps = {
    * Host maps to useStudySession.extendActiveTimerTarget.
    */
   onExtendActiveTimer?: (addMinutes: number) => void
+  /** Enables long-press repositioning while the study room is immersive. */
+  isImmersive?: boolean
 }
 
 export function WorkbenchPomodoro({
@@ -94,9 +97,11 @@ export function WorkbenchPomodoro({
   onRenameTimerPlan,
   onSetDefaultTimerPlan: _onSetDefaultTimerPlan,
   onEmptyStartCategoryIdChange,
-  onExtendActiveTimer
+  onExtendActiveTimer,
+  isImmersive = false
 }: WorkbenchPomodoroProps) {
   const { open, isClosing, revealHeight, revealRef, revealInnerRef, toggle } = useWorkbenchDisclosureReveal()
+  const immersiveCardDrag = useImmersiveCardDrag(isImmersive)
   const [selectedMode, setSelectedMode] = useState<StudyTimerMode>(snapshot.timerMode)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [draft, setDraft] = useState<TimerPlanDraft>(() => createTimerPlanDraft(snapshot))
@@ -579,10 +584,20 @@ export function WorkbenchPomodoro({
         ...stateMarkers.cardClassTokens,
         open ? 'is-open' : '',
         isClosing ? 'is-closing' : '',
-        settingsOpen ? 'has-settings-open' : ''
+        settingsOpen ? 'has-settings-open' : '',
+        isImmersive ? 'is-immersive-draggable' : '',
+        immersiveCardDrag.isDragging ? 'is-immersive-dragging' : ''
       ].filter(Boolean).join(' ')}
       data-timer-surface-phase={phaseChrome.surfacePhase}
       data-timer-state={stateMarkers.dataTimerState}
+      data-immersive-draggable={isImmersive ? 'true' : 'false'}
+      data-immersive-dragging={immersiveCardDrag.isDragging ? 'true' : 'false'}
+      style={isImmersive ? immersiveCardDrag.dragStyle : undefined}
+      onPointerDown={immersiveCardDrag.onPointerDown}
+      onPointerMove={immersiveCardDrag.onPointerMove}
+      onPointerUp={immersiveCardDrag.onPointerUp}
+      onPointerCancel={immersiveCardDrag.onPointerCancel}
+      onClickCapture={immersiveCardDrag.onClickCapture}
       data-reduced-motion={stateMarkers.reduceMotion ? 'true' : 'false'}
       aria-label="番茄钟"
     >

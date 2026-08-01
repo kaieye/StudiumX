@@ -24,6 +24,21 @@ const members: StudyRoomMember[] = [
 ]
 
 describe('WorkbenchLeaderboard focus handling', () => {
+  it('keeps the connection state as a status indicator rather than a page-entry spinner', () => {
+    render(
+      <WorkbenchLeaderboard
+        members={members}
+        presenceStatus="connecting"
+        spaceCode="VCA✓8"
+        onEnterRandomSpace={vi.fn()}
+        onJoinSpace={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('心跳连接中')).toHaveClass('workbench-heartbeat-dot', 'is-connecting')
+    expect(screen.queryByText('正在进入自习室')).not.toBeInTheDocument()
+  })
+
   it('does not imperatively focus the toggle on pointer down', () => {
     const focus = vi.spyOn(HTMLButtonElement.prototype, 'focus')
 

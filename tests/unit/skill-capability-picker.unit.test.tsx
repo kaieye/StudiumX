@@ -55,7 +55,7 @@ const catalog = vi.hoisted(() => {
 
 vi.mock('../../src/renderer/src/skills/skillCatalog', () => ({
   useSkillCatalog: () => ({
-    catalog: { rootPath: '', skills: catalog.skills },
+    catalog: { skills: catalog.skills },
     loading: false,
     error: null,
     refresh: vi.fn()
@@ -89,7 +89,7 @@ function PickerHarness() {
   )
 }
 
-function SlashHarness() {
+function SlashHarness({ onSubmit = vi.fn() }: { onSubmit?: (input: string) => void }) {
   const [value, setValue] = useState('/')
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const slash = useSkillSlashInput({
@@ -101,7 +101,16 @@ function SlashHarness() {
   return (
     <>
       {slash.menu}
-      <textarea ref={inputRef} value={value} onChange={(event) => setValue(event.target.value)} />
+      <output data-testid="slash-value">{value}</output>
+      <textarea
+        ref={inputRef}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          const result = slash.handleKeyDown(event)
+          if (typeof result === 'string') onSubmit(result)
+        }}
+      />
     </>
   )
 }
@@ -196,12 +205,40 @@ describe('SkillCapabilityPicker', () => {
     expect(screen.queryByRole('checkbox', { name: /Ebook Publishing/ })).not.toBeInTheDocument()
   })
 
-  it('does not suggest artifact-only raw slash capabilities in a teaching-turn composer', () => {
+  it('shows every installed Skill in the slash list, rather than a capability or teaching-command menu', () => {
     renderUi(<SlashHarness />)
 
-    expect(screen.getByText('/learning-assessor')).toBeInTheDocument()
-    expect(screen.queryByText('/teaching-resource-generator')).not.toBeInTheDocument()
-    expect(screen.queryByText('/course-ebook-publishing')).not.toBeInTheDocument()
+    expect(screen.getByRole('listbox')).toHaveAttribute('aria-label', 'skills.slash.aria')
+    expect(screen.getByText('skills.slash.title')).toBeInTheDocument()
+    expect(screen.getByText('/skill:learning-assessor')).toBeInTheDocument()
+    expect(screen.getByText('/skill:teaching-resource-generator')).toBeInTheDocument()
+    expect(screen.getByText('/skill:course-ebook-publishing')).toBeInTheDocument()
+    expect(screen.getByText('/skill:personal-study-style')).toBeInTheDocument()
+    expect(screen.queryByText('教学命令')).not.toBeInTheDocument()
+  })
+
+  it('uses Tab for completion only, Enter for completion followed by exactly one submit, and mouse for completion only', async () => {
+    const user = setupUser()
+    const onSubmit = vi.fn()
+    renderUi(<SlashHarness onSubmit={onSubmit} />)
+    const input = screen.getByRole('textbox')
+
+    await user.click(input)
+    await user.keyboard('{Tab}')
+    expect(input).toHaveValue('/skill:course-ebook-publishing ')
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    await user.clear(input)
+    await user.type(input, '/')
+    await user.keyboard('{Enter}')
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit).toHaveBeenCalledWith('/skill:course-ebook-publishing')
+
+    await user.clear(input)
+    await user.type(input, '/')
+    await user.click(screen.getByRole('option', { name: /skill:personal-study-style/ }))
+    expect(input).toHaveValue('/skill:personal-study-style ')
+    expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 
   it('explains each planner decision and marks auto-added dependencies', async () => {

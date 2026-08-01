@@ -652,9 +652,9 @@
       "name": "名称"
     },
     "slash": {
-      "aria": "高级能力命令列表",
-      "title": "选择受平台治理的能力",
-      "empty": "暂无匹配的受平台治理能力，请先前往资源 → 教学能力库安装内置能力。"
+      "aria": "Skill 列表",
+      "title": "Skill 列表",
+      "empty": "暂无匹配的 Skill，请先前往资源 → 教学能力库安装内置 Skill。"
     },
     "commandLabel": "使用命令",
     "detailOverview": "用途与适用场景"

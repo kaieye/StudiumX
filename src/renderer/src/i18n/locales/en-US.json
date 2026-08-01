@@ -652,9 +652,9 @@
       "name": "Name"
     },
     "slash": {
-      "aria": "Advanced capability command list",
-      "title": "Choose a host-governed capability",
-      "empty": "No matching host-governed capabilities. Install a bundled capability from Resources → Capability Library first."
+      "aria": "Skill list",
+      "title": "Skill list",
+      "empty": "No matching skills. Install a bundled skill from Resources → Capability Library first."
     },
     "commandLabel": "Command",
     "detailOverview": "How it helps"

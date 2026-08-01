@@ -84,6 +84,7 @@ import { SkillLibrary } from './views/resources/SkillLibrary'
 import { AppPet } from './views/pet/AppPet'
 import { PetSprite } from './views/pet/PetSprite'
 import { useSkillCatalog } from './skills/skillCatalog'
+import { SkillInvocationEvidence } from './skills/SkillInvocationEvidence'
 import { useSkillSlashInput } from './skills/SkillSlashMenu'
 import { mergeComposerSkillIds, useSkillCapabilityPicker } from './skills/SkillCapabilityPicker'
 import { useTeachingComposerCommands } from './teaching/TeachingComposerCommandMenu'
@@ -2087,9 +2088,10 @@ function OverviewLessonComposer({
   const canSend = Boolean(active && taskPrompt.trim().length > 0 && !busy)
   // Every free-form teaching input goes through the conversation agent; it
   // clarifies when needed and calls the generate_lesson tool when ready.
-  const submitToTeachingAgent = () => {
-    if (!canSend) return
-    const prompt = taskPrompt.trim()
+  const submitToTeachingAgent = (rawInput = taskPrompt) => {
+    if (!active || generating || agentChatBusy) return
+    const prompt = rawInput.trim()
+    if (!prompt) return
     const skillIds = mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt))
     setTaskPrompt('')
     openTeachingConversationView()
@@ -2114,7 +2116,14 @@ function OverviewLessonComposer({
             placeholder={active ? t('lessons.composerPlaceholder') : t('overview.placeholderEmpty')}
             onChange={(event) => setTaskPrompt(event.target.value)}
             onKeyDown={(event) => {
-              if (!isInputComposing(event) && skillSlash.handleKeyDown(event)) return
+              if (!isInputComposing(event)) {
+                const skillSlashResult = skillSlash.handleKeyDown(event)
+                if (typeof skillSlashResult === 'string') {
+                  submitToTeachingAgent(skillSlashResult)
+                  return
+                }
+                if (skillSlashResult) return
+              }
               if (event.key === 'Enter' && !event.shiftKey) {
                 if (isInputComposing(event)) return
                 event.preventDefault()
@@ -2186,6 +2195,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const [teachingActionBusy, setTeachingActionBusy] = useState(false)
   const teachingComposer = useTeachingComposerCommands({
     enabled: isTeachingMode,
+    // Slash input presents Skills only; teaching commands remain submit-time
+    // actions and are intentionally not offered in the composer list.
+    showMenu: false,
     value: inputValue,
     onChange: setAgentInput,
     inputRef,
@@ -2371,9 +2383,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     setInputHistoryDraft('')
     void agentChat(prompt, { mode: 'temporary', skillIds: mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt)) })
   }
-  const submitCurrentMode = (): void => {
+  const submitCurrentMode = (rawInput = inputValue): void => {
     if (isTeachingMode) {
-      const trimmed = inputValue.trim()
+      const trimmed = rawInput.trim()
       const looksLikeBareSlash = trimmed.startsWith('/') && !/\s/.test(trimmed)
       if (looksLikeBareSlash) {
         const teachingKind = parseTeachingCommandInput(trimmed)
@@ -2423,9 +2435,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         // Other bare slash tokens (e.g. skill commands) fall through to teaching submit.
       }
     }
-    if (!canSend) return
-    if (isTeachingMode) submitTeachingPrompt(inputValue)
-    else submitChatPrompt(inputValue)
+    if (!active || !rawInput.trim() || (isTeachingMode && generating) || hasPendingInterruption || activeBranchReadOnly) return
+    if (isTeachingMode) submitTeachingPrompt(rawInput)
+    else submitChatPrompt(rawInput)
   }
   const answerAsk = (answers: AskAnswer[]): void => {
     const command = blockedAsk?.command
@@ -2605,6 +2617,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
                   <>
                     {turn.role === 'assistant' ? <AgentConversationReader presentation={turnPresentation} teachingPresentation={turn.id === [...agentTurns].reverse().find((item) => item.role === 'assistant')?.id ? teachingPresentation : undefined} onTeachingAction={(action) => { void runTeachingAction(action) }} compact /> : null}
                     {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
+                    {turn.role === 'user' && turn.metadata?.skillInvocation ? (
+                      <SkillInvocationEvidence presentation={turn.metadata.skillInvocation} />
+                    ) : null}
                     {sourceReferences.length > 0 ? (
                       <AgentSourceReferences sources={sourceReferences} />
                     ) : null}
@@ -2658,7 +2673,6 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           }}
         >
         <div className="overview-dialog-card">
-          {teachingComposer.menu}
           {skillSlash.menu}
           {skillCapabilities.panel}
           {skillCapabilities.chips}
@@ -2685,7 +2699,14 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             }}
             onKeyDown={(event) => {
               if (!isInputComposing(event) && teachingComposer.handleKeyDown(event)) return
-              if (!isInputComposing(event) && skillSlash.handleKeyDown(event)) return
+              if (!isInputComposing(event)) {
+                const skillSlashResult = skillSlash.handleKeyDown(event)
+                if (typeof skillSlashResult === 'string') {
+                  submitCurrentMode(skillSlashResult)
+                  return
+                }
+                if (skillSlashResult) return
+              }
               if (navigateSentInputHistory(event)) return
               if (event.key === 'Enter' && !event.shiftKey) {
                 if (isInputComposing(event)) return

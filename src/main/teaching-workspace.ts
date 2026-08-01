@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { defaultSettings } from './teaching-settings'
+import { resolveExplicitSkillInvocation } from './explicit-skill-invocation'
 import { Logger } from './logger'
 import { TeachingMemoryStore } from './teaching-memory'
 import { createLearningSessionLedger, type LearningSessionLedger } from './learning-session-ledger'
@@ -1171,6 +1172,11 @@ export class TeachingWorkspaceService {
       deleteMemory: (memoryId, workspaceRoot) => this.memoryStore.delete(memoryId, { workspaceRoot }),
       loadSkillReferences: (skillIds, userInput) =>
         this.skillLibraryService?.readInvokedSkillReferences(userInput, skillIds) ?? Promise.resolve([]),
+      resolveExplicitSkillInvocation: (input) =>
+        resolveExplicitSkillInvocation({
+          input,
+          findSkill: (skillId) => this.skillLibraryService?.readExplicitSkillInvocationSource(skillId) ?? Promise.resolve(null)
+        }),
       // Catalog readiness for SkillOrchestrationPlanner (ADR-0151); never settlement authority.
       listSkillCatalog: async () => {
         if (!this.skillLibraryService) return []

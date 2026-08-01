@@ -88,7 +88,6 @@ export type SkillSummary = {
   command: string
   source: 'builtin' | 'personal'
   installed: boolean
-  installedPath?: string
   version?: string
   capabilities?: SkillPackCapability[]
   /** Main-process projection of host admission; never supplied by a manifest. */
@@ -96,7 +95,6 @@ export type SkillSummary = {
 }
 
 export type SkillCatalogResult = {
-  rootPath: string
   skills: SkillSummary[]
 }
 

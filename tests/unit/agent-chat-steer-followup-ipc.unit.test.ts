@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   mapAgentSessionPromptResultToIpc,
-  noActiveAgentSessionIpcResult
+  noActiveAgentSessionIpcResult,
+  rejectExplicitSkillInvocationSteerFollowUp
 } from '../../src/main/ai/agent-chat-steer-followup-ipc'
 import type { AgentSessionPromptResult } from '../../src/main/ai/agent-session-facade'
 import {
@@ -125,5 +126,15 @@ describe('mapAgentSessionPromptResultToIpc', () => {
       disposition: 'no_active_session',
       reason: 'no_active_session'
     })
+  })
+
+  it('rejects canonical explicit Skill text before it can become steer or follow-up input', () => {
+    expect(rejectExplicitSkillInvocationSteerFollowUp('/skill:learning-assessor check this', snapshot)).toEqual({
+      ok: false,
+      disposition: 'rejected',
+      reason: 'explicit_skill_invocation_not_supported_in_steer_or_follow_up',
+      snapshot
+    })
+    expect(rejectExplicitSkillInvocationSteerFollowUp('normal follow-up', snapshot)).toBeNull()
   })
 })

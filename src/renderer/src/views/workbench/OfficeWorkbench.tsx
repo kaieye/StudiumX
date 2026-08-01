@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Eye, EyeOff, Image, Maximize2, Minimize2, StickyNote, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Image, LoaderCircle, Maximize2, Minimize2, StickyNote, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
 import {
@@ -478,6 +478,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   const [route, setRoute] = useState<WorkbenchRoute>(() => parseWorkbenchRoute(window.location.search))
   const [immersivePhase, setImmersivePhase] = useState<ImmersivePhase>('closed')
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isSceneLoading, setIsSceneLoading] = useState(true)
 
   const [areRoomCardsHidden, setAreRoomCardsHidden] = useState(false)
   const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false)
@@ -623,10 +624,13 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     const canvas = canvasRef.current
     if (!stage || !canvas) return
 
+    setIsSceneLoading(true)
     const runtime = createOfficeSceneRuntime({
       stage,
       canvas,
-      petAppearance
+      petAppearance,
+      onFirstFrameRendered: () => setIsSceneLoading(false),
+      onAssetsLoadFailed: () => setIsSceneLoading(false)
     })
     runtimeRef.current = runtime
     runtime.mount()
@@ -954,6 +958,11 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
           aria-label="StudiumX 自习室：系统已自动分配座位"
           aria-live="polite"
         />
+        {isSceneLoading ? (
+          <div className="office-scene-loading" role="status" aria-label="正在载入自习室场景">
+            <LoaderCircle className="office-scene-loading-spinner" size={22} aria-hidden="true" />
+          </div>
+        ) : null}
         <WorkbenchLeaderboard
           members={leaderboardMembers}
           presenceStatus={presence.status}
@@ -986,6 +995,7 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
             onExtendActiveTimer={(minutes) => {
               extendActiveTimerTarget({ addMinutes: minutes })
             }}
+            isImmersive={immersivePhase !== 'closed'}
           />
           <WorkbenchTasks
             tasks={snapshot.tasks}

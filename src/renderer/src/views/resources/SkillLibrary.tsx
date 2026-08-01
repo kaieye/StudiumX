@@ -87,7 +87,7 @@ export function SkillLibrary({ onBack }: { onBack: () => void }) {
       <header className="skill-library-head">
         <div>
           <h1>{t('skills.title')}</h1>
-          <p>{t('skills.detail', { root: catalog.rootPath || '~/.studiumx/skills' })}</p>
+          <p>{t('skills.detail', { root: '~/.studiumx/skills' })}</p>
         </div>
       </header>
 
