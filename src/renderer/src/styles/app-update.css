@@ -1,0 +1,211 @@
+/* In-app desktop update dialog */
+.app-update-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(17, 24, 39, 0.42);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.app-update-dialog {
+  position: relative;
+  width: min(384px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 24px 20px;
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--radius-lg);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-sheen-edge, none),
+    var(--lg-glass-fill-strong, var(--surface-solid));
+  box-shadow: var(--shadow-float);
+  animation: app-update-pop 0.18s ease-out;
+}
+
+@keyframes app-update-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.app-update-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.app-update-close:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.app-update-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-update-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.app-update-icon--downloaded,
+.app-update-icon--not-available {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.app-update-icon--error {
+  background: var(--rose-soft);
+  color: var(--rose);
+}
+
+.app-update-logo {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.app-update-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.app-update-body h2 {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.app-update-body p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.app-update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+
+.app-update-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--line);
+}
+
+.app-update-progress-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 72%, var(--green)));
+  transition: width 0.25s ease-out;
+}
+
+.app-update-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-update-speed {
+  color: var(--text-soft);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-update-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.app-update-ghost,
+.app-update-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.app-update-ghost {
+  padding: 7px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.app-update-ghost:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.app-update-primary {
+  padding: 8px 16px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 8px 18px rgba(79, 124, 245, 0.22);
+}
+
+.app-update-primary:hover {
+  background: var(--accent-hover);
+}
+
+.app-update-primary:disabled {
+  background: var(--text-soft);
+  box-shadow: none;
+  cursor: not-allowed;
+}

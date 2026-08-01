@@ -40,6 +40,7 @@ import {
   Wrench
 } from 'lucide-react'
 import { WorkspaceWebRemoteControlTrigger } from './views/web-remote-control/WebRemoteControlDialog'
+import { AppUpdateDialog } from './views/updater/AppUpdateDialog'
 import type { TeachingPresentationSnapshot } from '../../shared/teaching-types/teaching-presentation'
 import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
@@ -262,6 +263,7 @@ function App() {
           <MainArea />
         </AuthGate>
       </DesktopAppFrame>
+      <AppUpdateDialog />
     </AppErrorBoundary>
   )
 }
@@ -320,7 +322,6 @@ function Sidebar() {
   const removeWorkspaceItem = useAppStore((s) => s.removeWorkspaceItem)
   const removeWorkspace = useAppStore((s) => s.removeWorkspace)
   const syncState = useSyncState()
-  const [checkingForUpdates, setCheckingForUpdates] = useState(false)
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false)
   const displayName = syncState.user?.nickname?.trim() || syncState.user?.id?.trim() || t('sidebar.localUser')
   const avatarInitial = Array.from(displayName)[0]?.toLocaleUpperCase() ?? 'S'
@@ -329,13 +330,9 @@ function Sidebar() {
     setAvatarLoadFailed(false)
   }, [syncState.user?.avatarUrl])
 
-  const handleCheckForUpdates = useCallback((): void => {
-    if (checkingForUpdates) return
-    setCheckingForUpdates(true)
-    void requestAppUpdateCheck()
-      .catch(() => undefined)
-      .finally(() => setCheckingForUpdates(false))
-  }, [checkingForUpdates])
+  const openUpdateDialog = useCallback((): void => {
+    void window.teachingSystem?.openAppUpdateDialog?.()
+  }, [])
 
   return (
     <DesktopSidebarFrame collapsed={sidebarCollapsed} ariaLabel={t('sidebar.aria')}>
@@ -427,13 +424,11 @@ function Sidebar() {
         <button
           className="icon-button"
           type="button"
-          aria-label={t(checkingForUpdates ? 'sidebar.checkingForUpdates' : 'sidebar.checkForUpdates')}
-          title={t(checkingForUpdates ? 'sidebar.checkingForUpdates' : 'sidebar.checkForUpdates')}
-          aria-busy={checkingForUpdates}
-          disabled={checkingForUpdates}
-          onClick={() => void handleCheckForUpdates()}
+          aria-label={t('sidebar.checkForUpdates')}
+          title={t('sidebar.checkForUpdates')}
+          onClick={openUpdateDialog}
         >
-          <RefreshCw className={checkingForUpdates ? 'is-spinning' : undefined} size={16} />
+          <RefreshCw size={16} />
         </button>
       </div>
     </DesktopSidebarFrame>

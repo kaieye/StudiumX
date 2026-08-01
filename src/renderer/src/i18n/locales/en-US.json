@@ -1898,6 +1898,53 @@
   },
   "webDesktopNotice": {
     "title": "The full teaching experience needs StudiumX Desktop",
-    "detail": "The Web app is useful for viewing synced courses and resources. Download and use StudiumX Desktop for the complete teaching workspace, learning-assistant chat, and local resource management."
+    "detail": "The Web app is useful for viewing synced courses and resources. Download and use StudiumX Desktop for the complete teaching workspace, learning-assistant chat, and local resource management.",
+    "download": "Download for {{platform}}",
+    "downloadLoading": "Finding the latest version…",
+    "platform": {
+      "macos": "macOS",
+      "windows": "Windows",
+      "linux": "Linux",
+      "other": "desktop"
+    }
+  },
+  "appUpdate": {
+    "title": "StudiumX Update",
+    "menu": {
+      "title": "Check for updates",
+      "body": "Running StudiumX {{version}}. Click below to check for a new version."
+    },
+    "checkUpdates": "Check for updates",
+    "checking": {
+      "title": "Checking for updates",
+      "body": "Checking whether a new version of StudiumX is available…"
+    },
+    "available": {
+      "title": "StudiumX update available",
+      "body": "Version {{version}} is available. Download and update now?"
+    },
+    "downloading": {
+      "title": "Downloading update",
+      "body": "Downloading StudiumX {{version}} in the background…"
+    },
+    "downloaded": {
+      "title": "Update ready",
+      "body": "Version {{version}} has been downloaded. Restart to finish updating."
+    },
+    "not-available": {
+      "title": "You're up to date",
+      "body": "StudiumX is already the latest version."
+    },
+    "error": {
+      "title": "Update failed",
+      "body": "{{message}}"
+    },
+    "download": "Download",
+    "later": "Not now",
+    "background": "Keep downloading",
+    "restart": "Restart now",
+    "restartLater": "Later",
+    "retry": "Retry",
+    "close": "Close"
   }
 }

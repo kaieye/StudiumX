@@ -1898,6 +1898,53 @@
   },
   "webDesktopNotice": {
     "title": "完整教学体验需要 StudiumX 桌面端",
-    "detail": "Web 端适合查看已同步的课程与资源。要使用完整教学工作区、学习助手对话和本地资源管理，请下载并使用 StudiumX 桌面端。"
+    "detail": "Web 端适合查看已同步的课程与资源。要使用完整教学工作区、学习助手对话和本地资源管理，请下载并使用 StudiumX 桌面端。",
+    "download": "下载 {{platform}} 版",
+    "downloadLoading": "正在获取最新版本…",
+    "platform": {
+      "macos": "macOS",
+      "windows": "Windows",
+      "linux": "Linux",
+      "other": "桌面端"
+    }
+  },
+  "appUpdate": {
+    "title": "StudiumX 更新",
+    "menu": {
+      "title": "检查更新",
+      "body": "当前运行的是 StudiumX {{version}}，点击下方按钮检查是否有新版本。"
+    },
+    "checkUpdates": "检查更新",
+    "checking": {
+      "title": "正在检查更新",
+      "body": "正在检查 StudiumX 是否有新版本…"
+    },
+    "available": {
+      "title": "发现 StudiumX 新版本",
+      "body": "发现新版本 {{version}}，是否立即下载并更新？"
+    },
+    "downloading": {
+      "title": "正在下载更新",
+      "body": "正在后台下载 StudiumX {{version}}，请稍候…"
+    },
+    "downloaded": {
+      "title": "更新已下载完成",
+      "body": "新版本 {{version}} 已就绪，重启即可完成更新。"
+    },
+    "not-available": {
+      "title": "已是最新版本",
+      "body": "当前安装的 StudiumX 已是最新版本。"
+    },
+    "error": {
+      "title": "更新失败",
+      "body": "{{message}}"
+    },
+    "download": "立即下载",
+    "later": "暂不",
+    "background": "后台下载继续",
+    "restart": "立即重启更新",
+    "restartLater": "稍后",
+    "retry": "重试",
+    "close": "关闭"
   }
 }

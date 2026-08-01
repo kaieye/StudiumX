@@ -16,7 +16,7 @@ import {
   mapProductAgentChatInvokerPayload
 } from './ai/product-agent-chat-invoker'
 import { openExternalHttpUrl } from './external-links'
-import { checkForAppUpdates } from './app-updater'
+import { actOnAppUpdate, checkForAppUpdates, openAppUpdateDialog } from './app-updater'
 import type { Logger } from './logger'
 import { isPathInsideConfiguredRoot, isRealPathInsideRoot } from './path-access'
 import { fetchUpstreamModels, probeModelProvider } from './provider-connection'
@@ -70,7 +70,7 @@ import {
   runApplyStudyPlanningIpc,
   runReadStudyPlanningIpc
 } from './study-planning-ipc'
-import type { AnalyticsExportRequest, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
+import type { AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
 import {
   normalizeAgentSandboxMode,
   resolveAgentSandboxReadiness
@@ -291,6 +291,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       }, reply: identityReply, streamCleanup: noStreamCleanup
     }),
     command({ channel: teachingInvokeChannels.checkForAppUpdates, parser: () => undefined, action: () => checkForAppUpdates(), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.openAppUpdateDialog, parser: () => undefined, action: () => openAppUpdateDialog(), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.appUpdateAction, parser: (action) => action as AppUpdateAction, action: (_event, action) => actOnAppUpdate(action), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.getAppVersion, parser: () => undefined, action: () => app.getVersion(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.getSettings, parser: () => undefined, action: () => settings.load(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.listInterruptedAgentRuns, parser: () => undefined, action: () => service.listInterruptedAgentRuns(), reply: identityReply, streamCleanup: noStreamCleanup }),

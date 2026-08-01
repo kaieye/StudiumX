@@ -146,6 +146,32 @@ export type CommitLearningOutcomeRequest = {
   operationId: string
 }
 
+/** Byte totals for the in-progress update download (electron-updater ProgressInfo). */
+export type AppUpdateProgress = {
+  percent: number
+  transferred: number
+  total: number
+  bytesPerSecond: number
+}
+
+/**
+ * Renderer-facing desktop update lifecycle, pushed from the main process via
+ * the `appUpdateEvent` channel. `checking` with `manual: false` originates
+ * from the scheduled background check and the dialog stays hidden for it.
+ */
+export type AppUpdateState =
+  | { kind: 'idle' }
+  | { kind: 'menu' }
+  | { kind: 'checking'; manual: boolean }
+  | { kind: 'available'; version: string }
+  | { kind: 'downloading'; version: string; progress: AppUpdateProgress }
+  | { kind: 'downloaded'; version: string }
+  | { kind: 'not-available' }
+  | { kind: 'error'; message: string }
+
+/** User actions a renderer dialog can request from the main-process updater. */
+export type AppUpdateAction = 'download' | 'restart' | 'retry' | 'dismiss' | 'check'
+
 export type TeachingSystemApi = {
   /** Native Electron platform, or the browser adapter's explicit web target. */
   platform: NodeJS.Platform | 'web'
@@ -155,6 +181,12 @@ export type TeachingSystemApi = {
   clearLearningAnalytics: (request: ClearAnalyticsRequest) => Promise<ClearAnalyticsResult>
   /** Explicit user-initiated desktop release check; a no-op in development. */
   checkForAppUpdates: () => Promise<void>
+  /** Subscribes to desktop update lifecycle events; returns an unsubscribe. */
+  onAppUpdateEvent: (handler: (state: AppUpdateState) => void) => () => void
+  /** Opens the update dialog without starting a network check. */
+  openAppUpdateDialog: () => Promise<void>
+  /** Sends a user update-dialog action (check/download/restart/retry/dismiss) to main. */
+  appUpdateAction: (action: AppUpdateAction) => Promise<void>
   getAppVersion: () => Promise<string>
   getSettings: () => Promise<TeachingSettingsV1>
   updateSettings: (patch: TeachingSettingsPatch) => Promise<TeachingSettingsV1>

@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, once: vi.fn() },
-  dialog: { showMessageBox: vi.fn() }
+  BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  Notification: { isSupported: vi.fn(() => false) }
 }))
 
 vi.mock('electron-updater', () => ({
@@ -13,10 +14,15 @@ vi.mock('electron-updater', () => ({
 
 import { createAppUpdaterController } from '../../src/main/app-updater'
 
-type Handler = (payload: unknown) => void
+type Handler = (...args: unknown[]) => void
 
-function createHarness(options: { packaged?: boolean; check?: () => Promise<unknown> } = {}) {
+function createHarness(options: {
+  packaged?: boolean
+  check?: (handlers: Map<string, Handler>) => Promise<unknown>
+} = {}) {
   const handlers = new Map<string, Handler>()
+  const emit = vi.fn()
+  const notifyUpdateReady = vi.fn()
   const setInterval = vi.fn<(callback: () => void, delay: number) => ReturnType<typeof setInterval>>()
   const clearInterval = vi.fn<(timer: ReturnType<typeof setInterval>) => void>()
   const intervalToken = {} as ReturnType<typeof setInterval>
@@ -28,25 +34,24 @@ function createHarness(options: { packaged?: boolean; check?: () => Promise<unkn
   const updater = {
     autoDownload: false,
     autoInstallOnAppQuit: false,
-    checkForUpdates: vi.fn(options.check ?? (() => Promise.resolve(undefined))),
+    checkForUpdates: vi.fn(() => (options.check ? options.check(handlers) : Promise.resolve(undefined))),
+    downloadUpdate: vi.fn(() => Promise.resolve([])),
     on: vi.fn((event: string, handler: Handler) => {
       handlers.set(event, handler)
     }),
     quitAndInstall: vi.fn()
   }
-  const dialog = {
-    showMessageBox: vi.fn(() => Promise.resolve({ response: 1 }))
-  }
   const logger = { warn: vi.fn() }
   const controller = createAppUpdaterController({
     app,
     updater,
-    dialog,
     scheduler: { setInterval, clearInterval },
-    logger
+    logger,
+    emit,
+    notifyUpdateReady
   })
 
-  return { app, updater, dialog, logger, handlers, intervalToken, setInterval, clearInterval, controller }
+  return { app, updater, logger, handlers, intervalToken, setInterval, clearInterval, controller, emit, notifyUpdateReady }
 }
 
 describe('createAppUpdaterController', () => {
@@ -66,9 +71,9 @@ describe('createAppUpdaterController', () => {
     await harness.controller.checkNow()
 
     expect(harness.updater.checkForUpdates).not.toHaveBeenCalled()
-    expect(harness.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
-      title: '开发版本无法检查更新'
-    }))
+    expect(harness.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'error', message: expect.stringContaining('开发版本') })
+    )
   })
 
   it('checks immediately and schedules future production checks', async () => {
@@ -77,7 +82,7 @@ describe('createAppUpdaterController', () => {
     harness.controller.start()
     await new Promise<void>((resolve) => setImmediate(resolve))
 
-    expect(harness.updater.autoDownload).toBe(true)
+    expect(harness.updater.autoDownload).toBe(false)
     expect(harness.updater.autoInstallOnAppQuit).toBe(true)
     expect(harness.updater.checkForUpdates).toHaveBeenCalledTimes(1)
     expect(harness.setInterval).toHaveBeenCalledWith(expect.any(Function), 6 * 60 * 60 * 1_000)
@@ -125,56 +130,172 @@ describe('createAppUpdaterController', () => {
     await explicitCheck
   })
 
-  it('confirms a manually requested check when the installed version is current', async () => {
-    const harness = createHarness()
+  it('surfaces a found update as an ask-to-download state', async () => {
+    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
 
     await harness.controller.checkNow()
 
-    expect(harness.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'StudiumX 已是最新版本',
-      message: '当前安装的版本已经是最新版本。'
-    }))
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'checking', manual: true })
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'available', version: '0.0.2' })
   })
 
-  it('acknowledges a discovered update immediately instead of waiting silently for download completion', async () => {
+  it('confirms a manually requested check when the installed version is current', async () => {
     const harness = createHarness({
-      check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } })
+      check: (handlers) => {
+        handlers.get('update-not-available')?.({})
+        return Promise.resolve(undefined)
+      }
     })
 
     await harness.controller.checkNow()
 
-    expect(harness.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
-      title: '发现 StudiumX 更新',
-      message: expect.stringContaining('0.0.2')
-    }))
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'not-available' })
   })
 
-  it('reports a manually requested check failure instead of only logging it', async () => {
-    const harness = createHarness({ check: () => Promise.reject(new Error('offline')) })
+  it('keeps the scheduled background check silent when no update is available', async () => {
+    const harness = createHarness({
+      check: (handlers) => {
+        handlers.get('update-not-available')?.({})
+        return Promise.resolve(undefined)
+      }
+    })
 
-    await harness.controller.checkNow()
+    harness.controller.start()
+    await new Promise<void>((resolve) => setImmediate(resolve))
 
-    expect(harness.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
-      title: '无法检查 StudiumX 更新'
-    }))
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'idle' })
+    expect(harness.emit).not.toHaveBeenCalledWith({ kind: 'not-available' })
   })
 
-  it('prompts once after a download and restarts only after user confirmation', async () => {
+  it('does not download until the user explicitly asks to', async () => {
+    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+
+    harness.controller.start()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    expect(harness.updater.downloadUpdate).not.toHaveBeenCalled()
+  })
+
+  it('starts a download on explicit action and streams progress states', async () => {
+    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    harness.controller.start()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    const download = harness.controller.act('download')
+    await Promise.resolve()
+
+    expect(harness.updater.downloadUpdate).toHaveBeenCalledTimes(1)
+    expect(harness.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'downloading', version: '0.0.2', progress: { percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 } })
+    )
+
+    harness.handlers.get('download-progress')?.({ percent: 42, transferred: 84, total: 200, bytesPerSecond: 10 })
+    expect(harness.emit).toHaveBeenCalledWith({
+      kind: 'downloading',
+      version: '0.0.2',
+      progress: { percent: 42, transferred: 84, total: 200, bytesPerSecond: 10 }
+    })
+    await download
+  })
+
+  it('surfaces a download failure instead of only logging it', async () => {
+    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    harness.controller.start()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    harness.updater.downloadUpdate.mockRejectedValue(new Error('network'))
+
+    await harness.controller.act('download')
+
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'error', message: 'network' })
+    expect(harness.logger.warn).toHaveBeenCalled()
+  })
+
+  it('emits a restart prompt and nudges a hidden window when the download finishes', async () => {
+    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    harness.controller.start()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    harness.handlers.get('update-downloaded')?.({ version: '0.0.2' })
+
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'downloaded', version: '0.0.2' })
+    expect(harness.notifyUpdateReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('restarts only after explicit user confirmation', async () => {
     const harness = createHarness()
-    harness.dialog.showMessageBox.mockResolvedValue({ response: 0 })
     harness.controller.start()
 
-    harness.handlers.get('update-downloaded')?.({})
-    await Promise.resolve()
-    await Promise.resolve()
-    harness.handlers.get('update-downloaded')?.({})
-    await Promise.resolve()
+    harness.handlers.get('update-downloaded')?.({ version: '0.0.2' })
+    expect(harness.updater.quitAndInstall).not.toHaveBeenCalled()
 
-    expect(harness.dialog.showMessageBox).toHaveBeenCalledTimes(1)
+    await harness.controller.act('restart')
     expect(harness.updater.quitAndInstall).toHaveBeenCalledTimes(1)
   })
 
-  it('does not prompt or start another check after shutdown begins', async () => {
+  it('reminds to restart instead of re-asking when an already-downloaded version is found again', async () => {
+    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+    harness.controller.start()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    harness.handlers.get('update-downloaded')?.({ version: '0.0.2' })
+
+    const scheduledCheck = harness.setInterval.mock.calls[0]?.[0]
+    scheduledCheck?.()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'downloaded', version: '0.0.2' })
+  })
+
+  it('hides the dialog on dismiss while a background download may continue', async () => {
+    const harness = createHarness()
+    harness.controller.start()
+
+    await harness.controller.act('dismiss')
+
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'idle' })
+  })
+
+  it('opens the update dialog without starting a network check', () => {
+    const harness = createHarness()
+
+    harness.controller.openDialog()
+
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'menu' })
+    expect(harness.updater.checkForUpdates).not.toHaveBeenCalled()
+  })
+
+  it('runs a manual check from the dialog check button', async () => {
+    const harness = createHarness({ check: () => Promise.resolve({ updateInfo: { version: '0.0.2' } }) })
+
+    await harness.controller.act('check')
+
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'checking', manual: true })
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'available', version: '0.0.2' })
+  })
+
+  it('explains that a packaged build is required when checking from the dialog in development', async () => {
+    const harness = createHarness({ packaged: false })
+
+    await harness.controller.act('check')
+
+    expect(harness.updater.checkForUpdates).not.toHaveBeenCalled()
+    expect(harness.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'error', message: expect.stringContaining('开发版本') })
+    )
+  })
+
+  it('re-checks when the user retries', async () => {
+    const harness = createHarness({ check: () => Promise.resolve(undefined) })
+    harness.controller.start()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(harness.updater.checkForUpdates).toHaveBeenCalledTimes(1)
+
+    await harness.controller.act('retry')
+
+    expect(harness.updater.checkForUpdates).toHaveBeenCalledTimes(2)
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'checking', manual: true })
+  })
+
+  it('does not surface states or start another check after shutdown begins', async () => {
     const harness = createHarness()
     harness.controller.start()
 
@@ -185,7 +306,7 @@ describe('createAppUpdaterController', () => {
     scheduledCheck?.()
     await Promise.resolve()
 
-    expect(harness.dialog.showMessageBox).not.toHaveBeenCalled()
+    expect(harness.emit).not.toHaveBeenCalled()
     expect(harness.updater.checkForUpdates).toHaveBeenCalledTimes(1)
   })
 
@@ -202,5 +323,13 @@ describe('createAppUpdaterController', () => {
     const stop = harness.app.once.mock.calls[0]?.[1]
     stop?.()
     expect(harness.clearInterval).toHaveBeenCalledWith(harness.intervalToken)
+  })
+
+  it('reports a manually requested check failure instead of only logging it', async () => {
+    const harness = createHarness({ check: () => Promise.reject(new Error('offline')) })
+
+    await harness.controller.checkNow()
+
+    expect(harness.emit).toHaveBeenCalledWith({ kind: 'error', message: 'offline' })
   })
 })

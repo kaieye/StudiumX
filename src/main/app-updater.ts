@@ -1,5 +1,7 @@
-import { app, dialog } from 'electron'
+import { app, BrowserWindow, Notification } from 'electron'
 import electronUpdater from 'electron-updater'
+import type { AppUpdateAction, AppUpdateState } from '../shared/teaching-types'
+import { teachingEventChannels } from '../shared/teaching-ipc-contract'
 
 // electron-updater is published as CommonJS. Import its default namespace so
 // Electron's native ESM loader can load it reliably in both development and
@@ -8,23 +10,27 @@ const { autoUpdater } = electronUpdater
 
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000
 
-type UpdateEvent = 'update-downloaded' | 'error'
+type UpdateInfo = { version?: string }
+
+type ProgressInfo = { percent: number; transferred: number; total: number; bytesPerSecond: number }
+
+type UpdateDownloadedEvent = { version?: string }
 
 type UpdateChecker = {
   autoDownload: boolean
   autoInstallOnAppQuit: boolean
   checkForUpdates(): Promise<unknown>
-  on(event: UpdateEvent, listener: (payload: unknown) => void): unknown
+  downloadUpdate(): Promise<unknown>
+  on(event: 'update-not-available', listener: (info: UpdateInfo) => void): unknown
+  on(event: 'download-progress', listener: (info: ProgressInfo) => void): unknown
+  on(event: 'update-downloaded', listener: (event: UpdateDownloadedEvent) => void): unknown
+  on(event: 'error', listener: (error: Error, message?: string) => void): unknown
   quitAndInstall(): void
 }
 
 type PackagedApp = {
   isPackaged: boolean
   once(event: 'before-quit', listener: () => void): unknown
-}
-
-type UpdateDialog = {
-  showMessageBox(options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue>
 }
 
 type UpdateScheduler = {
@@ -34,47 +40,67 @@ type UpdateScheduler = {
 
 type UpdateLogger = Pick<Console, 'warn'>
 
+type UpdateEmitter = (state: AppUpdateState) => void
+
+type UpdateNotify = () => void
+
 type UpdateCheckOutcome =
   | { kind: 'available'; version?: string }
   | { kind: 'not-available' }
-  | { kind: 'unavailable' }
   | { kind: 'failed' }
 
 export type AppUpdaterController = {
   start(): void
   stop(): void
-  /** Runs one explicit update check and reports its result to the user. No network request is made in development. */
+  /** Runs one explicit update check and reports its result through the state stream. No network request is made in development. */
   checkNow(): Promise<void>
+  /** Handles a renderer update-dialog action (check/download/restart/retry/dismiss). */
+  act(action: AppUpdateAction): Promise<void>
+  /** Opens the update dialog without starting a network check. */
+  openDialog(): void
 }
 
 export type AppUpdaterDependencies = {
   app: PackagedApp
   updater: UpdateChecker
-  dialog: UpdateDialog
   scheduler?: UpdateScheduler
   logger?: UpdateLogger
+  /** Broadcasts the current update lifecycle state to the renderer. */
+  emit?: UpdateEmitter
+  /** Called when a download finishes so main can nudge a hidden window. */
+  notifyUpdateReady?: UpdateNotify
 }
 
 /**
  * Builds the packaged-app update lifecycle.
  *
  * The initial check is intentionally non-blocking, then a long-running app
- * checks again every six hours. This mirrors the production desktop updater
- * cadence while keeping development runs and unpackaged builds fully offline.
+ * checks again every six hours. Updates are surfaced to the renderer through a
+ * state stream (checking → available → downloading → downloaded / error) so the
+ * user sees real download progress and any failure instead of a silent native
+ * prompt. Downloads are gated behind an explicit user action; nothing is
+ * auto-downloaded. Development runs and unpackaged builds stay fully offline.
  */
 export function createAppUpdaterController({
   app: currentApp,
   updater,
-  dialog: currentDialog,
   scheduler = globalThis,
-  logger = console
+  logger = console,
+  emit = () => {},
+  notifyUpdateReady = () => {}
 }: AppUpdaterDependencies): AppUpdaterController {
   let hasStarted = false
+  let hasStopped = false
   let checkInFlight = false
   let activeCheck: Promise<UpdateCheckOutcome> | null = null
-  let updatePromptShown = false
-  let hasStopped = false
+  let downloadInFlight = false
   let interval: ReturnType<typeof setInterval> | undefined
+  /** Set while a user-initiated check is outstanding so its result is surfaced. */
+  let manualCheckPending = false
+  /** Version of the update currently being offered, used to label progress. */
+  let pendingVersion: string | undefined
+  /** Latest version whose download completed, so re-checks remind instead of re-asking. */
+  let downloadedVersion: string | undefined
 
   const checkForUpdates = (): Promise<UpdateCheckOutcome> => {
     if (hasStopped || !currentApp.isPackaged) return Promise.resolve({ kind: 'not-available' })
@@ -87,11 +113,21 @@ export function createAppUpdaterController({
       .checkForUpdates()
       .then((result): UpdateCheckOutcome => {
         if (result === null || result === undefined) return { kind: 'not-available' }
-        return { kind: 'available', version: updateVersion(result) }
+        const version = updateVersion(result)
+        pendingVersion = version
+        // If this version was already downloaded, remind the user to restart
+        // rather than asking to download it a second time.
+        emit(
+          version !== undefined && version === downloadedVersion
+            ? { kind: 'downloaded', version }
+            : { kind: 'available', version: version ?? '' }
+        )
+        return { kind: 'available', version }
       })
       .catch((error: unknown): UpdateCheckOutcome => {
         // A failed check must not block startup. The next scheduled check retries it.
         logger.warn('[updater] Update check failed:', error)
+        if (manualCheckPending) emit({ kind: 'error', message: errorMessage(error) })
         return { kind: 'failed' }
       })
       .finally(() => {
@@ -100,6 +136,24 @@ export function createAppUpdaterController({
       })
     activeCheck = nextCheck
     return nextCheck
+  }
+
+  const startDownload = async (): Promise<void> => {
+    if (downloadInFlight || hasStopped || !currentApp.isPackaged) return
+    downloadInFlight = true
+    try {
+      emit({
+        kind: 'downloading',
+        version: pendingVersion ?? '',
+        progress: { percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 }
+      })
+      await updater.downloadUpdate()
+    } catch (error) {
+      logger.warn('[updater] Download failed:', error)
+      emit({ kind: 'error', message: errorMessage(error) })
+    } finally {
+      downloadInFlight = false
+    }
   }
 
   const stop = (): void => {
@@ -113,35 +167,43 @@ export function createAppUpdaterController({
     if (hasStarted || hasStopped || !currentApp.isPackaged) return
     hasStarted = true
 
-    updater.autoDownload = true
+    updater.autoDownload = false
     updater.autoInstallOnAppQuit = true
 
-    updater.on('update-downloaded', () => {
-      // electron-updater can re-emit this event after a retry. Keep one
-      // restart prompt per application session.
-      if (hasStopped || updatePromptShown) return
-      updatePromptShown = true
+    updater.on('update-not-available', () => {
+      if (hasStopped) return
+      pendingVersion = undefined
+      // Only a manual check shows the "already up to date" notice; the
+      // scheduled background check stays silent so it never flashes a dialog.
+      emit(manualCheckPending ? { kind: 'not-available' } : { kind: 'idle' })
+    })
 
-      void currentDialog
-        .showMessageBox({
-          type: 'info',
-          buttons: ['立即重启更新', '稍后'],
-          defaultId: 0,
-          cancelId: 1,
-          title: 'StudiumX 更新已就绪',
-          message: '新版本已下载完成，重启后即可完成更新。',
-          detail: '选择“稍后”时，StudiumX 会在下次退出后自动安装更新。'
-        })
-        .then(({ response }) => {
-          if (response === 0) updater.quitAndInstall()
-        })
-        .catch((error: unknown) => {
-          logger.warn('[updater] Unable to show the update prompt:', error)
-        })
+    updater.on('download-progress', (info) => {
+      if (hasStopped) return
+      emit({
+        kind: 'downloading',
+        version: pendingVersion ?? '',
+        progress: {
+          percent: info.percent,
+          transferred: info.transferred,
+          total: info.total,
+          bytesPerSecond: info.bytesPerSecond
+        }
+      })
+    })
+
+    updater.on('update-downloaded', (event) => {
+      if (hasStopped) return
+      const version = versionFromDownloadedEvent(event) ?? pendingVersion ?? ''
+      pendingVersion = version
+      downloadedVersion = version
+      emit({ kind: 'downloaded', version })
+      notifyUpdateReady()
     })
 
     updater.on('error', (error) => {
-      // A failed check or download must never block the app from opening.
+      // Download failures are already surfaced via startDownload(); this
+      // covers unexpected updater errors without blocking the app.
       logger.warn('[updater] Update error:', error)
     })
 
@@ -152,57 +214,57 @@ export function createAppUpdaterController({
     currentApp.once('before-quit', stop)
   }
 
-  const reportManualCheckOutcome = async (outcome: UpdateCheckOutcome): Promise<void> => {
-    const options: Electron.MessageBoxOptions = outcome.kind === 'available'
-      ? {
-          type: 'info',
-          buttons: ['好'],
-          defaultId: 0,
-          title: '发现 StudiumX 更新',
-          message: outcome.version
-            ? `发现 StudiumX ${outcome.version}，正在后台下载。`
-            : '发现新版本 StudiumX，正在后台下载。',
-          detail: '下载完成后会提示你重启以完成更新。'
-        }
-      : outcome.kind === 'not-available'
-        ? {
-            type: 'info',
-            buttons: ['好'],
-            defaultId: 0,
-            title: 'StudiumX 已是最新版本',
-            message: '当前安装的版本已经是最新版本。'
-          }
-        : outcome.kind === 'unavailable'
-          ? {
-              type: 'info',
-              buttons: ['好'],
-              defaultId: 0,
-              title: '开发版本无法检查更新',
-              message: '当前运行的是开发版本，无法连接发行版更新服务。请使用已打包的 StudiumX 检查更新。'
-            }
-          : {
-              type: 'error',
-              buttons: ['好'],
-              defaultId: 0,
-              title: '无法检查 StudiumX 更新',
-              message: '请检查网络连接后重试。'
-            }
-    try {
-      await currentDialog.showMessageBox(options)
-    } catch (error) {
-      logger.warn('[updater] Unable to show the update-check result:', error)
+  const runManualCheck = async (): Promise<void> => {
+    if (hasStopped) return
+    if (!currentApp.isPackaged) {
+      emit({ kind: 'error', message: '当前运行的是开发版本，无法连接发行版更新服务。请使用已打包的 StudiumX 检查更新。' })
+      return
     }
+    // Flag the manual check before start() runs its initial check, so a
+    // user-triggered check that shares the in-flight background request still
+    // surfaces its result instead of staying silent.
+    manualCheckPending = true
+    emit({ kind: 'checking', manual: true })
+    start()
+    try {
+      await checkForUpdates()
+    } finally {
+      manualCheckPending = false
+    }
+  }
+
+  const act = async (action: AppUpdateAction): Promise<void> => {
+    if (hasStopped) return
+    switch (action) {
+      case 'check':
+      case 'retry':
+        await runManualCheck()
+        break
+      case 'download':
+        if (!currentApp.isPackaged) return
+        await startDownload()
+        break
+      case 'restart':
+        if (!currentApp.isPackaged) return
+        updater.quitAndInstall()
+        break
+      case 'dismiss':
+        emit({ kind: 'idle' })
+        break
+    }
+  }
+
+  const openDialog = (): void => {
+    if (hasStopped) return
+    emit({ kind: 'menu' })
   }
 
   return {
     start,
     stop,
-    checkNow(): Promise<void> {
-      if (hasStopped) return Promise.resolve()
-      if (!currentApp.isPackaged) return reportManualCheckOutcome({ kind: 'unavailable' })
-      start()
-      return checkForUpdates().then(reportManualCheckOutcome)
-    }
+    checkNow: runManualCheck,
+    act,
+    openDialog
   }
 }
 
@@ -210,10 +272,47 @@ function updateVersion(result: unknown): string | undefined {
   if (!result || typeof result !== 'object' || !('updateInfo' in result)) return undefined
   const updateInfo = result.updateInfo
   if (!updateInfo || typeof updateInfo !== 'object' || !('version' in updateInfo)) return undefined
-  return typeof updateInfo.version === 'string' && updateInfo.version.trim() ? updateInfo.version.trim() : undefined
+  return versionString(updateInfo.version)
+}
+
+function versionFromDownloadedEvent(event: UpdateDownloadedEvent): string | undefined {
+  return versionString(event.version)
+}
+
+function versionString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function broadcastUpdateState(state: AppUpdateState): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(teachingEventChannels.appUpdateEvent, state)
+  }
+}
+
+function notifyUpdateReady(): void {
+  const anyWindowVisible = BrowserWindow.getAllWindows().some((window) => window.isVisible())
+  if (anyWindowVisible || !Notification.isSupported()) return
+  new Notification({
+    title: 'StudiumX 更新已就绪',
+    body: '新版本已下载完成，打开 StudiumX 即可重启完成更新。'
+  }).show()
 }
 
 let controller: AppUpdaterController | undefined
+
+function createController(): AppUpdaterController {
+  controller ??= createAppUpdaterController({
+    app,
+    updater: autoUpdater,
+    emit: broadcastUpdateState,
+    notifyUpdateReady
+  })
+  return controller
+}
 
 /**
  * Starts automatic updates for the production application singleton.
@@ -221,12 +320,7 @@ let controller: AppUpdaterController | undefined
  * update manifest and a local build must never replace itself with a release.
  */
 export function startAppUpdateCheck(): void {
-  controller ??= createAppUpdaterController({
-    app,
-    updater: autoUpdater,
-    dialog
-  })
-  controller.start()
+  createController().start()
 }
 
 /**
@@ -235,11 +329,21 @@ export function startAppUpdateCheck(): void {
  * not create concurrent release-feed requests.
  */
 export function checkForAppUpdates(): Promise<void> {
-  controller ??= createAppUpdaterController({
-    app,
-    updater: autoUpdater,
-    dialog
-  })
-  controller.start()
-  return controller.checkNow()
+  return createController().checkNow()
+}
+
+/**
+ * Forwards a renderer update-dialog action (check/download/restart/retry/dismiss)
+ * to the packaged-app updater.
+ */
+export function actOnAppUpdate(action: AppUpdateAction): Promise<void> {
+  return createController().act(action)
+}
+
+/**
+ * Opens the update dialog without starting a network check. The renderer uses
+ * this as the "refresh" entry point; the dialog itself owns the check button.
+ */
+export function openAppUpdateDialog(): void {
+  createController().openDialog()
 }

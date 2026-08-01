@@ -23,11 +23,14 @@ Only a packaged application checks for updates. It checks once after the
 application runtime starts, then retries every six hours while the application
 remains open. Checks and downloads never delay startup.
 
-When GitHub Releases reports a newer version, `electron-updater` downloads it
-in the background. After the download has completed, the app prompts the user
-to restart immediately or to install automatically during the next normal app
-quit. The updater is intentionally inactive for `pnpm dev` and unpackaged
-local builds.
+When GitHub Releases reports a newer version, the app shows an in-app update
+dialog that asks the user to start the download. During the download the dialog
+shows live progress (percentage, bytes, and speed); failures are surfaced in
+the dialog with a retry action instead of being swallowed. After the download
+completes, the dialog prompts the user to restart immediately or to install
+automatically during the next normal app quit (if the main window is hidden to
+the tray, a system notification reminds the user). The updater is
+intentionally inactive for `pnpm dev` and unpackaged local builds.
 
 ## GitHub release flow
 

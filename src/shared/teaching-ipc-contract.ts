@@ -14,6 +14,7 @@ export type TeachingEventChannel =
   | 'agentChatTool'
   | 'agentChatEvent'
   | 'systemPower'
+  | 'appUpdateEvent'
 
 /** OS power fan-out payload (ADR-0129 §4 OS bridge). Signal only — not timer authority. */
 export type SystemPowerEvent = {
@@ -27,6 +28,8 @@ export const teachingInvokeChannels = {
   exportLearningAnalytics: 'teach:export-learning-analytics',
   clearLearningAnalytics: 'teach:clear-learning-analytics',
   checkForAppUpdates: 'teach:check-for-app-updates',
+  openAppUpdateDialog: 'teach:open-app-update-dialog',
+  appUpdateAction: 'teach:app-update-action',
   getAppVersion: 'teach:get-app-version',
   getSettings: 'teach:get-settings',
   updateSettings: 'teach:update-settings',
@@ -141,5 +144,6 @@ export const teachingEventChannels = {
   agentChatStatus: 'teach:agent-chat-status',
   agentChatTool: 'teach:agent-chat-tool',
   agentChatEvent: 'teach:agent-chat-event',
-  systemPower: 'teach:system-power'
+  systemPower: 'teach:system-power',
+  appUpdateEvent: 'teach:app-update-event'
 } satisfies Record<TeachingEventChannel, string>

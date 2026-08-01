@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { TeachingSystemApi } from '../shared/teaching-types'
+import type { AppUpdateState, TeachingSystemApi } from '../shared/teaching-types'
 import type { StudiumxMusicApi } from '../shared/music-types'
 import { musicInvokeChannels } from '../shared/music-ipc-contract'
 import { teachingEventChannels, teachingInvokeChannels } from '../shared/teaching-ipc-contract'
@@ -40,6 +40,9 @@ const api: TeachingSystemApi = {
   exportLearningAnalytics: (request) => ipcRenderer.invoke(teachingInvokeChannels.exportLearningAnalytics, request),
   clearLearningAnalytics: (request) => ipcRenderer.invoke(teachingInvokeChannels.clearLearningAnalytics, request),
   checkForAppUpdates: () => ipcRenderer.invoke(teachingInvokeChannels.checkForAppUpdates),
+  onAppUpdateEvent: (handler) => registerIpcListener<AppUpdateState>(teachingEventChannels.appUpdateEvent, handler),
+  openAppUpdateDialog: () => ipcRenderer.invoke(teachingInvokeChannels.openAppUpdateDialog),
+  appUpdateAction: (action) => ipcRenderer.invoke(teachingInvokeChannels.appUpdateAction, action),
   getAppVersion: () => ipcRenderer.invoke(teachingInvokeChannels.getAppVersion),
   getSettings: () => ipcRenderer.invoke(teachingInvokeChannels.getSettings),
   updateSettings: (patch) => ipcRenderer.invoke(teachingInvokeChannels.updateSettings, patch),
