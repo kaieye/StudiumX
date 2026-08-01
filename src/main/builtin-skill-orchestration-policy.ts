@@ -109,6 +109,20 @@ const RAW_ENTRIES: Omit<BuiltinSkillOrchestrationEntry, 'admission'>[] = [
     autoSchedulableDependency: false
   },
   {
+    skillId: 'grilling',
+    role: 'workflow_router',
+    stages: ['ground'],
+    requires: [],
+    accepts: [],
+    produces: [],
+    artifactScopes: [],
+    // This skill is intentionally exposed as an explicit, advisory workflow
+    // helper; it has not been validated as part of the built-in teaching flow.
+    teachingImpact: 'none',
+    priority: 10,
+    autoSchedulableDependency: false
+  },
+  {
     skillId: 'teaching-site',
     role: 'workflow_router',
     stages: ['ground', 'artifact_authoring'],
@@ -264,6 +278,10 @@ const ENTRIES: BuiltinSkillOrchestrationEntry[] = RAW_ENTRIES.map((entry) => ({
   ...entry,
   admission: admissionFor(entry)
 }))
+// Shipped for explicit/advisory use only until it has been validated against
+// the current teaching flow. This projection keeps that boundary visible in
+// the library without changing the host registry's fail-closed planner rules.
+const UNVERIFIED_BUILTIN_SKILL_IDS = new Set(['grilling'])
 
 /**
  * Main-process projection consumed by the renderer. Unknown/personal entries
@@ -276,14 +294,16 @@ export function getSkillOrchestrationEligibility(skill: {
 }): SkillOrchestrationEligibility {
   const policy = getBuiltinSkillOrchestrationPolicy(skill.id)
   if (policy) {
+    const unverified = UNVERIFIED_BUILTIN_SKILL_IDS.has(skill.id.toLocaleLowerCase())
     return {
-      allowedModes: [...policy.admission.allowedModes],
-      slot: policy.admission.slot,
-      trustLevel: policy.admission.trustLevel,
-      selectionSurface: policy.admission.selectionSurface,
-      formalTeachingEligible: policy.role !== 'kernel',
-      reason:
-        policy.role === 'kernel'
+      allowedModes: unverified ? ['instant_help'] : [...policy.admission.allowedModes],
+      slot: unverified ? 'artifact' : policy.admission.slot,
+      trustLevel: unverified ? 'advisory_only' : policy.admission.trustLevel,
+      selectionSurface: unverified ? 'advanced' : policy.admission.selectionSurface,
+      formalTeachingEligible: !unverified && policy.role !== 'kernel',
+      reason: unverified
+        ? 'This skill has not been validated with the current teaching flow and is available for explicit advisory use only.'
+        : policy.role === 'kernel'
           ? 'The app-shipped Teaching Kernel is always active and is not a user-selectable capability.'
           : 'Host-governed builtin capability; final scheduling still depends on mode, readiness, and plan constraints.'
     }

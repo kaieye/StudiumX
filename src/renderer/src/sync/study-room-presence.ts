@@ -125,7 +125,10 @@ export function useStudyRoomPresence(
     if (!roomId || !getSyncAccessToken()) return
     try {
       const res = await client.studyRoomMembers(roomId)
-      setMembers(res.members)
+      // A browser/offline projection may legitimately omit the roster; keep
+      // the local scene usable instead of leaking `undefined` into the
+      // leaderboard merge.
+      setMembers(Array.isArray(res.members) ? res.members : [])
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

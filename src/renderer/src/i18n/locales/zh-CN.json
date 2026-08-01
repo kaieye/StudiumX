@@ -29,8 +29,6 @@
     "notifications": "通知",
     "settings": "设置",
     "account": "账号设置",
-    "checkForUpdates": "检查更新",
-    "checkingForUpdates": "正在检查更新…",
     "localUser": "StudiumX 用户",
     "notificationCenterTitle": "StudiumX 通知中心",
     "notificationCenterOn": "通知设置已打开。",
@@ -549,6 +547,7 @@
     "eyebrow": "教学工具",
     "title": "教学能力库",
     "detail": "内置能力可安装到 {{root}}。个人能力文件仍可在此管理，但不会自动获得正式教学权威。",
+    "integrationNotice": "应用已经内置了教学流。以下 skill 尚未经过与当前教学流结合的验证，请谨慎使用。",
     "openFolder": "打开个人能力目录",
     "search": "搜索能力",
     "mine": "已安装 {{count}}",
@@ -556,6 +555,88 @@
     "install": "安装",
     "installing": "安装中",
     "installed": "已安装",
+    "uninstall": "卸载",
+    "uninstalling": "卸载中",
+    "confirmUninstall": "确定要卸载 {{name}} 吗？",
+    "usageTitle": "用途概览",
+    "closeDetails": "关闭详情",
+    "detailHint": "点击卡片外区域或按 Esc 关闭详情。",
+    "items": {
+      "grilling": {
+        "description": "通过一次一个问题持续追问，帮助你检验计划、决策或想法中的假设与盲点。",
+        "detail": "适用于需要认真拆解方案、逐项确认依赖关系，或希望在行动前充分检验思路的场景。它会一次提出一个问题，给出建议答案，并在达成共识前不会直接替你执行。当前尚未完成与内置教学流的结合验证，请在明确意图下谨慎使用。"
+      },
+      "course-content-authoring": {
+        "name": "课程内容编写",
+        "description": "根据课程大纲补充讲义、示例素材、测验题和课程配套文件。",
+        "detail": "适用于已有稳定课程大纲、需要继续补齐实际教学内容的阶段。它可以整理讲义、示例数据、练习题、测验题和课程模板，并保持每份素材与课程单元对应。"
+      },
+      "course-corporate-edition": {
+        "name": "企业版课程制作",
+        "description": "将多天公开课程压缩并改编为适合企业内训的半天或一天课程。",
+        "detail": "适用于把公开课改造成企业内训版本的场景。它会重新安排单元顺序和时间分配，并整理成便于客户交付、离线使用和打包分享的课程版本。"
+      },
+      "course-designer": {
+        "name": "课程设计",
+        "description": "设计课程结构、学习目标和教学流程，帮助快速搭建完整课程方案。",
+        "detail": "适用于从课程目标出发规划完整教学方案。它会帮助梳理学习目标、课程结构、教学阶段和后续制作路径，适合课程启动或方向不明确时使用。"
+      },
+      "course-ebook-publishing": {
+        "name": "课程电子书发布",
+        "description": "将已完成的教学网站整理为可打印、归档或分享的 PDF 电子书或 DOCX 文档。",
+        "detail": "适用于教学网站已经完成并需要输出可打印版本的阶段。它会规划封面、目录、页码和排版，并协助生成适合归档、审阅或分享的 PDF 或 DOCX。"
+      },
+      "course-outline-design": {
+        "name": "课程大纲设计",
+        "description": "梳理课程主题、章节结构、教学单元和学习路径，形成稳定的大纲。",
+        "detail": "适用于课程还处在规划阶段，需要把主题拆成章节、单元和学习路径的场景。它负责建立稳定、可追踪的大纲，为后续内容编写和网站制作提供依据。"
+      },
+      "learning-assessor": {
+        "name": "学习效果评估",
+        "description": "根据学习表现设计评估方式、练习和反馈，判断学习目标的达成情况。",
+        "detail": "适用于需要设计练习、评估标准和学习反馈的场景。它会根据学习目标和答题表现，帮助判断学习者掌握情况，并提出下一步改进方向。"
+      },
+      "static-spa-conversion": {
+        "name": "静态网站转换",
+        "description": "把课程内容和结构转换为可离线运行的静态网站。",
+        "detail": "适用于课程内容已经准备好，需要转换为可离线访问的静态单页网站。它关注页面结构、资源路径、数据嵌入和部署后的完整可用性。"
+      },
+      "static-spa-interactions": {
+        "name": "静态网站交互",
+        "description": "为教学网站补充导航、交互状态、练习反馈等前端体验。",
+        "detail": "适用于静态教学网站需要补充交互体验的阶段。它可以完善导航、筛选、练习反馈、状态切换和页面之间的操作衔接。"
+      },
+      "teaching-resource-generator": {
+        "name": "教学资源生成",
+        "description": "根据课程目标生成讲义、练习、示例和其他教学资源。",
+        "detail": "适用于需要根据课程目标批量准备教学材料的场景。它可以生成讲义、示例、练习、测验和配套说明，并让资源与课程结构保持一致。"
+      },
+      "teaching-site-design-system": {
+        "name": "教学网站设计系统",
+        "description": "统一教学网站的视觉规范、组件样式和页面布局。",
+        "detail": "适用于需要统一教学网站视觉风格和组件规范的场景。它会整理颜色、字体、间距、卡片、表单和响应式布局，帮助后续页面保持一致。"
+      },
+      "teaching-site": {
+        "name": "教学网站制作",
+        "description": "把课程内容组织成完整的教学网站，并规划后续制作阶段。",
+        "detail": "适用于把课程内容组织成一套完整教学网站的场景。它负责规划网站阶段、页面关系和交付顺序，并协调内容、交互与视觉素材之间的衔接。"
+      },
+      "web-content-audit": {
+        "name": "网站内容审计",
+        "description": "检查网站中的内容、文件、数据和引用是否一致，找出缺失或漂移。",
+        "detail": "适用于网站已经生成，需要检查内容、数据、文件和引用是否互相一致的阶段。它会定位缺失资源、重复编号、引用漂移和内容覆盖不足等问题。"
+      },
+      "web-visual-assets": {
+        "name": "网站视觉素材",
+        "description": "为网站准备插图、截图、讲师卡、示意图、地图和二维码等视觉素材。",
+        "detail": "适用于网站内容已经确定，但仍缺少插图、截图、讲师卡、地图、二维码等视觉资源的场景。它会根据页面用途准备并组织这些素材。"
+      },
+      "web-visual-verification": {
+        "name": "网站视觉验证",
+        "description": "通过真实操作和多尺寸截图检查网站交互、响应式布局及控制台错误。",
+        "detail": "适用于网站需要进行上线前体验检查的场景。它会通过真实点击、不同屏幕尺寸和控制台检查，确认页面交互、响应式布局和关键流程正常。"
+      }
+    },
     "noResults": "没有匹配的能力",
     "categories": {
       "aria": "能力分类",
@@ -574,7 +655,9 @@
       "aria": "高级能力命令列表",
       "title": "选择受平台治理的能力",
       "empty": "暂无匹配的受平台治理能力，请先前往资源 → 教学能力库安装内置能力。"
-    }
+    },
+    "commandLabel": "使用命令",
+    "detailOverview": "用途与适用场景"
   },
   "records": {
     "label": "学习记录",
@@ -1118,6 +1201,10 @@
   "about": {
     "title": "关于 StudiumX",
     "subtitle": "诊断入口和当前运行时信息，便于检查迁移后的完整链路。",
+    "appIconAlt": "StudiumX 图标",
+    "version": "版本 {{version}}",
+    "checkForUpdates": "检查更新",
+    "checkingForUpdates": "正在检查更新…",
     "runtime": "当前 Runtime",
     "streaming": "Streaming",
     "oneShot": "One-shot",

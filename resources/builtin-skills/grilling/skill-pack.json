@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "grilling",
+  "version": "1.0.0",
+  "capabilities": ["read-resources"],
+  "resources": [
+    { "path": "SKILL.md", "kind": "instructions" },
+    { "path": "agents/openai.yaml", "kind": "reference" }
+  ]
+}

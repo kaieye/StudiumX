@@ -37,6 +37,7 @@ type UpdateLogger = Pick<Console, 'warn'>
 type UpdateCheckOutcome =
   | { kind: 'available'; version?: string }
   | { kind: 'not-available' }
+  | { kind: 'unavailable' }
   | { kind: 'failed' }
 
 export type AppUpdaterController = {
@@ -171,13 +172,21 @@ export function createAppUpdaterController({
             title: 'StudiumX 已是最新版本',
             message: '当前安装的版本已经是最新版本。'
           }
-        : {
-            type: 'error',
-            buttons: ['好'],
-            defaultId: 0,
-            title: '无法检查 StudiumX 更新',
-            message: '请检查网络连接后重试。'
-          }
+        : outcome.kind === 'unavailable'
+          ? {
+              type: 'info',
+              buttons: ['好'],
+              defaultId: 0,
+              title: '开发版本无法检查更新',
+              message: '当前运行的是开发版本，无法连接发行版更新服务。请使用已打包的 StudiumX 检查更新。'
+            }
+          : {
+              type: 'error',
+              buttons: ['好'],
+              defaultId: 0,
+              title: '无法检查 StudiumX 更新',
+              message: '请检查网络连接后重试。'
+            }
     try {
       await currentDialog.showMessageBox(options)
     } catch (error) {
@@ -189,7 +198,8 @@ export function createAppUpdaterController({
     start,
     stop,
     checkNow(): Promise<void> {
-      if (hasStopped || !currentApp.isPackaged) return Promise.resolve()
+      if (hasStopped) return Promise.resolve()
+      if (!currentApp.isPackaged) return reportManualCheckOutcome({ kind: 'unavailable' })
       start()
       return checkForUpdates().then(reportManualCheckOutcome)
     }

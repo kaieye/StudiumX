@@ -66,6 +66,7 @@ import { TeachingTurnReviewSettingsSection } from './sections/TeachingTurnReview
 import { UserMcpSettingsSection } from './sections/UserMcpSettingsSection'
 import { RemoteControlSettingsSection } from './sections/RemoteControlSettingsSection'
 import { AccountSyncSettingsSection } from '../../sync/AccountSyncSettingsSection'
+import appIcon from '../../assets/auth/app-icon-rounded.png'
 
 export function SettingsView({
   section,
@@ -92,7 +93,8 @@ export function SettingsView({
   onDeleteMemory,
   onLoadMemoryDiagnostics,
   onOpenLogFile,
-  onOpenAppDataDir
+  onOpenAppDataDir,
+  onCheckForUpdates = async () => {}
 }: {
   section: SettingsSection
   settings: TeachingSettingsV1
@@ -119,6 +121,7 @@ export function SettingsView({
   onLoadMemoryDiagnostics: () => Promise<void>
   onOpenLogFile: () => Promise<void>
   onOpenAppDataDir: () => Promise<void>
+  onCheckForUpdates?: () => Promise<void>
 }) {
   const { t } = useTranslation()
   const worktreeRootPath = settings.worktree?.rootPath ?? ''
@@ -146,6 +149,31 @@ export function SettingsView({
   const filteredMemoryRecords = configuration.filterMemoryRecords(memoryRecords)
   const [sandboxReadiness, setSandboxReadiness] = useState<AgentSandboxReadiness | null>(null)
   const [sandboxReadinessLoading, setSandboxReadinessLoading] = useState(false)
+  const [appVersion, setAppVersion] = useState<string | null>(null)
+  const [checkingForUpdates, setCheckingForUpdates] = useState(false)
+
+  useEffect(() => {
+    if (section !== 'about') return
+    let cancelled = false
+    const getAppVersion = window.teachingSystem?.getAppVersion
+    if (!getAppVersion) return
+    void getAppVersion()
+      .then((version) => {
+        if (!cancelled) setAppVersion(version)
+      })
+      .catch(() => {
+        if (!cancelled) setAppVersion(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [section])
+
+  const handleCheckForUpdates = (): void => {
+    if (checkingForUpdates) return
+    setCheckingForUpdates(true)
+    void onCheckForUpdates().catch(() => undefined).finally(() => setCheckingForUpdates(false))
+  }
 
   useEffect(() => {
     if (section !== 'tools') return
@@ -852,6 +880,22 @@ export function SettingsView({
             title={t('about.title')}
             subtitle={t('about.subtitle')}
           >
+            <div className="about-hero">
+              <img className="about-hero-icon" src={appIcon} alt={t('about.appIconAlt')} />
+              <div className="about-hero-copy">
+                <strong>StudiumX</strong>
+                <span>{t('about.version', { version: appVersion ?? '—' })}</span>
+              </div>
+              <button
+                className="ghost-button about-update-button"
+                type="button"
+                onClick={handleCheckForUpdates}
+                disabled={checkingForUpdates}
+              >
+                <RefreshCw className={checkingForUpdates ? 'is-spinning' : undefined} size={15} />
+                {t(checkingForUpdates ? 'about.checkingForUpdates' : 'about.checkForUpdates')}
+              </button>
+            </div>
             <SettingsCard>
               <SettingsRow label={t('about.runtime')} detail={runtimeProviderLabel(settings)}>
                 <span className="settings-status-badge">{settings.generator.streaming ? t('about.streaming') : t('about.oneShot')}</span>

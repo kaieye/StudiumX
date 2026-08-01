@@ -2,9 +2,8 @@ import type { ReactElement } from 'react'
 import { ConversationsView } from './ConversationsView'
 
 /**
- * Route module for the Conversations / 对话历史 browse feature
- * (plan §8 Phase 6b / §7.1). Auto-discovered by App.tsx, which globs every
- * `route.tsx` module under web/src/views/.
+ * Legacy route fixture retained for the pre-shared Web shell. The current
+ * authenticated Web surface renders the shared desktop renderer App instead.
  */
 export const route = {
   path: '/conversations',

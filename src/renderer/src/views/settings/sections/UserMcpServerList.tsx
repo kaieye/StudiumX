@@ -35,6 +35,8 @@ type UserMcpServerListProps = {
   runtime: readonly McpRuntimeServerView[]
   /** Optional multi-source winner provenance (ADR-0137); secret-free only. */
   sourceByServerId?: ReadonlyMap<string, McpEffectiveServerPublicV1>
+  /** System-default rows are displayed read-only except for their enable switch. */
+  systemDefaultIds?: ReadonlySet<string>
   testingId: string | null
   refreshingId: string | null
   authorizingId: string | null
@@ -65,6 +67,7 @@ export function UserMcpServerList({
   servers,
   runtime,
   sourceByServerId,
+  systemDefaultIds,
   testingId: _testingId,
   refreshingId,
   authorizingId,
@@ -155,6 +158,8 @@ export function UserMcpServerList({
         <SettingsCard className="mcp-server-list" data-testid="mcp-server-list">
           {filteredServers.map((server) => {
             const runtimeState = runtimeById.get(server.id)
+            const source = sourceByServerId?.get(server.id)
+            const isSystemDefault = systemDefaultIds?.has(server.id) === true
             const inActiveScope = serverMatchesActiveWorkspace(server, workspaceRoot)
             const effectiveState = resolveRuntimeState(
               rootEnabled,
@@ -197,9 +202,13 @@ export function UserMcpServerList({
                     <div className="mcp-server-copy">
                       <div className="mcp-server-title-line">
                         <strong>{server.label}</strong>
-                        {sourceByServerId?.get(server.id)?.sourceKind === 'plugin' ? (
+                        {source?.sourceKind === 'plugin' ? (
                           <span className="mcp-badge is-accent" data-testid="mcp-server-source-badge">
                             {t('mcp.sources.kind.plugin')}
+                          </span>
+                        ) : isSystemDefault ? (
+                          <span className="mcp-badge is-accent" data-testid="mcp-server-source-badge">
+                            {t('mcp.sources.kind.system')}
                           </span>
                         ) : (
                           <span className="mcp-badge" data-testid="mcp-server-source-badge">
@@ -307,28 +316,32 @@ export function UserMcpServerList({
                         )}
                       </button>
                     ) : null}
-                    <button
-                      className="mcp-icon-button"
-                      type="button"
-                      disabled={busy}
-                      aria-label={t('mcp.servers.editAria', { name: server.label })}
-                      title={t('mcp.servers.edit')}
-                      data-testid="mcp-edit-server"
-                      onClick={() => onEdit(server)}
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      className="mcp-icon-button is-danger"
-                      type="button"
-                      disabled={busy}
-                      aria-label={t('mcp.servers.deleteAria', { name: server.label })}
-                      title={t('mcp.servers.remove')}
-                      data-testid="mcp-remove-server"
-                      onClick={() => onRequestDelete(server.id)}
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    {!isSystemDefault ? (
+                      <>
+                        <button
+                          className="mcp-icon-button"
+                          type="button"
+                          disabled={busy}
+                          aria-label={t('mcp.servers.editAria', { name: server.label })}
+                          title={t('mcp.servers.edit')}
+                          data-testid="mcp-edit-server"
+                          onClick={() => onEdit(server)}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          className="mcp-icon-button is-danger"
+                          type="button"
+                          disabled={busy}
+                          aria-label={t('mcp.servers.deleteAria', { name: server.label })}
+                          title={t('mcp.servers.remove')}
+                          data-testid="mcp-remove-server"
+                          onClick={() => onRequestDelete(server.id)}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </>
+                    ) : null}
                     <ToggleSwitch
                       checked={server.enabled}
                       disabled={busy}

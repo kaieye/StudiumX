@@ -71,6 +71,8 @@ import {
   type DialogMode
 } from './app-shell/appStore'
 import { TeachingWorkspaceNavigator } from './app-shell/teaching-workspace-navigator'
+import { DesktopSidebarFrame } from './ui/DesktopSidebarFrame'
+import { DesktopTopbar } from './ui/DesktopTopbar'
 import { LessonStyleGallery } from './views/resources/LessonStyleGallery'
 import { PetLibrary } from './views/resources/PetLibrary'
 import { SkillLibrary } from './views/resources/SkillLibrary'
@@ -320,7 +322,7 @@ function Sidebar() {
   }, [checkingForUpdates])
 
   return (
-    <aside className={`sidebar${sidebarCollapsed ? ' is-collapsed' : ''}`} aria-label={t('sidebar.aria')}>
+    <DesktopSidebarFrame collapsed={sidebarCollapsed} ariaLabel={t('sidebar.aria')}>
       <nav className="nav-list">
         {navItems.map((item) => {
           const Icon = item.icon
@@ -418,7 +420,7 @@ function Sidebar() {
           <RefreshCw className={checkingForUpdates ? 'is-spinning' : undefined} size={16} />
         </button>
       </div>
-    </aside>
+    </DesktopSidebarFrame>
   )
 }
 
@@ -1282,11 +1284,7 @@ function MainArea() {
   if (loading && !active) {
     return (
       <main className="main-area">
-        <div className="topbar">
-          <div className="crumb">
-            <span>StudiumX</span>
-          </div>
-        </div>
+        <DesktopTopbar leading={<span>StudiumX</span>} />
         <div style={{ maxWidth: 760, margin: '36px auto', padding: '0 24px' }}>
           <div className="skeleton" style={{ width: '35%', height: 22, marginBottom: 14, borderRadius: 8 }} />
           <div className="skeleton" style={{ width: '100%', height: 120, borderRadius: 20 }} />
@@ -1318,9 +1316,7 @@ function MainArea() {
       ) : readingCourseHtml || readingMarkdown ? (
         showInlineSidebarToggle ? renderSidebarToggle('icon-button reader-sidebar-toggle') : null
       ) : (
-        <header className="topbar">
-          <div className="crumb">{showInlineSidebarToggle && renderSidebarToggle()}</div>
-        </header>
+        <DesktopTopbar leading={showInlineSidebarToggle ? renderSidebarToggle() : null} />
       )}
 
       {error && (
@@ -1375,6 +1371,7 @@ function MainArea() {
             const result = await window.teachingSystem?.openAppDataDir()
             if (!result?.ok) throw new Error(result?.message ?? i18n.t('errors.openAppData'))
           }}
+          onCheckForUpdates={async () => { await window.teachingSystem?.checkForAppUpdates() }}
         />
       )}
 

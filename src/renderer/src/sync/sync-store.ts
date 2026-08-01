@@ -107,7 +107,14 @@ function pushAccessTokenToMain(): void {
   const token = state.accessToken
   // teachingSystem is exposed via preload; may be undefined in tests/SSR.
   const api = (globalThis as { teachingSystem?: { mcpSetStudiumxAccessToken?: (token: string | null) => Promise<void> } }).teachingSystem
-  api?.mcpSetStudiumxAccessToken?.(token)?.catch?.(() => {})
+  try {
+    const result = api?.mcpSetStudiumxAccessToken?.(token)
+    result?.catch?.(() => {})
+  } catch {
+    // Browser adapters intentionally throw for desktop-only capabilities.
+    // Auth state must remain usable even when the optional main-process bridge
+    // is unavailable.
+  }
 }
 
 export function getSyncState(): SyncState {

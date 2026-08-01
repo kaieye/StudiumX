@@ -154,6 +154,7 @@ export type TeachingSystemApi = {
   clearLearningAnalytics: (request: ClearAnalyticsRequest) => Promise<ClearAnalyticsResult>
   /** Explicit user-initiated desktop release check; a no-op in development. */
   checkForAppUpdates: () => Promise<void>
+  getAppVersion: () => Promise<string>
   getSettings: () => Promise<TeachingSettingsV1>
   updateSettings: (patch: TeachingSettingsPatch) => Promise<TeachingSettingsV1>
   selectWorkspace: (workspaceId: string) => Promise<TeachingAppState>
@@ -167,6 +168,7 @@ export type TeachingSystemApi = {
   applyLessonStyle: (payload: ApplyLessonStylePayload) => Promise<TeachingAppState>
   listSkills: () => Promise<SkillCatalogResult>
   installSkill: (skillId: string) => Promise<SkillSummary>
+  uninstallSkill: (skillId: string) => Promise<void>
   /**
    * Read-only skill orchestration preview (ADR-0163).
    * Same host assembly + pure `plan(...)` as a real turn. Never writes the

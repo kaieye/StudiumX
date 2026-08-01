@@ -258,6 +258,55 @@ describe('UserMcpSettingsSection', () => {
     expect(screen.getByTestId('mcp-server-source-badge')).toBeInTheDocument()
   })
 
+  it('shows the built-in system MCP with an off switch and persists an enabled user override', async () => {
+    const harness = createMutableApi(config([]))
+    const mcpGetEffectiveView = vi.fn(async () => ({
+      ok: true as const,
+      view: {
+        enabled: true,
+        autoConnect: true,
+        effectiveServers: [
+          {
+            id: 'context-docs',
+            label: 'StudiumX 文档检索',
+            sourceKind: 'system' as const,
+            sourceLabel: 'system',
+            enabled: false,
+            transport: 'http' as const
+          }
+        ],
+        shadowed: [],
+        warnings: []
+      }
+    }))
+    installTeachingSystem({ ...harness.api, mcpGetEffectiveView })
+    const user = userEvent.setup()
+
+    render(<UserMcpSettingsSection workspaceRoot={null} />)
+
+    await screen.findByText('StudiumX 文档检索')
+    const toggle = screen.getByRole('switch', { name: /StudiumX 文档检索/ })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+    expect(screen.queryByTestId('mcp-edit-server')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('mcp-remove-server')).not.toBeInTheDocument()
+
+    await user.click(toggle)
+    await waitFor(() => expect(harness.mcpUpdateConfig).toHaveBeenCalledTimes(1))
+    const submitted = harness.mcpUpdateConfig.mock.calls[0]?.[0].config as {
+      servers: Array<{ id: string; enabled: boolean; transport: string; url: string | null }>
+    }
+    expect(submitted.servers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'context-docs',
+          enabled: true,
+          transport: 'http',
+          url: 'https://api.studiumx.cn/mcp'
+        })
+      ])
+    )
+  })
+
   it('refreshes a server only from the explicit action without using test-server', async () => {
     const mcpListRuntime = vi.fn(async () => ({
       ok: true as const,

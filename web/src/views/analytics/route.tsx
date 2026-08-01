@@ -2,8 +2,8 @@ import type { ReactElement } from 'react'
 import { AnalyticsView } from './AnalyticsView'
 
 /**
- * Feature route module - auto-discovered by App.tsx (which globs every
- * `route.tsx` module under web/src/views/). See App.tsx for the contract.
+ * Legacy route fixture retained for the pre-shared Web shell. It is not
+ * imported by the current shared renderer App.
  */
 export const route = {
   path: '/analytics',

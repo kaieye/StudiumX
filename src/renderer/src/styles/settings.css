@@ -152,6 +152,76 @@
   gap: 16px;
 }
 
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 82px;
+  padding: 14px 16px;
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--lg-radius, var(--radius-lg));
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill, var(--surface-solid));
+  box-shadow: var(--lg-shadow, var(--shadow-card));
+}
+
+.about-hero-icon {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  object-fit: cover;
+  box-shadow: 0 4px 14px rgba(45, 65, 108, 0.18);
+}
+
+.about-hero-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.about-hero-copy strong {
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 780;
+}
+
+.about-hero-copy span {
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.about-update-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--lg-line, var(--line));
+  border-radius: var(--lg-radius-sm, 10px);
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill, var(--surface-solid));
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.about-update-button:hover:not(:disabled) {
+  background:
+    var(--lg-sheen, none),
+    var(--lg-glass-fill-strong, var(--surface-hover));
+  box-shadow: var(--lg-shadow, var(--shadow-card));
+}
+
+.about-update-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .settings-subsection {
   margin-top: 24px;
 }
@@ -1812,6 +1882,15 @@
 
   .settings-row {
     grid-template-columns: 1fr;
+  }
+
+  .about-hero {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .about-update-button {
+    margin-left: 70px;
   }
 
   .settings-row-control,

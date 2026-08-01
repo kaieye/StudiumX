@@ -19,6 +19,8 @@ import type {
   UserMcpConfigPublicV1,
   UserMcpServerPublicV1
 } from '../../../../../shared/mcp/types'
+import { toPublicServer } from '../../../../../shared/mcp/public-projection'
+import { SYSTEM_DEFAULT_MCP_SERVERS } from '../../../../../shared/mcp/system-defaults'
 import type { McpEffectiveViewPublicV1 } from '../../../../../shared/mcp/effective-view-public'
 import { SettingsPanel } from '../SettingsPrimitives'
 import { UserMcpServerEditor } from './UserMcpServerEditor'
@@ -82,7 +84,29 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
   const effectiveViewAvailable = typeof api?.mcpGetEffectiveView === 'function'
   // Zcode-like: no product "enable MCP" gate — treat MCP as available once configured.
   const rootEnabled = true
-  const servers = config?.servers ?? []
+  const userServers = config?.servers ?? []
+  /**
+   * System defaults live in the effective multi-source view rather than the
+   * durable user document. Show them in Settings when the host reports them,
+   * while keeping user-layer writes canonical.
+   */
+  const systemServers = useMemo(() => {
+    if (!effectiveViewAvailable || !effectiveView) return []
+    const userIds = new Set(userServers.map((server) => server.id))
+    const systemIds = new Set(
+      effectiveView.effectiveServers
+        .filter((entry) => entry.sourceKind === 'system')
+        .map((entry) => entry.id)
+    )
+    return SYSTEM_DEFAULT_MCP_SERVERS
+      .filter((server) => systemIds.has(server.id) && !userIds.has(server.id))
+      .map(toPublicServer)
+  }, [effectiveView, effectiveViewAvailable, userServers])
+  const servers = useMemo(() => [...systemServers, ...userServers], [systemServers, userServers])
+  const systemDefaultIds = useMemo(
+    () => new Set(systemServers.map((server) => server.id)),
+    [systemServers]
+  )
   const busy =
     loading || saving || testingId != null || refreshingId != null || authorizingId != null
   const existingIds = useMemo(() => new Set(servers.map((server) => server.id)), [servers])
@@ -278,9 +302,17 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
   ): Promise<void> => {
     if (!config) return
     const stamp = nowIso()
-    const nextServers = publicMcpConfigToDrafts(config).map((draft) =>
-      draft.id === server.id ? { ...draft, enabled, updatedAt: stamp } : draft
-    )
+    const currentDrafts = publicMcpConfigToDrafts(config)
+    const hasUserOverride = currentDrafts.some((draft) => draft.id === server.id)
+    // Enabling a system default creates a user-layer override. This keeps the
+    // built-in definition immutable while giving the user a normal switch.
+    const nextServers = hasUserOverride
+      ? currentDrafts.map((draft) =>
+          draft.id === server.id ? { ...draft, enabled, updatedAt: stamp } : draft
+        )
+      : enabled
+        ? [...currentDrafts, { ...publicMcpServerToDraft(server), enabled, updatedAt: stamp }]
+        : currentDrafts
     const saved = await persistConfig(nextServers)
     if (saved && enabled && typeof api?.mcpAutoConnectNow === 'function') {
       try {
@@ -767,6 +799,7 @@ export function UserMcpSettingsSection({ workspaceRoot }: { workspaceRoot: strin
             servers={servers}
             runtime={runtime}
             sourceByServerId={sourceByServerId}
+            systemDefaultIds={systemDefaultIds}
             testingId={testingId}
             refreshingId={refreshingId}
             authorizingId={authorizingId}

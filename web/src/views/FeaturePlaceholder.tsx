@@ -1,9 +1,7 @@
 /**
- * Lightweight "coming in a later phase" placeholder for feature routes that
- * are auto-discovered by App.tsx but not yet implemented (plan §8 Phase 4+).
- *
- * Not a route module itself (its filename is not `route.tsx`), so it is not
- * picked up by the views route-module glob.
+ * Legacy placeholder retained for contract fixtures from the pre-shared Web
+ * shell. The current authenticated Web surface is rendered by the shared
+ * desktop App, so this component is not mounted by `web/src/App.tsx`.
  */
 
 interface FeaturePlaceholderProps {

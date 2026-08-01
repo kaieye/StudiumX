@@ -1,46 +1,41 @@
 import {
   ArrowLeft,
+  AlertTriangle,
   Check,
   Download,
-  FolderOpen,
   GraduationCap,
   Loader2,
-  Search,
-  SlidersHorizontal,
-  Sparkles
+  Sparkles,
+  Trash2,
+  X
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type { SkillCategory, SkillSummary } from '../../../../shared/teaching-types'
+import type { SkillSummary } from '../../../../shared/teaching-types'
 import { announceSkillCatalogChanged, useSkillCatalog } from '../../skills/skillCatalog'
-
-type CategoryFilter = 'all' | SkillCategory
-
-const CATEGORY_FILTERS: CategoryFilter[] = ['all', 'learning', 'productivity', 'development', 'lifestyle', 'other']
 
 export function SkillLibrary({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation()
   const { catalog, loading, error, refresh } = useSkillCatalog()
-  const [query, setQuery] = useState('')
-  const [category, setCategory] = useState<CategoryFilter>('all')
-  const [installedOnly, setInstalledOnly] = useState(false)
-  const [sort, setSort] = useState<'featured' | 'name'>('featured')
   const [installingId, setInstallingId] = useState<string | null>(null)
+  const [uninstallingId, setUninstallingId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [selectedSkill, setSelectedSkill] = useState<SkillSummary | null>(null)
+
+  useEffect(() => {
+    if (!selectedSkill) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelectedSkill(null)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedSkill])
 
   const visibleSkills = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase()
-    const next = catalog.skills.filter((skill) => {
-      if (installedOnly && !skill.installed) return false
-      if (category !== 'all' && skill.category !== category) return false
-      if (!normalizedQuery) return true
-      return `${skill.name} ${skill.description} ${skill.author}`.toLocaleLowerCase().includes(normalizedQuery)
-    })
-    return [...next].sort((a, b) => sort === 'name'
-      ? a.name.localeCompare(b.name)
-      : Number(b.installed) - Number(a.installed) || a.name.localeCompare(b.name))
-  }, [catalog.skills, category, installedOnly, query, sort])
+    const next = catalog.skills.filter((skill) => skill.id !== 'teach')
+    return [...next].sort((a, b) => Number(b.installed) - Number(a.installed) || a.name.localeCompare(b.name))
+  }, [catalog.skills])
 
   const install = async (skill: SkillSummary): Promise<void> => {
     if (skill.installed || skill.source !== 'builtin' || installingId) return
@@ -57,7 +52,31 @@ export function SkillLibrary({ onBack }: { onBack: () => void }) {
     }
   }
 
-  const installedCount = catalog.skills.filter((skill) => skill.installed).length
+  const uninstall = async (skill: SkillSummary): Promise<void> => {
+    if (!skill.installed || skill.id === 'teach' || uninstallingId) return
+    if (!window.confirm(t('skills.confirmUninstall', { name: skill.name }))) return
+    setUninstallingId(skill.id)
+    setActionError(null)
+    try {
+      await window.teachingSystem.uninstallSkill(skill.id)
+      announceSkillCatalogChanged()
+      await refresh(true)
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setUninstallingId(null)
+    }
+  }
+
+  const getSkillCopy = (skill: SkillSummary) => ({
+    name: skill.name,
+    description: t(`skills.items.${skill.id}.description`, { defaultValue: skill.description }),
+    detail: t(`skills.items.${skill.id}.detail`, { defaultValue: skill.description })
+  })
+  const getAdmissionNotice = (skill: SkillSummary) => (
+    skill.id === 'grilling' ? t('skills.integrationNotice') : skill.orchestration?.reason
+  )
+  const selectedSkillCopy = selectedSkill ? getSkillCopy(selectedSkill) : null
 
   return (
     <div className="skill-library-page">
@@ -67,54 +86,14 @@ export function SkillLibrary({ onBack }: { onBack: () => void }) {
       </button>
       <header className="skill-library-head">
         <div>
-          <span className="skill-library-eyebrow">{t('skills.eyebrow')}</span>
           <h1>{t('skills.title')}</h1>
           <p>{t('skills.detail', { root: catalog.rootPath || '~/.studiumx/skills' })}</p>
         </div>
-        <button
-          className="skill-library-folder"
-          type="button"
-          disabled={!catalog.rootPath}
-          onClick={() => catalog.rootPath && void window.teachingSystem.openPath(catalog.rootPath)}
-        >
-          <FolderOpen size={16} />
-          {t('skills.openFolder')}
-        </button>
       </header>
 
-      <div className="skill-library-toolbar">
-        <div className="skill-category-pills" role="group" aria-label={t('skills.categories.aria')}>
-          {CATEGORY_FILTERS.map((filter) => (
-            <button
-              key={filter}
-              type="button"
-              className={category === filter ? 'is-active' : ''}
-              onClick={() => setCategory(filter)}
-            >
-              {t(`skills.categories.${filter}`)}
-            </button>
-          ))}
-        </div>
-        <div className="skill-library-controls">
-          <label className="skill-library-search">
-            <Search size={15} />
-            <input value={query} placeholder={t('skills.search')} onChange={(event) => setQuery(event.currentTarget.value)} />
-          </label>
-          <label className="skill-library-sort">
-            <SlidersHorizontal size={14} />
-            <select value={sort} onChange={(event) => setSort(event.currentTarget.value as 'featured' | 'name')}>
-              <option value="featured">{t('skills.sort.featured')}</option>
-              <option value="name">{t('skills.sort.name')}</option>
-            </select>
-          </label>
-          <button
-            className={`skill-library-mine${installedOnly ? ' is-active' : ''}`}
-            type="button"
-            onClick={() => setInstalledOnly((value) => !value)}
-          >
-            {t('skills.mine', { count: installedCount })}
-          </button>
-        </div>
+      <div className="skill-library-notice" role="note">
+        <AlertTriangle size={18} aria-hidden="true" />
+        <p>{t('skills.integrationNotice')}</p>
       </div>
 
       {(error || actionError) ? <div className="skill-library-error" role="alert">{actionError || error}</div> : null}
@@ -124,36 +103,67 @@ export function SkillLibrary({ onBack }: { onBack: () => void }) {
       ) : visibleSkills.length > 0 ? (
         <div className="skill-card-grid">
           {visibleSkills.map((skill) => {
+            const copy = getSkillCopy(skill)
             const isInstalling = installingId === skill.id
+            const isUninstalling = uninstallingId === skill.id
             return (
-              <article className={`skill-library-card${skill.installed ? ' is-installed' : ''}`} key={skill.id}>
+              <article
+                className={`skill-library-card${skill.installed ? ' is-installed' : ''}`}
+                key={skill.id}
+                role="button"
+                tabIndex={0}
+                aria-haspopup="dialog"
+                onClick={() => setSelectedSkill(skill)}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    setSelectedSkill(skill)
+                  }
+                }}
+              >
                 <span className="skill-library-card__icon">
                   {skill.icon === 'graduation-cap' ? <GraduationCap size={25} /> : <Sparkles size={25} />}
                 </span>
                 <div className="skill-library-card__body">
                   <div className="skill-library-card__title">
-                    <strong>{skill.name}</strong>
+                    <strong>{copy.name}</strong>
                   </div>
-                  <p>{skill.description}</p>
-                  <div className="skill-library-card__meta">
-                    <span>{skill.author}</span>
-                    <span>{t(`skills.categories.${skill.category}`)}</span>
-                  </div>
-                  {skill.orchestration?.formalTeachingEligible === false ? (
+                  <p>{copy.description}</p>
+                  {skill.id !== 'grilling' && skill.orchestration?.formalTeachingEligible === false ? (
                     <p className="skill-library-card__admission">
-                      {skill.orchestration.reason}
+                      {getAdmissionNotice(skill)}
                     </p>
                   ) : null}
+                  <span className="skill-library-card__command">{skill.command}</span>
                 </div>
-                <button
-                  className={`skill-library-card__action${skill.installed ? ' is-installed' : ''}`}
-                  type="button"
-                  disabled={skill.installed || isInstalling || skill.source !== 'builtin'}
-                  onClick={() => void install(skill)}
-                >
-                  {isInstalling ? <Loader2 className="spin" size={14} /> : skill.installed ? <Check size={14} /> : <Download size={14} />}
-                  {isInstalling ? t('skills.installing') : skill.installed ? t('skills.installed') : t('skills.install')}
-                </button>
+                {skill.installed && skill.id !== 'teach' ? (
+                  <button
+                    className="skill-library-card__action is-installed"
+                    type="button"
+                    disabled={isUninstalling}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void uninstall(skill)
+                    }}
+                  >
+                    {isUninstalling ? <Loader2 className="spin" size={14} /> : <Trash2 size={14} />}
+                    {isUninstalling ? t('skills.uninstalling') : t('skills.uninstall')}
+                  </button>
+                ) : (
+                  <button
+                    className={`skill-library-card__action${skill.installed ? ' is-installed' : ''}`}
+                    type="button"
+                    disabled={skill.installed || isInstalling || skill.source !== 'builtin'}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void install(skill)
+                    }}
+                  >
+                    {isInstalling ? <Loader2 className="spin" size={14} /> : skill.installed ? <Check size={14} /> : <Download size={14} />}
+                    {isInstalling ? t('skills.installing') : skill.installed ? t('skills.installed') : t('skills.install')}
+                  </button>
+                )}
               </article>
             )
           })}
@@ -161,6 +171,53 @@ export function SkillLibrary({ onBack }: { onBack: () => void }) {
       ) : (
         <div className="skill-library-empty">{t('skills.noResults')}</div>
       )}
+
+      {selectedSkill ? (
+        <div
+          className="skill-detail-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSelectedSkill(null)
+          }}
+        >
+          <section
+            className="skill-detail-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="skill-detail-title"
+            aria-describedby="skill-detail-description"
+          >
+            <button
+              className="skill-detail-close"
+              type="button"
+              aria-label={t('skills.closeDetails')}
+              onClick={() => setSelectedSkill(null)}
+            >
+              <X size={18} />
+            </button>
+            <div className="skill-detail-heading">
+              <span className="skill-library-card__icon" aria-hidden="true">
+                {selectedSkill.icon === 'graduation-cap' ? <GraduationCap size={28} /> : <Sparkles size={28} />}
+              </span>
+              <div>
+                <span className="skill-detail-eyebrow">{t('skills.usageTitle')}</span>
+                <h2 id="skill-detail-title">{selectedSkillCopy?.name}</h2>
+                <span className="skill-detail-command-label">{t('skills.commandLabel')}</span>
+                <code>{selectedSkill.command}</code>
+              </div>
+            </div>
+            <p id="skill-detail-description" className="skill-detail-description">{selectedSkillCopy?.description}</p>
+            <div className="skill-detail-section">
+              <h3>{t('skills.detailOverview')}</h3>
+              <p>{selectedSkillCopy?.detail}</p>
+            </div>
+            {selectedSkill.orchestration?.formalTeachingEligible === false ? (
+              <div className="skill-detail-note">{getAdmissionNotice(selectedSkill)}</div>
+            ) : null}
+            <p className="skill-detail-hint">{t('skills.detailHint')}</p>
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }

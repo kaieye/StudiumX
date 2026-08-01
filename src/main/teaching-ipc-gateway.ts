@@ -291,6 +291,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       }, reply: identityReply, streamCleanup: noStreamCleanup
     }),
     command({ channel: teachingInvokeChannels.checkForAppUpdates, parser: () => undefined, action: () => checkForAppUpdates(), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.getAppVersion, parser: () => undefined, action: () => app.getVersion(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.getSettings, parser: () => undefined, action: () => settings.load(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.listInterruptedAgentRuns, parser: () => undefined, action: () => service.listInterruptedAgentRuns(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({
@@ -364,6 +365,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       streamCleanup: noStreamCleanup
     }),
     command({ channel: teachingInvokeChannels.installSkill, parser: (skillId) => requireString(skillId, 'skillId'), action: (_event, skillId) => skills.installSkill(skillId), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.uninstallSkill, parser: (skillId) => requireString(skillId, 'skillId'), action: (_event, skillId) => skills.uninstallSkill(skillId), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.generateLesson, parser: (payload) => parseGenerateLessonPayload(payload), action: (_event, payload) => service.generateLesson(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.getDirectLessonActionStatus, parser: (payload) => parseDirectLessonActionStatusPayload(payload), action: (_event, payload) => service.getDirectLessonActionStatus(payload), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({

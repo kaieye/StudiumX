@@ -161,6 +161,9 @@ body {
   }.skill-library-head {
     align-items: flex-start;
     flex-direction: column;
+  }.skill-library-notice {
+    margin-top: -4px;
+    padding: 12px 13px;
   }.skill-library-controls {
     align-items: stretch;
     flex-wrap: wrap;
@@ -170,6 +173,19 @@ body {
     grid-template-columns: 1fr;
   }.skill-library-card {
     padding-inline: 18px;
+  }.skill-detail-backdrop {
+    padding: 14px;
+  }.skill-detail-dialog {
+    padding: 24px 20px;
+    border-radius: 20px;
+  }.skill-detail-heading {
+    gap: 12px;
+    padding-right: 28px;
+  }.skill-detail-heading .skill-library-card__icon {
+    width: 60px;
+    height: 60px;
+  }.skill-detail-heading h2 {
+    font-size: 19px;
   }.skill-slash-menu__item {
     grid-template-columns: 34px minmax(0, 1fr);
   }.skill-slash-menu__item small {

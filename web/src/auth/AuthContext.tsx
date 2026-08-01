@@ -37,7 +37,13 @@ import {
   logoutServer,
   type AuthUser
 } from './auth-client'
-import { clearTokens, hasRefreshToken, setTokens } from './tokens'
+import { clearTokens, getAccessToken, getRefreshToken, hasRefreshToken, setTokens } from './tokens'
+import { clearSyncAuth, setSyncAuth } from '@renderer/sync/sync-store'
+
+// Keep the renderer's canonical sync auth store in lockstep with the Web
+// session so the shared desktop App can reuse its existing AuthGate.
+// This only mirrors the server-issued JWT pair; it does not enable desktop
+// teaching execution in the browser adapter.
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'
 
@@ -71,6 +77,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const me = await fetchMe()
         if (cancelled) return
+        const accessToken = getAccessToken()
+        const refreshToken = getRefreshToken()
+        if (accessToken && refreshToken) {
+          setSyncAuth({ accessToken, refreshToken, user: { id: me.user.id } })
+        }
         setState({
           user: { id: me.user.id, nickname: null, avatarUrl: null },
           status: 'authenticated'
@@ -78,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         if (cancelled) return
         clearTokens()
+        clearSyncAuth()
         setState({ user: null, status: 'unauthenticated' })
       }
     }
@@ -90,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (code: string): Promise<void> => {
     const session = await loginWithWeChatCode(code)
     setTokens(session.accessToken, session.refreshToken)
+    setSyncAuth({ accessToken: session.accessToken, refreshToken: session.refreshToken, user: { id: session.user.id, nickname: session.user.nickname ?? undefined, avatarUrl: session.user.avatarUrl ?? undefined } })
     setState({ user: session.user, status: 'authenticated' })
   }, [])
 
@@ -99,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await pollWeChatLoginChallenge(loginId)
       if ('accessToken' in result) {
         setTokens(result.accessToken, result.refreshToken)
+        setSyncAuth({ accessToken: result.accessToken, refreshToken: result.refreshToken, user: { id: result.user.id, nickname: result.user.nickname ?? undefined, avatarUrl: result.user.avatarUrl ?? undefined } })
         setState({ user: result.user, status: 'authenticated' })
         return
       }
@@ -115,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* best-effort: clear locally regardless */
     }
     clearTokens()
+    clearSyncAuth()
     setState({ user: null, status: 'unauthenticated' })
   }, [])
 

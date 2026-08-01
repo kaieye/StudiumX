@@ -60,6 +60,17 @@ describe('createAppUpdaterController', () => {
     expect(harness.setInterval).not.toHaveBeenCalled()
   })
 
+  it('explains why a manual update check is unavailable in development', async () => {
+    const harness = createHarness({ packaged: false })
+
+    await harness.controller.checkNow()
+
+    expect(harness.updater.checkForUpdates).not.toHaveBeenCalled()
+    expect(harness.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      title: '开发版本无法检查更新'
+    }))
+  })
+
   it('checks immediately and schedules future production checks', async () => {
     const harness = createHarness()
 

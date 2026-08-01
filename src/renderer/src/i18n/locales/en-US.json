@@ -29,8 +29,6 @@
     "notifications": "Notifications",
     "settings": "Settings",
     "account": "Account settings",
-    "checkForUpdates": "Check for updates",
-    "checkingForUpdates": "Checking for updates…",
     "localUser": "StudiumX user",
     "notificationCenterTitle": "StudiumX Notifications",
     "notificationCenterOn": "Notification settings opened.",
@@ -549,6 +547,7 @@
     "eyebrow": "Teaching tools",
     "title": "Capability Library",
     "detail": "Built-in capabilities can be installed to {{root}}. Personal files remain manageable here, but do not automatically gain formal teaching authority.",
+    "integrationNotice": "The app already includes a built-in teaching flow. The skills below have not been validated with the current teaching flow; use them with caution.",
     "openFolder": "Open personal capability folder",
     "search": "Search capabilities",
     "mine": "Installed {{count}}",
@@ -556,6 +555,88 @@
     "install": "Install",
     "installing": "Installing",
     "installed": "Installed",
+    "uninstall": "Uninstall",
+    "uninstalling": "Uninstalling",
+    "confirmUninstall": "Are you sure you want to uninstall {{name}}?",
+    "usageTitle": "About this skill",
+    "closeDetails": "Close details",
+    "detailHint": "Click outside or press Esc to close.",
+    "items": {
+      "grilling": {
+        "description": "Stress-test a plan, decision, or idea through relentless one-question-at-a-time interviewing.",
+        "detail": "Useful when you want to unpack a proposal, resolve dependencies one by one, and surface assumptions before acting. It asks one question at a time, recommends an answer, and waits for shared understanding before taking action. It has not yet been validated with the built-in teaching flow, so use it cautiously and only when you explicitly need it."
+      },
+      "course-content-authoring": {
+        "name": "Course Content Authoring",
+        "description": "根据课程大纲补充讲义、示例素材、测验题和课程配套文件。",
+        "detail": "根据课程大纲补充讲义、示例素材、测验题和课程配套文件。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "course-corporate-edition": {
+        "name": "Course Corporate Edition",
+        "description": "将多天公开课程压缩并改编为适合企业内训的半天或一天课程。",
+        "detail": "将多天公开课程压缩并改编为适合企业内训的半天或一天课程。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "course-designer": {
+        "name": "Course Designer",
+        "description": "设计课程结构、学习目标和教学流程，帮助快速搭建完整课程方案。",
+        "detail": "设计课程结构、学习目标和教学流程，帮助快速搭建完整课程方案。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "course-ebook-publishing": {
+        "name": "Course Ebook Publishing",
+        "description": "将已完成的教学网站整理为可打印、归档或分享的 PDF 电子书或 DOCX 文档。",
+        "detail": "将已完成的教学网站整理为可打印、归档或分享的 PDF 电子书或 DOCX 文档。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "course-outline-design": {
+        "name": "Course Outline Design",
+        "description": "梳理课程主题、章节结构、教学单元和学习路径，形成稳定的大纲。",
+        "detail": "梳理课程主题、章节结构、教学单元和学习路径，形成稳定的大纲。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "learning-assessor": {
+        "name": "Learning Assessor",
+        "description": "根据学习表现设计评估方式、练习和反馈，判断学习目标的达成情况。",
+        "detail": "根据学习表现设计评估方式、练习和反馈，判断学习目标的达成情况。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "static-spa-conversion": {
+        "name": "Static Spa Conversion",
+        "description": "把课程内容和结构转换为可离线运行的静态网站。",
+        "detail": "把课程内容和结构转换为可离线运行的静态网站。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "static-spa-interactions": {
+        "name": "Static Spa Interactions",
+        "description": "为教学网站补充导航、交互状态、练习反馈等前端体验。",
+        "detail": "为教学网站补充导航、交互状态、练习反馈等前端体验。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "teaching-resource-generator": {
+        "name": "Teaching Resource Generator",
+        "description": "根据课程目标生成讲义、练习、示例和其他教学资源。",
+        "detail": "根据课程目标生成讲义、练习、示例和其他教学资源。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "teaching-site-design-system": {
+        "name": "Teaching Site Design System",
+        "description": "统一教学网站的视觉规范、组件样式和页面布局。",
+        "detail": "统一教学网站的视觉规范、组件样式和页面布局。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "teaching-site": {
+        "name": "Teaching Site",
+        "description": "把课程内容组织成完整的教学网站，并规划后续制作阶段。",
+        "detail": "把课程内容组织成完整的教学网站，并规划后续制作阶段。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "web-content-audit": {
+        "name": "Web Content Audit",
+        "description": "检查网站中的内容、文件、数据和引用是否一致，找出缺失或漂移。",
+        "detail": "检查网站中的内容、文件、数据和引用是否一致，找出缺失或漂移。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "web-visual-assets": {
+        "name": "Web Visual Assets",
+        "description": "为网站准备插图、截图、讲师卡、示意图、地图和二维码等视觉素材。",
+        "detail": "为网站准备插图、截图、讲师卡、示意图、地图和二维码等视觉素材。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      },
+      "web-visual-verification": {
+        "name": "Web Visual Verification",
+        "description": "通过真实操作和多尺寸截图检查网站交互、响应式布局及控制台错误。",
+        "detail": "通过真实操作和多尺寸截图检查网站交互、响应式布局及控制台错误。 This detail view summarizes when the skill is most useful and what kind of work it supports."
+      }
+    },
     "noResults": "No matching capabilities",
     "categories": {
       "aria": "Capability categories",
@@ -574,7 +655,9 @@
       "aria": "Advanced capability command list",
       "title": "Choose a host-governed capability",
       "empty": "No matching host-governed capabilities. Install a bundled capability from Resources → Capability Library first."
-    }
+    },
+    "commandLabel": "Command",
+    "detailOverview": "How it helps"
   },
   "records": {
     "label": "Learning records",
@@ -1118,6 +1201,10 @@
   "about": {
     "title": "About StudiumX",
     "subtitle": "Diagnostics entry and current runtime info, to verify the full chain after migration.",
+    "appIconAlt": "StudiumX app icon",
+    "version": "Version {{version}}",
+    "checkForUpdates": "Check for updates",
+    "checkingForUpdates": "Checking for updates…",
     "runtime": "Current runtime",
     "streaming": "Streaming",
     "oneShot": "One-shot",

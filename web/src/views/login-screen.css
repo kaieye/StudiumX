@@ -1,52 +1,7 @@
-/* Mirrors src/renderer/src/styles/auth.css for the browser login surface. */
-.auth-screen {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  overflow: auto;
-  background: radial-gradient(120% 120% at 50% 0%, rgba(112, 92, 255, .14), transparent 60%), #f7f7f8;
-}
-
-.auth-screen-card {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 420px;
-  min-height: 430px;
-  padding: 32px 32px 24px;
-  background: #fff;
-  border: 1px solid #e5e5e8;
-  border-radius: 20px;
-  box-shadow: 0 16px 42px rgba(20, 20, 32, .12);
-  animation: auth-card-in .32s cubic-bezier(.22, 1, .36, 1);
-}
-
-@keyframes auth-card-in { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
-
-.auth-screen-brand { text-align: center; margin-bottom: 24px; }
-.auth-screen-title { margin: 0; color: #1d1d20; font-size: 24px; font-weight: 650; letter-spacing: -.01em; }
-.auth-screen-login-stage { display: flex; flex: 0 0 276px; align-items: center; justify-content: center; height: 276px; }
-.auth-screen-app-icon { display: block; width: 84px; height: 84px; border-radius: 22px; object-fit: cover; box-shadow: 0 10px 24px rgba(29,29,32,.18); }
-
-.auth-screen-qr { display: flex; flex-direction: column; align-items: center; margin: 0; }
-.auth-screen-wechat-widget { position: relative; width: 256px; height: 256px; overflow: hidden; border: 1px solid #e5e5e8; border-radius: 12px; background: #fff; }
-.auth-screen-wechat-widget iframe { position: absolute; top: -58px; left: -22px; width: 300px; height: 400px; border: 0; }
-
-.auth-screen-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
-.auth-screen-actions--inline { flex-direction: row; }
-.auth-screen-actions--inline .auth-screen-button { flex: 1 1 0; }
-.auth-screen-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px 24px; border: 1px solid transparent; border-radius: 8px; font-size: 14px; font-weight: 550; cursor: pointer; transition: background .18s ease,border-color .18s ease,opacity .18s ease; }
-.auth-screen-button--wechat { color: #fff; background: #07c160; }
-.auth-screen-button--wechat:hover { background: #06ad56; }
-.auth-screen-button--ghost { color: #686870; background: transparent; border-color: #d5d5db; }
-.auth-screen-button--ghost:hover { color: #1d1d20; background: #f4f4f6; }
-.auth-screen-wechat-icon { width: 20px; height: 20px; }
-.auth-screen-alert { margin-top: 16px; padding: 10px 16px; border-radius: 6px; font-size: 13px; line-height: 1.5; }
-.auth-screen-alert--error { color: #c72c41; background: rgba(199,44,65,.1); border: 1px solid rgba(199,44,65,.28); }
-.auth-screen-footer { margin: 24px 0 0; padding-top: 16px; border-top: 1px solid #e5e5e8; text-align: center; font-size: 11.5px; line-height: 1.6; color: #96969f; }
-.auth-screen-footer-link { color: #705cff; font-weight: 550; text-decoration: none; }
-.auth-screen-footer-link:hover { text-decoration: underline; }
-
-@media (max-width: 480px) { .auth-screen { padding: 20px; align-items: flex-start; } .auth-screen-card { margin-top: 18px; padding: 28px 22px 20px; } }
+/*
+ * Legacy compatibility placeholder.
+ *
+ * LoginView now uses AuthScreenLayout and the canonical renderer auth.css
+ * loaded by web/src/main.tsx. Keeping this path avoids breaking old fixture
+ * imports without reintroducing a second login stylesheet.
+ */

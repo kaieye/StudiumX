@@ -26,6 +26,7 @@ import {
 } from './wechat-qr-login'
 import { preloadWechatLoginSdk, WechatLoginWidget } from './WechatLoginWidget'
 import { useAppStore } from '../app-shell/appStore'
+import { AuthScreenLayout } from '../ui/AuthScreenLayout'
 
 const PRIVACY_POLICY_URL = 'https://studiumx.cn/privacy.html'
 const TERMS_OF_SERVICE_URL = 'https://studiumx.cn/terms.html'
@@ -118,36 +119,26 @@ export function LoginScreen() {
   }, [])
 
   return (
-    <div className="auth-screen" role="dialog" aria-modal="true" aria-label={t('auth.title', { defaultValue: '登录 StudiumX' })}>
-      <div className="auth-screen-card">
-        <div className="auth-screen-brand">
-          <h1 className="auth-screen-title">
-            {t('auth.welcome', { defaultValue: '欢迎使用 StudiumX' })}
-          </h1>
-        </div>
-
-        {error && (
-          <div className="auth-screen-alert auth-screen-alert--error" role="alert">
-            {error}
+    <AuthScreenLayout
+      ariaLabel={t('auth.title', { defaultValue: '登录 StudiumX' })}
+      title={t('auth.welcome', { defaultValue: '欢迎使用 StudiumX' })}
+      error={error}
+      stage={
+        challenge ? (
+          <div className="auth-screen-qr">
+            <WechatLoginWidget challenge={challenge} onError={handleWidgetError} />
           </div>
-        )}
-
-        <div className="auth-screen-login-stage">
-          {challenge ? (
-            <div className="auth-screen-qr">
-              <WechatLoginWidget challenge={challenge} onError={handleWidgetError} />
-            </div>
-          ) : (
-            <img
-              className="auth-screen-app-icon"
-              src={appIconRounded}
-              alt=""
-              aria-hidden="true"
-            />
-          )}
-        </div>
-
-        {challenge ? (
+        ) : (
+          <img
+            className="auth-screen-app-icon"
+            src={appIconRounded}
+            alt=""
+            aria-hidden="true"
+          />
+        )
+      }
+      actions={
+        challenge ? (
           <div className="auth-screen-actions auth-screen-actions--inline">
             <button
               type="button"
@@ -182,9 +173,10 @@ export function LoginScreen() {
               <span>{t('auth.signInWithWechat', { defaultValue: '微信扫码登录' })}</span>
             </button>
           </div>
-        )}
-
-        <p className="auth-screen-footer">
+        )
+      }
+      footer={
+        <>
           {t('auth.termsAgreementPrefix', {
             defaultValue: '登录即代表您同意并遵守'
           })}
@@ -213,8 +205,8 @@ export function LoginScreen() {
           >
             {t('auth.userServiceAgreement', { defaultValue: '《用户服务协议》' })}
           </a>
-        </p>
-      </div>
-    </div>
+        </>
+      }
+    />
   )
 }

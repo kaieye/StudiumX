@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, realpath } from 'node:fs/promises'
+import { cp, lstat, mkdir, realpath, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
@@ -39,6 +39,7 @@ export const BUILTIN_SKILL_IDS = [
   'course-designer',
   'course-ebook-publishing',
   'course-outline-design',
+  'grilling',
   'learning-assessor',
   'static-spa-conversion',
   'static-spa-interactions',
@@ -133,6 +134,23 @@ export class SkillLibraryService {
     const installed = catalog.skills.find((skill) => skill.id.toLocaleLowerCase() === skillId)
     if (!installed?.installed) throw new Error(`Skill "${skillId}" could not be installed.`)
     return installed
+  }
+
+  async uninstallSkill(rawSkillId: string): Promise<void> {
+    const skillId = requireSkillId(rawSkillId)
+    if (isCoreTeachingKernelId(skillId)) {
+      throw new Error(`Core Teaching Kernel "${skillId}" cannot be uninstalled.`)
+    }
+    const target = join(this.personalRoot, skillId)
+    const info = await lstat(target).catch(() => null)
+    if (!info) throw new Error(`Skill "${skillId}" is not installed.`)
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new Error(`Skill "${skillId}" install path is not a regular directory.`)
+    }
+    if (!isPathInsideRoot(this.personalRoot, target)) {
+      throw new Error('Skill install path escapes the install root.')
+    }
+    await rm(target, { recursive: true, force: true })
   }
 
   async readInstalledSkillReferences(rawIds: string[]): Promise<InstalledSkillReference[]> {

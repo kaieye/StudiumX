@@ -7,9 +7,11 @@ import tailwindcss from '@tailwindcss/vite'
  * Standalone browser Vite config for the StudiumX Web app.
  *
  * This is NOT electron-vite: there is no main/preload process. The Web app is
- * a read-only "学习伴侣仪表盘" (learning-companion dashboard) backed by
- * StudiumX-Server. It is NOT a teaching execution engine: no model keys, no
- * agent loop, no workspace file writes (plan §9 / AGENTS.md red lines).
+ * a browser entry point that mounts the shared desktop renderer App after
+ * authentication. The Web adapter is backed by StudiumX-Server for its
+ * browser-safe read/sync seams, but it is NOT a teaching execution engine:
+ * no model keys, no agent loop, no workspace file writes (plan §9 / AGENTS.md
+ * red lines).
  *
  * Path aliases mirror the vitest config so `@shared` / `@renderer` resolve to
  * the same shared source the desktop renderer uses; `@web` points at web/src.
