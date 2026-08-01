@@ -1,4 +1,5 @@
 import {
+  PET_APPEARANCE_DISPLAY_NAMES,
   PET_APPEARANCE_IDS,
   type PetAppearanceId
 } from '../../../../shared/teaching-types'
@@ -63,6 +64,9 @@ function createPetDefinition(
   const manifest = manifestJson as PetManifest
   return {
     ...manifest,
+    // Keep the display name single-sourced from the shared types so the settings
+    // schema, the catalog, and the pet library always agree on each pet's name.
+    displayName: PET_APPEARANCE_DISPLAY_NAMES[id],
     id,
     spriteVersionNumber: manifest.spriteVersionNumber ?? 1,
     spritesheetUrl

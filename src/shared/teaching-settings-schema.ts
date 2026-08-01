@@ -3,6 +3,7 @@ import {
   DEFAULT_PET_SIZE,
   MAX_PET_SIZE,
   MIN_PET_SIZE,
+  PET_APPEARANCE_DISPLAY_NAMES,
   MODEL_ENDPOINT_FORMATS,
   MODEL_REASONING_EFFORTS,
   PARALLEL_SEARCH_MODES,
@@ -28,6 +29,17 @@ import { normalizeProviderCustomHeaders } from './provider-custom-headers'
 const DEFAULT_UI_FONT_SCALE = 1
 const MIN_UI_FONT_SCALE = 0.8
 const MAX_UI_FONT_SCALE = 1.2
+
+// Pet display names that read as "the default" rather than a user customization:
+// any built-in pet name plus the legacy pre-0.0.6 default. When the stored name is
+// one of these and doesn't match the selected pet, the selected pet's name wins so
+// the pet name always follows the chosen appearance.
+const LEGACY_PET_DEFAULT_DISPLAY_NAMES = new Set(['小搭档'])
+const BUILT_IN_PET_DISPLAY_NAMES = new Set(Object.values(PET_APPEARANCE_DISPLAY_NAMES))
+
+function isBuiltInPetDisplayName(value: string): boolean {
+  return BUILT_IN_PET_DISPLAY_NAMES.has(value) || LEGACY_PET_DEFAULT_DISPLAY_NAMES.has(value)
+}
 
 export const DEFAULT_TEACHING_AGENT_RUN_BUDGET = {
   // Conversational teaching turns (research + nested child runs + lesson generation)
@@ -129,7 +141,7 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
     },
     pet: {
       enabled: true,
-      displayName: '噜噜',
+      displayName: PET_APPEARANCE_DISPLAY_NAMES[DEFAULT_PET_APPEARANCE_ID],
       showStatusBubble: true,
       appearance: DEFAULT_PET_APPEARANCE_ID,
       size: DEFAULT_PET_SIZE,
@@ -290,6 +302,12 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
   const petInput = recordOf(record.pet)
   const petNotificationPreferencesInput = recordOf(petInput.notificationPreferences)
   const petNotificationSourcesInput = recordOf(petNotificationPreferencesInput.sources)
+  const petAppearance = normalizePetAppearanceId(petInput.appearance, defaults.pet.appearance)
+  const petDisplayNameInput = normalizeString(petInput.displayName).slice(0, 24)
+  // A name that is empty or still a built-in/legacy default follows the selected pet.
+  const petDisplayName = petDisplayNameInput && !isBuiltInPetDisplayName(petDisplayNameInput)
+    ? petDisplayNameInput
+    : PET_APPEARANCE_DISPLAY_NAMES[petAppearance]
   const privacyInput = recordOf(record.privacy)
   const appBehaviorInput = recordOf(record.appBehavior)
   // Legacy (<v2) documents always migrate to the tray default regardless of any
@@ -394,9 +412,9 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
     },
     pet: {
       enabled: petInput.enabled !== false,
-      displayName: normalizeString(petInput.displayName).slice(0, 24) || defaults.pet.displayName,
+      displayName: petDisplayName,
       showStatusBubble: petInput.showStatusBubble !== false,
-      appearance: normalizePetAppearanceId(petInput.appearance, defaults.pet.appearance),
+      appearance: petAppearance,
       size: Math.round(clampNumber(petInput.size, MIN_PET_SIZE, MAX_PET_SIZE, defaults.pet.size)),
       notificationPreferences: {
         actionableOnly: petNotificationPreferencesInput.actionableOnly === true,

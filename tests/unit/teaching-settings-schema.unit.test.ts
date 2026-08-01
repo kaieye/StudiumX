@@ -48,6 +48,15 @@ describe('teaching settings schema', () => {
     expect(normalizeTeachingSettings({ pet: { size: 111.6 } }, fallbackRoot).pet.size).toBe(112)
   })
 
+  it('makes an empty, built-in, or legacy pet name follow the selected pet appearance', () => {
+    expect(normalizeTeachingSettings({}, fallbackRoot).pet.displayName).toBe('噜噜')
+    expect(normalizeTeachingSettings({ pet: { displayName: '小搭档' } }, fallbackRoot).pet.displayName).toBe('噜噜')
+    expect(
+      normalizeTeachingSettings({ pet: { displayName: 'Boba', appearance: 'usagi' } }, fallbackRoot).pet.displayName
+    ).toBe('Usagi')
+    expect(normalizeTeachingSettings({ pet: { displayName: 'Pikachu' } }, fallbackRoot).pet.displayName).toBe('Pikachu')
+  })
+
 
 
 

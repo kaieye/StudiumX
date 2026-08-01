@@ -249,7 +249,7 @@
       "stylesMeta": "视觉样式",
       "stylesDetail": "{{count}} 套课程页面风格，当前使用 {{style}}。",
       "skillsMeta": "教学能力",
-      "skillsDetail": "{{count}} 个能力可用，{{installed}} 个已安装到本地；个人文件不会自动进入正式教学链路。",
+      "skillsDetail": "第三方技能库，未与当前教学流结合验证",
       "petsMeta": "Boba 状态宠物",
       "petsDetail": "让 Boba 响应生成、等待确认、失败与完成状态，并停留在应用界面上。",
       "open": "打开",

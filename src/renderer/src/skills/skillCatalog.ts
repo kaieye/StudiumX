@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { SkillCatalogResult } from '../../../shared/teaching-types'
 
@@ -7,24 +7,31 @@ export const SKILL_CATALOG_CHANGED_EVENT = 'studiumx:skill-catalog-changed'
 const EMPTY_CATALOG: SkillCatalogResult = { rootPath: '', skills: [] }
 let cachedCatalog: SkillCatalogResult | null = null
 let pendingCatalog: Promise<SkillCatalogResult> | null = null
+let catalogRequestVersion = 0
 
 export async function loadSkillCatalog(force = false): Promise<SkillCatalogResult> {
   if (!force && cachedCatalog) return cachedCatalog
   if (!force && pendingCatalog) return pendingCatalog
   const api = window.teachingSystem
   if (!api) return EMPTY_CATALOG
-  pendingCatalog = api.listSkills()
+  const requestVersion = ++catalogRequestVersion
+  const request = api.listSkills()
     .then((catalog) => {
-      cachedCatalog = catalog
+      // A forced refresh may overlap the initial load. Only the newest
+      // response is allowed to repopulate the shared cache.
+      if (requestVersion === catalogRequestVersion) cachedCatalog = catalog
       return catalog
     })
     .finally(() => {
-      pendingCatalog = null
+      if (pendingCatalog === request) pendingCatalog = null
     })
-  return pendingCatalog
+  pendingCatalog = request
+  return request
 }
 
 export function announceSkillCatalogChanged(): void {
+  // Invalidate any response started before the catalog mutation.
+  catalogRequestVersion += 1
   cachedCatalog = null
   window.dispatchEvent(new Event(SKILL_CATALOG_CHANGED_EVENT))
 }
@@ -33,16 +40,21 @@ export function useSkillCatalog() {
   const [catalog, setCatalog] = useState<SkillCatalogResult>(cachedCatalog ?? EMPTY_CATALOG)
   const [loading, setLoading] = useState(!cachedCatalog)
   const [error, setError] = useState<string | null>(null)
+  const refreshVersion = useRef(0)
 
   const refresh = useCallback(async (force = false) => {
+    const version = ++refreshVersion.current
     setLoading(true)
     setError(null)
     try {
-      setCatalog(await loadSkillCatalog(force))
+      const nextCatalog = await loadSkillCatalog(force)
+      if (version !== refreshVersion.current) return
+      setCatalog(nextCatalog)
     } catch (reason) {
+      if (version !== refreshVersion.current) return
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
-      setLoading(false)
+      if (version === refreshVersion.current) setLoading(false)
     }
   }, [])
 

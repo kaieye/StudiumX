@@ -31,6 +31,13 @@ export type AppCloseAction = 'quit' | 'tray'
 export const PET_APPEARANCE_IDS = ['boba', 'lulu-capybara', 'shinchan', 'usagi'] as const
 export type PetAppearanceId = (typeof PET_APPEARANCE_IDS)[number]
 export const DEFAULT_PET_APPEARANCE_ID: PetAppearanceId = 'lulu-capybara'
+/** Canonical default display name for each pet; the pet's default name follows its appearance. */
+export const PET_APPEARANCE_DISPLAY_NAMES: Record<PetAppearanceId, string> = {
+  boba: 'Boba',
+  'lulu-capybara': '噜噜',
+  shinchan: 'Shinchan',
+  usagi: 'Usagi'
+}
 export const MIN_PET_SIZE = 80
 export const MAX_PET_SIZE = 224
 export const DEFAULT_PET_SIZE = 112

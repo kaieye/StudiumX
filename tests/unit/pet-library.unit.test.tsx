@@ -102,6 +102,30 @@ describe('PetLibrary settings', () => {
     })
   })
 
+  it('renames the pet to the selected pet when the name is still a built-in default', () => {
+    renderUi(<PetLibrary onBack={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Shinchan/ }))
+
+    expect(updateSettings).toHaveBeenCalledWith({
+      pet: { appearance: 'shinchan', displayName: 'Shinchan' }
+    })
+  })
+
+  it('keeps a customized pet name when switching appearance', () => {
+    useAppStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        pet: { ...state.settings.pet, displayName: 'Pikachu' }
+      }
+    }))
+    renderUi(<PetLibrary onBack={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Shinchan/ }))
+
+    expect(updateSettings).toHaveBeenCalledWith({
+      pet: { appearance: 'shinchan', displayName: 'Pikachu' }
+    })
+  })
+
   it('previews and commits the bounded pet size once on blur', () => {
     renderUi(<PetLibrary onBack={vi.fn()} />)
     const slider = screen.getByRole('slider', { name: /宠物尺寸|pet size/i })

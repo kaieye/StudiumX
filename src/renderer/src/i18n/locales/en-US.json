@@ -249,7 +249,7 @@
       "stylesMeta": "Visual styles",
       "stylesDetail": "{{count}} lesson page styles, currently using {{style}}.",
       "skillsMeta": "Teaching capabilities",
-      "skillsDetail": "{{count}} capabilities available; {{installed}} are installed locally. Personal files do not automatically join formal teaching.",
+      "skillsDetail": "Third-party skill library, not verified against the current teaching flow",
       "petsMeta": "Boba status pet",
       "petsDetail": "Let Boba react to running, waiting, failed, and completed work while staying inside the app.",
       "open": "Open",

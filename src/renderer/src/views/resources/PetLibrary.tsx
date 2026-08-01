@@ -46,6 +46,15 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
     lastCommittedPetSizeRef.current = settings.size
   }, [settings.size])
 
+  const selectedPet = PET_CATALOG.find((pet) => pet.id === settings.appearance)
+  const selectedPetName = selectedPet?.displayName ?? t('resources.pets.defaultName')
+  // Built-in pet names (plus the legacy pre-0.0.6 default) read as "the default"
+  // rather than a user customization, so selecting a pet renames it accordingly.
+  const builtInPetNames = new Set<string>([
+    ...PET_CATALOG.map((pet) => pet.displayName),
+    '小搭档'
+  ])
+
   useEffect(() => {
     const quietUntil = settings.notificationPreferences.quietUntil
     setNow(Date.now())
@@ -55,7 +64,7 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
   }, [settings.notificationPreferences.quietUntil])
 
   const saveDisplayName = (): void => {
-    const normalized = displayName.trim().slice(0, 24) || t('resources.pets.defaultName')
+    const normalized = displayName.trim().slice(0, 24) || selectedPetName
     setDisplayName(normalized)
     if (normalized !== settings.displayName) void updateSettings({ pet: { displayName: normalized } })
   }
@@ -176,13 +185,13 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
           style={{ '--drag-x': `${dragOffset}px` } as CSSProperties}
         >
           <div className="pet-preview-bubble" data-state={previewState}>
-            <strong>{displayName || t('resources.pets.defaultName')}</strong>
+            <strong>{displayName || selectedPetName}</strong>
             <span>{t(`resources.pets.states.${previewState}`)}</span>
           </div>
           <button
             className="pet-preview-mascot"
             type="button"
-            aria-label={t('resources.pets.previewAria', { name: displayName })}
+            aria-label={t('resources.pets.previewAria', { name: displayName || selectedPetName })}
             onClick={handleMascotClick}
             onPointerDown={handleMascotPointerDown}
             onPointerMove={handleMascotPointerMove}
@@ -306,7 +315,16 @@ export function PetLibrary({ onBack }: { onBack: () => void }) {
                   type="button"
                   aria-pressed={selected}
                   title={pet.description}
-                  onClick={() => void updateSettings({ pet: { appearance: pet.id } })}
+                  onClick={() => {
+                    // Unless the user has typed a custom name, the pet name follows
+                    // the currently selected pet.
+                    const nextDisplayName =
+                      displayName.trim() === '' || builtInPetNames.has(displayName)
+                        ? pet.displayName
+                        : displayName
+                    setDisplayName(nextDisplayName)
+                    void updateSettings({ pet: { appearance: pet.id, displayName: nextDisplayName } })
+                  }}
                 >
                   <span className="pet-appearance-preview" aria-hidden="true">
                     <PetSprite appearance={pet.id} label="" size={96} state="idle" />
