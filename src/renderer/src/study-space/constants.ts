@@ -15,6 +15,13 @@ export const STUDY_PRESENCE_HEARTBEAT_MS = 10_000
 export const STUDY_PRESENCE_CONNECT_TIMEOUT_MS = 6500
 export const STUDY_PRESENCE_CLIENT_PREFIX = 'studiumx'
 export const STUDY_TASK_LIMIT = 48
+/**
+ * Every study room holds exactly 12 people (12 rendered desks). The server
+ * enforces the same cap (STUDY_ROOM_CAPACITY in StudiumX-Server) and packs
+ * new arrivals into the most populated room with a free seat, creating a new
+ * room only when all rooms are full. Seat indices are bounded to [0, 12).
+ */
+export const STUDY_ROOM_CAPACITY = 12
 
 export const defaultStudySnapshot: StudySnapshot = {
   clientId: '',
@@ -128,11 +135,11 @@ export const studyRooms: Array<{
     id: 'silent',
     name: '安静自习室',
     tone: '适合阅读、预习和整理笔记，保持轻量节奏',
-    capacity: 36,
+    capacity: STUDY_ROOM_CAPACITY,
     sessionMinutes: 25,
     breakMinutes: 5,
     tags: ['轻量专注', '环境音', '自由入座'],
-    seats: 36,
+    seats: STUDY_ROOM_CAPACITY,
     light: '自然光',
     ambient: '环境音',
     backdrop: 'study-backdrop-default'
@@ -141,11 +148,11 @@ export const studyRooms: Array<{
     id: 'sprint',
     name: '同频冲刺室',
     tone: '和在线同桌按统一节奏推进一轮明确目标',
-    capacity: 24,
+    capacity: STUDY_ROOM_CAPACITY,
     sessionMinutes: 45,
     breakMinutes: 10,
     tags: ['45 分钟', '同频节奏', '目标冲刺'],
-    seats: 24,
+    seats: STUDY_ROOM_CAPACITY,
     light: '明亮光',
     ambient: '键盘白噪音',
     backdrop: 'study-backdrop-sprint'
@@ -154,11 +161,11 @@ export const studyRooms: Array<{
     id: 'deep',
     name: '深度沉浸室',
     tone: '为论文、项目和长材料保留一段不被打断的时间',
-    capacity: 18,
+    capacity: STUDY_ROOM_CAPACITY,
     sessionMinutes: 90,
     breakMinutes: 15,
     tags: ['90 分钟', '单一目标', '低干扰'],
-    seats: 18,
+    seats: STUDY_ROOM_CAPACITY,
     light: '柔和光',
     ambient: '深夜雨声',
     backdrop: 'study-backdrop-deep'
@@ -167,11 +174,11 @@ export const studyRooms: Array<{
     id: 'exam',
     name: '模拟考场',
     tone: '按考试约束完成计时训练，结束后立即复盘',
-    capacity: 30,
+    capacity: STUDY_ROOM_CAPACITY,
     sessionMinutes: 50,
     breakMinutes: 10,
     tags: ['静音', '闭卷训练', '限时复盘'],
-    seats: 30,
+    seats: STUDY_ROOM_CAPACITY,
     light: '考场光',
     ambient: '静音',
     backdrop: 'study-backdrop-exam'

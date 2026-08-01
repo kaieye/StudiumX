@@ -25,6 +25,7 @@ import {
 import type {
   AnalyticsRangePreset,
   LearningAnalyticsBundle,
+  PresenceSnapshotAnalytics,
   TaskAnalytics,
   TaskPlanAnalytics
 } from './types'
@@ -39,6 +40,12 @@ export type StudyAnalyticsPageProps = {
   onBack: () => void
   client?: LearningAnalyticsClient
   identity?: StudyAnalyticsIdentity
+  /**
+   * Live room-presence snapshot from the workbench's study-room roster.
+   * Null keeps the server-provided presence section (which is always
+   * unavailable) so the percentile card falls back to its empty state.
+   */
+  presenceSnapshot?: PresenceSnapshotAnalytics | null
 }
 
 const RANGE_PRESETS: readonly Exclude<AnalyticsRangePreset, 'custom'>[] = [
@@ -128,7 +135,8 @@ function fallbackStateFor(phase: ReturnType<typeof useStudyAnalytics>['phase']):
 export function StudyAnalyticsPage({
   onBack,
   client,
-  identity: identityOverride
+  identity: identityOverride,
+  presenceSnapshot
 }: StudyAnalyticsPageProps) {
   const { i18n } = useTranslation()
   const locale = resolveAnalyticsLocale(i18n.language)
@@ -220,6 +228,16 @@ export function StudyAnalyticsPage({
     bundle?.tasks,
     bundle?.generatedAt ?? new Date().toISOString()
   )
+  // Live room presence (from the workbench roster) wins over the server
+  // bundle, which never carries a real presence section. Demo mode keeps its
+  // seeded percentile; no live data falls back to the server's empty state.
+  const selfPercentile =
+    !demoMode && presenceSnapshot
+      ? presenceSnapshot.selfPercentile
+      : bundle?.presence &&
+          (bundle.presence.state === 'available' || bundle.presence.state === 'partial')
+        ? bundle.presence.data.selfPercentile
+        : null
 
   return (
     <div className="study-analytics-page">
@@ -317,12 +335,7 @@ export function StudyAnalyticsPage({
                 rangePreset={preset}
                 plan={focusTaskBoard.plan}
                 tasks={focusTaskBoard.tasks}
-                selfPercentile={
-                  bundle?.presence &&
-                  (bundle.presence.state === 'available' || bundle.presence.state === 'partial')
-                    ? bundle.presence.data.selfPercentile
-                    : null
-                }
+                selfPercentile={selfPercentile}
               />
             )}
           </AnalyticsSection>

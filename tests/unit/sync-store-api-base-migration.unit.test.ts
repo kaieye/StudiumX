@@ -58,4 +58,21 @@ describe('sync API base migration', () => {
 
     expect(getSyncState()).not.toHaveProperty('enabled')
   })
+
+  it('defaults analytics sync consent to OFF for profiles persisted before it existed', async () => {
+    localStorage.setItem(
+      SYNC_STORAGE_KEY,
+      JSON.stringify({
+        baseUrl: PRODUCTION_API_BASE,
+        accessToken: null,
+        refreshToken: null,
+        deviceId: 'existing-device',
+        user: null
+      })
+    )
+
+    const { getSyncState } = await loadSyncStore()
+
+    expect(getSyncState().analyticsSyncEnabled).toBe(false)
+  })
 })

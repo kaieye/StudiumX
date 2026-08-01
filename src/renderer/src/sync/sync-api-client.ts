@@ -148,6 +148,37 @@ export type SyncStudyRoomAssignAndJoinBody = Omit<SyncStudyRoomJoinBody, 'roomId
   currentRoomId?: string
 }
 
+/** One peer in the analytics peers-today leaderboard (same-day focus record). */
+export type SyncAnalyticsPeer = {
+  userId: string
+  focusSeconds: number
+  updatedAtMs: number
+}
+
+export type SyncAnalyticsPeersResponse = {
+  peers: SyncAnalyticsPeer[]
+  asOf: string
+}
+
+/** Derived "today" summary body (MASTER_PLAN §5.4 — aggregated only). */
+export type SyncAnalyticsSummaryBody = {
+  rangeKey: 'today'
+  focusSeconds: number
+  plannedFocusSeconds: number
+  completedFocusSessions: number
+  periodStartDate: string
+  periodEndDate: string
+}
+
+export type SyncAnalyticsSummaryResponse = {
+  stored: boolean
+  summary: {
+    id: string
+    focusSeconds: number
+    updatedAtMs: number
+  }
+}
+
 export type SyncApiClientOptions = {
   baseUrl?: string
   getAccessToken?: () => string | null
@@ -180,6 +211,8 @@ export type SyncApiClient = {
   studyRoomMembers(roomId: string): Promise<SyncStudyRoomMembersResponse>
   studyRoomAssignment(): Promise<{ roomId: string | null }>
   studyRoomAssignAndJoin(body: SyncStudyRoomAssignAndJoinBody): Promise<{ joined: boolean; roomId: string }>
+  getAnalyticsPeersToday(): Promise<SyncAnalyticsPeersResponse>
+  putAnalyticsSummary(body: SyncAnalyticsSummaryBody): Promise<SyncAnalyticsSummaryResponse>
 }
 
 export class SyncApiError extends Error {
@@ -400,6 +433,12 @@ export function createSyncApiClient(options: SyncApiClientOptions = {}): SyncApi
       return asType<{ joined: boolean; roomId: string }>(
         await authed('POST', '/sync/study-room/assign-and-join', body)
       )
+    },
+    async getAnalyticsPeersToday() {
+      return asType<SyncAnalyticsPeersResponse>(await authed('GET', '/analytics/peers-today'))
+    },
+    async putAnalyticsSummary(body) {
+      return asType<SyncAnalyticsSummaryResponse>(await authed('PUT', '/analytics/summary', body))
     }
   }
 }

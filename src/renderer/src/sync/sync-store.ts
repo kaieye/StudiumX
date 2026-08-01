@@ -30,6 +30,12 @@ export type SyncState = {
   refreshToken: string | null
   deviceId: string | null
   user: SyncAuthUser | null
+  /**
+   * User consent for "学习分析同步" (MASTER_PLAN §5.4): uploads the derived
+   * today summary and enables the peers-today leaderboard. Default OFF;
+   * reset when a different user signs in.
+   */
+  analyticsSyncEnabled: boolean
 }
 
 const DEFAULT_STATE: SyncState = {
@@ -37,7 +43,8 @@ const DEFAULT_STATE: SyncState = {
   accessToken: null,
   refreshToken: null,
   deviceId: null,
-  user: null
+  user: null,
+  analyticsSyncEnabled: false
 }
 
 const listeners = new Set<() => void>()
@@ -141,8 +148,19 @@ export function setSyncAuth(auth: {
   refreshToken: string
   user?: SyncAuthUser | null
 }): void {
-  setState({ accessToken: auth.accessToken, refreshToken: auth.refreshToken, user: auth.user ?? null })
+  // setSyncAuth also runs on every token refresh (~15 min TTL). Consent must
+  // survive refreshes for the same user but never leak to a different one.
+  const userChanged = Boolean(auth.user?.id) && state.user?.id !== auth.user?.id
+  setState(
+    userChanged
+      ? { accessToken: auth.accessToken, refreshToken: auth.refreshToken, user: auth.user ?? null, analyticsSyncEnabled: false }
+      : { accessToken: auth.accessToken, refreshToken: auth.refreshToken, user: auth.user ?? null }
+  )
   pushAccessTokenToMain()
+}
+
+export function setAnalyticsSyncEnabled(enabled: boolean): void {
+  setState({ analyticsSyncEnabled: enabled })
 }
 
 export function clearSyncAuth(): void {

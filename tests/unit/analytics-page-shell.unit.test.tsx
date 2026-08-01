@@ -669,6 +669,39 @@ describe('StudyAnalyticsPage', () => {
     expect(focusSection).toHaveTextContent('73%')
   })
 
+  it('renders a live percentile from the presenceSnapshot prop even when the server presence section is unavailable', async () => {
+    // Server never produces a real presence section — the default bundle has it unavailable.
+    const client: LearningAnalyticsClient = {
+      getLearningAnalytics: vi.fn(async (query) => ({
+        ...bundle(query),
+        focus: { ...emptyFocusResult(query), state: 'available' as const }
+      }))
+    }
+
+    renderUi(
+      <StudyAnalyticsPage
+        onBack={vi.fn()}
+        client={client}
+        identity={{ personalClientId: 'test-client', presenceSpaceCode: 'demo-space' }}
+        presenceSnapshot={{
+          capturedAt: '2026-08-01T12:00:00.000Z',
+          spaceCode: 'demo-space',
+          online: 6,
+          roomCapacityPercent: null,
+          peerFocusSecondsToday: 1200,
+          selfPercentile: 0.67,
+          eventCounts: {}
+        }}
+      />
+    )
+
+    const focusSection = (await screen.findByRole('heading', { name: '专注分析' })).closest('section')
+    await waitFor(() => expect(focusSection?.querySelector('.analytics-focus__percentile')).not.toBeNull())
+    expect(focusSection?.querySelector('.tick-gauge')).not.toBeNull()
+    expect(focusSection).toHaveTextContent('专注超越')
+    expect(focusSection).toHaveTextContent('67%')
+  })
+
   it('renders section-level unavailable with reason copy and retry, never as API unavailable', async () => {
     const copy = getAnalyticsCopy('zh')
     const client: LearningAnalyticsClient = {

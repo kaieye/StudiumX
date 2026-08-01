@@ -68,18 +68,22 @@ import { WorkbenchTasks } from './WorkbenchTasks'
 import { WorkbenchMusicPlayer } from './WorkbenchMusicPlayer'
 import { StudyTaskSchedulePage } from './StudyTaskSchedulePage'
 import { StudyAnalyticsPage, type StudyAnalyticsPageProps } from './analytics/StudyAnalyticsPage'
+import { buildLivePresenceSnapshot } from './analytics/livePresenceAnalytics'
+import { useTodayAnalyticsSync } from '../../sync/today-analytics-sync'
 import {
   navigateWorkbenchRoute,
   parseWorkbenchRoute,
   type WorkbenchRoute
 } from './workbenchRoute'
 import './workbench-analytics-entry.css'
+import { STUDY_ROOM_CAPACITY } from '../../study-space/constants'
 
 type DeskId = `desk-${number}`
 
 // OfficeSceneRuntime owns browser asset loading: new URL('../../assets/images/workbench/ref.png', import.meta.url).
 // Its canvas draw loop renders every desk with drawDeskImage(ctx, assets.deskImage, slot).
-const workbenchSeatCount = 12
+// The scene renders STUDY_ROOM_CAPACITY desks; seats are bounded to the same range.
+const workbenchSeatCount = STUDY_ROOM_CAPACITY
 const clockRefreshIntervalMs = 1_000
 
 function deskIdForSeatIndex(seatIndex: number): DeskId {
@@ -452,6 +456,13 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     studyRoomPresence.members,
     syncState.user?.nickname
   )
+  // Analytics sync (opt-in "学习分析同步"): uploads the today summary and
+  // polls everyone on the server with same-day focus records for the
+  // 专注超越 percentile card.
+  const todayAnalytics = useTodayAnalyticsSync({
+    focusSecondsToday: snapshot.todayFocusSeconds,
+    todaySessions: snapshot.todaySessions
+  })
 
   const handleEnterRandomSpace = useCallback(() => {
     const fallbackRoomId = randomStudySpaceCode()
@@ -960,7 +971,20 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   if (route === 'analytics') {
     return (
       <section className="office-workbench-page workbench-analytics-route" aria-label="学习分析">
-        <WorkbenchAnalyticsPage onBack={closeStudyAnalytics} />
+        <WorkbenchAnalyticsPage
+          onBack={closeStudyAnalytics}
+          presenceSnapshot={buildLivePresenceSnapshot({
+            spaceCode: snapshot.spaceCode,
+            myFocusSecondsToday: snapshot.todayFocusSeconds,
+            // Server already excludes the requester; the userId check is a
+            // cheap defense if that ever changes.
+            members: todayAnalytics.peers.map((peer) => ({
+              focusSecondsToday: peer.focusSeconds,
+              isSelf: peer.userId === syncState.user?.id
+            })),
+            capturedAt: new Date().toISOString()
+          })}
+        />
       </section>
     )
   }
