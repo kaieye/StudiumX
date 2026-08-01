@@ -273,3 +273,58 @@
 }.app-shell.platform-win32 {
   --window-control-overlay-height: var(--window-chrome-height);
 }
+
+/* ----------------------------------------------------------------
+   Browser capability boundary
+   ---------------------------------------------------------------- */
+.web-desktop-download-notice {
+  display: flex;
+  width: min(100%, 820px);
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px auto 0;
+  padding: 11px 14px;
+  color: var(--text-muted);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--line));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface-subtle));
+  line-height: 1.45;
+}
+.web-desktop-download-notice__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 27px;
+  height: 27px;
+  color: var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-solid));
+}
+.web-desktop-download-notice__copy {
+  min-width: 0;
+}
+.web-desktop-download-notice__copy strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 720;
+}
+.web-desktop-download-notice__copy p {
+  margin: 3px 0 0;
+  font-size: 11px;
+}
+
+.main-area[data-view='overview'] > .web-desktop-download-notice,
+.main-area[data-view='agent'] > .web-desktop-download-notice {
+  flex: 0 0 auto;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 640px) {
+  .web-desktop-download-notice {
+    width: 100%;
+    margin-top: 10px;
+    padding: 10px 12px;
+  }
+}

@@ -1895,5 +1895,9 @@
       "conflictWithRevisions": "检测到同步冲突：本地 r{{localRevision}}，服务端 r{{serverRevision}}。为保护两端数据，未覆盖任何数据。",
       "error": "同步出错"
     }
+  },
+  "webDesktopNotice": {
+    "title": "完整教学体验需要 StudiumX 桌面端",
+    "detail": "Web 端适合查看已同步的课程与资源。要使用完整教学工作区、学习助手对话和本地资源管理，请下载并使用 StudiumX 桌面端。"
   }
 }

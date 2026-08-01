@@ -19,6 +19,17 @@ import { AuthLoadingScreen } from '../ui/AuthLoadingScreen'
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const syncState = useSyncState()
+  // The browser shell owns authentication in `web/src/auth/AuthContext`.
+  // Mounting the desktop session validator here as well would issue a second
+  // request through the Electron sync client (whose default endpoint is the
+  // production sync service), briefly race the web auth mirror, and can show
+  // the desktop login screen over an already-authenticated web session. The
+  // outer web gate only mounts the shared renderer after its token pair has
+  // been validated, so the inner desktop gate is intentionally a no-op on
+  // Web while retaining the original behavior for Electron.
+  const isWeb = window.teachingSystem?.platform === 'web'
+  if (isWeb) return <>{children}</>
+
   // Only show the validation splash when there is a persisted token to check.
   const initialHasToken = useRef(Boolean(syncState.accessToken)).current
   const [checking, setChecking] = useState(initialHasToken)

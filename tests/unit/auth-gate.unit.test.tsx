@@ -19,6 +19,10 @@ import { clearSyncAuth, setSyncAuth } from '../../src/renderer/src/sync/sync-sto
 describe('AuthGate', () => {
   beforeEach(() => {
     clearSyncAuth()
+    Object.defineProperty(window, 'teachingSystem', {
+      configurable: true,
+      value: undefined
+    })
   })
 
   it('requires login even if a legacy continue-local preference exists', () => {
@@ -44,6 +48,22 @@ describe('AuthGate', () => {
     )
 
     expect(await screen.findByText('protected application')).toBeInTheDocument()
+    expect(screen.queryByTestId('login-screen')).not.toBeInTheDocument()
+  })
+
+  it('delegates authentication to the web shell instead of showing the desktop gate', () => {
+    Object.defineProperty(window, 'teachingSystem', {
+      configurable: true,
+      value: { platform: 'web' }
+    })
+
+    render(
+      <AuthGate>
+        <div>protected application</div>
+      </AuthGate>
+    )
+
+    expect(screen.getByText('protected application')).toBeInTheDocument()
     expect(screen.queryByTestId('login-screen')).not.toBeInTheDocument()
   })
 })

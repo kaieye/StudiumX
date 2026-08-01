@@ -76,6 +76,7 @@ import {
 import { TeachingWorkspaceNavigator } from './app-shell/teaching-workspace-navigator'
 import { DesktopSidebarFrame } from './ui/DesktopSidebarFrame'
 import { DesktopTopbar } from './ui/DesktopTopbar'
+import { WebDesktopDownloadNotice } from './ui/WebDesktopDownloadNotice'
 import { LessonStyleGallery } from './views/resources/LessonStyleGallery'
 import { PetLibrary } from './views/resources/PetLibrary'
 import { SkillLibrary } from './views/resources/SkillLibrary'
@@ -1342,7 +1343,10 @@ function MainArea() {
       )}
 
       {(view === 'overview' || view === 'agent') && (
-        <OverviewChat active={active} />
+        <>
+          <OverviewChat active={active} />
+          <WebDesktopDownloadNotice />
+        </>
       )}
 
       {view === 'settings' && (
@@ -1561,6 +1565,7 @@ function MainArea() {
               />
             )
           )}
+          {!readingResourceHtml ? <WebDesktopDownloadNotice /> : null}
         </section>
       )}
 

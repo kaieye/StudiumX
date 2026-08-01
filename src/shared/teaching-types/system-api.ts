@@ -147,7 +147,8 @@ export type CommitLearningOutcomeRequest = {
 }
 
 export type TeachingSystemApi = {
-  platform: NodeJS.Platform
+  /** Native Electron platform, or the browser adapter's explicit web target. */
+  platform: NodeJS.Platform | 'web'
   getState: () => Promise<TeachingAppState>
   getLearningAnalytics: (request: LearningAnalyticsRequest) => Promise<LearningAnalyticsBundle>
   exportLearningAnalytics: (request: AnalyticsExportRequest) => Promise<AnalyticsExportResult>
