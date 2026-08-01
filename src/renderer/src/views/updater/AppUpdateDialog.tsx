@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, CheckCircle2, Download, Loader2, RefreshCw, RotateCcw, X, Zap } from 'lucide-react'
+import { Download, RefreshCw, RotateCcw, X, Zap } from 'lucide-react'
 import type { AppUpdateAction, AppUpdateState } from '../../../../shared/teaching-types'
-import appIcon from '../../assets/auth/app-icon-rounded.png'
 
 /**
  * In-app desktop update dialog. Subscribes to the main-process update state
@@ -100,20 +99,6 @@ export function AppUpdateDialog() {
           </button>
         )}
 
-        <div className="app-update-header">
-          <span className={`app-update-icon app-update-icon--${state.kind}`}>
-            {state.kind === 'menu' && <Zap size={20} />}
-            {state.kind === 'checking' && <Loader2 size={20} className="spin" />}
-            {state.kind === 'available' && <Zap size={20} />}
-            {state.kind === 'downloading' && <Download size={20} />}
-            {state.kind === 'downloaded' && <CheckCircle2 size={20} />}
-            {state.kind === 'not-available' && <CheckCircle2 size={20} />}
-            {state.kind === 'error' && <AlertCircle size={20} />}
-          </span>
-          <span className="app-update-logo">
-            <img src={appIcon} alt="" />
-          </span>
-        </div>
 
         <div className="app-update-body">
           {state.kind === 'menu' ? (
@@ -155,11 +140,6 @@ export function AppUpdateDialog() {
                 {t('appUpdate.download')}
               </button>
             </>
-          )}
-          {state.kind === 'downloading' && (
-            <button className="app-update-ghost" type="button" onClick={dismiss}>
-              {t('appUpdate.background')}
-            </button>
           )}
           {state.kind === 'downloaded' && (
             <>

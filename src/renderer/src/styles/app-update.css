@@ -20,10 +20,7 @@
   padding: 24px 24px 20px;
   border: 1px solid var(--lg-line, var(--line));
   border-radius: var(--radius-lg);
-  background:
-    var(--lg-sheen, none),
-    var(--lg-sheen-edge, none),
-    var(--lg-glass-fill-strong, var(--surface-solid));
+  background: var(--surface-solid);
   box-shadow: var(--shadow-float);
   animation: app-update-pop 0.18s ease-out;
 }
@@ -58,50 +55,6 @@
 .app-update-close:hover {
   background: var(--surface-hover);
   color: var(--text);
-}
-
-.app-update-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.app-update-icon {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.app-update-icon--downloaded,
-.app-update-icon--not-available {
-  background: var(--green-soft);
-  color: var(--green);
-}
-
-.app-update-icon--error {
-  background: var(--rose-soft);
-  color: var(--rose);
-}
-
-.app-update-logo {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  overflow: hidden;
-  border-radius: 12px;
-  background: var(--surface-muted);
-}
-
-.app-update-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .app-update-body h2 {
