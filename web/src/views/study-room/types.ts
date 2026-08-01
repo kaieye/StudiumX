@@ -4,10 +4,9 @@
  * The web study room is NOT the desktop planning engine (plan §9 red lines).
  * It runs a client-side pomodoro timer and pushes completed focus segments to
  * StudiumX-Server via the sync API (POST /sync/push, collection
- * `timer-sessions`; server-contracts §7). Leaderboard peer ranking has no
- * server endpoint yet (plan §10 待定), so the leaderboard shows the current
- * user's own focus (local log, enriched best-effort from
- * GET /analytics/summary?range=today) plus an explicit empty state for peers.
+ * `timer-sessions`; server-contracts §7). Leaderboard peer ranking is supplied
+ * by the server-backed study-room presence endpoint, with the local log as an
+ * offline fallback.
  *
  * NOTE on `WebStudyRoomApi`: sync + analytics-summary reads are NOT part of
  * `TeachingSystemApi` (sync is a web/device concern; plan §6.3/§10). The
@@ -73,11 +72,29 @@ export interface LeaderboardData {
   selfFocusSeconds: number
   selfSessionsToday: number
   /** Where the self focus number came from. */
-  source: 'local' | 'server' | 'empty'
-  /** True when peer ranking is unavailable (no server endpoint yet, plan §10). */
+  source: 'local' | 'server' | 'room' | 'empty'
+  /** True when peer ranking is unavailable. */
   peersUnavailable: boolean
   /** Human note explaining the current data source / limitation. */
   note: string
+}
+
+
+/** A member currently present in a server-backed study room. */
+export interface WebStudyRoomMember {
+  userId: string
+  nickname: string | null
+  avatarUrl: string | null
+  petAppearance: string | null
+  platform: string | null
+  status: string | null
+  focusSecondsToday: number
+  isSelf: boolean
+}
+
+export interface WebStudyRoomPresence {
+  roomId: string
+  members: WebStudyRoomMember[]
 }
 
 /** Sync entity pushed to POST /sync/push (server-contracts §7 SyncEntitySchema). */
@@ -123,4 +140,9 @@ export interface WebStudyRoomApi {
    * then degrades to the local session log.
    */
   fetchTodayFocusSummary(): Promise<TodayFocusSummary | null>
+  joinStudyRoom(input: { roomId: string; nickname?: string; avatarUrl?: string; petAppearance?: string; platform?: string; status?: 'studying' | 'break' | 'idle'; focusSecondsToday?: number }): Promise<{ joined: boolean; roomId: string }>
+  assignAndJoinStudyRoom(input: { fallbackRoomId: string; currentRoomId?: string; nickname?: string; avatarUrl?: string; petAppearance?: string; platform?: string; status?: 'studying' | 'break' | 'idle'; focusSecondsToday?: number }): Promise<{ joined: boolean; roomId: string }>
+  heartbeatStudyRoom(input: { roomId: string; status?: 'studying' | 'break' | 'idle'; focusSecondsToday?: number }): Promise<{ ok: boolean }>
+  leaveStudyRoom(roomId: string): Promise<{ left: boolean }>
+  fetchStudyRoomMembers(roomId: string): Promise<WebStudyRoomPresence>
 }

@@ -35,10 +35,11 @@ import {
   loginWithWeChatCode,
   pollWeChatLoginChallenge,
   logoutServer,
+  AuthError,
   type AuthUser
 } from './auth-client'
 import { clearTokens, getAccessToken, getRefreshToken, hasRefreshToken, setTokens } from './tokens'
-import { clearSyncAuth, setSyncAuth } from '@renderer/sync/sync-store'
+import { clearSyncAuth, setSyncAuth, useSyncState } from '@renderer/sync/sync-store'
 
 // Keep the renderer's canonical sync auth store in lockstep with the Web
 // session so the shared desktop App can reuse its existing AuthGate.
@@ -65,6 +66,17 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ user: null, status: 'loading' })
+  const syncState = useSyncState()
+
+  // The shared desktop renderer owns the account/settings surface and clears
+  // the canonical sync store when its logout action is used. Mirror that
+  // transition back into the browser auth context so Web tokens cannot remain
+  // persisted after the user logs out from the shared UI.
+  useEffect(() => {
+    if (state.status !== 'authenticated' || syncState.accessToken) return
+    clearTokens()
+    setState({ user: null, status: 'unauthenticated' })
+  }, [state.status, syncState.accessToken])
 
   // Restore any persisted session on mount.
   useEffect(() => {
@@ -98,6 +110,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true
     }
   }, [])
+
+  // A desktop login revokes this browser's refresh session on the server.
+  // Poll /auth/me so an already-open web tab transitions to the login screen
+  // promptly instead of waiting for the short-lived access JWT to expire.
+  useEffect(() => {
+    if (state.status !== 'authenticated') return
+    let cancelled = false
+    const checkSession = async () => {
+      try {
+        await fetchMe()
+      } catch (err) {
+        // Do not turn a transient network outage into a local logout. The
+        // auth client raises AuthError only when the session is unrecoverable.
+        if (cancelled || !(err instanceof AuthError)) return
+        clearTokens()
+        clearSyncAuth()
+        setState({ user: null, status: 'unauthenticated' })
+      }
+    }
+    const timer = window.setInterval(() => {
+      void checkSession()
+    }, 15_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [state.status])
 
   const login = useCallback(async (code: string): Promise<void> => {
     const session = await loginWithWeChatCode(code)

@@ -1,16 +1,8 @@
 import { App as DesktopApp, AppErrorBoundary } from '@renderer/App'
+import { AuthLoadingScreen } from '@renderer/ui/AuthLoadingScreen'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { useSyncState } from '@renderer/sync/sync-store'
 import { LoginView } from './views/LoginView'
-
-function FullScreenSpinner({ label }: { label: string }) {
-  return (
-    <div className="web-auth-loading" role="status" aria-live="polite">
-      <div className="web-auth-loading-spinner" aria-hidden="true" />
-      <span>{label}</span>
-    </div>
-  )
-}
 
 /**
  * The browser shell deliberately mounts the exact same renderer App component
@@ -26,7 +18,7 @@ function AuthenticatedDesktopApp() {
   const { status } = useAuth()
   const syncState = useSyncState()
 
-  if (status === 'loading') return <FullScreenSpinner label="正在加载…" />
+  if (status === 'loading') return <AuthLoadingScreen />
   if (status === 'unauthenticated' || !syncState.accessToken) return <LoginView />
   return <DesktopApp />
 }

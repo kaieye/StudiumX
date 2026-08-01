@@ -8,6 +8,8 @@
  *  - `fetchTodayFocusSummary` -> GET /analytics/summary?range=today
  *    (server-contracts §2). Null on 404/offline so the leaderboard degrades
  *    to the local log.
+ *  - study-room presence methods -> /sync/study-room/* for join, heartbeat,
+ *    leave, assignment and member polling.
  *
  * These are NOT `TeachingSystemApi` methods (sync is a web/device concern).
  * The export is typed `Partial<TeachingSystemApi> & WebStudyRoomApi`; the
@@ -23,7 +25,8 @@ import type {
   SyncEntity,
   SyncPushResult,
   TodayFocusSummary,
-  WebStudyRoomApi
+  WebStudyRoomApi,
+  WebStudyRoomPresence
 } from '../../views/study-room/types'
 
 /** localStorage key for the stable web sync device id (NOT an auth token). */
@@ -125,5 +128,31 @@ export const feature: Partial<TeachingSystemApi> & WebStudyRoomApi = {
       // Re-throw unexpected (non-ApiError) errors so they surface.
       throw err
     }
+  },
+
+  async joinStudyRoom(input) {
+    return apiPost<{ joined: boolean; roomId: string }>('/sync/study-room/join', {
+      ...input,
+      platform: 'web'
+    })
+  },
+
+  async assignAndJoinStudyRoom(input) {
+    return apiPost<{ joined: boolean; roomId: string }>('/sync/study-room/assign-and-join', {
+      ...input,
+      platform: 'web'
+    })
+  },
+
+  async heartbeatStudyRoom(input) {
+    return apiPost<{ ok: boolean }>('/sync/study-room/heartbeat', input)
+  },
+
+  async leaveStudyRoom(roomId: string) {
+    return apiPost<{ left: boolean }>('/sync/study-room/leave', { roomId })
+  },
+
+  async fetchStudyRoomMembers(roomId: string): Promise<WebStudyRoomPresence> {
+    return apiGet<WebStudyRoomPresence>('/sync/study-room/members', { roomId })
   }
 }

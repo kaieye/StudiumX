@@ -8,9 +8,6 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
-import appIconRounded from '../assets/auth/app-icon-rounded.png'
-import wechatLoginIcon from '../assets/auth/wechat-login.png'
 import { createSyncApiClient } from './sync-api-client'
 import {
   clearSyncAuth,
@@ -26,13 +23,10 @@ import {
 } from './wechat-qr-login'
 import { preloadWechatLoginSdk, WechatLoginWidget } from './WechatLoginWidget'
 import { useAppStore } from '../app-shell/appStore'
-import { AuthScreenLayout } from '../ui/AuthScreenLayout'
+import { AuthLoginScreen } from '../ui/AuthLoginScreen'
 
-const PRIVACY_POLICY_URL = 'https://studiumx.cn/privacy.html'
-const TERMS_OF_SERVICE_URL = 'https://studiumx.cn/terms.html'
 
 export function LoginScreen() {
-  const { t } = useTranslation()
   const openExternal = useAppStore((state) => state.openExternal)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -103,7 +97,7 @@ export function LoginScreen() {
         abortRef.current = null
       }
     }
-  }, [t])
+  }, [])
 
   const handleCancel = useCallback(() => {
     abortRef.current?.abort()
@@ -119,94 +113,14 @@ export function LoginScreen() {
   }, [])
 
   return (
-    <AuthScreenLayout
-      ariaLabel={t('auth.title', { defaultValue: '登录 StudiumX' })}
-      title={t('auth.welcome', { defaultValue: '欢迎使用 StudiumX' })}
+    <AuthLoginScreen
+      hasChallenge={Boolean(challenge)}
+      busy={busy}
       error={error}
-      stage={
-        challenge ? (
-          <div className="auth-screen-qr">
-            <WechatLoginWidget challenge={challenge} onError={handleWidgetError} />
-          </div>
-        ) : (
-          <img
-            className="auth-screen-app-icon"
-            src={appIconRounded}
-            alt=""
-            aria-hidden="true"
-          />
-        )
-      }
-      actions={
-        challenge ? (
-          <div className="auth-screen-actions auth-screen-actions--inline">
-            <button
-              type="button"
-              className="auth-screen-button auth-screen-button--ghost"
-              onClick={handleWechatLogin}
-              disabled={busy}
-            >
-              {t('auth.login.refreshQr', { defaultValue: '刷新二维码' })}
-            </button>
-            <button
-              type="button"
-              className="auth-screen-button auth-screen-button--ghost"
-              onClick={handleCancel}
-            >
-              {t('auth.login.cancel', { defaultValue: '取消登录' })}
-            </button>
-          </div>
-        ) : (
-          <div className="auth-screen-actions">
-            <button
-              type="button"
-              className="auth-screen-button auth-screen-button--wechat"
-              onClick={handleWechatLogin}
-              disabled={busy}
-            >
-              <img
-                className="auth-screen-wechat-icon"
-                src={wechatLoginIcon}
-                alt=""
-                aria-hidden="true"
-              />
-              <span>{t('auth.signInWithWechat', { defaultValue: '微信扫码登录' })}</span>
-            </button>
-          </div>
-        )
-      }
-      footer={
-        <>
-          {t('auth.termsAgreementPrefix', {
-            defaultValue: '登录即代表您同意并遵守'
-          })}
-          <a
-            className="auth-screen-footer-link"
-            href={PRIVACY_POLICY_URL}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(event) => {
-              event.preventDefault()
-              void openExternal(PRIVACY_POLICY_URL)
-            }}
-          >
-            {t('auth.privacyPolicy', { defaultValue: '《隐私协议》' })}
-          </a>
-          {t('auth.termsAgreementJoin', { defaultValue: '和' })}
-          <a
-            className="auth-screen-footer-link"
-            href={TERMS_OF_SERVICE_URL}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(event) => {
-              event.preventDefault()
-              void openExternal(TERMS_OF_SERVICE_URL)
-            }}
-          >
-            {t('auth.userServiceAgreement', { defaultValue: '《用户服务协议》' })}
-          </a>
-        </>
-      }
+      challengeStage={challenge ? <WechatLoginWidget challenge={challenge} onError={handleWidgetError} /> : undefined}
+      onLogin={() => { void handleWechatLogin() }}
+      onCancel={handleCancel}
+      onOpenExternal={openExternal}
     />
   )
 }

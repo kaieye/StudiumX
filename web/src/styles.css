@@ -1,47 +1,8 @@
 /*
- * Browser-only entry styles.
+ * Browser entry styles.
  *
- * The authenticated surface is rendered by the desktop renderer App and gets
- * its complete layout/design system from `src/renderer/src/styles.css`.
- * Keep this file limited to the pre-render Web auth loading state so there is
- * no second Web dashboard cascade that can drift from Electron.
+ * The Web app mounts the renderer's shared auth and authenticated surfaces.
+ * Keep this entry stylesheet intentionally empty so a browser-only cascade
+ * cannot drift from the Electron renderer design system imported by
+ * `web/src/main.tsx`.
  */
-
-.web-auth-loading {
-  display: flex;
-  width: 100%;
-  min-height: 100%;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: #68778f;
-  background: #f8fafc;
-  font-size: 13px;
-}
-
-.web-auth-loading-spinner {
-  width: 17px;
-  height: 17px;
-  border: 2px solid rgba(104, 119, 143, 0.24);
-  border-top-color: #4f7cf5;
-  border-radius: 50%;
-  animation: web-auth-spin 0.72s linear infinite;
-}
-
-@keyframes web-auth-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  .web-auth-loading {
-    color: #b6b6bb;
-    background: #111113;
-  }
-
-  .web-auth-loading-spinner {
-    border-color: rgba(180, 180, 185, 0.28);
-    border-top-color: #8ab4ff;
-  }
-}

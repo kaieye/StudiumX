@@ -306,10 +306,17 @@ function WindowControlButtons() {
 }
 
 function controlAppWindow(action: WindowControlAction): void {
-  const request = window.teachingSystem?.controlWindow(action)
-  void request?.catch((error: unknown) => {
-    console.error(`[StudiumX] window control failed (${action}):`, error)
-  })
+  try {
+    const request = window.teachingSystem?.controlWindow(action)
+    void request?.catch((error: unknown) => {
+      console.error(`[StudiumX] window control failed (${action}):`, error)
+    })
+  } catch (error) {
+    // Browser/fallback surfaces intentionally do not expose native window
+    // controls. Keep the shared chrome inert instead of letting the adapter's
+    // fail-closed WebNotSupportedError escape from a click handler.
+    console.debug(`[StudiumX] window control unavailable (${action}):`, error)
+  }
 }
 
 interface SidebarResizeHandleProps {

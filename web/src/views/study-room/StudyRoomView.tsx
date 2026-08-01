@@ -5,13 +5,15 @@
  * The timer runs locally; completed focus segments are logged + best-effort
  * pushed to the server via the sync API (window.teachingSystem ->
  * study-room adapter -> POST /sync/push). The leaderboard renders the current
- * user's today focus and an explicit empty state for peer ranking (no server
- * endpoint yet, plan §10).
+ * user's today focus and the server-backed room member ranking.
  */
 
+import { useMemo } from 'react'
 import { FocusTimer } from './FocusTimer'
 import { Leaderboard } from './Leaderboard'
 import { useStudyRoomSessions } from './useStudyRoomSessions'
+import { useStudyRoomPresence } from './useStudyRoomPresence'
+import type { LeaderboardData } from './types'
 
 const SYNC_STATUS_LABEL = {
   idle: '已同步',
@@ -31,13 +33,39 @@ function formatFocusDuration(totalSeconds: number): string {
 
 export function StudyRoomView() {
   const study = useStudyRoomSessions()
+  const presence = useStudyRoomPresence({ focusSecondsToday: study.todayFocusSeconds })
+  const roomLeaderboard = useMemo<LeaderboardData | null>(() => {
+    if (!presence.roomId || presence.members.length === 0) return study.leaderboard
+    const members = [...presence.members].sort((a, b) => b.focusSecondsToday - a.focusSecondsToday)
+    const self = members.find((member) => member.isSelf)
+    return {
+      entries: members.map((member, index) => ({
+        rank: index + 1,
+        nickname: member.nickname?.trim() || '未设置昵称',
+        focusSeconds: member.focusSecondsToday,
+        isSelf: member.isSelf
+      })),
+      selfFocusSeconds: self?.focusSecondsToday ?? study.todayFocusSeconds,
+      selfSessionsToday: study.todaySessionCount,
+      source: 'room',
+      peersUnavailable: false,
+      note: `房间实时排行，每 15 秒刷新（${members.length} 人在线）`
+    }
+  }, [presence.members, presence.roomId, study.leaderboard, study.todayFocusSeconds, study.todaySessionCount])
+  const refreshAll = () => {
+    study.refreshLeaderboard()
+    presence.refresh()
+  }
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">自习室</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          本地番茄钟专注计时，完成后自动同步；排行榜展示今日专注时长。
+          本地番茄钟专注计时，完成后自动同步；排行榜展示房间内实时专注排行。
+        </p>
+        <p className="mt-1 text-xs text-neutral-400">
+          房间 {presence.roomId ?? '分配中'} · 在线 {presence.members.length} 人 · 每 15 秒同步
         </p>
       </header>
 
@@ -111,10 +139,10 @@ export function StudyRoomView() {
         </div>
 
         <Leaderboard
-          data={study.leaderboard}
-          loading={study.leaderboardLoading}
-          error={study.leaderboardError}
-          onRefresh={study.refreshLeaderboard}
+          data={roomLeaderboard}
+          loading={study.leaderboardLoading || presence.loading}
+          error={presence.error ?? study.leaderboardError}
+          onRefresh={refreshAll}
         />
       </div>
     </main>

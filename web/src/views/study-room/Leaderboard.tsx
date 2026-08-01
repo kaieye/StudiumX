@@ -1,11 +1,9 @@
 /**
- * Read-only study room leaderboard (plan §6.3 / §10).
+ * Read-only study room leaderboard.
  *
- * Data source (documented in the report): peer ranking has NO dedicated server
- * endpoint yet (plan §10 待定: "Server 目前没有排行榜 API"). The leaderboard
- * therefore renders the current user's own today focus (self row) assembled by
- * `useStudyRoomSessions` (local log, best-effort enriched from
- * GET /analytics/summary?range=today) plus an explicit empty state for peers.
+ * Members and ranking are loaded from the server-backed study-room presence
+ * endpoint. The local/session analytics values remain available as an offline
+ * fallback while the room is being assigned or temporarily unreachable.
  */
 
 import { RefreshCw, Trophy } from 'lucide-react'
@@ -30,6 +28,7 @@ function formatFocusDuration(totalSeconds: number): string {
 const SOURCE_LABEL: Record<LeaderboardData['source'], string> = {
   server: '服务端',
   local: '本机',
+  room: '房间实时',
   empty: '无'
 }
 
@@ -106,7 +105,7 @@ export function Leaderboard({ data, loading, error, onRefresh }: LeaderboardProp
             {data ? SOURCE_LABEL[data.source] : '—'}
           </strong>
         </p>
-        {data?.peersUnavailable && (
+        {data?.note && (
           <p className="mt-1.5">{data.note}</p>
         )}
       </div>

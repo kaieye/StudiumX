@@ -316,6 +316,10 @@ function Sidebar() {
     setCheckingForUpdates(true)
     try {
       await window.teachingSystem.checkForAppUpdates()
+    } catch (error) {
+      // The browser adapter deliberately fails closed for desktop-only update
+      // checks. The shared button remains visible for parity but inert on Web.
+      console.debug('[StudiumX] app update check unavailable:', error)
     } finally {
       setCheckingForUpdates(false)
     }
