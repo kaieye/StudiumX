@@ -6,14 +6,16 @@
  *
  *   GET /analytics/summary?range=<key>   -> { summary: AnalyticsSummaryRow } | 404
  *
- * The server only stores AGGREGATED per-range summaries (focusSeconds,
- * plannedFocusSeconds, completedFocusSessions, period dates) that a desktop
- * client uploaded via PUT (which is GATED default OFF - plan §9.4). It does NOT
- * compute the full 10-section `LearningAnalyticsBundle` the desktop host builds
- * from personal focus facts + teaching workspace data. This adapter therefore
- * maps the aggregate row into a contract-correct bundle: `hero` + `focus` are
- * populated (focus is `partial` - no daily/heatmap breakdown), and every other
- * section is `unavailable` because the server has no source data for it on Web.
+ * The server always stores headline per-range totals (focusSeconds,
+ * plannedFocusSeconds, completedFocusSessions, period dates), uploaded via PUT
+ * only after the user enables analytics sync. Newer desktop clients may also
+ * send a strict v1, chart-ready aggregate for focus/task visualizations. The
+ * payload deliberately excludes raw activity facts, task labels, teaching
+ * evidence, and workspace/conversation/review/memory content; it never becomes
+ * teaching authority. Legacy rows without that payload remain `partial` focus
+ * summaries, while valid v1 payloads restore the supported focus/task charts.
+ * All other analytics sections remain `unavailable` on Web because the server
+ * does not own those source data.
  *
  * When no summary is stored (HTTP 404) the adapter returns an `empty` bundle
  * (hero.state === 'empty') so the view can render a clear empty state WITHOUT
@@ -53,6 +55,7 @@ import type {
 import type { TeachingSystemApi } from '@shared/teaching-types/system-api'
 import { calculateStudyLevelProgress, dailyXpSummary, studyPlantStageForLevel } from '@shared/study-progression'
 import { apiGet, ApiError } from '../../api/http'
+import { hydratedSyncedTasks, parseSyncedAnalyticsVisualizations } from './analytics-payload'
 
 /** Server `AnalyticsSummaryRow` (server-contracts.md §2, `toRow`). */
 interface AnalyticsSummaryRow {
@@ -261,9 +264,9 @@ function emptyBundle(request: LearningAnalyticsRequest, asOf: AnalyticsInstant):
   }
 }
 
-/** Bundle built from a stored aggregate summary row. `hero` is available and
- *  `focus` is `partial` (session totals only - no daily/heatmap series, which
- *  the server does not store). Other sections remain unavailable on Web. */
+/** Bundle built from a stored aggregate summary row. Older desktop uploads expose
+ * only focus totals; v1 consented chart payloads also restore focus and
+ * aggregate task visualizations without making the server a teaching authority. */
 function populatedBundle(
   request: LearningAnalyticsRequest,
   row: AnalyticsSummaryRow
@@ -273,8 +276,10 @@ function populatedBundle(
   const focusSeconds = Math.max(0, row.focusSeconds)
   const planned = Math.max(0, row.plannedFocusSeconds)
   const sessions = Math.max(0, row.completedFocusSessions)
-  const xp = request.personalStudy?.current.xp ?? 0
-  const streak = request.personalStudy?.current.streakDays ?? 0
+  const visuals = parseSyncedAnalyticsVisualizations(row.payload)
+  const xp = request.personalStudy?.current.xp ?? visuals?.focus.currentGrowth.xp ?? 0
+  const streak = request.personalStudy?.current.streakDays ?? visuals?.focus.currentGrowth.streakDays ?? 0
+  const syncedTasks = visuals?.tasks ? hydratedSyncedTasks(visuals.tasks) : null
   const completionRate = planned > 0 ? focusSeconds / planned : null
   const coverage = summaryCoverage(query, row)
 
@@ -285,23 +290,23 @@ function populatedBundle(
     currentXp: xp,
     currentLevel: levelProgress(xp),
     totalTokens: 0,
-    currentTaskCompletionRate: null,
+    currentTaskCompletionRate: syncedTasks?.current.completionRate ?? null,
     insightLine: buildInsightLine(focusSeconds, planned, sessions, completionRate)
   }
 
   const focusData: FocusAnalytics = {
-    daily: [],
-    heatmap: [],
-    trend: [],
-    hourBuckets: zeroHourBuckets(),
-    activeRanges: {
+    daily: visuals?.focus.daily ?? [],
+    heatmap: visuals?.focus.heatmap ?? [],
+    trend: visuals?.focus.trend ?? [],
+    hourBuckets: visuals?.focus.hourBuckets ?? zeroHourBuckets(),
+    activeRanges: visuals?.focus.activeRanges ?? {
       mode: 'day_of_range',
       categories: [],
       ranges: [],
       yMax: 24,
       yUnit: 'hour'
     },
-    sessionStructure: {
+    sessionStructure: visuals?.focus.sessionStructure ?? {
       focusSeconds,
       breakSeconds: 0,
       completed: sessions,
@@ -310,7 +315,7 @@ function populatedBundle(
       averageCompletedFocusSeconds: sessions > 0 ? focusSeconds / sessions : null,
       completionRate
     },
-    currentGrowth: {
+    currentGrowth: visuals?.focus.currentGrowth ?? {
       xp,
       level: levelProgress(xp),
       streakDays: streak,
@@ -338,13 +343,27 @@ function populatedBundle(
       data: heroData
     },
     focus: {
-      state: 'partial',
+      state: visuals ? 'available' : 'partial',
       temporal: rangeTemporal(query),
       coverage,
       warnings: EMPTY_WARNINGS,
       data: focusData
     },
-    tasks: unavailableSection<TaskAnalytics>(query, 'unsupported', asOf),
+    tasks: syncedTasks
+      ? {
+          state: 'available',
+          temporal: {
+            kind: 'mixed',
+            range: query.range,
+            asOf,
+            rangeFields: ['flow', 'plan', 'topByAttributedFocus', 'byCategoryFocus', 'topByCompletion', 'byCategoryCompletion', 'unattributedFocusSeconds'],
+            rangeInvariantFields: ['current']
+          },
+          coverage,
+          warnings: EMPTY_WARNINGS,
+          data: syncedTasks
+        }
+      : unavailableSection<TaskAnalytics>(query, 'unsupported', asOf),
     tokens: unavailableSection<TokenAnalytics>(query, 'unsupported', asOf),
     workspaceAssets: unavailableSection<WorkspaceAssetsAnalytics>(query, 'unsupported', asOf),
     review: unavailableSection<ReviewAnalytics>(query, 'unsupported', asOf),

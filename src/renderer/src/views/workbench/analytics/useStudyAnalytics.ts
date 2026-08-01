@@ -273,7 +273,7 @@ export function assertAnalyticsBundle(value: unknown): asserts value is Learning
   }
 }
 
-function personalStudyRequest(query: LearningAnalyticsQuery): LearningAnalyticsRequest {
+export function createPersonalStudyAnalyticsRequest(query: LearningAnalyticsQuery): LearningAnalyticsRequest {
   if (query.scope.personalFocus.kind !== 'personal') return { query }
   const study = readStudySnapshot()
   return {
@@ -352,7 +352,7 @@ async function requestAnalyticsBundle(query: LearningAnalyticsQuery, signal: Abo
     ? undefined
     : window.teachingSystem as unknown as AnalyticsCapableSystemApi | undefined
   const request: LearningAnalyticsRequest = {
-    ...personalStudyRequest(query),
+    ...createPersonalStudyAnalyticsRequest(query),
     ...(options.sectionIds?.length ? { sectionIds: [...new Set(options.sectionIds)] } : {}),
     ...(options.refreshSectionIds?.length ? { refreshSectionIds: [...new Set(options.refreshSectionIds)] } : {})
   }

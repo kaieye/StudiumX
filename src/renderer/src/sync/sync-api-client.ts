@@ -8,6 +8,7 @@
  */
 
 import type { StudyPlanningSnapshotV1 } from '../../../shared/study-planning/study-planning-store'
+import type { SyncedAnalyticsVisualizationsV1 } from '../../../shared/teaching-types/analytics'
 
 const DEFAULT_SYNC_API_BASE = 'https://api.studiumx.cn'
 
@@ -160,14 +161,19 @@ export type SyncAnalyticsPeersResponse = {
   asOf: string
 }
 
-/** Derived "today" summary body (MASTER_PLAN §5.4 — aggregated only). */
+/**
+ * Consent-gated derived analytics summary (MASTER_PLAN §5.4). `payload` is
+ * limited to chart-ready aggregates; it never contains raw timer/activity
+ * facts or teaching evidence.
+ */
 export type SyncAnalyticsSummaryBody = {
-  rangeKey: 'today'
+  rangeKey: 'today' | 'sevenDays' | 'thirtyDays' | 'ninetyDays' | 'allTime'
   focusSeconds: number
   plannedFocusSeconds: number
   completedFocusSessions: number
   periodStartDate: string
   periodEndDate: string
+  payload?: SyncedAnalyticsVisualizationsV1
 }
 
 export type SyncAnalyticsSummaryResponse = {

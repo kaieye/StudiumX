@@ -218,6 +218,10 @@ export function createWebTeachingApi(): TeachingSystemApi {
       const res = await fetch('/api/analytics/summary?range=sevenDays', {
         headers: authHeaders(),
       })
+      // Legacy summaries contain only headline totals. When the desktop has
+      // consented to learning-analytics sync, v1 also carries a narrow,
+      // chart-ready aggregate for focus/task visualizations — never teaching
+      // evidence, raw timer facts, task titles, or workspace content.
       return res.json()
     },
 
@@ -348,7 +352,7 @@ export function createWebTeachingApi(): TeachingSystemApi {
 
 - 移植 StudyAnalyticsPage 及图表组件
 - adapter 实现 getLearningAnalytics（GET /analytics/summary）
-- 验证：Web 端展示分析图表，数据来自 Server
+- 验证：Web 端展示 Server 的派生图表数据；旧汇总仅显示 headline，已同意同步的 v1 aggregate 恢复专注/任务可视化，教学决策权威仍在本地 ledger/文件
 
 ### Phase 5：学习计划与自习室
 

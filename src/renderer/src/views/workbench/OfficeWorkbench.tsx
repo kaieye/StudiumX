@@ -70,6 +70,7 @@ import { StudyTaskSchedulePage } from './StudyTaskSchedulePage'
 import { StudyAnalyticsPage, type StudyAnalyticsPageProps } from './analytics/StudyAnalyticsPage'
 import { buildLivePresenceSnapshot } from './analytics/livePresenceAnalytics'
 import { useTodayAnalyticsSync } from '../../sync/today-analytics-sync'
+import { useAnalyticsVisualizationSync } from '../../sync/analytics-visualization-sync'
 import {
   navigateWorkbenchRoute,
   parseWorkbenchRoute,
@@ -460,6 +461,9 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     focusSecondsToday: snapshot.todayFocusSeconds,
     todaySessions: snapshot.todaySessions
   })
+  // The same opt-in also mirrors chart-ready aggregate ranges for Web. Local
+  // analytics remains the authority; this only supplies a read-only display.
+  useAnalyticsVisualizationSync()
 
   const handleEnterRandomSpace = useCallback(() => {
     const fallbackRoomId = randomStudySpaceCode()

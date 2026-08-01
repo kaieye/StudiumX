@@ -647,6 +647,23 @@ export type TaskAnalytics = {
   unattributedFocusSeconds: number
 }
 
+/**
+ * Consent-gated derived charts that may be stored by the sync service for
+ * browser/phone rendering. This deliberately excludes raw activity facts,
+ * task titles, conversation/workspace metadata, review answers, memories,
+ * tool data, and any teaching evidence. Local files and the personal ledger
+ * remain the only teaching-decision authority.
+ */
+export type SyncedAnalyticsVisualizationsV1 = {
+  version: 1
+  focus: Pick<
+    FocusAnalytics,
+    'daily' | 'heatmap' | 'trend' | 'hourBuckets' | 'activeRanges' | 'sessionStructure' | 'currentGrowth'
+  >
+  /** Aggregate task charts only; per-task labels never leave the device here. */
+  tasks?: Pick<TaskAnalytics, 'current' | 'flow' | 'plan' | 'unattributedFocusSeconds'>
+}
+
 export type TokenUsageNumbers = {
   promptTokens?: number
   completionTokens?: number
