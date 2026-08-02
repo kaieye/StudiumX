@@ -145,8 +145,6 @@ export type SyncStudyRoomHeartbeatBody = {
 }
 
 export type SyncStudyRoomAssignAndJoinBody = Omit<SyncStudyRoomJoinBody, 'roomId'> & {
-  /** Client-generated room code used only if no live room has a free seat. */
-  fallbackRoomId: string
   /** Set for an explicit random room switch so the server may retain it when appropriate. */
   currentRoomId?: string
 }

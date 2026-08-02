@@ -40,6 +40,7 @@ import {
   Wrench
 } from 'lucide-react'
 import { AppUpdateDialog } from './views/updater/AppUpdateDialog'
+import { AppStudyRoomPresenceProvider } from './sync/app-study-room-presence'
 import type { TeachingPresentationSnapshot } from '../../shared/teaching-types/teaching-presentation'
 import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
@@ -253,21 +254,23 @@ function App() {
 
   return (
     <AppErrorBoundary>
-      <DesktopAppFrame
-        chrome={chrome}
-        density={settings.density}
-        floatingContent={appAccessible ? <AppPet /> : null}
-        onSidebarToggle={() => setSidebarCollapsed(!useAppStore.getState().sidebarCollapsed)}
-        sidebarCollapsed={sidebarCollapsed}
-        sidebarWidth={sidebarWidth}
-      >
-        <AuthGate>
-          <Sidebar />
-          <SidebarResizeHandle policy={sidebarResizePolicy} onResize={setSidebarWidth} width={sidebarWidth} />
-          <MainArea />
-        </AuthGate>
-      </DesktopAppFrame>
-      <AppUpdateDialog />
+      <AppStudyRoomPresenceProvider>
+        <DesktopAppFrame
+          chrome={chrome}
+          density={settings.density}
+          floatingContent={appAccessible ? <AppPet /> : null}
+          onSidebarToggle={() => setSidebarCollapsed(!useAppStore.getState().sidebarCollapsed)}
+          sidebarCollapsed={sidebarCollapsed}
+          sidebarWidth={sidebarWidth}
+        >
+          <AuthGate>
+            <Sidebar />
+            <SidebarResizeHandle policy={sidebarResizePolicy} onResize={setSidebarWidth} width={sidebarWidth} />
+            <MainArea />
+          </AuthGate>
+        </DesktopAppFrame>
+        <AppUpdateDialog />
+      </AppStudyRoomPresenceProvider>
     </AppErrorBoundary>
   )
 }

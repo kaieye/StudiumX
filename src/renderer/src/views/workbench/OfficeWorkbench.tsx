@@ -1,10 +1,7 @@
 import { ChevronDown, ChevronUp, Eye, EyeOff, Image, LoaderCircle, Maximize2, Minimize2, StickyNote, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../app-shell/appStore'
-import {
-  formatStudyDuration,
-  randomStudySpaceCode
-} from '../../study-space/domain'
+import { formatStudyDuration } from '../../study-space/domain'
 import { useStudySession } from '../../study-space/session/useStudySession'
 import {
   createOfficeSceneRuntime,
@@ -23,7 +20,7 @@ import { useDialogAsk } from './useDialogAsk'
 import { ImmersiveScenePicker } from './ImmersiveScenePicker'
 import { ClockDisplay } from './immersive-clock-display'
 import { WorkbenchLeaderboard } from './WorkbenchLeaderboard'
-import { useStudyRoomPresence } from '../../sync/study-room-presence'
+import { useAppStudyRoomPresence } from '../../sync/app-study-room-presence'
 import { useSyncState } from '../../sync/sync-store'
 import type { SyncStudyRoomMember } from '../../sync/sync-api-client'
 import type { StudyRoomMember } from '../../study-space/viewModel'
@@ -121,16 +118,6 @@ function mapServerMemberToRoomMember(member: SyncStudyRoomMember): StudyRoomMemb
     updatedAt: Date.now(),
     isSelf: member.isSelf
   }
-}
-
-/** Translate the local timer state/mode into the server presence status vocabulary. */
-function deriveServerPresenceStatus(
-  timerState: 'idle' | 'running' | 'paused',
-  timerMode: 'focus' | 'break'
-): 'studying' | 'break' | 'idle' {
-  if (timerState === 'running' && timerMode === 'focus') return 'studying'
-  if (timerMode === 'break' && timerState !== 'idle') return 'break'
-  return 'idle'
 }
 
 /**
@@ -377,16 +364,14 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   // STC sync: the server roster is the sole shared-room source for both
   // desktop and phone/web, including each member's authoritative seat.
   const syncState = useSyncState()
-  const studyRoomPresence = useStudyRoomPresence({
-    roomId: snapshot.spaceCode,
-    nickname: syncState.user?.nickname ?? snapshot.nickname,
-    avatarUrl: syncState.user?.avatarUrl,
-    petAppearance,
-    focusSecondsToday: snapshot.todayFocusSeconds,
-    status: deriveServerPresenceStatus(snapshot.timerState, snapshot.timerMode),
-    active: Boolean(syncState.accessToken),
-    onAssignedRoom: joinSpace
-  })
+  const studyRoomPresence = useAppStudyRoomPresence()
+
+  // The app-wide owner keeps this user visible even away from this route.
+  // Feed it the live workbench snapshot while this screen is open so its
+  // heartbeat retains accurate timer state and focus totals.
+  useEffect(() => {
+    studyRoomPresence.updateSessionSnapshot(snapshot)
+  }, [snapshot, studyRoomPresence])
   const leaderboardMembers = studyRoomPresence.hasReceivedRoster
     ? mergeServerMembers(studyRoomPresence.members)
     : []
@@ -399,23 +384,24 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
   useAnalyticsVisualizationSync()
 
   const handleEnterRandomSpace = useCallback(() => {
-    const fallbackRoomId = randomStudySpaceCode()
     void (async () => {
       const roomId = await studyRoomPresence.assignAndJoinRoom({
-        fallbackRoomId,
         currentRoomId: snapshot.spaceCode,
       })
-      // When offline or the assignment request fails, preserve the previous
-      // local-only behaviour rather than blocking the room switcher.
-      const selectedRoomId = roomId ?? fallbackRoomId
-      if (selectedRoomId !== snapshot.spaceCode) joinSpace(selectedRoomId)
+      // Do not create or switch to a local fallback room if the server cannot
+      // complete the assignment. The server is the room-ID authority.
+      if (!roomId || roomId === snapshot.spaceCode) return
+      studyRoomPresence.adoptRoom(roomId)
+      joinSpace(roomId)
     })()
   }, [joinSpace, snapshot.spaceCode, studyRoomPresence])
 
   const handleJoinExistingSpace = useCallback(async (roomId: string): Promise<boolean> => {
     const joined = await studyRoomPresence.joinExistingRoom(roomId)
     if (joined && roomId.trim().toUpperCase() !== snapshot.spaceCode) {
-      joinSpace(roomId)
+      const normalizedRoomId = roomId.trim().toUpperCase()
+      studyRoomPresence.adoptRoom(normalizedRoomId)
+      joinSpace(normalizedRoomId)
     }
     return joined
   }, [joinSpace, snapshot.spaceCode, studyRoomPresence])

@@ -28,11 +28,11 @@ export type StudyRoomPresenceState = {
    */
   joinExistingRoom: (roomId: string) => Promise<boolean>
   /**
-   * Atomically select and enter a room on the server. Returns null when sync
-   * is unavailable or the request fails, allowing the local-only room flow.
+   * Atomically select and enter a room on the server. The server allocates
+   * a new room when no active room has a free seat. Returns null only when
+   * sync is unavailable or the request fails.
    */
   assignAndJoinRoom: (input: {
-    fallbackRoomId: string
     currentRoomId?: string
   }) => Promise<string | null>
 }
@@ -149,7 +149,7 @@ export function useStudyRoomPresence(
   }, [roomId, syncState.baseUrl])
 
   const assignAndJoinRoom = useCallback(async (
-    input: { fallbackRoomId: string; currentRoomId?: string }
+    input: { currentRoomId?: string }
   ): Promise<string | null> => {
     if (!active || !getSyncAccessToken() || !syncState.accessToken) return null
     try {
@@ -206,7 +206,7 @@ export function useStudyRoomPresence(
       try {
         if (!assignmentAttemptedRef.current && onAssignedRoomRef.current) {
           assignmentAttemptedRef.current = true
-          const assignedRoomId = await assignAndJoinRoom({ fallbackRoomId: room })
+          const assignedRoomId = await assignAndJoinRoom({})
           if (cancelled) return
           if (assignedRoomId) {
             if (assignedRoomId !== room) {

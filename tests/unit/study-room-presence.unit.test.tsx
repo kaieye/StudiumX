@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, render, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const client = {
@@ -22,11 +22,37 @@ vi.mock('@renderer/sync/sync-store', () => ({
 }))
 
 import { useStudyRoomPresence } from '@renderer/sync/study-room-presence'
+import { AppStudyRoomPresenceProvider } from '@renderer/sync/app-study-room-presence'
 
 describe('useStudyRoomPresence', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
+  })
+
+  it('joins a room on authenticated app entry without mounting the workbench', async () => {
+    client.studyRoomAssignAndJoin.mockResolvedValue({ joined: true, roomId: 'LIVE1', seatIndex: 0 })
+    client.studyRoomJoin.mockResolvedValue({ joined: true, roomId: 'LIVE1', seatIndex: 0 })
+    client.studyRoomMembers.mockResolvedValue({ roomId: 'LIVE1', members: [{ userId: 'user-1', isSelf: true }] })
+    client.studyRoomLeave.mockResolvedValue({ left: true })
+
+    const { unmount } = render(
+      <AppStudyRoomPresenceProvider>
+        <div>Application shell</div>
+      </AppStudyRoomPresenceProvider>
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(client.studyRoomAssignAndJoin).toHaveBeenCalledTimes(1)
+    expect(client.studyRoomAssignAndJoin).toHaveBeenCalledWith(
+      expect.not.objectContaining({ fallbackRoomId: expect.anything() })
+    )
+    unmount()
   })
 
   it('polls the roster after joining so peers who enter later become visible', async () => {
