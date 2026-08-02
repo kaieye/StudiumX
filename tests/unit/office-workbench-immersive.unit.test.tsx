@@ -65,6 +65,38 @@ vi.mock('../../src/renderer/src/app-shell/appStore', () => ({
 vi.mock('../../src/renderer/src/study-space/session/useStudySession', () => ({
   useStudySession: () => studySession
 }))
+const appStudyRoomPresence = vi.hoisted(() => ({
+  members: [] as Array<{ isSelf?: boolean; seatIndex?: number }>,
+  loading: false,
+  error: null as string | null,
+  hasReceivedRoster: false,
+  refresh: vi.fn(),
+  joinExistingRoom: vi.fn(async () => true),
+  assignAndJoinRoom: vi.fn(async ({ currentRoomId }: { currentRoomId?: string }) => currentRoomId ?? 'TEST'),
+  updateSessionSnapshot: vi.fn(),
+  adoptRoom: vi.fn()
+}))
+vi.mock('../../src/renderer/src/sync/app-study-room-presence', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/renderer/src/sync/app-study-room-presence')>()
+  return {
+    ...actual,
+    useAppStudyRoomPresence: () => appStudyRoomPresence
+  }
+})
+vi.mock('../../src/renderer/src/sync/sync-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/renderer/src/sync/sync-store')>()
+  return {
+    ...actual,
+    useSyncState: () => ({
+      baseUrl: '',
+      accessToken: null,
+      refreshToken: null,
+      deviceId: null,
+      user: null,
+      analyticsSyncEnabled: false
+    })
+  }
+})
 vi.mock('../../src/renderer/src/views/workbench/office-scene-runtime', () => ({
   createOfficeSceneRuntime: () => ({
     mount: vi.fn(),

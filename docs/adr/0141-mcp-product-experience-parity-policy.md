@@ -1,8 +1,9 @@
 # ADR-0141：MCP 产品体验对齐政策修订（放宽过度严格的体验边界）
 
-- **状态：** 已采纳（产品政策修订；**取代/收窄** ADR-0132 / 0137 / 0139 / 0140 中过严的“体验层禁止”，不废止教学 settlement / secret isolation 硬安全不变量）；**产品面收窄见 [ADR-0142](0142-mcp-product-surface-settings-only.md)**（Settings 无 marketplace UI）。\n- **日期：** 2026-07-23
+- **状态：** 已采纳（产品政策修订；**取代/收窄** ADR-0132 / 0137 / 0139 / 0140 中过严的“体验层禁止”，不废止教学 settlement / secret isolation 硬安全不变量）；**产品面收窄见 [ADR-0142](0142-mcp-product-surface-settings-only.md)**（Settings 无 marketplace UI）。
+- **日期：** 2026-07-23
 - **范围：** 将 StudiumX MCP 的**产品体验默认与能力开放面**对齐主流 MCP 客户端（Claude Desktop / Cursor / Zcode 等）：可自动连接、可 marketplace、可安装后连接、可展示多来源与目录 UI、可网络 McpSync 与远程目录（用户配置源）、可合理默认 workspace-root 注入与 annotations 辅助 UX。
-- **相关：** ADR-0127、ADR-0128、ADR-0132、ADR-0133–0140、`AGENTS.md`、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`、`docs/improvements/mcp-zcode-alignment-target.md`。
+- **相关：** ADR-0127、ADR-0128、ADR-0132、ADR-0133–0140、`AGENTS.md`、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`、Zcode MCP 对齐历史研究（已结项）。
 
 ## 1. 动机
 

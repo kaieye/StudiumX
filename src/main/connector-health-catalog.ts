@@ -76,9 +76,6 @@ const orderedHealthChecks: readonly ConnectorHealthCheck[] = [
 
 async function workspaceConnectorStatus(input: ConnectorHealthCheckInput): Promise<ConnectorStatus> {
   const { settings, workspace } = input
-  if (!settings.tools.enabled) {
-    return disabledStatus('workspace_files', 'Workspace files', 'workspace', '工具调用已关闭。', '在工具设置中启用工具调用。')
-  }
   if (!settings.tools.workspaceRead) {
     return disabledStatus('workspace_files', 'Workspace files', 'workspace', '工作区文件工具已关闭。', '在工具设置中启用工作区文件工具。')
   }
@@ -103,9 +100,6 @@ async function workspaceConnectorStatus(input: ConnectorHealthCheckInput): Promi
 
 async function webSearchConnectorStatus(input: ConnectorHealthCheckInput): Promise<ConnectorStatus> {
   const { settings, context } = input
-  if (!settings.tools.enabled) {
-    return disabledStatus('web_search', 'Web search', 'web', '工具调用已关闭。', '在工具设置中启用工具调用。')
-  }
   if (!settings.tools.webSearch) {
     return disabledStatus('web_search', 'Web search', 'web', 'web_search 工具已关闭。', '在工具设置中启用 web_search。')
   }
@@ -163,9 +157,6 @@ async function webSearchConnectorStatus(input: ConnectorHealthCheckInput): Promi
 }
 
 async function webFetchConnectorStatus(input: ConnectorHealthCheckInput): Promise<ConnectorStatus> {
-  if (!input.settings.tools.enabled) {
-    return disabledStatus('web_fetch', 'Web fetch', 'web', '工具调用已关闭。', '在工具设置中启用工具调用。')
-  }
   if (!input.settings.tools.webFetch) {
     return disabledStatus('web_fetch', 'Web fetch', 'web', 'web_fetch 工具已关闭。', '在工具设置中启用 web_fetch。')
   }

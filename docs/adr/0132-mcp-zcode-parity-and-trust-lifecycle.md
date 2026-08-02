@@ -3,7 +3,7 @@
 - **状态：** 已采纳；**体验政策由 [ADR-0141](0141-mcp-product-experience-parity-policy.md) 修订**（允许 auto-connect / marketplace / install→connect 等主流体验；硬安全不变量仍见 §3）；Settings 产品面收窄见 [ADR-0142](0142-mcp-product-surface-settings-only.md)。
 - **日期：** 2026-07-22
 - **范围：** 将 MCP 从“用户手动配置、默认关闭的 v1 client”升级为完整 MCP client 目标：多来源配置、自动连接、OAuth、workspace-root 注入、plugin-provided servers、marketplace、迁移/同步、完整 server lifecycle，以及相应的 trust/provenance/approval 合同。
-- **参照：** `ref_project/Zcode` Desktop 3.3.3（2026-07-08 构建）和 [`docs/improvements/mcp-zcode-alignment-target.md`](../improvements/mcp-zcode-alignment-target.md)。
+- **参照：** `ref_project/Zcode` Desktop 3.3.3（2026-07-08 构建）和 Zcode MCP 对齐历史研究（已结项）。
 - **取代范围：** 本 ADR 取代 ADR-0127、ADR-0128 中“无 MCP marketplace”“无 auto-connect”“workspace 文件不得作为 MCP 配置来源”“plugin MCP 仅可作为导入草稿”“filesystem MCP 不得获得受控 workspace-root 注入”等**产品禁令**。ADR-0127/0128 的现有 v1 实现事实、secret isolation、effect lattice、settlement 和 ToolOutcome 不变量继续有效。
 - **相关：** ADR-0127、ADR-0128、ADR-0024、ADR-0048、ADR-0060、ADR-0061、ADR-0063、ADR-0073、ADR-0079、ADR-0083、ADR-0112、ADR-0115、ADR-0118。
 

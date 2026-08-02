@@ -3,7 +3,7 @@
 - **状态：** **已实施**（core ledger，2026-07-24）：`src/main/ai/context-file-ledger.ts` 已接线 agent-loop / request-context-projection；learner 透明 UI 仍可后续消费同一结构（非本条阻塞）
 - **日期：** 2026-07-23
 - **范围：** 为 agent 运行中单路径 workspace 工具触碰建立**可合并、路径消毒**的 file-touch 账本，并作为 teaching/context **投影数据（data not instructions）**注入；**不**进入 summarizer payload；**不**成为 teaching-evidence 或 settlement 权威。
-- **相关：** [liveagent-worth-learning.md](../improvements/liveagent-worth-learning.md) §2.1、[ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)、[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0121](0121-improvements-adoption-closeout.md)、`AGENTS.md`、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`
+- **相关：** LiveAgent 历史研究清单（已结项） §2.1、[ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)、[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0121](0121-improvements-adoption-closeout.md)、`AGENTS.md`、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`
 - **实现落点：** `src/main/ai/context-file-ledger.ts`；挂钩 tool dispatch / `agent-loop`；注入 `request-context-projection`（及压缩 resume 路径若需要）
 
 ## 1. 背景
@@ -58,7 +58,7 @@ src/main/ai/context-file-ledger.ts   # pure merge / sanitize / budget drop
 # tests/unit: merge order, modified sticky, failure exclude, sanitize, budget drop, not in summarizer payload
 ```
 
-验收见 [liveagent-worth-learning.md](../improvements/liveagent-worth-learning.md) §2.1；learner 透明 UI 消费同一结构为 residual（非 core 阻塞）。
+验收已由本 ADR 的实现落点和目标测试闭环；learner 透明 UI 消费同一结构为 residual（非 core 阻塞）。
 
 ## 4. 与既有 ADR 的关系
 

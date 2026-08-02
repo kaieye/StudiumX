@@ -4,7 +4,7 @@ import type { ExplicitSkillInvocationResolution } from './explicit-skill-invocat
 import { createAgentEventBus, type AgentEventBus } from './ai/agent-event-bus'
 import { attachAgentRunAuditMetadata } from './ai/agent-run-audit'
 import { resolveActiveProvider, type ChatMessage } from './ai/provider-adapter'
-import { buildDefaultRegistry, buildToolContext, ToolRegistry } from './ai/tools/registry'
+import { buildDefaultRegistry, buildToolContext } from './ai/tools/registry'
 import { injectMcpToolsIntoRegistry } from './mcp/registry-inject'
 import type { McpSessionManager } from './mcp/session-manager'
 import { loadAndMergeToolPolicyDocumentsFromWorkspace, toolPolicyDocumentOption } from './ai/tools/tool-policy-fs'
@@ -31,6 +31,7 @@ import {
   lessonGenerationRunBudget
 } from './teaching-conversation-lesson-tool'
 import { createConversationPermissionResolver } from './teaching-conversation-permissions'
+import { replaceUnavailableWorkspaceReadPromise } from './teaching-workspace-tool-unavailable-fallback'
 import {
   buildSessionStablePrefix,
   composeTeachingUserTurn,
@@ -270,7 +271,7 @@ async function runTeachingConversationTurnActive(
   const conversation = deriveConversationTurnContext({
     mode: payload.mode,
     workspace,
-    toolsEnabled: settings.tools.enabled,
+    toolsEnabled: true,
     hasLessonGenerator: typeof deps.generateLessonFromBrief === 'function'
   })
   const parsedExplicitInvocation = parseExplicitSkillInvocation(userInput)
@@ -376,20 +377,15 @@ async function runTeachingConversationTurnActive(
   // Register the established candidates first, then project the completed registry
   // through the explicit turn policy below. The allow-list keeps new registrations
   // fail-closed until they are intentionally assigned to a teaching capability.
-  const baseRegistry = settings.tools.enabled
-    ? buildDefaultRegistry(
-        settings,
-        conversation.capabilityPolicy.workspaceToolsEnabled
-          ? { workspaceRoot: conversation.workspaceRoot, workspaceWrite: true }
-          : {}
-      )
-    : new ToolRegistry()
-  // The `ask` tool is a pure conversational decision tool — registered
-  // whenever tool calling is enabled (teaching or temporary mode) so the
-  // model can present clickable options at a real user-owned fork. It
-  // respects the master `tools.enabled` switch like every other tool.
-  if (settings.tools.enabled) {
-    baseRegistry.register(createAskToolEntry({
+  const baseRegistry = buildDefaultRegistry(
+    settings,
+    conversation.capabilityPolicy.workspaceToolsEnabled
+      ? { workspaceRoot: conversation.workspaceRoot, workspaceWrite: true }
+      : {}
+  )
+  // `ask` is a pure conversational decision tool. Application-level tool
+  // availability is fixed on; individual effects remain subject to policy.
+  baseRegistry.register(createAskToolEntry({
       streamId: stream.streamId,
       signal: stream.signal,
       onWaiting: async (toolCallId) => {
@@ -416,7 +412,6 @@ async function runTeachingConversationTurnActive(
         })
       }
     }))
-  }
   if (conversation.capabilityPolicy.delegationEnabled) {
     for (const tool of createDelegationToolEntries({
       provider,
@@ -594,7 +589,7 @@ async function runTeachingConversationTurnActive(
   const skillResourceReferences = explicitInvocation?.resourceReference
     ? [...skillReferences, explicitInvocation.resourceReference]
     : skillReferences
-  const skillResourceTool = settings.tools.enabled ? createReadSkillResourceTool(skillResourceReferences) : null
+  const skillResourceTool = createReadSkillResourceTool(skillResourceReferences)
   if (skillResourceTool) baseRegistry.register(skillResourceTool)
   // Slice F: memory search + human-approved synthetic teaching memory (no FTS).
   // Skip registration when the durable catalog cannot open on this host so the
@@ -602,7 +597,6 @@ async function runTeachingConversationTurnActive(
   // Memory tools: write tools require durable_authority_write profile (ADR-0126).
   const memoryWriteAvailable = memoryCatalogAvailable && isMemoryAuthorityWriteAvailable()
   if (
-    settings.tools.enabled &&
     settings.memory.enabled &&
     memoryCatalogAvailable &&
     conversation.capabilityPolicy.workspaceToolsEnabled
@@ -629,7 +623,7 @@ async function runTeachingConversationTurnActive(
     allow: conversation.capabilityPolicy.allowedToolNames,
     deny: conversation.capabilityPolicy.deniedToolNames
   })
-  if (settings.tools.enabled && deps.mcpSessionManager) {
+  if (deps.mcpSessionManager) {
     if (deps.mcpHost) {
       await deps.mcpHost.prepareForWorkspace(conversation.workspaceRoot ?? null)
     }
@@ -675,6 +669,7 @@ async function runTeachingConversationTurnActive(
   const promptOptions = {
     mode: conversation.mode,
     lessonToolEnabled: lessonTool.enabled,
+    workspaceToolsEnabled: conversation.capabilityPolicy.workspaceToolsEnabled,
     skillReferences,
     memoryCapturePlan: capturePlan,
     existingMemories,
@@ -764,6 +759,13 @@ async function runTeachingConversationTurnActive(
     durableSuccessFallback: () =>
       lessonGenerationSuccessFallback(lessonTool.generatedLessons()),
     shouldFinalizeAfterToolExecution: () => lessonTool.generatedLessons().length > 0,
+    normalizeFinalAnswer: (answerText) => {
+      const fallback = replaceUnavailableWorkspaceReadPromise(
+        answerText,
+        conversation.capabilityPolicy.workspaceToolsEnabled
+      )
+      return fallback ? { finalText: fallback, degradedReason: 'workspace_read_unavailable' } : null
+    },
     signal: stream.signal,
     callbacks: {
       onEvent: (event) => {

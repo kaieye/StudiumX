@@ -88,7 +88,6 @@ export function parseTeachingLoopOverlay(
     const section = requireObject(raw.tools, source, 'tools', diagnostics)
     if (section) {
       const tools: NonNullable<ParsedOverlay['tools']> = {}
-      assignBoolean(section, 'enabled', tools, 'enabled', source, 'tools.enabled', diagnostics, overlay)
       assignBoolean(section, 'workspaceRead', tools, 'workspaceRead', source, 'tools.workspaceRead', diagnostics, overlay)
       assignEnum(section, 'approvalMode', tools, 'approvalMode', AGENT_APPROVAL_MODES, source, 'tools.approvalMode', diagnostics, overlay)
       assignBoolean(section, 'webSearch', tools, 'webSearch', source, 'tools.webSearch', diagnostics, overlay)

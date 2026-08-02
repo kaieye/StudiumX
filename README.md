@@ -77,7 +77,6 @@ StudiumX/
 ├── docs/adr/               # 架构决策记录（ADR）
 ├── CONTRIBUTING.md         # 贡献流程与验证要求
 ├── SECURITY.md             # 产品信任边界
-├── MISSION.md              # 本仓库自身的产品使命
 └── package.json            # 脚本、依赖与运行时约束
 ```
 
@@ -175,8 +174,7 @@ pnpm run check:teaching-evidence
 
 ## 开发文档
 
-- [`MISSION.md`](MISSION.md) — 产品使命与学习工作区的核心产物
-- [`CONTEXT.md`](CONTEXT.md) — 本仓库自身学习工作区的上下文
+- [`docs/domain-language.md`](docs/domain-language.md) — 产品领域术语与命名约定
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — 安装、协作与 PR 验证要求
 - [`SECURITY.md`](SECURITY.md) — 安全、隐私、MCP 与工具权限边界
 - [`docs/adr/README.md`](docs/adr/README.md) — 已实施架构决策索引

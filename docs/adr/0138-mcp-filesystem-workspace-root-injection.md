@@ -3,7 +3,7 @@
 - **状态：** 已实施（ADR-0132 Phase F implementation addendum；仅本 phase 范围）；体验默认见 [ADR-0141](0141-mcp-product-experience-parity-policy.md)（filesystem 类可默认 granted）
 - **日期：** 2026-07-23
 - **范围：** 受控 stdio filesystem MCP 的 **显式授权** workspace-root 参数注入；canonical path / 作用域 containment；session 在 workspace 切换时重建；Doctor/runtime 仅暴露 secret-free effective args。
-- **相关：** ADR-0128、ADR-0132、ADR-0133、ADR-0134、ADR-0135、ADR-0136、`docs/improvements/mcp-zcode-alignment-target.md`、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`。
+- **相关：** ADR-0128、ADR-0132、ADR-0133、ADR-0134、ADR-0135、ADR-0136、Zcode MCP 对齐历史研究（已结项）、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`。
 
 ## 1. 决定与边界
 

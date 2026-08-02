@@ -1,6 +1,6 @@
 # ADR-0126：Codex 式平台能力分层（Platform Capability Profiles）与 consumer 迁移
 
-- **状态：** **已实施（分 phase 结项）** — 2026-07-22 本地落地；outcome/audit Windows 仍 unavailable（诚实边界）。**默认写模型**由 [ADR-0131](0131-pathname-default-durable-io.md) supersede（pathname-default；native descriptor **非**默认）；本文件历史 dual-profile 结项与 inventory **保留**，不重写。**Shell / 命令执行产品面不在本 ADR 范围**——见 [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md) / [ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md) 与实施权威 [agent-shell-sandbox-delivery-roadmap.md](../agent-shell-sandbox-delivery-roadmap.md)（当前 provisional / 未合格）。
+- **状态：** **已实施（分 phase 结项）** — 2026-07-22 本地落地；outcome/audit Windows 仍 unavailable（诚实边界）。**默认写模型**由 [ADR-0131](0131-pathname-default-durable-io.md) supersede（pathname-default；native descriptor **非**默认）；本文件历史 dual-profile 结项与 inventory **保留**，不重写。**Shell / 命令执行产品面不在本 ADR 范围**——见 [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md) / [ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md) ；合格交付状态见 [ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md)（A–F 已于 2026-07-25 完成）。
 - **日期：** 2026-07-22
 - **作者动机：** Windows 上 descriptor-relative catalog 把聊天热路径 fail-closed；产品要求改为 **Codex 式分层**：不同平台显式命名不同合同，热路径可降级，教学权威写路径仍 fail-closed，且 **禁止** 把较弱 profile 伪装成 POSIX CAS / strict。
 - **相关已实施决定：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)（C-4 durable publish / P8 Windows direct-path）、[ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)（Memory 分区与 descriptor I/O）、[ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)（Windows strict no-go）、[ADR-0052](0052-provider-error-and-recovery-taxonomy.md) / [ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)（空流与有界 retry）、[SECURITY.md](../../SECURITY.md)、`AGENTS.md` 产品地板。
@@ -35,12 +35,12 @@ Codex **不是**在 Windows 上假装有 Linux bubblewrap / openat CAS，而是�
 | Codex / 通用 agent 常见项 | StudiumX |
 | --- | --- |
 | `danger-full-access` / YOLO / always-approve 标签 | **禁止**（`AGENTS.md` / SECURITY） |
-| 默认通用 shell / 任意代码执行产品路径 | **本 ADR 禁止**（2026-07-22 结项边界）。后续 shell 产品面由 [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md)/[0153](0153-codex-sandbox-dual-axis-and-agent-shell.md)+[delivery roadmap](../agent-shell-sandbox-delivery-roadmap.md) 另立；仍禁止 YOLO 与虚假 OS 完备宣称 |
+| 默认通用 shell / 任意代码执行产品路径 | **本 ADR 禁止**（2026-07-22 结项边界）。后续 shell 产品面由 [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md)/[0153](0153-codex-sandbox-dual-axis-and-agent-shell.md) 另立（A–F 已合格完成）；仍禁止 YOLO 与虚假 OS 完备宣称 |
 | MCP marketplace / 默认任意 MCP | **禁止** |
 | 把 Windows 较弱写路径称为 strict / CAS | **禁止**（ADR-0035） |
 | 用 soft reminder 替代硬预算 / settlement sole-writer | **禁止** |
 
-本 ADR **只迁移“平台能力分层 + consumer 接线”**，不改 teaching settlement authority。**不**在本 ADR 内引入 shell 产品面；shell/sandbox 双轴与合格交付另见 ADR-0152/0153 与 delivery roadmap（与本 ADR 的 I/O profile 诚实分层互补，不互相覆盖）。
+本 ADR **只迁移“平台能力分层 + consumer 接线”**，不改 teaching settlement authority。**不**在本 ADR 内引入 shell 产品面；shell/sandbox 双轴与合格交付另见 ADR-0152/0153（A–F 已完成；与本 ADR 的 I/O profile 诚实分层互补，不互相覆盖）。
 
 ---
 

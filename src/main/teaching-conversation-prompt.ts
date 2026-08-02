@@ -30,6 +30,8 @@ export type TemporaryChatContext = {
 export type TeachingPromptOptions = {
   mode: AgentChatMode
   lessonToolEnabled: boolean
+  /** Whether this teaching turn can access workspace files through registered tools. */
+  workspaceToolsEnabled?: boolean
   skillReferences: InstalledSkillReference[]
   memoryCapturePlan?: ReturnType<typeof planLearnerMemoryCapture>
   existingMemories?: TeachingMemoryRecord[]
@@ -95,7 +97,8 @@ export function composeTeachingUserTurn(options: TeachingPromptOptions): string 
     provider,
     temporaryContext,
     visiblePageContext,
-    skillOrchestrationPlan
+    skillOrchestrationPlan,
+    workspaceToolsEnabled = true
   } = options
   // Stage-scoped bodies: defense in depth keeps only the current stage's
   // active_now bodies even if a loader or caller hands us extra references.
@@ -135,6 +138,7 @@ export function composeTeachingUserTurn(options: TeachingPromptOptions): string 
     buildSkillOrchestrationPlanPromptLines(skillOrchestrationPlan),
     mode === 'temporary' ? buildTemporaryChatPromptLines(temporaryContext, visiblePageContext) : buildTeachingVisiblePageContext(visiblePageContext),
     buildModelRuntimePromptLines(settings, provider),
+    mode === 'teaching' && !workspaceToolsEnabled ? WORKSPACE_READ_UNAVAILABLE_PROMPT : '',
     mode === 'teaching' ? buildLearnerProfilePromptContext(existingMemories) : '',
     mode === 'teaching' ? buildTeachingSyntheticMemoryIndexPrompt(existingMemories) : '',
     buildMemoryCapturePromptLines(memoryCapturePlan)
@@ -498,6 +502,13 @@ const LESSON_TOOL_UNAVAILABLE_PROMPT = [
   '<lesson-generation-policy>',
   '当前会话未启用 generate_lesson 工具（工具未开启或没有激活的工作区）。你可以澄清需求、答疑并维护工作区文件，但不要直接写 lessons/ 下的课程页面；若用户希望生成正式课程，提示其在设置中启用工具调用。',
   '</lesson-generation-policy>'
+].join('\n')
+
+const WORKSPACE_READ_UNAVAILABLE_PROMPT = [
+  '<workspace-read-availability>',
+  '当前回合无法访问教学工作区文件。不要声称你会读取、正在读取或已经读取工作区、MISSION.md、NOTES.md、RESOURCES.md、课程文件、reference 或 learning-records。',
+  '如果用户的问题依赖这些文件，明确说明当前未启用或未获授权工作区工具，因而无法读取；提示用户在设置中显式启用工具调用并确认工作区授权，或根据用户直接提供的信息继续教学。',
+  '</workspace-read-availability>'
 ].join('\n')
 
 const TEMPORARY_TOOL_POLICY_PROMPT = [

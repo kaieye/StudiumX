@@ -75,6 +75,22 @@ describe('critical durable JSON consumers', () => {
     if (process.platform !== 'win32') expect((await stat(`${settingsPath}.bak`)).mode & 0o777).toBe(0o600)
   })
 
+  it('migrates a legacy persisted tools.enabled false value to application-wide tool availability', async () => {
+    const temp = await root('settings-tools-enabled-migration')
+    const userDataPath = join(temp, 'user-data')
+    const defaultRoot = join(temp, 'workspace')
+    const settingsPath = join(userDataPath, 'studiumx-settings.json')
+    const legacy = JSON.stringify({ version: 2, workspace: { defaultRoot }, tools: { enabled: false } })
+    await mkdir(userDataPath, { recursive: true })
+    await writeFile(settingsPath, legacy, 'utf8')
+
+    const loaded = await new TeachingSettingsService({ userDataPath, defaultRoot }).load()
+
+    expect(loaded.tools.enabled).toBe(true)
+    await expect(readFile(settingsPath, 'utf8')).resolves.toContain('"enabled": true')
+    await expect(readFile(`${settingsPath}.bak`, 'utf8')).resolves.toBe(legacy)
+  })
+
   it('recovers encrypted settings secrets from a retained backup without restoring the damaged canonical file', async () => {
     const temp = await root('settings-backup')
     const userDataPath = join(temp, 'user-data')

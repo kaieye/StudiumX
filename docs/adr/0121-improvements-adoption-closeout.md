@@ -2,7 +2,7 @@
 
 - **状态：** 已采纳（2026-07-21）
 - **范围：** 结项原 `docs/improvements/`（`ADOPTION.md` + `pi.md` / `codex.md` / `grok.md` / `hermes.md`）中仍具长期效力的 backlog 裁定、命名冻结、明确不采纳与信号触发 residual；**不**新增运行时实现切片，**不**重开已以 ADR-0051–0120 记录的已实施范围。
-- **相关：** [ADR-0039](0039-teaching-adoption-closeout-and-signal-triggered-p2.md)（Codex Rust 教学化结项先例）、[ADR-0051](0051-provider-finish-reason-and-length-tool-rejection.md)–[ADR-0067](0067-cancel-tool-pair-close-and-busy-ack.md)（Phase 0–1）、[ADR-0070](0070-agent-runtime-wire-shared-protocol.md)–[ADR-0120](0120-teaching-ipc-commands-agent-conversation-peel.md)（Phase 2 与 residual peels）、[AGENTS.md](../../AGENTS.md)、[`docs/testing.md`](../testing.md)、[`SECURITY.md`](../../SECURITY.md)、[`docs/tools/TOOL_CONTRACT.md`](../tools/TOOL_CONTRACT.md)
+- **相关：** [ADR-0039](0039-teaching-adoption-closeout-and-signal-triggered-p2.md)（Codex Rust 教学化结项先例）、[ADR-0051](0051-provider-finish-reason-and-length-tool-rejection.md)–[ADR-0067](0067-cancel-tool-pair-close-and-busy-ack.md)（Phase 0–1）、[ADR-0070](0070-agent-runtime-wire-shared-protocol.md)–[ADR-0120](0120-teaching-ipc-commands-agent-conversation-peel.md)（Phase 2 与 residual peels）、[AGENTS.md](../../AGENTS.md)、[`SECURITY.md`](../../SECURITY.md)、[`docs/tools/TOOL_CONTRACT.md`](../tools/TOOL_CONTRACT.md)
 
 ## 背景
 
@@ -100,7 +100,7 @@
 ## 后果
 
 1. `docs/improvements/` 清空；实施与边界以 ADR-0051–0120 与本 ADR 为准。  
-2. [AGENTS.md](../../AGENTS.md) / [`docs/testing.md`](../testing.md) 不再指向 ADOPTION 为 backlog 源，改指本 ADR 与 `docs/adr/`。  
+2. [AGENTS.md](../../AGENTS.md) 不再指向 ADOPTION 为 backlog 源，改指本 ADR 与 `docs/adr/`。
 3. 原指向 `../improvements/ADOPTION.md` 的 ADR「相关」链接改指本 ADR（历史 ID 标签可保留为纯文本）。  
 4. 未来新的上游借鉴必须 **先** 新建 ADR（或更新本 ADR 的 defer 表），**不得**重建 `docs/improvements/` 第二套 backlog。  
 

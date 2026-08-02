@@ -89,7 +89,6 @@ export type TeachingWorkspaceSettingsPath =
   | 'generator.structuredOutput'
   | 'generator.streaming'
   | 'generator.requestTimeoutMs'
-  | 'tools.enabled'
   | 'tools.workspaceRead'
   | 'tools.approvalMode'
   | 'tools.workspaceShell'
@@ -161,7 +160,6 @@ export function buildTeachingWorkspaceSettingsPatch(
     case 'generator.streaming':
     case 'generator.requestTimeoutMs':
       return { generator: { [path.slice('generator.'.length)]: value } }
-    case 'tools.enabled':
     case 'tools.workspaceRead':
     case 'tools.approvalMode':
     case 'tools.workspaceShell':

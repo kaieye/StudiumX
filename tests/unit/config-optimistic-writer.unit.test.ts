@@ -309,12 +309,14 @@ describe('config optimistic concurrency (CAS)', () => {
       user: userDoc
     })
 
-    // User still wins on maxIterations; managed contributes tools.enabled + memory.
+    // User still wins on maxIterations; managed contributes memory. The legacy
+    // tools.enabled field is compatibility-only and is normalized to true, so
+    // it must not retain managed-layer provenance.
     expect(current.value.tools.enabled).toBe(true)
     expect(current.value.tools.maxIterations).toBe(3)
     expect(current.value.memory.maxInjected).toBe(9)
     expect(current.sources.some((s) => s.source === 'managed' && s.path === 'tools.enabled')).toBe(
-      true
+      false
     )
     expect(
       current.sources.some((s) => s.source === 'managed' && s.path === 'memory.maxInjected')
@@ -340,7 +342,7 @@ describe('config optimistic concurrency (CAS)', () => {
     expect(result.value.memory.maxInjected).toBe(9)
     expect(
       result.resolved.sources.some((s) => s.source === 'managed' && s.path === 'tools.enabled')
-    ).toBe(true)
+    ).toBe(false)
     expect(
       result.resolved.sources.some((s) => s.source === 'managed' && s.path === 'memory.maxInjected')
     ).toBe(true)

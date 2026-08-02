@@ -3,7 +3,7 @@
 - **状态：** **已实施**（2026-07-24）：`compaction-pressure-controller.ts` + `context-compactor.ts` 接线；pre_send / post_tool / **mid_stream 触发标签** + 单飞 join + pressure ladder；硬 run budget 优先。**说明：** 当前 `mid_stream` 是 call-site **标签**，不是真正的 mid-token overflow 拦截；并发调用 **join 复用第一次 flight 结果**。
 - **日期：** 2026-07-23
 - **范围：** 在既有 `ContextCompactor`（[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)）之上，冻结 **多触发点**、**单飞互斥** 与 **pressure ladder**（压完仍超阈时加强 prune）；默认仍 **reference-only / 非 durable rewrite**；与 **硬 run budget / durable-success fallback** 共存时 **硬预算优先**。
-- **相关：** [liveagent-worth-learning.md](../improvements/liveagent-worth-learning.md) §2.3、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)、[ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)、[ADR-0100](0100-agent-loop-fallback-peel.md)、[ADR-0103](0103-agent-loop-budget-reason-peel.md)、[ADR-0121](0121-improvements-adoption-closeout.md) §6.14、[ADR-0143](0143-context-file-touch-ledger.md)
+- **相关：** LiveAgent 历史研究清单（已结项） §2.3、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)、[ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)、[ADR-0100](0100-agent-loop-fallback-peel.md)、[ADR-0103](0103-agent-loop-budget-reason-peel.md)、[ADR-0121](0121-improvements-adoption-closeout.md) §6.14、[ADR-0143](0143-context-file-touch-ledger.md)
 - **实现落点：** `src/main/ai/compaction-pressure-controller.ts`；`src/main/ai/context-compactor.ts`；`agent-loop` / request-context projector / teaching conversation runtime 调用点
 
 ## 1. 背景
@@ -89,7 +89,7 @@ src/main/ai/request-context-projection.ts
 # tests: single-flight mutex, ladder escalate, hard-budget wins, reference-only default regression
 ```
 
-验收见 [liveagent-worth-learning.md](../improvements/liveagent-worth-learning.md) §2.3。
+验收已由本 ADR 的实现落点和目标测试闭环。
 
 ## 4. 与既有 ADR 的关系
 

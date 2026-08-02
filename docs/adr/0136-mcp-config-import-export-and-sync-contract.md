@@ -3,7 +3,7 @@
 - **状态：** 已实施（ADR-0132 Phase D implementation addendum；仅授权本 phase）
 - **日期：** 2026-07-23
 - **范围：** 批量 MCP 配置导入预览、确认后写入 canonical user config、脱敏导出、legacy 形状解析与 migration report、以及未来跨端 `McpSync` 的共享 wire 合同（本 phase **不**实现网络同步）。
-- **相关：** ADR-0127、ADR-0128、ADR-0132、ADR-0133、ADR-0134、ADR-0135、`docs/improvements/mcp-zcode-alignment-target.md` §6.2、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`。
+- **相关：** ADR-0127、ADR-0128、ADR-0132、ADR-0133、ADR-0134、ADR-0135、Zcode MCP 对齐历史研究（已结项）、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`。
 
 ## 1. 决定与非目标
 

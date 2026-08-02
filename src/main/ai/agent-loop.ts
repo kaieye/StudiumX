@@ -129,6 +129,11 @@ export type RunAgentLoopOptions = {
   durableSuccessFallback?: (transcript: readonly ChatMessage[]) => string | null | undefined
   /** Stop offering tools once a caller-observed durable operation has succeeded. */
   shouldFinalizeAfterToolExecution?: () => boolean
+  /**
+   * Host-owned last-mile normalization for a no-tool final answer. The callback
+   * runs before the answer is streamed or retained in the transcript.
+   */
+  normalizeFinalAnswer?: (answerText: string) => { finalText: string; degradedReason?: string } | null | undefined
   now?: () => number
   callbacks?: { onEvent?: (e: AgentLoopEvent) => void }
   contextCompaction?: ContextCompactionOptions
@@ -418,16 +423,21 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     degradedReason ??= result.degradedReason
 
     const cleanedAssistantText = stripDsmlToolCallBlocks(result.text || '')
-    const assistantMsg: ChatMessage = { role: 'assistant', content: cleanedAssistantText || null, tool_calls: result.toolCalls.length > 0 ? result.toolCalls : undefined }
-    transcript.push(assistantMsg)
-    emit({ type: 'assistant_message', message: assistantMsg })
     if (result.toolCalls.length === 0) {
       // Prefer the assembled/stripped answer text. Raw buffered deltas may still
       // contain DSML tool markup that only gets cleaned after the stream ends.
-      const answerText = cleanedAssistantText || stripDsmlToolCallBlocks(bufferedAnswerDeltas.join(''))
+      let answerText = cleanedAssistantText || stripDsmlToolCallBlocks(bufferedAnswerDeltas.join(''))
       if (!answerText.trim()) {
         return execution.failed(transcript, true, degradedReason, '模型返回了空答复。')
       }
+      const normalized = opts.normalizeFinalAnswer?.(answerText)
+      if (normalized?.finalText.trim()) {
+        answerText = normalized.finalText
+        degradedReason ??= normalized.degradedReason
+      }
+      const assistantMsg: ChatMessage = { role: 'assistant', content: answerText }
+      transcript.push(assistantMsg)
+      emit({ type: 'assistant_message', message: assistantMsg })
       // A model can prematurely produce prose even when the caller requires a
       // durable business action (for example generate_lesson). Keep that prose
       // internal and enter the same bounded recovery path used at the iteration
@@ -442,6 +452,13 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         stopReason: 'final_answer'
       })
     }
+    const assistantMsg: ChatMessage = {
+      role: 'assistant',
+      content: cleanedAssistantText || null,
+      tool_calls: result.toolCalls
+    }
+    transcript.push(assistantMsg)
+    emit({ type: 'assistant_message', message: assistantMsg })
 
     // A-02: never execute tools when the provider finished due to length/truncation.
     // Partial tool_calls under length are unsafe; reject the whole batch with zero handlers.

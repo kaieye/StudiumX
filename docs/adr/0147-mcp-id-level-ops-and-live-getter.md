@@ -3,7 +3,7 @@
 - **状态：** **已实施**（2026-07-24）：`src/shared/mcp/mcp-ops.ts` + `config-store.applyOps` CAS + IPC `getMcpSettings`/`applyMcpOps` + preload/API；secret-free public DTO；无 marketplace Settings 页
 - **日期：** 2026-07-24
 - **范围：** 用户 MCP 配置更新采用 **按 server id 的 ops 归约**（`McpSettingsOp` 风格纯 apply）；**禁止**无 id 合并的整对象 clobber；读路径提供 **live `getMcpSettings`**（非 turn 级陈旧快照）。产品面仍守 [ADR-0142](0142-mcp-product-surface-settings-only.md)。
-- **相关：** [liveagent-worth-learning.md](../improvements/liveagent-worth-learning.md) §3.3 / Phase B、[ADR-0127](0127-user-configurable-mcp-design-gate.md)、[ADR-0128](0128-user-configurable-mcp-implementation.md)、[ADR-0132](0132-mcp-zcode-parity-and-trust-lifecycle.md)、[ADR-0133](0133-mcp-runtime-reliability-implementation.md)、[ADR-0142](0142-mcp-product-surface-settings-only.md)、[ADR-0121](0121-improvements-adoption-closeout.md)、`AGENTS.md`、`SECURITY.md`
+- **相关：** LiveAgent 历史研究清单（已结项） §3.3 / Phase B、[ADR-0127](0127-user-configurable-mcp-design-gate.md)、[ADR-0128](0128-user-configurable-mcp-implementation.md)、[ADR-0132](0132-mcp-zcode-parity-and-trust-lifecycle.md)、[ADR-0133](0133-mcp-runtime-reliability-implementation.md)、[ADR-0142](0142-mcp-product-surface-settings-only.md)、[ADR-0121](0121-improvements-adoption-closeout.md)、`AGENTS.md`、`SECURITY.md`
 - **实现落点：** `src/shared/mcp/mcp-ops.ts`（`McpSettingsOp` + pure `applyMcpOps`）；`src/main/mcp/config-store.ts`（`applyOps` + live `getMcpSettings`）；IPC/preload `mcpGetMcpSettings`/`mcpApplyMcpOps`；unit：`mcp-ops.unit.test.ts` + store CAS applyOps
 
 ## 1. 背景
@@ -53,7 +53,7 @@ src/main/mcp/config-store.ts  # CAS write path consumes ops / id merge
 #        secret fields absent from public DTO
 ```
 
-验收见 [liveagent-worth-learning.md](../improvements/liveagent-worth-learning.md) §3.3。
+验收已由本 ADR 的实现落点和目标测试闭环。
 
 ## 4. 与既有 ADR 的关系
 

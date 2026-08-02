@@ -228,13 +228,17 @@ export type TeachingSettingsV1 = {
     maxInjected: number
   }
   tools: {
+    /**
+     * Legacy persisted/DTO compatibility field. It is always normalized to true;
+     * application-level tool availability is no longer a configurable setting.
+     */
     enabled: boolean
     workspaceRead: boolean
     approvalMode: AgentApprovalMode
     /**
      * Workspace command / shell tools (Codex-style agent shell).
-     * When tools.enabled is true, defaults to true (mainstream agent posture, ADR-0153).
-     * Explicit false disables registration.
+     * Application-level tool availability is always on; this independent setting
+     * defaults to true and explicit false disables shell registration.
      */
     workspaceShell: boolean
     /**
@@ -342,6 +346,7 @@ export type TeachingSettingsPatch = Partial<
   workspace?: Partial<TeachingSettingsV1['workspace']>
   worktree?: Partial<TeachingSettingsV1['worktree']>
   memory?: Partial<TeachingSettingsV1['memory']>
+  /** Legacy `tools.enabled` patches are accepted for compatibility but normalized to true. */
   tools?: Partial<Omit<TeachingSettingsV1['tools'], 'runBudget'>> & {
     runBudget?: Partial<TeachingSettingsV1['tools']['runBudget']>
   }

@@ -3,7 +3,7 @@
 - **状态：** 已实施（source-gap workspace-summary projection collector + gateway inject）
 - **日期：** 2026-07-21
 - **范围：** ADOPTION **B-11 residual** — product TeachingDoctor 路径注入真实 source-gap facts collector（active workspace summary 投影：`resources.length` + `referenceCount` + `assetsReady`），使 `source_gap` 在有工作区时不再默认 skipped
-- **相关：** [ADR-0013](0013-teaching-context-provenance-and-budget.md)、[ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0084](0084-teaching-doctor-product-ipc.md)、[ADR-0093](0093-teaching-doctor-multi-collector-facts.md)、[ADR-0099](0099-teaching-doctor-config-facts-collector.md)、[ADR-0102](0102-teaching-doctor-catalog-drift-collector.md)、[ADR-0104](0104-teaching-doctor-session-outcome-scan-collector.md)（sibling session/outcome；本切片不拥有）
+- **相关：** [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)、[ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0084](0084-teaching-doctor-product-ipc.md)、[ADR-0093](0093-teaching-doctor-multi-collector-facts.md)、[ADR-0099](0099-teaching-doctor-config-facts-collector.md)、[ADR-0102](0102-teaching-doctor-catalog-drift-collector.md)、[ADR-0104](0104-teaching-doctor-session-outcome-scan-collectors.md)（sibling session/outcome；本切片不拥有）
 - **证据路径：**
   - `src/main/observability/teaching-doctor-source-gap-facts.ts`（`createTeachingDoctorSourceGapFactsCollector` / `mapWorkspaceSummaryToSourceGapFacts`）
   - `src/main/observability/index.ts`（导出）

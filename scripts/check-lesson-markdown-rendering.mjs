@@ -145,19 +145,18 @@ assert.match(mathHtml, /class="lesson-math lesson-math--block"/, 'block math sho
 assert.match(mathHtml, /<math/, 'static lesson math should render MathML')
 assert.doesNotMatch(mathHtml, /\$\$\s*\\int_0\^1/, 'block math source should not remain as raw markdown')
 
-const [baseStyles, assetStyles, promptSource, generationSource] = await Promise.all([
+const [baseStyles, promptSource, generationSource] = await Promise.all([
   readFile('src/shared/lesson-style-themes/base.ts', 'utf8'),
-  readFile('assets/lesson.css', 'utf8'),
   readFile('src/main/ai/lesson-prompts.ts', 'utf8'),
   readFile('src/main/teaching-lesson-generation.ts', 'utf8')
 ])
 
+// Workspace `assets/lesson.css` is generated from the theme source during
+// workspace scaffolding; the repository intentionally keeps no root workspace
+// asset copy. Validate the source of truth instead.
 assert.match(baseStyles, /\.markdown-table-wrap \{/, 'lesson CSS should style the table scroll wrapper')
 assert.match(baseStyles, /td\.align-right/, 'lesson CSS should style right-aligned table cells')
 assert.match(baseStyles, /\.lesson-math--block \{/, 'lesson CSS should style static math blocks')
-assert.match(assetStyles, /\.markdown-table-wrap \{/, 'workspace lesson.css asset should style the table scroll wrapper')
-assert.match(assetStyles, /td\.align-right/, 'workspace lesson.css asset should style right-aligned table cells')
-assert.match(assetStyles, /\.lesson-math--block \{/, 'workspace lesson.css asset should style static math blocks')
 assert.match(promptSource, /GFM 表格/, 'lesson prompt contract should advertise GFM table support')
 assert.match(generationSource, /STATIC_LESSON_RENDERER_CAPABILITIES/, 'production lesson generation should pass static renderer capabilities')
 

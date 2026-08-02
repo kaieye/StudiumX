@@ -202,7 +202,6 @@ export function SettingsView({
     }
   }, [
     section,
-    settings.tools.enabled,
     settings.tools.sandboxMode,
     settings.tools.workspaceShell,
     settings.tools.windowsSandboxLevel
@@ -393,15 +392,9 @@ export function SettingsView({
         {section === 'tools' && (
           <SettingsPanel
             title="工具调用"
-            subtitle="允许 Agent 与课程生成调用 web 搜索等工具"
+            subtitle="工具调用默认可用；具体执行仍受工作区信任、审批、沙箱与预算保护"
           >
             <SettingsCard>
-              <SettingsRow label="启用工具调用" detail="开启后 Agent 与课程生成可调用工具">
-                <ToggleSwitch
-                  checked={settings.tools.enabled}
-                  onChange={(enabled) => void configuration.updateSetting('tools.enabled', enabled)}
-                />
-              </SettingsRow>
               <SettingsRow label="工作区文件工具" detail="允许 Agent 列出、读取、搜索、写入当前教学工作区文件">
                 <ToggleSwitch
                   checked={settings.tools.workspaceRead}

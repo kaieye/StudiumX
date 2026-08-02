@@ -3,7 +3,7 @@
 - **状态：** 已实施（ADOPTION S-03 政策切片；peel 残差仍开放）
 - **日期：** 2026-07-21
 - **范围：** 正式化 TypeScript 生产模块行数目标、放宽与历史巨石 peel 纪律；提供 **warning-only** 本地/可选检查脚本。**本 ADR 不做任何巨石拆分。**
-- **相关：** [AGENTS.md §5](../../AGENTS.md)、[ADR-0023](0023-coordinator-host-sole-writer-and-blocking-ci.md)、[ADR-0046](0046-teaching-footprint-ladder.md)、[ADOPTION S-03](0121-improvements-adoption-closeout.md)
+- **相关：** [AGENTS.md §5](../../AGENTS.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0046](0046-teaching-footprint-ladder.md)、[ADOPTION S-03](0121-improvements-adoption-closeout.md)
 - **证据路径：**
   - `docs/adr/0075-module-size-policy-and-giant-peel.md`（本文件）
   - `scripts/check-module-size.mjs`

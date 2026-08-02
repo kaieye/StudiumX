@@ -1,17 +1,17 @@
 # ADR-0131：默认 durable I/O 收口为可信 root 内 pathname 写（temp → write → 可选 fsync → rename）
 
-- **状态：** 已采纳并**已实施**（默认写模型 + Phase B–F 代码收口，2026-07-22；迁移文档 §5 已勾选）
+- **状态：** 已采纳并**已实施**（默认写模型 + Phase B–F 代码收口，2026-07-22；完成证据收口于本 ADR §4–5）
 - **日期：** 2026-07-22
 - **范围：** 冻结全平台**默认** durable 写盘模型为 **可信 root 约束下的 pathname 写**；明确 `native` `contained_durable_replace` **不是**默认路径；**不**宣称 CAS / power-loss / OS sandbox 产品面；**不**引入 default shell / YOLO / danger-full-access / MCP marketplace；**不**拆 `TeachingTurnCoordinator` settlement sole-writer。
 - **相关：**
-  - 迁移计划（分期与成功标准）：[`docs/migrations/simplify-durable-io-toward-codex.md`](../migrations/simplify-durable-io-toward-codex.md)
+  - 迁移执行与成功标准：已完成，见本 ADR §4–5
   - 将被本 ADR **在默认路径上 supersede** 的双 profile 默认分层：[ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)（历史结项与 inventory **保留**；默认写模型不再以 dual-profile 为权威）
   - C-4 durable publish 与 partial migration：[ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)
   - C-4P6 / Windows strict no-go：[ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)、[ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md)
   - Settlement sole-writer：[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)
   - 模块尺寸 / 巨石 peel：[ADR-0075](0075-module-size-policy-and-giant-peel.md)
   - 产品地板：[`AGENTS.md`](../../AGENTS.md)、[`SECURITY.md`](../../SECURITY.md)
-- **证据提交：** 本 ADR + 迁移文档 §5 勾选 + 生产路径检索（无 hard `.node` require）+ 目标 unit（durable-file / workspace-write / memory-catalog / platform-capability / projection native-gone）。
+- **证据提交：** 本 ADR §4–5 的完成记录 + 生产路径检索（无 hard `.node` require）+ 目标 unit（durable-file / workspace-write / memory-catalog / platform-capability / projection native-gone）。
 
 ---
 
@@ -99,7 +99,7 @@
 | LearningSession ledger 权威 | **不变** |
 | 写盘原语替换 | **仅** I/O 实现；**不得**借机改 settlement 顺序、manifest authority 或跨文件 transaction 宣称 |
 
-迁移文档明确：可合并 PR，**不建议**与 settlement sole-writer 大改同 PR。
+迁移实施保持可合并 PR；**不建议**与 settlement sole-writer 大改同 PR。
 
 ### 2.4 对 ADR-0004 / 0006 / 0035 的关系
 
@@ -131,17 +131,17 @@
     settlement sole-writer 仍在 coordinator 层，不在 I/O 原语层）
 ```
 
-**代码量目标（迁移成功后，非本 Phase）：** 写盘核 **~200–450** 生产行量级；相对现状净减约 **3.5k–4k** 生产行 + 相关测试（详见迁移文档 §2.3）。
+**代码量目标（迁移成功后，非本 Phase）：** 写盘核 **~200–450** 生产行量级；相对现状净减约 **3.5k–4k** 生产行 + 相关测试。
 
 ---
 
 ## 4. 实施分期（授权边界）
 
-本 ADR 原 Phase A 为 design gate；**实现**已按迁移文档 Phase B–F 收口。勾选完成以前须满足 §5 成功标准（检索 + typecheck 相关路径 + 目标 unit）。
+本 ADR 原 Phase A 为 design gate；**实现**已按 Phase B–F 收口。完成记录满足 §5 成功标准（检索 + typecheck 相关路径 + 目标 unit）。
 
 | Phase | 做什么 | 本 ADR 状态 |
 | --- | --- | --- |
-| **A** | 本文件 + 索引 + 迁移文档 Phase A 勾选；ADR-0126 supersede 注记 | **完成** |
+| **A** | 本文件 + 索引 + Phase A 完成记录；ADR-0126 supersede 注记 | **完成** |
 | **B** | workspace 写：POSIX/Win 同一 path 路径；去掉 contained create/overwrite 分支 | **完成** |
 | **C** | memory：单 backend（list/read/`replaceDurably`）；删 Windows 专用 catalog 双轨 | **完成** |
 | **D** | 缩 capability registry → pathname_default；doctor 简化 | **完成** |
@@ -152,7 +152,7 @@
 
 ## 5. 成功标准（Definition of Done — 全迁移；Phase A 仅文档子集）
 
-与 [`docs/migrations/simplify-durable-io-toward-codex.md`](../migrations/simplify-durable-io-toward-codex.md) §5 对齐：
+完成状态按本 ADR §4 的 Phase A–F 记录核对：
 
 1. 默认写路径 **零** 对 `contained_durable_replace.node` 的硬依赖  
 2. workspace + memory：**一套** I/O，无 POSIX/Windows 双协议文件  
@@ -163,7 +163,7 @@
 
 - [x] 本 ADR 已入库且编号 **0131**  
 - [x] `docs/adr/README.md` 已索引  
-- [x] 迁移文档 Phase A 标记完成  
+- [x] Phase A 完成记录已归档至本 ADR
 - [x] ADR-0126 状态行注明默认路径由 ADR-0131 supersede（不重写历史正文）  
 
 **全迁移完成定义（B–F）：**
@@ -196,7 +196,7 @@
 | --- | --- |
 | 读者误以为「pathname = CAS」 | 正文与 non-claims 反复禁止；命名不得含 strict/CAS |
 | 实现 PR 借机改 settlement | 硬边界 §2.3；与 sole-writer 大改分 PR |
-| 半迁移状态双栈并存过久 | 迁移文档分期；每 phase 可独立合并与回滚 |
+| 半迁移状态双栈并存过久 | 按 Phase 分期；每 phase 可独立合并与回滚 |
 | 删除 native 后 POSIX 旧测大面积红 | Phase F 改写/删除 contained 专测；保留 path containment 测 |
 | doctor 仍展示旧 profile 误导 | Phase D 收口文案；在完成前可加「default 已改 pathname」注记 |
 
@@ -205,4 +205,4 @@
 ## 8. 一句话决策摘要
 
 > **默认 durable 写 = 可信 root 内 pathname（temp → write → 可选 fsync → rename）；native descriptor 非默认；不宣称 CAS/power-loss；不借 shell/YOLO/marketplace；不拆 settlement sole-writer。**  
-> ADR-0126 的 dual-profile **默认权威**由本 ADR supersede；历史分层结项保留为考古与回滚线索。实现按迁移文档 Phase B–F 分 PR 收口。
+> ADR-0126 的 dual-profile **默认权威**由本 ADR supersede；历史分层结项保留为考古与回滚线索。实现已按 Phase B–F 分 PR 收口。

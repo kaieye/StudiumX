@@ -66,7 +66,7 @@ C-1 **默认不授权** 用户可见全文搜索产品面，也不得把 analyti
 | **Disposable** | `studiumx-index.sqlite*`（含 wal/shm/quarantined）、analytics `*.sqlite*`、Electron Cache、diagnostic logs | 可删；rebuild 从文件真相恢复 |
 | **Export 默认** | `includeProjections: false` | 排除 projection；opt-in 仅 debug，且标记 `untrustedProjection: true`，**不得**当权威恢复 |
 
-权威模块：`src/shared/backup-export-policy.ts`（`decideWorkspaceExportPath`、`isDisposableProjectionPath`、`formatBackupPolicySummary` 等）。Doctor / GUIDE / `docs/CONFIG_PATHS.md` 引用该模块。Support bundle 仍走 ADR-0034（consent + redaction）。
+权威模块：`src/shared/backup-export-policy.ts`（`decideWorkspaceExportPath`、`isDisposableProjectionPath`、`formatBackupPolicySummary` 等）。Doctor / GUIDE / settings 示例文档引用该模块。Support bundle 仍走 ADR-0034（consent + redaction）。
 
 验证：
 

@@ -2,8 +2,8 @@
 
 ## Mission → doctor → ADR
 
-1. **Mission** — product intent and file-first teaching workspace model (`MISSION.md`, `docs/GUIDE.md`).
-2. **Doctor** — local redacted posture: `pnpm doctor -- --json` (see `runtimePosture` and `docs/CONFIG_PATHS.md`).
+1. **Mission** — product intent and file-first teaching workspace model (`README.md`, `docs/domain-language.md`).
+2. **Doctor** — local redacted posture: `pnpm doctor -- --json` (see `runtimePosture` and `studiumx-settings.example.json`).
 3. **ADR** — durable architecture decisions live only under `docs/adr/`. Do not invent parallel “todo plan” authority once closed into ADRs.
 
 ## Setup
@@ -18,7 +18,7 @@ Node 22.x recommended (matches CI).
 
 ## Checks
 
-分层含义（L0 领域保险丝 / L1 runtime / L2 packaging / L4 change-detector 债）见 `docs/testing.md` 与 ADR-0053。**禁止**用覆盖率替换 teaching/privacy/security 领域门禁。
+分层含义（L0 领域保险丝 / L1 runtime / L2 packaging / L4 change-detector 债）见 `AGENTS.md` 的“改哪测哪”与 ADR-0053。**禁止**用覆盖率替换 teaching/privacy/security 领域门禁。
 
 
 | Command | When |
@@ -74,7 +74,6 @@ Module size targets and giant-peel discipline: `AGENTS.md` §5 and [ADR-0075](do
 
 ## Related
 
-- `AGENTS.md` — 命令图 / 红线 / 改哪测哪
-- `docs/testing.md` — L0/L1/L2/L4 分层教条（见 ADR-0053）
+- `AGENTS.md` — 命令图、红线、改哪测哪与 L0/L1/L2/L4 分层约定（见 ADR-0053）
 - `SECURITY.md`
 - `docs/tools/TOOL_CONTRACT.md`

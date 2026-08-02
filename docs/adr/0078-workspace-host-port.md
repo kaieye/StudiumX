@@ -3,7 +3,7 @@
 - **状态：** 已实施（ADOPTION S-02 thin port；**无** monolith peel）
 - **日期：** 2026-07-21
 - **范围：** 冻结路径 `src/main/workspace-host/*` 作为工具/agent 对路径与注册根解析的**薄端口**；委托既有 `path-access` / `teaching-workspace-paths` / `teaching-workspace-access`；可选轻量 import 方向检查。**本 ADR 不做任何巨石拆分。**
-- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0048](0048-tool-contract-and-workspace-write-policy.md)、[ADR-0075](0075-module-size-policy-and-giant-peel.md)、[TOOL_CONTRACT](../tools/TOOL_CONTRACT.md)、[ADOPTION S-02](0121-improvements-adoption-closeout.md)
+- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0048](0048-tool-contract-and-write-policy.md)、[ADR-0075](0075-module-size-policy-and-giant-peel.md)、[TOOL_CONTRACT](../tools/TOOL_CONTRACT.md)、[ADOPTION S-02](0121-improvements-adoption-closeout.md)
 - **证据路径：**
   - `src/main/workspace-host/types.ts`
   - `src/main/workspace-host/node-workspace-host.ts`

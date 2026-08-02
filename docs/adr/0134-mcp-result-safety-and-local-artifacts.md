@@ -3,7 +3,7 @@
 - **状态：** 已实施（ADR-0132 Phase B implementation addendum；仅本 phase 范围）
 - **日期：** 2026-07-22
 - **范围：** MCP call result typed normalization、inline/model hard budgets、binary/base64/oversize local artifact spill、non-fetching resource links、bounded local trace correlation。
-- **相关：** ADR-0128、ADR-0132、ADR-0133、`docs/improvements/mcp-zcode-alignment-target.md`、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`。
+- **相关：** ADR-0128、ADR-0132、ADR-0133、Zcode MCP 对齐历史研究（已结项）、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`。
 
 ## 1. 决定与边界
 

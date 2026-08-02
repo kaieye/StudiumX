@@ -3,7 +3,7 @@
 - **状态：** 已实施（ADR-0132 Phase A implementation addendum；仅授权并记录本 phase）
 - **日期：** 2026-07-22
 - **范围：** `tools/list` cursor pagination、`notifications/tools/list_changed`、session stale/断连状态、下一 run 与显式刷新重连、有限本地诊断、Settings/Doctor 投影。
-- **相关：** ADR-0127、ADR-0128、ADR-0132、`docs/improvements/mcp-zcode-alignment-target.md`、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`。
+- **相关：** ADR-0127、ADR-0128、ADR-0132、Zcode MCP 对齐历史研究（已结项）、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`。
 
 ## 1. 决定与边界
 

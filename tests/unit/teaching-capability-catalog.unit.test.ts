@@ -36,7 +36,7 @@ function byId(items: readonly CapabilityItem[], id: string): CapabilityItem {
 }
 
 describe('TeachingCapabilityCatalog', () => {
-  it('marks disabled and unconfigured capabilities as non-prompt-eligible', () => {
+  it('keeps application-level tools available while reporting individual disabled and unconfigured capabilities', () => {
     const snapshot = snapshotTeachingCapabilities({
       settings: settings((base) => {
         base.tools.enabled = false
@@ -55,15 +55,15 @@ describe('TeachingCapabilityCatalog', () => {
       skills: [skill({ source: 'builtin', installed: false })]
     })
 
-    expect(snapshot.available).toEqual([])
-    expect(selectPromptEligibleCapabilities(snapshot)).toEqual([])
-    expect(byId(snapshot.items, 'tools').status).toBe('disabled')
+    expect(byId(snapshot.items, 'tools').status).toBe('available')
+    expect(selectPromptEligibleCapabilities(snapshot).map((item) => item.id)).toEqual(
+      expect.arrayContaining(['tools', 'delegation'])
+    )
     expect(byId(snapshot.items, 'model_provider').status).toBe('unconfigured')
     expect(byId(snapshot.items, 'web_search').status).toBe('disabled')
-    expect(byId(snapshot.items, 'skill').status).toBe('disabled')
-    for (const item of snapshot.items) {
-      expect(item.promptEligible).toBe(false)
-    }
+    expect(byId(snapshot.items, 'skill').status).toBe('unconfigured')
+    expect(byId(snapshot.items, 'tools').promptEligible).toBe(true)
+    expect(byId(snapshot.items, 'web_search').promptEligible).toBe(false)
   })
 
   it('exposes only available capabilities for planner/context prompt inputs', () => {
@@ -216,15 +216,17 @@ describe('TeachingCapabilityCatalog', () => {
     const afterInvalidate = catalog.snapshot(request)
     expect(afterInvalidate.generatedAt).not.toBe(refreshed.generatedAt)
 
-    const disabled = catalog.snapshot({
+    const legacyFalse = catalog.snapshot({
       ...request,
       settings: settings((base) => {
         base.tools.enabled = false
         return base
       })
     })
-    expect(disabled.available).toEqual([])
-    expect(selectPromptEligibleCapabilities(disabled)).toEqual([])
+    expect(legacyFalse.available.map((item) => item.id)).toEqual(expect.arrayContaining([
+      'tools', 'web_search', 'workspace_tools', 'delegation', 'lesson', 'skill:skill-demo'
+    ]))
+    expect(byId(legacyFalse.items, 'tools').status).toBe('available')
   })
 
   it('includes shell tools in workspace_tools details when workspaceShell on', () => {

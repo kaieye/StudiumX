@@ -29,7 +29,7 @@ describe('TeachingConfigResolver', () => {
     expect(resolved.value.schemaVersion).toBe(TEACHING_CONFIG_SCHEMA_VERSION)
     expect(resolved.value.workspace.defaultRoot).toBe(FALLBACK_ROOT)
     expect(resolved.value.workspace.lessonStyleId).toBe(DEFAULT_LESSON_STYLE_ID)
-    expect(resolved.value.tools.enabled).toBe(false)
+    expect(resolved.value.tools.enabled).toBe(true)
     expect(resolved.diagnostics).toEqual([])
     expect(sourceOf(resolved, 'tools.enabled')).toBe('default')
     expect(sourceOf(resolved, 'generator.model')).toBe('default')
@@ -66,7 +66,7 @@ describe('TeachingConfigResolver', () => {
     expect(resolved.value.tools.maxIterations).toBe(6)
     expect(resolved.value.memory.maxInjected).toBe(5)
     expect(resolved.value.generator.temperature).toBe(0.7)
-    expect(sourceOf(resolved, 'tools.enabled')).toBe('user')
+    expect(sourceOf(resolved, 'tools.enabled')).toBe('default')
     expect(sourceOf(resolved, 'tools.maxIterations')).toBe('session_override')
     expect(sourceOf(resolved, 'memory.maxInjected')).toBe('workspace')
     expect(sourceOf(resolved, 'generator.temperature')).toBe('session_override')
@@ -84,7 +84,7 @@ describe('TeachingConfigResolver', () => {
     expect(managedOnly.value.tools.enabled).toBe(true)
     expect(managedOnly.value.tools.maxIterations).toBe(3)
     expect(managedOnly.value.generator.model).toBe('managed-model')
-    expect(sourceOf(managedOnly, 'tools.enabled')).toBe('managed')
+    expect(sourceOf(managedOnly, 'tools.enabled')).toBe('default')
     expect(sourceOf(managedOnly, 'tools.maxIterations')).toBe('managed')
     expect(sourceOf(managedOnly, 'generator.model')).toBe('managed')
 
@@ -103,7 +103,7 @@ describe('TeachingConfigResolver', () => {
     expect(userWins.value.tools.maxIterations).toBe(8)
     expect(userWins.value.generator.model).toBe('user-model')
     expect(userWins.value.generator.temperature).toBe(0.1)
-    expect(sourceOf(userWins, 'tools.enabled')).toBe('managed')
+    expect(sourceOf(userWins, 'tools.enabled')).toBe('default')
     expect(sourceOf(userWins, 'tools.maxIterations')).toBe('user')
     expect(sourceOf(userWins, 'generator.model')).toBe('user')
     expect(sourceOf(userWins, 'generator.temperature')).toBe('managed')
@@ -153,26 +153,26 @@ describe('TeachingConfigResolver', () => {
 
     expect(resolved.value.tools.enabled).toBe(true)
     expect(resolved.value.tools.maxIterations).toBe(2)
-    expect(sourceOf(resolved, 'tools.enabled')).toBe('user')
+    expect(sourceOf(resolved, 'tools.enabled')).toBe('default')
     expect(resolved.diagnostics.some(
       (item) => item.code === 'invalid_layer' && item.source === 'managed'
     )).toBe(true)
   })
 
-  it('changes fingerprint when managed overlay changes effective value', () => {
+  it('ignores legacy tools.enabled overlays while fingerprinting effective tool policy changes', () => {
     const base = resolveTeachingConfig({ fallbackDefaultRoot: FALLBACK_ROOT })
-    const withManaged = resolveTeachingConfig({
+    const legacyFalse = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
-      managed: { tools: { enabled: true } }
+      managed: { tools: { enabled: false } }
     })
-    const sameManagedNoise = resolveTeachingConfig({
+    const withManagedBudget = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
-      managed: { pet: { enabled: true } }
+      managed: { tools: { maxIterations: 1 } }
     })
 
-    expect(withManaged.fingerprint).not.toBe(base.fingerprint)
-    expect(sameManagedNoise.fingerprint).toBe(base.fingerprint)
-    expect(withManaged.value.tools.enabled).toBe(true)
+    expect(legacyFalse.fingerprint).toBe(base.fingerprint)
+    expect(legacyFalse.value.tools.enabled).toBe(true)
+    expect(withManagedBudget.fingerprint).not.toBe(base.fingerprint)
   })
 
   it('allows managed to set provider baseUrl (trusted org layer; denylist workspace-only)', () => {
@@ -232,7 +232,7 @@ describe('TeachingConfigResolver', () => {
 
     // Full TeachingSettingsV1 user document overrides managed tools fields it projects.
     expect(resolved.value.tools.enabled).toBe(settings.tools.enabled)
-    expect(sourceOf(resolved, 'tools.enabled')).toBe('user')
+    expect(sourceOf(resolved, 'tools.enabled')).toBe('default')
     // managed < user < workspace → workspace wins maxIterations
     expect(resolved.value.tools.maxIterations).toBe(4)
     expect(sourceOf(resolved, 'tools.maxIterations')).toBe('workspace')
@@ -335,7 +335,7 @@ describe('TeachingConfigResolver', () => {
     // Valid user layer applied; invalid workspace layer skipped entirely.
     expect(resolved.value.tools.enabled).toBe(true)
     expect(resolved.value.tools.maxIterations).toBe(3)
-    expect(sourceOf(resolved, 'tools.enabled')).toBe('user')
+    expect(sourceOf(resolved, 'tools.enabled')).toBe('default')
     expect(sourceOf(resolved, 'tools.maxIterations')).toBe('user')
 
     // Invalid session fields skipped — no half-applied values.
@@ -345,28 +345,33 @@ describe('TeachingConfigResolver', () => {
     expect(resolved.value.generator.temperature).toBeLessThanOrEqual(2)
 
     expect(resolved.diagnostics.some((item) => item.code === 'invalid_layer' && item.source === 'workspace')).toBe(true)
-    expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'tools.enabled')).toBe(true)
+    expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'tools.enabled')).toBe(false)
     expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'tools.maxIterations')).toBe(true)
     expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'tools.runBudget')).toBe(true)
     expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'memory.maxInjected')).toBe(true)
     expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'generator.temperature')).toBe(true)
   })
 
-  it('changes fingerprint when effective teaching-loop value changes', () => {
+  it('ignores legacy session tools.enabled while fingerprinting effective teaching-loop values', () => {
     const base = resolveTeachingConfig({ fallbackDefaultRoot: FALLBACK_ROOT })
+    const legacyFalse = resolveTeachingConfig({
+      fallbackDefaultRoot: FALLBACK_ROOT,
+      sessionOverride: { tools: { enabled: false } }
+    })
     const changed = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
-      sessionOverride: { tools: { enabled: true } }
+      sessionOverride: { tools: { maxIterations: 1 } }
     })
     const same = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
       user: { pet: { enabled: false }, notifications: { enabled: false } }
     })
 
+    expect(legacyFalse.fingerprint).toBe(base.fingerprint)
     expect(changed.fingerprint).not.toBe(base.fingerprint)
     expect(same.fingerprint).toBe(base.fingerprint)
-    expect(changed.value.tools.enabled).toBe(true)
-    expect(same.value.tools.enabled).toBe(false)
+    expect(legacyFalse.value.tools.enabled).toBe(true)
+    expect(same.value.tools.enabled).toBe(true)
   })
 
   it('adapts existing TeachingSettingsService documents through resolveTeachingConfigFromSettings', () => {

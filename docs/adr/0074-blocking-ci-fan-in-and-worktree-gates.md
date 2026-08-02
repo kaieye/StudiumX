@@ -3,7 +3,7 @@
 - **状态：** 已实施（ADOPTION S-06）
 - **日期：** 2026-07-21
 - **范围：** 在既有 domain 并行 jobs 之上增加 **required fan-in**；CI/本地可用的 **clean-worktree porcelain**；**诚实的轻量 format 子集**（无 Prettier/Biome 全仓配置）。
-- **相关：** [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0053](0053-agents-md-security-suite-and-testing-doctrine.md)、[ADR-0054](0054-actions-sha-pin-dependabot-osv-fail-open.md)、[docs/testing.md](../testing.md)、[ADOPTION S-06](0121-improvements-adoption-closeout.md)
+- **相关：** [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0053](0053-agents-md-security-suite-and-testing-doctrine.md)、[ADR-0054](0054-actions-sha-pin-dependabot-osv-fail-open.md)、[AGENTS.md](../../AGENTS.md)、[ADOPTION S-06](0121-improvements-adoption-closeout.md)
 - **证据路径：**
   - `.github/workflows/blocking-ci.yml`（`blocking-required` fan-in）
   - `scripts/check-ci-results.mjs`

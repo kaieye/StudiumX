@@ -31,7 +31,7 @@
 | `forget_teaching_memory` | `workspace_write` | 同上人批；**仅** 可墓碑带 `teaching-synthetic` 的条目 |
 
 - 登记于 `effect-policy.ts`、`agent-capability-policy.ts`（workspace read/write grant 列表）、`docs/tools/TOOL_CONTRACT.md` + `check-tool-contract`。
-- 运行时：`tools.enabled && memory.enabled && workspaceToolsEnabled` 时注册。
+- 运行时：工具调用应用级启用；仅当 `memory.enabled && workspaceToolsEnabled` 时注册。
 - 语义分工：学习者画像 / 错题仍走既有 memory 同意捕获；「如何教 X / 易混概念」= 合成记忆或 skill/reference，不静默改写长期 learner profile。
 
 ### 3. 索引投影（turn-tail，非 system 前缀）

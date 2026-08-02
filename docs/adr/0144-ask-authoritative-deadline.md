@@ -3,7 +3,7 @@
 - **状态：** **已实施**（2026-07-23；Phase A item 2 — Ask deadline）
 - **日期：** 2026-07-23
 - **范围：** `ask` 工具与 `ask-pending` 的权威 deadline、超时结算、UI 同源倒计时；**不**扩展到 write / privileged / turn-review 自动批准
-- **相关：** `docs/improvements/liveagent-worth-learning.md` §2.2、`docs/tools/TOOL_CONTRACT.md`（`ask`）、`AGENTS.md` 产品地板、effect lattice
+- **相关：** LiveAgent 历史研究项 §2.2（已结项）、`docs/tools/TOOL_CONTRACT.md`（`ask`）、`AGENTS.md` 产品地板、effect lattice
 
 ## 1. 决策
 

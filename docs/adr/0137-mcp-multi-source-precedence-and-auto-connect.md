@@ -3,7 +3,7 @@
 - **状态：** 已实施；**默认体验由 [ADR-0141](0141-mcp-product-experience-parity-policy.md) 修订**（auto-connect 可随根开关默认开启；允许冷启动/workspace 自动连接）
 - **日期：** 2026-07-23
 - **范围：** 多来源 MCP 配置解析（CLI/session → environment → user → workspace → plugin → system）、winner/shadowed 投影、workspace 只读文件与可选 env 文档加载、以及 **默认关闭** 的全局 `autoConnect` 受控发现连接。
-- **相关：** ADR-0127、ADR-0128、ADR-0132、ADR-0133、ADR-0134、ADR-0135、ADR-0136、`docs/improvements/mcp-zcode-alignment-target.md` §6.1 / §6.3、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`。
+- **相关：** ADR-0127、ADR-0128、ADR-0132、ADR-0133、ADR-0134、ADR-0135、ADR-0136、Zcode MCP 对齐历史研究 §6.1 / §6.3（已结项）、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`。
 
 ## 1. 决定与非目标
 

@@ -106,10 +106,12 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
       maxInjected: 4
     },
     tools: {
-      enabled: false,
+      // New/default settings invoke tools, while effect approvals, workspace trust,
+      // sandbox policy, budgets, and path fences remain independently enforced.
+      enabled: true,
       workspaceRead: true,
       approvalMode: 'request_approval',
-      // Mainstream agent: shell available when tools are enabled; master switch still tools.enabled.
+      // Mainstream agent: shell is available unless explicitly disabled.
       workspaceShell: true,
       sandboxMode: 'workspace_write',
       windowsSandboxLevel: 'restricted_token',
@@ -371,7 +373,9 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
       maxInjected: Math.round(clampNumber(memoryInput.maxInjected, 1, 12, defaults.memory.maxInjected))
     },
     tools: {
-      enabled: toolsInput.enabled === true,
+      // Legacy `tools.enabled` values are deliberately ignored. Tool availability is
+      // application-wide; individual tool execution remains guarded separately.
+      enabled: true,
       workspaceRead: toolsInput.workspaceRead !== false,
       approvalMode: normalizeAgentApprovalMode(
         toolsInput.approvalMode ?? legacyApprovalMode(toolsInput.workspaceWritePermission),

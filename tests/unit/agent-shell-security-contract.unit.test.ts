@@ -1,7 +1,7 @@
 /**
  * Stage B security negative matrix for isKnownSafeReadCommand.
  * Fail-closed known-safe contract — auto-allow / read_only eligibility only.
- * ADR-0152 / docs/agent-shell-sandbox-delivery-roadmap.md Stage B.
+ * ADR-0152 / ADR-0153 Stage B.
  */
 import { describe, expect, it } from 'vitest'
 

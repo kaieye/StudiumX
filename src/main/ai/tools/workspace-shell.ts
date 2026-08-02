@@ -1,7 +1,7 @@
 /**
  * Workspace-bounded command / shell tool (ADR-0152 + ADR-0153).
  * Codex dual-axis: sandboxMode (FS posture) × approvalMode (AskForApproval).
- * Registered when tools.workspaceShell !== false (default on once tools.enabled).
+ * Registered when tools.workspaceShell !== false (application-wide tools are enabled).
  * effect=privileged; path fence; not teaching Evidence.
  */
 

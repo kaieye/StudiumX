@@ -123,7 +123,7 @@
 | **STC-006** | 运行中修改方案 | **已决定**：历史/当前段冻结 `planSnapshot`；修改仅影响下一段 |
 | **STC-007** | 通知、声音与休息自动化默认 | **已决定（默认策略）**：番茄到点默认 `ask`；可显式 `breakPolicy: none` / `reminder_only`；其余提醒细节可在实现切片细化但不得违背本表 |
 | **STC-008** | V1→V2 dry-run 迁移与失败策略 | **已决定（策略）**：dry-run 必需；fail-closed；备份保留 ≥30 天或用户确认擦除；exact path TBD |
-| **STC-009** | `CONTEXT.md` 术语 | **本 ADR 冻结术语**；`CONTEXT.md` 更新为同 workstream 文档义务（非本文件职责时仍以本 ADR 为决策权威） |
+| **STC-009** | `docs/domain-language.md` 术语 | **本 ADR 冻结术语**；`docs/domain-language.md` 更新为同 workstream 文档义务（非本文件职责时仍以本 ADR 为决策权威） |
 
 **Phase 0 验收（文档门）：** 决策已写入本 ADR；**无**实现代码提前冻结错误文件路径。
 

@@ -2,8 +2,8 @@
 
 - **状态：** 已实施（文档 + 安全套件清单）
 - **日期：** 2026-07-21
-- **范围：** 根级 `AGENTS.md`；`SECURITY_CHECKS` 纳入 external-content boundary；`docs/testing.md` L0/L1/L2/L4 分层教条；CONTRIBUTING 交叉引用
-- **相关：** [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[`SECURITY.md`](../../SECURITY.md)、[`docs/tools/TOOL_CONTRACT.md`](../tools/TOOL_CONTRACT.md)、[[ADR-0121](0121-improvements-adoption-closeout.md)](0121-improvements-adoption-closeout.md) **A-06 / A-07 / A-10**
+- **范围：** 根级 `AGENTS.md`；`SECURITY_CHECKS` 纳入 external-content boundary；`AGENTS.md` / `CONTRIBUTING.md` 的 L0/L1/L2/L4 分层约定；CONTRIBUTING 交叉引用
+- **相关：** [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[`SECURITY.md`](../../SECURITY.md)、[`docs/tools/TOOL_CONTRACT.md`](../tools/TOOL_CONTRACT.md)、[ADR-0121](0121-improvements-adoption-closeout.md) **A-06 / A-07 / A-10**
 
 ## 背景
 
@@ -11,7 +11,7 @@ ADOPTION Phase 0 要求三条低成本、高杠杆的门禁与文档闭环：
 
 1. **A-06** — `scripts/check-agent-external-content-boundary.mjs` 已存在且有 `check:agent-external-content-boundary` 脚本，但未列入 `SECURITY_CHECKS`，导致 `pnpm run check:security` / `check:prepush` 漏跑。
 2. **A-07** — 仓库缺根级 `AGENTS.md`：贡献者与 coding agent 缺少「命令图 + 红线 + 改哪测哪 + 模块尺寸」单页入口；ADR 与 CONTRIBUTING 仍是权威，但入口过散。
-3. **A-10** — `docs/testing.md` 过薄：百余 `check-*.mjs` 需要 L0 领域保险丝 / L1 runtime / L2 packaging / L4 change-detector 债的正式分层，避免正确重构被源码正则锁死，同时 **禁止一刀切删除** 既有门禁。
+3. **A-10** — 百余 `check-*.mjs` 需要 L0 领域保险丝 / L1 runtime / L2 packaging / L4 change-detector 债的正式分层，避免正确重构被源码正则锁死，同时 **禁止一刀切删除** 既有门禁。
 
 ## 决策
 
@@ -36,7 +36,7 @@ scripts/check-agent-external-content-boundary.mjs
 | 红线 | 与 ADOPTION §5 / CONTRIBUTING 对齐的 Do not 列表 |
 | 改哪测哪 | 模块 → 最小检查映射摘要 |
 | 模块尺寸 | 目标 &lt;500–800；TS 可 &lt;1000 需说明；历史巨石 warning + 触达 peel |
-| 链接 | ADR 索引、`docs/testing.md`、ADOPTION、SECURITY、TOOL_CONTRACT、CONTRIBUTING |
+| 链接 | ADR 索引、`AGENTS.md`、ADOPTION、SECURITY、TOOL_CONTRACT、CONTRIBUTING |
 
 **明确：**
 
@@ -45,7 +45,7 @@ scripts/check-agent-external-content-boundary.mjs
 
 ### 3. 测试教条分层（A-10）
 
-`docs/testing.md` 正式定义：
+`AGENTS.md` 的“改哪测哪”与 `CONTRIBUTING.md` 共同定义：
 
 | 层 | 含义 |
 | --- | --- |
@@ -62,7 +62,7 @@ scripts/check-agent-external-content-boundary.mjs
 | --- | --- |
 | `scripts/security-checks.mjs` | `SECURITY_CHECKS` 含 external-content boundary |
 | `AGENTS.md` | 根级代理/贡献者速查 |
-| `docs/testing.md` | L0/L1/L2/L4 教条 |
+| `AGENTS.md` / `CONTRIBUTING.md` | L0/L1/L2/L4 分层约定 |
 | `CONTRIBUTING.md` | Related 交叉链接 |
 | 本 ADR + `docs/adr/README.md` 索引 | 决策记录 |
 

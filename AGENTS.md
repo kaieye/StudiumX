@@ -11,7 +11,7 @@
 | 边界 | 含义 |
 | --- | --- |
 | 文件是教学真相源 | **仅指 AI 教学决策事实**：根据学习进度、答题表现制定下一步学习计划时，canonical 在工作区文件 / LearningSession ledger；SQLite、agent run 与同步副本不得成为 teaching authority。等级/XP、偏好、规划快照与经同意的分析摘要是可同步用户状态，不因此获得教学权威。详见 [ADR-0167](docs/adr/0167-teaching-authority-and-syncable-user-state.md)。 |
-| 无默认 shell | `tools.enabled` 默认关；开启后 **workspaceShell 默认开**（主流 Agent，ADR-0153）。`sandboxMode` × `approvalMode` 双轴 + 路径围栏；**禁止** YOLO 标签与虚假 Docker/VM 完备宣称。**合格交付**见 [`docs/agent-shell-sandbox-delivery-roadmap.md`](docs/agent-shell-sandbox-delivery-roadmap.md)（**Completed 2026-07-25** — qualified without Windows OS helper；ADR-0152/0153 为决策/provisional） |
+| 工具默认可用 | 工具调用是应用级默认能力：`tools.enabled` 仅保留持久化兼容字段，加载后始终归一化为 `true`，Settings 不提供总开关。**workspaceShell 默认开**（主流 Agent，[ADR-0153](docs/adr/0153-codex-sandbox-dual-axis-and-agent-shell.md)）；`sandboxMode` × `approvalMode` 双轴、工作区信任、具体工具配置与路径围栏持续适用；A–F 已于 **2026-07-25** 合格完成（不含可选 Windows OS helper）；**禁止** YOLO 标签与虚假 Docker/VM 完备宣称。 |
 | MCP 全面对齐 | [ADR-0132](docs/adr/0132-mcp-zcode-parity-and-trust-lifecycle.md) + 体验边界 [ADR-0141](docs/adr/0141-mcp-product-experience-parity-policy.md) + **产品面 [ADR-0142](docs/adr/0142-mcp-product-surface-settings-only.md)**：A–H foundation 可保留；**Settings 产品面 = list/editor/import/OAuth**（**无** marketplace 设置页）。硬安全不变：secret/token 永不进 public DTO/Doctor；MCP 非 teaching evidence；settlement sole-writer；MCP tool 仍进 effect lattice / approval / ToolOutcome；禁止 YOLO 标签。 |
 | 无自动 remote telemetry | 本地优先指**不静默上传**、**不**默认 phone-home / Statsig / Mixpanel 式外发；不禁止用户显式开启的账号与多端同步。同步状态不得反向改写教学决策事实。 |
 | effect lattice + TOOL_CONTRACT | `read` / `workspace_write` / `external_write` / `privileged` 三态审批；**禁止 YOLO / always-approve 标签** |
@@ -51,7 +51,7 @@ git config core.hooksPath .githooks
 
 ## 3. 红线（Do not）
 
-1. **不要** 在 `tools.enabled` 关闭时静默执行 shell；不要用 YOLO / DangerFullAccess / always-approve 标签；不要宣称 Docker/VM 级 OS sandbox 完备（ADR-0152/0153）。
+1. **不要**增加、恢复或信任 `tools.enabled` 总开关；工具执行仍须经过具体 capability、工作区信任、审批、预算、路径围栏与沙箱。不要用 YOLO / DangerFullAccess / always-approve 标签；不要宣称 Docker/VM 级 OS sandbox 完备（ADR-0152/0153）。
 2. **不要** 加 YOLO / DangerFullAccess / always-approve 默认或 UI 标签（`full_access` 仅称「本课放行 / 宽松策略」）。
 3. **MCP 产品面**以 [ADR-0142](docs/adr/0142-mcp-product-surface-settings-only.md) 为准：Settings **仅** list/editor/import/OAuth；**不要**再挂 marketplace 设置页或半成品市场入口。host/foundation（ADR-0140 store/IPC）可保留。所有 MCP tools 仍必须入 effect lattice 与 approval；禁止 YOLO 标签、jiti 全权限扩展、code-mode 执行不可信代码或 shell-escalation 旁路；secret 永不进 public DTO / Doctor / support bundle。
 4. **不要** 默认远程 OTEL / phone-home；本地 doctor / support-bundle 须脱敏与同意。
@@ -77,7 +77,7 @@ git config core.hooksPath .githooks
 | Prompt 前缀 / cache 形状 | `check:teaching-impact`（PR 元数据）+ ADR-0044 相关检查 |
 | 仅文档 / ADR | 交叉链接自检；无强制 suite |
 
-分层含义与 L0–L4 教条见 [`docs/testing.md`](docs/testing.md)。Blocking CI 保持窄而硬（ADR-0023）；全量 e2e / release-audit 不塞进每个 PR。
+分层检查约定见本文“改哪测哪”与 [`CONTRIBUTING.md`](CONTRIBUTING.md)：L0 领域保险丝、L1 runtime、L2 packaging、L4 change-detector 债。Blocking CI 保持窄而硬（ADR-0023）；全量 e2e / release-audit 不塞进每个 PR。
 
 ---
 
@@ -97,11 +97,10 @@ git config core.hooksPath .githooks
 | 文档 | 用途 |
 | --- | --- |
 | [`docs/adr/README.md`](docs/adr/README.md) | 已实施架构决定索引 |
-| [`docs/testing.md`](docs/testing.md) | 测试教条与 check 分层（L0–L4） |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | 贡献流程、分层检查约定与 PR 清单 |
 | [ADR-0121](docs/adr/0121-improvements-adoption-closeout.md) | 四源改进借鉴 ADOPTION 结项；开放项须新 ADR |
 | [`SECURITY.md`](SECURITY.md) | 产品信任边界与非声明 |
 | [`docs/tools/TOOL_CONTRACT.md`](docs/tools/TOOL_CONTRACT.md) | 工具 effect / 合同 |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | 贡献流程与 PR 清单 |
-| [`MISSION.md`](MISSION.md) | 产品意图 |
+| [`docs/domain-language.md`](docs/domain-language.md) | 产品领域术语与命名约定 |
 
 架构变更（settlement、effect、prompt-cache、隐私边界）必须新增或更新 ADR，并链入 `docs/adr/README.md`。

@@ -203,7 +203,7 @@ function buildSnapshot(
 
   const policy = resolveTeachingCapabilityPolicy({
     mode,
-    toolsEnabled: settings.tools.enabled,
+    toolsEnabled: true,
     hasTeachingWorkspace,
     workspaceToolAccessGranted,
     hasLessonGenerator
@@ -217,7 +217,7 @@ function buildSnapshot(
     describeWorkspaceTools(settings, policy, hasTeachingWorkspace, workspaceToolAccessGranted),
     describeDelegation(policy),
     describeLesson(policy, hasLessonGenerator, hasTeachingWorkspace),
-    ...describeSkills(request.skills, request.skillLoadError, settings, policy)
+    ...describeSkills(request.skills, request.skillLoadError, policy)
   ]
 
   const available = items.filter((item) => item.status === 'available' && item.promptEligible)
@@ -267,23 +267,13 @@ function degradedSnapshot(
   }
 }
 
-function describeToolsMaster(settings: TeachingSettingsV1): CapabilityItem {
-  if (!settings.tools.enabled) {
-    return capabilityItem({
-      id: 'tools',
-      kind: 'tools_master',
-      name: 'Agent tools',
-      status: 'disabled',
-      reason: 'tools.enabled is false',
-      promptEligible: false
-    })
-  }
+function describeToolsMaster(_settings: TeachingSettingsV1): CapabilityItem {
   return capabilityItem({
     id: 'tools',
     kind: 'tools_master',
     name: 'Agent tools',
     status: 'available',
-    reason: 'tools.enabled is true',
+    reason: 'application-level tool availability is enabled',
     promptEligible: true
   })
 }
@@ -343,16 +333,6 @@ function describeWebSearch(
   workspaceRoot: string | null | undefined,
   toolPolicyDocument?: ToolPolicyDocument | null
 ): CapabilityItem {
-  if (!settings.tools.enabled) {
-    return capabilityItem({
-      id: 'web_search',
-      kind: 'web_search',
-      name: 'Web search',
-      status: 'disabled',
-      reason: 'tools.enabled is false',
-      promptEligible: false
-    })
-  }
   if (!settings.tools.webSearch) {
     return capabilityItem({
       id: 'web_search',
@@ -446,16 +426,6 @@ function describeWebFetch(
   settings: TeachingSettingsV1,
   policy: TeachingCapabilityPolicy
 ): CapabilityItem {
-  if (!settings.tools.enabled) {
-    return capabilityItem({
-      id: 'web_fetch',
-      kind: 'web_fetch',
-      name: 'Web fetch',
-      status: 'disabled',
-      reason: 'tools.enabled is false',
-      promptEligible: false
-    })
-  }
   if (!settings.tools.webFetch) {
     return capabilityItem({
       id: 'web_fetch',
@@ -492,16 +462,6 @@ function describeWorkspaceTools(
   hasTeachingWorkspace: boolean,
   workspaceToolAccessGranted: boolean
 ): CapabilityItem {
-  if (!settings.tools.enabled) {
-    return capabilityItem({
-      id: 'workspace_tools',
-      kind: 'workspace_tools',
-      name: 'Workspace tools',
-      status: 'disabled',
-      reason: 'tools.enabled is false',
-      promptEligible: false
-    })
-  }
   if (!settings.tools.workspaceRead) {
     return capabilityItem({
       id: 'workspace_tools',
@@ -634,7 +594,6 @@ function describeLesson(
 function describeSkills(
   skills: readonly SkillSummary[] | undefined,
   skillLoadError: string | undefined,
-  settings: TeachingSettingsV1,
   policy: TeachingCapabilityPolicy
 ): CapabilityItem[] {
   if (skillLoadError) {
@@ -661,24 +620,6 @@ function describeSkills(
         promptEligible: false
       })
     ]
-  }
-
-  if (!settings.tools.enabled) {
-    return skills.map((skill) =>
-      capabilityItem({
-        id: `skill:${skill.id}`,
-        kind: 'skill',
-        name: skill.name,
-        status: 'disabled',
-        reason: 'tools.enabled is false',
-        promptEligible: false,
-        details: {
-          skillId: skill.id,
-          installed: skill.installed,
-          source: skill.source
-        }
-      })
-    )
   }
 
   if (!policy.allowsTool('read_skill_resource')) {

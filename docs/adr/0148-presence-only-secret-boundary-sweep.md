@@ -3,7 +3,7 @@
 - **状态：** **已实施**（2026-07-24）
 - **日期：** 2026-07-24
 - **范围：** 跨 IPC、Doctor、support-bundle 公共面（及未来多窗口）统一 **presence-only** 密钥语义：对外通信只暴露「已配置 / 未配置」；**从不**带 raw key/token；**无**默认远程 telemetry。
-- **相关：** [liveagent-worth-learning.md](../improvements/liveagent-worth-learning.md) §3.4 / Phase B；[ADR-0007](0007-persisted-user-history-redaction.md)；[ADR-0025](0025-teaching-config-resolver-secret-free-layers.md)；[ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)；[ADR-0034](0034-redacted-support-bundle.md)；[ADR-0107](0107-support-bundle-common-redact-switch.md)；[ADR-0127](0127-user-configurable-mcp-design-gate.md)；[ADR-0135](0135-mcp-oauth-pkce-and-secret-token-lifecycle.md)；[ADR-0142](0142-mcp-product-surface-settings-only.md)；[ADR-0121](0121-improvements-adoption-closeout.md)；`AGENTS.md`；`SECURITY.md`
+- **相关：** LiveAgent 历史研究清单（已结项） §3.4 / Phase B；[ADR-0007](0007-persisted-user-history-redaction.md)；[ADR-0025](0025-teaching-config-resolver-secret-free-layers.md)；[ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)；[ADR-0034](0034-redacted-support-bundle.md)；[ADR-0107](0107-support-bundle-common-redact-switch.md)；[ADR-0127](0127-user-configurable-mcp-design-gate.md)；[ADR-0135](0135-mcp-oauth-pkce-and-secret-token-lifecycle.md)；[ADR-0142](0142-mcp-product-surface-settings-only.md)；[ADR-0121](0121-improvements-adoption-closeout.md)；`AGENTS.md`；`SECURITY.md`
 - **实现落点：** `src/shared/secret-presence.ts`；MCP `toPublicServer` / import-export `SECRET_FIELD_KEY_RE`；`src/main/mcp/redact.ts`；Doctor config facts；support-bundle denied-field 扩展；capability cache `hasApiKey` presence
 
 ## 1. 问题

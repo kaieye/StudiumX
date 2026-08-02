@@ -366,7 +366,7 @@ function applyOverlay(
   }
   if (overlay.tools) {
     for (const [key, fieldValue] of Object.entries(overlay.tools)) {
-      if (key === 'runBudget') continue
+      if (key === 'runBudget' || key === 'enabled') continue
       if (fieldValue === undefined) continue
       ;(value.tools as Record<string, unknown>)[key] = fieldValue
       setSource(assignments, `tools.${key}`, source)
@@ -455,7 +455,7 @@ function projectTeachingLoopConfig(settings: TeachingSettingsV1): MutableLoopCon
   return {
     generator: { ...settings.generator },
     tools: {
-      enabled: settings.tools.enabled,
+      enabled: true,
       workspaceRead: settings.tools.workspaceRead,
       approvalMode: settings.tools.approvalMode,
       workspaceShell: settings.tools.workspaceShell !== false,

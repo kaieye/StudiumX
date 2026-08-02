@@ -25,6 +25,19 @@ Thumbs.db
 
 .studiumx/
 conversations/
+
+# Learning workspaces must live outside this source repository. These root-level
+# artifacts are generated for a user workspace and must not be committed here.
+/MISSION.md
+/RESOURCES.md
+/GLOSSARY.md
+/NOTES.md
+/courses/
+/lessons/
+/learning-records/
+/reference/
+/memory/
+/assets/
 # The product Web route is source code, not a transient conversation artifact.
 !web/src/views/conversations/
 !web/src/views/conversations/**

@@ -3,7 +3,7 @@
 - **状态：** 已实施（文档与质量门）；投影阶梯代码沿用既有 projector/compactor
 - **日期：** 2026-07-21
 - **范围：** request-context 投影阶梯语义、PR/CI 路径敏感门、本地 pre-push 子集、SECURITY 与测试教义入口
-- **相关：** [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、`SECURITY.md`、`docs/testing.md`
+- **相关：** [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、`SECURITY.md`、`AGENTS.md` / `CONTRIBUTING.md`
 
 ## 背景
 
@@ -44,14 +44,14 @@ Keep-policy（层 A 默认）：
 | PR template | `.github/pull_request_template.md`：Teaching-impact / Privacy-impact / Prompt-prefix-guard / Settlement-guard |
 | `pnpm run check:teaching-impact` | 有 PR body 时，路径命中敏感前缀则要求对应元数据字段 |
 | `pnpm run check:prepush` | 本地子集：`typecheck` + `check:security`；可选 `.githooks/pre-push` |
-| `docs/testing.md` | 反 change-detector：优先 import 真模块 + temp workspace |
+| `AGENTS.md` / `CONTRIBUTING.md` | 反 change-detector：优先 import 真模块 + temp workspace |
 
 Blocking CI 仍保持窄门（typecheck / security-privacy / P0 teaching evidence），不因本 ADR 自动扩成 full suite。
 
 ## 已实施范围与验证入口
 
 - `SECURITY.md`
-- `docs/testing.md`
+- `AGENTS.md` / `CONTRIBUTING.md`
 - `.github/pull_request_template.md`
 - `.github/workflows/*.yml`（单一顶层 concurrency）
 - `.githooks/pre-push`（可选：`git config core.hooksPath .githooks`）

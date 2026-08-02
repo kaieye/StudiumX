@@ -335,6 +335,98 @@ function fixtureLesson(root: string): LessonSummary {
   }
 }
 
+describe('teaching conversation unavailable-workspace-tool fallback', () => {
+  it('replaces an unfinished workspace-read promise when workspace access is not granted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-untrusted-workspace-tools-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    const requests: Array<Record<string, unknown>> = []
+    globalThis.fetch = (async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return jsonResponse({
+        choices: [{
+          message: { content: '让我先看看你的教学工作区当前状态，再决定下一步。' }
+        }]
+      })
+    }) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'disabled-workspace-tools-run',
+        workspaceId: 'workspace-1',
+        conversationId: 'teaching-conversation-tools-disabled',
+        mode: 'teaching',
+        messages: [],
+        userInput: '请根据我的工作区安排下一步学习。'
+      },
+      {
+        streamId: 'disabled-workspace-tools-run',
+        onChunk: vi.fn(),
+        onStatus: vi.fn(),
+        onTool: vi.fn()
+      },
+      fixtureWorkspace(root, false),
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => { throw new Error('memory should not be created') },
+        loadSkillReferences: async () => [fixtureCoreTeachingKernelReference()],
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(result).toMatchObject({
+      finalText: expect.stringContaining('当前未启用工作区工具'),
+      toolsSupported: true,
+      stopReason: 'final_answer'
+    })
+    expect('turns' in result && result.turns.at(-1)?.content).toContain('当前未启用工作区工具')
+    expect(result.finalText).not.toContain('让我先看看')
+    expect(workspaceToolNames(requests[0]).filter((name) => workspaceFileToolNames.includes(name))).toEqual([])
+    expect(JSON.stringify(requests[0]?.messages)).toContain('<workspace-read-availability>')
+  })
+
+  it('keeps a complete teaching answer unchanged when workspace access is not granted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-untrusted-workspace-tools-answer-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    const completeAnswer = '言语理解先用主旨概括题做 20 分钟限时练习，再复盘错误选项。请告诉我你最薄弱的题型。'
+    globalThis.fetch = (async () => jsonResponse({
+      choices: [{ message: { content: completeAnswer } }]
+    })) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'disabled-workspace-tools-complete-answer-run',
+        workspaceId: 'workspace-1',
+        conversationId: 'teaching-conversation-tools-disabled-complete-answer',
+        mode: 'teaching',
+        messages: [],
+        userInput: '言语理解怎么开始练？'
+      },
+      {
+        streamId: 'disabled-workspace-tools-complete-answer-run',
+        onChunk: vi.fn(),
+        onStatus: vi.fn(),
+        onTool: vi.fn()
+      },
+      fixtureWorkspace(root, false),
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => { throw new Error('memory should not be created') },
+        loadSkillReferences: async () => [fixtureCoreTeachingKernelReference()],
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(result).toMatchObject({ finalText: completeAnswer, stopReason: 'final_answer' })
+  })
+})
 describe('teaching workspace trust runtime boundary', () => {
   it('fails closed for untrusted workspace file tool definitions, handlers, and ToolContext while retaining lessons and memory scope', async () => {
     const root = await mkdtemp(join(tmpdir(), 'studiumx-untrusted-workspace-tools-'))
@@ -844,6 +936,7 @@ describe('skill orchestration runtime evaluation (ADR-0151 / ADR-0163)', () => {
     const root = await mkdtemp(join(tmpdir(), 'studiumx-explicit-skill-overlay-'))
     createdRoots.push(root)
     const settings = configuredSettings(root)
+    // Legacy persisted false must not disable this turn.
     settings.tools.enabled = false
     const requests: Array<{ messages?: Array<{ role: string; content?: string }> }> = []
     globalThis.fetch = (async (_input, init) => {

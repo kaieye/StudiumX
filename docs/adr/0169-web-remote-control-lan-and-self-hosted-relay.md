@@ -1,4 +1,4 @@
-# ADR-0143：移动端远程控制（局域网默认 + 可选自建中继）
+# ADR-0169：移动端远程控制（局域网默认 + 可选自建中继）
 
 - **状态：** 已采纳（设计 + Phase 0/1 骨架实施中；全控制业务面分阶段）
 - **日期：** 2026-07-24
@@ -79,5 +79,5 @@ Transport（LAN 服务端视角）：等待手机 → authenticating → paired�
 src/shared/web-remote-control/
 src/main/web-remote-control/
 src/shared/features.ts  # web-remote-control
-docs/adr/0143-web-remote-control-lan-and-self-hosted-relay.md
+docs/adr/0169-web-remote-control-lan-and-self-hosted-relay.md
 ```

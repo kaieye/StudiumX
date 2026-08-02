@@ -94,8 +94,7 @@ export async function produce(prepared: PreparedLessonPlanRequest): Promise<Less
   }
   const registry = buildDefaultRegistry(productionSettings, workspaceToolOptions)
   const toolDefinitions = registry.definitions()
-  const useTools = productionSettings.tools.enabled &&
-    toolsSupportedForFormat(productionSettings.generator.endpointFormat) &&
+  const useTools = toolsSupportedForFormat(productionSettings.generator.endpointFormat) &&
     toolDefinitions.length > 0
 
   if (useTools) {

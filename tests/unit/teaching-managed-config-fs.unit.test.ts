@@ -201,10 +201,12 @@ describe('managedConfigOption', () => {
     }
     const resolved = resolveTeachingConfig(scopeLoaded)
     // managed sets maxIterations 6; user overrides to 2 (user > managed).
+    // The legacy tools.enabled value is accepted for compatibility but is
+    // normalized to true without preserving a managed-layer source.
     expect(resolved.value.tools.maxIterations).toBe(2)
     expect(resolved.value.tools.enabled).toBe(true)
     expect(resolved.sources.some((s) => s.source === 'managed' && s.path === 'tools.enabled')).toBe(
-      true
+      false
     )
   })
 })

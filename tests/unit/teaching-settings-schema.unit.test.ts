@@ -17,9 +17,15 @@ describe('teaching settings schema', () => {
       version: 2,
       workspace: { defaultRoot: fallbackRoot },
       worktree: { rootPath: 'C:\\StudiumX\\workspace\\.worktrees' },
-      tools: { maxIterations: 0, runBudget: DEFAULT_TEACHING_AGENT_RUN_BUDGET },
+      tools: { enabled: true, maxIterations: 0, runBudget: DEFAULT_TEACHING_AGENT_RUN_BUDGET },
       appBehavior: { closeAction: 'tray', closeToTray: true }
     })
+  })
+
+  it('keeps application-level tool availability enabled, including legacy false values', () => {
+    expect(normalizeTeachingSettings({}, fallbackRoot).tools.enabled).toBe(true)
+    expect(normalizeTeachingSettings({ tools: { enabled: 'invalid' } }, fallbackRoot).tools.enabled).toBe(true)
+    expect(normalizeTeachingSettings({ tools: { enabled: false } }, fallbackRoot).tools.enabled).toBe(true)
   })
 
   it('migrates legacy (pre-v2) records to close-to-tray regardless of stored closeAction', () => {
@@ -223,7 +229,7 @@ describe('teaching settings schema', () => {
       worktree: { rootPath: 'C:\\StudiumX\\workspace\\.worktrees' },
       memory: { enabled: false, maxInjected: 12 },
       tools: {
-        enabled: false,
+        enabled: true,
         workspaceRead: false,
         approvalMode: 'request_approval',
         webSearch: false,
