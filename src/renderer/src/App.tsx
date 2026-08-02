@@ -39,7 +39,6 @@ import {
   X,
   Wrench
 } from 'lucide-react'
-import { WorkspaceWebRemoteControlTrigger } from './views/web-remote-control/WebRemoteControlDialog'
 import { AppUpdateDialog } from './views/updater/AppUpdateDialog'
 import type { TeachingPresentationSnapshot } from '../../shared/teaching-types/teaching-presentation'
 import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
@@ -419,12 +418,6 @@ function Sidebar() {
           </span>
           <span className="sidebar-user-name collapsible-label">{displayName}</span>
         </button>
-        <WorkspaceWebRemoteControlTrigger
-          compact
-          workspacePath={active?.rootPath}
-          workspaceId={active?.id}
-          initialTaskId={activeConversationId ?? undefined}
-        />
         <button className="icon-button" type="button" aria-label={t('sidebar.settings')} onClick={() => openSettings('model')} title={t('sidebar.settings')}>
           <Settings size={16} />
         </button>
