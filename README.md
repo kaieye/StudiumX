@@ -6,6 +6,8 @@
 
 <p align="center"><em>本地优先的 AI 教学工作区 — 把目标、课程、资源与学习记录沉淀为可持续演进的学习资产</em></p>
 
+<p align="center"><a href="https://studiumx.cn/app">在线自习室体验</a></p>
+
 <p align="center">
   <img src="https://img.shields.io/badge/Electron-42-47848f" alt="Electron" />
   <img src="https://img.shields.io/badge/React-19-149eca" alt="React" />
