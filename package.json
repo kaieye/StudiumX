@@ -1,6 +1,6 @@
 {
   "name": "studiumx",
-  "version": "0.0.9",
+  "version": "0.1.0",
   "description": "Personal AI teaching workspace built with Electron, React, TypeScript, Vite, and Tailwind CSS.",
   "main": "out/main/index.js",
   "type": "module",

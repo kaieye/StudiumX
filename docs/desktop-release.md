@@ -35,24 +35,22 @@ intentionally inactive for `pnpm dev` and unpackaged local builds.
 ## GitHub release flow
 
 1. Update the `version` in `package.json` to the release version.
-2. Merge the change into `main` and create a matching annotated tag, for
+2. Add curated release notes at `docs/releases/v<version>.md`.
+3. Merge the change into `main` and create a matching annotated tag, for
    example `v0.1.1` for version `0.1.1`.
-3. Push the tag. The `Release desktop installers` workflow builds the native
-   installers on Windows x64 and Linux x64. macOS artifacts are intentionally
-   not published by the current release workflow.
-4. After every platform build succeeds, the workflow publishes one GitHub
-   Release containing both installers and updater manifests.
+4. Push the tag. The `Release desktop installers` workflow builds native
+   installers on Windows x64, Linux x64, and macOS Apple Silicon (arm64).
+5. After every platform build succeeds, the workflow publishes one GitHub
+   Release with the installers, updater manifests, and the curated release
+   notes.
 
 The workflow deliberately publishes only after the matrix completes. This
 prevents a running app from finding a partially uploaded release.
 
-## macOS signing (when macOS publishing resumes)
+## macOS distribution
 
-The installer built locally is unsigned. Before distributing macOS releases to
-other users, configure the repository secrets `CSC_LINK`, `CSC_KEY_PASSWORD`,
-`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` with the Apple
-Developer signing and notarization credentials. The release workflow forwards
-them to `electron-builder`; without them, macOS may warn when opening the app
-and in-place installation after an update cannot be relied upon. Configure
-these credentials before publishing a public macOS release: a signed and
-notarized app is required for a dependable in-place macOS update experience.
+The macOS arm64 build is published without signing or notarization credentials.
+It can therefore trigger Gatekeeper warnings, and reliable in-app updates are
+not a release guarantee. To support a dependable macOS installation and update
+experience later, configure `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` as repository secrets.
