@@ -17,13 +17,13 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/ai-teaching-conversation.png" alt="StudiumX 的 AI 教学对话与学习诊断界面" width="48%" />
+  <img src="docs/images/learning-analytics.png" alt="StudiumX 学习分析界面" width="48%" />
   <img src="docs/images/lesson-handout.png" alt="StudiumX 生成的课程讲义界面" width="48%" />
 </p>
 
 <p align="center">
   <img src="docs/images/study-room.png" alt="StudiumX 自习室与专注计时界面" width="48%" />
-  <img src="docs/images/learning-analytics.png" alt="StudiumX 学习分析界面" width="48%" />
+  <img src="docs/images/ai-teaching-conversation.png" alt="StudiumX 的 AI 教学对话与学习诊断界面" width="48%" />
 </p>
 
 StudiumX 是一个以**学习工作区**为中心的桌面应用。它将 AI 辅助教学、学习计划、专注任务、资源库和学习分析放入同一个本地工作流；学习目标、课程讲义、可信资源与学习记录保存在你自己的工作区中，而不是被普通聊天记录替代。
