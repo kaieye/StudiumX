@@ -4,7 +4,7 @@ import { buildAnalyticsVisualizationSummary } from '../../src/renderer/src/sync/
 import {
   hydratedSyncedTasks,
   parseSyncedAnalyticsVisualizations
-} from '../../web/src/adapter/features/analytics-payload'
+} from '../../web/src/adapter/analytics-payload'
 
 const focus = {
   daily: [{

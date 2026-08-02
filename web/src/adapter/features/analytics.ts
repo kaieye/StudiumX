@@ -55,7 +55,7 @@ import type {
 import type { TeachingSystemApi } from '@shared/teaching-types/system-api'
 import { calculateStudyLevelProgress, dailyXpSummary, studyPlantStageForLevel } from '@shared/study-progression'
 import { apiGet, ApiError } from '../../api/http'
-import { hydratedSyncedTasks, parseSyncedAnalyticsVisualizations } from './analytics-payload'
+import { hydratedSyncedTasks, parseSyncedAnalyticsVisualizations } from '../analytics-payload'
 
 /** Server `AnalyticsSummaryRow` (server-contracts.md §2, `toRow`). */
 interface AnalyticsSummaryRow {

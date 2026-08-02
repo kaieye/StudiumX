@@ -29,6 +29,10 @@ const featureModules = import.meta.glob('./features/*.ts', { eager: true }) as R
 function composeFeatureOverrides(): Record<string, unknown> {
   const overrides: Record<string, unknown> = {}
   for (const mod of Object.values(featureModules)) {
+    // Defensive: a helper module dropped into features/ without a `feature`
+    // export must be skipped, not crash the whole adapter (every feature module
+    // is eager-loaded, so a crash here blanks the entire web app).
+    if (!mod.feature) continue
     const partial = mod.feature as Record<string, unknown>
     for (const key of Object.keys(partial)) {
       overrides[key] = partial[key]
