@@ -23,14 +23,17 @@ jobs:
             os: windows-2022
             artifact: windows-x64
             args: --win --x64
+            manifest: win
           - name: Linux
             os: ubuntu-22.04
             artifact: linux-x64
             args: --linux --x64
+            manifest: linux
           - name: macOS (Apple Silicon)
             os: macos-14
             artifact: macos-arm64
             args: --mac --arm64
+            manifest: mac
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -56,8 +59,11 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: node -e 'const version = require("./package.json").version; if (process.env.TAG !== "v" + version) throw new Error(`Tag ${process.env.TAG} must match package version v${version}`)'
 
-      - name: Build installer and update manifest
+      - name: Build installer
         run: pnpm run dist -- ${{ matrix.args }} --publish never
+
+      - name: Recreate update manifest
+        run: node scripts/release/write-update-manifest.mjs ${{ matrix.manifest }} release
 
       - name: Upload release assets
         uses: actions/upload-artifact@v7
@@ -96,7 +102,13 @@ jobs:
         run: |
           NOTES_FILE="docs/releases/${TAG}.md"
           test -f "$NOTES_FILE"
-          gh release create "$TAG" release-assets/**/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "StudiumX ${TAG#v}" \
-            --notes-file "$NOTES_FILE"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/**/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$TAG" release-assets/**/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "StudiumX ${TAG#v}" \
+              --notes-file "$NOTES_FILE"
+          fi
