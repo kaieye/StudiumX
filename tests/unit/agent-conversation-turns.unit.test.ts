@@ -80,6 +80,16 @@ describe('agent conversation turn collapse', () => {
   })
 
 
+  it('strips XML-style tool-call markup emitted by compatible providers from learner-visible content', () => {
+    const rawToolCall = [
+      '课程已生成。接下来补充术语表。',
+      '<tool_call>write_workspace_file<arg_key>content</arg_key><arg_value># Glossary</arg_value><arg_key>overwrite</arg_key><arg_value>true</arg_value><arg_key>path</arg_key><arg_value>GLOSSARY.md</arg_value></tool_call>'
+    ].join('\n')
+
+    expect(sanitizeAgentTurnContent(rawToolCall)).toBe('课程已生成。接下来补充术语表。')
+    expect(sanitizeAgentTurnContent('可见正文 <tool_call>write_workspace_file<arg_key>path</arg_key>')).toBe('可见正文')
+  })
+
   it('strips unclosed DSML tool markup so raw tags never surface', () => {
     const partial = [
       '可见正文',

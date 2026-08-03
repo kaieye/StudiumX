@@ -876,7 +876,8 @@
     },
     "baseUrl": "Base URL",
     "models": {
-      "label": "Default model"
+      "label": "Default model",
+      "placeholder": "Type or select a model"
     },
     "actions": {
       "label": "Provider actions",

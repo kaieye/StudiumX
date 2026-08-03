@@ -375,6 +375,176 @@ export function SettingsSelect<T extends string>({
   )
 }
 
+export function SettingsComboBox({
+  value,
+  options,
+  placeholder,
+  ariaLabel,
+  onInput,
+  onSelect
+}: {
+  value: string
+  options: string[]
+  placeholder?: string
+  ariaLabel?: string
+  onInput: (value: string) => void
+  onSelect: (value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(0)
+  // Live filter as the user types. Kept separate from `value` so opening the
+  // dropdown always shows the full model list — the committed value must not
+  // hide the other models (e.g. opening with 'glm-5.1' must not filter out
+  // 'glm-5.2').
+  const [query, setQuery] = useState('')
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const listId = useId()
+
+  const normalizedQuery = query.trim().toLowerCase()
+  const matchingOptions = normalizedQuery
+    ? options.filter((option) => option.toLowerCase().includes(normalizedQuery))
+    : options
+  const visibleOptions = matchingOptions.length > 0 ? matchingOptions : options
+
+  useEffect(() => {
+    if (open) {
+      setQuery('')
+      setHighlightedIndex(0)
+    }
+  }, [open])
+
+  useEffect(() => {
+    setHighlightedIndex((current) => Math.min(current, Math.max(0, visibleOptions.length - 1)))
+  }, [visibleOptions.length])
+
+  useEffect(() => {
+    if (!open) return
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target)) setOpen(false)
+    }
+
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [open])
+
+  useLayoutEffect(() => {
+    if (open) optionRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' })
+  }, [highlightedIndex, open])
+
+  const selectOption = (option: string): void => {
+    onSelect(option)
+    setOpen(false)
+  }
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Escape') {
+      setOpen(false)
+      return
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (!open) {
+        setOpen(true)
+        return
+      }
+      const direction = event.key === 'ArrowDown' ? 1 : -1
+      setHighlightedIndex((current) => (current + direction + visibleOptions.length) % visibleOptions.length)
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const option = visibleOptions[highlightedIndex]
+      if (open && option) {
+        selectOption(option)
+      } else {
+        setOpen(true)
+      }
+    }
+  }
+
+  return (
+    <div className={`settings-combobox ${open ? 'is-open' : ''}`} ref={rootRef}>
+      <GlassTextField
+        aria-autocomplete="list"
+        aria-controls={listId}
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        className="settings-input settings-combobox-input"
+        placeholder={placeholder}
+        role="combobox"
+        value={value}
+        onClick={() => setOpen(true)}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          onInput(event.target.value)
+        }}
+        onKeyDown={handleKeyDown}
+      />
+      <button
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        className="settings-combobox-toggle"
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <ChevronDown className="settings-combobox-toggle-icon" size={15} />
+      </button>
+
+      {open &&
+        visibleOptions.length > 0 &&
+        (() => {
+          const menu = (
+            <div
+              aria-activedescendant={`${listId}-${highlightedIndex}`}
+              className="settings-combobox-menu"
+              id={listId}
+              ref={menuRef}
+              role="listbox"
+            >
+              {visibleOptions.map((option, index) => {
+                const selected = option === value
+                const highlighted = index === highlightedIndex
+                return (
+                  <button
+                    aria-selected={selected}
+                    className={`settings-select-option ${selected ? 'is-selected' : ''} ${highlighted ? 'is-highlighted' : ''}`}
+                    id={`${listId}-${index}`}
+                    key={option}
+                    ref={(element) => {
+                      optionRefs.current[index] = element
+                    }}
+                    role="option"
+                    type="button"
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                    onClick={() => selectOption(option)}
+                  >
+                    <span className="settings-select-option-copy">
+                      <span>{option}</span>
+                    </span>
+                    {selected && <Check className="settings-select-check" size={16} />}
+                  </button>
+                )
+              })}
+            </div>
+          )
+          return menu
+        })()}
+    </div>
+  )
+}
+
 export function NumberInput({
   value,
   min,

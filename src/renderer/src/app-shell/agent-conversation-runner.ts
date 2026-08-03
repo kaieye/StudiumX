@@ -713,23 +713,23 @@ export class AgentConversationTurnRunner<TError> {
     const pending = state.pendingAgentConversation
     if (!pending || pending.summary.id !== active.pendingConversationId) return
     const conversationId = active.conversationId ?? (active.target.kind === 'canonical' ? active.target.conversationId : undefined)
-    if (!conversationId) {
-      // The current submit disposition does not always include a promoted id.
-      // Keep the completed optimistic projection rather than guessing a durable id.
-      this.dependencies.setState({ agentChatBusy: false, agentStatus: '完成' })
-      return
-    }
+    const api = this.dependencies.getApi()
+    const [conversationResult, treeResult, appStateResult] = await Promise.allSettled([
+      conversationId
+        ? api?.readAgentConversation({ workspaceId: active.workspaceId, conversationId, scope: scopeForMode(active.mode) })
+        : undefined,
+      conversationId
+        ? api?.readAgentConversationSessionTree({ workspaceId: active.workspaceId, conversationId, scope: scopeForMode(active.mode) })
+        : undefined,
+      api?.getState()
+    ])
+    const conversation = conversationResult.status === 'fulfilled' ? conversationResult.value : undefined
+    const tree = treeResult.status === 'fulfilled' ? treeResult.value : undefined
+    const appState = appStateResult.status === 'fulfilled' ? appStateResult.value : undefined
+    const current = this.dependencies.getState()
+    if (current.pendingAgentConversation?.summary.id !== active.pendingConversationId) return
 
-    try {
-      const [conversation, tree] = await Promise.all([
-        this.dependencies.getApi()?.readAgentConversation({ workspaceId: active.workspaceId, conversationId, scope: scopeForMode(active.mode) }),
-        this.dependencies.getApi()?.readAgentConversationSessionTree({ workspaceId: active.workspaceId, conversationId, scope: scopeForMode(active.mode) })
-      ])
-      if (!conversation || !tree) throw new Error('Conversation refresh unavailable')
-      let appState: TeachingAppState | undefined
-      try { appState = await this.dependencies.getApi()?.getState() } catch { /* durable transcript remains authoritative */ }
-      const current = this.dependencies.getState()
-      if (current.pendingAgentConversation?.summary.id !== active.pendingConversationId) return
+    if (conversation && tree) {
       const branch = tree.branches.find((item) => item.conversationId === conversation.id)
       this.dependencies.setState({
         ...(appState ? { appState } : {}),
@@ -746,11 +746,34 @@ export class AgentConversationTurnRunner<TError> {
         agentChatBusy: false
       })
       this.dependencies.onCompletedTurn?.({ runId: active.streamId, conversationId: conversation.id })
-    } catch {
-      // Never overwrite host-owned settlement with a renderer save/retry. The
-      // local projection remains visible and a later open reads durable state.
-      this.dependencies.setState({ agentChatBusy: false, agentStatus: '完成' })
+      return
     }
+
+    // A terminal event is authoritative even when the just-written transcript or
+    // session tree is briefly unavailable. Refresh the workspace catalog when
+    // possible (so generated lessons appear), clear the renderer-only pending
+    // marker, and retain the completed local projection without re-saving it.
+    if (!conversationId) {
+      this.dependencies.setState({
+        ...(appState ? { appState } : {}),
+        pendingAgentConversation: null,
+        agentChatBusy: false,
+        agentStatus: current.activeConversationId === pending.summary.id ? '' : '完成'
+      })
+      return
+    }
+    this.dependencies.setState({
+      ...(appState ? { appState } : {}),
+      activeConversationScope: scopeForMode(active.mode),
+      ...finishPendingAgentConversationSave({
+        pending,
+        activeConversationId: current.activeConversationId,
+        savedConversationId: conversationId,
+        turns: pending.turns,
+        toolsSupported: pending.toolsSupported
+      }),
+      agentChatBusy: false
+    })
   }
 
   private finishCanceled(pendingConversationId: string): void {

@@ -97,22 +97,16 @@ export const MODEL_PROVIDER_CATALOG = [
     apiKeyUrl: 'https://www.bigmodel.cn/usercenter/proj-mgmt/apikeys',
     models: [
       {
-        id: 'glm-4.5',
+        id: 'glm-5.2',
         ...TEXT_ONLY,
         contextWindowTokens: 131_072,
         maxOutputTokens: 98_304
       },
       {
-        id: 'glm-4.5-air',
+        id: 'glm-5.1',
         ...TEXT_ONLY,
         contextWindowTokens: 131_072,
         maxOutputTokens: 98_304
-      },
-      {
-        id: 'glm-4-flash',
-        ...TEXT_ONLY,
-        contextWindowTokens: 131_072,
-        maxOutputTokens: 16_384
       }
     ]
   },

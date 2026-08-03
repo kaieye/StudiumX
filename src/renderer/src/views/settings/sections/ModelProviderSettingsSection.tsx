@@ -30,6 +30,7 @@ import {
 import {
   SegmentedControl,
   SettingsCard,
+  SettingsComboBox,
   SettingsPanel,
   SettingsRow,
   SettingsSelect,
@@ -55,7 +56,6 @@ export function ModelProviderSettingsSection({
   const activeModelSettingsProvider =
     visibleModelProviders.find((provider) => provider.id === activeProvider.id) ?? visibleModelProviders[0]!
   const isCustomModelProvider = activeModelSettingsProvider.id === 'custom'
-  const activeModelValue = activeModelSettingsProvider.models[0] ?? ''
   const { provider: providerOperation } = configuration.state
   const [apiKeyVisible, setApiKeyVisible] = useState(() => !settings.privacy.maskApiKeys)
 
@@ -118,28 +118,19 @@ export function ModelProviderSettingsSection({
           />
         </SettingsRow>
         <SettingsRow label={t('model.models.label')}>
-          {isCustomModelProvider ? (
-            <SettingsTextInput
-              value={activeModelValue}
-              onChange={(model) => updateProviderModels(model ? [model] : [])}
-            />
-          ) : (
-            <SettingsSelect
-              position="item-aligned"
-              value={
-                activeModelSettingsProvider.models.includes(settings.generator.model)
-                  ? settings.generator.model
-                  : (activeModelSettingsProvider.models[0] ?? '')
-              }
-              options={activeModelSettingsProvider.models.map((model) => ({ value: model, label: model }))}
-              onChange={(model) => {
-                updateProviderModels([
-                  model,
-                  ...activeModelSettingsProvider.models.filter((item) => item !== model)
-                ])
-              }}
-            />
-          )}
+          <SettingsComboBox
+            ariaLabel={t('model.models.label')}
+            value={settings.generator.model}
+            options={activeModelSettingsProvider.models}
+            placeholder={t('model.models.placeholder')}
+            onInput={(model) => void configuration.updateSetting('generator.model', model)}
+            onSelect={(model) => {
+              updateProviderModels([
+                model,
+                ...activeModelSettingsProvider.models.filter((item) => item !== model)
+              ])
+            }}
+          />
         </SettingsRow>
         <SettingsRow label={t('reasoning.title')}>
           <SegmentedControl

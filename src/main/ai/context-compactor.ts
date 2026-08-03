@@ -572,7 +572,7 @@ export function inferContextWindowTokens(
   const model = modelId.toLowerCase()
   const explicit = /(?:^|[^0-9])(\d{2,3})k(?:[^0-9]|$)/i.exec(model)?.[1]
   if (explicit) return Number(explicit) * 1000
-  if (/gpt-5|gpt-4\.1|gpt-4o|claude|deepseek|glm-4\.5|mimo|grok|gemini/.test(model)) {
+  if (/gpt-5|gpt-4\.1|gpt-4o|claude|deepseek|glm-5|mimo|grok|gemini/.test(model)) {
     return 128_000
   }
   if (/32k/.test(model)) return 32_000

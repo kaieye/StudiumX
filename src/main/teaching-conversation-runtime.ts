@@ -73,6 +73,17 @@ import type {
   TeachingSettingsV1
 } from '../shared/teaching-types'
 
+/**
+ * Maintenance tools the model may still call in the durable-finalization round
+ * after generate_lesson succeeds (e.g. syncing the workspace glossary). The
+ * agent loop bounds the round and filters execution to this allow-list.
+ */
+const FINALIZATION_MAINTENANCE_TOOL_NAMES = new Set([
+  'list_workspace',
+  'read_workspace_file',
+  'write_workspace_file'
+])
+
 export type TeachingConversationRuntimeWorkspace = {
   id: string
   name: string
@@ -734,6 +745,13 @@ async function runTeachingConversationTurnActive(
     : undefined
 
   const runEvents: AgentLoopEvent[] = []
+  // After generate_lesson succeeds, durable finalization may still need to
+  // finish workspace bookkeeping (e.g. syncing the glossary). Offer the
+  // maintenance tools so the model can complete that before the final answer;
+  // the agent loop bounds the round and filters execution to this allow-list.
+  const finalizationMaintenanceTools = availableTools.filter((tool) =>
+    FINALIZATION_MAINTENANCE_TOOL_NAMES.has(tool.function.name)
+  )
   const result = await runAgentLoop({
     settings,
     provider,
@@ -759,6 +777,7 @@ async function runTeachingConversationTurnActive(
     durableSuccessFallback: () =>
       lessonGenerationSuccessFallback(lessonTool.generatedLessons()),
     shouldFinalizeAfterToolExecution: () => lessonTool.generatedLessons().length > 0,
+    finalizationTools: finalizationMaintenanceTools,
     normalizeFinalAnswer: (answerText) => {
       const fallback = replaceUnavailableWorkspaceReadPromise(
         answerText,

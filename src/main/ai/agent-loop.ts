@@ -130,6 +130,14 @@ export type RunAgentLoopOptions = {
   /** Stop offering tools once a caller-observed durable operation has succeeded. */
   shouldFinalizeAfterToolExecution?: () => boolean
   /**
+   * Optional maintenance tools offered in the durable-finalization round after
+   * a caller-observed durable operation (for example generate_lesson) succeeded.
+   * The model may call these once to finish workspace bookkeeping such as
+   * syncing a glossary before the no-tool final answer is generated. Execution
+   * is restricted to this allow-list and a single bounded round.
+   */
+  finalizationTools?: ToolDefinition[]
+  /**
    * Host-owned last-mile normalization for a no-tool final answer. The callback
    * runs before the answer is streamed or retained in the transcript.
    */
@@ -724,43 +732,132 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         : '达到工具调用上限，生成最终答复。'
   })
   try {
-    const messages = await prepareMessagesForProvider(transcript, [], {
-      compactionTriggerPoint: 'mid_stream'
-    })
-    const afterCompactionStop = execution.budgetStop('provider')
-    if (afterCompactionStop) return exhaustedResult(true, afterCompactionStop)
-    let answerStarted = false
-    const final = await invokeProviderWithRetry({
-      execution,
-      emit,
-      signal: runSignal,
-      invoke: async () =>
-        streamChatProvider({
-          settings: opts.settings,
-          provider: opts.provider,
-          request: { messages, tools: [], toolChoice: 'none', jsonMode: opts.jsonMode === true },
-          callbacks: {
-            onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-            onToken: (delta) => {
-              if (!answerStarted) {
-                answerStarted = true
-                emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
+    // Optional bounded maintenance round before the no-tool final answer. After
+    // a durable operation (for example generate_lesson) succeeded, the model may
+    // need to finish workspace bookkeeping such as syncing a glossary. Offering
+    // the maintenance tools once lets it do so; the round is restricted to the
+    // allow-list and runs at most one provider call plus one tool batch. When
+    // the model answers directly, that prose is the final answer; otherwise the
+    // maintenance results feed the no-tool round below.
+    let finalText: string | null = null
+    let final: ChatAdapterResult | null = null
+    if (durableFinalizationRequested && opts.finalizationTools && opts.finalizationTools.length > 0) {
+      const maintenanceTools = opts.finalizationTools
+      const maintenanceMessages = await prepareMessagesForProvider(transcript, maintenanceTools, {
+        compactionTriggerPoint: 'mid_stream'
+      })
+      const afterMaintenanceCompactionStop = execution.budgetStop('provider')
+      if (afterMaintenanceCompactionStop) return exhaustedResult(true, afterMaintenanceCompactionStop)
+      const maintenance = await invokeProviderWithRetry({
+        execution,
+        emit,
+        signal: runSignal,
+        invoke: async () =>
+          streamChatProvider({
+            settings: opts.settings,
+            provider: opts.provider,
+            request: { messages: maintenanceMessages, tools: maintenanceTools, toolChoice: 'auto', jsonMode: opts.jsonMode === true },
+            callbacks: {
+              onReasoning: (delta) => emit({ type: 'reasoning', delta }),
+              // Maintenance prose is not user-facing until it becomes the final
+              // answer; only the no-tool round streams tokens as they arrive.
+              onToken: () => undefined
+            },
+            signal: runSignal
+          })
+      })
+      execution.recordProviderUsage(maintenance.usage, 'provider_reported', maintenance.finishReason)
+      if (execution.isCanceled) return canceledResult(true)
+      if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
+      degradedReason ??= maintenance.degradedReason
+
+      if (maintenance.toolCalls.length === 0) {
+        const directText = stripDsmlToolCallBlocks(maintenance.text || '')
+        if (directText.trim()) {
+          finalText = directText
+          emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
+          emit({ type: 'token', delta: directText })
+        }
+      } else {
+        emit({ type: 'status', status: 'tool_running' })
+        const maintenanceBatch = await executeToolBatch(maintenance.toolCalls, opts.toolHandlers, {
+          emit,
+          signal: runSignal,
+          runId: opts.runId
+        }, {
+          isCanceled: () => execution.isCanceled,
+          budgetStop: () => execution.budgetStop('tool'),
+          startToolCall: () => execution.startToolCall(),
+          recordToolError: () => execution.recordToolError(),
+          isDurationExhausted: () => execution.isDurationExhausted,
+          onToolCall: (call) => emit({ type: 'tool_call', toolCall: call }),
+          resolveCall: (call) => {
+            if (maintenanceTools.some((tool) => tool.function.name === call.function.name)) return 'execute'
+            return {
+              skip: {
+                toolCallId: call.id,
+                name: call.function.name,
+                content: JSON.stringify({
+                  error: 'finalization_tool_not_allowed',
+                  message: `收尾阶段不允许调用工具 ${call.function.name}。`
+                }),
+                isError: true
               }
-              emit({ type: 'token', delta })
             }
-          },
-          signal: runSignal
+          }
         })
-    })
-    execution.recordProviderUsage(final.usage, 'provider_reported', final.finishReason)
-    if (execution.isCanceled) return canceledResult(true)
-    if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
-    degradedReason ??= final.degradedReason
-    // Finalization already requested toolChoice:none with an empty tool list. Some
-    // providers still emit native/DSML tool calls here; recover any prose first and
-    // only fall back to a durable success summary when the model returns nothing usable.
-    let finalText = stripDsmlToolCallBlocks(final.text || '')
-    if (final.toolCalls.length > 0 && !finalText.trim()) {
+        for (const toolResult of maintenanceBatch.results) {
+          transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
+          emit({ type: 'tool_result', toolCallId: toolResult.toolCallId, name: toolResult.name, result: toolResult.content, isError: toolResult.isError })
+        }
+        emit({ type: 'status', status: 'tool_done' })
+        if (maintenanceBatch.canceled) return canceledResult(true)
+        if (maintenanceBatch.durationExhausted) return exhaustedResult(true, 'duration')
+        if (maintenanceBatch.exhausted) return exhaustedResult(true, maintenanceBatch.exhausted)
+      }
+    }
+
+    // No-tool final answer round. Skipped when the maintenance round already
+    // produced direct final prose.
+    if (!finalText) {
+      const messages = await prepareMessagesForProvider(transcript, [], {
+        compactionTriggerPoint: 'mid_stream'
+      })
+      const afterCompactionStop = execution.budgetStop('provider')
+      if (afterCompactionStop) return exhaustedResult(true, afterCompactionStop)
+      let answerStarted = false
+      final = await invokeProviderWithRetry({
+        execution,
+        emit,
+        signal: runSignal,
+        invoke: async () =>
+          streamChatProvider({
+            settings: opts.settings,
+            provider: opts.provider,
+            request: { messages, tools: [], toolChoice: 'none', jsonMode: opts.jsonMode === true },
+            callbacks: {
+              onReasoning: (delta) => emit({ type: 'reasoning', delta }),
+              onToken: (delta) => {
+                if (!answerStarted) {
+                  answerStarted = true
+                  emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
+                }
+                emit({ type: 'token', delta })
+              }
+            },
+            signal: runSignal
+          })
+      })
+      execution.recordProviderUsage(final.usage, 'provider_reported', final.finishReason)
+      if (execution.isCanceled) return canceledResult(true)
+      if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
+      degradedReason ??= final.degradedReason
+      // Finalization already requested toolChoice:none with an empty tool list. Some
+      // providers still emit native/DSML tool calls here; recover any prose first and
+      // only fall back to a durable success summary when the model returns nothing usable.
+      finalText = stripDsmlToolCallBlocks(final.text || '')
+    }
+    if (final && final.toolCalls.length > 0 && !finalText.trim()) {
       const durableFallback = durableFinalizationRequested
         ? safeFallbackText(opts.durableSuccessFallback, transcript)
         : ''
@@ -773,7 +870,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       } else {
         return execution.failed(transcript, true, degradedReason, '达到限制后，模型仍请求继续调用工具，未返回最终答复。')
       }
-    } else if (final.toolCalls.length > 0) {
+    } else if (final && final.toolCalls.length > 0) {
       degradedReason ??= 'final_answer_ignored_tool_calls'
     }
     if (!finalText.trim()) {

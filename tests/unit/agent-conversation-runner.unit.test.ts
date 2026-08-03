@@ -211,6 +211,37 @@ describe('AgentConversationTurnRunner ADR-0170 host submission', () => {
     expect(harness.getState()).toMatchObject({ agentChatBusy: false, pendingAgentConversation: null, activeConversationRevision: 8 })
   })
 
+  it('settles the optimistic conversation and refreshes the workspace catalog when terminal transcript reads are temporarily unavailable', async () => {
+    const submit = vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-7', streamId: 'host-stream-7', conversationId: 'conversation-7' }))
+    const refreshedAppState = appState(workspace({ name: 'Physics with generated lesson' }))
+    const read = vi.fn(async () => { throw new Error('transcript is not ready yet') })
+    const readTree = vi.fn(async () => { throw new Error('session tree is not ready yet') })
+    const getState = vi.fn(async () => refreshedAppState)
+    const harness = makeHarness({
+      submitConversationTurn: submit,
+      readAgentConversation: read,
+      readAgentConversationSessionTree: readTree,
+      getState
+    }, {
+      activeConversationId: 'conversation-7', activeConversationScope: 'workspace', activeConversationRevision: 7,
+      activeSessionTree: sessionTree('conversation-7', 7), agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
+    })
+
+    await harness.runner.run({ inputOverride: 'Generate the lesson' })
+    harness.event({ sequence: 1, streamId: 'host-stream-7', kind: 'chunk', createdAt, payload: { streamId: 'host-stream-7', delta: '课程已生成。' } })
+    harness.event({ sequence: 2, streamId: 'host-stream-7', kind: 'terminal', createdAt, outcome: 'done' })
+    await flush()
+
+    expect(getState).toHaveBeenCalledOnce()
+    expect(harness.getState()).toMatchObject({
+      appState: refreshedAppState,
+      agentChatBusy: false,
+      pendingAgentConversation: null,
+      activeConversationId: 'conversation-7'
+    })
+    expect(harness.getState().agentTurns.at(-1)).toMatchObject({ content: '课程已生成。' })
+  })
+
   it('submits a busy follow-up to the host, mirrors queued UX, and never locally drains after the active stream settles', async () => {
     const submit = vi.fn()
       .mockResolvedValueOnce({ code: 'started', activeTurnId: 'turn-1', streamId: 'host-stream-1', conversationId: 'conversation-7' })

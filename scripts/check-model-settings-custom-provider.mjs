@@ -55,9 +55,10 @@ try {
   const modelRowIndex = modelProviderSection.indexOf("label={t('model.models.label')}")
   assert.notEqual(modelRowIndex, -1)
   const modelRowChunk = modelProviderSection.slice(modelRowIndex, modelRowIndex + 1200)
-  assert.match(modelRowChunk, /isCustomModelProvider \?/)
-  assert.match(modelRowChunk, /<SettingsTextInput/)
-  assert.match(modelRowChunk, /<SettingsSelect/)
+  assert.match(modelRowChunk, /<SettingsComboBox/)
+  assert.match(modelRowChunk, /options=\{activeModelSettingsProvider\.models/)
+  assert.match(modelRowChunk, /onInput=\{/)
+  assert.match(modelRowChunk, /onSelect=\{/)
   assert.match(modelProviderSection, /isCustomModelProvider \|\| !activeModelSettingsProvider\.docsUrl/)
   assert.match(modelProviderSection, /isCustomModelProvider \|\| !activeModelSettingsProvider\.apiKeyUrl/)
 

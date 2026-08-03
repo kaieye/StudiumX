@@ -108,6 +108,43 @@ describe('nested lesson plan production workspace access', () => {
     expect(dependencies.handlerContexts).toEqual([{ workspaceRoot: undefined }])
   })
 
+  it('bounds nested lesson research when the conversational tool setting is unlimited', async () => {
+    const prepared = request(false)
+    prepared.settings.tools.maxIterations = 0
+
+    await produce(prepared)
+
+    const toolRequest = dependencies.runAgentLoop.mock.calls[0]![0] as { maxIterations: number }
+    expect(toolRequest.maxIterations).toBe(4)
+  })
+
+  it('publishes a local lesson when tool output is invalid and the fallback provider request fails', async () => {
+    dependencies.runAgentLoop.mockResolvedValueOnce({ finalText: '课程资料已准备完毕。' })
+    dependencies.callProvider.mockRejectedValueOnce(new Error('network unavailable'))
+
+    const result = await produce(request(false))
+
+    expect(result.source).toBe('fallback')
+    expect(result.reason).toBe('AI 生成服务暂时不可用，已使用本地课程模板')
+    expect(result.plan.title).toBeTruthy()
+    expect(dependencies.callProvider).toHaveBeenCalledTimes(1)
+  })
+
+  it('publishes a local lesson after all AI plan variants fail JSON validation', async () => {
+    dependencies.runAgentLoop.mockResolvedValueOnce({ finalText: '课程资料已准备完毕。' })
+    dependencies.callProvider
+      .mockResolvedValueOnce({ text: '首次输出不是 JSON。' })
+      .mockResolvedValueOnce({ text: '修复输出仍不是 JSON。' })
+      .mockResolvedValueOnce({ text: '紧凑重试仍不是 JSON。' })
+
+    const result = await produce(request(false))
+
+    expect(result.source).toBe('fallback')
+    expect(result.reason).toBe('AI 输出未通过结构校验，已使用本地课程模板')
+    expect(result.plan.title).toBeTruthy()
+    expect(dependencies.callProvider).toHaveBeenCalledTimes(2)
+  })
+
   it('retains the established workspace-backed nested lesson production path after trust is granted', async () => {
     const prepared = request(true)
     const result = await produce(prepared)

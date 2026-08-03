@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, protocol, safeStorage, shell } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { APP_NAME, resolveWindowsAppUserModelId } from './app-identity'
 import { TeachingSettingsService } from './teaching-settings'
 import { TeachingWorkspaceService } from './teaching-workspace'
 import { SkillLibraryService } from './skill-library'
@@ -34,7 +35,15 @@ import {
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL)
-const APP_NAME = 'StudiumX'
+/** Windows AppUserModelID: groups the taskbar button and pins its icon source. */
+const APP_USER_MODEL_ID = resolveWindowsAppUserModelId(app.isPackaged)
+
+// Set a stable Windows identity before the first window is created. Without a
+// custom AppUserModelID, development runs are grouped under electron.exe and
+// Windows uses Electron's executable icon for the taskbar button.
+if (process.platform === 'win32') {
+  app.setAppUserModelId(APP_USER_MODEL_ID)
+}
 
 // Playback URLs are resolved through async IPC. Allow the original click to
 // start that media request without Chromium requiring a second user gesture.
@@ -104,7 +113,31 @@ function resolveWindowsWindowIcon(): string | undefined {
   if (process.platform !== 'win32') return undefined
   return app.isPackaged
     ? join(process.resourcesPath, 'icon.ico')
-    : join(__dirname, '../../build/icon.ico')
+    : join(process.cwd(), 'build/icon.ico')
+}
+
+/**
+ * Keep the Windows taskbar button tied to StudiumX rather than electron.exe.
+ *
+ * `BrowserWindow({ icon })` updates the window icon, but Windows resolves a
+ * taskbar button through the window's AppUserModel properties. This matters
+ * especially in development, where the host executable is electron.exe and
+ * would otherwise contribute Electron's stock taskbar icon.
+ */
+function configureWindowsTaskbar(mainWindow: BrowserWindow): void {
+  if (process.platform !== 'win32') return
+
+  const iconPath = resolveWindowsWindowIcon()
+  if (!iconPath) return
+
+  // Set it again after the HWND exists so the taskbar observes WM_SETICON,
+  // including when the window is created hidden and shown later.
+  mainWindow.setIcon(iconPath)
+  mainWindow.setAppDetails({
+    appId: APP_USER_MODEL_ID,
+    appIconPath: iconPath,
+    appIconIndex: 0
+  })
 }
 
 /** Apply app-behavior settings (login item, tray, logging) to the live process. */
@@ -196,6 +229,8 @@ function createWindow(
     }
   })
 
+  configureWindowsTaskbar(mainWindow)
+
   if (process.platform === 'darwin') {
     mainWindow.setWindowButtonPosition(MAC_WINDOW_BUTTON_POSITION)
   }
@@ -263,7 +298,6 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     app.setName(APP_NAME)
-    app.setAppUserModelId('com.local.studiumx')
 
     const userDataPath = app.getPath('userData')
     mcpHost = new McpHost({

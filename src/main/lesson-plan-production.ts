@@ -20,6 +20,8 @@ import type { TeachingSettingsV1 } from '../shared/teaching-types'
 import { parseLessonPlan, type LessonPlanParseDiagnostic } from './lesson-plan-parsing'
 
 const MIN_LESSON_PLAN_OUTPUT_TOKENS = 8192
+/** A nested research pass must stay bounded even when the conversational setting is unlimited. */
+const MAX_LESSON_PLAN_TOOL_ITERATIONS = 4
 
 export type PreparedLessonPlanRequest = {
   workspace: {
@@ -111,7 +113,7 @@ export async function produce(prepared: PreparedLessonPlanRequest): Promise<Less
         workspaceRoot: workspaceToolOptions.workspaceRoot,
         runId: `lesson-plan-${Date.now()}`,
         jsonMode: true,
-        maxIterations: productionSettings.tools.maxIterations,
+        maxIterations: lessonPlanToolMaxIterations(productionSettings.tools.maxIterations),
         callbacks: {
           onEvent: (event) => {
             if (event.type === 'status') {
@@ -136,41 +138,58 @@ export async function produce(prepared: PreparedLessonPlanRequest): Promise<Less
   }
 
   if (!rawOutput) {
-    const resultText = await requestInitialPlan({ productionSettings, provider, systemPrompt, userPrompt, callbacks })
-    const parsed = validate(resultText, callbacks, '首次生成')
-    if (parsed.plan) return { plan: parsed.plan, source: 'ai' }
-    rawOutput = resultText
-    diagnostic = parsed.diagnostic
+    try {
+      const resultText = await requestInitialPlan({ productionSettings, provider, systemPrompt, userPrompt, callbacks })
+      const parsed = validate(resultText, callbacks, '首次生成')
+      if (parsed.plan) return { plan: parsed.plan, source: 'ai' }
+      rawOutput = resultText
+      diagnostic = parsed.diagnostic
+    } catch (error) {
+      if (error instanceof LessonGenerationError) return localProviderFallback(prompt, mission, sequence, settings)
+      throw error
+    }
   }
 
   const firstDiagnostic = diagnostic ?? { kind: 'missing_json' as const, message: '输出中找不到 JSON 对象' }
-  const repairedText = await requestRepair({
-    productionSettings,
-    provider,
-    systemPrompt,
-    userPrompt,
-    rawOutput,
-    diagnostic: firstDiagnostic,
-    callbacks
-  })
+  let repairedText: string
+  try {
+    repairedText = await requestRepair({
+      productionSettings,
+      provider,
+      systemPrompt,
+      userPrompt,
+      rawOutput,
+      diagnostic: firstDiagnostic,
+      callbacks
+    })
+  } catch (error) {
+    if (error instanceof LessonGenerationError) return localProviderFallback(prompt, mission, sequence, settings)
+    throw error
+  }
   const repaired = validate(repairedText, callbacks, '修复生成')
   if (repaired.plan) {
     return { plan: repaired.plan, source: 'ai', reason: '首次输出未通过校验，已自动修复' }
   }
 
-  const compactText = await requestCompactRetry({
-    productionSettings,
-    provider,
-    systemPrompt,
-    userPrompt,
-    diagnostic: repaired.diagnostic,
-    callbacks
-  })
+  let compactText: string
+  try {
+    compactText = await requestCompactRetry({
+      productionSettings,
+      provider,
+      systemPrompt,
+      userPrompt,
+      diagnostic: repaired.diagnostic,
+      callbacks
+    })
+  } catch (error) {
+    if (error instanceof LessonGenerationError) return localProviderFallback(prompt, mission, sequence, settings)
+    throw error
+  }
   const compact = validate(compactText, callbacks, '紧凑重试')
   if (compact.plan) {
     return { plan: compact.plan, source: 'ai', reason: '首次输出和修复均未通过校验，已用紧凑重试重新生成' }
   }
-  throw new LessonGenerationError(`AI 三次输出均未通过课程计划校验：${compact.diagnostic.message}`)
+  return localValidationFallback(prompt, mission, sequence, settings)
 }
 
 async function requestInitialPlan(opts: {
@@ -264,6 +283,39 @@ function withLessonPlanOutputBudget(settings: TeachingSettingsV1): TeachingSetti
       ...settings.generator,
       maxOutputTokens: MIN_LESSON_PLAN_OUTPUT_TOKENS
     }
+  }
+}
+
+function lessonPlanToolMaxIterations(configuredMaxIterations: number): number {
+  if (!Number.isFinite(configuredMaxIterations) || configuredMaxIterations <= 0) {
+    return MAX_LESSON_PLAN_TOOL_ITERATIONS
+  }
+  return Math.min(Math.floor(configuredMaxIterations), MAX_LESSON_PLAN_TOOL_ITERATIONS)
+}
+
+function localProviderFallback(
+  prompt: string,
+  mission: { title: string; excerpt: string },
+  sequence: number,
+  settings: TeachingSettingsV1
+): LessonPlanProductionResult {
+  return {
+    plan: localFallbackPlan(prompt, mission, sequence, settings),
+    source: 'fallback',
+    reason: 'AI 生成服务暂时不可用，已使用本地课程模板'
+  }
+}
+
+function localValidationFallback(
+  prompt: string,
+  mission: { title: string; excerpt: string },
+  sequence: number,
+  settings: TeachingSettingsV1
+): LessonPlanProductionResult {
+  return {
+    plan: localFallbackPlan(prompt, mission, sequence, settings),
+    source: 'fallback',
+    reason: 'AI 输出未通过结构校验，已使用本地课程模板'
   }
 }
 

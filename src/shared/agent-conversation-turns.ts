@@ -14,6 +14,11 @@ const DSML_INVOKE_RE = /<｜｜DSML｜｜invoke\s+([^>]*)>([\s\S]*?)<\/｜｜DSM
 const DSML_PARAMETER_RE = /<｜｜DSML｜｜parameter\s+([^>]*)>([\s\S]*?)<\/｜｜DSML｜｜parameter>/gi
 const DSML_UNCLOSED_TOOL_CALLS_RE = /<｜｜DSML｜｜tool_calls>[\s\S]*$/i
 const DSML_TAG_RE = /<\/?｜｜DSML｜｜[^>\n]*>/g
+// Some compatible providers emit an XML-ish tool protocol in the text channel.
+// Match only the protocol shape (a tool name followed by arg_key), rather than
+// arbitrary <tool_call> prose or examples a learner may legitimately discuss.
+const XML_TOOL_CALL_RE = /<tool_call>\s*[A-Za-z_][\w.-]*\s*<arg_key>[\s\S]*?<\/tool_call>/gi
+const XML_UNCLOSED_TOOL_CALL_RE = /<tool_call>\s*[A-Za-z_][\w.-]*\s*<arg_key>[\s\S]*$/i
 
 export function stripDsmlToolCallBlocks(text: string): string {
   if (!text || !text.includes('DSML')) return text ?? ''
@@ -24,8 +29,18 @@ export function stripDsmlToolCallBlocks(text: string): string {
     .trim()
 }
 
+/** Remove raw provider tool protocols from learner-visible model text. */
+export function stripRawAgentToolCallBlocks(text: string): string {
+  const withoutDsml = stripDsmlToolCallBlocks(text ?? '')
+  if (!withoutDsml || !withoutDsml.includes('<tool_call>')) return withoutDsml
+  return withoutDsml
+    .replace(XML_TOOL_CALL_RE, '')
+    .replace(XML_UNCLOSED_TOOL_CALL_RE, '')
+    .trim()
+}
+
 export function sanitizeAgentTurnContent(content: string | null | undefined): string {
-  return stripDsmlToolCallBlocks(content ?? '')
+  return stripRawAgentToolCallBlocks(content ?? '')
 }
 
 /**

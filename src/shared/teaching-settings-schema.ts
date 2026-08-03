@@ -41,6 +41,18 @@ function isBuiltInPetDisplayName(value: string): boolean {
   return BUILT_IN_PET_DISPLAY_NAMES.has(value) || LEGACY_PET_DEFAULT_DISPLAY_NAMES.has(value)
 }
 
+/**
+ * Provider presets replaced by newer catalog entries. When a persisted provider's
+ * model list consists entirely of these superseded ids (i.e. it was seeded from an
+ * older catalog and never customized by pulling / reordering), re-seed it from the
+ * current preset so catalog model renames propagate to existing installs. Lists that
+ * mix superseded and current models — or that only add non-catalog upstream models —
+ * are treated as user customizations and left untouched.
+ */
+const SUPERSEDED_MODEL_PRESETS: Record<string, string[]> = {
+  glm: ['glm-4.5', 'glm-4.5-air', 'glm-4-flash']
+}
+
 export const DEFAULT_TEACHING_AGENT_RUN_BUDGET = {
   // Conversational teaching turns (research + nested child runs + lesson generation)
   // routinely exceed short chat budgets. Keep a hard safety ceiling, but default high
@@ -519,13 +531,18 @@ function normalizeProviderProfile(input: unknown): TeachingModelProviderProfile 
     apiKey: ''
   }
   const customHeaders = normalizeProviderCustomHeaders(input.customHeaders)
+  let models = normalizeModels(input.models, base.models)
+  const superseded = SUPERSEDED_MODEL_PRESETS[id]
+  if (superseded && models.length > 0 && models.every((model) => superseded.includes(model))) {
+    models = [...base.models]
+  }
   return {
     ...base,
     name: normalizeString(input.name) || base.name,
     apiKey: normalizeString(input.apiKey),
     baseUrl: normalizeString(input.baseUrl) || base.baseUrl,
     endpointFormat: normalizeEndpointFormat(input.endpointFormat, base.endpointFormat),
-    models: normalizeModels(input.models, base.models),
+    models,
     docsUrl: isCustomProvider ? '' : normalizeString(input.docsUrl) || base.docsUrl,
     apiKeyUrl: isCustomProvider ? '' : normalizeString(input.apiKeyUrl) || base.apiKeyUrl,
     ...(customHeaders.length > 0 ? { customHeaders } : {})

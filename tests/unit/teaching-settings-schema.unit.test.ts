@@ -292,6 +292,47 @@ describe('teaching settings schema', () => {
     })
   })
 
+  it('re-seeds preset providers whose models match a superseded catalog preset', () => {
+    const reSeeded = normalizeTeachingSettings({
+      provider: {
+        activeProviderId: 'glm',
+        providers: [{ id: 'glm', models: ['glm-4.5', 'glm-4.5-air', 'glm-4-flash'] }]
+      },
+      generator: { providerId: 'glm', model: 'glm-4.5' }
+    }, fallbackRoot)
+
+    const glm = reSeeded.provider.providers.find((provider) => provider.id === 'glm')!
+    expect(glm.models).toEqual(['glm-5.2', 'glm-5.1'])
+    expect(reSeeded.generator.model).toBe('glm-5.2')
+  })
+
+  it('keeps preset models that mix superseded and current catalog ids untouched', () => {
+    const normalized = normalizeTeachingSettings({
+      provider: {
+        providers: [{ id: 'glm', models: ['glm-4.5', 'glm-5.1'] }]
+      }
+    }, fallbackRoot)
+
+    const glm = normalized.provider.providers.find((provider) => provider.id === 'glm')!
+    expect(glm.models).toEqual(['glm-4.5', 'glm-5.1'])
+  })
+
+  it('keeps non-catalog upstream models on preset providers and custom provider models', () => {
+    const normalized = normalizeTeachingSettings({
+      provider: {
+        providers: [
+          { id: 'deepseek', models: ['deepseek-v4-flash', 'deepseek-reasoner'] },
+          { id: 'custom', models: ['my-custom-model'] }
+        ]
+      }
+    }, fallbackRoot)
+
+    const deepseek = normalized.provider.providers.find((provider) => provider.id === 'deepseek')!
+    const custom = normalized.provider.providers.find((provider) => provider.id === 'custom')!
+    expect(deepseek.models).toEqual(['deepseek-v4-flash', 'deepseek-reasoner'])
+    expect(custom.models).toEqual(['my-custom-model'])
+  })
+
   it('deep-merges a partial update before normalization without losing a stored budget', () => {
     const current = createTeachingSettingsDefaults(fallbackRoot)
     const merged = mergeTeachingSettings(current, {
