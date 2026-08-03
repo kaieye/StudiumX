@@ -57,7 +57,7 @@ export function buildRequest(
             max_tokens: maxOutputTokens,
             stream,
             ...(stream ? { stream_options: { include_usage: true } } : {}),
-            ...reasoningRequestOptions(format, provider, generator),
+            ...reasoningRequestOptions(format, provider, generator, { jsonMode: request.jsonMode }),
             ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
           })
         }
@@ -111,7 +111,7 @@ export function buildRequest(
             max_tokens: maxOutputTokens,
             stream,
             ...(stream ? { stream_options: { include_usage: true } } : {}),
-            ...reasoningRequestOptions(format, provider, generator),
+            ...reasoningRequestOptions(format, provider, generator, { jsonMode: request.jsonMode }),
             ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
           })
         }
@@ -150,7 +150,7 @@ export function buildChatRequest(
     stream,
     // OpenAI-compatible hosts only emit usage on the final SSE chunk when this is set.
     ...(stream ? { stream_options: { include_usage: true } } : {}),
-    ...reasoningRequestOptions(format, provider, generator),
+    ...reasoningRequestOptions(format, provider, generator, { jsonMode: request.jsonMode }),
     ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
   }
   if (includeTools && request.tools && request.tools.length > 0) {

@@ -119,7 +119,8 @@ export function anthropicGenerationOptions(
 export function reasoningRequestOptions(
   format: ModelEndpointFormat,
   provider: TeachingModelProviderProfile,
-  generator: TeachingSettingsV1['generator']
+  generator: TeachingSettingsV1['generator'],
+  options?: { jsonMode?: boolean }
 ): Record<string, unknown> {
   const effort = generator.reasoningEffort ?? 'auto'
   if (format === 'messages') return anthropicGenerationOptions(provider, generator)
@@ -128,6 +129,10 @@ export function reasoningRequestOptions(
     return openAiEffort ? { reasoning: { effort: openAiEffort } } : {}
   }
   if (isDeepSeekReasoningProvider(provider, generator.model)) {
+    // JSON 输出（response_format: json_object）与 thinking 推理模式在 OpenAI 兼容
+    // 端点上互斥：推理模型会把全部输出放进 reasoning_content，导致 content 为空、
+    // JSON 提取失败甚至请求超时。课程计划等要求严格 JSON 的场景必须跳过 thinking。
+    if (options?.jsonMode) return {}
     return {
       thinking: { type: 'enabled' },
       reasoning_effort: normalizeDeepSeekReasoningEffort(effort)
