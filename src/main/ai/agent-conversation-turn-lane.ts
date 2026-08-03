@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 /**
  * Process-local, main-only host lane for serializing conversation-turn intents.
  *
@@ -125,7 +127,6 @@ type Lane = {
 }
 
 let nextActiveTurnNumber = 0
-let nextStreamNumber = 0
 
 function defaultActiveTurnId(): string {
   nextActiveTurnNumber += 1
@@ -133,8 +134,9 @@ function defaultActiveTurnId(): string {
 }
 
 function defaultStreamId(): string {
-  nextStreamNumber += 1
-  return `conversation-stream-${nextStreamNumber}`
+  // streamId is also the durable AgentRun id, so process-local counters would
+  // collide with checkpoints left by an earlier application process.
+  return `conversation-stream-${randomUUID()}`
 }
 
 /**

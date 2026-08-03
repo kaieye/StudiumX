@@ -2326,8 +2326,9 @@ export class TeachingWorkspaceService {
    * index, session event, registry touch). Both the direct IPC entry and the
    * conversation agent's generate_lesson tool go through here, so a lesson
    * created mid-conversation is indistinguishable from a directly generated
-   * one. Throws LessonGenerationError instead of persisting anything when the
-   * provider fails to produce a valid plan.
+   * one. Provider/schema failures are normalized to a brief-aligned local
+   * plan; publication or other infrastructure failures still abort before
+   * any lesson is reported as durable.
    *
    * Direct-UI may reserve publicationTransactionId / lifecycleEventId via
    * options; the agent path omits those fields and never uses action receipts.

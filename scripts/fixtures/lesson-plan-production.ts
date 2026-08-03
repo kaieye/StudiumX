@@ -54,18 +54,21 @@ try {
   assert.ok(normalStatuses.includes('calling'))
   assert.ok(normalStatuses.includes('validating'))
 
-  const repairedStatuses: string[] = []
-  queuedResponses = ['这不是 JSON', `\`\`\`json\n${JSON.stringify(VALID_PLAN)}\n\`\`\``]
-  const repaired = await produce(prepared(settings, repairedStatuses))
-  assert.equal(repaired.reason, '首次输出未通过校验，已自动修复')
-  assert.ok(repairedStatuses.indexOf('validating') < repairedStatuses.lastIndexOf('calling'), 'repair should validate before it begins the repair request')
-  assert.equal(repairedStatuses.at(-1), 'validating')
+  const recoveredStatuses: string[] = []
+  queuedResponses = ['这不是 JSON', `\`\`\`json
+${JSON.stringify(VALID_PLAN)}
+\`\`\``]
+  const recovered = await produce(prepared(settings, recoveredStatuses))
+  assert.equal(recovered.reason, '首次输出未通过校验，已用紧凑重试重新生成')
+  assert.ok(recoveredStatuses.indexOf('validating') < recoveredStatuses.lastIndexOf('calling'), 'initial validation should finish before compact regeneration begins')
+  assert.equal(recoveredStatuses.at(-1), 'validating')
 
-  const compactStatuses: string[] = []
-  queuedResponses = ['bad first', 'bad repair', JSON.stringify(VALID_PLAN)]
-  const compact = await produce(prepared(settings, compactStatuses))
-  assert.equal(compact.reason, '首次输出和修复均未通过校验，已用紧凑重试重新生成')
-  assert.equal(compactStatuses.filter((status) => status === 'validating').length, 3)
+  const fallbackStatuses: string[] = []
+  queuedResponses = ['bad first', 'bad compact']
+  const validationFallback = await produce(prepared(settings, fallbackStatuses))
+  assert.equal(validationFallback.source, 'fallback')
+  assert.match(validationFallback.reason ?? '', /结构校验失败/)
+  assert.equal(fallbackStatuses.filter((status) => status === 'validating').length, 2)
 
   const toolSettings = configuredSettings(tempRoot, address.port)
   toolSettings.tools.enabled = true
@@ -75,10 +78,10 @@ try {
   toolSettings.tools.maxIterations = 2
   queuedResponses = [JSON.stringify(VALID_PLAN)]
   const beforeToolRequest = providerRequests.length
-  const toolResult = await produce(prepared(toolSettings, []))
+  const toolResult = await produce(prepared(toolSettings, [], '请检索官方文档中当前版本的 RAG API，并给出引用来源。', true))
   assert.equal(toolResult.source, 'ai')
   const toolRequest = providerRequests[beforeToolRequest]
-  assert.ok(Array.isArray(toolRequest?.tools) && toolRequest.tools.length > 0, 'supported configured tools should be preferred before a single-shot provider call')
+  assert.ok(Array.isArray(toolRequest?.tools) && toolRequest.tools.length > 0, 'an explicit research lesson should use supported tools before direct generation')
 
   const noProviderSettings = configuredSettings(tempRoot, address.port)
   noProviderSettings.provider.providers = noProviderSettings.provider.providers.map((provider) => ({ ...provider, apiKey: '' }))
@@ -111,11 +114,16 @@ function configuredSettings(rootPath: string, port: number): TeachingSettingsV1 
   return settings
 }
 
-function prepared(settings: TeachingSettingsV1, statuses: string[]): PreparedLessonPlanRequest {
+function prepared(
+  settings: TeachingSettingsV1,
+  statuses: string[],
+  prompt = '学习 RAG 的检索流程',
+  workspaceToolAccessGranted = false
+): PreparedLessonPlanRequest {
   return {
-    workspace: { rootPath: settings.workspace.defaultRoot },
+    workspace: { rootPath: settings.workspace.defaultRoot, workspaceToolAccessGranted },
     mission: { title: '检索增强生成', excerpt: '学习 RAG 的基础概念。' },
-    prompt: '学习 RAG 的检索流程',
+    prompt,
     sequence: 2,
     settings,
     systemPrompt: '只输出 LessonPlan JSON。',

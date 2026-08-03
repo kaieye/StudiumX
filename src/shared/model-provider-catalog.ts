@@ -10,6 +10,7 @@ export type ModelCatalogModality = 'text' | 'image' | 'audio' | 'video'
 export type ModelReasoningProtocol =
   | 'anthropic'
   | 'deepseek'
+  | 'glm'
   | 'minimax_openai'
   | 'openai'
 
@@ -100,13 +101,15 @@ export const MODEL_PROVIDER_CATALOG = [
         id: 'glm-5.2',
         ...TEXT_ONLY,
         contextWindowTokens: 131_072,
-        maxOutputTokens: 98_304
+        maxOutputTokens: 98_304,
+        reasoning: { protocol: 'glm', efforts: ['auto', 'off'] }
       },
       {
         id: 'glm-5.1',
         ...TEXT_ONLY,
         contextWindowTokens: 131_072,
-        maxOutputTokens: 98_304
+        maxOutputTokens: 98_304,
+        reasoning: { protocol: 'glm', efforts: ['auto', 'off'] }
       }
     ]
   },

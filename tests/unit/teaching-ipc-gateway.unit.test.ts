@@ -1335,4 +1335,26 @@ describe('Teaching IPC gateway', () => {
     expect(agentChatStream.mock.calls[1][0]).toMatchObject({ expectedBranchRevision: 2 })
   })
 
+  it('publishes an error terminal when a reserved host turn fails before its runtime event bus is ready', async () => {
+    const senderEvent = previewEvent(701)
+    const readAgentConversation = vi.fn().mockResolvedValue(canonicalConversation('conversation-1', 1))
+    const agentChatStream = vi.fn().mockRejectedValue(new Error('Agent state record already exists.'))
+    registerTeachingIpcGateway(registration({ workspaceService: { readAgentConversation, agentChatStream } }))
+
+    const disposition = await handler(teachingInvokeChannels.submitConversationTurn)(
+      senderEvent,
+      submitFollowUp({ clientRequestId: 'pre-runtime-failure' })
+    ) as { code: string; streamId: string }
+
+    expect(disposition.code).toBe('started')
+    await vi.waitFor(() => expect(senderEvent.sender.send).toHaveBeenCalledWith(
+      teachingEventChannels.agentChatEvent,
+      expect.objectContaining({
+        streamId: disposition.streamId,
+        kind: 'terminal',
+        outcome: 'error'
+      })
+    ))
+  })
+
 })

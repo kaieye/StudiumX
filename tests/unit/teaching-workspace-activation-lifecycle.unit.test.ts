@@ -70,7 +70,9 @@ describe('Teaching workspace activation lifecycle', () => {
     expect(workspace).not.toBeNull()
     expect(workspace).toMatchObject({ name: 'learn', rootPath: join(managedRoot, 'learn') })
     expect(initial.selectedLessonPath).toBeNull()
-    await expect(readFile(join(workspace!.rootPath, 'MISSION.md'), 'utf8')).resolves.toContain('AI 教学系统')
+    const initialMission = await readFile(join(workspace!.rootPath, 'MISSION.md'), 'utf8')
+    expect(initialMission).toContain('待确认学习主题')
+    expect(initialMission).not.toContain('搭建个人化 AI 教学系统')
     await expect(readFile(join(workspace!.rootPath, '.studiumx', 'index.json'), 'utf8')).resolves.toContain(workspace!.id)
 
     const initialEvents = await readSessionEvents(workspace!.rootPath)

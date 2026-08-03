@@ -779,6 +779,17 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
           emit({ type: 'token', delta: directText })
         }
       } else {
+        // Keep the maintenance assistant tool_calls message in the transcript so the
+        // tool results below stay pair-closed (B-12). Without it, the no-tool final
+        // round sends orphan tool messages and providers reject the request with 400
+        // "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'".
+        const maintenanceAssistant: ChatMessage = {
+          role: 'assistant',
+          content: stripDsmlToolCallBlocks(maintenance.text || '') || null,
+          tool_calls: maintenance.toolCalls
+        }
+        transcript.push(maintenanceAssistant)
+        emit({ type: 'assistant_message', message: maintenanceAssistant })
         emit({ type: 'status', status: 'tool_running' })
         const maintenanceBatch = await executeToolBatch(maintenance.toolCalls, opts.toolHandlers, {
           emit,

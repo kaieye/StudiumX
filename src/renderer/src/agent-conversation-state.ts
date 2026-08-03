@@ -620,7 +620,7 @@ export function reconcileAgentTurnsWithLocalProcess(
   const collapsedLocalTurns = collapseConsecutiveAssistantTurns(localTurns)
   const localAssistantTurns = collapsedLocalTurns.filter((turn) => turn.role === 'assistant')
   let assistantIndex = 0
-  return collapsedServerTurns.map((turn) => {
+  const reconciledServerTurns = collapsedServerTurns.map((turn) => {
     if (turn.role !== 'assistant') return turn
     const localTurn = localAssistantTurns[assistantIndex]
     assistantIndex += 1
@@ -639,6 +639,21 @@ export function reconcileAgentTurnsWithLocalProcess(
       metadata
     }
   })
+
+  // A terminal notification can race the renderer's first canonical read. If
+  // that read is still the exact prefix shown before this run, keep the local
+  // completed tail visible until a later session read observes the host save.
+  // This is projection-only: the renderer still never writes the transcript.
+  const serverIsLocalPrefix = reconciledServerTurns.length < collapsedLocalTurns.length &&
+    reconciledServerTurns.every((serverTurn, index) => {
+      const localTurn = collapsedLocalTurns[index]
+      return Boolean(localTurn) && serverTurn.role === localTurn.role && (
+        serverTurn.id === localTurn.id || serverTurn.content === localTurn.content
+      )
+    })
+  return serverIsLocalPrefix
+    ? [...reconciledServerTurns, ...collapsedLocalTurns.slice(reconciledServerTurns.length)]
+    : reconciledServerTurns
 }
 
 export function createPendingAgentConversationSummary({

@@ -95,6 +95,25 @@ describe('runAgentLoop durable-finalization maintenance tools', () => {
     const maintenanceTools = maintenanceBody.tools as Array<{ function: { name: string } }>
     expect(maintenanceTools.map((tool) => tool.function.name)).toEqual(['write_workspace_file', 'read_workspace_file'])
     expect(requestBodies[2]).not.toHaveProperty('tools')
+    // Regression: the maintenance tool results must stay pair-closed with their
+    // assistant tool_calls message in the no-tool final round, otherwise the
+    // provider rejects the request with HTTP 400.
+    const finalMessages = requestBodies[2]!.messages as Array<{
+      role: string
+      tool_call_id?: string
+      tool_calls?: Array<{ id: string }>
+    }>
+    const pairedIds = new Set<string>()
+    for (const message of finalMessages) {
+      if (message.role === 'assistant') {
+        for (const call of message.tool_calls ?? []) pairedIds.add(call.id)
+      }
+      if (message.role === 'tool') {
+        expect(message.tool_call_id).toBeDefined()
+        expect(pairedIds.has(message.tool_call_id!)).toBe(true)
+      }
+    }
+    expect(pairedIds.size).toBeGreaterThan(0)
   })
 
   it('rejects non-allow-listed tool calls in the maintenance round without invoking their handler', async () => {

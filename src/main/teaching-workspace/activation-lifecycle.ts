@@ -139,7 +139,7 @@ export class TeachingWorkspaceActivationLifecycle {
       id: randomUUID(),
       name,
       rootPath: await this.nextWorkspacePath(name),
-      prompt: '搭建个人化 AI 教学系统的第一版工作流',
+      prompt: '待确认学习主题',
       now,
       eventKind: 'workspace_created',
       traceId: randomUUID()

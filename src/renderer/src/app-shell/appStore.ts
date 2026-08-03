@@ -2035,6 +2035,7 @@ export const useAppStore = create<StoreState>((set, get) => {
     if (!workspace) return
     const removalSnapshot = {
       activeConversationId: get().activeConversationId,
+      pendingConversationId: get().pendingAgentConversation?.summary.id ?? null,
       selectedCoursePreviewFile: get().selectedCoursePreviewFile ?? get().selectedMarkdownDocument,
       selectedCourseRelativePath: get().selectedCourseRelativePath
     }

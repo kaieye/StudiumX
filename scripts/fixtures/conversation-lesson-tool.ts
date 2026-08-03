@@ -4,6 +4,7 @@ import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { SkillLibraryService } from '../../src/main/skill-library'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import { resolveAskPending } from '../../src/main/ai/ask-pending'
@@ -39,8 +40,8 @@ const VALID_PLAN = {
 }
 
 // 'success': pipeline requests return a valid plan; 'broken': they return
-// garbage twice (first attempt + repair round) so generation must fail
-// without writing anything.
+// garbage twice (initial request + compact regeneration) so generation uses
+// the brief-aligned local fallback.
 let pipelineMode: 'success' | 'broken' | 'compact-recovery' = 'success'
 let pipelineRequests = 0
 let pipelineBodies: MockRequest[] = []
@@ -66,11 +67,11 @@ const server = createServer(async (req, res) => {
   }
 
   if (!isConversation) {
-    // Lesson pipeline call (research loop first attempt or repair round).
+    // Lesson pipeline call (direct structured attempt or compact regeneration).
     pipelineRequests += 1
     pipelineBodies.push(body)
     const content =
-      pipelineMode === 'success' || (pipelineMode === 'compact-recovery' && pipelineRequests >= 3)
+      pipelineMode === 'success' || (pipelineMode === 'compact-recovery' && pipelineRequests >= 2)
         ? JSON.stringify(VALID_PLAN)
         : '抱歉，我无法输出 JSON。'
     reply({
@@ -396,10 +397,15 @@ try {
       : provider
   )
 
+  const skillLibraryService = new SkillLibraryService({
+    builtInRoots: [join(process.cwd(), 'resources', 'builtin-skills')],
+    personalRoot: join(tempRoot, '.studiumx', 'skills')
+  })
   const service = new TeachingWorkspaceService({
     registryPath: join(tempRoot, 'user-data', 'studiumx-workspaces.json'),
     defaultRoot,
-    settingsProvider: async () => settings
+    settingsProvider: async () => settings,
+    skillLibraryService
   })
   const state = await service.createWorkspace({ name: 'learn-rag', prompt: '学习 RAG' })
   const workspace = state.activeWorkspace
@@ -450,11 +456,15 @@ try {
     'conversation-generated lessons must land in the workspace index like direct ones'
   )
   assert.ok(statuses.includes('tool_running'), 'lesson generation should stream tool progress')
-  assert.equal(pipelineBodies[0]?.response_format?.type, 'json_object', 'tool-augmented lesson generation should request JSON mode')
-  assert.ok((pipelineBodies[0]?.max_tokens ?? 0) >= 8192, 'lesson generation should raise the output budget for structured lesson plans')
+  assert.equal(pipelineBodies[0]?.response_format?.type, 'json_object', 'direct lesson generation should request JSON mode')
+  assert.equal(
+    pipelineBodies[0]?.max_tokens,
+    settings.generator.maxOutputTokens,
+    'lesson generation should preserve the configured output budget'
+  )
   settings.tools.approvalMode = 'full_access'
 
-  // --- Scenario 2: pipeline failure must not persist any placeholder lesson.
+  // --- Scenario 2: repeated schema failure should persist a brief-aligned local fallback.
   pipelineMode = 'broken'
   pipelineRequests = 0
   pipelineBodies = []
@@ -473,18 +483,14 @@ try {
     }
   )
 
-  assert.ok(!('error' in failure) && !('canceled' in failure), 'the conversation itself should survive a failed generation')
-  assert.equal(failure.generatedLessons, undefined, 'a failed generation must not report lessons')
-  assert.equal(failure.finalText, '课程生成失败了，我们可以稍后重试。')
-  assert.ok(pipelineRequests >= 2, 'validation failure should trigger exactly one repair round')
+  assert.ok(!('error' in failure) && !('canceled' in failure), 'the conversation should survive invalid provider output')
+  assert.equal(failure.generatedLessons?.length, 1, 'schema failure should surface the safe local fallback lesson')
+  assert.equal(failure.finalText, '第 1 课已生成：RAG 是什么。')
+  assert.equal(pipelineRequests, 2, 'validation failure should trigger exactly one compact regeneration')
 
   const lessonFiles = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(lessonFiles.length, 2, 'only lesson 0001 and its reference page may exist — no fallback lesson on failure')
-  assert.equal(
-    lessonFiles.every((name) => name.startsWith('0001-')),
-    true,
-    'no 0002 placeholder lesson may be written when generation fails'
-  )
+  assert.equal(lessonFiles.some((name) => name.startsWith('0002-')), true, 'the local fallback lesson should be persisted as lesson 0002')
+  assert.match(failure.generatedLessons?.[0]?.objective ?? '', /五个核心步骤|面试话术/, 'the fallback must remain aligned with the explicit lesson brief')
 
   // --- Scenario 3: reaching the loop limit before generate_lesson must not
   // bypass the agent loop and invoke the side-effecting lesson pipeline.
@@ -510,8 +516,8 @@ try {
   assert.equal('error' in exhausted, true, 'loop exhaustion should surface a truthful manual-retry boundary')
   assert.equal(pipelineRequests, 0, 'loop exhaustion must not auto-run the lesson generation pipeline')
   const filesAfterExhaustion = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterExhaustion.length, 2, 'no new lesson or reference page should be written')
-  assert.equal(filesAfterExhaustion.some((name) => name.startsWith('0002-')), false)
+  assert.equal(filesAfterExhaustion.length, 4, 'loop exhaustion should not add another lesson or reference page')
+  assert.equal(filesAfterExhaustion.some((name) => name.startsWith('0003-')), false)
 
   // --- Scenario 4: a new learner can enter with a broad topic, answer one
   // clarification question, and have the agent decide to generate the first
@@ -549,7 +555,7 @@ try {
   assert.equal('generatedLessons' in onboarding ? onboarding.generatedLessons : undefined, undefined)
   assert.equal(pipelineRequests, 0, 'onboarding exhaustion must not auto-run generate_lesson')
   const filesAfterOnboarding = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterOnboarding.some((name) => name.startsWith('0002-')), false)
+  assert.equal(filesAfterOnboarding.some((name) => name.startsWith('0003-')), false)
 
   // --- Scenario 5: some OpenAI-compatible providers still return tool_calls
   // during a no-tools final-answer round. A returned tool_call is not an
@@ -586,7 +592,7 @@ try {
   assert.equal('generatedLessons' in finalToolCall ? finalToolCall.generatedLessons : undefined, undefined)
   assert.equal(pipelineRequests, 0, 'a forced-final tool_call must not trigger out-of-band generation')
   const filesAfterFinalToolCall = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterFinalToolCall.some((name) => name.startsWith('0002-')), false)
+  assert.equal(filesAfterFinalToolCall.some((name) => name.startsWith('0003-')), false)
 
   // --- Scenario 6: replay the captured "我想学习RAG" trace. The persisted
   // generic limit is one iteration, but a durable teaching request still needs
@@ -620,10 +626,10 @@ try {
   )
   const filesAfterCapturedOnboarding = (await readdir(join(workspace.rootPath, 'lessons')))
     .filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterCapturedOnboarding.some((name) => name.startsWith('0002-')), true, 'lesson 0002 should exist on disk')
+  assert.equal(filesAfterCapturedOnboarding.some((name) => name.startsWith('0003-')), true, 'lesson 0003 should exist on disk')
 
-  // --- Scenario 7: malformed JSON should get one repair round and then a
-  // compact full regeneration. The compact round is intentionally shorter
+  // --- Scenario 7: malformed JSON should get one compact full regeneration.
+  // The compact round is intentionally shorter
   // and should rescue providers that clipped or broke the first JSON object.
   conversationMode = 'normal'
   pipelineMode = 'compact-recovery'
@@ -647,15 +653,15 @@ try {
 
   assert.ok(!('error' in compactRecovery) && !('canceled' in compactRecovery), 'compact regeneration should recover from invalid JSON')
   assert.equal(compactRecovery.generatedLessons?.length, 1, 'compact regeneration should still surface the generated lesson')
-  assert.equal(compactRecovery.generatedLessons?.[0]?.id, '0003', 'compact recovery should persist the next lesson')
-  assert.equal(pipelineRequests, 3, 'compact recovery should run first attempt, repair, and one compact regeneration')
+  assert.equal(compactRecovery.generatedLessons?.[0]?.id, '0004', 'compact recovery should persist the next lesson')
+  assert.equal(pipelineRequests, 2, 'compact recovery should run the initial attempt and one compact regeneration')
   assert.equal(
     pipelineBodies.every((request) => request.response_format?.type === 'json_object'),
     true,
     'all lesson-plan attempts should request JSON mode'
   )
   const filesAfterCompactRecovery = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterCompactRecovery.some((name) => name.startsWith('0003-')), true, 'lesson 0003 should exist on disk')
+  assert.equal(filesAfterCompactRecovery.some((name) => name.startsWith('0004-')), true, 'lesson 0004 should exist on disk')
 
   console.log('conversation lesson tool ok')
 } finally {

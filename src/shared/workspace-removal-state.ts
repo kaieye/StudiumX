@@ -11,6 +11,8 @@ export type WorkspaceRemovalTarget = {
 
 export type WorkspaceRemovalUiSnapshot = {
   activeConversationId: string | null
+  /** Renderer-only pending conversations are intentionally absent from host catalogs. */
+  pendingConversationId: string | null
   selectedCoursePreviewFile?: { relativePath: string } | null
   selectedCourseRelativePath?: string | null
 }
@@ -29,6 +31,7 @@ export function deriveWorkspaceRemovalUiPatch(
   return {
     clearActiveConversation: shouldClearActiveConversation(
       snapshot.activeConversationId,
+      snapshot.pendingConversationId,
       [
         ...(nextState.activeWorkspace?.conversations ?? []),
         ...(nextState.temporaryConversations ?? [])
@@ -55,9 +58,10 @@ export function pathRemovedByTarget(target: WorkspaceRemovalTarget, relativePath
 
 function shouldClearActiveConversation(
   activeConversationId: string | null,
+  pendingConversationId: string | null,
   nextConversations: AgentConversationSummary[]
 ): boolean {
-  if (!activeConversationId) return false
+  if (!activeConversationId || activeConversationId === pendingConversationId) return false
   return !nextConversations.some((conversation) => conversation.id === activeConversationId)
 }
 

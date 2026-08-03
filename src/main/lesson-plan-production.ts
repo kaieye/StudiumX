@@ -6,7 +6,7 @@ import {
   toolsSupportedForFormat,
   type AdapterCallbacks
 } from './ai/provider-adapter'
-import { buildCompactLessonRegenerationPrompt, buildLessonRepairPrompt } from './ai/lesson-prompts'
+import { buildCompactLessonRegenerationPrompt } from './ai/lesson-prompts'
 import { runAgentLoop } from './ai/agent-loop'
 import { buildDefaultRegistry, buildToolContext } from './ai/tools/registry'
 import {
@@ -19,9 +19,10 @@ import { classifyProviderError, providerErrorReason } from '../shared/provider-e
 import type { TeachingSettingsV1 } from '../shared/teaching-types'
 import { parseLessonPlan, type LessonPlanParseDiagnostic } from './lesson-plan-parsing'
 
-const MIN_LESSON_PLAN_OUTPUT_TOKENS = 8192
 /** A nested research pass must stay bounded even when the conversational setting is unlimited. */
-const MAX_LESSON_PLAN_TOOL_ITERATIONS = 4
+const MAX_LESSON_PLAN_TOOL_ITERATIONS = 2
+const MAX_LESSON_RESEARCH_DURATION_MS = 45_000
+const MAX_LESSON_RESEARCH_PROVIDER_CALLS = 2
 
 export type PreparedLessonPlanRequest = {
   workspace: {
@@ -44,7 +45,7 @@ export type LessonPlanProductionResult = {
   reason?: string
 }
 
-/** Raised only after a configured provider cannot produce a valid plan. */
+/** Normalized provider failure used internally to select the safe local fallback. */
 export class LessonGenerationError extends Error {
   constructor(message: string) {
     super(message)
@@ -53,123 +54,52 @@ export class LessonGenerationError extends Error {
 }
 
 /**
- * Production policy for LessonPlan generation. This is the one seam that owns
- * provider absence, tool preference, request attempts, parse diagnostics, and
- * the bounded repair/retry policy. Callers prepare context and publish only a
- * successful plan.
+ * Production policy for LessonPlan generation. Ordinary lessons go directly
+ * to the structured provider request. A bounded tool pass is reserved for an
+ * explicit research request, and invalid structured output receives at most
+ * one compact regeneration before the brief-aligned local fallback is used.
  */
 export async function produce(prepared: PreparedLessonPlanRequest): Promise<LessonPlanProductionResult> {
   const { workspace, mission, prompt, sequence, settings, systemPrompt, userPrompt, callbacks } = prepared
   const provider = resolveActiveProvider(settings)
   if (!provider || !provider.apiKey.trim()) {
-    return {
-      plan: localFallbackPlan(prompt, mission, sequence, settings),
-      source: 'fallback',
-      reason: '未配置 API Key'
-    }
+    return localFallbackResult(prompt, mission, sequence, settings, '未配置 API Key')
   }
 
-  const productionSettings = withLessonPlanOutputBudget(settings)
-  let rawOutput = ''
-  let diagnostic: LessonPlanParseDiagnostic | null = null
+  // Respect the configured output budget: silently expanding it makes non-streaming
+  // providers wait longer and can turn an otherwise bounded lesson request into a timeout.
+  const productionSettings = settings
 
-  // `generate_lesson` remains available for untrusted workspaces, but its
-  // nested production agent must not regain generic workspace-file access.
-  // This explicit server-derived grant is fail-closed when absent.
-  const workspaceToolOptions = workspace.workspaceToolAccessGranted === true
-    ? { workspaceRoot: workspace.rootPath }
-    : {}
-  // Optional workspace tool-policy only when grant is true (ADR-0088 / ADR-0117 multi-path).
-  // Grant false: no FS load and no toolPolicyDocument field.
-  let toolContextOptions: {
-    workspaceRoot?: string
-    toolPolicyDocument?: import('./ai/tools/tool-policy').ToolPolicyDocument
-  } = { ...workspaceToolOptions }
-  if (workspace.workspaceToolAccessGranted === true && workspace.rootPath) {
-    const workspaceToolPolicy = await loadAndMergeToolPolicyDocumentsFromWorkspace({
-      workspaceRoot: workspace.rootPath
-    })
-    toolContextOptions = {
-      ...toolContextOptions,
-      ...toolPolicyDocumentOption(workspaceToolPolicy)
-    }
-  }
-  const registry = buildDefaultRegistry(productionSettings, workspaceToolOptions)
-  const toolDefinitions = registry.definitions()
-  const useTools = toolsSupportedForFormat(productionSettings.generator.endpointFormat) &&
-    toolDefinitions.length > 0
-
-  if (useTools) {
-    try {
-      const loopResult = await runAgentLoop({
-        settings: productionSettings,
-        provider,
-        messages: [
-          { role: 'system', content: `${LESSON_RESEARCH_PREFIX}\n\n${systemPrompt}` },
-          { role: 'user', content: userPrompt }
-        ],
-        tools: toolDefinitions,
-        toolHandlers: registry.handlerMap(buildToolContext(productionSettings, toolContextOptions)),
-        workspaceRoot: workspaceToolOptions.workspaceRoot,
-        runId: `lesson-plan-${Date.now()}`,
-        jsonMode: true,
-        maxIterations: lessonPlanToolMaxIterations(productionSettings.tools.maxIterations),
-        callbacks: {
-          onEvent: (event) => {
-            if (event.type === 'status') {
-              if (event.status === 'thinking') callbacks.onStatus?.('calling')
-              else if (event.status === 'tool_running' || event.status === 'tool_done' || event.status === 'answering') {
-                callbacks.onStatus?.('streaming')
-              }
-            } else if (event.type === 'token') {
-              callbacks.onToken?.(event.delta)
-            }
-          }
-        }
-      })
-      const parsed = validate(loopResult.finalText, callbacks, '工具生成')
-      if (parsed.plan) return { plan: parsed.plan, source: 'ai' }
-      rawOutput = loopResult.finalText
-      diagnostic = parsed.diagnostic
-    } catch (error) {
-      const reason = error instanceof ProviderAdapterError ? adapterReason(error) : error instanceof Error ? error.message : '未知错误'
-      console.warn(`[StudiumX] Tool-augmented lesson generation fell back to single-shot: ${reason}`)
-    }
-  }
-
-  if (!rawOutput) {
-    try {
-      const resultText = await requestInitialPlan({ productionSettings, provider, systemPrompt, userPrompt, callbacks })
-      const parsed = validate(resultText, callbacks, '首次生成')
-      if (parsed.plan) return { plan: parsed.plan, source: 'ai' }
-      rawOutput = resultText
-      diagnostic = parsed.diagnostic
-    } catch (error) {
-      if (error instanceof LessonGenerationError) return localProviderFallback(prompt, mission, sequence, settings)
-      throw error
-    }
-  }
-
-  const firstDiagnostic = diagnostic ?? { kind: 'missing_json' as const, message: '输出中找不到 JSON 对象' }
-  let repairedText: string
-  try {
-    repairedText = await requestRepair({
+  if (lessonResearchRequested(prompt)) {
+    const researchedPlan = await requestResearchPlan({
+      workspace,
       productionSettings,
       provider,
       systemPrompt,
       userPrompt,
-      rawOutput,
-      diagnostic: firstDiagnostic,
       callbacks
     })
+    if (researchedPlan) return { plan: researchedPlan, source: 'ai' }
+  }
+
+  let rawOutput: string
+  try {
+    rawOutput = await requestInitialPlan({ productionSettings, provider, systemPrompt, userPrompt, callbacks })
   } catch (error) {
-    if (error instanceof LessonGenerationError) return localProviderFallback(prompt, mission, sequence, settings)
+    if (error instanceof LessonGenerationError) {
+      return localFallbackResult(
+        prompt,
+        mission,
+        sequence,
+        settings,
+        `${error.message}，已使用本地学习任务模板`
+      )
+    }
     throw error
   }
-  const repaired = validate(repairedText, callbacks, '修复生成')
-  if (repaired.plan) {
-    return { plan: repaired.plan, source: 'ai', reason: '首次输出未通过校验，已自动修复' }
-  }
+
+  const initial = validate(rawOutput, callbacks, '首次生成')
+  if (initial.plan) return { plan: initial.plan, source: 'ai' }
 
   let compactText: string
   try {
@@ -178,18 +108,108 @@ export async function produce(prepared: PreparedLessonPlanRequest): Promise<Less
       provider,
       systemPrompt,
       userPrompt,
-      diagnostic: repaired.diagnostic,
+      diagnostic: initial.diagnostic,
       callbacks
     })
   } catch (error) {
-    if (error instanceof LessonGenerationError) return localProviderFallback(prompt, mission, sequence, settings)
+    if (error instanceof LessonGenerationError) {
+      return localFallbackResult(
+        prompt,
+        mission,
+        sequence,
+        settings,
+        `${error.message}，已使用本地学习任务模板`
+      )
+    }
     throw error
   }
+
   const compact = validate(compactText, callbacks, '紧凑重试')
   if (compact.plan) {
-    return { plan: compact.plan, source: 'ai', reason: '首次输出和修复均未通过校验，已用紧凑重试重新生成' }
+    return { plan: compact.plan, source: 'ai', reason: '首次输出未通过校验，已用紧凑重试重新生成' }
   }
-  return localValidationFallback(prompt, mission, sequence, settings)
+  return localFallbackResult(
+    prompt,
+    mission,
+    sequence,
+    settings,
+    `AI 课程输出结构校验失败（${compact.diagnostic.message}），已使用本地学习任务模板`
+  )
+}
+
+async function requestResearchPlan(opts: {
+  workspace: PreparedLessonPlanRequest['workspace']
+  productionSettings: TeachingSettingsV1
+  provider: NonNullable<ReturnType<typeof resolveActiveProvider>>
+  systemPrompt: string
+  userPrompt: string
+  callbacks: AdapterCallbacks
+}): Promise<LessonPlan | null> {
+  if (!toolsSupportedForFormat(opts.productionSettings.generator.endpointFormat)) return null
+
+  // `generate_lesson` remains available for untrusted workspaces, but its
+  // nested research agent must not regain generic workspace-file access.
+  const workspaceToolOptions = opts.workspace.workspaceToolAccessGranted === true
+    ? { workspaceRoot: opts.workspace.rootPath }
+    : {}
+  // Optional workspace tool-policy only when grant is true (ADR-0088 / ADR-0117 multi-path).
+  // Grant false: no FS load and no toolPolicyDocument field.
+  let toolContextOptions: {
+    workspaceRoot?: string
+    toolPolicyDocument?: import('./ai/tools/tool-policy').ToolPolicyDocument
+  } = { ...workspaceToolOptions }
+  if (opts.workspace.workspaceToolAccessGranted === true && opts.workspace.rootPath) {
+    const workspaceToolPolicy = await loadAndMergeToolPolicyDocumentsFromWorkspace({
+      workspaceRoot: opts.workspace.rootPath
+    })
+    toolContextOptions = {
+      ...toolContextOptions,
+      ...toolPolicyDocumentOption(workspaceToolPolicy)
+    }
+  }
+
+  const registry = buildDefaultRegistry(opts.productionSettings, workspaceToolOptions)
+  const toolDefinitions = registry.definitions()
+  if (!toolDefinitions.length) return null
+
+  try {
+    const loopResult = await runAgentLoop({
+      settings: opts.productionSettings,
+      provider: opts.provider,
+      messages: [
+        { role: 'system', content: `${LESSON_RESEARCH_PREFIX}\n\n${opts.systemPrompt}` },
+        { role: 'user', content: opts.userPrompt }
+      ],
+      tools: toolDefinitions,
+      toolHandlers: registry.handlerMap(buildToolContext(opts.productionSettings, toolContextOptions)),
+      workspaceRoot: workspaceToolOptions.workspaceRoot,
+      runId: `lesson-plan-${Date.now()}`,
+      jsonMode: true,
+      maxIterations: lessonPlanToolMaxIterations(opts.productionSettings.tools.maxIterations),
+      budget: lessonResearchBudget(opts.productionSettings),
+      callbacks: {
+        onEvent: (event) => {
+          if (event.type === 'status') {
+            if (event.status === 'thinking') opts.callbacks.onStatus?.('calling')
+            else if (event.status === 'tool_running' || event.status === 'tool_done' || event.status === 'answering') {
+              opts.callbacks.onStatus?.('streaming')
+            }
+          } else if (event.type === 'token') {
+            opts.callbacks.onToken?.(event.delta)
+          }
+        }
+      }
+    })
+    const parsed = validate(loopResult.finalText, opts.callbacks, '工具生成')
+    if (parsed.plan) return parsed.plan
+    console.warn(
+      `[StudiumX] Tool-augmented lesson output was invalid; retrying with a fresh direct structured request: ${parsed.diagnostic.message}`
+    )
+  } catch (error) {
+    const reason = error instanceof ProviderAdapterError ? adapterReason(error) : error instanceof Error ? error.message : '未知错误'
+    console.warn(`[StudiumX] Tool-augmented lesson generation fell back to direct generation: ${reason}`)
+  }
+  return null
 }
 
 async function requestInitialPlan(opts: {
@@ -207,34 +227,6 @@ async function requestInitialPlan(opts: {
   } catch (error) {
     const reason = error instanceof ProviderAdapterError ? adapterReason(error) : error instanceof Error ? error.message : '未知错误'
     throw new LessonGenerationError(`课程生成请求失败：${reason}`)
-  }
-}
-
-async function requestRepair(opts: {
-  productionSettings: TeachingSettingsV1
-  provider: NonNullable<ReturnType<typeof resolveActiveProvider>>
-  systemPrompt: string
-  userPrompt: string
-  rawOutput: string
-  diagnostic: LessonPlanParseDiagnostic
-  callbacks: AdapterCallbacks
-}): Promise<string> {
-  opts.callbacks.onStatus?.('calling')
-  try {
-    const result = await callProvider({
-      settings: opts.productionSettings,
-      provider: opts.provider,
-      request: {
-        systemPrompt: opts.systemPrompt,
-        userPrompt: `${opts.userPrompt}\n\n---\n\n${buildLessonRepairPrompt({ rawOutput: opts.rawOutput, validationError: opts.diagnostic.message })}`,
-        jsonMode: true
-      },
-      callbacks: opts.callbacks
-    })
-    return result.text
-  } catch (error) {
-    const reason = error instanceof ProviderAdapterError ? adapterReason(error) : error instanceof Error ? error.message : '未知错误'
-    throw new LessonGenerationError(`课程计划修复请求失败：${reason}（首次校验错误：${opts.diagnostic.message}）`)
   }
 }
 
@@ -264,7 +256,7 @@ async function requestCompactRetry(opts: {
     return result.text
   } catch (error) {
     const reason = error instanceof ProviderAdapterError ? adapterReason(error) : error instanceof Error ? error.message : '未知错误'
-    throw new LessonGenerationError(`课程计划紧凑重试请求失败：${reason}（修复轮校验错误：${opts.diagnostic.message}）`)
+    throw new LessonGenerationError(`课程计划紧凑重试请求失败：${reason}（首次校验错误：${opts.diagnostic.message}）`)
   }
 }
 
@@ -275,15 +267,16 @@ function validate(text: string, callbacks: AdapterCallbacks, stage: string) {
   return parsed
 }
 
-function withLessonPlanOutputBudget(settings: TeachingSettingsV1): TeachingSettingsV1 {
-  if (settings.generator.maxOutputTokens >= MIN_LESSON_PLAN_OUTPUT_TOKENS) return settings
-  return {
-    ...settings,
-    generator: {
-      ...settings.generator,
-      maxOutputTokens: MIN_LESSON_PLAN_OUTPUT_TOKENS
-    }
-  }
+function lessonResearchRequested(prompt: string): boolean {
+  const normalized = prompt.replace(/\s+/g, ' ').trim()
+  if (!normalized) return false
+  return [
+    /(?:联网|网上|网页|互联网|网络).{0,10}(?:搜索|检索|查找|查询|浏览|资料)/i,
+    /(?:搜索|检索|查找|查询|浏览).{0,12}(?:网页|网络|互联网|资料|来源|官方)/i,
+    /(?:官方文档|权威来源|引用来源|来源链接|参考链接)/i,
+    /(?:最新|实时|截至|今日|今天|近期|现行|当前(?:版本|政策|规定|数据|状态|进展|资料|信息))/i,
+    /\b(?:latest|current version|up-to-date|today|recent|real-time|as of|official docs?|authoritative sources?|citations?|search the web|web search|browse the web|look up online)\b/i
+  ].some((pattern) => pattern.test(normalized))
 }
 
 function lessonPlanToolMaxIterations(configuredMaxIterations: number): number {
@@ -293,29 +286,25 @@ function lessonPlanToolMaxIterations(configuredMaxIterations: number): number {
   return Math.min(Math.floor(configuredMaxIterations), MAX_LESSON_PLAN_TOOL_ITERATIONS)
 }
 
-function localProviderFallback(
-  prompt: string,
-  mission: { title: string; excerpt: string },
-  sequence: number,
-  settings: TeachingSettingsV1
-): LessonPlanProductionResult {
+function lessonResearchBudget(settings: TeachingSettingsV1): TeachingSettingsV1['tools']['runBudget'] {
   return {
-    plan: localFallbackPlan(prompt, mission, sequence, settings),
-    source: 'fallback',
-    reason: 'AI 生成服务暂时不可用，已使用本地课程模板'
+    ...settings.tools.runBudget,
+    maxDurationMs: Math.min(settings.tools.runBudget.maxDurationMs, MAX_LESSON_RESEARCH_DURATION_MS),
+    maxProviderCalls: Math.min(settings.tools.runBudget.maxProviderCalls, MAX_LESSON_RESEARCH_PROVIDER_CALLS)
   }
 }
 
-function localValidationFallback(
+function localFallbackResult(
   prompt: string,
   mission: { title: string; excerpt: string },
   sequence: number,
-  settings: TeachingSettingsV1
+  settings: TeachingSettingsV1,
+  reason: string
 ): LessonPlanProductionResult {
   return {
     plan: localFallbackPlan(prompt, mission, sequence, settings),
     source: 'fallback',
-    reason: 'AI 输出未通过结构校验，已使用本地课程模板'
+    reason
   }
 }
 
@@ -336,45 +325,111 @@ const LESSON_RESEARCH_PREFIX =
   '也可以调用 web_search 工具检索最新或课程之外的事实性信息以丰富内容（例如最新版本号、时效性事件、权威定义）。' +
   '完成必要的检索后，仍必须严格只输出一个符合下方格式的 JSON 课程计划对象，不要输出任何额外说明或 markdown 围栏。'
 
+type LocalFallbackBrief = {
+  topic: string
+  focus: string
+  learnerProfile?: string
+  goal?: string
+  constraints?: string
+  extraNotes?: string
+}
+
 function localFallbackPlan(
   prompt: string,
   mission: { title: string; excerpt: string },
   sequence: number,
   settings: TeachingSettingsV1
 ): LessonPlan {
-  const topic = deriveTopic(prompt, mission.title)
-  const title = sequence === 1 ? '写出可执行的学习使命' : deriveLessonTitle(prompt, sequence)
+  const brief = parseLocalFallbackBrief(prompt, mission.title)
   const includeQuiz = settings.generator.includeRetrievalPractice
+  const context = [
+    `**学习主题：** ${brief.topic}`,
+    brief.learnerProfile ? `**学习者背景：** ${brief.learnerProfile}` : '',
+    brief.goal ? `**学习目标：** ${brief.goal}` : '',
+    brief.constraints ? `**约束：** ${brief.constraints}` : '',
+    `**本节课要完成的动作：** ${brief.focus}`
+  ].filter(Boolean).join('\n\n')
   return {
-    title,
-    objective: `把「${topic}」压缩成一次可保存、可复习的学习动作。`,
+    title: deriveLessonTitle(brief.topic, sequence),
+    objective: boundedText(`完成以下学习动作：${brief.focus}`, 400),
     durationMinutes: sequence === 1 ? Math.min(12, settings.generator.lessonDurationMinutes) : settings.generator.lessonDurationMinutes,
     sections: [
       {
-        heading: '这节课完成什么',
-        body: '先把输入的学习愿望整理成一个小闭环：使命、可信资源、可复习 lesson、learning record。这个闭环比一次性聊天更有价值，因为它能在文件系统里持续演进。\n\n1. **使命** — 说明为什么学，以及成功是什么样子。\n2. **课程** — 只教一个足够小的动作，并保存为静态 HTML。\n3. **记录** — 把已经建立的理解写入 learning-records，供下次生成使用。'
+        heading: '学习任务',
+        body: boundedText(context, 8000)
       },
       {
-        heading: '把任务拆成文件',
-        body: '- [MISSION.md](../MISSION.md) — 学习罗盘\n- [RESOURCES.md](../RESOURCES.md) — 可信来源\n- lessons/*.html — 课程讲义与速查材料\n- lessons/*.md — 学习证据\n- conversation/*.md — 对话记录'
+        heading: '执行与自检',
+        body: boundedText([
+          `1. 围绕「${brief.topic}」提取完成本节动作所需的关键概念、判断依据或步骤。`,
+          `2. 按照“${brief.focus}”完成一次示例、练习或口头讲解。`,
+          '3. 对照学习目标检查：是否能独立复述步骤、说明判断理由，并指出仍不确定的部分。',
+          '4. 若任务需要事实材料、题目或权威来源，请在 AI 生成服务恢复后重新生成完整课程，不用未经核验的内容填补空白。'
+        ].join('\n'), 8000)
       }
     ],
-    keyPoints: ['文件系统是真相来源', '每节 lesson 短小且可复习', '本地优先，AI 可选'],
+    keyPoints: [
+      boundedText(`主题：${brief.topic}`, 200),
+      boundedText(`核心动作：${brief.focus}`, 200),
+      '先完成可观察的学习动作，再根据结果决定下一步。'
+    ],
     quiz: includeQuiz
       ? [{
-          type: 'single',
-          question: 'StudiumX 里最应该长期保存的真相来源是什么？',
-          choices: ['运行时内存状态', '工作区文件资产', '单次聊天窗口'],
-          answer: 1,
+          type: 'fill',
+          question: '请写出本节课要完成的核心学习动作。',
+          choices: [],
+          answer: boundedText(brief.focus, 200),
           acceptedAnswers: [],
-          explanation: '工作区文件能脱离 App 长期保存。'
+          explanation: boundedText(`回答应围绕：${brief.focus}`, 600)
         }]
       : [],
     flashcards: [],
     callouts: [],
-    referenceNotes: '先写 mission，再决定第一课；课程输出到 lessons/*.html；对话记录写入 conversation/*.md。',
-    learningRecordNote: `本节围绕「${mission.title}」建立了可复用的 StudiumX 学习闭环。`
+    referenceNotes: boundedText(
+      brief.extraNotes
+        ? `补充要求：${brief.extraNotes}。当前为本地降级课程，未添加未经核验的外部事实或来源。`
+        : '当前为本地降级课程，未添加未经核验的外部事实或来源；AI 生成服务恢复后可重新生成完整讲解与练习。',
+      8000
+    ),
+    learningRecordNote: boundedText(
+      `完成标准：学习者能围绕「${brief.topic}」独立完成“${brief.focus}”，并说明自己的判断依据。`,
+      4000
+    )
   }
+}
+
+function parseLocalFallbackBrief(prompt: string, fallbackTopic: string): LocalFallbackBrief {
+  const fields: Partial<Record<'topic' | 'focus' | 'learnerProfile' | 'goal' | 'constraints' | 'extraNotes', string>> = {}
+  const labels: Record<string, keyof typeof fields> = {
+    '主题': 'topic',
+    '学习者背景': 'learnerProfile',
+    '学习目标': 'goal',
+    '约束': 'constraints',
+    '本节课要完成的动作': 'focus',
+    '额外说明': 'extraNotes'
+  }
+  for (const line of prompt.split(/\r?\n/)) {
+    const match = /^\s*-\s*([^：:]+)[：:]\s*(.+?)\s*$/.exec(line)
+    if (!match) continue
+    const field = labels[match[1]?.trim() ?? '']
+    const value = cleanText(match[2] ?? '')
+    if (field && value) fields[field] = value
+  }
+  const topic = fields.topic || deriveTopic(prompt, fallbackTopic)
+  const focus = fields.focus || fields.goal || `围绕「${topic}」完成一次可检查的理解与练习`
+  return {
+    topic: boundedText(topic, 200),
+    focus: boundedText(focus, 1500),
+    ...(fields.learnerProfile ? { learnerProfile: boundedText(fields.learnerProfile, 1500) } : {}),
+    ...(fields.goal ? { goal: boundedText(fields.goal, 1500) } : {}),
+    ...(fields.constraints ? { constraints: boundedText(fields.constraints, 1500) } : {}),
+    ...(fields.extraNotes ? { extraNotes: boundedText(fields.extraNotes, 1500) } : {})
+  }
+}
+
+function boundedText(value: string, maxLength: number): string {
+  const trimmed = value.replace(/\r/g, '').trim()
+  return trimmed.length <= maxLength ? trimmed : `${trimmed.slice(0, Math.max(1, maxLength - 1))}…`
 }
 
 function deriveTopic(prompt: string, fallback: string): string {

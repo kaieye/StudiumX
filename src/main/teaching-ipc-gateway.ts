@@ -79,7 +79,7 @@ import {
   runApplyStudyPlanningIpc,
   runReadStudyPlanningIpc
 } from './study-planning-ipc'
-import type { AgentChatStreamPayload, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
+import type { AgentChatStreamPayload, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AgentRealtimeEvent, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
 import {
   normalizeAgentSandboxMode,
   resolveAgentSandboxReadiness
@@ -349,6 +349,15 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     let releaseTarget = reservation.target
     const controller = new AbortController()
     let productStreamResult: Awaited<ReturnType<TeachingWorkspaceService['agentChatStream']>> | undefined
+    const runtime = { eventBus: null as AgentEventBus | null }
+    let latestRealtimeSequence = 0
+    let terminalObserved = false
+
+    const forwardRealtimeEvent = (event: AgentRealtimeEvent): void => {
+      latestRealtimeSequence = Math.max(latestRealtimeSequence, event.sequence)
+      if (event.kind === 'terminal') terminalObserved = true
+      safeSend(sender, teachingEventChannels.agentChatEvent, event)
+    }
 
     const facade = new AgentSessionFacade({
       streamId,
@@ -373,8 +382,11 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             onChunk: (chunk) => safeSend(sender, teachingEventChannels.agentChatChunk, chunk),
             onStatus: (status) => safeSend(sender, teachingEventChannels.agentChatStatus, status),
             onTool: (toolEvent) => safeSend(sender, teachingEventChannels.agentChatTool, toolEvent),
-            onRealtimeEvent: (realtimeEvent) => safeSend(sender, teachingEventChannels.agentChatEvent, realtimeEvent),
-            onEventBusReady: (eventBus) => retainAgentEventBus(streamId, eventBus)
+            onRealtimeEvent: forwardRealtimeEvent,
+            onEventBusReady: (eventBus) => {
+              runtime.eventBus = eventBus
+              retainAgentEventBus(streamId, eventBus)
+            }
           })
           productStreamResult = result
           if ('error' in result && result.error) return { streamId, error: result.message }
@@ -455,6 +467,16 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     } catch {
       failed = !controller.signal.aborted
     } finally {
+      // A failure before runTeachingConversationTurnActive creates its event bus
+      // would otherwise leave the renderer's optimistic draft permanently busy.
+      if (failed && !terminalObserved) {
+        const message = '对话未能完成，请重试。'
+        if (runtime.eventBus) {
+          runtime.eventBus.publishTerminal('error', message)
+        } else {
+          forwardRealtimeEvent(conversationTurnFailedEvent(streamId, latestRealtimeSequence + 1, message))
+        }
+      }
       context.conversationTurnStreams.delete(streamId)
       context.conversationTurnOwners.delete(conversationTurnOwnerKey(releaseTarget, intent.clientRequestId))
       if (context.activeAgentChatStreams.get(streamId) === controller) context.activeAgentChatStreams.delete(streamId)
@@ -1333,6 +1355,17 @@ function conversationTurnStartedEvent(
     activeTurnId: reservation.activeTurnId,
     clientRequestId: reservation.intent.clientRequestId,
     ...(reservation.target.kind === 'canonical' ? { conversationId: reservation.target.conversationId } : {})
+  }
+}
+
+function conversationTurnFailedEvent(streamId: string, sequence: number, message: string): AgentRealtimeEvent {
+  return {
+    sequence,
+    streamId,
+    kind: 'terminal',
+    createdAt: new Date().toISOString(),
+    outcome: 'error',
+    message
   }
 }
 

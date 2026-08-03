@@ -22,6 +22,11 @@ function isDeepSeekReasoningProvider(provider: TeachingModelProviderProfile, mod
   return provider.id === 'deepseek' || host.includes('deepseek.com') || /^deepseek[-_.]/i.test(model)
 }
 
+function isGlmReasoningProvider(provider: TeachingModelProviderProfile, model: string): boolean {
+  if (catalogReasoningProtocol(provider, model) === 'glm') return true
+  return /^glm-5(?:[.-]|$)/i.test(model)
+}
+
 function isMiniMaxOpenAiProvider(provider: TeachingModelProviderProfile): boolean {
   const host = lowerHost(provider.baseUrl)
   return host.includes('minimaxi.com') && !provider.baseUrl.toLowerCase().includes('/anthropic')
@@ -127,6 +132,12 @@ export function reasoningRequestOptions(
   if (format === 'responses') {
     const openAiEffort = normalizeOpenAiReasoningEffort(effort)
     return openAiEffort ? { reasoning: { effort: openAiEffort } } : {}
+  }
+  if (isGlmReasoningProvider(provider, generator.model)) {
+    // GLM-5.x enables thinking by default. Structured JSON generation should
+    // explicitly disable it so reasoning tokens do not consume the lesson
+    // output budget or delay the first usable content until the request timeout.
+    return { thinking: { type: options?.jsonMode || effort === 'off' ? 'disabled' : 'enabled' } }
   }
   if (isDeepSeekReasoningProvider(provider, generator.model)) {
     // JSON 输出（response_format: json_object）与 thinking 推理模式在 OpenAI 兼容

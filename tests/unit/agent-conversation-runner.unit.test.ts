@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AGENT_SESSION_BUSY_QUEUED_ACK } from '../../src/shared/agent-session-busy-ack'
 import { selectPendingAsk } from '../../src/renderer/src/agent-conversation-state'
+import { openLessonReaderContext } from '../../src/renderer/src/app-shell/contextTransitions'
+import { projectTeachingWorkspaceNavigator } from '../../src/renderer/src/app-shell/teaching-workspace-navigator-state'
 import {
   AgentConversationTurnRunner,
   type AgentConversationTurnRunnerApi,
@@ -117,6 +119,13 @@ function makeHarness(api: TestApi, overrides: Partial<TestState> = {}): Harness 
   }
 }
 
+function collectSidebarPaths(node: { relativePath: string; children?: Array<{ relativePath: string; children?: unknown[] }> }): string[] {
+  return [
+    node.relativePath,
+    ...(node.children ?? []).flatMap((child) => collectSidebarPaths(child as typeof node))
+  ]
+}
+
 async function flush(): Promise<void> {
   await Promise.resolve()
   await Promise.resolve()
@@ -209,6 +218,61 @@ describe('AgentConversationTurnRunner ADR-0170 host submission', () => {
 
     expect(read).toHaveBeenCalledWith({ workspaceId: 'workspace-1', conversationId: 'conversation-7', scope: 'workspace' })
     expect(harness.getState()).toMatchObject({ agentChatBusy: false, pendingAgentConversation: null, activeConversationRevision: 8 })
+    expect(harness.getState().appState.activeWorkspace?.conversations).toEqual([
+      expect.objectContaining({ id: 'conversation-7', title: 'Momentum', messageCount: 4 })
+    ])
+  })
+
+  it('keeps the streamed turn visible when the terminal transcript read returns a stale snapshot', async () => {
+    const submit = vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-7', streamId: 'host-stream-7', conversationId: 'conversation-7' }))
+    const staleConversation = {
+      ...conversation('conversation-7', 7),
+      messageCount: 2,
+      turns: conversation('conversation-7', 7).turns.slice(0, 2)
+    }
+    const read = vi.fn(async () => staleConversation)
+    const harness = makeHarness({ submitConversationTurn: submit, readAgentConversation: read }, {
+      activeConversationId: 'conversation-7', activeConversationScope: 'workspace', activeConversationRevision: 7,
+      activeSessionTree: sessionTree('conversation-7', 7), agentTurns: staleConversation.turns
+    })
+
+    await harness.runner.run({ inputOverride: 'Continue the branch' })
+    harness.event({ sequence: 1, streamId: 'host-stream-7', kind: 'chunk', createdAt, payload: { streamId: 'host-stream-7', delta: 'Host answer' } })
+    expect(harness.getState().agentTurns.slice(-2)).toMatchObject([
+      { role: 'user', content: 'Continue the branch' },
+      { role: 'assistant', content: 'Host answer' }
+    ])
+
+    harness.event({ sequence: 2, streamId: 'host-stream-7', kind: 'terminal', createdAt, outcome: 'done' })
+    await flush()
+
+    expect(harness.getState()).toMatchObject({
+      agentChatBusy: false,
+      pendingAgentConversation: null,
+      activeConversationId: 'conversation-7'
+    })
+    expect(harness.getState().agentTurns.slice(-2)).toMatchObject([
+      { role: 'user', content: 'Continue the branch' },
+      { role: 'assistant', content: 'Host answer' }
+    ])
+  })
+
+  it('keeps a canonical completed conversation cataloged when the session tree is temporarily unavailable', async () => {
+    const submit = vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-7', streamId: 'host-stream-7', conversationId: 'conversation-7' }))
+    const readTree = vi.fn(async () => { throw new Error('session tree is not ready yet') })
+    const harness = makeHarness({ submitConversationTurn: submit, readAgentConversationSessionTree: readTree }, {
+      activeConversationId: 'conversation-7', activeConversationScope: 'workspace', activeConversationRevision: 7,
+      activeSessionTree: sessionTree('conversation-7', 7), agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
+    })
+
+    await harness.runner.run({ inputOverride: 'Continue the branch' })
+    harness.event({ sequence: 1, streamId: 'host-stream-7', kind: 'terminal', createdAt, outcome: 'done' })
+    await flush()
+
+    expect(harness.getState()).toMatchObject({ agentChatBusy: false, pendingAgentConversation: null })
+    expect(harness.getState().appState.activeWorkspace?.conversations).toEqual([
+      expect.objectContaining({ id: 'conversation-7', title: 'Momentum', messageCount: 4 })
+    ])
   })
 
   it('settles the optimistic conversation and refreshes the workspace catalog when terminal transcript reads are temporarily unavailable', async () => {
@@ -234,12 +298,85 @@ describe('AgentConversationTurnRunner ADR-0170 host submission', () => {
 
     expect(getState).toHaveBeenCalledOnce()
     expect(harness.getState()).toMatchObject({
-      appState: refreshedAppState,
+      appState: {
+        activeWorkspace: {
+          name: 'Physics with generated lesson',
+          conversations: [expect.objectContaining({ id: 'conversation-7' })]
+        }
+      },
       agentChatBusy: false,
       pendingAgentConversation: null,
       activeConversationId: 'conversation-7'
     })
     expect(harness.getState().agentTurns.at(-1)).toMatchObject({ content: '课程已生成。' })
+  })
+
+  it('keeps a newly completed course session in the sidebar after opening its generated file when catalog reads are stale', async () => {
+    const generatedLesson = {
+      id: 'lesson-1',
+      courseRelativePath: 'courses/mechanics',
+      title: 'Momentum lesson',
+      relativePath: 'courses/mechanics/lessons/momentum.html',
+      absolutePath: '/workspace/courses/mechanics/lessons/momentum.html',
+      createdAt,
+      updatedAt: createdAt,
+      completed: false,
+      pinned: false
+    }
+    const courseWorkspace = workspace({
+      courses: [{
+        id: 'mechanics',
+        name: 'Mechanics',
+        relativePath: 'courses/mechanics',
+        absolutePath: '/workspace/courses/mechanics',
+        lessonCount: 1,
+        sessionCount: 1,
+        sessions: [{ id: 'session-1', lesson: generatedLesson, status: 'active', updatedAt: createdAt }],
+        conversations: []
+      }],
+      lessons: [generatedLesson]
+    })
+    const staleCatalogState = appState(courseWorkspace)
+    const submit = vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-new', streamId: 'host-stream-new', conversationId: 'conversation-new' }))
+    const harness = makeHarness({
+      submitConversationTurn: submit,
+      readAgentConversation: vi.fn(async () => { throw new Error('transcript is not ready yet') }),
+      readAgentConversationSessionTree: vi.fn(async () => { throw new Error('session tree is not ready yet') }),
+      getState: vi.fn(async () => staleCatalogState)
+    }, {
+      appState: staleCatalogState,
+      selectedCourseRelativePath: 'courses/mechanics'
+    })
+
+    await harness.runner.run({ inputOverride: 'Generate a momentum lesson' })
+    harness.event({ sequence: 1, streamId: 'host-stream-new', kind: 'chunk', createdAt, payload: { streamId: 'host-stream-new', delta: '课程已生成。' } })
+    harness.event({ sequence: 2, streamId: 'host-stream-new', kind: 'terminal', createdAt, outcome: 'done' })
+    await flush()
+
+    const settled = harness.getState()
+    const fileSelection = openLessonReaderContext({
+      appState: settled.appState,
+      workspace: settled.appState.activeWorkspace!,
+      previewFile: {
+        title: generatedLesson.title,
+        relativePath: generatedLesson.relativePath,
+        absolutePath: generatedLesson.absolutePath
+      },
+      previewHtml: '<p>Momentum</p>',
+      courseRelativePath: generatedLesson.courseRelativePath
+    })
+    const navigator = projectTeachingWorkspaceNavigator({
+      workspaces: fileSelection.appState.workspaces,
+      activeWorkspace: fileSelection.appState.activeWorkspace,
+      temporaryConversations: fileSelection.appState.temporaryConversations,
+      pendingAgentConversation: settled.pendingAgentConversation,
+      showAllCourseFiles: false
+    })
+    const sidebarPaths = navigator.workspaceFolders.flatMap(({ node }) => collectSidebarPaths(node))
+
+    expect(fileSelection.activeConversationId).toBeNull()
+    expect(settled.pendingAgentConversation).toBeNull()
+    expect(sidebarPaths).toContain('courses/mechanics/conversation/2026/08/conversation-new.md')
   })
 
   it('submits a busy follow-up to the host, mirrors queued UX, and never locally drains after the active stream settles', async () => {
@@ -421,6 +558,50 @@ describe('AgentConversationTurnRunner ADR-0170 host submission', () => {
     expect(harness.getState()).toMatchObject({
       agentChatBusy: false,
       pendingAgentConversation: expect.objectContaining({ status: '已中止' })
+    })
+  })
+
+  it('settles a fast error terminal that arrives before the started disposition resolves', async () => {
+    let resolveSubmit!: (value: {
+      code: 'started'
+      activeTurnId: string
+      streamId: string
+    }) => void
+    const submit = vi.fn(() => new Promise<{
+      code: 'started'
+      activeTurnId: string
+      streamId: string
+    }>((resolve) => { resolveSubmit = resolve }))
+    const harness = makeHarness({ submitConversationTurn: submit })
+
+    const running = harness.runner.run({ inputOverride: 'Fail quickly' })
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce())
+    harness.event({
+      sequence: 1,
+      streamId: 'host-stream-fast-error',
+      kind: 'terminal',
+      createdAt,
+      outcome: 'error',
+      message: 'Conversation turn failed before completion.'
+    })
+    resolveSubmit({ code: 'started', activeTurnId: 'turn-fast-error', streamId: 'host-stream-fast-error' })
+    await running
+    await flush()
+
+    expect(harness.getState()).toMatchObject({
+      agentChatBusy: false,
+      error: 'user:Conversation turn failed before completion.',
+      pendingAgentConversation: {
+        status: 'Conversation turn failed before completion.',
+        turns: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'assistant',
+            processEvents: expect.arrayContaining([
+              expect.objectContaining({ status: 'error' })
+            ])
+          })
+        ])
+      }
     })
   })
 

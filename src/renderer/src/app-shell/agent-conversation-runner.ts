@@ -26,6 +26,10 @@ import type {
   TeachingSystemApi
 } from '../../../shared/teaching-types'
 import { AGENT_SESSION_BUSY_QUEUED_ACK } from '../../../shared/agent-session-busy-ack'
+import {
+  projectCompletedAgentConversationIntoAppState,
+  projectSettledPendingAgentConversationIntoAppState
+} from '../agent-conversation-projection'
 
 /** Renderer-only mirror of follow-ups already accepted by the host lane. */
 export type AgentBusyFollowUpItem = {
@@ -729,10 +733,25 @@ export class AgentConversationTurnRunner<TError> {
     const current = this.dependencies.getState()
     if (current.pendingAgentConversation?.summary.id !== active.pendingConversationId) return
 
+    const refreshedAppState = appState ?? current.appState
+    const reconciledAppState = conversation
+      ? projectCompletedAgentConversationIntoAppState({
+          appState: refreshedAppState,
+          workspaceId: active.workspaceId,
+          conversation
+        })
+      : conversationId
+        ? projectSettledPendingAgentConversationIntoAppState({
+            appState: refreshedAppState,
+            pendingAgentConversation: pending,
+            savedConversationId: conversationId
+          })
+        : appState
+
     if (conversation && tree) {
       const branch = tree.branches.find((item) => item.conversationId === conversation.id)
       this.dependencies.setState({
-        ...(appState ? { appState } : {}),
+        ...(reconciledAppState ? { appState: reconciledAppState } : {}),
         activeConversationScope: scopeForMode(active.mode),
         activeConversationRevision: conversation.branch?.revision ?? branch?.revision ?? current.activeConversationRevision,
         activeSessionTree: tree,
@@ -763,7 +782,7 @@ export class AgentConversationTurnRunner<TError> {
       return
     }
     this.dependencies.setState({
-      ...(appState ? { appState } : {}),
+      ...(reconciledAppState ? { appState: reconciledAppState } : {}),
       activeConversationScope: scopeForMode(active.mode),
       ...finishPendingAgentConversationSave({
         pending,

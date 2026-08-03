@@ -172,6 +172,55 @@ describe('appStore Agent session lifecycle', () => {
     })
   })
 
+  it('keeps an in-flight conversation when removing a different persisted conversation', async () => {
+    const pending = {
+      workspaceId: 'workspace-1',
+      sourceConversationId: null,
+      sourceConversationRevision: null,
+      mode: 'teaching' as const,
+      summary: {
+        id: 'pending-42', title: 'Current turn', relativePath: '.agent-sessions/conversations/pending-42.json',
+        absolutePath: '/workspace/.agent-sessions/conversations/pending-42.json',
+        createdAt, updatedAt: createdAt, messageCount: 2, pending: true as const
+      },
+      turns: [
+        { id: 'user-1', role: 'user' as const, content: 'Explain momentum', createdAt },
+        { id: 'assistant-1', role: 'assistant' as const, content: '', createdAt }
+      ],
+      status: '回答中…',
+      toolsSupported: true
+    }
+    const refreshedState = appState()
+    const removeWorkspaceItem = vi.fn(async () => refreshedState)
+    installApi({ removeWorkspaceItem })
+    useAppStore.setState({
+      agentChatBusy: true,
+      pendingAgentConversation: pending,
+      agentTurns: pending.turns,
+      activeConversationId: pending.summary.id,
+      activeConversationScope: 'workspace'
+    })
+
+    await useAppStore.getState().removeWorkspaceItem({
+      relativePath: '.agent-sessions/conversations/existing-1.json',
+      kind: 'conversation'
+    })
+
+    expect(removeWorkspaceItem).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      relativePath: '.agent-sessions/conversations/existing-1.json',
+      kind: 'conversation',
+      mode: 'disk'
+    })
+    expect(useAppStore.getState()).toMatchObject({
+      appState: refreshedState,
+      activeConversationId: 'pending-42',
+      agentChatBusy: true,
+      pendingAgentConversation: pending,
+      agentTurns: pending.turns
+    })
+  })
+
   it('clears finished teaching conversation chrome when reopening teaching mode from top-nav', () => {
     const turns = [{ id: 'assistant-complete', role: 'assistant' as const, content: 'Completed answer', createdAt }]
     useAppStore.setState({
