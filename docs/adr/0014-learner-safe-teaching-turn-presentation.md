@@ -6,7 +6,9 @@
 
 ## 决定
 
-学习者界面消费 `TeachingTurnPresentation`，即从教学事实与受限诊断投影出的 learner-safe view model；界面不得直接把 Agent run、provider payload、内部 prompt、工具事件或 raw chain-of-thought 呈现为教学进度。
+学习者界面消费 `TeachingTurnPresentation`，即从教学事实与受限诊断投影出的 learner-safe view model。教学进度仍不得直接把 Agent run、provider payload、内部 prompt、工具事件或 raw chain-of-thought 当作 teaching authority 或教学事实。
+
+当 Agent 对话提供 reasoning 事件时，界面同时显示独立的“思考过程”行，并原样展示 provider 提供的 reasoning 标题和 detail，不截断、不脱敏、不做 allow-list 或路径/secret 过滤。过程记录可以包含模型用于完成本轮任务的推理、上下文、provider 内容、内部 prompt、工具参数、路径或凭据；该过程面板用于让学习者查看模型如何处理任务，但不构成教学证据、settlement authority 或学习结论。
 
 投影使用确认目标、完成检索练习、讲解并形成 Lesson、保存学习记录等受限阶段，并保证同一时刻最多一个 `active` 或 `needs_you` 状态。保存态以 durable canonical/catalog reconciliation 为准，不以 spinner 或模型自述代替。技术诊断必须默认折叠、allowlist 并脱敏。
 
@@ -54,4 +56,4 @@ pnpm exec vitest run --project unit tests/unit/teaching-turn-coordinator-host.un
 
 - 本 ADR 不把 `TeachingPresentationSnapshot` 变成通用 ledger 浏览器或任意 operation 查询 API。
 - 本 ADR 不实现 ReviewView、TodayQueue 或 Pet；`review_due` 仅作为 Teaching Reader 的最窄 canonical 入口，`continue_next_session` 仍不是产品入口。
-- 本 ADR 不授权展示 hidden prompt、provider payload、secret 或模型推理过程。
+- 本 ADR 不把 `TeachingPresentationSnapshot` 的 closed IPC 变成 Agent 过程记录接口；reasoning 标题和 detail 仅在独立的 Agent 过程面板展示，且不获得教学 authority。

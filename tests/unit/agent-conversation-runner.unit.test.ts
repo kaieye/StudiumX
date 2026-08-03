@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AGENT_SESSION_BUSY_QUEUED_ACK } from '../../src/shared/agent-session-busy-ack'
+import { selectPendingAsk } from '../../src/renderer/src/agent-conversation-state'
 import {
   AgentConversationTurnRunner,
   type AgentConversationTurnRunnerApi,
@@ -7,1001 +8,389 @@ import {
   type AgentConversationTurnRunnerState
 } from '../../src/renderer/src/app-shell/agent-conversation-runner'
 import type {
-  AgentChatStreamDone,
-  AgentChatTurn,
   AgentConversationSessionTree,
+  AgentRealtimeEvent,
   LessonSummary,
   TeachingAppState,
   TeachingWorkspaceSummary
 } from '../../src/shared/teaching-types'
 
 type TestState = AgentConversationTurnRunnerState & { error: string | null }
-
-type TestApi = Omit<AgentConversationTurnRunnerApi, 'readAgentConversationSessionTree' | 'getState'> &
-  Partial<Pick<AgentConversationTurnRunnerApi, 'readAgentConversationSessionTree' | 'getState'>>
+type TestApi = Partial<AgentConversationTurnRunnerApi>
 
 type Harness = {
   getState: () => TestState
   setState: (patch: Partial<TestState>) => void
   patches: Array<AgentConversationTurnRunnerPatch<string>>
-  effects: LessonSummary[][]
   runner: AgentConversationTurnRunner<string>
+  event: (event: AgentRealtimeEvent) => void
 }
 
-const createdAt = '2026-07-14T10:00:00.000Z'
-
-function deferredDone(): {
-  promise: Promise<void>
-  resolve: () => void
-} {
-  let resolve!: () => void
-  const promise = new Promise<void>((res) => { resolve = res })
-  return { promise, resolve }
-}
+const createdAt = '2026-08-03T10:00:00.000Z'
+const requestIds = [
+  '11111111-1111-4111-8111-111111111111',
+  '22222222-2222-4222-8222-222222222222',
+  '33333333-3333-4333-8333-333333333333'
+]
 
 function workspace(overrides: Partial<TeachingWorkspaceSummary> = {}): TeachingWorkspaceSummary {
   return {
-    id: 'workspace-1',
-    name: 'Physics',
-    rootPath: '/workspace',
-    missionPath: '/workspace/MISSION.md',
-    resourcesPath: '/workspace/resources',
-    lessonsDir: '/workspace/lessons',
-    recordsDir: '/workspace/records',
-    referenceDir: '/workspace/reference',
-    reviewsDir: '/workspace/reviews',
-    createdAt,
-    updatedAt: createdAt,
-    missionTitle: 'Physics',
-    missionExcerpt: 'Learn physics',
-    courses: [],
-    fileTree: [],
-    conversations: [],
-    resources: [],
-    records: [],
-    lessons: [],
-    referenceCount: 0,
-    assetsReady: true,
-    git: null,
-    ...overrides
+    id: 'workspace-1', name: 'Physics', rootPath: '/workspace', missionPath: '/workspace/MISSION.md',
+    resourcesPath: '/workspace/resources', lessonsDir: '/workspace/lessons', recordsDir: '/workspace/records',
+    referenceDir: '/workspace/reference', reviewsDir: '/workspace/reviews', createdAt, updatedAt: createdAt,
+    missionTitle: 'Physics', missionExcerpt: 'Learn physics', courses: [], fileTree: [], conversations: [],
+    resources: [], records: [], lessons: [], referenceCount: 0, assetsReady: true, git: null, ...overrides
   }
 }
 
 function appState(activeWorkspace = workspace()): TeachingAppState {
   return {
-    workspaces: [activeWorkspace],
-    activeWorkspace,
-    temporaryConversations: [],
-    previewHtml: '',
-    previewUrl: '',
+    workspaces: [activeWorkspace], activeWorkspace, temporaryConversations: [], previewHtml: '', previewUrl: '',
     selectedLessonPath: '/workspace/lessons/mechanics/session-1.md',
-    runtime: { status: 'idle', currentStep: '', queuedTasks: 0, providerLabel: '' },
-    recentChangeSummary: null
+    runtime: { status: 'idle', currentStep: '', queuedTasks: 0, providerLabel: '' }, recentChangeSummary: null
   }
 }
 
-function makeHarness(
-  api: TestApi,
-  overrides: Partial<TestState> = {}
-): Harness {
+function sessionTree(conversationId = 'conversation-7', revision = 7): AgentConversationSessionTree {
+  return {
+    schemaVersion: 1, sessionId: 'session-tree-1', openBranchId: `branch-${conversationId}`,
+    branches: [{ sessionId: 'session-tree-1', branchId: `branch-${conversationId}`, conversationId,
+      title: 'Momentum', status: 'active', revision,
+      head: { turnId: 'a-prior', turnCount: 2, updatedAt: createdAt },
+      relativePath: `.agent-sessions/conversations/${conversationId}.json`, isOpen: true }]
+  }
+}
+
+function conversation(conversationId = 'conversation-7', revision = 8) {
+  return {
+    id: conversationId, title: 'Momentum', createdAt, updatedAt: createdAt,
+    relativePath: `.agent-sessions/conversations/${conversationId}.json`, absolutePath: `/workspace/.agent-sessions/conversations/${conversationId}.json`,
+    messageCount: 4,
+    branch: { schemaVersion: 1 as const, sessionId: 'session-tree-1', branchId: `branch-${conversationId}`, revision, status: 'active' as const },
+    turns: [
+      { id: 'u-prior', role: 'user' as const, content: 'Prior question', createdAt },
+      { id: 'a-prior', role: 'assistant' as const, content: 'Prior answer', createdAt },
+      { id: 'u-42', role: 'user' as const, content: 'Continue the branch', createdAt },
+      { id: 'a-42', role: 'assistant' as const, content: 'Host answer', createdAt }
+    ]
+  }
+}
+
+function makeHarness(api: TestApi, overrides: Partial<TestState> = {}): Harness {
   let state: TestState = {
-    appState: appState(),
-    overviewDialogMode: 'teaching',
-    agentInput: 'unused input',
-    agentChatBusy: false,
-    agentBusyAckMessage: null,
-    agentBusyFollowUpQueue: [],
-    agentStatus: '',
-    agentTurns: [],
-    activeConversationId: null,
-    activeConversationScope: null,
-    activeConversationRevision: null,
-    activeSessionTree: null,
-    agentToolsSupported: null,
-    pendingAgentConversation: null,
-    selectedCourseRelativePath: 'courses/mechanics',
-    taskPrompt: 'previous prompt',
-    error: null,
+    appState: appState(), overviewDialogMode: 'teaching', agentInput: 'unused input', agentChatBusy: false,
+    agentBusyAckMessage: null, agentBusyFollowUpQueue: [], agentStatus: '', agentTurns: [], activeConversationId: null,
+    activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null, agentToolsSupported: null,
+    pendingAgentConversation: null, selectedCourseRelativePath: 'courses/mechanics', taskPrompt: 'previous prompt', error: null,
     ...overrides
   }
+  let handler: ((event: AgentRealtimeEvent) => void) | undefined
   const runnerApi: AgentConversationTurnRunnerApi = {
-    readAgentConversationSessionTree: vi.fn(async ({ conversationId }) => sessionTree(conversationId)),
+    submitConversationTurn: vi.fn(async () => ({ code: 'started', activeTurnId: 'turn-1', streamId: 'host-stream-1' })),
+    onAgentChatEvent: vi.fn((next) => { handler = next; return () => { handler = undefined } }),
+    cancelConversationTurn: vi.fn(async () => ({
+      code: 'cancelled', cancelledActiveTurnId: 'turn-1', clearedQueuedCount: 0
+    })),
+    readAgentConversation: vi.fn(async ({ conversationId }) => conversation(conversationId)),
+    readAgentConversationSessionTree: vi.fn(async ({ conversationId }) => sessionTree(conversationId, 8)),
     getState: vi.fn(async () => state.appState),
     ...api
   }
   const patches: Array<AgentConversationTurnRunnerPatch<string>> = []
-  const effects: LessonSummary[][] = []
+  let requestIndex = 0
   const runner = new AgentConversationTurnRunner<string>({
     getState: () => state,
-    setState: (patch) => {
-      patches.push(patch)
-      state = { ...state, ...patch }
-    },
+    setState: (patch) => { patches.push(patch); state = { ...state, ...patch } },
     getApi: () => runnerApi,
     toUserError: (error) => `user:${error instanceof Error ? error.message : String(error)}`,
-    onGeneratedLessons: (lessons) => effects.push(lessons),
+    onGeneratedLessons: (_lessons: LessonSummary[]) => undefined,
     now: () => createdAt,
-    nextIdSeed: () => 42
+    nextIdSeed: () => 42,
+    nextClientRequestId: () => requestIds[requestIndex++]!
   })
   return {
     getState: () => state,
     setState: (patch) => { state = { ...state, ...patch } },
     patches,
-    effects,
-    runner
+    runner,
+    event: (event) => handler?.(event)
   }
 }
 
-function completedTurn(content = 'Saved answer'): AgentChatStreamDone {
-  return {
-    streamId: 'pending-42',
-    turns: [
-      { id: 'u-42', role: 'user', content: 'Explain momentum', createdAt },
-      {
-        id: 'a-42',
-        role: 'assistant',
-        content,
-        toolCalls: [{ id: 'tool-1', name: 'search_notes', arguments: '{}' }],
-        createdAt
-      }
-    ],
-    finalText: content,
-    iterations: 1,
-    toolsSupported: true,
-    usage: { providerCalls: 1, toolCalls: 1, toolErrors: 0, iterations: 1, childRuns: 0, durationMs: 1 }
-  }
+async function flush(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
 }
 
-function sessionTree(conversationId = 'conversation-9', revision = 1): AgentConversationSessionTree {
-  return {
-    schemaVersion: 1,
-    sessionId: 'session-tree-1',
-    openBranchId: `branch-${conversationId}`,
-    branches: [{
-      sessionId: 'session-tree-1',
-      branchId: `branch-${conversationId}`,
-      conversationId,
-      title: 'Momentum',
-      status: 'active',
-      revision,
-      head: { turnId: 'a-42', turnCount: 2, updatedAt: createdAt },
-      relativePath: `.agent-sessions/conversations/${conversationId}.json`,
-      isOpen: true
-    }]
-  }
-}
-
-function generatedLesson(): LessonSummary {
-  return {
-    id: 'lesson-1',
-    title: 'Momentum',
-    objective: 'Understand momentum',
-    prompt: 'Momentum',
-    createdAt,
-    durationMinutes: 15,
-    courseId: 'course-1',
-    courseName: 'Mechanics',
-    courseRelativePath: 'courses/mechanics',
-    courseAbsolutePath: '/workspace/courses/mechanics',
-    sessionId: 'session-1',
-    sessionName: 'Session 1',
-    sessionRelativePath: 'courses/mechanics/session-1.md',
-    sessionAbsolutePath: '/workspace/courses/mechanics/session-1.md',
-    relativePath: 'courses/mechanics/session-1.md',
-    absolutePath: '/workspace/courses/mechanics/session-1.md'
-  }
-}
-
-describe('AgentConversationTurnRunner', () => {
-  it('streams, reconciles, saves a teaching turn with its Course/Session attachment, then emits generated-Lesson effects', async () => {
-    const stream = vi.fn(async (_payload, onChunk, onStatus, onTool, onInvalidation) => {
-      onStatus({ streamId: 'pending-42', status: 'answering' })
-      onChunk({ streamId: 'pending-42', delta: 'Local preview' })
-      onTool({ streamId: 'pending-42', toolCall: { id: 'tool-1', name: 'search_notes', arguments: '{}' } })
-      onTool({ streamId: 'pending-42', toolCall: { id: 'tool-1', name: 'search_notes', arguments: '{}' }, result: 'found notes' })
-      onInvalidation?.({
-        streamId: 'pending-42',
-        reason: 'replay_gap',
-        requestedAfterSequence: 1,
-        fromSequence: 2,
-        nextSequence: 3
-      })
-      return { ...completedTurn(), generatedLessons: [generatedLesson()] }
-    })
-    const save = vi.fn(async (payload) => ({
-      state: { ...appState(), previewHtml: 'saved-state' },
-      conversation: { id: 'conversation-9', title: 'Momentum', createdAt, updatedAt: createdAt, relativePath: 'courses/mechanics/conversations/momentum.md', absolutePath: '/workspace/courses/mechanics/conversations/momentum.md', messageCount: payload.turns.length }
-    }))
-    const harness = makeHarness({
-      agentChatStream: stream,
-      saveAgentConversation: save,
-      cancelAgentChatStream: vi.fn()
-    })
-
-    await harness.runner.run({ inputOverride: ' Explain momentum ', skillIds: ['physics'] })
-
-    expect(stream).toHaveBeenCalledWith(expect.objectContaining({
-      streamId: 'pending-42',
-      workspaceId: 'workspace-1',
-      mode: 'teaching',
-      conversationId: undefined,
-      userInput: 'Explain momentum',
-      skillIds: ['physics'],
-      messages: []
-    }), expect.any(Function), expect.any(Function), expect.any(Function), expect.any(Function))
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({
-      workspaceId: 'workspace-1',
-      runId: 'pending-42',
-      mode: 'teaching',
-      conversationId: null,
-      selectedCourseRelativePath: 'courses/mechanics',
-      selectedLessonPath: '/workspace/lessons/mechanics/session-1.md'
-    }))
-    const savedTurns = save.mock.calls[0][0].turns as AgentChatTurn[]
-    expect(savedTurns[1]).toMatchObject({ content: 'Saved answer' })
-    expect(savedTurns[1].processEvents?.map((event) => event.kind)).toEqual(expect.arrayContaining([
-      'status',
-      'tool_call'
-    ]))
-    expect(savedTurns[1].processEvents?.filter((event) => event.kind === 'tool_call')).toEqual([
-      expect.objectContaining({ status: 'tool_done' })
-    ])
-    expect(savedTurns[1].processEvents?.some((event) => event.kind === 'tool_result')).toBe(false)
-    expect(harness.getState()).toMatchObject({
-      appState: { previewHtml: 'saved-state' },
-      taskPrompt: 'Explain momentum',
-      agentChatBusy: false,
-      pendingAgentConversation: null,
-      activeConversationId: 'conversation-9',
-      agentToolsSupported: true
-    })
-    expect(harness.effects).toEqual([[generatedLesson()]])
-  })
-
-  it('sends the expected branch revision and refreshes revision and tree after saving', async () => {
-    const readTree = vi.fn(async () => sessionTree('conversation-7', 8))
-    const save = vi.fn(async (payload) => ({
-      state: appState(),
-      conversation: {
-        id: 'conversation-7',
-        title: 'Momentum branch',
-        createdAt,
-        updatedAt: createdAt,
-        relativePath: '.agent-sessions/conversations/conversation-7.json',
-        absolutePath: '/workspace/.agent-sessions/conversations/conversation-7.json',
-        messageCount: payload.turns.length,
-        branch: {
-          schemaVersion: 1 as const,
-          sessionId: 'session-tree-1',
-          branchId: 'branch-conversation-7',
-          revision: 8,
-          status: 'active' as const
-        }
-      }
-    }))
-    const priorTurn: AgentChatTurn = { id: 'u-prior', role: 'user', content: 'Prior question', createdAt }
-    const stream = vi.fn(async () => completedTurn())
-    const harness = makeHarness({
-      agentChatStream: stream,
-      saveAgentConversation: save,
-      cancelAgentChatStream: vi.fn(),
-      readAgentConversationSessionTree: readTree
-    }, {
-      activeConversationId: 'conversation-7',
-      activeConversationRevision: 7,
+describe('AgentConversationTurnRunner ADR-0170 host submission', () => {
+  it('submits canonical continuation with the observed revision, scoped target, UUID idempotency key, skills, and follow-up delivery', async () => {
+    const submit = vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-7', streamId: 'host-stream-7', conversationId: 'conversation-7' }))
+    const harness = makeHarness({ submitConversationTurn: submit }, {
+      activeConversationId: 'conversation-7', activeConversationScope: 'workspace', activeConversationRevision: 7,
       activeSessionTree: sessionTree('conversation-7', 7),
-      agentTurns: [priorTurn]
-    })
-
-    await harness.runner.run({ inputOverride: 'Continue the branch' })
-
-    expect(stream).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: 'conversation-7',
-      expectedBranchRevision: 7
-    }), expect.any(Function), expect.any(Function), expect.any(Function), expect.any(Function))
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: 'conversation-7',
-      expectedBranchRevision: 7
-    }))
-    expect(readTree).toHaveBeenCalledWith({ workspaceId: 'workspace-1', conversationId: 'conversation-7', scope: 'workspace' })
-    expect(harness.getState()).toMatchObject({
-      activeConversationId: 'conversation-7',
-      activeConversationRevision: 8,
-      activeSessionTree: { branches: [expect.objectContaining({ conversationId: 'conversation-7', revision: 8 })] }
-    })
-  })
-
-  it('excludes a renderer-only recovery notice from the next model request and its lineage while retaining durable history', async () => {
-    const recoveryNoticeText = 'RECOVERY-NOTICE: do not send this renderer-only notice to the model'
-    const stream = vi.fn(async () => completedTurn())
-    const harness = makeHarness({
-      agentChatStream: stream,
-      saveAgentConversation: vi.fn(async (payload) => ({
-        state: appState(),
-        conversation: {
-          id: 'conversation-7',
-          title: 'Momentum branch',
-          createdAt,
-          updatedAt: createdAt,
-          relativePath: '.agent-sessions/conversations/conversation-7.json',
-          absolutePath: '/workspace/.agent-sessions/conversations/conversation-7.json',
-          messageCount: payload.turns.length
-        }
-      })),
-      cancelAgentChatStream: vi.fn()
-    }, {
-      activeConversationId: 'conversation-7',
-      activeConversationRevision: 7,
-      activeSessionTree: sessionTree('conversation-7', 7),
-      agentTurns: [
-        { id: 'u-durable', role: 'user', content: 'What is momentum?', createdAt },
-        { id: 'a-durable', role: 'assistant', content: 'Mass times velocity.', createdAt },
-        {
-          id: 'interrupted-run-9',
-          role: 'assistant',
-          content: recoveryNoticeText,
-          createdAt,
-          metadata: { version: 1, provenance: { kind: 'recovery_notice' } }
-        }
-      ]
-    })
-
-    await harness.runner.run({ inputOverride: 'Now explain impulse instead.' })
-
-    const request = stream.mock.calls[0]?.[0]
-    expect(request).toMatchObject({
-      userInput: 'Now explain impulse instead.',
-      messages: [
-        { role: 'user', content: 'What is momentum?' },
-        { role: 'assistant', content: 'Mass times velocity.' }
-      ],
-      messageTurnIds: ['u-durable', 'a-durable']
-    })
-    expect(request.messages).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ content: recoveryNoticeText })
-    ]))
-    expect(request.messageTurnIds).not.toContain('interrupted-run-9')
-  })
-
-  it('clears a stale tree when post-save refresh fails', async () => {
-    const save = vi.fn(async (payload) => ({
-      state: appState(),
-      conversation: {
-        id: 'conversation-7',
-        title: 'Momentum branch',
-        createdAt,
-        updatedAt: createdAt,
-        relativePath: '.agent-sessions/conversations/conversation-7.json',
-        absolutePath: '/workspace/.agent-sessions/conversations/conversation-7.json',
-        messageCount: payload.turns.length,
-        branch: {
-          schemaVersion: 1 as const,
-          sessionId: 'session-tree-1',
-          branchId: 'branch-conversation-7',
-          revision: 8,
-          status: 'active' as const
-        }
-      }
-    }))
-    const harness = makeHarness({
-      agentChatStream: vi.fn(async () => completedTurn()),
-      saveAgentConversation: save,
-      cancelAgentChatStream: vi.fn(),
-      readAgentConversationSessionTree: vi.fn(async () => { throw new Error('tree unavailable') })
-    }, {
-      activeConversationId: 'conversation-7',
-      activeConversationRevision: 7,
-      activeSessionTree: sessionTree('conversation-7', 7),
-      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
-    })
-
-    await harness.runner.run({ inputOverride: 'Continue the branch' })
-
-    expect(harness.getState()).toMatchObject({
-      activeConversationId: 'conversation-7',
-      activeConversationRevision: 8,
-      activeSessionTree: null,
-      error: 'user:tree unavailable'
-    })
-  })
-
-  it('does not overwrite branch navigation that completes during post-save tree refresh', async () => {
-    let resolveTree: ((tree: AgentConversationSessionTree) => void) | undefined
-    const readTree = vi.fn(() => new Promise<AgentConversationSessionTree>((resolve) => { resolveTree = resolve }))
-    const save = vi.fn(async (payload) => ({
-      state: appState(),
-      conversation: {
-        id: 'conversation-7',
-        title: 'Momentum branch',
-        createdAt,
-        updatedAt: createdAt,
-        relativePath: '.agent-sessions/conversations/conversation-7.json',
-        absolutePath: '/workspace/.agent-sessions/conversations/conversation-7.json',
-        messageCount: payload.turns.length,
-        branch: {
-          schemaVersion: 1 as const,
-          sessionId: 'session-tree-1',
-          branchId: 'branch-conversation-7',
-          revision: 8,
-          status: 'active' as const
-        }
-      }
-    }))
-    const harness = makeHarness({
-      agentChatStream: vi.fn(async () => completedTurn()),
-      saveAgentConversation: save,
-      cancelAgentChatStream: vi.fn(),
-      readAgentConversationSessionTree: readTree
-    }, {
-      activeConversationId: 'conversation-7',
-      activeConversationRevision: 7,
-      activeSessionTree: sessionTree('conversation-7', 7),
-      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
-    })
-
-    const running = harness.runner.run({ inputOverride: 'Continue the branch' })
-    await vi.waitFor(() => expect(readTree).toHaveBeenCalled())
-    const branchBTree = sessionTree('conversation-b', 3)
-    harness.setState({
-      activeConversationId: 'conversation-b',
-      activeConversationRevision: 3,
-      activeSessionTree: branchBTree,
-      agentTurns: [{ id: 'b-turn', role: 'assistant', content: 'Branch B', createdAt }]
-    })
-    resolveTree?.(sessionTree('conversation-7', 8))
-    await running
-
-    expect(harness.getState()).toMatchObject({
-      activeConversationId: 'conversation-b',
-      activeConversationRevision: 3,
-      activeSessionTree: branchBTree,
-      agentTurns: [{ id: 'b-turn', content: 'Branch B' }],
-      pendingAgentConversation: null,
-      agentChatBusy: false
-    })
-  })
-
-  it('starts a fresh teaching conversation when switching from a temporary branch', async () => {
-    const stream = vi.fn(async () => completedTurn())
-    const save = vi.fn(async (payload) => ({
-      state: appState(),
-      conversation: {
-        id: 'conversation-teaching',
-        title: 'Teaching branch',
-        createdAt,
-        updatedAt: createdAt,
-        relativePath: 'conversations/conversation-teaching.md',
-        absolutePath: '/workspace/conversations/conversation-teaching.md',
-        messageCount: payload.turns.length
-      }
-    }))
-    const harness = makeHarness({
-      agentChatStream: stream,
-      saveAgentConversation: save,
-      cancelAgentChatStream: vi.fn()
-    }, {
-      overviewDialogMode: 'teaching',
-      activeConversationId: 'conversation-temporary',
-      activeConversationScope: 'temporary',
-      activeConversationRevision: 2,
-      activeSessionTree: sessionTree('conversation-temporary', 2),
-      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Temporary question', createdAt }]
-    })
-
-    await harness.runner.run({ inputOverride: 'Teach me momentum', mode: 'teaching' })
-
-    expect(stream).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: undefined,
-      expectedBranchRevision: undefined,
-      mode: 'teaching',
-      messages: []
-    }), expect.any(Function), expect.any(Function), expect.any(Function), expect.any(Function))
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: null,
-      expectedBranchRevision: undefined,
-      mode: 'teaching'
-    }))
-  })
-  it('continues a temporary legacy branch with revision zero under CAS', async () => {
-    const stream = vi.fn(async () => completedTurn())
-    const save = vi.fn(async (payload) => ({
-      state: appState(),
-      conversation: {
-        id: 'conversation-legacy',
-        title: 'Legacy branch',
-        createdAt,
-        updatedAt: createdAt,
-        relativePath: 'conversation/conversation-legacy.md',
-        absolutePath: '/workspace/conversation/conversation-legacy.md',
-        messageCount: payload.turns.length,
-        branch: {
-          schemaVersion: 1 as const,
-          sessionId: 'session-tree-1',
-          branchId: 'conversation-legacy',
-          revision: 1,
-          status: 'active' as const
-        }
-      }
-    }))
-    const readTree = vi.fn(async () => sessionTree('conversation-legacy', 1))
-    const harness = makeHarness({
-      agentChatStream: stream,
-      saveAgentConversation: save,
-      cancelAgentChatStream: vi.fn(),
-      readAgentConversationSessionTree: readTree
-    }, {
-      overviewDialogMode: 'teaching',
-      activeConversationId: 'conversation-legacy',
-      activeConversationScope: 'temporary',
-      activeConversationRevision: 0,
-      activeSessionTree: sessionTree('conversation-legacy', 0),
-      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Legacy question', createdAt }]
-    })
-
-    await harness.runner.run({ inputOverride: 'Continue legacy branch' })
-
-    expect(stream).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: 'conversation-legacy',
-      expectedBranchRevision: 0,
-      mode: 'temporary'
-    }), expect.any(Function), expect.any(Function), expect.any(Function), expect.any(Function))
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: 'conversation-legacy',
-      expectedBranchRevision: 0,
-      mode: 'temporary'
-    }))
-    expect(readTree).toHaveBeenCalledWith({
-      workspaceId: 'workspace-1', conversationId: 'conversation-legacy', scope: 'temporary'
-    })
-  })
-
-  it('refuses to run a persisted branch without a concurrency revision', async () => {
-    const stream = vi.fn(async () => completedTurn())
-    const harness = makeHarness({
-      agentChatStream: stream,
-      saveAgentConversation: vi.fn(),
-      cancelAgentChatStream: vi.fn()
-    }, {
-      activeConversationId: 'conversation-7',
-      activeConversationRevision: null,
-      activeSessionTree: null,
-      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
-    })
-
-    await harness.runner.run({ inputOverride: 'Continue without revision' })
-
-    expect(stream).not.toHaveBeenCalled()
-    expect(harness.getState().error).toContain('revision is unavailable')
-  })
-
-  it('refuses to run an archived branch before invoking the provider', async () => {
-    const stream = vi.fn(async () => completedTurn())
-    const save = vi.fn()
-    const archivedTree = sessionTree('conversation-7', 8)
-    archivedTree.branches[0] = { ...archivedTree.branches[0], status: 'archived', isOpen: false }
-    const harness = makeHarness({
-      agentChatStream: stream,
-      saveAgentConversation: save,
-      cancelAgentChatStream: vi.fn()
-    }, {
-      activeConversationId: 'conversation-7',
-      activeConversationRevision: 8,
-      activeSessionTree: archivedTree,
-      agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
-    })
-
-    await harness.runner.run({ inputOverride: 'Continue the archived branch' })
-
-    expect(stream).not.toHaveBeenCalled()
-    expect(save).not.toHaveBeenCalled()
-    expect(harness.getState()).toMatchObject({
-      agentChatBusy: false,
-      activeConversationId: 'conversation-7',
-      error: expect.stringContaining('read-only')
-    })
-  })
-
-  it('keeps temporary turns detached from the selected Course and Session', async () => {
-    const save = vi.fn(async () => ({
-      state: appState(),
-      conversation: { id: 'temporary-9', title: 'Quick question', createdAt, updatedAt: createdAt, relativePath: '.studiumx/conversations/temporary-9.md', absolutePath: '', messageCount: 2 }
-    }))
-    const harness = makeHarness({
-      agentChatStream: vi.fn(async () => completedTurn()),
-      saveAgentConversation: save,
-      cancelAgentChatStream: vi.fn()
-    }, { overviewDialogMode: 'chat' })
-
-    await harness.runner.run({ inputOverride: 'Quick question' })
-
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({
-      mode: 'temporary',
-      conversationId: null,
-      selectedCourseRelativePath: null,
-      selectedLessonPath: null
-    }))
-  })
-
-  it('cancels a pending run before IPC cancellation and ignores its later terminal result', async () => {
-    let resolveStream!: (done: AgentChatStreamDone) => void
-    const stream = vi.fn(() => new Promise<AgentChatStreamDone>((resolve) => { resolveStream = resolve }))
-    const cancel = vi.fn(async () => ({ canceled: true }))
-    const save = vi.fn()
-    const harness = makeHarness({ agentChatStream: stream, cancelAgentChatStream: cancel, saveAgentConversation: save })
-
-    const running = harness.runner.run({ inputOverride: 'Stop this' })
-    expect(harness.getState().pendingAgentConversation?.summary.id).toBe('pending-42')
-
-    await harness.runner.cancel()
-    expect(cancel).toHaveBeenCalledWith('pending-42')
-    expect(harness.getState()).toMatchObject({ agentChatBusy: false, pendingAgentConversation: null, activeConversationId: null })
-    expect(harness.getState().agentTurns.at(-1)?.processEvents?.at(-1)).toMatchObject({ status: 'canceled' })
-
-    resolveStream({ streamId: 'pending-42', canceled: true })
-    await running
-    expect(save).not.toHaveBeenCalled()
-  })
-
-  it('keeps the visible conversation and streamed process when a run reaches the tool limit', async () => {
-    const toolLimitMessage = '工具调用上限已用完，generate_lesson 尚未执行，所以课程尚未生成。请重试，或在设置里提高工具调用上限。'
-    const harness = makeHarness({
-      agentChatStream: vi.fn(async (_payload, onChunk, onStatus, onTool) => {
-        onStatus({ streamId: 'pending-42', status: 'thinking', message: '正在规划课程' })
-        onChunk({ streamId: 'pending-42', channel: 'reasoning', delta: '先分析学习目标。' })
-        onTool({
-          streamId: 'pending-42',
-          toolCall: { id: 'tool-ask', name: 'ask', arguments: '{"questions":[]}' }
-        })
-        onTool({
-          streamId: 'pending-42',
-          toolCall: { id: 'tool-ask', name: 'ask', arguments: '{"questions":[]}' },
-          result: '{"answers":[]}'
-        })
-        return { streamId: 'pending-42', error: true, message: toolLimitMessage }
-      }),
-      saveAgentConversation: vi.fn(),
-      cancelAgentChatStream: vi.fn()
-    })
-
-    await harness.runner.run({ inputOverride: '为我生成课程' })
-
-    expect(harness.getState()).toMatchObject({
-      error: `user:${toolLimitMessage}`,
-      agentChatBusy: false,
-      activeConversationId: 'pending-42',
-      agentStatus: ''
-    })
-    expect(harness.getState().pendingAgentConversation).toMatchObject({
-      summary: { id: 'pending-42' },
-      status: toolLimitMessage
-    })
-    expect(harness.getState().agentTurns).toEqual([
-      expect.objectContaining({ id: 'u-42', role: 'user', content: '为我生成课程' }),
-      expect.objectContaining({
-        id: 'a-42',
-        role: 'assistant',
-        processEvents: expect.arrayContaining([
-          expect.objectContaining({ kind: 'reasoning', detail: '先分析学习目标。' }),
-          expect.objectContaining({ kind: 'elicitation_resolved', toolCallId: 'tool-ask' }),
-          expect.objectContaining({ status: 'error', detail: toolLimitMessage })
-        ])
-      })
-    ])
-  })
-
-
-  it('durably saves a failed lesson-generation turn so navigation cannot discard the conversation', async () => {
-    const toolLimitMessage = '课程尚未生成：本轮未能完成正式生成。当前对话和规划内容已保留，请继续发送“生成课程”重试。'
-    const save = vi.fn(async (payload) => ({
-      state: appState(workspace({
-        conversations: [{
-          id: 'conversation-failed',
-          title: 'AI 课程规划',
-          createdAt,
-          updatedAt: createdAt,
-          relativePath: '.agent-sessions/conversations/conversation-failed.json',
-          absolutePath: '/workspace/.agent-sessions/conversations/conversation-failed.json',
-          messageCount: payload.turns.length
-        }]
-      })),
-      conversation: {
-        id: 'conversation-failed',
-        title: 'AI 课程规划',
-        createdAt,
-        updatedAt: createdAt,
-        relativePath: '.agent-sessions/conversations/conversation-failed.json',
-        absolutePath: '/workspace/.agent-sessions/conversations/conversation-failed.json',
-        messageCount: payload.turns.length,
-        branch: {
-          sessionId: 'session-tree-1',
-          branchId: 'branch-conversation-failed',
-          revision: 1,
-          status: 'active' as const
-        }
-      }
-    }))
-    const harness = makeHarness({
-      agentChatStream: vi.fn(async (_payload, onChunk) => {
-        onChunk({ streamId: 'pending-42', channel: 'reasoning', delta: '已完成课程规划。' })
-        return {
-          streamId: 'pending-42',
-          error: true,
-          message: toolLimitMessage,
-          skillInvocation: {
-            skillId: 'missing-skill',
-            bodyTruncated: false,
-            state: 'rejected',
-            reason: 'not_installed'
-          }
-        }
-      }),
-      saveAgentConversation: save,
-      cancelAgentChatStream: vi.fn()
-    })
-
-    await harness.runner.run({ inputOverride: '生成课程' })
-
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({
-      workspaceId: 'workspace-1',
-      mode: 'teaching',
-      conversationId: null,
-      turns: [
-        expect.objectContaining({
-          id: 'u-42',
-          role: 'user',
-          content: '生成课程',
-          metadata: {
-            version: 1,
-            skillInvocation: {
-              skillId: 'missing-skill',
-              bodyTruncated: false,
-              state: 'rejected',
-              reason: 'not_installed'
-            }
-          }
-        }),
-        expect.objectContaining({
-          id: 'a-42',
-          role: 'assistant',
-          processEvents: expect.arrayContaining([
-            expect.objectContaining({ kind: 'reasoning', detail: '已完成课程规划。' }),
-            expect.objectContaining({ status: 'error', detail: toolLimitMessage })
-          ])
-        })
-      ]
-    }))
-    expect(save.mock.calls[0][0]).not.toHaveProperty('runId')
-    expect(harness.getState()).toMatchObject({
-      error: `user:${toolLimitMessage}`,
-      agentChatBusy: false,
-      activeConversationId: 'conversation-failed',
-      activeConversationScope: 'workspace',
-      activeConversationRevision: 1,
-      pendingAgentConversation: null
-    })
-    expect(harness.getState().appState.activeWorkspace?.conversations).toEqual([
-      expect.objectContaining({ id: 'conversation-failed' })
-    ])
-  })
-
-  it('retries a failed pending turn on its original persisted conversation branch', async () => {
-    const originalConversation = {
-      id: 'conversation-7',
-      title: 'Mechanics',
-      createdAt,
-      updatedAt: createdAt,
-      relativePath: '.agent-sessions/conversations/conversation-7.json',
-      absolutePath: '/workspace/.agent-sessions/conversations/conversation-7.json',
-      messageCount: 2
-    }
-    const activeWorkspace = workspace({ conversations: [originalConversation] })
-    const stream = vi.fn()
-      .mockResolvedValueOnce({ streamId: 'pending-42', error: true, message: 'temporary failure' })
-      .mockResolvedValueOnce({ streamId: 'pending-42', error: true, message: 'second temporary failure' })
-    const harness = makeHarness({
-      agentChatStream: stream,
-      saveAgentConversation: vi.fn(),
-      cancelAgentChatStream: vi.fn()
-    }, {
-      appState: appState(activeWorkspace),
-      activeConversationId: 'conversation-7',
-      activeConversationScope: 'workspace',
-      activeConversationRevision: 3,
-      activeSessionTree: sessionTree('conversation-7', 3),
       agentTurns: [
         { id: 'u-prior', role: 'user', content: 'Prior question', createdAt },
         { id: 'a-prior', role: 'assistant', content: 'Prior answer', createdAt }
       ]
     })
 
-    await harness.runner.run({ inputOverride: '生成课程' })
-    expect(harness.getState().activeConversationId).toBe('pending-42')
+    await harness.runner.run({ inputOverride: ' Continue the branch ', skillIds: ['physics'] })
 
-    await harness.runner.run({ inputOverride: '重试生成课程' })
-
-    expect(stream).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        conversationId: 'conversation-7',
-        expectedBranchRevision: 3,
-        messages: [
-          { role: 'user', content: 'Prior question' },
-          { role: 'assistant', content: 'Prior answer' },
-          { role: 'user', content: '生成课程' }
-        ],
-        messageTurnIds: ['u-prior', 'a-prior', 'u-42']
-      }),
-      expect.any(Function),
-      expect.any(Function),
-      expect.any(Function),
-      expect.any(Function)
-    )
+    expect(submit).toHaveBeenCalledWith({
+      target: { kind: 'canonical', workspaceId: 'workspace-1', scope: 'workspace', conversationId: 'conversation-7' },
+      clientRequestId: '11111111-1111-4111-8111-111111111111', text: 'Continue the branch', mode: 'teaching',
+      delivery: 'follow_up', expectedBranchRevision: 7, skillIds: ['physics']
+    })
+    expect(harness.getState()).toMatchObject({ agentChatBusy: true, activeConversationId: 'pending-42' })
   })
 
-  it('keeps the reconciled pending conversation recoverable when durable saving fails', async () => {
-    const harness = makeHarness({
-      agentChatStream: vi.fn(async () => completedTurn()),
-      saveAgentConversation: vi.fn(async () => { throw new Error('disk full') }),
-      cancelAgentChatStream: vi.fn()
-    })
+  it('submits a new temporary turn with a discriminated pending target and no invented branch revision', async () => {
+    const submit = vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-new', streamId: 'host-stream-new' }))
+    const harness = makeHarness({ submitConversationTurn: submit }, { overviewDialogMode: 'chat' })
 
-    await harness.runner.run({ inputOverride: 'Explain momentum' })
+    await harness.runner.run({ inputOverride: 'Quick question' })
 
-    expect(harness.getState()).toMatchObject({
-      error: 'user:disk full',
-      agentChatBusy: false,
-      activeConversationId: 'pending-42',
-      agentStatus: ''
-    })
-    expect(harness.getState().pendingAgentConversation).toMatchObject({
-      summary: { id: 'pending-42' },
-      status: '保存对话…',
-      toolsSupported: true
-    })
-  })
-
-  it('still emits generated-lesson effects when conversation save fails after lesson generation', async () => {
-    const harness = makeHarness({
-      agentChatStream: vi.fn(async () => ({ ...completedTurn(), generatedLessons: [generatedLesson()] })),
-      saveAgentConversation: vi.fn(async () => {
-        throw new Error('Conversation user input does not match the staged parent turn.')
-      }),
-      cancelAgentChatStream: vi.fn()
-    })
-
-    await harness.runner.run({ inputOverride: 'Explain momentum' })
-
-    expect(harness.effects).toEqual([[generatedLesson()]])
-    expect(harness.getState()).toMatchObject({
-      error: 'user:Conversation user input does not match the staged parent turn.',
-      agentChatBusy: false
-    })
-  })
-
-  it('refreshes appState catalog after lesson generation even when conversation save fails', async () => {
-    const lesson = generatedLesson()
-    const refreshedWorkspace = workspace({
-      lessons: [lesson],
-      courses: [{
-        id: 'course-1',
-        name: 'Mechanics',
-        relativePath: 'courses/mechanics',
-        absolutePath: '/workspace/courses/mechanics',
-        lessonCount: 1,
-        sessionCount: 1,
-        sessions: [{
-          id: 'session-1',
-          name: 'Session 1',
-          relativePath: 'courses/mechanics/session-1.md',
-          absolutePath: '/workspace/courses/mechanics/session-1.md',
-          lesson
-        }],
-        conversations: []
-      }]
-    })
-    const refreshed = appState(refreshedWorkspace)
-    const getState = vi.fn(async () => refreshed)
-    const harness = makeHarness({
-      agentChatStream: vi.fn(async () => ({ ...completedTurn(), generatedLessons: [lesson] })),
-      saveAgentConversation: vi.fn(async () => {
-        throw new Error('Conversation user input does not match the staged parent turn.')
-      }),
-      cancelAgentChatStream: vi.fn(),
-      getState
-    })
-
-    expect(harness.getState().appState.activeWorkspace?.lessons).toEqual([])
-
-    await harness.runner.run({ inputOverride: 'Explain momentum' })
-
-    expect(getState).toHaveBeenCalled()
-    expect(harness.getState().appState).toEqual(refreshed)
-    expect(harness.getState().appState.activeWorkspace?.courses[0]?.sessions).toHaveLength(1)
-    expect(harness.effects).toEqual([[lesson]])
-    expect(harness.getState()).toMatchObject({
-      error: 'user:Conversation user input does not match the staged parent turn.',
-      agentChatBusy: false
-    })
-  })
-
-  it('queues follow-up while busy with closed-copy ack and does not start a second stream', async () => {
-    const gate = deferredDone()
-    const stream = vi.fn(async () => {
-      await gate.promise
-      return completedTurn()
-    })
-    const harness = makeHarness({
-      agentChatStream: stream,
-      saveAgentConversation: vi.fn(async ({ turns, conversationId }) => ({
-        state: appState(),
-        conversation: {
-          id: conversationId ?? 'conversation-1',
-          title: 'Physics',
-          createdAt,
-          updatedAt: createdAt,
-          relativePath: '.agent-sessions/conversations/conversation-1.json',
-          absolutePath: '/workspace/.agent-sessions/conversations/conversation-1.json',
-          messageCount: turns.length
-        }
-      })),
-      cancelAgentChatStream: vi.fn()
-    })
-
-    const first = harness.runner.run({ inputOverride: 'first turn' })
-    await Promise.resolve()
-    expect(harness.getState().agentChatBusy).toBe(true)
-    expect(stream).toHaveBeenCalledTimes(1)
-
-    await harness.runner.run({ inputOverride: 'queued follow-up' })
-    expect(stream).toHaveBeenCalledTimes(1)
-    expect(harness.getState()).toMatchObject({
-      agentBusyAckMessage: AGENT_SESSION_BUSY_QUEUED_ACK,
-      agentBusyFollowUpQueue: [{ text: 'queued follow-up' }]
-    })
-
-    gate.resolve()
-    await first
-
-    expect(stream).toHaveBeenCalledTimes(2)
-    expect(stream.mock.calls[1][0]).toEqual(expect.objectContaining({
-      userInput: 'queued follow-up'
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      target: { kind: 'pending', workspaceId: 'workspace-1', scope: 'temporary', pendingConversationId: 'pending-42' },
+      text: 'Quick question', mode: 'temporary', delivery: 'follow_up'
     }))
-    expect(harness.getState()).toMatchObject({
-      agentChatBusy: false,
-      agentBusyAckMessage: null,
-      agentBusyFollowUpQueue: []
+    expect(submit.mock.calls[0]![0]).not.toHaveProperty('expectedBranchRevision')
+  })
+
+  it('retains the host runtime stream id for Ask replies while projecting into the local pending draft', async () => {
+    const submit = vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-ask', streamId: 'host-stream-ask', conversationId: 'conversation-7' }))
+    const harness = makeHarness({ submitConversationTurn: submit }, {
+      activeConversationId: 'conversation-7', activeConversationScope: 'workspace', activeConversationRevision: 7,
+      activeSessionTree: sessionTree('conversation-7', 7)
+    })
+
+    await harness.runner.run({ inputOverride: 'Ask me which direction to take' })
+    harness.event({
+      sequence: 1,
+      streamId: 'host-stream-ask',
+      kind: 'tool',
+      createdAt,
+      payload: {
+        streamId: 'host-stream-ask',
+        toolCall: {
+          id: 'ask-call-1',
+          name: 'ask',
+          arguments: JSON.stringify({
+            questions: [{ id: 'direction', question: 'Choose a direction', options: [{ label: 'A' }, { label: 'B' }] }]
+          })
+        }
+      }
+    })
+
+    const pending = harness.getState().pendingAgentConversation
+    expect(pending?.runtimeStreamId).toBe('host-stream-ask')
+    expect(selectPendingAsk(harness.getState().agentTurns, pending?.runtimeStreamId ?? pending?.summary.id ?? '')).toMatchObject({
+      streamId: 'host-stream-ask',
+      toolCallId: 'ask-call-1'
     })
   })
 
-  it('clears busy follow-up queue on cancel and does not drain after cancel', async () => {
-    const gate = deferredDone()
-    const stream = vi.fn(async () => {
-      await gate.promise
-      return { streamId: 'pending-42', canceled: true as const }
-    })
-    const cancel = vi.fn(async () => ({ canceled: true as const }))
-    const harness = makeHarness({
-      agentChatStream: stream,
-      saveAgentConversation: vi.fn(),
-      cancelAgentChatStream: cancel
+  it('projects host realtime events for a started stream and refreshes instead of renderer-saving on completion', async () => {
+    const submit = vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-7', streamId: 'host-stream-7', conversationId: 'conversation-7' }))
+    const read = vi.fn(async () => conversation('conversation-7', 8))
+    const harness = makeHarness({ submitConversationTurn: submit, readAgentConversation: read }, {
+      activeConversationId: 'conversation-7', activeConversationScope: 'workspace', activeConversationRevision: 7,
+      activeSessionTree: sessionTree('conversation-7', 7), agentTurns: [{ id: 'u-prior', role: 'user', content: 'Prior question', createdAt }]
     })
 
-    const first = harness.runner.run({ inputOverride: 'live' })
-    await Promise.resolve()
-    await harness.runner.run({ inputOverride: 'should-drop' })
+    await harness.runner.run({ inputOverride: 'Continue the branch' })
+    harness.event({ sequence: 1, streamId: 'host-stream-7', kind: 'status', createdAt, payload: { streamId: 'host-stream-7', status: 'answering' } })
+    harness.event({ sequence: 2, streamId: 'host-stream-7', kind: 'chunk', createdAt, payload: { streamId: 'host-stream-7', delta: 'Host ' } })
+    harness.event({ sequence: 3, streamId: 'host-stream-7', kind: 'chunk', createdAt, payload: { streamId: 'host-stream-7', delta: 'answer' } })
+    expect(harness.getState().agentTurns.at(-1)).toMatchObject({ content: 'Host answer' })
+
+    harness.event({ sequence: 4, streamId: 'host-stream-7', kind: 'terminal', createdAt, outcome: 'done' })
+    await flush()
+
+    expect(read).toHaveBeenCalledWith({ workspaceId: 'workspace-1', conversationId: 'conversation-7', scope: 'workspace' })
+    expect(harness.getState()).toMatchObject({ agentChatBusy: false, pendingAgentConversation: null, activeConversationRevision: 8 })
+  })
+
+  it('submits a busy follow-up to the host, mirrors queued UX, and never locally drains after the active stream settles', async () => {
+    const submit = vi.fn()
+      .mockResolvedValueOnce({ code: 'started', activeTurnId: 'turn-1', streamId: 'host-stream-1', conversationId: 'conversation-7' })
+      .mockResolvedValueOnce({ code: 'queued', queuePosition: 1, activeTurnId: 'turn-1' })
+    const harness = makeHarness({ submitConversationTurn: submit })
+
+    await harness.runner.run({ inputOverride: 'First question' })
+    await harness.runner.run({ inputOverride: 'Follow up', skillIds: ['physics'] })
+
+    expect(submit).toHaveBeenCalledTimes(2)
+    expect(submit.mock.calls[1]![0]).toMatchObject({ target: { kind: 'pending', pendingConversationId: 'pending-42' }, text: 'Follow up', delivery: 'follow_up', skillIds: ['physics'] })
+    expect(harness.getState()).toMatchObject({ agentInput: '', agentBusyAckMessage: AGENT_SESSION_BUSY_QUEUED_ACK, agentBusyFollowUpQueue: [expect.objectContaining({ text: 'Follow up' })] })
+
+    harness.event({ sequence: 1, streamId: 'host-stream-1', kind: 'terminal', createdAt, outcome: 'done' })
+    await flush()
+    expect(submit).toHaveBeenCalledTimes(2)
+    expect(harness.getState().agentBusyFollowUpQueue).toEqual([expect.objectContaining({ text: 'Follow up' })])
+  })
+
+  it('binds a queued receipt to its host lifecycle event, creates a safe projection, and settles the queued stream', async () => {
+    const submit = vi.fn()
+      .mockResolvedValueOnce({ code: 'started', activeTurnId: 'turn-1', streamId: 'host-stream-1', conversationId: 'conversation-7' })
+      .mockResolvedValueOnce({ code: 'queued', queuePosition: 1, activeTurnId: 'turn-1' })
+    const read = vi.fn(async () => conversation('conversation-7', 9))
+    const harness = makeHarness({ submitConversationTurn: submit, readAgentConversation: read })
+
+    await harness.runner.run({ inputOverride: 'First question' })
+    await harness.runner.run({ inputOverride: 'Queued question' })
+    expect(harness.getState().agentBusyFollowUpQueue).toEqual([
+      expect.objectContaining({
+        text: 'Queued question',
+        clientRequestId: '22222222-2222-4222-8222-222222222222',
+        target: { kind: 'pending', workspaceId: 'workspace-1', scope: 'workspace', pendingConversationId: 'pending-42' }
+      })
+    ])
+
+    // A lifecycle event for another renderer/request never creates a draft.
+    harness.event({ sequence: 0, streamId: 'other-stream', kind: 'conversation_turn_started', createdAt, activeTurnId: 'turn-other', clientRequestId: 'not-ours', conversationId: 'conversation-7' })
     expect(harness.getState().agentBusyFollowUpQueue).toHaveLength(1)
 
+    // Simulate the first owner having completed elsewhere. This renderer has no
+    // canonical transcript to reuse, so queued activation must start a fresh,
+    // local-only projection rather than fabricate one from unrelated state.
+    harness.setState({ agentChatBusy: false, pendingAgentConversation: null, activeConversationId: null, agentTurns: [] })
+    harness.event({ sequence: 0, streamId: 'queued-stream-2', kind: 'conversation_turn_started', createdAt, activeTurnId: 'turn-2', clientRequestId: '22222222-2222-4222-8222-222222222222', conversationId: 'conversation-7' })
+    expect(harness.getState()).toMatchObject({ agentChatBusy: true, activeConversationId: 'pending-43', agentBusyFollowUpQueue: [] })
+    expect(harness.getState().agentTurns).toMatchObject([
+      { role: 'user', content: 'Queued question' },
+      { role: 'assistant', content: '' }
+    ])
+
+    harness.event({ sequence: 1, streamId: 'queued-stream-2', kind: 'chunk', createdAt, payload: { streamId: 'queued-stream-2', delta: 'Queued answer' } })
+    harness.event({ sequence: 2, streamId: 'queued-stream-2', kind: 'terminal', createdAt, outcome: 'done' })
+    await flush()
+
+    expect(read).toHaveBeenCalledWith({ workspaceId: 'workspace-1', conversationId: 'conversation-7', scope: 'workspace' })
+    expect(harness.getState()).toMatchObject({ agentChatBusy: false, pendingAgentConversation: null, activeConversationId: 'conversation-7' })
+  })
+
+  it('cancels exactly the stream announced for a queued receipt', async () => {
+    const submit = vi.fn()
+      .mockResolvedValueOnce({ code: 'started', activeTurnId: 'turn-1', streamId: 'host-stream-1', conversationId: 'conversation-7' })
+      .mockResolvedValueOnce({ code: 'queued', queuePosition: 1, activeTurnId: 'turn-1' })
+    const cancel = vi.fn(async () => ({
+      code: 'cancelled' as const, cancelledActiveTurnId: 'turn-2', clearedQueuedCount: 0
+    }))
+    const harness = makeHarness({ submitConversationTurn: submit, cancelConversationTurn: cancel })
+
+    await harness.runner.run({ inputOverride: 'First question' })
+    await harness.runner.run({ inputOverride: 'Queued question' })
+    harness.setState({ agentChatBusy: false, pendingAgentConversation: null, activeConversationId: null, agentTurns: [] })
+    harness.event({ sequence: 0, streamId: 'queued-stream-cancel', kind: 'conversation_turn_started', createdAt, activeTurnId: 'turn-2', clientRequestId: '22222222-2222-4222-8222-222222222222', conversationId: 'conversation-7' })
+
     await harness.runner.cancel()
-    expect(cancel).toHaveBeenCalled()
+    expect(cancel).toHaveBeenCalledWith({
+      target: { kind: 'canonical', workspaceId: 'workspace-1', scope: 'workspace', conversationId: 'conversation-7' },
+      clientRequestId: '33333333-3333-4333-8333-333333333333',
+      expectedActiveTurnId: 'turn-2'
+    })
+    harness.event({ sequence: 1, streamId: 'queued-stream-cancel', kind: 'terminal', createdAt, outcome: 'canceled' })
+    await flush()
     expect(harness.getState()).toMatchObject({
-      agentBusyFollowUpQueue: [],
-      agentBusyAckMessage: null
+      agentChatBusy: false,
+      pendingAgentConversation: expect.objectContaining({ status: '已中止' })
+    })
+  })
+
+  it('refreshes safely without replaying or surfacing a raw revision conflict when host requires refresh', async () => {
+    const submit = vi.fn(async () => ({ code: 'refresh_required' as const, reason: 'stale_branch' as const }))
+    const harness = makeHarness({ submitConversationTurn: submit }, {
+      activeConversationId: 'conversation-7', activeConversationScope: 'workspace', activeConversationRevision: 7,
+      activeSessionTree: sessionTree('conversation-7', 7)
+    })
+    const refresh = vi.fn(async () => harness.setState({
+      activeConversationId: 'conversation-7', activeConversationScope: 'workspace', activeConversationRevision: 8,
+      activeSessionTree: sessionTree('conversation-7', 8), pendingAgentConversation: null, agentChatBusy: false
+    }))
+    const runner = new AgentConversationTurnRunner<string>({
+      getState: harness.getState, setState: harness.setState, getApi: () => ({
+        submitConversationTurn: submit, cancelConversationTurn: vi.fn(async () => ({
+          code: 'rejected' as const, reason: 'lane_unavailable' as const
+        })), onAgentChatEvent: vi.fn(() => () => undefined),
+        readAgentConversation: vi.fn(), readAgentConversationSessionTree: vi.fn(), getState: vi.fn()
+      }),
+      toUserError: (error) => `user:${String(error)}`, onGeneratedLessons: vi.fn(), onRevisionConflict: refresh,
+      now: () => createdAt, nextIdSeed: () => 42, nextClientRequestId: () => requestIds[0]!
     })
 
-    gate.resolve()
-    await first
-    // Still only the original stream; no drain of dropped follow-up.
-    expect(stream).toHaveBeenCalledTimes(1)
+    await runner.run({ inputOverride: 'Continue safely' })
+
+    expect(refresh).toHaveBeenCalledWith({ workspaceId: 'workspace-1', conversationId: 'conversation-7', scope: 'workspace' })
+    expect(submit).toHaveBeenCalledOnce()
+    expect(harness.getState()).toMatchObject({ agentInput: 'Continue safely', agentChatBusy: false, error: null })
+  })
+
+  it('preserves rejected input with learner-safe feedback and uses the returned host stream id for cancellation', async () => {
+    const rejected = vi.fn(async () => ({ code: 'rejected' as const, reason: 'queue_full' as const }))
+    const rejectedHarness = makeHarness({ submitConversationTurn: rejected })
+    await rejectedHarness.runner.run({ inputOverride: 'Do not lose this' })
+    expect(rejectedHarness.getState()).toMatchObject({ agentInput: 'Do not lose this', agentChatBusy: false, error: 'user:当前对话队列已满，请稍后再试。' })
+
+    const cancel = vi.fn(async () => ({
+      code: 'cancelled' as const, cancelledActiveTurnId: 'turn-1', clearedQueuedCount: 0
+    }))
+    const startedHarness = makeHarness({
+      submitConversationTurn: vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-1', streamId: 'host-stream-cancel' })),
+      cancelConversationTurn: cancel
+    })
+    await startedHarness.runner.run({ inputOverride: 'Stop this' })
+    await startedHarness.runner.cancel()
+    expect(cancel).toHaveBeenCalledWith({
+      target: { kind: 'pending', workspaceId: 'workspace-1', scope: 'workspace', pendingConversationId: 'pending-42' },
+      clientRequestId: '22222222-2222-4222-8222-222222222222',
+      expectedActiveTurnId: 'turn-1'
+    })
+  })
+
+  it('does not duplicate local queued presentation for an idempotent queued disposition', async () => {
+    const harness = makeHarness({ submitConversationTurn: vi.fn(async () => ({ code: 'duplicate' as const, originalCode: 'queued' as const })) }, {
+      agentChatBusy: true,
+      pendingAgentConversation: {
+        workspaceId: 'workspace-1', sourceConversationId: null, sourceConversationRevision: null, mode: 'teaching',
+        summary: { id: 'pending-42', title: 'Existing', createdAt, updatedAt: createdAt, messageCount: 2, relativePath: '', absolutePath: '', pending: true },
+        turns: [], status: '思考中…', toolsSupported: null
+      },
+      activeConversationId: 'pending-42'
+    })
+
+    await harness.runner.run({ inputOverride: 'Already queued' })
+
+    expect(harness.getState()).toMatchObject({ agentInput: '', agentBusyAckMessage: AGENT_SESSION_BUSY_QUEUED_ACK, agentBusyFollowUpQueue: [] })
+  })
+
+  it('retains the active projection when host cancellation is not accepted', async () => {
+    const cancel = vi.fn(async () => ({
+      code: 'refresh_required' as const,
+      reason: 'active_turn_mismatch' as const
+    }))
+    const harness = makeHarness({ cancelConversationTurn: cancel })
+
+    await harness.runner.run({ inputOverride: 'Keep this active' })
+    await harness.runner.cancel()
+
+    expect(cancel).toHaveBeenCalledWith({
+      target: { kind: 'pending', workspaceId: 'workspace-1', scope: 'workspace', pendingConversationId: 'pending-42' },
+      clientRequestId: '22222222-2222-4222-8222-222222222222',
+      expectedActiveTurnId: 'turn-1'
+    })
+    expect(harness.getState()).toMatchObject({
+      agentChatBusy: true,
+      pendingAgentConversation: expect.objectContaining({ summary: expect.objectContaining({ id: 'pending-42' }) }),
+      error: 'user:当前对话状态已变化，请刷新后再试。'
+    })
+
+    harness.event({ sequence: 1, streamId: 'host-stream-1', kind: 'terminal', createdAt, outcome: 'canceled' })
+    await flush()
+    expect(harness.getState()).toMatchObject({
+      agentChatBusy: false,
+      pendingAgentConversation: expect.objectContaining({ status: '已中止' })
+    })
   })
 
 })

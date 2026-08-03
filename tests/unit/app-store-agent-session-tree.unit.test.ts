@@ -446,6 +446,73 @@ describe('appStore Agent session lifecycle', () => {
     })
   })
 
+  it('refreshes and retries a stale fork once with the canonical revision without showing an error', async () => {
+    const refreshedTree = tree('root', { root: { status: 'active', revision: 2 } })
+    const childTree = tree('child', {
+      root: { status: 'active', revision: 2 },
+      child: { status: 'active', revision: 1 }
+    })
+    const forkBranch = vi.fn(async (payload) => {
+      if (forkBranch.mock.calls.length === 1) {
+        throw new Error('Conversation branch revision conflict: expected 1, current 2.')
+      }
+      expect(payload.expectedRevision).toBe(2)
+      return { state: appState(), conversation: record('child', 'active', 1), tree: childTree }
+    })
+    installApi({
+      forkAgentConversationBranch: forkBranch,
+      readAgentConversationSessionTree: vi.fn(async () => refreshedTree),
+      openAgentConversationBranch: vi.fn(async () => ({ conversation: record('root', 'active', 2), tree: refreshedTree }))
+    })
+    useAppStore.setState({
+      activeConversationId: 'root', activeConversationScope: 'workspace', activeConversationRevision: 1,
+      activeSessionTree: tree('root', { root: { status: 'active', revision: 1 } }),
+      agentTurns: record('root', 'active', 1).turns
+    })
+
+    const forked = await useAppStore.getState().forkAgentConversationBranch('root', 'root-turn', 1)
+
+    expect(forked).toBe(true)
+    expect(forkBranch).toHaveBeenCalledTimes(2)
+    expect(useAppStore.getState()).toMatchObject({
+      activeConversationId: 'child', activeConversationRevision: 1,
+      activeSessionTree: { openBranchId: 'branch-child' }, error: null
+    })
+  })
+
+  it('refreshes a stale branch after a revision conflict without replaying the requested status change', async () => {
+    const refreshedTree = tree('root', { root: { status: 'active', revision: 2 } })
+    const readTree = vi.fn(async () => refreshedTree)
+    const openBranch = vi.fn(async () => ({ conversation: record('root', 'active', 2), tree: refreshedTree }))
+    const updateStatus = vi.fn(async () => {
+      throw new Error('Conversation branch revision conflict: expected 1, current 2.')
+    })
+    installApi({
+      updateAgentConversationBranchStatus: updateStatus,
+      readAgentConversationSessionTree: readTree,
+      openAgentConversationBranch: openBranch
+    })
+    useAppStore.setState({
+      activeConversationId: 'root',
+      activeConversationScope: 'workspace',
+      activeConversationRevision: 1,
+      activeSessionTree: tree('root', { root: { status: 'active', revision: 1 } }),
+      agentTurns: record('root', 'active', 1).turns
+    })
+
+    await useAppStore.getState().updateAgentConversationBranchStatus('root', 'archived', 1)
+
+    expect(updateStatus).toHaveBeenCalledTimes(1)
+    expect(readTree).toHaveBeenCalledWith({ workspaceId: 'workspace-1', conversationId: 'root', scope: 'workspace' })
+    expect(openBranch).toHaveBeenCalledWith({ workspaceId: 'workspace-1', conversationId: 'root', scope: 'workspace' })
+    expect(useAppStore.getState()).toMatchObject({
+      activeConversationId: 'root',
+      activeConversationRevision: 2,
+      activeSessionTree: { openBranchId: 'branch-root' },
+      error: null
+    })
+  })
+
   it('falls back to the durable open branch after archiving the viewed branch', async () => {
     const fallbackTree = tree('child', {
       root: { status: 'archived', revision: 3 },

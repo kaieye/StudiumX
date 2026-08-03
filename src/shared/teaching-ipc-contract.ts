@@ -62,6 +62,9 @@ export const teachingInvokeChannels = {
   listUpstreamModels: 'teach:list-upstream-models',
   generateLessonStream: 'teach:generate-lesson-stream',
   agentChatStream: 'teach:agent-chat-stream',
+  /** Narrow non-streaming ADR-0170 submit intent; host lane integration owns execution. */
+  submitConversationTurn: 'teach:submit-conversation-turn',
+  cancelConversationTurn: 'teach:cancel-conversation-turn',
   listInterruptedAgentRuns: 'teach:list-interrupted-agent-runs',
   replayAgentChatEvents: 'teach:agent-chat-replay',
   cancelAgentChatStream: 'teach:cancel-agent-chat-stream',
@@ -137,6 +140,22 @@ export const teachingInvokeChannels = {
   mcpSetStudiumxAccessToken: 'mcp:set-studiumx-access-token'
 } satisfies Record<TeachingInvokeCapability, string>
 
+type ExactKeySet<Actual extends PropertyKey, Expected extends PropertyKey> =
+  Exclude<Actual, Expected> extends never
+    ? Exclude<Expected, Actual> extends never
+      ? true
+      : false
+    : false
+
+// `satisfies Record` catches missing API capabilities; this companion assertion
+// also rejects unpublished extra invoke keys, keeping the capability and channel
+// maps one-to-one.
+const teachingInvokeChannelKeysAreExact: ExactKeySet<
+  keyof typeof teachingInvokeChannels,
+  TeachingInvokeCapability
+> = true
+void teachingInvokeChannelKeysAreExact
+
 export const teachingEventChannels = {
   lessonStreamChunk: 'teach:generate-lesson-chunk',
   lessonStreamStatus: 'teach:generate-lesson-status',
@@ -147,3 +166,9 @@ export const teachingEventChannels = {
   systemPower: 'teach:system-power',
   appUpdateEvent: 'teach:app-update-event'
 } satisfies Record<TeachingEventChannel, string>
+
+const teachingEventChannelKeysAreExact: ExactKeySet<
+  keyof typeof teachingEventChannels,
+  TeachingEventChannel
+> = true
+void teachingEventChannelKeysAreExact

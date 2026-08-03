@@ -2,35 +2,37 @@ import {
   applyAgentChatChunkToPending,
   applyAgentChatStatusToPending,
   applyAgentChatToolEventToPending,
-  attachSkillInvocationToPending,
   cancelPendingAgentConversation,
   createAgentConversationTurnDraft,
   failPendingAgentConversation,
   finishPendingAgentConversationSave,
   reconcileAgentTurnsWithLocalProcess,
-  syncPendingAgentConversation,
   type PendingAgentConversation
 } from '../agent-conversation-state'
 import type {
   AgentChatMode,
+  AgentConversationTurnStartedRealtimeEvent,
   AgentChatStreamChunk,
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
   AgentChatTurn,
   AgentConversationLookupScope,
   AgentConversationSessionTree,
-  AgentProjectionInvalidation,
+  AgentRealtimeDeliveryEvent,
+  AgentRealtimeEvent,
+  ConversationLaneKey,
   LessonSummary,
   TeachingAppState,
   TeachingSystemApi
 } from '../../../shared/teaching-types'
-import {
-  AGENT_BUSY_FOLLOW_UP_QUEUE_HARD_CAP,
-  AGENT_SESSION_BUSY_QUEUED_ACK
-} from '../../../shared/agent-session-busy-ack'
+import { AGENT_SESSION_BUSY_QUEUED_ACK } from '../../../shared/agent-session-busy-ack'
 
-/** Local busy follow-up item (renderer queue; default policy = queue, never silent drop). */
+/** Renderer-only mirror of follow-ups already accepted by the host lane. */
 export type AgentBusyFollowUpItem = {
+  /** Opaque host receipt correlation; never a message, transcript, or secret. */
+  clientRequestId?: string
+  /** Lane identity captured when host accepts the follow-up. */
+  target?: ConversationLaneKey
   text: string
   mode?: AgentChatMode
   skillIds?: string[]
@@ -41,9 +43,8 @@ export type AgentConversationTurnRunnerState = {
   overviewDialogMode: string
   agentInput: string
   agentChatBusy: boolean
-  /** Closed-copy busy-ack banner while a follow-up is queued (B-12). */
   agentBusyAckMessage: string | null
-  /** FIFO follow-ups accepted while a turn is busy (hard-capped). */
+  /** UX mirror only. The host lane is the sole automatic FIFO drainer. */
   agentBusyFollowUpQueue: AgentBusyFollowUpItem[]
   agentStatus: string
   agentTurns: AgentChatTurn[]
@@ -75,17 +76,15 @@ export type AgentConversationTurnRunnerPatch<TError> = Partial<
     | 'pendingAgentConversation'
     | 'taskPrompt'
   >
-> & {
-  error?: TError | null
-}
+> & { error?: TError | null }
 
 export type AgentConversationTurnRunnerApi = Pick<
   TeachingSystemApi,
-  | 'agentChatStream'
-  | 'cancelAgentChatStream'
-  | 'saveAgentConversation'
+  | 'submitConversationTurn'
+  | 'cancelConversationTurn'
+  | 'onAgentChatEvent'
+  | 'readAgentConversation'
   | 'readAgentConversationSessionTree'
-  /** Rebuilds workspace catalog projections (courses/sessions/sidebar) from durable index. */
   | 'getState'
 >
 
@@ -94,10 +93,14 @@ export type AgentConversationTurnRunnerDependencies<TError> = {
   setState: (patch: AgentConversationTurnRunnerPatch<TError>) => void
   getApi: () => AgentConversationTurnRunnerApi | undefined
   toUserError: (error: unknown) => TError
+  /** Retained for the app-shell seam; host settlement owns generated lesson effects. */
   onGeneratedLessons: (lessons: LessonSummary[]) => void
   onCompletedTurn?: (result: { runId: string; conversationId: string }) => void
+  /** Refreshes canonical state after a failed CAS; it must never replay the stale request. */
+  onRevisionConflict?: (input: { workspaceId: string; conversationId: string; scope: AgentConversationLookupScope }) => Promise<void>
   now?: () => string
   nextIdSeed?: () => number
+  nextClientRequestId?: () => string
 }
 
 export type RunAgentConversationTurnOptions = {
@@ -106,573 +109,676 @@ export type RunAgentConversationTurnOptions = {
   skillIds?: string[]
 }
 
+type ActiveHostStream = {
+  streamId: string
+  activeTurnId: string
+  pendingConversationId: string
+  assistantId: string
+  workspaceId: string
+  mode: AgentChatMode
+  target: ConversationLaneKey
+  conversationId?: string
+  settling?: boolean
+}
+
+function isConversationRevisionConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes('conversation branch revision conflict')
+}
+
+function scopeForMode(mode: AgentChatMode): AgentConversationLookupScope {
+  return mode === 'temporary' ? 'temporary' : 'workspace'
+}
+
+function createClientRequestId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  globalThis.crypto?.getRandomValues?.(bytes)
+  if (!bytes.some(Boolean)) {
+    for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256)
+  }
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+function rejectedMessage(reason: 'invalid_intent' | 'queue_full' | 'branch_unavailable'): string {
+  if (reason === 'queue_full') return '当前对话队列已满，请稍后再试。'
+  if (reason === 'branch_unavailable') return '当前对话分支不可用，请刷新后再试。'
+  return '无法提交这条消息，请检查对话状态后再试。'
+}
+
+function cancelRejectedMessage(): string {
+  return '无法取消当前对话，请稍后重试。'
+}
+
+function cancelRefreshMessage(): string {
+  return '当前对话状态已变化，请刷新后再试。'
+}
+
 /**
- * Runs one Agent conversation turn behind a single seam.
+ * Renderer projection for ADR-0170 host-submitted turns.
  *
- * The caller only supplies live store access plus adapters for IPC, error
- * presentation, and generated-lesson effects. Draft construction, streaming
- * projection, durable reconciliation, cancellation, and failure cleanup stay
- * local to this module.
+ * The host owns execution, settlement, and FIFO draining. The renderer owns only
+ * optimistic presentation and projection of host realtime events for streams it
+ * was explicitly told about.
  */
 export class AgentConversationTurnRunner<TError> {
+  private unsubscribeRealtime: (() => void) | null = null
+  private submissionsInFlight = 0
+  private readonly bufferedRealtimeEvents = new Map<string, AgentRealtimeEvent[]>()
+  private activeHostStream: ActiveHostStream | null = null
+  private activeTarget: ConversationLaneKey | null = null
+  private activeExpectedBranchRevision: number | undefined
+  private queuedProjectionSeed = 0
+
   constructor(private readonly dependencies: AgentConversationTurnRunnerDependencies<TError>) {}
 
   async run(options: RunAgentConversationTurnOptions = {}): Promise<void> {
     const api = this.dependencies.getApi()
     if (!api) return
-
     const initialState = this.dependencies.getState()
     const workspace = initialState.appState.activeWorkspace
     const input = (options.inputOverride ?? initialState.agentInput).trim()
     if (!workspace || !input) return
 
-    // B-12: busy default is queue (never silent drop). Local FIFO + closed-copy ack banner.
+    const mode = this.resolveMode(initialState, options.mode)
     if (initialState.agentChatBusy) {
-      this.enqueueBusyFollowUp({
-        text: input,
-        mode: options.mode,
-        skillIds: options.skillIds,
-        // Always clear composer on accept — caller may have passed inputOverride while
-        // leaving store.agentInput populated (OverviewChat temporary path).
-        clearComposerInput: true
-      })
+      await this.submitBusyFollowUp({ api, state: initialState, workspaceId: workspace.id, input, mode, skillIds: options.skillIds })
       return
     }
 
-    await this.executeTurn(options)
-    await this.drainBusyFollowUpQueue()
-  }
-
-  /**
-   * Accept a follow-up while a turn is in flight. Does not start a second stream.
-   */
-  private enqueueBusyFollowUp(item: {
-    text: string
-    mode?: AgentChatMode
-    skillIds?: string[]
-    clearComposerInput: boolean
-  }): void {
-    const state = this.dependencies.getState()
-    const queue = state.agentBusyFollowUpQueue ?? []
-    if (queue.length >= AGENT_BUSY_FOLLOW_UP_QUEUE_HARD_CAP) {
-      this.dependencies.setState({
-        agentBusyAckMessage: `队列已满（最多 ${AGENT_BUSY_FOLLOW_UP_QUEUE_HARD_CAP} 条），请等待当前回合结束后再试。`,
-        ...(item.clearComposerInput ? { agentInput: '' } : {})
-      })
-      return
-    }
-    this.dependencies.setState({
-      agentBusyFollowUpQueue: [
-        ...queue,
-        {
-          text: item.text,
-          ...(item.mode ? { mode: item.mode } : {}),
-          ...(item.skillIds?.length ? { skillIds: item.skillIds } : {})
-        }
-      ],
-      agentBusyAckMessage: AGENT_SESSION_BUSY_QUEUED_ACK,
-      ...(item.clearComposerInput ? { agentInput: '' } : {})
-    })
-  }
-
-  /**
-   * After the live turn settles, drain queued follow-ups FIFO (one stream at a time).
-   * Cancel clears the queue, so this is a no-op after cancel.
-   */
-  private async drainBusyFollowUpQueue(): Promise<void> {
-    for (;;) {
-      const state = this.dependencies.getState()
-      if (state.agentChatBusy) return
-      const queue = state.agentBusyFollowUpQueue ?? []
-      if (queue.length === 0) {
-        if (state.agentBusyAckMessage) {
-          this.dependencies.setState({ agentBusyAckMessage: null })
-        }
-        return
-      }
-      const [next, ...rest] = queue
-      this.dependencies.setState({
-        agentBusyFollowUpQueue: rest,
-        agentBusyAckMessage: rest.length > 0 ? AGENT_SESSION_BUSY_QUEUED_ACK : null
-      })
-      await this.executeTurn({
-        inputOverride: next.text,
-        mode: next.mode,
-        skillIds: next.skillIds
-      })
-    }
-  }
-
-  private async executeTurn(options: RunAgentConversationTurnOptions = {}): Promise<void> {
-    const api = this.dependencies.getApi()
-    if (!api) return
-
-    const initialState = this.dependencies.getState()
-    const workspace = initialState.appState.activeWorkspace
-    const input = (options.inputOverride ?? initialState.agentInput).trim()
-    // Re-check: concurrent enqueue should not start a second stream.
-    if (!workspace || !input || initialState.agentChatBusy) return
-
-    const activeConversationMode = initialState.activeConversationScope
-      ? initialState.activeConversationScope === 'temporary' ? 'temporary' : 'teaching'
-      : null
-    const hasPersistedConversation = Boolean(
-      initialState.activeConversationId && !initialState.activeConversationId.startsWith('pending-')
-    )
-    const mode = options.mode
-      ?? (hasPersistedConversation && activeConversationMode
-        ? activeConversationMode
-        : initialState.overviewDialogMode === 'teaching' ? 'teaching' : 'temporary')
-    // A conversation belongs to exactly one storage scope. Switching between
-    // temporary chat and teaching mode must start a fresh conversation rather
-    // than trying to continue the old id in the other scope.
-    const canContinueActiveConversation = Boolean(
-      initialState.activeConversationId &&
-      (!activeConversationMode || activeConversationMode === mode)
-    )
-    const activeConversationId = canContinueActiveConversation ? initialState.activeConversationId : null
-    const activeBranch = activeConversationId
-      ? initialState.activeSessionTree?.branches.find(
-          (branch) => branch.conversationId === activeConversationId
-        )
-      : null
-    if (activeBranch && activeBranch.status !== 'active') {
-      this.dependencies.setState({
-        error: this.dependencies.toUserError(
-          new Error('Archived or deleted conversation branches are read-only. Restore the branch before continuing.')
-        )
-      })
-      return
-    }
-    const activeBranchRevision = activeConversationId
-      ? initialState.activeConversationRevision ?? activeBranch?.revision ?? null
-      : null
-    const continuingPersistedBranch = Boolean(
-      activeConversationId && !activeConversationId.startsWith('pending-')
-    )
-    if (continuingPersistedBranch && (!Number.isSafeInteger(activeBranchRevision) || (activeBranchRevision ?? -1) < 0)) {
-      this.dependencies.setState({
-        error: this.dependencies.toUserError(
-          new Error('Conversation branch revision is unavailable. Reopen the branch before continuing.')
-        )
-      })
-      return
-    }
-
-    const activePending = activeConversationId?.startsWith('pending-')
-      && initialState.pendingAgentConversation?.summary.id === activeConversationId
-      ? initialState.pendingAgentConversation
-      : null
-    const sourceConversationId = activePending?.sourceConversationId ?? activeConversationId
-    const sourceConversationRevision = activePending?.sourceConversationRevision ?? activeBranchRevision
-    const draft = createAgentConversationTurnDraft({
-      state: initialState.appState,
-      workspace,
-      input,
-      mode,
-      activeConversationId: sourceConversationId,
-      activeConversationRevision: sourceConversationRevision,
-      currentTurns: canContinueActiveConversation ? initialState.agentTurns : [],
-      selectedCourseRelativePath: initialState.selectedCourseRelativePath,
-      currentSelectedLessonPath: initialState.appState.selectedLessonPath,
-      createdAt: this.dependencies.now?.() ?? new Date().toISOString(),
-      idSeed: this.dependencies.nextIdSeed?.() ?? Date.now()
-    })
-    const {
-      pendingConversationId,
-      selectedCourseRelativePath,
-      selectedLessonPath,
-      assistantId,
-      priorMessages,
-      priorMessageTurnIds,
-      initialTurns,
-      pendingConversation
-    } = draft
-
-    this.dependencies.setState({
-      agentChatBusy: true,
-      agentInput: '',
-      agentStatus: pendingConversation.status,
-      agentToolsSupported: null,
-      agentTurns: initialTurns,
-      activeConversationId: pendingConversationId,
-      activeConversationScope: mode === 'temporary' ? 'temporary' : 'workspace',
-      pendingAgentConversation: pendingConversation
-    })
-
-    try {
-      const done = await api.agentChatStream(
-        {
-          streamId: pendingConversationId,
-          conversationId: pendingConversation.sourceConversationId ?? undefined,
-          workspaceId: workspace.id,
-          expectedBranchRevision: pendingConversation.sourceConversationRevision ?? undefined,
-          mode,
-          messages: priorMessages,
-          ...(priorMessageTurnIds.length ? { messageTurnIds: priorMessageTurnIds } : {}),
-          userInput: input,
-          ...(options.skillIds?.length ? { skillIds: options.skillIds } : {})
-        },
-        (chunk) => this.applyChunk(assistantId, chunk),
-        (status) => this.applyStatus(assistantId, status),
-        (event) => this.applyToolEvent(assistantId, event),
-        (invalidation) => this.applyInvalidation(assistantId, invalidation)
-      )
-
-      if ('canceled' in done) {
-        this.finishCanceled(pendingConversationId)
-        return
-      }
-
-      if ('error' in done && done.error) {
-        if (done.skillInvocation) {
-          const state = this.dependencies.getState()
-          const patch = attachSkillInvocationToPending({
-            pending: state.pendingAgentConversation,
-            activeConversationId: state.activeConversationId,
-            presentation: done.skillInvocation
-          })
-          if (patch) this.dependencies.setState(patch)
-        }
-        await this.failAndSave({
-          api,
-          workspaceId: workspace.id,
-          mode,
-          pendingConversationId,
-          assistantId,
-          selectedCourseRelativePath,
-          selectedLessonPath,
-          error: new Error(done.message)
-        })
-        return
-      }
-
-      if (!('error' in done)) {
-        await this.saveCompletedTurn({
-          api,
-          workspaceId: workspace.id,
-          mode,
-          pendingConversationId,
-          selectedCourseRelativePath,
-          selectedLessonPath,
-          done
-        })
-      }
-    } catch (error) {
-      await this.failAndSave({
-        api,
-        workspaceId: workspace.id,
-        mode,
-        pendingConversationId,
-        assistantId,
-        selectedCourseRelativePath,
-        selectedLessonPath,
-        error
-      })
-    }
+    await this.submitNewTurn({ api, state: initialState, workspaceId: workspace.id, input, mode, skillIds: options.skillIds })
   }
 
   async cancel(): Promise<void> {
     const state = this.dependencies.getState()
     const pending = state.pendingAgentConversation
-    if (!pending || !state.agentChatBusy) return
+    const active = this.activeHostStream
+    if (!pending || !state.agentChatBusy || !active || pending.summary.id !== active.pendingConversationId) return
+
+    const api = this.dependencies.getApi()
+    if (!api) {
+      this.setError(cancelRejectedMessage())
+      return
+    }
+
+    try {
+      const disposition = await api.cancelConversationTurn({
+        target: active.target,
+        clientRequestId: this.dependencies.nextClientRequestId?.() ?? createClientRequestId(),
+        expectedActiveTurnId: active.activeTurnId
+      })
+      if (disposition.code !== 'cancelled') {
+        this.setError(disposition.code === 'refresh_required' || disposition.code === 'duplicate'
+          ? cancelRefreshMessage()
+          : cancelRejectedMessage())
+        return
+      }
+
+      // The host lane has accepted exact cancellation and cleared its exact
+      // FIFO. Only now may the renderer reset its optimistic projection.
+      this.activeHostStream = null
+      this.activeTarget = null
+      this.activeExpectedBranchRevision = undefined
+      this.dependencies.setState({
+        ...cancelPendingAgentConversation({
+          pending,
+          activeConversationId: state.activeConversationId,
+          preserveToolsSupported: true
+        })
+      })
+    } catch {
+      // Transport errors are not cancellation confirmations. Keep the active
+      // stream and local projection so a later terminal event still settles it.
+      this.setError(cancelRejectedMessage())
+    }
+  }
+
+  private async submitNewTurn(request: {
+    api: AgentConversationTurnRunnerApi
+    state: AgentConversationTurnRunnerState
+    workspaceId: string
+    input: string
+    mode: AgentChatMode
+    skillIds?: string[]
+  }): Promise<void> {
+    const { api, state, workspaceId, input, mode, skillIds } = request
+    const activeConversationMode = state.activeConversationScope
+      ? state.activeConversationScope === 'temporary' ? 'temporary' : 'teaching'
+      : null
+    const canContinueActiveConversation = Boolean(
+      state.activeConversationId && (!activeConversationMode || activeConversationMode === mode)
+    )
+    const activeConversationId = canContinueActiveConversation ? state.activeConversationId : null
+    const activeBranch = activeConversationId
+      ? state.activeSessionTree?.branches.find((branch) => branch.conversationId === activeConversationId)
+      : null
+    if (activeBranch && activeBranch.status !== 'active') {
+      this.setError('Archived or deleted conversation branches are read-only. Restore the branch before continuing.')
+      return
+    }
+
+    const activeRevision = activeConversationId
+      ? state.activeConversationRevision ?? activeBranch?.revision ?? null
+      : null
+    const persistedConversation = Boolean(activeConversationId && !activeConversationId.startsWith('pending-'))
+    if (persistedConversation && (!Number.isSafeInteger(activeRevision) || (activeRevision ?? -1) < 0)) {
+      this.setError('Conversation branch revision is unavailable. Reopen the branch before continuing.')
+      return
+    }
+
+    const activePending = activeConversationId?.startsWith('pending-') && state.pendingAgentConversation?.summary.id === activeConversationId
+      ? state.pendingAgentConversation
+      : null
+    const sourceConversationId = activePending?.sourceConversationId ?? activeConversationId
+    const sourceConversationRevision = activePending?.sourceConversationRevision ?? activeRevision
+    const draft = createAgentConversationTurnDraft({
+      state: state.appState,
+      workspace: state.appState.activeWorkspace!,
+      input,
+      mode,
+      activeConversationId: sourceConversationId,
+      activeConversationRevision: sourceConversationRevision,
+      currentTurns: canContinueActiveConversation ? state.agentTurns : [],
+      selectedCourseRelativePath: state.selectedCourseRelativePath,
+      currentSelectedLessonPath: state.appState.selectedLessonPath,
+      createdAt: this.dependencies.now?.() ?? new Date().toISOString(),
+      idSeed: this.dependencies.nextIdSeed?.() ?? Date.now()
+    })
+    const target: ConversationLaneKey = draft.sourceConversationId
+      ? { kind: 'canonical', workspaceId, scope: scopeForMode(mode), conversationId: draft.sourceConversationId }
+      : { kind: 'pending', workspaceId, scope: scopeForMode(mode), pendingConversationId: draft.pendingConversationId }
+    const expectedBranchRevision = target.kind === 'canonical' ? draft.pendingConversation.sourceConversationRevision ?? undefined : undefined
 
     this.dependencies.setState({
-      ...cancelPendingAgentConversation({
-        pending,
-        activeConversationId: state.activeConversationId,
-        preserveToolsSupported: true
-      }),
-      // Cancel drops queued follow-ups (same as main-process clearOnCancel).
-      agentBusyFollowUpQueue: [],
-      agentBusyAckMessage: null
+      agentChatBusy: true,
+      agentInput: '',
+      agentStatus: draft.pendingConversation.status,
+      agentToolsSupported: null,
+      agentTurns: draft.initialTurns,
+      activeConversationId: draft.pendingConversationId,
+      activeConversationScope: scopeForMode(mode),
+      pendingAgentConversation: draft.pendingConversation
     })
-    await this.dependencies.getApi()?.cancelAgentChatStream(pending.summary.id).catch(() => undefined)
+
+    await this.submit({
+      api,
+      input,
+      mode,
+      skillIds,
+      target,
+      expectedBranchRevision,
+      draft: { pendingConversationId: draft.pendingConversationId, assistantId: draft.assistantId, workspaceId, mode },
+      restoreState: state
+    })
   }
 
-  private applyChunk(assistantId: string, chunk: AgentChatStreamChunk): void {
+  private async submitBusyFollowUp(request: {
+    api: AgentConversationTurnRunnerApi
+    state: AgentConversationTurnRunnerState
+    workspaceId: string
+    input: string
+    mode: AgentChatMode
+    skillIds?: string[]
+  }): Promise<void> {
+    const { api, state, workspaceId, input: text, mode, skillIds } = request
+    const pending = state.pendingAgentConversation
+    const target = this.activeTarget ?? this.targetFromBusyState(state, workspaceId, mode)
+    if (!target) {
+      this.setError('Conversation state is unavailable. Please wait for the current turn to settle and try again.')
+      return
+    }
+    const expectedBranchRevision = target.kind === 'canonical'
+      ? this.activeExpectedBranchRevision ?? pending?.sourceConversationRevision ?? state.activeConversationRevision ?? undefined
+      : undefined
+    if (target.kind === 'canonical' && (!Number.isSafeInteger(expectedBranchRevision) || (expectedBranchRevision ?? -1) < 0)) {
+      this.setError('Conversation branch revision is unavailable. Reopen the branch before continuing.')
+      return
+    }
+
+    await this.submit({ api, input: text, mode, skillIds, target, expectedBranchRevision, restoreState: state, busyFollowUp: true })
+  }
+
+  private async submit(input: {
+    api: AgentConversationTurnRunnerApi
+    input: string
+    mode: AgentChatMode
+    skillIds?: string[]
+    target: ConversationLaneKey
+    expectedBranchRevision?: number
+    draft?: Omit<ActiveHostStream, 'streamId' | 'activeTurnId' | 'target' | 'conversationId' | 'settling'>
+    restoreState: AgentConversationTurnRunnerState
+    busyFollowUp?: boolean
+  }): Promise<void> {
+    const { api, target } = input
+    this.ensureRealtimeSubscription(api)
+    this.submissionsInFlight += 1
+    try {
+      const clientRequestId = this.dependencies.nextClientRequestId?.() ?? createClientRequestId()
+      const disposition = await api.submitConversationTurn({
+        target,
+        clientRequestId,
+        text: input.input,
+        mode: input.mode,
+        delivery: 'follow_up',
+        ...(input.expectedBranchRevision !== undefined ? { expectedBranchRevision: input.expectedBranchRevision } : {}),
+        ...(input.skillIds?.length ? { skillIds: input.skillIds } : {})
+      })
+      await this.handleDisposition(input, disposition, clientRequestId)
+    } catch (error) {
+      if (target.kind === 'canonical' && isConversationRevisionConflict(error)) {
+        await this.refreshAfterConflict(target, input.input)
+      } else {
+        this.restoreUnstarted(input.restoreState, input.input, error)
+      }
+    } finally {
+      this.submissionsInFlight -= 1
+      if (this.submissionsInFlight === 0) this.bufferedRealtimeEvents.clear()
+    }
+  }
+
+  private async handleDisposition(
+    input: Parameters<AgentConversationTurnRunner<TError>['submit']>[0],
+    disposition: Awaited<ReturnType<AgentConversationTurnRunnerApi['submitConversationTurn']>>,
+    clientRequestId: string
+  ): Promise<void> {
+    if (disposition.code === 'started' || disposition.code === 'steered') {
+      if (!input.draft) {
+        // A busy follow-up can be accepted as a new active turn only if the host
+        // races completion. Keep current renderer projection intact rather than
+        // fabricating a second local transcript without a returned draft identity.
+        this.activeTarget = input.target
+        this.activeExpectedBranchRevision = input.expectedBranchRevision
+        return
+      }
+      const active: ActiveHostStream = {
+        ...input.draft,
+        streamId: disposition.streamId,
+        activeTurnId: disposition.activeTurnId,
+        target: input.target,
+        ...(disposition.code === 'started' && disposition.conversationId ? { conversationId: disposition.conversationId } : {})
+      }
+      this.activeHostStream = active
+      this.activeTarget = input.target
+      this.activeExpectedBranchRevision = input.expectedBranchRevision
+      this.bindRuntimeStreamId(active.pendingConversationId, active.streamId)
+      this.flushBufferedEvents(active)
+      return
+    }
+
+    if (disposition.code === 'queued') {
+      this.acceptQueuedFollowUp({
+        clientRequestId,
+        target: input.target,
+        text: input.input,
+        mode: input.mode,
+        skillIds: input.skillIds,
+        restoreState: input.restoreState,
+        wasAlreadyBusy: input.busyFollowUp === true
+      })
+      return
+    }
+
+    if (disposition.code === 'refresh_required') {
+      if (input.target.kind === 'canonical') await this.refreshAfterConflict(input.target, input.input)
+      else this.restoreUnstarted(input.restoreState, input.input, new Error('Conversation changed. Please refresh before sending again.'))
+      return
+    }
+
+    if (disposition.code === 'rejected') {
+      this.restoreUnstarted(input.restoreState, input.input, new Error(rejectedMessage(disposition.reason)))
+      return
+    }
+
+    // Idempotency responses do not authorize a second local draft or queue entry.
+    // For a recovered queued request, retain a neutral acknowledgement but do not
+    // claim ownership of a host queue item we cannot identify.
+    if (disposition.originalCode === 'queued') {
+      this.dependencies.setState({ agentInput: '', agentBusyAckMessage: AGENT_SESSION_BUSY_QUEUED_ACK, error: null })
+    }
+  }
+
+  private acceptQueuedFollowUp(input: {
+    clientRequestId: string
+    target: ConversationLaneKey
+    text: string
+    mode: AgentChatMode
+    skillIds: string[] | undefined
+    restoreState: AgentConversationTurnRunnerState
+    wasAlreadyBusy: boolean
+  }): void {
     const state = this.dependencies.getState()
-    const patch = applyAgentChatChunkToPending({
-      pending: state.pendingAgentConversation,
-      activeConversationId: state.activeConversationId,
-      assistantId,
-      chunk
+    const queue = state.agentBusyFollowUpQueue ?? input.restoreState.agentBusyFollowUpQueue
+    this.dependencies.setState({
+      ...(!input.wasAlreadyBusy ? this.unstartedStatePatch(input.restoreState) : {}),
+      agentBusyFollowUpQueue: [
+        ...queue,
+        {
+          clientRequestId: input.clientRequestId,
+          target: input.target,
+          text: input.text,
+          ...(input.mode ? { mode: input.mode } : {}),
+          ...(input.skillIds?.length ? { skillIds: input.skillIds } : {})
+        }
+      ],
+      agentBusyAckMessage: AGENT_SESSION_BUSY_QUEUED_ACK,
+      agentInput: '',
+      error: null
     })
-    if (patch) this.dependencies.setState(patch)
   }
 
-  private applyStatus(assistantId: string, status: AgentChatStreamStatus): void {
+  private async refreshAfterConflict(target: Extract<ConversationLaneKey, { kind: 'canonical' }>, input: string): Promise<void> {
+    await this.dependencies.onRevisionConflict?.({
+      workspaceId: target.workspaceId,
+      conversationId: target.conversationId,
+      scope: target.scope
+    })
+    this.activeHostStream = null
+    this.activeTarget = null
+    this.activeExpectedBranchRevision = undefined
+    // Do not automatically replay: a fresh canonical read is required before the
+    // learner explicitly sends the preserved text again.
+    this.dependencies.setState({ agentInput: input, error: null, agentChatBusy: false })
+  }
+
+  private restoreUnstarted(state: AgentConversationTurnRunnerState, input: string, error: unknown): void {
+    this.activeHostStream = null
+    this.activeTarget = null
+    this.activeExpectedBranchRevision = undefined
+    this.dependencies.setState({ ...this.unstartedStatePatch(state), agentInput: input, error: this.dependencies.toUserError(error) })
+  }
+
+  private unstartedStatePatch(state: AgentConversationTurnRunnerState): AgentConversationTurnRunnerPatch<TError> {
+    return {
+      agentChatBusy: state.agentChatBusy,
+      agentStatus: state.agentStatus,
+      agentTurns: state.agentTurns,
+      activeConversationId: state.activeConversationId,
+      activeConversationScope: state.activeConversationScope,
+      activeConversationRevision: state.activeConversationRevision,
+      activeSessionTree: state.activeSessionTree,
+      agentToolsSupported: state.agentToolsSupported,
+      pendingAgentConversation: state.pendingAgentConversation
+    }
+  }
+
+  private targetFromBusyState(
+    state: AgentConversationTurnRunnerState,
+    workspaceId: string,
+    mode: AgentChatMode
+  ): ConversationLaneKey | null {
+    const pending = state.pendingAgentConversation
+    if (pending?.sourceConversationId) {
+      return { kind: 'canonical', workspaceId, scope: scopeForMode(mode), conversationId: pending.sourceConversationId }
+    }
+    if (pending) {
+      return { kind: 'pending', workspaceId, scope: scopeForMode(mode), pendingConversationId: pending.summary.id }
+    }
+    if (state.activeConversationId && !state.activeConversationId.startsWith('pending-')) {
+      return { kind: 'canonical', workspaceId, scope: scopeForMode(mode), conversationId: state.activeConversationId }
+    }
+    return null
+  }
+
+  private resolveMode(state: AgentConversationTurnRunnerState, requested: AgentChatMode | undefined): AgentChatMode {
+    if (requested) return requested
+    if (state.activeConversationId && !state.activeConversationId.startsWith('pending-')) {
+      return state.activeConversationScope === 'temporary' ? 'temporary' : 'teaching'
+    }
+    return state.overviewDialogMode === 'teaching' ? 'teaching' : 'temporary'
+  }
+
+  private ensureRealtimeSubscription(api: AgentConversationTurnRunnerApi): void {
+    if (this.unsubscribeRealtime) return
+    this.unsubscribeRealtime = api.onAgentChatEvent((event) => this.receiveRealtimeEvent(event))
+  }
+
+  private receiveRealtimeEvent(event: AgentRealtimeDeliveryEvent): void {
+    if (event.kind === 'conversation_turn_started') {
+      this.activateQueuedHostStream(event)
+      return
+    }
+    const active = this.activeHostStream
+    if (active?.streamId === event.streamId) {
+      this.projectRealtimeEvent(active, event)
+      return
+    }
+    // The invoke disposition can arrive after a started event. Buffer only in
+    // that narrow window; never retain or project unrelated global events.
+    if (this.submissionsInFlight > 0) {
+      const events = this.bufferedRealtimeEvents.get(event.streamId) ?? []
+      if (events.length < 128) events.push(event)
+      this.bufferedRealtimeEvents.set(event.streamId, events)
+    }
+  }
+
+  private activateQueuedHostStream(event: AgentConversationTurnStartedRealtimeEvent): void {
     const state = this.dependencies.getState()
-    const patch = applyAgentChatStatusToPending({
-      pending: state.pendingAgentConversation,
-      activeConversationId: state.activeConversationId,
-      assistantId,
-      status
+    const queue = state.agentBusyFollowUpQueue ?? []
+    const queuedIndex = queue.findIndex((item) => item.clientRequestId === event.clientRequestId)
+    if (queuedIndex < 0) return
+
+    const queued = queue[queuedIndex]!
+    const workspace = state.appState.activeWorkspace
+    if (!workspace || workspace.id !== queued.target?.workspaceId) return
+
+    // Use an empty prefix unless this renderer is already showing exactly the
+    // canonical conversation the host named. A queued renderer can be distinct
+    // from the current stream owner; importing an arbitrary local transcript
+    // would fabricate a branch projection. Host remains the only saver.
+    const matchingCanonicalConversationId = event.conversationId ?? (
+      queued.target?.kind === 'canonical' ? queued.target.conversationId : undefined
+    )
+    const visibleConversationId = state.activeConversationId
+    const canUseVisiblePrefix = Boolean(
+      matchingCanonicalConversationId &&
+      visibleConversationId === matchingCanonicalConversationId &&
+      !visibleConversationId.startsWith('pending-')
+    )
+    const mode = queued.mode ?? (queued.target?.scope === 'temporary' ? 'temporary' : 'teaching')
+    const draft = createAgentConversationTurnDraft({
+      state: state.appState,
+      workspace,
+      input: queued.text,
+      mode,
+      activeConversationId: canUseVisiblePrefix ? matchingCanonicalConversationId! : null,
+      activeConversationRevision: canUseVisiblePrefix ? state.activeConversationRevision : null,
+      currentTurns: canUseVisiblePrefix ? state.agentTurns : [],
+      selectedCourseRelativePath: state.selectedCourseRelativePath,
+      currentSelectedLessonPath: state.appState.selectedLessonPath,
+      createdAt: this.dependencies.now?.() ?? new Date().toISOString(),
+      // Do not collide with a directly-started draft that used the same test or
+      // clock seed. This identity is renderer-local projection only.
+      idSeed: (this.dependencies.nextIdSeed?.() ?? Date.now()) + ++this.queuedProjectionSeed
     })
-    if (patch) this.dependencies.setState(patch)
+    // A pending lane may have been atomically promoted before its queued
+    // reservation starts. The host's lifecycle event is the authoritative
+    // correlation: when it names a canonical conversation, cancellation must
+    // use that exact canonical lane rather than the stale renderer pending key.
+    const target = event.conversationId
+      ? {
+          kind: 'canonical' as const,
+          workspaceId: workspace.id,
+          scope: scopeForMode(mode),
+          conversationId: event.conversationId
+        }
+      : queued.target ?? (matchingCanonicalConversationId
+        ? { kind: 'canonical' as const, workspaceId: workspace.id, scope: scopeForMode(mode), conversationId: matchingCanonicalConversationId }
+        : null)
+    if (!target) return
+
+    const active: ActiveHostStream = {
+      pendingConversationId: draft.pendingConversationId,
+      assistantId: draft.assistantId,
+      workspaceId: workspace.id,
+      mode,
+      target,
+      streamId: event.streamId,
+      activeTurnId: event.activeTurnId,
+      ...(event.conversationId ? { conversationId: event.conversationId } : {})
+    }
+    this.activeHostStream = active
+    this.activeTarget = target
+    this.activeExpectedBranchRevision = undefined
+    this.dependencies.setState({
+      agentChatBusy: true,
+      agentStatus: draft.pendingConversation.status,
+      agentToolsSupported: null,
+      agentTurns: draft.initialTurns,
+      activeConversationId: draft.pendingConversationId,
+      activeConversationScope: scopeForMode(mode),
+      pendingAgentConversation: { ...draft.pendingConversation, runtimeStreamId: event.streamId },
+      agentBusyFollowUpQueue: queue.filter((_, index) => index !== queuedIndex),
+      agentBusyAckMessage: null,
+      error: null
+    })
+    this.flushBufferedEvents(active)
   }
 
-  private applyToolEvent(assistantId: string, event: AgentChatStreamToolEvent): void {
+  /**
+   * The renderer projects host events into a local pending draft id, but tool
+   * replies are resolved by the host's runtime stream id. Keep both identities
+   * explicit so an Ask card cannot send its answer to the renderer-only draft.
+   */
+  private bindRuntimeStreamId(pendingConversationId: string, runtimeStreamId: string): void {
     const state = this.dependencies.getState()
-    const patch = applyAgentChatToolEventToPending({
-      pending: state.pendingAgentConversation,
-      activeConversationId: state.activeConversationId,
-      assistantId,
-      event
+    const pending = state.pendingAgentConversation
+    if (!pending || pending.summary.id !== pendingConversationId || pending.runtimeStreamId === runtimeStreamId) return
+    this.dependencies.setState({
+      pendingAgentConversation: { ...pending, runtimeStreamId }
     })
-    if (patch) this.dependencies.setState(patch)
   }
 
-  private applyInvalidation(assistantId: string, invalidation: AgentProjectionInvalidation): void {
-    const message = invalidation.reason === 'replay_gap'
-      ? '实时事件回放不完整；当前过程视图已标记失效，完成后将以保存的对话结果为准。'
-      : '实时事件回放已不可用；当前过程视图已标记失效，应用不会据此自动重跑。'
-    this.applyStatus(assistantId, { streamId: invalidation.streamId, status: 'error', message })
+  private flushBufferedEvents(active: ActiveHostStream): void {
+    const events = this.bufferedRealtimeEvents.get(active.streamId) ?? []
+    this.bufferedRealtimeEvents.delete(active.streamId)
+    for (const event of events) this.projectRealtimeEvent(active, event)
+  }
+
+  private projectRealtimeEvent(active: ActiveHostStream, event: AgentRealtimeEvent): void {
+    if (this.activeHostStream?.streamId !== active.streamId) return
+    if (event.kind === 'chunk') {
+      this.applyChunk(active.assistantId, { ...event.payload, streamId: active.pendingConversationId })
+      return
+    }
+    if (event.kind === 'status') {
+      this.applyStatus(active.assistantId, { ...event.payload, streamId: active.pendingConversationId })
+      return
+    }
+    if (event.kind === 'tool') {
+      this.applyToolEvent(active.assistantId, { ...event.payload, streamId: active.pendingConversationId })
+      return
+    }
+    if (active.settling) return
+    active.settling = true
+    void this.finishHostStream(active, event)
+  }
+
+  private async finishHostStream(active: ActiveHostStream, event: Extract<AgentRealtimeEvent, { kind: 'terminal' }>): Promise<void> {
+    if (this.activeHostStream?.streamId !== active.streamId) return
+    this.activeHostStream = null
+    this.activeTarget = null
+    this.activeExpectedBranchRevision = undefined
+    if (event.outcome === 'canceled') {
+      this.finishCanceled(active.pendingConversationId)
+      return
+    }
+    if (event.outcome === 'error') {
+      const state = this.dependencies.getState()
+      const pending = state.pendingAgentConversation
+      if (!pending || pending.summary.id !== active.pendingConversationId) return
+      if (isConversationRevisionConflict(event.message ?? '')) {
+        if (active.target.kind === 'canonical') await this.refreshAfterConflict(active.target, pending.turns.at(-2)?.content ?? '')
+        return
+      }
+      this.dependencies.setState({
+        error: this.dependencies.toUserError(new Error(event.message ?? 'The conversation could not be completed.')),
+        ...failPendingAgentConversation({
+          pending,
+          activeConversationId: state.activeConversationId,
+          assistantId: active.assistantId,
+          message: event.message ?? 'The conversation could not be completed.'
+        }),
+        agentChatBusy: false
+      })
+      return
+    }
+    await this.refreshCompletedHostTurn(active)
+  }
+
+  private async refreshCompletedHostTurn(active: ActiveHostStream): Promise<void> {
+    const state = this.dependencies.getState()
+    const pending = state.pendingAgentConversation
+    if (!pending || pending.summary.id !== active.pendingConversationId) return
+    const conversationId = active.conversationId ?? (active.target.kind === 'canonical' ? active.target.conversationId : undefined)
+    if (!conversationId) {
+      // The current submit disposition does not always include a promoted id.
+      // Keep the completed optimistic projection rather than guessing a durable id.
+      this.dependencies.setState({ agentChatBusy: false, agentStatus: '完成' })
+      return
+    }
+
+    try {
+      const [conversation, tree] = await Promise.all([
+        this.dependencies.getApi()?.readAgentConversation({ workspaceId: active.workspaceId, conversationId, scope: scopeForMode(active.mode) }),
+        this.dependencies.getApi()?.readAgentConversationSessionTree({ workspaceId: active.workspaceId, conversationId, scope: scopeForMode(active.mode) })
+      ])
+      if (!conversation || !tree) throw new Error('Conversation refresh unavailable')
+      let appState: TeachingAppState | undefined
+      try { appState = await this.dependencies.getApi()?.getState() } catch { /* durable transcript remains authoritative */ }
+      const current = this.dependencies.getState()
+      if (current.pendingAgentConversation?.summary.id !== active.pendingConversationId) return
+      const branch = tree.branches.find((item) => item.conversationId === conversation.id)
+      this.dependencies.setState({
+        ...(appState ? { appState } : {}),
+        activeConversationScope: scopeForMode(active.mode),
+        activeConversationRevision: conversation.branch?.revision ?? branch?.revision ?? current.activeConversationRevision,
+        activeSessionTree: tree,
+        ...finishPendingAgentConversationSave({
+          pending,
+          activeConversationId: current.activeConversationId,
+          savedConversationId: conversation.id,
+          turns: reconcileAgentTurnsWithLocalProcess(conversation.turns, pending.turns),
+          toolsSupported: pending.toolsSupported
+        }),
+        agentChatBusy: false
+      })
+      this.dependencies.onCompletedTurn?.({ runId: active.streamId, conversationId: conversation.id })
+    } catch {
+      // Never overwrite host-owned settlement with a renderer save/retry. The
+      // local projection remains visible and a later open reads durable state.
+      this.dependencies.setState({ agentChatBusy: false, agentStatus: '完成' })
+    }
   }
 
   private finishCanceled(pendingConversationId: string): void {
     const state = this.dependencies.getState()
     const pending = state.pendingAgentConversation
     if (!pending || pending.summary.id !== pendingConversationId) return
-    this.dependencies.setState({
-      ...cancelPendingAgentConversation({
-        pending,
-        activeConversationId: state.activeConversationId
-      }),
-      agentBusyFollowUpQueue: [],
-      agentBusyAckMessage: null
-    })
+    this.dependencies.setState(cancelPendingAgentConversation({ pending, activeConversationId: state.activeConversationId }))
   }
 
-  private async failAndSave({
-    api,
-    workspaceId,
-    mode,
-    pendingConversationId,
-    assistantId,
-    selectedCourseRelativePath,
-    selectedLessonPath,
-    error
-  }: {
-    api: AgentConversationTurnRunnerApi
-    workspaceId: string
-    mode: AgentChatMode
-    pendingConversationId: string
-    assistantId: string
-    selectedCourseRelativePath: string | null
-    selectedLessonPath: string | null
-    error: unknown
-  }): Promise<void> {
+  private applyChunk(assistantId: string, chunk: AgentChatStreamChunk): void {
     const state = this.dependencies.getState()
-    const pending = state.pendingAgentConversation
-    if (!pending || pending.summary.id !== pendingConversationId) return
-    const message = error instanceof Error ? error.message : String(error)
-    this.dependencies.setState({
-      error: this.dependencies.toUserError(error),
-      ...failPendingAgentConversation({
-        pending,
-        activeConversationId: state.activeConversationId,
-        assistantId,
-        message
-      })
-    })
-
-    const failedState = this.dependencies.getState()
-    const failedPending = failedState.pendingAgentConversation
-    if (!failedPending || failedPending.summary.id !== pendingConversationId) return
-
-    try {
-      // Failed runs do not have a confirmed parent-turn stage, so they must be
-      // saved as an ordinary transcript rather than promoted with the run id.
-      const saved = await api.saveAgentConversation({
-        workspaceId,
-        mode,
-        conversationId: failedPending.sourceConversationId ?? null,
-        expectedBranchRevision: failedPending.sourceConversationRevision ?? undefined,
-        selectedLessonPath,
-        selectedCourseRelativePath,
-        turns: failedPending.turns
-      })
-      let sessionTree: AgentConversationSessionTree | null = null
-      try {
-        sessionTree = await api.readAgentConversationSessionTree({
-          workspaceId,
-          conversationId: saved.conversation.id,
-          scope: mode === 'temporary' ? 'temporary' : 'workspace'
-        })
-      } catch {
-        // The catalog and transcript are already durable. A tree refresh can be
-        // recovered the next time the conversation is opened.
-      }
-      const latestState = this.dependencies.getState()
-      const pendingIsVisible = latestState.activeConversationId === pendingConversationId
-        && latestState.pendingAgentConversation?.summary.id === pendingConversationId
-      this.dependencies.setState({
-        appState: saved.state,
-        ...(pendingIsVisible
-          ? {
-              activeConversationScope: mode === 'temporary' ? 'temporary' : 'workspace',
-              activeConversationRevision: saved.conversation.branch?.revision
-                ?? (failedPending.sourceConversationRevision === null
-                  ? 1
-                  : failedPending.sourceConversationRevision + 1),
-              activeSessionTree: sessionTree
-            }
-          : {}),
-        ...finishPendingAgentConversationSave({
-          pending: failedPending,
-          activeConversationId: latestState.activeConversationId,
-          savedConversationId: saved.conversation.id,
-          turns: failedPending.turns,
-          toolsSupported: failedPending.toolsSupported
-        })
-      })
-    } catch {
-      // Keep the failed transcript in memory when durable storage is itself
-      // unavailable. The original generation error remains the user-facing one.
-    } finally {
-      const latestState = this.dependencies.getState()
-      if (latestState.pendingAgentConversation?.summary.id === pendingConversationId) {
-        const visiblePatch = latestState.activeConversationId === pendingConversationId
-          ? { agentStatus: '' }
-          : {}
-        this.dependencies.setState({ agentChatBusy: false, ...visiblePatch })
-      }
-    }
+    const patch = applyAgentChatChunkToPending({ pending: state.pendingAgentConversation, activeConversationId: state.activeConversationId, assistantId, chunk })
+    if (patch) this.dependencies.setState(patch)
   }
 
-  /**
-   * Lesson files and `.studiumx/index.json` become durable as soon as
-   * `generate_lesson` succeeds. Conversation save can still fail (e.g. parent-turn
-   * digest mismatch). Rebuild appState from the main-process catalog so the
-   * course sidebar reflects new sessions without waiting on transcript save.
-   */
-  private async refreshAppStateAfterGeneratedLessons(
-    api: AgentConversationTurnRunnerApi
-  ): Promise<void> {
-    try {
-      const state = await api.getState()
-      this.dependencies.setState({ appState: state })
-    } catch {
-      // Best-effort only: lesson artifacts remain on disk and can appear after reload.
-    }
+  private applyStatus(assistantId: string, status: AgentChatStreamStatus): void {
+    const state = this.dependencies.getState()
+    const patch = applyAgentChatStatusToPending({ pending: state.pendingAgentConversation, activeConversationId: state.activeConversationId, assistantId, status })
+    if (patch) this.dependencies.setState(patch)
   }
 
-  private async saveCompletedTurn({
-    api,
-    workspaceId,
-    mode,
-    pendingConversationId,
-    selectedCourseRelativePath,
-    selectedLessonPath,
-    done
-  }: {
-    api: AgentConversationTurnRunnerApi
-    workspaceId: string
-    mode: AgentChatMode
-    pendingConversationId: string
-    selectedCourseRelativePath: string | null
-    selectedLessonPath: string | null
-    done: Exclude<Awaited<ReturnType<AgentConversationTurnRunnerApi['agentChatStream']>>, { canceled: true } | { error: true }>
-  }): Promise<void> {
-    const beforeSave = this.dependencies.getState()
-    const pending = beforeSave.pendingAgentConversation
-    if (!pending || pending.summary.id !== pendingConversationId) return
+  private applyToolEvent(assistantId: string, event: AgentChatStreamToolEvent): void {
+    const state = this.dependencies.getState()
+    const patch = applyAgentChatToolEventToPending({ pending: state.pendingAgentConversation, activeConversationId: state.activeConversationId, assistantId, event })
+    if (patch) this.dependencies.setState(patch)
+  }
 
-    const latestUserTurn = [...done.turns].reverse().find((turn) => turn.role === 'user')
-    const reconciledTurns = reconcileAgentTurnsWithLocalProcess(done.turns, pending.turns)
-    const savePatch = syncPendingAgentConversation({
-      pending,
-      pendingConversationId,
-      activeConversationId: beforeSave.activeConversationId,
-      patch: {
-        turns: reconciledTurns,
-        status: '保存对话…',
-        toolsSupported: done.toolsSupported
-      }
-    })
-    if (savePatch) this.dependencies.setState(savePatch)
-    this.dependencies.setState({
-      taskPrompt: latestUserTurn?.content?.trim() ? latestUserTurn.content.trim() : beforeSave.taskPrompt
-    })
-
-    // Refresh catalog before durable conversation save so sidebar lessons appear
-    // even when save later rejects or the app exits mid-save.
-    if (done.generatedLessons?.length) {
-      await this.refreshAppStateAfterGeneratedLessons(api)
-    }
-
-    try {
-      const saved = await api.saveAgentConversation({
-        workspaceId,
-        runId: pendingConversationId,
-        mode,
-        conversationId: pending.sourceConversationId ?? null,
-        expectedBranchRevision: pending.sourceConversationRevision ?? undefined,
-        selectedLessonPath,
-        selectedCourseRelativePath,
-        turns: reconciledTurns
-      })
-      let sessionTree: AgentConversationSessionTree | null = null
-      let treeError: unknown = null
-      try {
-        sessionTree = await api.readAgentConversationSessionTree({
-          workspaceId,
-          conversationId: saved.conversation.id,
-          scope: mode === 'temporary' ? 'temporary' : 'workspace'
-        })
-      } catch (error) {
-        treeError = error
-      }
-      const latestState = this.dependencies.getState()
-      const pendingIsVisible = latestState.activeConversationId === pendingConversationId
-        && latestState.pendingAgentConversation?.summary.id === pendingConversationId
-      this.dependencies.setState({
-        appState: saved.state,
-        ...(pendingIsVisible
-          ? {
-              activeConversationScope: mode === 'temporary' ? 'temporary' : 'workspace',
-              activeConversationRevision: saved.conversation.branch?.revision
-                ?? (pending.sourceConversationRevision === null ? 1 : pending.sourceConversationRevision + 1),
-              activeSessionTree: sessionTree
-            }
-          : {}),
-        // Navigation that happened while saving owns the visible branch context,
-        // but the now-durable pending draft must still be retired globally.
-        ...finishPendingAgentConversationSave({
-          pending,
-          activeConversationId: latestState.activeConversationId,
-          savedConversationId: saved.conversation.id,
-          turns: reconciledTurns,
-          toolsSupported: done.toolsSupported
-        })
-      })
-      this.dependencies.onCompletedTurn?.({
-        runId: pendingConversationId,
-        conversationId: saved.conversation.id
-      })
-      if (treeError) this.dependencies.setState({ error: this.dependencies.toUserError(treeError) })
-      if (done.generatedLessons?.length) this.dependencies.onGeneratedLessons(done.generatedLessons)
-    } catch (error) {
-      // Lesson files may already be durable even when conversation save rejects.
-      // Keep surfacing the save error, re-attempt catalog refresh (in case the
-      // pre-save refresh raced a late index write), and still hand generated
-      // lessons to the UI for open/notification effects.
-      if (done.generatedLessons?.length) {
-        await this.refreshAppStateAfterGeneratedLessons(api)
-        this.dependencies.onGeneratedLessons(done.generatedLessons)
-      }
-      this.dependencies.setState({ error: this.dependencies.toUserError(error) })
-    } finally {
-      const stateAfterSave = this.dependencies.getState()
-      if (
-        stateAfterSave.pendingAgentConversation?.summary.id &&
-        stateAfterSave.pendingAgentConversation.summary.id !== pendingConversationId
-      ) return
-      const visiblePatch = stateAfterSave.activeConversationId === pendingConversationId
-        ? { agentStatus: '' }
-        : {}
-      this.dependencies.setState({ agentChatBusy: false, ...visiblePatch })
-    }
+  private setError(message: string): void {
+    this.dependencies.setState({ error: this.dependencies.toUserError(new Error(message)) })
   }
 }

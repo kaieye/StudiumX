@@ -273,6 +273,68 @@ function operationFeedbackTranslate(key: string, interpolation?: Record<string, 
   return i18n.t(key, interpolation)
 }
 
+function isConversationRevisionConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes('conversation branch revision conflict')
+}
+
+async function refreshConversationAfterRevisionConflict(input: {
+  get: () => StoreState
+  set: (patch: Partial<StoreState>) => void
+  workspaceId: string
+  conversationId: string
+  scope: AgentConversationLookupScope
+}): Promise<void> {
+  const api = window.teachingSystem
+  if (!api) return
+  try {
+    const workspace = input.get().appState.workspaces.find((item) => item.id === input.workspaceId)
+    if (!workspace) return
+    const tree = await api.readAgentConversationSessionTree({
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      scope: input.scope
+    })
+    const branch = tree.branches.find((item) => item.conversationId === input.conversationId)
+    if (!branch) return
+    const refreshed = branch.status === 'active'
+      ? await api.openAgentConversationBranch({
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId,
+          scope: input.scope
+        })
+      : {
+          conversation: await api.readAgentConversation({
+            workspaceId: input.workspaceId,
+            conversationId: input.conversationId,
+            scope: input.scope
+          }),
+          tree
+        }
+    if (input.get().appState.activeWorkspace?.id !== input.workspaceId) return
+    const refreshedBranch = refreshed.tree.branches.find((item) => item.conversationId === refreshed.conversation.id)
+    input.set({
+      ...openAgentConversationContext({
+        conversation: refreshed.conversation,
+        workspaceId: input.workspaceId,
+        appState: input.get().appState,
+        currentOverviewDialogMode: input.get().overviewDialogMode,
+        currentTaskPrompt: input.get().taskPrompt
+      }),
+      activeConversationScope: input.scope,
+      activeConversationRevision: refreshed.conversation.branch?.revision ?? refreshedBranch?.revision ?? branch.revision,
+      activeSessionTree: refreshed.tree,
+      agentChatBusy: false,
+      pendingAgentConversation: null,
+      agentBusyFollowUpQueue: [],
+      agentBusyAckMessage: null
+    })
+  } catch {
+    // Best effort only. CAS conflicts are intentionally non-disruptive; a later
+    // open still loads the durable canonical projection.
+  }
+}
+
 function notificationSettings(settings: TeachingSettingsV1): OperationFeedbackNotificationSettings {
   return {
     enabled: settings.notifications.enabled,
@@ -760,6 +822,9 @@ function createAgentConversationTurnRunner(
         )
       }
     },
+    onRevisionConflict: async ({ workspaceId, conversationId, scope }) => {
+      await refreshConversationAfterRevisionConflict({ get, set, workspaceId, conversationId, scope })
+    },
     onCompletedTurn: ({ runId, conversationId }) => {
       set({
         agentPetNotificationResult: {
@@ -776,6 +841,11 @@ function createAgentConversationTurnRunner(
 
 export const useAppStore = create<StoreState>((set, get) => {
   let learningAssetReader: LearningAssetReader | null = null
+  let agentConversationTurnRunner: AgentConversationTurnRunner<UserError> | null = null
+  const getAgentConversationTurnRunner = (): AgentConversationTurnRunner<UserError> => {
+    agentConversationTurnRunner ??= createAgentConversationTurnRunner(get, set)
+    return agentConversationTurnRunner
+  }
 
   const getLearningAssetReader = (): LearningAssetReader => {
     const api = window.teachingSystem
@@ -869,7 +939,7 @@ export const useAppStore = create<StoreState>((set, get) => {
     set({ agentTurns: [], activeConversationId: null, activeConversationScope: null, activeConversationRevision: null, activeSessionTree: null, agentStatus: '', agentInput: '', agentToolsSupported: null, agentChatBusy: false, pendingAgentConversation: null, agentBusyAckMessage: null, agentBusyFollowUpQueue: [] })
   },
   cancelAgentChat: async () => {
-    await createAgentConversationTurnRunner(get, set).cancel()
+    await getAgentConversationTurnRunner().cancel()
   },
   restorePendingAgentConversation: () => {
     const pending = get().pendingAgentConversation
@@ -1712,8 +1782,74 @@ export const useAppStore = create<StoreState>((set, get) => {
       })
       return true
     } catch (error) {
-      set({ error: toUserError(error) })
-      return false
+      if (!isConversationRevisionConflict(error)) {
+        set({ error: toUserError(error) })
+        return false
+      }
+
+      // CAS rejection proves this request did not create a child branch. Refresh
+      // the source, validate the fork point still exists, then retry exactly once
+      // with the current revision. Do not retry unknown IPC/network failures.
+      await refreshConversationAfterRevisionConflict({
+        get,
+        set,
+        workspaceId: workspace.id,
+        conversationId: sourceConversationId,
+        scope
+      })
+      const refreshed = get()
+      const currentBranch = refreshed.activeSessionTree?.branches.find(
+        (branch) => branch.conversationId === sourceConversationId
+      )
+      const sourceTurnStillExists = !sourceTurnId || refreshed.agentTurns.some((turn) => turn.id === sourceTurnId)
+      if (
+        refreshed.appState.activeWorkspace?.id !== workspace.id ||
+        !currentBranch ||
+        currentBranch.status !== 'active' ||
+        !sourceTurnStillExists
+      ) {
+        set({ error: null })
+        return false
+      }
+      try {
+        const result = await api.forkAgentConversationBranch({
+          workspaceId: workspace.id,
+          conversationId: sourceConversationId,
+          scope,
+          sourceTurnId,
+          expectedRevision: currentBranch.revision
+        })
+        if (get().appState.activeWorkspace?.id !== workspace.id) return false
+        set({
+          ...openAgentConversationContext({
+            conversation: result.conversation,
+            workspaceId: workspace.id,
+            appState: result.state,
+            currentOverviewDialogMode: get().overviewDialogMode,
+            currentTaskPrompt: get().taskPrompt
+          }),
+          activeConversationRevision: result.conversation.branch?.revision
+            ?? result.tree.branches.find((branch) => branch.conversationId === result.conversation.id)?.revision
+            ?? 0,
+          activeSessionTree: result.tree,
+          error: null
+        })
+        return true
+      } catch (retryError) {
+        if (isConversationRevisionConflict(retryError)) {
+          await refreshConversationAfterRevisionConflict({
+            get,
+            set,
+            workspaceId: workspace.id,
+            conversationId: sourceConversationId,
+            scope
+          })
+          set({ error: null })
+          return false
+        }
+        set({ error: toUserError(retryError) })
+        return false
+      }
     }
   },
   replayAgentConversationBranch: async (conversationId, sourceTurnId) => {
@@ -1800,11 +1936,24 @@ export const useAppStore = create<StoreState>((set, get) => {
         ...(currentBranch ? { activeConversationRevision: currentBranch.revision } : {})
       })
     } catch (error) {
+      if (isConversationRevisionConflict(error)) {
+        // Archive/restore/delete are stale state-changing intents. Refresh the
+        // canonical tree but never replay them automatically.
+        await refreshConversationAfterRevisionConflict({
+          get,
+          set,
+          workspaceId: workspace.id,
+          conversationId,
+          scope
+        })
+        set({ error: null })
+        return
+      }
       set({ error: toUserError(error) })
     }
   },
   agentChat: async (inputOverride, options) => {
-    await createAgentConversationTurnRunner(get, set).run({
+    await getAgentConversationTurnRunner().run({
       inputOverride,
       mode: options?.mode,
       skillIds: options?.skillIds
@@ -1824,6 +1973,17 @@ export const useAppStore = create<StoreState>((set, get) => {
       })
       set({ appState: result.state, error: null })
     } catch (error) {
+      if (isConversationRevisionConflict(error)) {
+        await refreshConversationAfterRevisionConflict({
+          get,
+          set,
+          workspaceId,
+          conversationId: payload.conversationId,
+          scope: payload.scope
+        })
+        set({ error: null })
+        return
+      }
       set({ error: toUserError(error) })
     }
   },

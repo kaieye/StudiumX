@@ -34,9 +34,9 @@ type AgentConversationReaderPresentation = Omit<AgentConversationTurnPresentatio
 }
 
 /**
- * Renders either the learner-safe teaching projection or the agent process panel.
- * Teaching technical diagnostics come only from TeachingTurnPresentation; process
- * secondary text and primary labels are allow-listed/redacted before they reach the DOM.
+ * Renders the learner-safe teaching projection and, when available, the separate
+ * agent-process transcript. Teaching diagnostics remain authoritative only through
+ * TeachingTurnPresentation; reasoning is a visible runtime record, not teaching evidence.
  */
 export function AgentConversationReader({
   presentation,
@@ -52,20 +52,21 @@ export function AgentConversationReader({
   openTeachingSourcesKey?: string | number | null
   compact?: boolean
 }) {
-  if (teachingPresentation) {
-    return (
+  const process = presentation && (presentation.items.length > 0 || presentation.answeredAsks.length > 0)
+    ? <AgentProcessReader presentation={presentation} compact={compact} />
+    : null
+  if (!teachingPresentation) return process
+  return (
+    <>
       <TeachingTurnReader
         presentation={teachingPresentation}
         onAction={onTeachingAction}
         openSourcesKey={openTeachingSourcesKey}
         compact={compact}
       />
-    )
-  }
-  if (!presentation || (presentation.items.every((item) => item.kind === 'reasoning') && presentation.answeredAsks.length === 0)) {
-    return null
-  }
-  return <AgentProcessReader presentation={presentation} compact={compact} />
+      {process}
+    </>
+  )
 }
 
 function TeachingTurnReader({ presentation, onAction, openSourcesKey, compact }: {
@@ -162,10 +163,9 @@ function AgentProcessReader({ presentation, compact }: {
   presentation: AgentConversationReaderPresentation
   compact: boolean
 }) {
-  // Raw provider reasoning is not a learner-facing diagnostic. This second
-  // boundary also protects legacy or malformed presentations that bypass the
-  // normal conversation projector.
-  const rows = groupRepeatedProcessDescriptions(presentation.items.filter((item) => item.kind !== 'reasoning'))
+  // Reasoning activity is intentionally visible alongside tool and status events.
+  // Its provider title and detail are rendered without process-level redaction.
+  const rows = groupRepeatedProcessDescriptions(presentation.items)
   const header = processHeaderFor(presentation.status?.kind, presentation.active)
   const canCollapse = header.title === '思考结束' && !presentation.active
   const [expanded, setExpanded] = useState(() => !canCollapse)
@@ -364,6 +364,7 @@ function processDescription(item: AgentConversationProvenanceItem): string {
  * not guessed here; that remains an upstream typed-title contract follow-up.
  */
 function processPrimaryLabel(item: AgentConversationProvenanceItem): string {
+  if (item.kind === 'reasoning') return item.label || '思考过程'
   const candidate = item.label.replace(/\s+/g, ' ').trim()
   if (!candidate) return safeDiagnosticLabel(item.kind)
   const redacted = redactAgentSecretText(candidate)
@@ -394,6 +395,7 @@ function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
  * remnants fail closed the same way as primary labels.
  */
 function safeProcessSecondaryText(item: AgentConversationProvenanceItem): string | undefined {
+  if (item.kind === 'reasoning') return item.detail || reasoningProgressSummary(item.state)
   const candidate = item.detail?.replace(/\s+/g, ' ').trim()
   if (!candidate) return undefined
   const redacted = redactAgentSecretText(candidate)
@@ -401,6 +403,17 @@ function safeProcessSecondaryText(item: AgentConversationProvenanceItem): string
     return safeDiagnosticState(item.state)
   }
   return candidate
+}
+
+function reasoningProgressSummary(state: AgentConversationProvenanceItem['state']): string {
+  switch (state) {
+    case 'active': return '正在分析问题并组织回答。'
+    case 'pending': return '正在准备下一步分析。'
+    case 'error': return '思考过程未能完成。'
+    case 'canceled': return '思考过程已取消。'
+    case 'interrupted': return '思考过程被中断，等待确认。'
+    default: return '已完成分析并生成回答。'
+  }
 }
 
 function containsRedactionRemnant(value: string): boolean {

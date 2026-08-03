@@ -75,6 +75,7 @@ import {
   restoreWriteRewindJournal
 } from './ai/tools/write-rewind-journal'
 import {
+  AgentConversationBranchRevisionConflictError,
   forkAgentConversationBranchAtRoot,
   openAgentConversationBranchAtRoot,
   readAgentConversationSessionTreeAtRoot,
@@ -1137,9 +1138,7 @@ export class TeachingWorkspaceService {
         throw new Error('Expected branch revision is required when continuing an existing conversation.')
       }
       if (payload.expectedBranchRevision !== branch.revision) {
-        throw new Error(
-          `Conversation branch revision conflict: expected ${payload.expectedBranchRevision}, current ${branch.revision}.`
-        )
+        throw new AgentConversationBranchRevisionConflictError(payload.expectedBranchRevision, branch.revision)
       }
     }
     const runStorageRoot = isTeachingConversation && workspace ? workspace.rootPath : this.appDataRoot
@@ -1279,8 +1278,12 @@ export class TeachingWorkspaceService {
     if (existingBranch && payload.expectedBranchRevision === undefined) {
       throw new Error('Expected branch revision is required when saving an existing conversation.')
     }
-    if (existingBranch && payload.expectedBranchRevision !== existingBranch.revision) {
-      throw new Error(`Conversation branch revision conflict: expected ${payload.expectedBranchRevision}, current ${existingBranch.revision}.`)
+    if (
+      existingBranch &&
+      payload.expectedBranchRevision !== undefined &&
+      payload.expectedBranchRevision !== existingBranch.revision
+    ) {
+      throw new AgentConversationBranchRevisionConflictError(payload.expectedBranchRevision, existingBranch.revision)
     }
     turns = turns.map((turn) => turn.metadata?.provenance
       ? turn

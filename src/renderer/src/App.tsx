@@ -2189,6 +2189,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const [pendingTeachingActionKind, setPendingTeachingActionKind] = useState<'continue' | 'retry' | null>(null)
   const [teachingSnapshot, setTeachingSnapshot] = useState<TeachingPresentationSnapshot | null>(null)
   const [teachingActionBusy, setTeachingActionBusy] = useState(false)
+  const [interruptionSubmitting, setInterruptionSubmitting] = useState(false)
+  const [interruptionSubmitError, setInterruptionSubmitError] = useState<string | null>(null)
+  const interruptionSubmittingRef = useRef(false)
   const teachingComposer = useTeachingComposerCommands({
     enabled: isTeachingMode,
     // Slash input presents Skills only; teaching commands remain submit-time
@@ -2305,7 +2308,9 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       }
     : undefined
   const canForkTurns = Boolean(activeConversationId && activeSessionTree && activeBranchStatus === 'active' && !agentChatBusy)
-  const pendingAskStreamId = pendingAgentConversation?.summary.id ?? null
+  // Host registries key Ask/permission waiters by runtime stream id. The
+  // pending conversation id is renderer-local optimistic presentation only.
+  const pendingAskStreamId = pendingAgentConversation?.runtimeStreamId ?? pendingAgentConversation?.summary.id ?? null
   const pendingAsk = pendingAskStreamId
     ? selectPendingAsk(agentTurns, pendingAskStreamId)
     : null
@@ -2348,6 +2353,16 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const blockedPermission = conversationPresentation.blocked?.kind === 'tool_permission'
     ? conversationPresentation.blocked
     : null
+  const interruptionRequestKey = blockedAsk?.command
+    ? `ask:${blockedAsk.command.streamId}:${blockedAsk.command.toolCallId}`
+    : blockedPermission?.command
+      ? `permission:${blockedPermission.command.streamId}:${blockedPermission.command.toolCallId}`
+      : null
+  useEffect(() => {
+    interruptionSubmittingRef.current = false
+    setInterruptionSubmitting(false)
+    setInterruptionSubmitError(null)
+  }, [interruptionRequestKey])
   // B-12: agentChatBusy defaults to queue (not hard-block). Still block on generation pipeline / interruption / readonly.
   const canSend = Boolean(
     active &&
@@ -2435,37 +2450,42 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     if (isTeachingMode) submitTeachingPrompt(rawInput)
     else submitChatPrompt(rawInput)
   }
+  const submitInterruptedToolAnswer = async (streamId: string, toolCallId: string, answers: AskAnswer[]): Promise<void> => {
+    if (interruptionSubmittingRef.current) return
+    interruptionSubmittingRef.current = true
+    setInterruptionSubmitting(true)
+    setInterruptionSubmitError(null)
+    try {
+      const api = window.teachingSystem
+      if (!api) throw new Error('当前环境不支持向模型提交回答。')
+      await api.answerAgentChatTool(streamId, toolCallId, answers)
+    } catch {
+      // Keep the interruption visible and actionable; the host has not settled
+      // this tool call, so the learner must be able to retry instead of seeing a
+      // silent no-op.
+      interruptionSubmittingRef.current = false
+      setInterruptionSubmitting(false)
+      setInterruptionSubmitError('回答未能提交给模型，请重试。')
+    }
+  }
   const answerAsk = (answers: AskAnswer[]): void => {
     const command = blockedAsk?.command
     if (!command) return
-    void Promise.resolve()
-      .then(() => window.teachingSystem?.answerAgentChatTool(
-        command.streamId,
-        command.toolCallId,
-        answers
-      ))
-      .catch(() => {
-        // Unsupported browser capabilities fail closed; keep the shared dialog
-        // usable instead of allowing a click to escape into the global boundary.
-      })
+    void submitInterruptedToolAnswer(command.streamId, command.toolCallId, answers)
   }
   const answerPermission = (decision: 'allow_once' | 'allow_for_run' | 'allow_for_directory' | 'deny'): void => {
     const command = blockedPermission?.command
     if (!command) return
-    void Promise.resolve()
-      .then(() => window.teachingSystem?.answerAgentChatTool(
-        command.streamId,
-        command.toolCallId,
-        [
-          { questionId: 'permission', selected: [decision] },
-          ...(decision === 'allow_for_directory' && blockedPermission.request.directoryScopePath
-            ? [{ questionId: 'scope', selected: [blockedPermission.request.directoryScopePath] }]
-            : [])
-        ]
-      ))
-      .catch(() => {
-        // See answerAsk: a Web capability denial is intentionally inert.
-      })
+    void submitInterruptedToolAnswer(
+      command.streamId,
+      command.toolCallId,
+      [
+        { questionId: 'permission', selected: [decision] },
+        ...(decision === 'allow_for_directory' && blockedPermission.request.directoryScopePath
+          ? [{ questionId: 'scope', selected: [blockedPermission.request.directoryScopePath] }]
+          : [])
+      ]
+    )
   }
   const setInputFromHistory = (value: string): void => {
     setAgentInput(value)
@@ -2647,6 +2667,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             onSubmit={answerAsk}
             onDismiss={() => answerAsk([])}
             onCancel={() => void cancelAgentChat()}
+            submitting={interruptionSubmitting}
+            error={interruptionSubmitError}
           />
         ) : blockedPermission ? (
           <ToolPermissionCard
@@ -2655,6 +2677,8 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             onAllowRun={() => answerPermission('allow_for_run')}
             onAllowDirectory={() => answerPermission('allow_for_directory')}
             onDeny={() => answerPermission('deny')}
+            submitting={interruptionSubmitting}
+            error={interruptionSubmitError}
           />
         ) : null}
       >
@@ -2847,13 +2871,17 @@ function ToolPermissionCard({
   onAllowOnce,
   onAllowRun,
   onAllowDirectory,
-  onDeny
+  onDeny,
+  submitting = false,
+  error = null
 }: {
   request: AgentToolPermissionRequest
   onAllowOnce: () => void
   onAllowRun: () => void
   onAllowDirectory: () => void
   onDeny: () => void
+  submitting?: boolean
+  error?: string | null
 }) {
   const target = request.targetPath || request.toolName
   return (
@@ -2867,6 +2895,7 @@ function ToolPermissionCard({
         <div className="ask-card__question-header">{request.operation}</div>
         <p>{target}</p>
       </div>
+      {error ? <div className="ask-card__error" role="alert">{error}</div> : null}
 
       {request.reason ? (
         <div className="tool-permission-card__reason">
@@ -2876,21 +2905,21 @@ function ToolPermissionCard({
       ) : null}
 
       <div className="ask-card__footer tool-permission-card__actions">
-        <button type="button" className="ask-card__ghost" onClick={onDeny}>
+        <button type="button" className="ask-card__ghost" disabled={submitting} onClick={onDeny}>
           <X size={12} />
           拒绝
         </button>
         {request.directoryScopePath ? (
-          <button type="button" className="ask-card__ghost" onClick={onAllowDirectory}>
+          <button type="button" className="ask-card__ghost" disabled={submitting} onClick={onAllowDirectory}>
             <Check size={12} />
             允许目录 {request.directoryScopePath}
           </button>
         ) : null}
-        <button type="button" className="ask-card__ghost" onClick={onAllowRun}>
+        <button type="button" className="ask-card__ghost" disabled={submitting} onClick={onAllowRun}>
           <Check size={12} />
           本轮同类写入
         </button>
-        <button type="button" className="ask-card__primary" onClick={onAllowOnce}>
+        <button type="button" className="ask-card__primary" disabled={submitting} onClick={onAllowOnce}>
           <Check size={12} />
           允许本次写入
         </button>
@@ -2904,13 +2933,17 @@ function AskCard({
   deadlineAt,
   onSubmit,
   onDismiss,
-  onCancel
+  onCancel,
+  submitting = false,
+  error = null
 }: {
   questions: AskQuestion[]
   deadlineAt?: string | null
   onSubmit: (answers: AskAnswer[]) => void
   onDismiss: () => void
   onCancel?: () => void
+  submitting?: boolean
+  error?: string | null
 }) {
   const { t } = useTranslation()
   const [active, setActive] = useState(0)
@@ -2961,6 +2994,7 @@ function AskCard({
     })
 
   const advanceOrSubmit = (): void => {
+    if (submitting) return
     const answers = collectAnswers()
     if (active < total - 1) {
       setActive(active + 1)
@@ -2970,6 +3004,7 @@ function AskCard({
   }
 
   const handleOptionClick = (label: string): void => {
+    if (submitting) return
     toggle(label)
     if (!question.multiSelect) {
       window.setTimeout(() => {
@@ -3031,6 +3066,7 @@ function AskCard({
         {question.header && <div className="ask-card__question-header">{question.header}</div>}
         <p>{question.prompt}</p>
       </div>
+      {error ? <div className="ask-card__error" role="alert">{error}</div> : null}
 
       <div className="ask-options">
         {question.options.map((option) => {

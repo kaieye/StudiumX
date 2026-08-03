@@ -32,6 +32,8 @@ export type PendingAgentConversation = {
   turns: AgentChatTurn[]
   status: string
   toolsSupported: boolean | null
+  /** Opaque host runtime stream correlation; never persisted as a conversation id. */
+  runtimeStreamId?: string
 }
 
 export type SidebarConversationSummary = AgentConversationSummary & { pending?: true }

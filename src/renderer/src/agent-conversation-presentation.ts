@@ -190,9 +190,8 @@ function presentTurn(turn: AgentChatTurn, active: boolean): AgentConversationTur
   )
   for (const item of buildAgentProcessTimeline(turn)) {
     if (item.kind === 'event') {
-      // Provider reasoning is raw chain-of-thought, not learner-facing process
-      // evidence. Keep the structured tool/status events that explain progress.
-      if (item.event.kind === 'reasoning') continue
+      // The product exposes model reasoning as part of the agent process. It is
+      // projected separately from teaching authority and preserves provider text verbatim.
       if (item.event.kind === 'tool_result' && item.event.toolCallId && liveToolCallIds.has(item.event.toolCallId)) continue
       items.push(presentProcessEvent(item.event, item.toolCall, toolResultDiagnostics, effectivelyActive, status))
       continue
@@ -350,16 +349,20 @@ function presentProcessEvent(
               : 'complete'
   const resultFocused = isResultEvidence(kind)
   const disclosure = undefined
-  const detail = kind === 'tool_call'
-    ? undefined
-    : resultFocused && toolCall && isDisclosureOnlyToolResult(toolCall, toolDiagnostic)
+  const detail = kind === 'reasoning'
+    ? event.detail
+    : kind === 'tool_call'
       ? undefined
-      : compactText(event.detail, 180)
+      : resultFocused && toolCall && isDisclosureOnlyToolResult(toolCall, toolDiagnostic)
+        ? undefined
+        : compactText(event.detail, 180)
 
   return {
     id: `event:${event.id}`,
     kind,
-    label: compactLabel(event.title || fallbackLabel(kind, event.status, event.toolName), 72),
+    label: kind === 'reasoning'
+      ? (event.title || fallbackLabel(kind, event.status, event.toolName))
+      : compactLabel(event.title || fallbackLabel(kind, event.status, event.toolName), 72),
     detail,
     state,
     disclosure

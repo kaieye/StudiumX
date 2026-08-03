@@ -1,6 +1,6 @@
 import type {
   AgentEventBusReplay,
-  AgentRealtimeEvent,
+  AgentRealtimeDeliveryEvent,
   AgentChatStreamChunk,
   AgentChatStreamDone,
   AgentChatStreamPayload,
@@ -43,7 +43,11 @@ import type {
   SteerAgentChatStreamPayload,
   SteerAgentChatStreamResult,
   FollowUpAgentChatStreamPayload,
-  FollowUpAgentChatStreamResult
+  FollowUpAgentChatStreamResult,
+  SubmitConversationTurnDisposition,
+  SubmitConversationTurnIntent,
+  CancelConversationTurnDisposition,
+  CancelConversationTurnIntent
 } from './agent'
 import type {
   CreateTeachingMemoryPayload,
@@ -230,6 +234,20 @@ export type TeachingSystemApi = {
   ) => Promise<LessonStreamDone>
   onLessonStreamChunk: (handler: (chunk: LessonStreamChunk) => void) => () => void
   onLessonStreamStatus: (handler: (status: LessonStreamStatus) => void) => () => void
+  /**
+   * Submit one conversation-turn intent to the host (ADR-0170 §4.1).
+   * The host validates this narrow DTO and reads canonical conversation state;
+   * callers cannot submit a replacement transcript or tool-sensitive payload.
+   * Host parser/validator implementation is intentionally owned by the gateway
+   * integration change; this public signature freezes its expected boundary.
+   */
+  submitConversationTurn: (
+    intent: SubmitConversationTurnIntent
+  ) => Promise<SubmitConversationTurnDisposition>
+  /** Exact ADR-0170 host-lane cancellation; legacy stream cancellation remains compatibility-only. */
+  cancelConversationTurn: (
+    intent: CancelConversationTurnIntent
+  ) => Promise<CancelConversationTurnDisposition>
   agentChatStream: (
     payload: AgentChatStreamPayload,
     onChunk: (chunk: AgentChatStreamChunk) => void,
@@ -252,7 +270,7 @@ export type TeachingSystemApi = {
   onAgentChatChunk: (handler: (chunk: AgentChatStreamChunk) => void) => () => void
   onAgentChatStatus: (handler: (status: AgentChatStreamStatus) => void) => () => void
   onAgentChatTool: (handler: (event: AgentChatStreamToolEvent) => void) => () => void
-  onAgentChatEvent: (handler: (event: AgentRealtimeEvent) => void) => () => void
+  onAgentChatEvent: (handler: (event: AgentRealtimeDeliveryEvent) => void) => () => void
   /** OS suspend/resume fan-out (ADR-0129 §4). Signal only — pin stays renderer dual-write. */
   onSystemPower: (handler: (event: import('../teaching-ipc-contract').SystemPowerEvent) => void) => () => void
   saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   parseAgentChatStreamPayload,
+  parseSubmitConversationTurnIntent,
+  parseCancelConversationTurnIntent,
   parsePreviewSkillOrchestrationPayload,
   parseSetWorkspaceTrustPayload
 } from '../../src/main/teaching-ipc-commands'
@@ -98,5 +100,183 @@ describe('skill orchestration IPC payloads', () => {
     expect(() => parsePreviewSkillOrchestrationPayload({
       selectedSkillIds: [], presetId: 'not-a-preset'
     })).toThrow('known preset')
+  })
+})
+
+
+describe('parseSubmitConversationTurnIntent', () => {
+  const canonicalIntent = {
+    target: {
+      kind: 'canonical' as const,
+      workspaceId: 'workspace-1',
+      scope: 'workspace' as const,
+      conversationId: 'conversation-1'
+    },
+    clientRequestId: 'request-1',
+    text: 'Explain momentum.',
+    mode: 'teaching' as const,
+    delivery: 'steer' as const,
+    expectedBranchRevision: 4,
+    expectedActiveTurnId: 'turn-1',
+    skillIds: [' Physics-Basics ', 'physics-basics']
+  }
+
+  it('accepts only the narrow turn intent and reuses skill-id normalization', () => {
+    expect(parseSubmitConversationTurnIntent(canonicalIntent)).toEqual({
+      target: {
+        kind: 'canonical',
+        workspaceId: 'workspace-1',
+        scope: 'workspace',
+        conversationId: 'conversation-1'
+      },
+      clientRequestId: 'request-1',
+      text: 'Explain momentum.',
+      mode: 'teaching',
+      delivery: 'steer',
+      expectedBranchRevision: 4,
+      expectedActiveTurnId: 'turn-1',
+      skillIds: ['physics-basics']
+    })
+
+    expect(parseSubmitConversationTurnIntent({
+      target: {
+        kind: 'pending',
+        workspaceId: 'workspace-1',
+        scope: 'temporary',
+        pendingConversationId: 'pending-1'
+      },
+      clientRequestId: 'pending-request-1',
+      text: 'Start a temporary chat.',
+      mode: 'temporary',
+      delivery: 'follow_up'
+    })).toEqual({
+      target: {
+        kind: 'pending',
+        workspaceId: 'workspace-1',
+        scope: 'temporary',
+        pendingConversationId: 'pending-1'
+      },
+      clientRequestId: 'pending-request-1',
+      text: 'Start a temporary chat.',
+      mode: 'temporary',
+      delivery: 'follow_up'
+    })
+  })
+
+  it('rejects unknown fields rather than accepting transcript or tool payloads', () => {
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, extra: true }))
+      .toThrow('unsupported field')
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, transcript: [] }))
+      .toThrow('unsupported field')
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, messages: [] }))
+      .toThrow('unsupported field')
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, context: 'untrusted context' }))
+      .toThrow('unsupported field')
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, toolCalls: [] }))
+      .toThrow('unsupported field')
+  })
+
+  it('rejects invalid enums, identity shapes, active ids, and revisions', () => {
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, mode: 'other' }))
+      .toThrow('mode')
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, delivery: 'later' }))
+      .toThrow('delivery')
+    expect(() => parseSubmitConversationTurnIntent({
+      ...canonicalIntent,
+      target: { ...canonicalIntent.target, scope: 'temporary' }
+    })).toThrow('must match target "scope"')
+    expect(() => parseSubmitConversationTurnIntent({
+      ...canonicalIntent,
+      target: { ...canonicalIntent.target, conversationId: '../escape' }
+    })).toThrow('canonical conversation id')
+    expect(() => parseSubmitConversationTurnIntent({
+      ...canonicalIntent,
+      target: { ...canonicalIntent.target, pendingConversationId: 'pending-2' }
+    })).toThrow('unsupported field')
+    expect(() => parseSubmitConversationTurnIntent({
+      ...canonicalIntent,
+      target: {
+        kind: 'pending', workspaceId: 'workspace-1', scope: 'workspace',
+        pendingConversationId: '../pending', conversationId: 'conversation-1'
+      }
+    })).toThrow('unsupported field')
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, clientRequestId: '../request' }))
+      .toThrow('clientRequestId')
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, expectedActiveTurnId: '../turn' }))
+      .toThrow('expectedActiveTurnId')
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, expectedBranchRevision: -1 }))
+      .toThrow('expectedBranchRevision')
+    expect(() => parseSubmitConversationTurnIntent({ ...canonicalIntent, expectedBranchRevision: 1.5 }))
+      .toThrow('expectedBranchRevision')
+    expect(() => parseSubmitConversationTurnIntent({
+      ...canonicalIntent, delivery: 'steer', expectedActiveTurnId: undefined
+    })).toThrow('requires "expectedActiveTurnId"')
+  })
+})
+
+
+describe('parseCancelConversationTurnIntent', () => {
+  const canonicalIntent = {
+    target: {
+      kind: 'canonical' as const,
+      workspaceId: 'workspace-1',
+      scope: 'workspace' as const,
+      conversationId: 'conversation-1'
+    },
+    clientRequestId: 'cancel-request-1',
+    expectedActiveTurnId: 'turn-1'
+  }
+
+  it('accepts only exact lane identity and opaque active-turn concurrency ids', () => {
+    expect(parseCancelConversationTurnIntent(canonicalIntent)).toEqual(canonicalIntent)
+    expect(parseCancelConversationTurnIntent({
+      target: {
+        kind: 'pending',
+        workspaceId: 'workspace-1',
+        scope: 'temporary',
+        pendingConversationId: 'pending-1'
+      },
+      clientRequestId: 'cancel-request-2',
+      expectedActiveTurnId: 'turn-2'
+    })).toEqual({
+      target: {
+        kind: 'pending',
+        workspaceId: 'workspace-1',
+        scope: 'temporary',
+        pendingConversationId: 'pending-1'
+      },
+      clientRequestId: 'cancel-request-2',
+      expectedActiveTurnId: 'turn-2'
+    })
+  })
+
+  it('rejects broad transcript, context, tool, provider, and secret-shaped data', () => {
+    for (const extra of [
+      { extra: true },
+      { transcript: [] },
+      { messages: [] },
+      { context: 'untrusted context' },
+      { toolCalls: [] },
+      { provider: 'untrusted-provider' },
+      { secret: 'not-allowed' }
+    ]) {
+      expect(() => parseCancelConversationTurnIntent({ ...canonicalIntent, ...extra }))
+        .toThrow('unsupported field')
+    }
+    expect(() => parseCancelConversationTurnIntent({
+      ...canonicalIntent,
+      target: { ...canonicalIntent.target, pendingConversationId: 'pending-1' }
+    })).toThrow('unsupported field')
+  })
+
+  it('rejects malformed exact identity and concurrency ids', () => {
+    expect(() => parseCancelConversationTurnIntent({
+      ...canonicalIntent,
+      target: { ...canonicalIntent.target, conversationId: '../escape' }
+    })).toThrow('canonical conversation id')
+    expect(() => parseCancelConversationTurnIntent({ ...canonicalIntent, clientRequestId: '../request' }))
+      .toThrow('clientRequestId')
+    expect(() => parseCancelConversationTurnIntent({ ...canonicalIntent, expectedActiveTurnId: '../turn' }))
+      .toThrow('expectedActiveTurnId')
   })
 })

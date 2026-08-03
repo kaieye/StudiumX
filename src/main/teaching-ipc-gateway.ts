@@ -5,6 +5,12 @@ import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import { cancelStreamToolPermissionPending, resolveToolPermissionPending } from './ai/tool-permission-pending'
 import type { AgentEventBus } from './ai/agent-event-bus'
 import { AgentInputQueueRegistry } from './ai/agent-input-queue'
+import {
+  AgentConversationTurnLane,
+  type AgentConversationTurnLaneActiveReservation,
+  type ConversationLaneKey,
+  type SubmitConversationTurnIntent
+} from './ai/agent-conversation-turn-lane'
 import { AgentSessionFacade, AgentSessionFacadeRegistry } from './ai/agent-session-facade'
 import {
   mapAgentSessionPromptResultToIpc,
@@ -40,6 +46,8 @@ import {
   parseSaveAgentConversationPayload, parseSaveWorkspaceMarkdownPayload, parseSettingsPatch,
   parseUpdateAgentConversationBranchStatusPayload, parseUpdateMemoryPayload, parseUpdateMissionPayload, parseSetWorkspaceTrustPayload,
   parseWorkspaceItemMetaPayload,
+  parseSubmitConversationTurnIntent,
+  parseCancelConversationTurnIntent,
   parseWorkspaceItemRemovePayload, parseWorkspaceRemovePayload, parseRunTeachingDoctorPayload, parseProjectTeachingTurnReviewPayload, parseDecideTeachingTurnReviewPayload, parseProjectTeachingTurnReviewHandoffPayload, parseGetTeachingTurnReviewLastBundlePayload, parseSaveTeachingTurnReviewLastBundlePayload, requireStreamId, requireString,
   requireWindowControlAction
 } from './teaching-ipc-commands'
@@ -71,7 +79,7 @@ import {
   runApplyStudyPlanningIpc,
   runReadStudyPlanningIpc
 } from './study-planning-ipc'
-import type { AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
+import type { AgentChatStreamPayload, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
 import {
   normalizeAgentSandboxMode,
   resolveAgentSandboxReadiness
@@ -128,11 +136,32 @@ type GatewayContext = TeachingIpcRegistration & {
    * TeachingSessionProtocol (ADR-0040).
    */
   agentSessionFacades: AgentSessionFacadeRegistry
+  /** Main-only ADR-0170 lane; its snapshot deliberately contains no turn text. */
+  conversationTurnLane: AgentConversationTurnLane
+  /** Exact stream-to-lane bindings used to bridge the legacy cancel capability safely. */
+  conversationTurnStreams: Map<string, ConversationTurnStreamBinding>
+  /** Private reservation-to-renderer ownership; never projected through lane snapshots or DTOs. */
+  conversationTurnOwners: Map<string, ConversationTurnOwnerBinding>
+  /** Canonical legacy streams are guarded from racing a migrated host lane. */
+  legacyConversationTargets: Map<string, ConversationLaneKey>
   /** Weakly remembers senders whose preview lifecycle hooks are already installed. */
   previewBindingLifecycleSenders: WeakSet<Electron.WebContents>
 }
 
 type AgentStreamSession = { streamId: string; controller: AbortController; payload: unknown }
+
+type ConversationTurnStreamBinding = {
+  target: ConversationLaneKey
+  activeTurnId: string
+  controller: AbortController
+  facade: AgentSessionFacade
+}
+
+type ConversationTurnOwnerBinding = {
+  target: ConversationLaneKey
+  clientRequestId: string
+  sender: Electron.WebContents
+}
 
 type GatewayCommand = {
   channel: string
@@ -246,6 +275,10 @@ export function registerTeachingIpcGateway(registration: TeachingIpcRegistration
     agentStreamSessions: new WeakMap(),
     agentInputQueues: new AgentInputQueueRegistry(),
     agentSessionFacades: new AgentSessionFacadeRegistry(),
+    conversationTurnLane: new AgentConversationTurnLane(),
+    conversationTurnStreams: new Map(),
+    conversationTurnOwners: new Map(),
+    legacyConversationTargets: new Map(),
     previewBindingLifecycleSenders: new WeakSet()
   }
   const channels = new Set<string>()
@@ -273,6 +306,169 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     resolveRegisteredWorkspaceRoot((await service.getState()).workspaces, rawWorkspaceRoot)
   const resolveOptionalWorkspaceRoot = async (rawWorkspaceRoot: string | undefined) =>
     resolveOptionalRegisteredWorkspaceRoot((await service.getState()).workspaces, rawWorkspaceRoot)
+
+  /**
+   * ADR-0170 host runner. This function accepts only an already-reserved lane
+   * identity; it is deliberately not a general replacement for the legacy IPC
+   * stream entry point.
+   */
+  const startReservedConversationTurn = (reservation: AgentConversationTurnLaneActiveReservation): void => {
+    const owner = findConversationTurnOwner(context, reservation)
+    if (!owner || owner.sender.isDestroyed()) {
+      // A queued reservation must never inherit a prior renderer's event sink.
+      // If its owner disappeared before activation, cancel this exact lane and
+      // clear its FIFO rather than starting a model run without a safe receiver.
+      const cancelled = context.conversationTurnLane.cancel({
+        target: reservation.target,
+        clientRequestId: `host-owner-unavailable:${reservation.streamId}:${reservation.activeTurnId}`,
+        expectedActiveTurnId: reservation.activeTurnId
+      })
+      if (cancelled.code === 'cancelled') {
+        clearConversationTurnOwnersForTarget(context, reservation.target)
+        context.conversationTurnLane.complete({
+          target: reservation.target,
+          activeTurnId: reservation.activeTurnId,
+          streamId: reservation.streamId
+        })
+      }
+      return
+    }
+    // This is deliberately sent on the typed realtime event channel rather
+    // than as an untyped side channel. A direct starter already knows its
+    // stream from the disposition; a queued owner uses this correlation to
+    // begin projecting the newly activated stream.
+    safeSend(owner.sender, teachingEventChannels.agentChatEvent, conversationTurnStartedEvent(reservation))
+    void runReservedConversationTurn(owner.sender, reservation)
+  }
+
+  const runReservedConversationTurn = async (
+    sender: Electron.WebContents,
+    reservation: AgentConversationTurnLaneActiveReservation
+  ): Promise<void> => {
+    const { streamId, activeTurnId, intent } = reservation
+    let releaseTarget = reservation.target
+    const controller = new AbortController()
+    let productStreamResult: Awaited<ReturnType<TeachingWorkspaceService['agentChatStream']>> | undefined
+
+    const facade = new AgentSessionFacade({
+      streamId,
+      conversationId: reservation.target.kind === 'canonical' ? reservation.target.conversationId : undefined,
+      createAbortController: () => controller,
+      // The lane, rather than the façade, is the sole automatic queue consumer
+      // for this migrated host path.
+      autoDrain: false,
+      run: async (invokerInput) => {
+        try {
+          const canonical = await loadCanonicalConversationForReservation(service, reservation)
+          // Cancellation may arrive while canonical state is being read. Do not
+          // start a provider run after the exact lane reservation was cancelled.
+          if (invokerInput.signal.aborted || controller.signal.aborted) return { streamId, canceled: true }
+          // The renderer revision is only an observation. Every reservation,
+          // including one promoted from FIFO, starts from the just-read canonical
+          // branch revision rather than rejecting or reusing a stale claim.
+          const payload = conversationReservationPayload({ reservation, canonical })
+          const result = await service.agentChatStream(payload, {
+            streamId,
+            signal: invokerInput.signal,
+            onChunk: (chunk) => safeSend(sender, teachingEventChannels.agentChatChunk, chunk),
+            onStatus: (status) => safeSend(sender, teachingEventChannels.agentChatStatus, status),
+            onTool: (toolEvent) => safeSend(sender, teachingEventChannels.agentChatTool, toolEvent),
+            onRealtimeEvent: (realtimeEvent) => safeSend(sender, teachingEventChannels.agentChatEvent, realtimeEvent),
+            onEventBusReady: (eventBus) => retainAgentEventBus(streamId, eventBus)
+          })
+          productStreamResult = result
+          if ('error' in result && result.error) return { streamId, error: result.message }
+          if ('canceled' in result && result.canceled) return { streamId, canceled: true }
+          if (!('turns' in result)) return { streamId, error: 'conversation_turn_result_unavailable' }
+
+          // The runtime may return a complete transcript, but it must prove the
+          // canonical prefix byte-for-byte before host is permitted to persist it.
+          // A delta-only or divergent response is not safe to append by guesswork.
+          const turns = mergeHostConversationTurns(canonical?.record.turns ?? [], result.turns)
+          if (!turns) throw new Error('conversation_transcript_prefix_mismatch')
+          const saved = await service.saveAgentConversation({
+            workspaceId: reservation.target.workspaceId,
+            runId: streamId,
+            mode: intent.mode,
+            conversationId: reservation.target.kind === 'canonical' ? reservation.target.conversationId : null,
+            ...(canonical ? { expectedBranchRevision: canonical.revision } : {}),
+            selectedLessonPath: null,
+            selectedCourseRelativePath: null,
+            turns
+          })
+          analytics.invalidate(['conversation'])
+
+          if (reservation.target.kind === 'pending') {
+            const canonicalTarget: ConversationLaneKey = {
+              kind: 'canonical',
+              workspaceId: reservation.target.workspaceId,
+              scope: reservation.target.scope,
+              conversationId: saved.conversation.id
+            }
+            const promotion = context.conversationTurnLane.promotePending({
+              pendingTarget: reservation.target,
+              canonicalTarget
+            })
+            if (promotion.code !== 'rekeyed') {
+              // Do not allow a stale pending FIFO to execute if its canonical
+              // rekey cannot be made atomically (for example, a canonical lane
+              // appeared while the first save was settling).
+              const cancelled = context.conversationTurnLane.cancel({
+                target: reservation.target,
+                clientRequestId: `host-promotion-failed:${streamId}:${activeTurnId}`,
+                expectedActiveTurnId: activeTurnId
+              })
+              if (cancelled.code === 'cancelled') {
+                clearConversationTurnOwnersForTarget(context, reservation.target)
+              }
+              return { streamId, error: 'conversation_lane_promotion_failed' }
+            }
+            releaseTarget = promotion.target
+            moveConversationTurnOwnersToCanonicalTarget(context, reservation.target, promotion.target)
+            const binding = context.conversationTurnStreams.get(streamId)
+            if (binding && binding.activeTurnId === activeTurnId) binding.target = promotion.target
+          }
+          return mapAgentChatStreamResultToRunResult(streamId, result)
+        } catch (error) {
+          if (invokerInput.signal.aborted || controller.signal.aborted) return { streamId, canceled: true }
+          // Do not log model/save errors here: their text can contain provider,
+          // transcript, or tool-sensitive data. The lane is released below.
+          return { streamId, error: error instanceof Error ? error.name : 'conversation_turn_failed' }
+        }
+      }
+    })
+
+    context.conversationTurnStreams.set(streamId, { target: reservation.target, activeTurnId, controller, facade })
+    context.activeAgentChatStreams.set(streamId, controller)
+    context.agentSessionFacades.attach(streamId, facade)
+
+    let failed = false
+    try {
+      const prompt = await facade.prompt({
+        text: intent.text,
+        conversationId: reservation.target.kind === 'canonical' ? reservation.target.conversationId : undefined
+      })
+      failed = !prompt.ok || Boolean(productStreamResult && 'error' in productStreamResult && productStreamResult.error)
+      // A pre-run canonical rejection is represented by the façade result rather
+      // than a service result, and must still unlock the exact reservation.
+      if (prompt.ok && prompt.run?.error) failed = true
+    } catch {
+      failed = !controller.signal.aborted
+    } finally {
+      context.conversationTurnStreams.delete(streamId)
+      context.conversationTurnOwners.delete(conversationTurnOwnerKey(releaseTarget, intent.clientRequestId))
+      if (context.activeAgentChatStreams.get(streamId) === controller) context.activeAgentChatStreams.delete(streamId)
+      context.agentSessionFacades.detach(streamId)
+      facade.setPhase('idle')
+      cancelStreamAskPending(streamId)
+      cancelStreamToolPermissionPending(streamId)
+
+      const release = failed
+        ? context.conversationTurnLane.fail({ target: releaseTarget, activeTurnId, streamId })
+        : context.conversationTurnLane.complete({ target: releaseTarget, activeTurnId, streamId })
+      if (release.code === 'released' && release.next) startReservedConversationTurn(release.next)
+    }
+  }
 
   return [
     command({ channel: teachingInvokeChannels.getState, parser: () => undefined, action: () => service.getState(), reply: identityReply, streamCleanup: noStreamCleanup }),
@@ -384,9 +580,112 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       }, reply: identityReply, streamCleanup: noStreamCleanup
     }),
     command({
+      channel: teachingInvokeChannels.submitConversationTurn,
+      parser: (payload) => parseSubmitConversationTurnIntent(payload),
+      action: async (event, intent) => {
+        // Do not create a host reservation that would race a legacy stream for
+        // the exact same canonical conversation. Legacy remains compatible, but
+        // cannot become a second producer for a migrated lane.
+        if (intent.target.kind === 'canonical' && hasLegacyConversationTarget(context, intent.target)) {
+          return { code: 'rejected' as const, reason: 'branch_unavailable' as const }
+        }
+
+        // The lane owns exact identity validation. The façade is only an
+        // injection adapter, and its unsafe busy policy would otherwise queue a
+        // steer behind this one reservation (with autoDrain deliberately off).
+        // Reject before creating a lane receipt unless this exact active facade
+        // is at an actual injection boundary; never retarget/demote to follow-up.
+        if (intent.delivery === 'steer' && !canInjectHostLaneSteer(context, intent)) {
+          return { code: 'refresh_required' as const, reason: 'active_turn_mismatch' as const }
+        }
+
+        const disposition = context.conversationTurnLane.submit(intent)
+        if (disposition.code === 'started' || disposition.code === 'queued') {
+          // Queued dispositions intentionally have no future streamId in the
+          // frozen public contract. The host retains the submitter binding so
+          // its eventual active stream projects only to that renderer.
+          context.conversationTurnOwners.set(conversationTurnOwnerKey(intent.target, intent.clientRequestId), {
+            target: intent.target,
+            clientRequestId: intent.clientRequestId,
+            sender: event.sender
+          })
+        }
+        if (disposition.code === 'started') {
+          const reservation: AgentConversationTurnLaneActiveReservation = {
+            target: intent.target,
+            activeTurnId: disposition.activeTurnId,
+            streamId: disposition.streamId,
+            intent
+          }
+          startReservedConversationTurn(reservation)
+          return disposition
+        }
+        if (disposition.code === 'steered') {
+          const binding = context.conversationTurnStreams.get(disposition.streamId)
+          if (!binding || binding.activeTurnId !== disposition.activeTurnId || !sameConversationLaneKey(binding.target, intent.target)) {
+            // Never use a newer stream/facade as a fallback target.
+            return { code: 'refresh_required' as const, reason: 'active_turn_mismatch' as const }
+          }
+          const steerResult = await binding.facade.steer({ text: intent.text })
+          // An unsafe façade boundary must not silently become a deferred
+          // follow-up: the lane's exact `steer` intent is never retargeted.
+          if (!steerResult.ok || steerResult.disposition !== 'steered') {
+            return { code: 'refresh_required' as const, reason: 'active_turn_mismatch' as const }
+          }
+        }
+        return disposition
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.cancelConversationTurn,
+      parser: (payload) => parseCancelConversationTurnIntent(payload),
+      action: (_event, intent) => {
+        // The lane is authoritative for exact active-turn CAS and queue clearing.
+        // A non-cancel disposition must never trigger best-effort stream cleanup.
+        const disposition = context.conversationTurnLane.cancel(intent)
+        if (disposition.code !== 'cancelled') return disposition
+
+        // Bind cleanup to both the exact active turn and exact lane key. Never
+        // fall back to another stream, even if the pending lane was promoted.
+        const match = findConversationTurnStreamBinding(
+          context,
+          intent.target,
+          disposition.cancelledActiveTurnId
+        )
+        if (!match) return disposition
+
+        const { streamId, binding } = match
+        clearConversationTurnOwnersForTarget(context, binding.target)
+        if (!binding.controller.signal.aborted) binding.controller.abort()
+        if (context.activeAgentChatStreams.get(streamId) === binding.controller) {
+          context.activeAgentChatStreams.delete(streamId)
+        }
+        context.agentSessionFacades.abortAndDetach(streamId, 'cancel_conversation_turn')
+        context.agentInputQueues.clearOnCancel(streamId, 'cancel_conversation_turn')
+        cancelStreamAskPending(streamId)
+        cancelStreamToolPermissionPending(streamId)
+        // Do not complete/release here: the active host run owns final lane
+        // release. lane.cancel already cleared its exact FIFO, so finalization
+        // cannot promote a cancelled successor.
+        return disposition
+      },
+      reply: identityReply,
+      streamCleanup: noStreamCleanup
+    }),
+    command({
       channel: teachingInvokeChannels.agentChatStream, parser: (payload) => parseAgentChatStreamPayload(payload),
       action: async (event, payload) => {
         const suppliedStreamId = payload.streamId
+        const legacyTarget = legacyCanonicalConversationTarget(payload)
+        if (legacyTarget && hasActiveConversationLane(context, legacyTarget)) {
+          return {
+            streamId: suppliedStreamId ?? '',
+            error: true as const,
+            message: 'Agent conversation is already managed by the host lane.'
+          }
+        }
         // A retry may reuse an id only after the earlier run settled. While it
         // is active, reject the duplicate instead of replacing its controller
         // and letting two turns share one stream identity.
@@ -400,6 +699,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         const streamId = suppliedStreamId ?? `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
         const controller = new AbortController()
         context.activeAgentChatStreams.set(streamId, controller)
+        if (legacyTarget) context.legacyConversationTargets.set(streamId, legacyTarget)
         const senderSessions = context.agentStreamSessions.get(event) ?? new Set<AgentStreamSession>()
         senderSessions.add({ streamId, controller, payload })
         context.agentStreamSessions.set(event, senderSessions)
@@ -493,6 +793,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         // session. Its generic command cleanup must not detach the live turn.
         if (!session || session.payload !== payload) return
         if (context.activeAgentChatStreams.get(session.streamId) === session.controller) context.activeAgentChatStreams.delete(session.streamId)
+        context.legacyConversationTargets.delete(session.streamId)
         senderSessions?.delete(session)
         if (senderSessions?.size === 0) context.agentStreamSessions.delete(event)
         // Safety: drop façade if action finally did not run (e.g. parse failure).
@@ -507,6 +808,25 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({
       channel: teachingInvokeChannels.cancelAgentChatStream, parser: (streamId) => requireStreamId(streamId),
       action: (_event, streamId) => {
+        const laneBinding = context.conversationTurnStreams.get(streamId)
+        if (laneBinding) {
+          // The public compatibility API only exposes streamId. Bind it to the
+          // exact active lane identity before clearing any queue; no best-effort
+          // retargeting is permitted.
+          const cancelled = context.conversationTurnLane.cancel({
+            target: laneBinding.target,
+            clientRequestId: `legacy-stream-cancel:${streamId}:${laneBinding.activeTurnId}`,
+            expectedActiveTurnId: laneBinding.activeTurnId
+          })
+          if (cancelled.code !== 'cancelled') return { canceled: false }
+          clearConversationTurnOwnersForTarget(context, laneBinding.target)
+          laneBinding.controller.abort()
+          context.activeAgentChatStreams.delete(streamId)
+          context.agentSessionFacades.abortAndDetach(streamId, 'cancel_agent_chat_stream')
+          context.agentInputQueues.clearOnCancel(streamId, 'cancel_agent_chat_stream')
+          cancelStreamAskPending(streamId); cancelStreamToolPermissionPending(streamId)
+          return { canceled: true }
+        }
         const controller = context.activeAgentChatStreams.get(streamId)
         if (controller) { controller.abort(); context.activeAgentChatStreams.delete(streamId) }
         // B-01/B-02: cancel clears queued follow-up/steer (registry + optional façade).
@@ -521,6 +841,9 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       channel: teachingInvokeChannels.steerAgentChatStream,
       parser: (payload) => parseSteerAgentChatPayload(payload),
       action: async (_event, payload) => {
+        // Host-lane streams accept only the exact ADR-0170 submit delivery:'steer'
+        // path. Legacy APIs must not discover or drive their façade.
+        if (context.conversationTurnStreams.has(payload.streamId)) return noActiveAgentSessionIpcResult()
         // Mid-run steer delegates to the attached façade (≠ abort). Product autoDrain stays false.
         const facade = context.agentSessionFacades.get(payload.streamId)
         if (!facade) return noActiveAgentSessionIpcResult()
@@ -540,6 +863,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       channel: teachingInvokeChannels.followUpAgentChatStream,
       parser: (payload) => parseFollowUpAgentChatPayload(payload),
       action: async (_event, payload) => {
+        // Host-lane streams are isolated from the legacy follow-up façade path.
+        if (context.conversationTurnStreams.has(payload.streamId)) return noActiveAgentSessionIpcResult()
         // Mid-run follow-up: busy policy queues by default; does not flip autoDrain.
         const facade = context.agentSessionFacades.get(payload.streamId)
         if (!facade) return noActiveAgentSessionIpcResult()
@@ -569,7 +894,11 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     }),
     command({
       channel: teachingInvokeChannels.answerAgentChatTool, parser: (payload) => decodeToolAnswerPayload(payload),
-      action: (_event, payload) => { if (!resolveAskPending(payload.streamId, payload.toolCallId, payload.answers)) resolveToolPermissionPending(payload.streamId, payload.toolCallId, payload.answers); return { ok: true } },
+      action: (_event, payload) => {
+        if (resolveAskPending(payload.streamId, payload.toolCallId, payload.answers)) return { ok: true }
+        if (resolveToolPermissionPending(payload.streamId, payload.toolCallId, payload.answers)) return { ok: true }
+        throw new Error('No pending Ask or tool permission request matches this stream and tool call.')
+      },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
     command({
@@ -930,6 +1259,182 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       reply: identityReply, streamCleanup: noStreamCleanup
     })
   ]
+}
+
+type CanonicalConversationForReservation = {
+  record: { turns: AgentChatTurn[]; branch?: { revision?: number; status?: string } }
+  revision: number
+}
+
+async function loadCanonicalConversationForReservation(
+  service: TeachingWorkspaceService,
+  reservation: AgentConversationTurnLaneActiveReservation
+): Promise<CanonicalConversationForReservation | null> {
+  if (reservation.target.kind === 'pending') return null
+  const record = await service.readAgentConversation({
+    workspaceId: reservation.target.workspaceId,
+    conversationId: reservation.target.conversationId,
+    scope: reservation.target.scope
+  })
+  const revision = record.branch?.revision
+  if (record.branch?.status !== 'active' || !Number.isSafeInteger(revision) || (revision ?? -1) < 0) {
+    throw new Error('canonical_conversation_unavailable')
+  }
+  return { record, revision: revision as number }
+}
+
+function conversationReservationPayload(input: {
+  reservation: AgentConversationTurnLaneActiveReservation
+  canonical: CanonicalConversationForReservation | null
+}): AgentChatStreamPayload {
+  const { reservation, canonical } = input
+  const turns = canonical?.record.turns ?? []
+  return {
+    streamId: reservation.streamId,
+    workspaceId: reservation.target.workspaceId,
+    mode: reservation.intent.mode,
+    ...(reservation.target.kind === 'canonical'
+      ? { conversationId: reservation.target.conversationId, expectedBranchRevision: canonical?.revision }
+      : {}),
+    messages: turns.map((turn) => ({ role: turn.role, content: turn.content })),
+    ...(turns.length ? { messageTurnIds: turns.map((turn) => turn.id) } : {}),
+    userInput: reservation.intent.text,
+    ...(reservation.intent.skillIds?.length ? { skillIds: reservation.intent.skillIds } : {})
+  }
+}
+
+/**
+ * A complete runtime transcript may be persisted only when it proves the exact
+ * canonical prefix. Host never guesses that a delta belongs after the latest
+ * record: doing so would turn a stale or divergent response into a force write.
+ */
+function mergeHostConversationTurns(
+  canonicalTurns: readonly AgentChatTurn[],
+  streamTurns: readonly AgentChatTurn[]
+): AgentChatTurn[] | null {
+  if (streamTurns.length < canonicalTurns.length) return null
+  if (!canonicalTurns.every((turn, index) => sameHostConversationTurn(turn, streamTurns[index]))) return null
+  return [...streamTurns]
+}
+
+function sameHostConversationTurn(left: AgentChatTurn, right: AgentChatTurn | undefined): boolean {
+  if (!right) return false
+  return left.id === right.id && left.role === right.role && left.content === right.content
+}
+
+function conversationTurnStartedEvent(
+  reservation: AgentConversationTurnLaneActiveReservation
+): AgentConversationTurnStartedRealtimeEvent {
+  return {
+    sequence: 0,
+    streamId: reservation.streamId,
+    kind: 'conversation_turn_started',
+    createdAt: new Date().toISOString(),
+    activeTurnId: reservation.activeTurnId,
+    clientRequestId: reservation.intent.clientRequestId,
+    ...(reservation.target.kind === 'canonical' ? { conversationId: reservation.target.conversationId } : {})
+  }
+}
+
+function conversationTurnOwnerKey(target: ConversationLaneKey, clientRequestId: string): string {
+  return JSON.stringify([
+    target.kind,
+    target.workspaceId,
+    target.scope,
+    target.kind === 'canonical' ? target.conversationId : target.pendingConversationId,
+    clientRequestId
+  ])
+}
+
+function findConversationTurnOwner(
+  context: GatewayContext,
+  reservation: AgentConversationTurnLaneActiveReservation
+): ConversationTurnOwnerBinding | null {
+  const binding = context.conversationTurnOwners.get(
+    conversationTurnOwnerKey(reservation.target, reservation.intent.clientRequestId)
+  )
+  return binding && sameConversationLaneKey(binding.target, reservation.target) ? binding : null
+}
+
+function clearConversationTurnOwnersForTarget(context: GatewayContext, target: ConversationLaneKey): void {
+  for (const [key, binding] of context.conversationTurnOwners) {
+    if (sameConversationLaneKey(binding.target, target)) context.conversationTurnOwners.delete(key)
+  }
+}
+
+function moveConversationTurnOwnersToCanonicalTarget(
+  context: GatewayContext,
+  pendingTarget: ConversationLaneKey,
+  canonicalTarget: ConversationLaneKey
+): void {
+  for (const [key, binding] of [...context.conversationTurnOwners]) {
+    if (!sameConversationLaneKey(binding.target, pendingTarget)) continue
+    context.conversationTurnOwners.delete(key)
+    const moved: ConversationTurnOwnerBinding = { ...binding, target: canonicalTarget }
+    context.conversationTurnOwners.set(conversationTurnOwnerKey(canonicalTarget, moved.clientRequestId), moved)
+  }
+}
+
+function findConversationTurnStreamBinding(
+  context: GatewayContext,
+  target: ConversationLaneKey,
+  activeTurnId: string
+): { streamId: string; binding: ConversationTurnStreamBinding } | null {
+  for (const [streamId, binding] of context.conversationTurnStreams) {
+    if (binding.activeTurnId === activeTurnId && sameConversationLaneKey(binding.target, target)) {
+      return { streamId, binding }
+    }
+  }
+  return null
+}
+
+function canInjectHostLaneSteer(
+  context: GatewayContext,
+  intent: SubmitConversationTurnIntent
+): boolean {
+  const expectedActiveTurnId = intent.expectedActiveTurnId
+  if (!expectedActiveTurnId) return false
+  const lane = context.conversationTurnLane.snapshot().lanes.find((candidate) => sameConversationLaneKey(candidate.key, intent.target))
+  const active = lane?.active
+  if (!active || active.activeTurnId !== expectedActiveTurnId) return false
+  const binding = context.conversationTurnStreams.get(active.streamId)
+  return Boolean(
+    binding &&
+    binding.activeTurnId === expectedActiveTurnId &&
+    sameConversationLaneKey(binding.target, intent.target) &&
+    binding.facade.snapshot().phase === 'turn_boundary'
+  )
+}
+
+function sameConversationLaneKey(left: ConversationLaneKey, right: ConversationLaneKey): boolean {
+  return left.kind === right.kind &&
+    left.workspaceId === right.workspaceId &&
+    left.scope === right.scope &&
+    (left.kind === 'canonical' && right.kind === 'canonical'
+      ? left.conversationId === right.conversationId
+      : left.kind === 'pending' && right.kind === 'pending'
+        ? left.pendingConversationId === right.pendingConversationId
+        : false)
+}
+
+function legacyCanonicalConversationTarget(payload: AgentChatStreamPayload): ConversationLaneKey | null {
+  if (!payload.workspaceId || !payload.conversationId) return null
+  return {
+    kind: 'canonical',
+    workspaceId: payload.workspaceId,
+    scope: payload.mode === 'temporary' ? 'temporary' : 'workspace',
+    conversationId: payload.conversationId
+  }
+}
+
+function hasActiveConversationLane(context: GatewayContext, target: ConversationLaneKey): boolean {
+  return context.conversationTurnLane.snapshot().lanes.some((lane) =>
+    lane.active !== undefined && sameConversationLaneKey(lane.key, target)
+  )
+}
+
+function hasLegacyConversationTarget(context: GatewayContext, target: ConversationLaneKey): boolean {
+  return [...context.legacyConversationTargets.values()].some((legacy) => sameConversationLaneKey(legacy, target))
 }
 
 function unavailableReplay(streamId: string, afterSequence: number) {

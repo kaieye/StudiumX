@@ -1,0 +1,88 @@
+name: Blocking CI
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Modest required set: typecheck + security/privacy + P0-critical teaching gates.
+# Expand required jobs carefully; avoid one-shot full-suite red.
+# Fan-in job (blocking-required) is the branch-protection target: skip/cancel = fail.
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+      - run: corepack enable && corepack prepare pnpm@11.9.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+
+  security-privacy:
+    name: Security and provider privacy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+      - run: corepack enable && corepack prepare pnpm@11.9.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check:security
+      - run: pnpm run check:provider-privacy
+      - run: pnpm run check:settings-secret-storage
+      # Failure logs must not include raw secrets / learner answers / provider payloads.
+      - name: Redaction note
+        if: failure()
+        run: |
+          echo "Do not upload unredacted provider payloads, API keys, or learner answers as CI artifacts."
+          echo "Prefer existing check scripts that assert privacy boundaries."
+
+  teaching-evidence-p0:
+    name: P0 teaching evidence golden gates
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+      - run: corepack enable && corepack prepare pnpm@11.9.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check:teaching-evidence
+      - run: pnpm run check:teaching-ipc-contract
+      - run: pnpm run check:teaching-ipc-commands
+      - run: pnpm run check:agent-capability-policy
+      - name: Coordinator host unit seam
+        run: CI=true pnpm exec vitest run --project unit tests/unit/teaching-turn-coordinator.unit.test.ts tests/unit/teaching-turn-coordinator-host.unit.test.ts
+
+  # Required fan-in: branch protection should require THIS job, not only the three domain jobs.
+  # Domain gates remain parallel and are NOT replaced. skip/cancelled/failure all fail fan-in.
+  blocking-required:
+    name: Blocking required (skip=fail)
+    if: always()
+    needs: [typecheck, security-privacy, teaching-evidence-p0]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+      - name: Aggregate job results (skip=fail)
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/check-ci-results.mjs
+      - name: Clean worktree porcelain
+        run: node scripts/check-clean-worktree.mjs
+      - name: Format subset
+        run: node scripts/check-format-subset.mjs

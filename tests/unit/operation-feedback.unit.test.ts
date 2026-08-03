@@ -18,6 +18,21 @@ describe('operationFeedback', () => {
     })
   })
 
+  it('hides raw conversation revision conflict details behind safe refresh guidance', () => {
+    const feedback = operationFeedback({
+      outcome: 'failure',
+      error: new Error('Conversation branch revision conflict: expected 7, current 8.'),
+      translate
+    })
+
+    expect(feedback.visibleError).toEqual({
+      message: '对话已在其他位置更新，请刷新后再继续。',
+      severity: 'warning',
+      detail: '已保留你的输入，应用不会自动重放这次操作。'
+    })
+    expect(JSON.stringify(feedback.visibleError)).not.toContain('expected 7')
+  })
+
   it('maps quota exceeded to balance/quota UX, not rate_limit', () => {
     const feedback = operationFeedback({
       outcome: 'failure',

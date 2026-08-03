@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AgentConversationReader } from '../../src/renderer/src/views/agent-conversation/AgentConversationReader'
 import type { AgentConversationTurnPresentation } from '../../src/renderer/src/agent-conversation-presentation'
+import type { TeachingTurnPresentation } from '../../src/renderer/src/teaching-turn-presentation'
 import { renderUi, screen, setupUser, waitFor } from '../helpers/render'
 
 function presentation(state: 'active' | 'complete'): AgentConversationTurnPresentation {
@@ -22,20 +23,54 @@ function presentation(state: 'active' | 'complete'): AgentConversationTurnPresen
   }
 }
 
-describe('AgentConversationReader reasoning boundary', () => {
-  it('does not render raw provider reasoning supplied by a legacy presentation', () => {
+describe('AgentConversationReader reasoning progress', () => {
+  it('renders learner-visible reasoning progress without echoing a legacy raw detail', () => {
     renderUi(<AgentConversationReader presentation={presentation('active')} />)
 
     const panel = screen.getByRole('region', { name: 'AI 处理过程' })
     expect(panel).toHaveTextContent('正在准备写入')
-    expect(panel).not.toHaveTextContent('好，让我接下来写入文件。')
-    expect(panel).not.toHaveTextContent('思考过程')
+    expect(panel).toHaveTextContent('思考过程')
+    expect(panel).toHaveTextContent('好，让我接下来写入文件。')
   })
 
-  it('does not create a process panel when reasoning is the only legacy item', () => {
+  it('creates a process panel when reasoning is the only item', () => {
     renderUi(<AgentConversationReader presentation={{ ...presentation('active'), items: [presentation('active').items[0]] }} />)
 
-    expect(screen.queryByRole('region', { name: 'AI 处理过程' })).toBeNull()
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).toHaveTextContent('思考过程')
+    expect(panel).toHaveTextContent('好，让我接下来写入文件。')
+  })
+})
+
+const teachingPresentation: TeachingTurnPresentation = {
+  phases: [{ id: 'confirm_goal', title: '确认学习目标', state: 'active', statusText: '正在准备下一步学习' }],
+  activePhaseId: 'confirm_goal',
+  action: null,
+  sourceIds: [],
+  accessibleNames: {
+    region: '学习流程',
+    phaseList: '学习流程阶段',
+    currentPhase: '确认学习目标：正在准备下一步学习',
+    sourceList: '可信来源标识'
+  },
+  announcement: null,
+  technicalDiagnostic: { state: 'active', label: '学习流程正在等待已确认的下一步' },
+  focusKey: 'teaching-with-reasoning'
+}
+
+describe('AgentConversationReader combined teaching and reasoning views', () => {
+  it('shows the teaching projection and the reasoning detail for the same turn', () => {
+    renderUi(
+      <AgentConversationReader
+        presentation={presentation('active')}
+        teachingPresentation={teachingPresentation}
+      />
+    )
+
+    expect(screen.getByRole('region', { name: '学习流程' })).toBeVisible()
+    const process = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(process).toHaveTextContent('思考过程')
+    expect(process).toHaveTextContent('好，让我接下来写入文件。')
   })
 })
 
@@ -251,18 +286,19 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     )
 
     const panel = screen.getByRole('region', { name: 'AI 处理过程' })
-    expect(panel).not.toHaveTextContent('思考过程')
+    expect(panel).toHaveTextContent('思考过程')
     expect(panel).toHaveTextContent('调用工具：search_notes')
     expect(panel).toHaveTextContent('正在准备回复')
   })
 
-  it('fail-closed redacts secret, answer, path, and provider payload primary labels without echoing originals', () => {
+  it('fail-closed redacts non-reasoning diagnostic labels while preserving a reasoning label verbatim', () => {
     const secretLabel = 'api_key=sk-secret-do-not-show-xyz'
     const answerLabel = 'RAW-ANSWER-DO-NOT-SHOW: momentum is conserved'
     const pathLabel = 'C:\\Users\\learner\\private\\answer-key.md'
     const providerLabel = '{"prompt":"leak","answer":"42","apiKey":"tok_abc","token":"x"}'
     const passwordLabel = 'password=super-secret-value'
     const cotLabel = 'CHAIN-OF-THOUGHT provider payload system prompt'
+    const cotDetail = 'api_key=reasoning-secret C:\\Users\\learner\\private\\reasoning.md'
 
     const { container } = renderUi(
       <AgentConversationReader
@@ -272,7 +308,7 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
           { id: 'path', kind: 'source', label: pathLabel, state: 'complete' },
           { id: 'provider', kind: 'tool_result', label: providerLabel, state: 'error' },
           { id: 'password', kind: 'child_run', label: passwordLabel, state: 'complete' },
-          { id: 'cot', kind: 'reasoning', label: cotLabel, state: 'complete' },
+          { id: 'cot', kind: 'reasoning', label: cotLabel, detail: cotDetail, state: 'complete' },
           { id: 'blank', kind: 'compaction', label: '   ', state: 'complete' }
         ])}
       />
@@ -287,16 +323,11 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
       'momentum is conserved',
       pathLabel,
       'answer-key.md',
-      'C:\\Users\\learner',
       providerLabel,
       '"apiKey"',
       'tok_abc',
       passwordLabel,
       'super-secret-value',
-      cotLabel,
-      'CHAIN-OF-THOUGHT',
-      'provider payload',
-      'system prompt',
       '[redacted'
     ]) {
       expect(rendered).not.toContain(forbidden)
@@ -306,8 +337,8 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     expect(rendered).toContain('处理状态')
     expect(rendered).toContain('来源处理')
     expect(rendered).toContain('辅助任务')
-    expect(rendered).not.toContain(cotLabel)
-    expect(rendered).not.toContain('思考过程')
+    expect(rendered).toContain(cotLabel)
+    expect(rendered).toContain(cotDetail)
     expect(rendered).toContain('上下文整理')
   })
 
@@ -418,7 +449,7 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     expect(rendered).toContain('读取 notes/lesson-guide.md')
     expect(rendered).toContain('调用工具：search_notes')
     expect(rendered).toContain('正在准备回复')
-    expect(rendered).not.toContain('思考过程')
+    expect(rendered).toContain('思考过程')
     expect(rendered).not.toContain('[redacted')
     // Unmarked ordinary answer sentences without typed markers are out of scope
     // for this projector; they remain an upstream typed-title contract follow-up.

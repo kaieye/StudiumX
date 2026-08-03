@@ -135,7 +135,7 @@ describe('Agent conversation presentation', () => {
       state: 'complete'
     })
   })
-  it('keeps repeated provider reasoning out of learner-visible process items while preserving tool progress', () => {
+  it('projects repeated reasoning as bounded learner-visible progress while preserving tool progress', () => {
     const repeatedPreamble = '好，让我接下来写入文件。'
     const presentation = buildAgentConversationPresentation({
       turns: [assistantTurn({
@@ -154,15 +154,19 @@ describe('Agent conversation presentation', () => {
       activeTurnId: 'assistant-1'
     }).turns[0]
 
-    expect(presentation.items.filter((item) => item.kind === 'reasoning')).toEqual([])
-    expect(presentation.items).toEqual([
+    expect(presentation.items.filter((item) => item.kind === 'reasoning')).toEqual([
+      expect.objectContaining({ id: 'event:reasoning-1', label: '思考过程', detail: repeatedPreamble, state: 'complete' }),
+      expect.objectContaining({ id: 'event:reasoning-2', label: '思考过程', detail: repeatedPreamble, state: 'complete' }),
+      expect.objectContaining({ id: 'event:reasoning-3', label: '思考过程', detail: repeatedPreamble, state: 'active' })
+    ])
+    expect(presentation.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'event:write-1', kind: 'tool_call', state: 'complete' }),
       expect.objectContaining({ id: 'event:write-2', kind: 'tool_call', state: 'complete' })
-    ])
-    expect(JSON.stringify(presentation)).not.toContain(repeatedPreamble)
+    ]))
+    expect(JSON.stringify(presentation)).toContain(repeatedPreamble)
   })
 
-  it('keeps structured tool progress active without exposing raw provider reasoning', () => {
+  it('keeps structured tool progress active and preserves provider reasoning verbatim', () => {
     const reasoning = `第一行\n${'很长的思考内容'.repeat(40)}\n最后一行`
     const processEvents: AgentChatProcessEvent[] = [
       { id: 'reasoning-1', kind: 'reasoning', title: '思考过程', detail: reasoning, createdAt },
@@ -177,11 +181,13 @@ describe('Agent conversation presentation', () => {
       activeTurnId: 'assistant-1'
     }).turns[0]
 
-    expect(presentation.items).toEqual([
-      expect.objectContaining({ id: 'event:tool-1', kind: 'tool_call', state: 'complete' })
-    ])
-    expect(JSON.stringify(presentation)).not.toContain(reasoning)
-    expect(JSON.stringify(presentation)).not.toContain('继续整理答案')
+    expect(presentation.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'event:reasoning-1', kind: 'reasoning', label: '思考过程', detail: reasoning, state: 'complete' }),
+      expect.objectContaining({ id: 'event:tool-1', kind: 'tool_call', state: 'complete' }),
+      expect.objectContaining({ id: 'event:reasoning-2', kind: 'reasoning', label: '思考过程', detail: '继续整理答案', state: 'active' })
+    ]))
+    expect(presentation.items.find((item) => item.id === 'event:reasoning-1')?.detail).toBe(reasoning)
+    expect(presentation.items.find((item) => item.id === 'event:reasoning-2')?.detail).toBe('继续整理答案')
   })
 
   it('projects durable recovery notices as interrupted attention instead of errors or completion', () => {

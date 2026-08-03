@@ -13,6 +13,7 @@ import type {
 } from '../shared/web-remote-control'
 import { createAgentRealtimeDelivery } from './agent-realtime-delivery'
 import type {
+  AgentRealtimeDeliveryEvent,
   AgentRealtimeEvent,
   AgentChatStreamChunk,
   AgentChatStreamDone,
@@ -84,6 +85,12 @@ const api: TeachingSystemApi = {
   },
   onLessonStreamChunk: (handler) => registerIpcListener<LessonStreamChunk>(teachingEventChannels.lessonStreamChunk, handler),
   onLessonStreamStatus: (handler) => registerIpcListener<LessonStreamStatus>(teachingEventChannels.lessonStreamStatus, handler),
+  // ADR-0170 transport boundary: invoke-only. It intentionally does not subscribe
+  // to any stream/event channel or synthesize a stream identity.
+  submitConversationTurn: (intent) =>
+    ipcRenderer.invoke(teachingInvokeChannels.submitConversationTurn, intent),
+  cancelConversationTurn: (intent) =>
+    ipcRenderer.invoke(teachingInvokeChannels.cancelConversationTurn, intent),
   agentChatStream: (payload, onChunk, onStatus, onTool, onInvalidation) => {
     const delivery = createAgentRealtimeDelivery({
       streamId: payload.streamId,
@@ -118,7 +125,7 @@ const api: TeachingSystemApi = {
   onAgentChatChunk: (handler) => registerIpcListener<AgentChatStreamChunk>(teachingEventChannels.agentChatChunk, handler),
   onAgentChatStatus: (handler) => registerIpcListener<AgentChatStreamStatus>(teachingEventChannels.agentChatStatus, handler),
   onAgentChatTool: (handler) => registerIpcListener<AgentChatStreamToolEvent>(teachingEventChannels.agentChatTool, handler),
-  onAgentChatEvent: (handler) => registerIpcListener<AgentRealtimeEvent>(teachingEventChannels.agentChatEvent, handler),
+  onAgentChatEvent: (handler) => registerIpcListener<AgentRealtimeDeliveryEvent>(teachingEventChannels.agentChatEvent, handler),
   onSystemPower: (handler) => registerIpcListener(teachingEventChannels.systemPower, handler),
   saveAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.saveAgentConversation, payload),
   renameAgentConversation: (payload) => ipcRenderer.invoke(teachingInvokeChannels.renameAgentConversation, payload),

@@ -132,6 +132,15 @@ function failureNotification(
 function classifyVisibleError(error: unknown, translate: OperationFeedbackTranslator): OperationFeedbackError {
   const raw = error instanceof Error ? error.message : String(error)
 
+  // ADR-0170: branch CAS details are an implementation concern. Keep the learner
+  // on a safe refresh path without exposing expected/current revisions.
+  if (raw.toLowerCase().includes('conversation branch revision conflict')) {
+    return {
+      message: '对话已在其他位置更新，请刷新后再继续。',
+      severity: 'warning',
+      detail: '已保留你的输入，应用不会自动重放这次操作。'
+    }
+  }
   if (
     raw.includes('generate_lesson 尚未执行') ||
     raw.includes('本轮没有成功执行 generate_lesson') ||

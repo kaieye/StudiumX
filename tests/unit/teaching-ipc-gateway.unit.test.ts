@@ -9,7 +9,7 @@ import { defaultSettings } from '../../src/main/teaching-settings'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 import type { TeachingIpcRegistration } from '../../src/main/teaching-ipc-gateway'
-import { teachingInvokeChannels } from '../../src/shared/teaching-ipc-contract'
+import { teachingEventChannels, teachingInvokeChannels } from '../../src/shared/teaching-ipc-contract'
 
 const electron = vi.hoisted(() => {
   const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>()
@@ -25,7 +25,7 @@ const pending = vi.hoisted(() => ({
   cancelStreamAskPending: vi.fn(),
   resolveAskPending: vi.fn(() => false),
   cancelStreamToolPermissionPending: vi.fn(),
-  resolveToolPermissionPending: vi.fn()
+  resolveToolPermissionPending: vi.fn(() => false)
 }))
 
 vi.mock('electron', () => ({
@@ -113,6 +113,54 @@ function startNavigation(
   }, input.url, isSameDocument, input.isMainFrame, input.frameProcessId, input.frameRoutingId)
 }
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+function canonicalConversation(id: string, revision: number, turns: unknown[] = []) {
+  return {
+    id,
+    title: id,
+    createdAt: '2026-08-03T00:00:00.000Z',
+    updatedAt: '2026-08-03T00:00:00.000Z',
+    relativePath: `.agent-conversations/${id}.json`,
+    absolutePath: `C:\workspace\${id}.json`,
+    messageCount: turns.length,
+    turns,
+    branch: { revision, status: 'active' }
+  }
+}
+
+function completedConversationTurn(turnId: string) {
+  return {
+    turns: [
+      { id: `${turnId}-user`, role: 'user', content: 'host-owned input', createdAt: '2026-08-03T00:00:00.000Z' },
+      { id: `${turnId}-assistant`, role: 'assistant', content: 'host-owned answer', createdAt: '2026-08-03T00:00:01.000Z' }
+    ],
+    finalText: 'host-owned answer',
+    iterations: 1,
+    toolsSupported: false,
+    usage: { totalTokens: 0, promptTokens: 0, completionTokens: 0, provenance: 'unknown' }
+  }
+}
+
+function submitFollowUp(overrides: Record<string, unknown> = {}) {
+  return {
+    target: { kind: 'canonical', workspaceId: 'workspace-1', scope: 'workspace', conversationId: 'conversation-1' },
+    clientRequestId: `request-${Math.random().toString(36).slice(2)}`,
+    text: 'continue the lesson',
+    mode: 'teaching',
+    delivery: 'follow_up',
+    ...overrides
+  }
+}
+
 
 function requireGeneratedLesson(result: {
   disposition: string
@@ -130,6 +178,18 @@ describe('Teaching IPC gateway', () => {
     electron.handlers.clear()
     electron.handle.mockClear()
     vi.clearAllMocks()
+  })
+
+  it('rejects Ask answers that do not match a pending Ask or permission request', async () => {
+    registerTeachingIpcGateway(registration())
+
+    await expect(handler(teachingInvokeChannels.answerAgentChatTool)(event, {
+      streamId: 'unknown-host-stream',
+      toolCallId: 'unknown-tool-call',
+      answers: [{ questionId: 'direction', selected: ['A'] }]
+    })).rejects.toThrow('No pending Ask or tool permission request matches')
+    expect(pending.resolveAskPending).toHaveBeenCalledWith('unknown-host-stream', 'unknown-tool-call', [{ questionId: 'direction', selected: ['A'] }])
+    expect(pending.resolveToolPermissionPending).toHaveBeenCalledWith('unknown-host-stream', 'unknown-tool-call', [{ questionId: 'direction', selected: ['A'] }])
   })
 
   it('maps a channel through its parser, action, and reply', async () => {
@@ -1020,4 +1080,259 @@ describe('Teaching IPC gateway', () => {
     await handler(teachingInvokeChannels.cancelAgentChatStream)(event, 'retryable-stream')
     await expect(retry).resolves.toEqual({ streamId: 'retryable-stream', canceled: true })
   })
+
+  it('serializes same-lane host follow-ups and refreshes canonical revision only after settlement', async () => {
+    const firstRuntime = deferred<ReturnType<typeof completedConversationTurn>>()
+    const firstSave = deferred<{ state: { workspaces: [] }; conversation: { id: string } }>()
+    const secondRuntime = deferred<ReturnType<typeof completedConversationTurn>>()
+    const readAgentConversation = vi.fn()
+      .mockResolvedValueOnce(canonicalConversation('conversation-1', 1))
+      .mockResolvedValueOnce(canonicalConversation('conversation-1', 2, completedConversationTurn('first').turns))
+    const agentChatStream = vi.fn()
+      .mockImplementationOnce(() => firstRuntime.promise)
+      .mockImplementationOnce(() => secondRuntime.promise)
+    const saveAgentConversation = vi.fn()
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockResolvedValue({ state: { workspaces: [] }, conversation: { id: 'conversation-1' } })
+    const invalidate = vi.fn()
+    registerTeachingIpcGateway(registration({
+      workspaceService: { readAgentConversation, agentChatStream, saveAgentConversation },
+      learningAnalyticsService: { invalidate }
+    }))
+
+    const first = await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({ clientRequestId: 'fifo-1' })) as { code: string }
+    const second = await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({ clientRequestId: 'fifo-2' })) as { code: string }
+    expect(first.code).toBe('started')
+    expect(second.code).toBe('queued')
+    await vi.waitFor(() => expect(agentChatStream).toHaveBeenCalledTimes(1))
+
+    firstRuntime.resolve(completedConversationTurn('first'))
+    await vi.waitFor(() => expect(saveAgentConversation).toHaveBeenCalledTimes(1))
+    expect(agentChatStream).toHaveBeenCalledTimes(1)
+    firstSave.resolve({ state: { workspaces: [] }, conversation: { id: 'conversation-1' } })
+
+    await vi.waitFor(() => expect(agentChatStream).toHaveBeenCalledTimes(2))
+    expect(agentChatStream.mock.calls[0][0]).toMatchObject({ expectedBranchRevision: 1, conversationId: 'conversation-1' })
+    expect(agentChatStream.mock.calls[1][0]).toMatchObject({ expectedBranchRevision: 2, conversationId: 'conversation-1' })
+    expect(invalidate).toHaveBeenCalledWith(['conversation'])
+    secondRuntime.resolve(completedConversationTurn('second'))
+  })
+
+  it('routes each host lane stream to its submitting renderer and announces queued activation only to that owner', async () => {
+    const firstEvent = previewEvent(101)
+    const queuedEvent = previewEvent(102)
+    const firstRuntime = deferred<ReturnType<typeof completedConversationTurn>>()
+    const secondRuntime = deferred<ReturnType<typeof completedConversationTurn>>()
+    const firstResult = completedConversationTurn('owner-first')
+    const secondDelta = completedConversationTurn('owner-second')
+    const secondResult = { ...secondDelta, turns: [...firstResult.turns, ...secondDelta.turns] }
+    const readAgentConversation = vi.fn()
+      .mockResolvedValueOnce(canonicalConversation('conversation-1', 1))
+      .mockResolvedValueOnce(canonicalConversation('conversation-1', 2, firstResult.turns))
+    const agentChatStream = vi.fn()
+      .mockImplementationOnce((payload: { streamId: string }, stream: { onChunk: (chunk: unknown) => void; onRealtimeEvent: (event: unknown) => void }) => {
+        stream.onChunk({ streamId: payload.streamId, delta: 'first-owner-only' })
+        stream.onRealtimeEvent({ sequence: 1, streamId: payload.streamId, kind: 'chunk', createdAt: '2026-08-03T00:00:00.000Z', payload: { streamId: payload.streamId, delta: 'first-owner-only' } })
+        return firstRuntime.promise
+      })
+      .mockImplementationOnce((payload: { streamId: string }, stream: { onChunk: (chunk: unknown) => void; onRealtimeEvent: (event: unknown) => void }) => {
+        stream.onChunk({ streamId: payload.streamId, delta: 'queued-owner-only' })
+        stream.onRealtimeEvent({ sequence: 1, streamId: payload.streamId, kind: 'chunk', createdAt: '2026-08-03T00:00:02.000Z', payload: { streamId: payload.streamId, delta: 'queued-owner-only' } })
+        return secondRuntime.promise
+      })
+    const saveAgentConversation = vi.fn().mockResolvedValue({
+      state: { workspaces: [] }, conversation: { id: 'conversation-1' }
+    })
+    registerTeachingIpcGateway(registration({
+      workspaceService: { readAgentConversation, agentChatStream, saveAgentConversation }
+    }))
+
+    const first = await handler(teachingInvokeChannels.submitConversationTurn)(firstEvent, submitFollowUp({ clientRequestId: 'owner-first' })) as { code: string; streamId: string }
+    const queued = await handler(teachingInvokeChannels.submitConversationTurn)(queuedEvent, submitFollowUp({ clientRequestId: 'owner-queued' })) as { code: string; queuePosition?: number; streamId?: string }
+    expect(first).toMatchObject({ code: 'started' })
+    expect(queued).toMatchObject({ code: 'queued', queuePosition: 1 })
+    expect(queued.streamId).toBeUndefined()
+    const firstStreamId = first.streamId
+    await vi.waitFor(() => expect(firstEvent.sender.send).toHaveBeenCalledWith(
+      teachingEventChannels.agentChatChunk,
+      expect.objectContaining({ streamId: firstStreamId })
+    ))
+    expect(queuedEvent.sender.send).not.toHaveBeenCalledWith(
+      teachingEventChannels.agentChatChunk,
+      expect.objectContaining({ streamId: firstStreamId })
+    )
+
+    firstRuntime.resolve(firstResult)
+    await vi.waitFor(() => expect(agentChatStream).toHaveBeenCalledTimes(2))
+    const queuedStreamId = (agentChatStream.mock.calls[1]![0] as { streamId: string }).streamId
+    expect(queuedEvent.sender.send).toHaveBeenCalledWith(
+      teachingEventChannels.agentChatEvent,
+      expect.objectContaining({
+        kind: 'conversation_turn_started',
+        streamId: queuedStreamId,
+        activeTurnId: expect.any(String),
+        clientRequestId: 'owner-queued',
+        conversationId: 'conversation-1'
+      })
+    )
+    expect(firstEvent.sender.send).not.toHaveBeenCalledWith(
+      teachingEventChannels.agentChatEvent,
+      expect.objectContaining({ kind: 'conversation_turn_started', streamId: queuedStreamId })
+    )
+    expect(queuedEvent.sender.send).toHaveBeenCalledWith(
+      teachingEventChannels.agentChatChunk,
+      expect.objectContaining({ streamId: queuedStreamId })
+    )
+    expect(firstEvent.sender.send).not.toHaveBeenCalledWith(
+      teachingEventChannels.agentChatChunk,
+      expect.objectContaining({ streamId: queuedStreamId })
+    )
+
+    secondRuntime.resolve(secondResult)
+  })
+
+  it('starts separate host lanes independently', async () => {
+    const firstSave = deferred<unknown>()
+    const secondSave = deferred<unknown>()
+    const readAgentConversation = vi.fn()
+      .mockResolvedValueOnce(canonicalConversation('conversation-1', 1))
+      .mockResolvedValueOnce(canonicalConversation('conversation-2', 1))
+    const agentChatStream = vi.fn()
+      .mockResolvedValueOnce(completedConversationTurn('one'))
+      .mockResolvedValueOnce(completedConversationTurn('two'))
+    const saveAgentConversation = vi.fn()
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockImplementationOnce(() => secondSave.promise)
+    registerTeachingIpcGateway(registration({ workspaceService: { readAgentConversation, agentChatStream, saveAgentConversation } }))
+
+    await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({ clientRequestId: 'isolated-1' }))
+    await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({
+      clientRequestId: 'isolated-2',
+      target: { kind: 'canonical', workspaceId: 'workspace-1', scope: 'workspace', conversationId: 'conversation-2' }
+    }))
+
+    await vi.waitFor(() => expect(agentChatStream).toHaveBeenCalledTimes(2))
+    expect(agentChatStream.mock.calls.map(([payload]) => payload.conversationId)).toEqual(['conversation-1', 'conversation-2'])
+  })
+
+  it('cancels only the exact host-bound active stream and clears only its lane queue', async () => {
+    const signals: AbortSignal[] = []
+    const agentChatStream = vi.fn((_payload, stream: { signal: AbortSignal }) => {
+      signals.push(stream.signal)
+      return new Promise((_, reject) => stream.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }))
+    })
+    const readAgentConversation = vi.fn()
+      .mockResolvedValueOnce(canonicalConversation('conversation-1', 1))
+      .mockResolvedValueOnce(canonicalConversation('conversation-2', 1))
+    registerTeachingIpcGateway(registration({ workspaceService: { readAgentConversation, agentChatStream } }))
+
+    const first = await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({ clientRequestId: 'cancel-1' })) as { code: string; streamId: string }
+    await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({ clientRequestId: 'cancel-queued' }))
+    const other = await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({
+      clientRequestId: 'cancel-other',
+      target: { kind: 'canonical', workspaceId: 'workspace-1', scope: 'workspace', conversationId: 'conversation-2' }
+    })) as { code: string; streamId: string }
+    await vi.waitFor(() => expect(agentChatStream).toHaveBeenCalledTimes(2))
+
+    await expect(handler(teachingInvokeChannels.cancelConversationTurn)(event, {
+      target: { kind: 'canonical', workspaceId: 'workspace-1', scope: 'workspace', conversationId: 'conversation-1' },
+      clientRequestId: 'cancel-public-1',
+      expectedActiveTurnId: first.activeTurnId
+    })).resolves.toEqual({
+      code: 'cancelled',
+      cancelledActiveTurnId: first.activeTurnId,
+      clearedQueuedCount: 1
+    })
+    await vi.waitFor(() => expect(signals[0].aborted).toBe(true))
+    expect(signals[1].aborted).toBe(false)
+    await Promise.resolve()
+    // lane.cancel clears only conversation-1's FIFO; it cannot promote its queued turn.
+    expect(agentChatStream).toHaveBeenCalledTimes(2)
+    await expect(handler(teachingInvokeChannels.cancelConversationTurn)(event, {
+      target: { kind: 'canonical', workspaceId: 'workspace-1', scope: 'workspace', conversationId: 'conversation-2' },
+      clientRequestId: 'cancel-public-2',
+      expectedActiveTurnId: other.activeTurnId
+    })).resolves.toEqual(expect.objectContaining({ code: 'cancelled' }))
+  })
+
+  it('returns exact active-turn refresh without aborting a host-lane binding', async () => {
+    const signal = deferred<void>()
+    const agentChatStream = vi.fn((_payload, stream: { signal: AbortSignal }) => new Promise((_, reject) => {
+      stream.signal.addEventListener('abort', () => {
+        signal.resolve()
+        reject(new Error('aborted'))
+      }, { once: true })
+    }))
+    const readAgentConversation = vi.fn().mockResolvedValue(canonicalConversation('conversation-1', 1))
+    registerTeachingIpcGateway(registration({ workspaceService: { readAgentConversation, agentChatStream } }))
+
+    const started = await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({ clientRequestId: 'cancel-mismatch' })) as {
+      code: string; activeTurnId: string
+    }
+    await vi.waitFor(() => expect(agentChatStream).toHaveBeenCalledTimes(1))
+
+    await expect(handler(teachingInvokeChannels.cancelConversationTurn)(event, {
+      target: { kind: 'canonical', workspaceId: 'workspace-1', scope: 'workspace', conversationId: 'conversation-1' },
+      clientRequestId: 'cancel-mismatch-attempt',
+      expectedActiveTurnId: 'different-turn'
+    })).resolves.toEqual({ code: 'refresh_required', reason: 'active_turn_mismatch' })
+    expect(started.activeTurnId).not.toBe('different-turn')
+
+    // Clean up the live host lane through the public exact capability.
+    await handler(teachingInvokeChannels.cancelConversationTurn)(event, {
+      target: { kind: 'canonical', workspaceId: 'workspace-1', scope: 'workspace', conversationId: 'conversation-1' },
+      clientRequestId: 'cancel-mismatch-cleanup',
+      expectedActiveTurnId: started.activeTurnId
+    })
+    await signal.promise
+  })
+
+  it('rejects legacy steer and follow-up against a host-lane stream without driving its facade', async () => {
+    const agentChatStream = vi.fn((_payload, stream: { signal: AbortSignal }) => new Promise((_, reject) => {
+      stream.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+    }))
+    const readAgentConversation = vi.fn().mockResolvedValue(canonicalConversation('conversation-1', 1))
+    registerTeachingIpcGateway(registration({ workspaceService: { readAgentConversation, agentChatStream } }))
+
+    const started = await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({ clientRequestId: 'legacy-isolation' })) as {
+      code: string; streamId: string; activeTurnId: string
+    }
+    await vi.waitFor(() => expect(agentChatStream).toHaveBeenCalledTimes(1))
+
+    await expect(handler(teachingInvokeChannels.steerAgentChatStream)(event, {
+      streamId: started.streamId,
+      text: 'legacy steer must not reach host facade'
+    })).resolves.toEqual({ ok: false, disposition: 'no_active_session', reason: 'no_active_session' })
+    await expect(handler(teachingInvokeChannels.followUpAgentChatStream)(event, {
+      streamId: started.streamId,
+      text: 'legacy follow-up must not reach host facade'
+    })).resolves.toEqual({ ok: false, disposition: 'no_active_session', reason: 'no_active_session' })
+    // Legacy calls did not prompt/steer/follow-up through the attached facade.
+    expect(agentChatStream).toHaveBeenCalledTimes(1)
+
+    await handler(teachingInvokeChannels.cancelConversationTurn)(event, {
+      target: { kind: 'canonical', workspaceId: 'workspace-1', scope: 'workspace', conversationId: 'conversation-1' },
+      clientRequestId: 'legacy-isolation-cleanup',
+      expectedActiveTurnId: started.activeTurnId
+    })
+  })
+
+  it('releases a failed host reservation so its queued FIFO successor can start', async () => {
+    const readAgentConversation = vi.fn()
+      .mockResolvedValueOnce(canonicalConversation('conversation-1', 1))
+      .mockResolvedValueOnce(canonicalConversation('conversation-1', 2))
+    const agentChatStream = vi.fn()
+      .mockRejectedValueOnce(new Error('model unavailable'))
+      .mockResolvedValueOnce(completedConversationTurn('recovered'))
+    const saveAgentConversation = vi.fn().mockResolvedValue({ state: { workspaces: [] }, conversation: { id: 'conversation-1' } })
+    registerTeachingIpcGateway(registration({ workspaceService: { readAgentConversation, agentChatStream, saveAgentConversation } }))
+
+    await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({ clientRequestId: 'failure-1' }))
+    await handler(teachingInvokeChannels.submitConversationTurn)(event, submitFollowUp({ clientRequestId: 'failure-2' }))
+
+    await vi.waitFor(() => expect(agentChatStream).toHaveBeenCalledTimes(2))
+    expect(saveAgentConversation).toHaveBeenCalledTimes(1)
+    expect(agentChatStream.mock.calls[1][0]).toMatchObject({ expectedBranchRevision: 2 })
+  })
+
 })

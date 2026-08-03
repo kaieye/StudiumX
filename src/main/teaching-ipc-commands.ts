@@ -22,6 +22,8 @@ import type {
   RecordProgressPayload,
   SaveWorkspaceMarkdownPayload,
   SetWorkspaceTrustPayload,
+  SubmitConversationTurnIntent,
+  CancelConversationTurnIntent,
   TeachingSettingsPatch,
   UpdateTeachingMemoryPayload,
   UpdateMissionPayload,
@@ -200,6 +202,132 @@ export function parseAgentChatMessages(value: unknown): AgentChatMessage[] {
     })
   }
   return messages
+}
+
+const MAX_SUBMIT_CONVERSATION_TURN_TEXT_CHARS = 32 * 1024
+
+/**
+ * Fail-closed transport parser for the ADR-0170 conversation-turn submit intent.
+ *
+ * It accepts one new user text plus lane/CAS observations only. Transcript,
+ * messages, context, tool, provider, and secret-shaped fields are rejected
+ * before any host action can run. This parser does not start a stream; that
+ * remains owned by the later host-lane integration.
+ */
+export function parseSubmitConversationTurnIntent(payload: unknown): SubmitConversationTurnIntent {
+  const record = requireRecord(payload)
+  requireExactPayloadKeys(record, [
+    'target',
+    'clientRequestId',
+    'text',
+    'mode',
+    'delivery',
+    'expectedBranchRevision',
+    'expectedActiveTurnId',
+    'skillIds'
+  ], 'submitConversationTurn')
+
+  const target = parseSubmitConversationTurnTarget(record.target)
+  const clientRequestId = requireSafeId(record.clientRequestId, 'clientRequestId')
+  const text = requireSubmitConversationTurnText(record.text)
+  const mode = parseSubmitConversationTurnMode(record.mode)
+  const delivery = parseSubmitConversationTurnDelivery(record.delivery)
+  if ((target.scope === 'workspace' && mode !== 'teaching') || (target.scope === 'temporary' && mode !== 'temporary')) {
+    throw new Error('IPC submitConversationTurn payload field "mode" must match target "scope".')
+  }
+
+  const expectedBranchRevision = record.expectedBranchRevision === undefined
+    ? undefined
+    : requireNonNegativeInteger(record.expectedBranchRevision, 'expectedBranchRevision')
+  const expectedActiveTurnId = record.expectedActiveTurnId === undefined
+    ? undefined
+    : requireSafeId(record.expectedActiveTurnId, 'expectedActiveTurnId')
+  if (delivery === 'steer' && expectedActiveTurnId === undefined) {
+    throw new Error('IPC submitConversationTurn payload requires "expectedActiveTurnId" for delivery "steer".')
+  }
+  const skillIds = parseSkillIds(record.skillIds, 'skillIds')
+
+  return {
+    target,
+    clientRequestId,
+    text,
+    mode,
+    delivery,
+    ...(expectedBranchRevision !== undefined ? { expectedBranchRevision } : {}),
+    ...(expectedActiveTurnId !== undefined ? { expectedActiveTurnId } : {}),
+    ...(skillIds !== undefined ? { skillIds } : {})
+  }
+}
+
+/**
+ * Fail-closed transport parser for ADR-0170's exact-active-turn cancellation.
+ * Only lane identity and opaque concurrency ids cross this boundary; transcript,
+ * context, tool, provider, credential, and secret-shaped fields are rejected.
+ */
+export function parseCancelConversationTurnIntent(payload: unknown): CancelConversationTurnIntent {
+  const record = requireRecord(payload)
+  requireExactPayloadKeys(record, [
+    'target',
+    'clientRequestId',
+    'expectedActiveTurnId'
+  ], 'cancelConversationTurn')
+
+  return {
+    target: parseSubmitConversationTurnTarget(record.target),
+    clientRequestId: requireSafeId(record.clientRequestId, 'clientRequestId'),
+    expectedActiveTurnId: requireSafeId(record.expectedActiveTurnId, 'expectedActiveTurnId')
+  }
+}
+
+function parseSubmitConversationTurnTarget(value: unknown): SubmitConversationTurnIntent['target'] {
+  const record = requireRecord(value)
+  if (record.kind === 'canonical') {
+    requireExactPayloadKeys(record, ['kind', 'workspaceId', 'scope', 'conversationId'], 'submitConversationTurn target')
+    return {
+      kind: 'canonical',
+      workspaceId: requireSafeId(record.workspaceId, 'workspaceId'),
+      scope: parseSubmitConversationTurnScope(record.scope),
+      conversationId: requireCanonicalConversationId(record.conversationId)
+    }
+  }
+  if (record.kind === 'pending') {
+    requireExactPayloadKeys(record, ['kind', 'workspaceId', 'scope', 'pendingConversationId'], 'submitConversationTurn target')
+    return {
+      kind: 'pending',
+      workspaceId: requireSafeId(record.workspaceId, 'workspaceId'),
+      scope: parseSubmitConversationTurnScope(record.scope),
+      pendingConversationId: requireSafeId(record.pendingConversationId, 'pendingConversationId')
+    }
+  }
+  throw new Error('IPC submitConversationTurn target field "kind" must be one of: canonical, pending.')
+}
+
+function requireSubmitConversationTurnText(value: unknown): string {
+  const text = requireString(value, 'text')
+  if (!text.trim()) {
+    throw new Error('IPC payload field "text" must not be empty.')
+  }
+  if (text.length > MAX_SUBMIT_CONVERSATION_TURN_TEXT_CHARS) {
+    throw new Error(
+      `IPC payload field "text" must be at most ${MAX_SUBMIT_CONVERSATION_TURN_TEXT_CHARS} characters.`
+    )
+  }
+  return text
+}
+
+function parseSubmitConversationTurnScope(value: unknown): SubmitConversationTurnIntent['target']['scope'] {
+  if (value === 'workspace' || value === 'temporary') return value
+  throw new Error('IPC payload field "scope" must be one of: workspace, temporary.')
+}
+
+function parseSubmitConversationTurnMode(value: unknown): SubmitConversationTurnIntent['mode'] {
+  if (value === 'teaching' || value === 'temporary') return value
+  throw new Error('IPC payload field "mode" must be one of: teaching, temporary.')
+}
+
+function parseSubmitConversationTurnDelivery(value: unknown): SubmitConversationTurnIntent['delivery'] {
+  if (value === 'follow_up' || value === 'steer') return value
+  throw new Error('IPC payload field "delivery" must be one of: follow_up, steer.')
 }
 
 export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPayload {

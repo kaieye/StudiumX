@@ -4,6 +4,88 @@ import type { LessonSummary, TeachingAppState } from './workspace'
 export type AgentChatMode = 'temporary' | 'teaching'
 export type AgentConversationLookupScope = 'workspace' | 'temporary'
 
+/**
+ * Stable main/host serialization lane identity (ADR-0170 §3.1).
+ *
+ * Canonical and pending identities are deliberately discriminated: callers may
+ * not overload one id field or infer identity from text, mode, or revision.
+ */
+export type ConversationLaneKey =
+  | {
+      kind: 'canonical'
+      workspaceId: string
+      scope: AgentConversationLookupScope
+      conversationId: string
+    }
+  | {
+      kind: 'pending'
+      workspaceId: string
+      scope: AgentConversationLookupScope
+      pendingConversationId: string
+    }
+
+/**
+ * Host-submit intent for one conversation turn (ADR-0170 §4.1).
+ *
+ * This intentionally carries only new user text plus lane and concurrency
+ * preconditions. It must never grow a transcript, model context, tool input,
+ * tool result, credential, or secret field. Runtime parsing/validation remains
+ * at the host boundary; expected values are caller observations, not a
+ * substitute for canonical host reads.
+ */
+export type SubmitConversationTurnIntent = {
+  target: ConversationLaneKey
+  /** Caller-generated opaque, lane-scoped idempotency key. */
+  clientRequestId: string
+  text: string
+  mode: AgentChatMode
+  /** A regular FIFO follow-up or an exact-active-turn steering attempt. */
+  delivery: 'follow_up' | 'steer'
+  /** Caller-observed branch CAS precondition; host still reads canonical state. */
+  expectedBranchRevision?: number
+  /** Required by host validation for `steer`; never retargeted to a newer turn. */
+  expectedActiveTurnId?: string
+  skillIds?: string[]
+}
+
+/**
+ * Learner-safe host disposition for {@link SubmitConversationTurnIntent}.
+ * Active/stream ids are opaque capabilities; no transcript, secret, run
+ * internals, or tool-sensitive result is projected here.
+ */
+export type SubmitConversationTurnDisposition =
+  | { code: 'started'; activeTurnId: string; streamId: string; conversationId?: string }
+  | { code: 'queued'; queuePosition: number; activeTurnId: string }
+  | { code: 'steered'; activeTurnId: string; streamId: string }
+  | {
+      code: 'duplicate'
+      originalCode: 'started' | 'queued' | 'steered' | 'refresh_required' | 'rejected'
+    }
+  | {
+      code: 'refresh_required'
+      reason: 'stale_branch' | 'active_turn_mismatch' | 'pending_promoted'
+    }
+  | { code: 'rejected'; reason: 'invalid_intent' | 'queue_full' | 'branch_unavailable' }
+
+
+/**
+ * Exact host-lane cancellation request (ADR-0170 §4.2). This is a narrow
+ * concurrency control message only; it must never carry transcript, context,
+ * tool, provider, credential, or secret data.
+ */
+export type CancelConversationTurnIntent = {
+  target: ConversationLaneKey
+  clientRequestId: string
+  expectedActiveTurnId: string
+}
+
+/** Learner-safe cancellation outcome from the host-owned conversation lane. */
+export type CancelConversationTurnDisposition =
+  | { code: 'cancelled'; cancelledActiveTurnId: string; clearedQueuedCount: number }
+  | { code: 'duplicate'; originalCode: 'cancelled' | 'refresh_required' | 'rejected' }
+  | { code: 'refresh_required'; reason: 'active_turn_mismatch' | 'pending_promoted' }
+  | { code: 'rejected'; reason: 'invalid_intent' | 'lane_unavailable' }
+
 export type AgentConversationBranchStatus = 'active' | 'archived' | 'deleted'
 
 export type AgentConversationForkPoint = {
@@ -483,6 +565,30 @@ export type AgentChatStreamToolEvent = {
   permissionRequest?: AgentToolPermissionRequest
 }
 
+/**
+ * Main-only lifecycle projection for an ADR-0170 host reservation becoming
+ * runnable. It deliberately contains only opaque routing/correlation ids;
+ * conversation input, transcript, tool data, and secrets never travel here.
+ *
+ * `sequence: 0` places it outside the positive, stream-local AgentEventBus
+ * sequence. Existing replay delivery therefore ignores it while direct
+ * `onAgentChatEvent` subscribers can correlate queued intents safely.
+ */
+export type AgentConversationTurnStartedRealtimeEvent = {
+  sequence: 0
+  streamId: string
+  kind: 'conversation_turn_started'
+  createdAt: string
+  activeTurnId: string
+  clientRequestId: string
+  conversationId?: string
+}
+
+/**
+ * Positive-sequence runtime events emitted and persisted by AgentEventBus.
+ * Keep the host-only lifecycle notification out of this union: runtime
+ * consumers intentionally exhaust over chunk/status/tool/terminal only.
+ */
 export type AgentRealtimeEvent =
   | {
       sequence: number
@@ -513,6 +619,14 @@ export type AgentRealtimeEvent =
       outcome: Extract<AgentLoopStatus, 'done' | 'canceled' | 'error'>
       message?: string
     }
+
+/**
+ * Realtime delivery union for the existing agent event channel. The lifecycle
+ * member is gateway-only and never enters AgentEventBus replay or persistence.
+ */
+export type AgentRealtimeDeliveryEvent =
+  | AgentRealtimeEvent
+  | AgentConversationTurnStartedRealtimeEvent
 
 export type AgentEventBusReplay = {
   streamId: string
