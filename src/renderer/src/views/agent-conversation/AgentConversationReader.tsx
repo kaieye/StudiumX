@@ -62,7 +62,7 @@ export function AgentConversationReader({
       />
     )
   }
-  if (!presentation || (presentation.items.length === 0 && presentation.answeredAsks.length === 0)) {
+  if (!presentation || (presentation.items.every((item) => item.kind === 'reasoning') && presentation.answeredAsks.length === 0)) {
     return null
   }
   return <AgentProcessReader presentation={presentation} compact={compact} />
@@ -162,7 +162,10 @@ function AgentProcessReader({ presentation, compact }: {
   presentation: AgentConversationReaderPresentation
   compact: boolean
 }) {
-  const rows = groupRepeatedProcessDescriptions(presentation.items)
+  // Raw provider reasoning is not a learner-facing diagnostic. This second
+  // boundary also protects legacy or malformed presentations that bypass the
+  // normal conversation projector.
+  const rows = groupRepeatedProcessDescriptions(presentation.items.filter((item) => item.kind !== 'reasoning'))
   const header = processHeaderFor(presentation.status?.kind, presentation.active)
   const canCollapse = header.title === '思考结束' && !presentation.active
   const [expanded, setExpanded] = useState(() => !canCollapse)
@@ -373,60 +376,12 @@ function processPrimaryLabel(item: AgentConversationProvenanceItem): string {
 
 function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
   const secondary = safeProcessSecondaryText(item)
-  if (item.kind === 'reasoning' && secondary) return <ReasoningProcessRow item={item} secondary={secondary} />
   return (
     <div className={`agent-process-event${item.state === 'error' ? ' is-error' : ''}${item.state === 'active' ? ' is-active' : ''}`}>
       <span className="agent-process-event-icon"><ProcessIcon item={item} /></span>
       <div className="agent-process-event-copy">
         <strong>{processPrimaryLabel(item)}</strong>
         {secondary ? <small>{secondary}</small> : null}
-      </div>
-    </div>
-  )
-}
-
-function ReasoningProcessRow({ item, secondary }: { item: AgentConversationProvenanceItem; secondary: string }) {
-  const [expanded, setExpanded] = useState(false)
-  const [detailMaxHeight, setDetailMaxHeight] = useState<number | null>(null)
-  const [hasOverflow, setHasOverflow] = useState(false)
-  const detailRef = useRef<HTMLElement>(null)
-  const isActive = item.state === 'active'
-  const isCollapsed = !isActive && !expanded
-  useLayoutEffect(() => {
-    const node = detailRef.current
-    if (!node) return
-    const computedLineHeight = Number.parseFloat(window.getComputedStyle(node).lineHeight)
-    const lineHeight = Number.isFinite(computedLineHeight) ? computedLineHeight : 16.675
-    const collapsedHeight = lineHeight * 3
-    const fullHeight = Math.max(node.scrollHeight, collapsedHeight)
-    setHasOverflow(node.scrollHeight > collapsedHeight + 1)
-    setDetailMaxHeight(isCollapsed ? collapsedHeight : fullHeight)
-  }, [isCollapsed, secondary])
-  return (
-    <div className={`agent-process-event${isActive ? ' is-active' : ''}`}>
-      <span className="agent-process-event-icon"><ProcessIcon item={item} /></span>
-      <div className="agent-process-event-copy">
-        <div className="agent-process-event-title">
-          <strong>{processPrimaryLabel(item)}</strong>
-          {!isActive ? (
-            <button
-              type="button"
-              className="agent-process-reasoning-toggle"
-              aria-expanded={expanded}
-              aria-label={expanded ? '折叠思考过程' : '展开思考过程'}
-              onClick={() => setExpanded((value) => !value)}
-            >
-              <ChevronDown className={expanded ? 'is-open' : undefined} size={14} />
-            </button>
-          ) : null}
-        </div>
-        <small
-          ref={detailRef}
-          className={`has-height-transition${isCollapsed ? ' is-collapsed' : ''}${hasOverflow ? ' has-overflow' : ''}`}
-          style={detailMaxHeight === null ? undefined : { maxHeight: `${detailMaxHeight}px` }}
-        >
-          {secondary}
-        </small>
       </div>
     </div>
   )
@@ -523,7 +478,6 @@ function ProcessIcon({ item }: { item: AgentConversationProvenanceItem }) {
   if (item.state === 'interrupted') return <Bell size={13} />
   if (item.state === 'error') return <AlertCircle size={13} />
   if (item.state === 'active') return <Loader2 className="spin" size={13} />
-  if (item.kind === 'reasoning') return <BrainCircuit size={13} />
   if (item.kind === 'permission_request') return <Bell size={13} />
   if (item.kind === 'permission_resolved' || item.kind === 'elicitation_resolved' || item.kind === 'tool_result') return <CheckCircle2 size={13} />
   if (item.kind === 'elicitation_request') return <MessageSquare size={13} />

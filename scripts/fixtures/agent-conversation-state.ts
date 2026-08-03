@@ -325,8 +325,8 @@ const canceled = cancelPendingAgentConversation({
   preserveToolsSupported: true
 })
 assert.equal(canceled.agentChatBusy, false)
-assert.equal(canceled.pendingAgentConversation, null)
-assert.equal(canceled.activeConversationId, null)
+assert.equal(canceled.pendingAgentConversation?.summary.id, draft.pendingConversationId)
+assert.equal(canceled.pendingAgentConversation?.status, '已中止')
 assert.equal(canceled.agentToolsSupported, true)
 assert.equal(canceled.agentTurns?.at(-1)?.processEvents?.at(-1)?.status, 'canceled')
 

@@ -4,19 +4,21 @@ import { readFile } from 'node:fs/promises'
 const [
   systemApiTypes,
   preload,
-  main,
+  gateway,
   app,
   appStore,
   agentLoop,
-  providerAdapter
+  executionState,
+  providerAdapterInvocation
 ] = await Promise.all([
   readFile('src/shared/teaching-types/system-api.ts', 'utf8'),
   readFile('src/preload/index.ts', 'utf8'),
-  readFile('src/main/index.ts', 'utf8'),
+  readFile('src/main/teaching-ipc-gateway.ts', 'utf8'),
   readFile('src/renderer/src/App.tsx', 'utf8'),
   readFile('src/renderer/src/app-shell/appStore.ts', 'utf8'),
   readFile('src/main/ai/agent-loop.ts', 'utf8'),
-  readFile('src/main/ai/provider-adapter.ts', 'utf8')
+  readFile('src/main/ai/agent-loop-execution-state.ts', 'utf8'),
+  readFile('src/main/ai/provider-adapter/invocation.ts', 'utf8')
 ])
 
 assert.match(
@@ -32,44 +34,56 @@ assert.match(
 )
 
 assert.match(
-  main,
-  /const activeAgentChatStreams = new Map<string,\s*AbortController>\(\)/,
-  'main process should track active agent chat AbortControllers'
+  gateway,
+  /type GatewayContext = TeachingIpcRegistration & \{[\s\S]*?activeAgentChatStreams: Map<string, AbortController>/,
+  'teaching IPC gateway should own active agent chat AbortControllers'
 )
 
 assert.match(
-  main,
-  /ipcMain\.handle\(teachingInvokeChannels\.cancelAgentChatStream[\s\S]*controller\.abort\(\)/,
-  'main process should abort the matching stream on cancel'
+  gateway,
+  /activeAgentChatStreams: new Map\(\)/,
+  'teaching IPC gateway should initialize active agent chat AbortController tracking'
+)
+
+assert.match(
+  gateway,
+  /channel: teachingInvokeChannels\.agentChatStream[\s\S]*?context\.activeAgentChatStreams\.set\(streamId, controller\)/,
+  'agent chat stream should register its AbortController before invoking the service'
+)
+
+assert.match(
+  gateway,
+  /channel: teachingInvokeChannels\.cancelAgentChatStream[\s\S]*?context\.activeAgentChatStreams\.get\(streamId\)[\s\S]*?controller\.abort\(\)[\s\S]*?context\.activeAgentChatStreams\.delete\(streamId\)/,
+  'teaching IPC gateway should abort and retire the matching stream on cancel'
 )
 
 assert.match(
   appStore,
-  /cancelAgentChat:\s*async\s*\(\)\s*=>[\s\S]*cancelAgentChatStream\(pending\.summary\.id\)/,
-  'renderer store should call the cancel API for the active pending conversation'
+  /cancelAgentChat:\s*async\s*\(\)\s*=>[\s\S]*createAgentConversationTurnRunner\(get, set\)\.cancel\(\)/,
+  'renderer store should delegate active conversation cancellation to its turn runner'
 )
 
 assert.match(
   app,
-  /const canCancelAgentChat = agentChatBusy && Boolean\(pendingAgentConversation\)/,
-  'chat composer should know when the pending conversation can be canceled'
+  /const canCancelAgentChat = agentChatBusy && Boolean\(pendingAgentConversation\)[\s\S]*?activeTurnPresentation\?\.active === true/,
+  'chat composer should expose cancellation only for the active pending turn or an interruption'
 )
 
 assert.match(
   app,
-  /canCancelAgentChat \? <Square size=\{16\} \/>/,
-  'send button should become a stop button while agent chat is running'
+  /canCancelAgentChat && !inputValue\.trim\(\)\s*\? <Square size=\{16\} \/>/,
+  'empty composer send button should become a stop button while the active turn is running'
 )
 
 assert.match(
-  agentLoop,
-  /status:\s*'canceled'/,
-  'agent loop should emit a canceled status'
+  executionState,
+  /emit\(\{ type: 'status', status: 'canceled' \}\)/,
+  'agent loop execution state should emit a canceled status'
 )
 
 assert.match(
-  providerAdapter,
-  /composeAbortSignal\(settings\.generator\.requestTimeoutMs,\s*signal\)/,
+  providerAdapterInvocation,
+  /composeAbortSignal\(base\.settings\.generator\.requestTimeoutMs, base\.signal\)/,
   'provider calls should use the user abort signal together with request timeout'
 )
 

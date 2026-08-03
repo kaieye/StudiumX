@@ -117,6 +117,56 @@ describe('runAgentLoop provider hooks end-to-end', () => {
   })
 
 
+  it('suppresses repeated write preambles from every tool-calling iteration', async () => {
+    const preamble = '好，让我接下来写入文件。'
+    const responses = [
+      sseResponse([
+        { choices: [{ delta: { content: preamble } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-write-1', type: 'function', function: { name: 'write_workspace_file', arguments: '{\"path\":\"notes-1.md\",\"content\":\"one\"}' } }] } }] }
+      ]),
+      sseResponse([
+        { choices: [{ delta: { content: preamble } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-write-2', type: 'function', function: { name: 'write_workspace_file', arguments: '{\"path\":\"notes-2.md\",\"content\":\"two\"}' } }] } }] }
+      ]),
+      sseResponse([
+        { choices: [{ delta: { content: preamble } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-write-3', type: 'function', function: { name: 'write_workspace_file', arguments: '{\"path\":\"notes-3.md\",\"content\":\"three\"}' } }] } }] }
+      ]),
+      sseResponse([{ choices: [{ delta: { content: '文件已写入。' } }] }])
+    ]
+    globalThis.fetch = (async () => responses.shift()!) as typeof fetch
+    const tokens: string[] = []
+    let writes = 0
+
+    const result = await runAgentLoop({
+      settings: settings(),
+      provider: provider(),
+      messages: [{ role: 'user', content: '把三条笔记写入文件' }],
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'write_workspace_file',
+          description: 'write a workspace file',
+          parameters: { type: 'object', properties: {} }
+        }
+      }],
+      toolHandlers: {
+        write_workspace_file: async () => {
+          writes += 1
+          return JSON.stringify({ ok: true })
+        }
+      },
+      budget: { maxIterations: 4, maxToolCalls: 3, maxProviderCalls: 4 },
+      callbacks: { onEvent: (event) => { if (event.type === 'token') tokens.push(event.delta) } }
+    })
+
+    expect(result.finalText).toBe('文件已写入。')
+    expect(tokens).toEqual(['文件已写入。'])
+    expect(tokens.join('')).not.toContain(preamble)
+    expect(writes).toBe(3)
+    expect(responses).toHaveLength(0)
+  })
+
   it('recovers a required tool when the model returns a premature final answer', async () => {
     const responses = [
       sseResponse([{ choices: [{ delta: { content: '我先直接讲解 MCP。' } }] }]),

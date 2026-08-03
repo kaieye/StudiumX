@@ -206,7 +206,7 @@ export function applyAgentChatChunkToPending({
   chunk: AgentChatStreamChunk
   updatedAt?: string
 }): PendingConversationStorePatch | null {
-  if (!pending || chunk.streamId !== pending.summary.id) return null
+  if (!pending || chunk.streamId !== pending.summary.id || latestAssistantTurnWasCanceled(pending.turns)) return null
   let changed = false
   const turns = pending.turns.map((turn) => {
     if (turn.id !== assistantId) return turn
@@ -242,7 +242,7 @@ export function applyAgentChatStatusToPending({
   status: AgentChatStreamStatus
   updatedAt?: string
 }): PendingConversationStorePatch | null {
-  if (!pending || status.streamId !== pending.summary.id) return null
+  if (!pending || status.streamId !== pending.summary.id || latestAssistantTurnWasCanceled(pending.turns)) return null
   const label = agentStatusLabel(status.status)
   const statusText = status.message?.startsWith('正在生成课程：')
     ? status.message
@@ -284,7 +284,7 @@ export function applyAgentChatToolEventToPending({
   event: AgentChatStreamToolEvent
   updatedAt?: string
 }): PendingConversationStorePatch | null {
-  if (!pending || event.streamId !== pending.summary.id) return null
+  if (!pending || event.streamId !== pending.summary.id || latestAssistantTurnWasCanceled(pending.turns)) return null
   const turns = [...pending.turns]
   const idx = turns.findIndex((turn) => turn.id === assistantId)
   if (idx < 0) return null
@@ -355,10 +355,23 @@ export function cancelPendingAgentConversation({
   preserveToolsSupported?: boolean
 }): PendingConversationStorePatch {
   const turns = markLatestAssistantTurnCanceled(pending.turns)
+  const canceledPending: PendingAgentConversation = {
+    ...pending,
+    turns,
+    status: '已中止',
+    summary: {
+      ...pending.summary,
+      updatedAt: new Date().toISOString(),
+      messageCount: turns.length
+    }
+  }
   const isVisible = activeConversationId === pending.summary.id
   return {
     agentChatBusy: false,
-    pendingAgentConversation: null,
+    // A local cancellation stops execution but must not erase the transcript.
+    // Keep it as a pending-only draft: it remains visible/retryable but is never
+    // promoted as a completed conversation by this cancellation path.
+    pendingAgentConversation: canceledPending,
     ...(preserveToolsSupported
       ? {
           agentStatus: '',
@@ -368,7 +381,6 @@ export function cancelPendingAgentConversation({
     ...(isVisible
       ? {
           agentTurns: turns,
-          activeConversationId: null,
           agentStatus: '',
           agentToolsSupported: preserveToolsSupported ? pending.toolsSupported : null
         }
@@ -569,6 +581,14 @@ export function isPendingConversationSummary(
 
 export function isTemporaryConversation(conversation: AgentConversationSummary): boolean {
   return isTemporaryAgentConversationPath(conversation.relativePath)
+}
+
+/** A locally canceled pending run must ignore delayed IPC/replay delivery. */
+function latestAssistantTurnWasCanceled(turns: AgentChatTurn[]): boolean {
+  const assistant = [...turns].reverse().find((turn) => turn.role === 'assistant')
+  return assistant?.processEvents?.some(
+    (event) => event.kind === 'status' && event.status === 'canceled'
+  ) ?? false
 }
 
 export function markLatestAssistantTurnCanceled(turns: AgentChatTurn[]): AgentChatTurn[] {

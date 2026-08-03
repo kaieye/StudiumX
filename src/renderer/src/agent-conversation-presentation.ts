@@ -190,6 +190,9 @@ function presentTurn(turn: AgentChatTurn, active: boolean): AgentConversationTur
   )
   for (const item of buildAgentProcessTimeline(turn)) {
     if (item.kind === 'event') {
+      // Provider reasoning is raw chain-of-thought, not learner-facing process
+      // evidence. Keep the structured tool/status events that explain progress.
+      if (item.event.kind === 'reasoning') continue
       if (item.event.kind === 'tool_result' && item.event.toolCallId && liveToolCallIds.has(item.event.toolCallId)) continue
       items.push(presentProcessEvent(item.event, item.toolCall, toolResultDiagnostics, effectivelyActive, status))
       continue
@@ -351,7 +354,7 @@ function presentProcessEvent(
     ? undefined
     : resultFocused && toolCall && isDisclosureOnlyToolResult(toolCall, toolDiagnostic)
       ? undefined
-      : kind === 'reasoning' ? preserveReasoningText(event.detail) : compactText(event.detail, 180)
+      : compactText(event.detail, 180)
 
   return {
     id: `event:${event.id}`,
@@ -495,11 +498,6 @@ function fallbackLabel(kind: ProvenanceKind, status?: string, toolName?: string)
 
 function compactLabel(value: string, limit: number): string {
   return compactText(value, limit) || 'Agent 活动'
-}
-
-function preserveReasoningText(value: string | undefined): string | undefined {
-  const text = value?.trim() ?? ''
-  return text || undefined
 }
 
 function compactText(value: string | undefined, limit: number): string | undefined {

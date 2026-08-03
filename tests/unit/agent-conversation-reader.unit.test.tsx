@@ -10,33 +10,32 @@ function presentation(state: 'active' | 'complete'): AgentConversationTurnPresen
     status: { kind: state === 'active' ? 'active' : 'completed' },
     answeredAsks: [],
     sources: [],
-    items: [{
-      id: 'reasoning-1', kind: 'reasoning', label: '思考过程',
-      detail: '第一行\n第二行\n第三行\n第四行', state
-    }]
+    items: [
+      {
+        id: 'reasoning-1', kind: 'reasoning', label: '思考过程',
+        detail: '好，让我接下来写入文件。', state
+      },
+      {
+        id: 'status-1', kind: 'status', label: state === 'active' ? '正在准备写入' : '处理完成', state
+      }
+    ]
   }
 }
 
-describe('AgentConversationReader reasoning disclosure', () => {
-  it('collapses completed reasoning to three lines and lets the user expand it', async () => {
-    const user = setupUser()
-    renderUi(<AgentConversationReader presentation={presentation('complete')} />)
+describe('AgentConversationReader reasoning boundary', () => {
+  it('does not render raw provider reasoning supplied by a legacy presentation', () => {
+    renderUi(<AgentConversationReader presentation={presentation('active')} />)
 
-    await user.click(screen.getByRole('button', { name: '展开思考过程' }))
-    const toggle = screen.getByRole('button', { name: '展开思考过程' })
-    const detail = screen.getByText(/第一行/)
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(detail).toHaveClass('is-collapsed', 'has-height-transition')
-
-    await user.click(toggle)
-    expect(screen.getByRole('button', { name: '折叠思考过程' })).toHaveAttribute('aria-expanded', 'true')
-    expect(detail).not.toHaveClass('is-collapsed')
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).toHaveTextContent('正在准备写入')
+    expect(panel).not.toHaveTextContent('好，让我接下来写入文件。')
+    expect(panel).not.toHaveTextContent('思考过程')
   })
 
-  it('shows active reasoning in full without a disclosure toggle', () => {
-    renderUi(<AgentConversationReader presentation={presentation('active')} />)
-    expect(screen.getByText(/第一行/)).not.toHaveClass('is-collapsed')
-    expect(screen.queryByRole('button', { name: /思考过程/ })).toBeNull()
+  it('does not create a process panel when reasoning is the only legacy item', () => {
+    renderUi(<AgentConversationReader presentation={{ ...presentation('active'), items: [presentation('active').items[0]] }} />)
+
+    expect(screen.queryByRole('region', { name: 'AI 处理过程' })).toBeNull()
   })
 })
 
@@ -252,7 +251,7 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     )
 
     const panel = screen.getByRole('region', { name: 'AI 处理过程' })
-    expect(panel).toHaveTextContent('思考过程')
+    expect(panel).not.toHaveTextContent('思考过程')
     expect(panel).toHaveTextContent('调用工具：search_notes')
     expect(panel).toHaveTextContent('正在准备回复')
   })
@@ -307,7 +306,8 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     expect(rendered).toContain('处理状态')
     expect(rendered).toContain('来源处理')
     expect(rendered).toContain('辅助任务')
-    expect(rendered).toContain('思考过程')
+    expect(rendered).not.toContain(cotLabel)
+    expect(rendered).not.toContain('思考过程')
     expect(rendered).toContain('上下文整理')
   })
 
@@ -418,7 +418,7 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     expect(rendered).toContain('读取 notes/lesson-guide.md')
     expect(rendered).toContain('调用工具：search_notes')
     expect(rendered).toContain('正在准备回复')
-    expect(rendered).toContain('思考过程')
+    expect(rendered).not.toContain('思考过程')
     expect(rendered).not.toContain('[redacted')
     // Unmarked ordinary answer sentences without typed markers are out of scope
     // for this projector; they remain an upstream typed-title contract follow-up.
