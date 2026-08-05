@@ -262,7 +262,7 @@ export function applyAgentChatStatusToPending({
         processEvents: appendAgentProcessEvent(
           settlePermissionProcessEvents(
             turn.processEvents,
-            status.status === 'done' || status.status === 'error' || status.status === 'canceled',
+            status.status === 'done' || status.status === 'error' || status.status === 'canceled' || status.status === 'resource_limit' || status.status === 'suspended' || status.status === 'no_progress' || status.status === 'context_unrecoverable' || status.status === 'retry_exhausted',
             status.status === 'error'
           ),
           createAgentStatusProcessEvent(status.status, status.message)
@@ -511,6 +511,11 @@ export function agentStatusLabel(status: AgentChatStreamStatus['status']): strin
     answering: '生成答复…',
     done: '完成',
     canceled: '已中断',
+    resource_limit: '已达到资源边界',
+    suspended: '运行已暂停',
+    no_progress: '重复操作未产生进展',
+    context_unrecoverable: '上下文无法安全压缩',
+    retry_exhausted: '自动重试已耗尽',
     error: '出错'
   }
   return labels[status]
@@ -848,6 +853,11 @@ function agentProcessStatusTitle(status: AgentChatStreamStatus['status']): strin
     answering: '生成最终答复',
     done: '答复完成',
     canceled: '对话已中断',
+    resource_limit: '已达到明确资源边界',
+    suspended: '高位紧急熔断器已暂停运行',
+    no_progress: '重复操作未带来安全进展，未自动重试',
+    context_unrecoverable: '上下文无法安全压缩，未自动重试',
+    retry_exhausted: '自动重试已耗尽，未自动继续请求',
     error: '过程出错'
   }
   return labels[status]

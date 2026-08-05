@@ -546,8 +546,7 @@ export function aggregateTokenFacts(
     toolErrors: sum(accepted.map((fact) => fact.usage.toolErrors)),
     iterations: sum(accepted.map((fact) => fact.usage.iterations)),
     childRuns: sum(accepted.map((fact) => fact.usage.childRuns)),
-    durationMs: sum(accepted.map((fact) => fact.usage.durationMs)),
-    budgetStops: accepted.filter((fact) => fact.usage.budgetStopReason).length
+    durationMs: sum(accepted.map((fact) => fact.usage.durationMs))
   }
 
   const byDayMap = new Map<string, TokenUsageFact[]>()
@@ -696,8 +695,10 @@ function normalizeUsage(raw: unknown): { usage: TokenUsageNumbers; componentsCom
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Record<string, unknown>, promptTokens = finiteNonNegative(value.promptTokens), completionTokens = finiteNonNegative(value.completionTokens), sourceTotal = finiteNonNegative(value.totalTokens), derivedTotal = promptTokens !== null && completionTokens !== null ? promptTokens + completionTokens : null, totalTokens = sourceTotal ?? derivedTotal
   if (totalTokens === null) return null
-  const stop = ['duration', 'provider_calls', 'tool_calls', 'total_tokens'].includes(String(value.budgetStopReason)) ? value.budgetStopReason as TokenUsageNumbers['budgetStopReason'] : undefined
-  return { usage: { ...(promptTokens !== null ? { promptTokens } : {}), ...(completionTokens !== null ? { completionTokens } : {}), totalTokens, providerCalls: finiteNonNegative(value.providerCalls) ?? 0, toolCalls: finiteNonNegative(value.toolCalls) ?? 0, toolErrors: finiteNonNegative(value.toolErrors) ?? 0, iterations: finiteNonNegative(value.iterations) ?? 0, childRuns: finiteNonNegative(value.childRuns) ?? 0, durationMs: finiteNonNegative(value.durationMs) ?? 0, ...(stop ? { budgetStopReason: stop } : {}) }, componentsComplete: promptTokens !== null && completionTokens !== null, totalInconsistent: sourceTotal !== null && derivedTotal !== null && sourceTotal !== derivedTotal }
+  // Legacy rows may contain the retired budgetStopReason field. Deliberately
+  // ignore it: usage evidence remains observable, but no current analytics DTO
+  // represents a global run-stop authority.
+  return { usage: { ...(promptTokens !== null ? { promptTokens } : {}), ...(completionTokens !== null ? { completionTokens } : {}), totalTokens, providerCalls: finiteNonNegative(value.providerCalls) ?? 0, toolCalls: finiteNonNegative(value.toolCalls) ?? 0, toolErrors: finiteNonNegative(value.toolErrors) ?? 0, iterations: finiteNonNegative(value.iterations) ?? 0, childRuns: finiteNonNegative(value.childRuns) ?? 0, durationMs: finiteNonNegative(value.durationMs) ?? 0 }, componentsComplete: promptTokens !== null && completionTokens !== null, totalInconsistent: sourceTotal !== null && derivedTotal !== null && sourceTotal !== derivedTotal }
 }
 
 function dateToLocalKey(date: Date, timeZone: string): AnalyticsLocalDate {

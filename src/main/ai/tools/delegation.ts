@@ -8,6 +8,7 @@ import {
   type ParallelChildRunResult
 } from '../delegation-runtime'
 import type { TeachingModelProviderProfile } from '../../../shared/teaching-types'
+import type { AgentRunResourceGovernor } from '../agent-run-resource-governance'
 import type { AgentRunStore } from '../agent-run-store'
 
 export type DelegationToolOptions = {
@@ -16,6 +17,8 @@ export type DelegationToolOptions = {
   signal?: AbortSignal
   /** Optional durable parent-run journal for child lifecycle recovery. */
   runStore?: AgentRunStore
+  /** Host-owned parent ledger forwarded only through the internal call context. */
+  resourceGovernor?: AgentRunResourceGovernor
 }
 
 export function createDelegationToolEntries(options: DelegationToolOptions): ToolEntry[] {
@@ -59,12 +62,6 @@ function createDelegationToolEntry(
               enum: ['read_only', 'research', 'workspace_audit'],
               description: '只读任务 profile。workspace_audit 不能使用网页工具。'
             },
-            maxIterations: {
-              type: 'number',
-              minimum: 1,
-              maximum: 10,
-              description: 'child agent 的最大工具轮数，默认使用安全上限。'
-            },
             timeoutMs: {
               type: 'number',
               minimum: 1000,
@@ -83,7 +80,8 @@ function createDelegationToolEntry(
         provider: options.provider,
         workspaceRoot: ctx.workspaceRoot,
         parentStreamId: options.streamId,
-        signal: options.signal,
+        signal: composeAbortSignals(options.signal, ctx.signal, callCtx?.signal),
+        resourceGovernor: callCtx?.resourceGovernor ?? options.resourceGovernor,
         store: options.runStore && options.streamId
           ? options.runStore.createChildRunStore(options.streamId)
           : undefined,
@@ -132,12 +130,6 @@ function createParallelTasksToolEntry(options: DelegationToolOptions): ToolEntry
                     enum: ['read_only', 'research', 'workspace_audit'],
                     description: '只读任务 profile。workspace_audit 不能使用网页工具。'
                   },
-                  maxIterations: {
-                    type: 'number',
-                    minimum: 1,
-                    maximum: 10,
-                    description: '该 child agent 的最大工具轮数。'
-                  },
                   timeoutMs: {
                     type: 'number',
                     minimum: 1000,
@@ -166,7 +158,8 @@ function createParallelTasksToolEntry(options: DelegationToolOptions): ToolEntry
         provider: options.provider,
         workspaceRoot: ctx.workspaceRoot,
         parentStreamId: options.streamId,
-        signal: options.signal,
+        signal: composeAbortSignals(options.signal, ctx.signal, callCtx?.signal),
+        resourceGovernor: callCtx?.resourceGovernor ?? options.resourceGovernor,
         store: options.runStore && options.streamId
           ? options.runStore.createChildRunStore(options.streamId)
           : undefined,
@@ -186,14 +179,12 @@ function normalizeDelegationArgs(args: unknown, forcedProfile?: ChildAgentProfil
   const prompt = typeof input.prompt === 'string' ? input.prompt : ''
   const context = typeof input.context === 'string' ? input.context : undefined
   const profile = forcedProfile ?? normalizeProfile(input.profile)
-  const maxIterations = typeof input.maxIterations === 'number' ? input.maxIterations : Number(input.maxIterations)
   const timeoutMs = typeof input.timeoutMs === 'number' ? input.timeoutMs : Number(input.timeoutMs)
   return {
     label,
     prompt,
     context,
     profile,
-    maxIterations: Number.isFinite(maxIterations) ? maxIterations : undefined,
     timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : undefined
   }
 }
@@ -228,4 +219,10 @@ function withoutParallelChildTranscriptArchives(
     ...result,
     results: result.results.map(withoutChildTranscriptArchive)
   }
+}
+
+function composeAbortSignals(...candidates: Array<AbortSignal | undefined>): AbortSignal | undefined {
+  const signals = [...new Set(candidates.filter((signal): signal is AbortSignal => signal !== undefined))]
+  if (signals.length <= 1) return signals[0]
+  return AbortSignal.any(signals)
 }

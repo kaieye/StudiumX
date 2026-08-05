@@ -109,29 +109,6 @@ export function sanitizeAuthorityToken(raw: string | undefined, maxLen = 64): st
   return value.slice(0, maxLen) || undefined
 }
 
-/**
- * Derive a real, configured soft pressure signal for orchestration planning.
- * This only defers low-priority enhancer/packager roles; AgentRunBudget remains
- * the independent hard runtime ceiling and is never replaced by this signal.
- */
-export function deriveSkillOrchestrationBudgetPressure(input: {
-  maxTotalTokens: number
-  warningThreshold: number
-  selectedSkillCount: number
-}): boolean {
-  const hardCeiling = Number.isFinite(input.maxTotalTokens)
-    ? Math.max(0, Math.floor(input.maxTotalTokens))
-    : 0
-  const warningThreshold = Number.isFinite(input.warningThreshold)
-    ? Math.min(1, Math.max(0, input.warningThreshold))
-    : 0
-  const selectedSkillCount = Math.min(8, Math.max(0, Math.floor(input.selectedSkillCount)))
-  // Reserve a small teaching-turn baseline plus deterministic headroom for
-  // each requested capability. This is a planner hint, not token accounting.
-  const requiredHeadroomTokens = 8_000 + selectedSkillCount * 4_000
-  return hardCeiling * warningThreshold < requiredHeadroomTokens
-}
-
 /** @deprecated Prefer sanitizeAuthorityToken — same allow-list for next-step action. */
 export function sanitizeNextStepAction(raw: string | undefined, maxLen = 120): string | undefined {
   return sanitizeAuthorityToken(raw, Math.min(maxLen, 64))

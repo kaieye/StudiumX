@@ -53,17 +53,6 @@ const SUPERSEDED_MODEL_PRESETS: Record<string, string[]> = {
   glm: ['glm-4.5', 'glm-4.5-air', 'glm-4-flash']
 }
 
-export const DEFAULT_TEACHING_AGENT_RUN_BUDGET = {
-  // Conversational teaching turns (research + nested child runs + lesson generation)
-  // routinely exceed short chat budgets. Keep a hard safety ceiling, but default high
-  // enough that normal course creation is not cut mid-turn.
-  maxDurationMs: 20 * 60_000,
-  maxProviderCalls: 64,
-  maxToolCalls: 128,
-  maxTotalTokens: 500_000,
-  warningThreshold: 0.8
-} as const satisfies TeachingSettingsV1['tools']['runBudget']
-
 /**
  * Produces the complete v1 document used by both persistence and the renderer.
  * This module deliberately has no filesystem or safe-storage concerns.
@@ -117,9 +106,18 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
       enabled: true,
       maxInjected: 4
     },
+    // Disabled by default: this is an explicit user budget, not a hidden
+    // general-purpose run fuse. Values are only applied after opt-in.
+    resourceBudget: {
+      enabled: false,
+      providerTransportAttempts: 20,
+      toolOperationAttempts: 40,
+      durationMinutes: 30,
+      totalTokens: 200_000
+    },
     tools: {
       // New/default settings invoke tools, while effect approvals, workspace trust,
-      // sandbox policy, budgets, and path fences remain independently enforced.
+      // sandbox policy, and path fences remain independently enforced.
       enabled: true,
       workspaceRead: true,
       approvalMode: 'request_approval',
@@ -128,9 +126,7 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
       sandboxMode: 'workspace_write',
       windowsSandboxLevel: 'restricted_token',
       webSearch: true,
-      webFetch: false,
-      maxIterations: 0,
-      runBudget: { ...DEFAULT_TEACHING_AGENT_RUN_BUDGET }
+      webFetch: false
     },
     webSearch: {
       backend: 'auto',
@@ -233,13 +229,13 @@ export function mergeTeachingSettings(
       ...current.memory,
       ...(patch.memory ?? {})
     },
+    resourceBudget: {
+      ...current.resourceBudget,
+      ...(patch.resourceBudget ?? {})
+    },
     tools: {
       ...current.tools,
-      ...(patch.tools ?? {}),
-      runBudget: {
-        ...current.tools.runBudget,
-        ...(patch.tools?.runBudget ?? {})
-      }
+      ...(patch.tools ?? {})
     },
     webSearch: {
       ...current.webSearch,
@@ -302,15 +298,16 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
   const generatorProviderId = normalizeProviderId(generatorInput.providerId) || activeProvider.id
   const generatorProvider = normalizedProviders.find((provider) => provider.id === generatorProviderId) ?? activeProvider
   const generatorModel = normalizeString(generatorInput.model)
+  const generatorModelsReSeeded = wasProviderModelsReSeeded(providerInput.providers, generatorProvider.id)
   const model =
-    generatorModel && generatorProvider.models.includes(generatorModel)
+    generatorModel && (!generatorModelsReSeeded || generatorProvider.models.includes(generatorModel))
       ? generatorModel
       : generatorProvider.models[0] ?? generatorModel
   const workspaceInput = recordOf(record.workspace)
   const worktreeInput = recordOf(record.worktree)
   const memoryInput = recordOf(record.memory)
+  const resourceBudgetInput = recordOf(record.resourceBudget)
   const toolsInput = recordOf(record.tools)
-  const runBudgetInput = recordOf(toolsInput.runBudget)
   const webSearchInput = recordOf(record.webSearch)
   const notificationsInput = recordOf(record.notifications)
   const petInput = recordOf(record.pet)
@@ -384,6 +381,21 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
       enabled: memoryInput.enabled !== false,
       maxInjected: Math.round(clampNumber(memoryInput.maxInjected, 1, 12, defaults.memory.maxInjected))
     },
+    resourceBudget: {
+      enabled: resourceBudgetInput.enabled === true,
+      providerTransportAttempts: Math.round(clampNumber(
+        resourceBudgetInput.providerTransportAttempts, 1, 10_000, defaults.resourceBudget.providerTransportAttempts
+      )),
+      toolOperationAttempts: Math.round(clampNumber(
+        resourceBudgetInput.toolOperationAttempts, 1, 10_000, defaults.resourceBudget.toolOperationAttempts
+      )),
+      durationMinutes: Math.round(clampNumber(
+        resourceBudgetInput.durationMinutes, 1, 1_440, defaults.resourceBudget.durationMinutes
+      )),
+      totalTokens: Math.round(clampNumber(
+        resourceBudgetInput.totalTokens, 1_000, 100_000_000, defaults.resourceBudget.totalTokens
+      ))
+    },
     tools: {
       // Legacy `tools.enabled` values are deliberately ignored. Tool availability is
       // application-wide; individual tool execution remains guarded separately.
@@ -401,9 +413,7 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
         defaults.tools.windowsSandboxLevel
       ),
       webSearch: toolsInput.webSearch !== false,
-      webFetch: toolsInput.webFetch === true,
-      maxIterations: Math.round(clampNumber(toolsInput.maxIterations, 0, 64, defaults.tools.maxIterations)),
-      runBudget: normalizeTeachingAgentRunBudget(runBudgetInput)
+      webFetch: toolsInput.webFetch === true
     },
     webSearch: {
       backend: normalizeWebSearchBackend(webSearchInput.backend, defaults.webSearch.backend),
@@ -484,18 +494,6 @@ function normalizeWebRemoteControlSettings(
   }
 }
 
-function normalizeTeachingAgentRunBudget(
-  input: Record<string, unknown>
-): TeachingSettingsV1['tools']['runBudget'] {
-  return {
-    maxDurationMs: boundedInteger(input.maxDurationMs, 5_000, 60 * 60_000, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxDurationMs),
-    maxProviderCalls: boundedInteger(input.maxProviderCalls, 1, 500, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxProviderCalls),
-    maxToolCalls: boundedInteger(input.maxToolCalls, 1, 1_000, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxToolCalls),
-    maxTotalTokens: boundedInteger(input.maxTotalTokens, 1_000, 4_000_000, DEFAULT_TEACHING_AGENT_RUN_BUDGET.maxTotalTokens),
-    warningThreshold: boundedNumber(input.warningThreshold, 0.5, 0.95, DEFAULT_TEACHING_AGENT_RUN_BUDGET.warningThreshold)
-  }
-}
-
 function normalizeProviders(input: unknown, fallback: TeachingModelProviderProfile[]): TeachingModelProviderProfile[] {
   const byId = new Map(fallback.map((provider) => [provider.id, { ...provider }]))
   if (Array.isArray(input)) {
@@ -547,6 +545,22 @@ function normalizeProviderProfile(input: unknown): TeachingModelProviderProfile 
     apiKeyUrl: isCustomProvider ? '' : normalizeString(input.apiKeyUrl) || base.apiKeyUrl,
     ...(customHeaders.length > 0 ? { customHeaders } : {})
   }
+}
+
+/**
+ * True when the persisted provider's model list was entirely superseded and was
+ * normalized to the current catalog preset. In that migration case the selected
+ * generator model is still walked forward to the re-seeded default instead of
+ * being preserved as a free-form entry.
+ */
+function wasProviderModelsReSeeded(input: unknown, providerId: string): boolean {
+  if (!Array.isArray(input)) return false
+  const superseded = SUPERSEDED_MODEL_PRESETS[providerId]
+  if (!superseded) return false
+  const rawProvider = input.find((item) => isRecord(item) && normalizeProviderId(item.id) === providerId)
+  if (!rawProvider) return false
+  const models = normalizeModels(rawProvider.models, [])
+  return models.length > 0 && models.every((model) => superseded.includes(model))
 }
 
 function normalizeModels(input: unknown, fallback: string[]): string[] {
@@ -678,14 +692,6 @@ function clampNumber(input: unknown, min: number, max: number, fallback: number)
   const parsed = typeof input === 'number' ? input : Number(input)
   if (!Number.isFinite(parsed)) return fallback
   return Math.min(max, Math.max(min, Math.round(parsed * 100) / 100))
-}
-
-function boundedInteger(input: unknown, min: number, max: number, fallback: number): number {
-  return typeof input === 'number' && Number.isInteger(input) && input >= min && input <= max ? input : fallback
-}
-
-function boundedNumber(input: unknown, min: number, max: number, fallback: number): number {
-  return typeof input === 'number' && Number.isFinite(input) && input >= min && input <= max ? input : fallback
 }
 
 function recordOf(input: unknown): Record<string, unknown> {

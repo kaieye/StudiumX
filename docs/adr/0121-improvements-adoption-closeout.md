@@ -76,19 +76,21 @@
 4. code-mode / V8 执行不可信代码 / jiti 全权限扩展  
 5. 启动自动 memories Phase / dream / FTS5 产品搜索 / 向量记忆系统注入 system  
 6. 默认远程 OTEL / Statsig / Mixpanel 式 phone-home  
-7. 用 soft token reminder 替代多轴硬预算  
-8. 用覆盖率或泛型 CI 替换 teaching/privacy/security 领域门禁  
-9. 推倒 EventBus/timeline、重写 AgentRun 状态机、拆 settlement sole-writer  
-10. 教学 canonical 数据 zstd 物理压缩（见 ADR-0002）  
-11. Fork 默认复制可执行工具历史（破坏 `toolsReplayed:false`）  
-12. Credential 多 key 池旋转 / 自动跳未配置聚合器  
-13. 物理 monorepo 拆包或独立 app-server 作为前置条件  
-14. 默认 durable rewrite 会话正文作 compact  
-15. 学生机 fail-open 外部 shell hooks  
+7. 用覆盖率或泛型 CI 替换 teaching/privacy/security 领域门禁
+8. 推倒 EventBus/timeline、重写 AgentRun 状态机、拆 settlement sole-writer
+9. 教学 canonical 数据 zstd 物理压缩（见 ADR-0002）
+10. Fork 默认复制可执行工具历史（破坏 `toolsReplayed:false`）
+
+11. Credential 多 key 池旋转 / 自动跳未配置聚合器
+12. 物理 monorepo 拆包或独立 app-server 作为前置条件
+13. 默认 durable rewrite 会话正文作 compact
+14. 学生机 fail-open 外部 shell hooks
+
+> 原“用 soft token reminder 替代多轴硬预算”的禁止项已由 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md) 于 2026-08-04 取代：正常学习运行不再有全局累计 token / run 终止预算。
 
 ### 7. 借鉴时必须保留（只允许加强，不允许「对齐上游」削弱）
 
-文件 SoT + 可重建投影；教学证据链与 settlement sole-writer；Agent run ⟂ LearningSession；effect lattice + 无 YOLO；`expectedRevision` + `toolsReplayed:false`；多轴硬预算 + durable fallback；同意 memory + secret-free config；write rewind journal；Blocking 领域门禁；support-bundle 同意模型；prompt 稳定前缀；Footprint Ladder。
+文件 SoT + 可重建投影；教学证据链与 settlement sole-writer；Agent run ⟂ LearningSession；effect lattice + 无 YOLO；`expectedRevision` + `toolsReplayed:false`；持续运行与上下文治理（无全局累计 token / run 终止预算）；同意 memory + secret-free config；write rewind journal；Blocking 领域门禁；support-bundle 同意模型；prompt 稳定前缀；Footprint Ladder。
 
 ## 明确不包含
 

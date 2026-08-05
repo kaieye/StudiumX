@@ -1,8 +1,8 @@
-import type { AgentRealtimeEvent, AgentRunBudget, InterruptedAgentRun } from '../../shared/teaching-types'
+import type { AgentRealtimeEvent, AgentRunTerminalNotice, InterruptedAgentRun } from '../../shared/teaching-types'
 import { AgentOperationJournal } from './agent-operation-journal'
 import { AgentParentTurnStaging } from './agent-parent-turn-staging'
 import { AgentRunPersistence } from './agent-run-persistence'
-import { assertSafeId, emptyAgentRunUsage, normalizeAgentRunBudget } from './agent-run-types'
+import { assertSafeId, emptyAgentRunUsage } from './agent-run-types'
 import type {
   AgentParentTurnStage,
   AgentParentTurnStageStatus,
@@ -35,7 +35,6 @@ export class AgentRunLifecycle {
     workspaceId?: string
     conversationId?: string
     parentTurn?: { userInput: string }
-    budget: AgentRunBudget
   }): Promise<AgentRunCheckpoint> {
     assertSafeId(input.runId, 'runId')
     assertSafeId(input.streamId, 'streamId')
@@ -64,7 +63,6 @@ export class AgentRunLifecycle {
         updatedAt: now,
         ...(parentTurnStage ? { parentTurnStagingPointer: `.agent-sessions/parent-turns/${input.runId}.json` } : {}),
         operationJournalPointer: `.agent-sessions/operations/${input.runId}`,
-        budget: normalizeAgentRunBudget(input.budget),
         usage: emptyAgentRunUsage()
       }
       await this.persistence.writeCheckpoint(checkpoint, false)
@@ -449,6 +447,32 @@ export class AgentRunLifecycle {
     return reconciled.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.childRunId.localeCompare(b.childRunId))
   }
 
+  /**
+   * Read-only restart projection for terminal resource/retry boundaries. This
+   * deliberately does not create a continuation intent or replay work.
+   */
+  async listTerminalNotices(): Promise<AgentRunTerminalNotice[]> {
+    const out: AgentRunTerminalNotice[] = []
+    const stages = await this.parentTurns.list()
+    const stagesByRunId = new Map(stages.map((stage) => [stage.runId, stage]))
+    for (const name of await this.persistence.listCheckpointFiles()) {
+      try {
+        const checkpoint = await this.persistence.readCheckpointFile(name)
+        const stopReason = terminalNoticeStopReason(checkpoint)
+        if (!stopReason || checkpoint.status !== 'failed' || !checkpoint.completedAt) continue
+        out.push(toTerminalNotice(
+          checkpoint,
+          stopReason,
+          await this.operations.countReviewOperations(checkpoint.runId),
+          stagesByRunId.get(checkpoint.runId)
+        ))
+      } catch {
+        // Invalid records have already been quarantined and never reach the renderer.
+      }
+    }
+    return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
   async listInterrupted(): Promise<InterruptedAgentRun[]> {
     const out: InterruptedAgentRun[] = []
     const stages = await this.parentTurns.list()
@@ -479,6 +503,43 @@ export class AgentRunLifecycle {
     return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
+}
+
+function terminalNoticeStopReason(
+  checkpoint: AgentRunCheckpoint
+): AgentRunTerminalNotice['stopReason'] | undefined {
+  if (checkpoint.stopReason === 'resource_limit'
+    || checkpoint.stopReason === 'suspended'
+    || checkpoint.stopReason === 'retry_exhausted'
+    || checkpoint.stopReason === 'no_progress'
+    || checkpoint.stopReason === 'context_unrecoverable') {
+    return checkpoint.stopReason
+  }
+  return undefined
+}
+
+function toTerminalNotice(
+  checkpoint: AgentRunCheckpoint,
+  stopReason: AgentRunTerminalNotice['stopReason'],
+  operationReviewCount: number,
+  stage?: AgentParentTurnStage
+): AgentRunTerminalNotice {
+  if (checkpoint.status !== 'failed' || !checkpoint.completedAt) {
+    throw new Error('Terminal checkpoint is incomplete.')
+  }
+  return {
+    runId: checkpoint.runId,
+    streamId: checkpoint.streamId,
+    ...(checkpoint.workspaceId ? { workspaceId: checkpoint.workspaceId } : {}),
+    ...(checkpoint.conversationId ? { conversationId: checkpoint.conversationId } : {}),
+    status: 'failed',
+    stopReason,
+    updatedAt: checkpoint.updatedAt,
+    completedAt: checkpoint.completedAt,
+    operationReviewCount,
+    usage: checkpoint.usage,
+    ...(stage ? parentTurnRecoveryEvidence(stage) : {})
+  }
 }
 
 function toInterruptedRun(

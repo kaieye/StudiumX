@@ -119,6 +119,10 @@ export function buildAgentTurnAuditMetadata(
     if (event.type === 'context_estimated') {
       contextEstimate = {
         messageTokens: event.estimate.messageTokens,
+        toolSchemaTokens: event.estimate.toolSchemaTokens,
+        framingTokens: event.estimate.framingTokens,
+        outputReserveTokens: event.estimate.outputReserveTokens,
+        extraTokens: event.estimate.extraTokens,
         overheadTokens: event.estimate.overheadTokens,
         totalTokens: event.estimate.totalTokens,
         source: event.estimate.source
@@ -292,6 +296,7 @@ function childRunMetadataFromRuntimeEvent(child: {
   label: string
   profile: string
   status: AgentChildRunMetadata['status']
+  stopReason?: AgentChildRunMetadata['stopReason']
   summary?: string
   error?: string
   startedAt?: string
@@ -304,6 +309,7 @@ function childRunMetadataFromRuntimeEvent(child: {
     label: compactText(child.label, MAX_TITLE_LENGTH) || child.id,
     profile: compactText(child.profile, MAX_TITLE_LENGTH) || 'read_only',
     status: child.status,
+    stopReason: normalizeChildRunStopReason(child.stopReason),
     summary: textValue(child.summary, MAX_SUMMARY_LENGTH),
     error: textValue(child.error, MAX_ERROR_LENGTH),
     startedAt: textValue(child.startedAt, MAX_TITLE_LENGTH),
@@ -323,6 +329,7 @@ function childRunMetadataFromToolResult(value: unknown): AgentChildRunMetadata |
     label: textValue(record.label, MAX_TITLE_LENGTH) ?? childRunId,
     profile: textValue(record.profile, MAX_TITLE_LENGTH) ?? 'read_only',
     status: normalizeChildRunStatus(record.status),
+    stopReason: normalizeChildRunStopReason(record.stopReason),
     summary: textValue(record.summary, MAX_SUMMARY_LENGTH),
     error: textValue(record.error, MAX_ERROR_LENGTH),
     filesRead: normalizeStringArray(record.filesRead, MAX_FILES_READ, MAX_TITLE_LENGTH),
@@ -348,6 +355,7 @@ function upsertChildRun(
     ...child,
     label: child.label || existing.label,
     profile: child.profile || existing.profile,
+    stopReason: child.stopReason ?? existing.stopReason,
     summary: child.summary ?? existing.summary,
     error: child.error ?? existing.error,
     filesRead: child.filesRead ?? existing.filesRead,
@@ -434,9 +442,70 @@ function normalizeRunUsage(value: AgentRunUsageAggregate): AgentRunUsageAggregat
     promptTokens: numberValue(value.promptTokens),
     completionTokens: numberValue(value.completionTokens),
     totalTokens: numberValue(value.totalTokens),
-    budgetStopReason: value.budgetStopReason,
-    usageProvenance: value.usageProvenance
+    usageProvenance: value.usageProvenance,
+    operationAccounting: normalizeOperationAccounting(value.operationAccounting),
+    resourceGovernance: normalizeResourceGovernance(value.resourceGovernance)
   })
+}
+
+
+function normalizeOperationAccounting(value: AgentRunUsageAggregate['operationAccounting']): AgentRunUsageAggregate['operationAccounting'] | undefined {
+  if (!value) return undefined
+  return {
+    logicalRequests: numberValue(value.logicalRequests) ?? 0,
+    providerTransportAttempts: numberValue(value.providerTransportAttempts) ?? 0,
+    transportRetries: numberValue(value.transportRetries) ?? 0,
+    overflowRecoveries: numberValue(value.overflowRecoveries) ?? 0,
+    compactionOperations: numberValue(value.compactionOperations) ?? 0,
+    compactionSummaryAttempts: numberValue(value.compactionSummaryAttempts) ?? 0,
+    toolOperationAttempts: numberValue(value.toolOperationAttempts) ?? 0
+  }
+}
+
+function normalizeResourceGovernance(value: AgentRunUsageAggregate['resourceGovernance']): AgentRunUsageAggregate['resourceGovernance'] | undefined {
+  if (!value) return undefined
+  const configured = value.configured.flatMap((limit) => {
+    if (!isResourceLayer(limit.layer) || !isResourceMeter(limit.meter) || !isResourceScope(limit.scope)) return []
+    const numericLimit = numberValue(limit.limit)
+    if (numericLimit === undefined) return []
+    return [{
+      layer: limit.layer,
+      meter: limit.meter,
+      limit: numericLimit,
+      scope: limit.scope,
+      ...(typeof limit.auditId === 'string' && limit.auditId.length <= 160 ? { auditId: limit.auditId } : {})
+    }]
+  })
+  const terminal = value.terminal
+  const normalizedTerminal = terminal && isResourceLayer(terminal.layer) && isResourceMeter(terminal.meter) &&
+    isResourceScope(terminal.scope) && (terminal.action === 'resource_limit' || terminal.action === 'suspended') &&
+    numberValue(terminal.used) !== undefined && numberValue(terminal.limit) !== undefined
+    ? {
+        layer: terminal.layer,
+        meter: terminal.meter,
+        used: numberValue(terminal.used)!,
+        limit: numberValue(terminal.limit)!,
+        scope: terminal.scope,
+        action: terminal.action,
+        ...(typeof terminal.auditId === 'string' && terminal.auditId.length <= 160 ? { auditId: terminal.auditId } : {})
+      }
+    : undefined
+  return configured.length > 0 || normalizedTerminal ? {
+    configured,
+    ...(normalizedTerminal ? { terminal: normalizedTerminal } : {})
+  } : undefined
+}
+
+function isResourceLayer(value: unknown): value is 'user_budget' | 'deployment_policy' | 'emergency_fuse' {
+  return value === 'user_budget' || value === 'deployment_policy' || value === 'emergency_fuse'
+}
+
+function isResourceMeter(value: unknown): value is 'logical_requests' | 'provider_transport_attempts' | 'tool_operation_attempts' | 'duration_ms' | 'total_tokens' {
+  return value === 'logical_requests' || value === 'provider_transport_attempts' || value === 'tool_operation_attempts' || value === 'duration_ms' || value === 'total_tokens'
+}
+
+function isResourceScope(value: unknown): value is 'task' | 'run' | 'workspace' | 'tenant' | 'deployment' {
+  return value === 'task' || value === 'run' || value === 'workspace' || value === 'tenant' || value === 'deployment'
 }
 
 function normalizeChildRunStatus(value: unknown): AgentChildRunMetadata['status'] {
@@ -447,6 +516,10 @@ function normalizeChildRunStatus(value: unknown): AgentChildRunMetadata['status'
     value === 'completed'
     ? value
     : 'completed'
+}
+
+function normalizeChildRunStopReason(value: unknown): AgentChildRunMetadata['stopReason'] {
+  return value === 'resource_limit' || value === 'suspended' ? value : undefined
 }
 
 function normalizeUsage(value: unknown): AgentChildRunMetadata['usage'] | undefined {

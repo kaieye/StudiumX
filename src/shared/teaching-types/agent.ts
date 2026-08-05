@@ -201,11 +201,15 @@ export type AgentSourceMetadata = {
   toolName?: string
 }
 
+export type AgentChildRunStopReason = 'resource_limit' | 'suspended'
+
 export type AgentChildRunMetadata = {
   childRunId: string
   label: string
   profile: string
   status: 'queued' | 'running' | 'completed' | 'failed' | 'canceled'
+  /** Preserves a resource terminal without representing it as successful completion. */
+  stopReason?: AgentChildRunStopReason
   summary?: string
   error?: string
   filesRead?: string[]
@@ -252,6 +256,10 @@ export type AgentContextHygieneMetadata = {
 
 export type AgentContextEstimateMetadata = {
   messageTokens: number
+  toolSchemaTokens?: number
+  framingTokens?: number
+  outputReserveTokens?: number
+  extraTokens?: number
   overheadTokens: number
   totalTokens: number
   source: string
@@ -364,6 +372,17 @@ export type AgentChatTurn = {
   createdAt: string
 }
 
+export type AgentTerminalReason =
+  | 'final_answer'
+  | 'error'
+  | 'degraded'
+  | 'canceled'
+  | 'no_progress'
+  | 'context_unrecoverable'
+  | 'retry_exhausted'
+  | 'resource_limit'
+  | 'suspended'
+
 export type AgentLoopStatus =
   | 'thinking'
   | 'tool_running'
@@ -371,7 +390,19 @@ export type AgentLoopStatus =
   | 'answering'
   | 'done'
   | 'canceled'
+  | 'resource_limit'
+  | 'suspended'
+  | 'no_progress'
+  | 'context_unrecoverable'
+  | 'retry_exhausted'
   | 'error'
+
+/** Terminal stream outcomes that are not ordinary provider failures. */
+export type AgentResourceTerminalStatus = Extract<AgentLoopStatus, 'resource_limit' | 'suspended'>
+export type AgentStreamTerminalStatus = Extract<
+  AgentLoopStatus,
+  'done' | 'canceled' | 'error' | 'no_progress' | 'context_unrecoverable' | 'retry_exhausted' | AgentResourceTerminalStatus
+>
 
 export type AgentChatStreamPayload = {
   streamId?: string
@@ -438,12 +469,6 @@ export type SteerAgentChatStreamResult =
 
 export type FollowUpAgentChatStreamResult = SteerAgentChatStreamResult
 
-export type AgentRunBudgetStopReason =
-  | 'duration'
-  | 'provider_calls'
-  | 'tool_calls'
-  | 'total_tokens'
-
 /**
  * Where a run's aggregated token usage came from, so the UI and audit layer can
  * distinguish provider-reported figures from local estimates and from the
@@ -451,12 +476,70 @@ export type AgentRunBudgetStopReason =
  */
 export type AgentRunUsageProvenance = 'provider_reported' | 'local_estimate' | 'unknown'
 
-export type AgentRunBudget = {
-  maxDurationMs: number
-  maxProviderCalls: number
-  maxToolCalls: number
-  maxTotalTokens: number
-  warningThreshold: number
+/** Independent operation counters; neither a teaching outcome nor an execution quota. */
+export type AgentRunOperationAccounting = {
+  logicalRequests: number
+  providerTransportAttempts: number
+  transportRetries: number
+  overflowRecoveries: number
+  compactionOperations: number
+  compactionSummaryAttempts: number
+  toolOperationAttempts: number
+}
+
+export type AgentResourceMeter =
+  | 'logical_requests'
+  | 'provider_transport_attempts'
+  | 'tool_operation_attempts'
+  | 'duration_ms'
+  | 'total_tokens'
+
+export type AgentResourceLimitLayer = 'user_budget' | 'deployment_policy' | 'emergency_fuse'
+
+export type AgentResourceLimitScope = 'task' | 'run' | 'workspace' | 'tenant' | 'deployment'
+
+/** An explicit, auditable resource boundary. It never encodes provider quota/billing state. */
+export type AgentRunResourceLimit = {
+  meter: AgentResourceMeter
+  limit: number
+  scope: AgentResourceLimitScope
+  /** Opaque admin/user-visible label; never a secret or free-form prompt. */
+  auditId?: string
+}
+
+export type AgentRunResourceLimitSet = {
+  limits: readonly AgentRunResourceLimit[]
+}
+
+/**
+ * Resource boundaries are supplied by their owning layer, not hidden normal-run
+ * defaults. The emergency fuse always resolves to high host safety limits.
+ */
+export type AgentRunResourceGovernance = {
+  userBudget?: AgentRunResourceLimitSet
+  deploymentPolicy?: AgentRunResourceLimitSet
+  emergencyFuse?: AgentRunResourceLimitSet
+}
+
+export type AgentRunResourceBoundarySnapshot = {
+  layer: AgentResourceLimitLayer
+  meter: AgentResourceMeter
+  used: number
+  limit: number
+  scope: AgentResourceLimitScope
+  auditId?: string
+  action: 'resource_limit' | 'suspended'
+}
+
+export type AgentRunResourceGovernanceAudit = {
+  configured: readonly {
+    layer: AgentResourceLimitLayer
+    meter: AgentResourceMeter
+    limit: number
+    scope: AgentResourceLimitScope
+    auditId?: string
+  }[]
+  terminal?: AgentRunResourceBoundarySnapshot
 }
 
 export type AgentRunUsageAggregate = {
@@ -469,9 +552,12 @@ export type AgentRunUsageAggregate = {
   promptTokens?: number
   completionTokens?: number
   totalTokens?: number
-  budgetStopReason?: AgentRunBudgetStopReason
   /** Provenance of the token figures above; absent is treated as `unknown`. */
   usageProvenance?: AgentRunUsageProvenance
+  /** Independent request/retry/compaction/tool counters for local audit. */
+  operationAccounting?: AgentRunOperationAccounting
+  /** Explicit boundary configuration and terminal decision, never teaching evidence. */
+  resourceGovernance?: AgentRunResourceGovernanceAudit
 }
 
 export type AgentProjectionInvalidation = {
@@ -499,6 +585,32 @@ export type AgentParentTurnRecoveryEvidence = {
   toolName?: string
   isError?: boolean
   createdAt: string
+}
+
+/**
+ * Read-only startup projection for a durable terminal that must remain distinct
+ * from a generic failed run after restart. It is not a continuation intent: the
+ * host never replays provider or tool work from this record.
+ */
+export type AgentRunTerminalNotice = {
+  runId: string
+  streamId: string
+  workspaceId?: string
+  conversationId?: string
+  status: 'failed'
+  stopReason: Extract<AgentTerminalReason, 'resource_limit' | 'suspended' | 'retry_exhausted' | 'no_progress' | 'context_unrecoverable'>
+  updatedAt: string
+  completedAt: string
+  operationReviewCount: number
+  usage: AgentRunUsageAggregate
+  /** Redacted, bounded evidence only; it is never promoted to an original conversation turn. */
+  userInputPreview?: string
+  userInputSha256?: string
+  confirmedAssistantPreview?: string
+  confirmedAssistantSha256?: string
+  confirmedAssistantTruncated?: boolean
+  unrecoverableAssistantDeltaBytes?: number
+  evidence?: AgentParentTurnRecoveryEvidence[]
 }
 
 export type InterruptedAgentRun = {
@@ -616,7 +728,7 @@ export type AgentRealtimeEvent =
       streamId: string
       kind: 'terminal'
       createdAt: string
-      outcome: Extract<AgentLoopStatus, 'done' | 'canceled' | 'error'>
+      outcome: AgentStreamTerminalStatus
       message?: string
     }
 
@@ -676,14 +788,23 @@ export type AgentChatStreamDone =
       generatedLessons?: LessonSummary[]
       memoryCapture?: TeachingMemoryCaptureResult
       usage: AgentRunUsageAggregate
-      stopReason?: string
+      stopReason?: AgentTerminalReason
     }
   | { streamId: string; canceled: true; usage?: AgentRunUsageAggregate }
+  | {
+      streamId: string
+      resourceStopped: true
+      status: AgentResourceTerminalStatus
+      message: string
+      usage: AgentRunUsageAggregate
+      stopReason: AgentResourceTerminalStatus
+    }
   | {
       streamId: string
       error: true
       message: string
       usage?: AgentRunUsageAggregate
+      stopReason?: AgentTerminalReason
       /** Safe local evidence for an explicit Skill invocation that did not start a provider turn. */
       skillInvocation?: import('../explicit-skill-invocation').SkillInvocationPresentation
     }
@@ -700,13 +821,21 @@ export type AgentChatStreamResult =
       generatedLessons?: LessonSummary[]
       memoryCapture?: TeachingMemoryCaptureResult
       usage: AgentRunUsageAggregate
-      stopReason?: string
+      stopReason?: AgentTerminalReason
     }
   | { canceled: true; usage?: AgentRunUsageAggregate }
+  | {
+      resourceStopped: true
+      status: AgentResourceTerminalStatus
+      message: string
+      usage: AgentRunUsageAggregate
+      stopReason: AgentResourceTerminalStatus
+    }
   | {
       error: true
       message: string
       usage?: AgentRunUsageAggregate
+      stopReason?: AgentTerminalReason
       /** Safe local evidence for an explicit Skill invocation that did not start a provider turn. */
       skillInvocation?: import('../explicit-skill-invocation').SkillInvocationPresentation
     }

@@ -187,8 +187,9 @@ describe('ContextProjectionReport', () => {
       transcriptLength: 8,
       projectedMessages: messages,
       tools,
-      estimate: { messageTokens: 120, overheadTokens: 20, totalTokens: 140, source: 'local' as const },
+      estimate: { messageTokens: 120, toolSchemaTokens: 20, framingTokens: 0, outputReserveTokens: 0, extraTokens: 0, overheadTokens: 20, totalTokens: 140, source: 'local' as const },
       contextWindowTokens: 100,
+      contextWindowSource: 'configured',
       trace: [
         {
           type: 'context_hygiene_applied' as const,
@@ -216,6 +217,18 @@ describe('ContextProjectionReport', () => {
     expect(json).not.toContain('answer key 42')
     expect(first.budget.overBudget).toBe(true)
     expect(first.truncation.reason).toBe('budget_exhausted')
+    expect(first.included.find((item) => item.kind === 'tool_schema')?.estimatedTokens).toBe(20)
+    expect(first.requestFit).toEqual({
+      inputMessageTokens: 120,
+      toolSchemaTokens: 20,
+      framingTokens: 0,
+      outputReserveTokens: 0,
+      extraTokens: 0,
+      projectedTokens: 140,
+      effectiveContextWindowTokens: 100,
+      contextWindowSource: 'configured',
+      estimateSource: 'local'
+    })
     expect(first.omitted.some((item) => item.reason === 'hygiene_compacted')).toBe(true)
     expect(first.omitted.some((item) => item.reason === 'compaction_replaced')).toBe(true)
     expect(first.source).toBe('request_context_projection')

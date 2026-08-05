@@ -115,6 +115,7 @@ const api: TeachingSystemApi = {
       }) as Promise<AgentChatStreamDone>
   },
   listInterruptedAgentRuns: () => ipcRenderer.invoke(teachingInvokeChannels.listInterruptedAgentRuns),
+  listTerminalAgentRunNotices: () => ipcRenderer.invoke(teachingInvokeChannels.listTerminalAgentRunNotices),
   replayAgentChatEvents: (payload) =>
     ipcRenderer.invoke(teachingInvokeChannels.replayAgentChatEvents, payload),
   cancelAgentChatStream: (streamId) => ipcRenderer.invoke(teachingInvokeChannels.cancelAgentChatStream, streamId),

@@ -38,7 +38,6 @@ Codex **不是**在 Windows 上假装有 Linux bubblewrap / openat CAS，而是�
 | 默认通用 shell / 任意代码执行产品路径 | **本 ADR 禁止**（2026-07-22 结项边界）。后续 shell 产品面由 [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md)/[0153](0153-codex-sandbox-dual-axis-and-agent-shell.md) 另立（A–F 已合格完成）；仍禁止 YOLO 与虚假 OS 完备宣称 |
 | MCP marketplace / 默认任意 MCP | **禁止** |
 | 把 Windows 较弱写路径称为 strict / CAS | **禁止**（ADR-0035） |
-| 用 soft reminder 替代硬预算 / settlement sole-writer | **禁止** |
 
 本 ADR **只迁移“平台能力分层 + consumer 接线”**，不改 teaching settlement authority。**不**在本 ADR 内引入 shell 产品面；shell/sandbox 双轴与合格交付另见 ADR-0152/0153（A–F 已完成；与本 ADR 的 I/O profile 诚实分层互补，不互相覆盖）。
 

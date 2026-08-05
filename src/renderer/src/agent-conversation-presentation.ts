@@ -46,6 +46,11 @@ export type AgentConversationProvenanceState =
   | 'canceled'
   | 'pending'
   | 'interrupted'
+  | 'resource_limit'
+  | 'suspended'
+  | 'no_progress'
+  | 'context_unrecoverable'
+  | 'retry_exhausted'
 
 export type AgentConversationProvenanceItem = {
   id: string
@@ -79,6 +84,11 @@ export type AgentConversationTurnStatus =
   | { kind: 'failed' }
   | { kind: 'canceled' }
   | { kind: 'interrupted' }
+  | { kind: 'resource_limit' }
+  | { kind: 'suspended' }
+  | { kind: 'no_progress' }
+  | { kind: 'context_unrecoverable' }
+  | { kind: 'retry_exhausted' }
 
 export type AgentConversationTurnPresentation = {
   turnId: string
@@ -241,11 +251,27 @@ function presentFileTouches(turn: AgentChatTurn): FileTouchPresentation | undefi
 }
 
 function statusForTurn(turn: AgentChatTurn, active: boolean): AgentConversationTurnStatus {
-  if (turn.metadata?.provenance?.kind === 'recovery_notice') return { kind: 'interrupted' }
-
   const terminalStatus = [...(turn.processEvents ?? [])].reverse().find((event) =>
-    event.kind === 'status' && (event.status === 'done' || event.status === 'canceled' || event.status === 'error')
+    event.kind === 'status' && (
+      event.status === 'done' ||
+      event.status === 'canceled' ||
+      event.status === 'error' ||
+      event.status === 'resource_limit' ||
+      event.status === 'suspended' ||
+      event.status === 'no_progress' ||
+      event.status === 'context_unrecoverable' ||
+      event.status === 'retry_exhausted'
+    )
   )?.status
+  if (terminalStatus === 'resource_limit') return { kind: 'resource_limit' }
+  if (terminalStatus === 'suspended') return { kind: 'suspended' }
+  if (terminalStatus === 'no_progress') return { kind: 'no_progress' }
+  if (terminalStatus === 'context_unrecoverable') return { kind: 'context_unrecoverable' }
+  if (terminalStatus === 'retry_exhausted') return { kind: 'retry_exhausted' }
+  // An interrupted recovery may carry an old generic error marker. Preserve the
+  // read-only interruption semantics unless the record carries a distinct,
+  // structured terminal reason above.
+  if (turn.metadata?.provenance?.kind === 'recovery_notice') return { kind: 'interrupted' }
   if (terminalStatus === 'error') return { kind: 'failed' }
   if (terminalStatus === 'canceled') return { kind: 'canceled' }
   if (terminalStatus === 'done') return { kind: 'completed' }
@@ -336,7 +362,17 @@ function presentProcessEvent(
   const toolFailed = kind === 'tool_call' && toolCompleted && Boolean(event.isError || toolCall?.isError)
   const state: AgentConversationProvenanceState = turnStatus.kind === 'interrupted' && event.kind === 'status'
     ? 'interrupted'
-    : event.isError || event.status === 'error' || toolFailed
+    : event.status === 'resource_limit'
+      ? 'resource_limit'
+      : event.status === 'suspended'
+        ? 'suspended'
+        : event.status === 'no_progress'
+          ? 'no_progress'
+          : event.status === 'context_unrecoverable'
+            ? 'context_unrecoverable'
+            : event.status === 'retry_exhausted'
+              ? 'retry_exhausted'
+        : event.isError || event.status === 'error' || toolFailed
       ? 'error'
       : event.status === 'canceled'
         ? 'canceled'

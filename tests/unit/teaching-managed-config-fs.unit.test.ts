@@ -33,7 +33,7 @@ afterEach(async () => {
 })
 
 const validManaged = {
-  tools: { enabled: true, maxIterations: 6 },
+  tools: { enabled: true, webSearch: false },
   memory: { maxInjected: 3 }
 }
 
@@ -178,13 +178,13 @@ describe('managedConfigOption', () => {
 
     const scopeMissing: TeachingConfigScope = {
       fallbackDefaultRoot: root,
-      user: { tools: { maxIterations: 2 } },
+      user: { tools: { webSearch: true } },
       ...managedConfigOption(missing)
     }
     expect(Object.prototype.hasOwnProperty.call(scopeMissing, 'managed')).toBe(false)
     const resolvedMissing = resolveTeachingConfig(scopeMissing)
     // user layer only — managed omitted.
-    expect(resolvedMissing.value.tools.maxIterations).toBe(2)
+    expect(resolvedMissing.value.tools.webSearch).toBe(true)
     expect(resolvedMissing.sources.some((s) => s.source === 'managed')).toBe(false)
 
     await writeFile(
@@ -196,14 +196,14 @@ describe('managedConfigOption', () => {
     expect(loaded).not.toBeNull()
     const scopeLoaded: TeachingConfigScope = {
       fallbackDefaultRoot: root,
-      user: { tools: { maxIterations: 2 } },
+      user: { tools: { webSearch: true } },
       ...managedConfigOption(loaded)
     }
     const resolved = resolveTeachingConfig(scopeLoaded)
-    // managed sets maxIterations 6; user overrides to 2 (user > managed).
+    // Managed webSearch false is overridden by the user true value (user > managed).
     // The legacy tools.enabled value is accepted for compatibility but is
     // normalized to true without preserving a managed-layer source.
-    expect(resolved.value.tools.maxIterations).toBe(2)
+    expect(resolved.value.tools.webSearch).toBe(true)
     expect(resolved.value.tools.enabled).toBe(true)
     expect(resolved.sources.some((s) => s.source === 'managed' && s.path === 'tools.enabled')).toBe(
       false

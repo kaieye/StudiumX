@@ -47,7 +47,6 @@ const researchPrompt = '请检索官方文档中当前版本的 API 使用方法
 function request(workspaceToolAccessGranted: boolean, prompt = 'Teach the trust boundary.') {
   const settings = defaultSettings('C:/lesson-production-test')
   settings.tools.enabled = true
-  settings.tools.maxIterations = 2
   settings.provider.providers[0]!.apiKey = 'test-key'
   return {
     workspace: { rootPath: 'C:/lesson-production-test/workspace', workspaceToolAccessGranted },
@@ -205,20 +204,44 @@ describe('nested lesson plan production workspace access', () => {
     expect(dependencies.handlerContexts).toEqual([{ workspaceRoot: undefined }])
   })
 
-  it('bounds nested research more tightly than the conversational run budget', async () => {
+  it('does not attach aggregate budgets to nested research runs', async () => {
     const prepared = request(false, researchPrompt)
-    prepared.settings.tools.maxIterations = 0
-    prepared.settings.tools.runBudget.maxDurationMs = 20 * 60_000
+    await produce(prepared)
+
+    const toolRequest = dependencies.runAgentLoop.mock.calls[0]![0] as Record<string, unknown>
+    expect(toolRequest).not.toHaveProperty('maxIterations')
+    expect(toolRequest).not.toHaveProperty('budget')
+  })
+
+  it('forwards the host-owned resource policy snapshot to nested research runs', async () => {
+    const prepared = request(false, researchPrompt)
+    prepared.resourceGovernance = {
+      deploymentPolicy: {
+        limits: [{
+          meter: 'provider_transport_attempts',
+          limit: 2,
+          scope: 'deployment',
+          auditId: 'managed-lesson-research-attempts'
+        }]
+      }
+    }
 
     await produce(prepared)
 
     const toolRequest = dependencies.runAgentLoop.mock.calls[0]![0] as {
-      maxIterations: number
-      budget: { maxDurationMs: number; maxProviderCalls: number }
+      resourceGovernor?: { audit: () => unknown }
     }
-    expect(toolRequest.maxIterations).toBe(2)
-    expect(toolRequest.budget.maxDurationMs).toBe(45_000)
-    expect(toolRequest.budget.maxProviderCalls).toBe(2)
+    expect(toolRequest.resourceGovernor).toEqual(expect.objectContaining({
+      audit: expect.any(Function)
+    }))
+    expect(toolRequest.resourceGovernor!.audit()).toMatchObject({
+      configured: expect.arrayContaining([expect.objectContaining({
+        layer: 'deployment_policy',
+        meter: 'provider_transport_attempts',
+        limit: 2,
+        scope: 'deployment'
+      })])
+    })
   })
 
   it('retains the workspace-backed nested lesson production path after trust is granted for a research lesson', async () => {
@@ -243,6 +266,192 @@ describe('nested lesson plan production workspace access', () => {
       web_search: expect.any(Function)
     })
     expect(dependencies.handlerContexts).toEqual([{ workspaceRoot: prepared.workspace.rootPath }])
+  })
+
+  it('propagates a nested resource terminal instead of retrying or publishing a local fallback lesson', async () => {
+    dependencies.runAgentLoop.mockResolvedValueOnce({
+      finalText: JSON.stringify(validPlan),
+      stopReason: 'resource_limit',
+      usage: {
+        providerCalls: 1,
+        toolCalls: 0,
+        toolErrors: 0,
+        iterations: 1,
+        childRuns: 0,
+        durationMs: 250,
+        resourceGovernance: {
+          configured: [{
+            layer: 'user_budget',
+            meter: 'provider_transport_attempts',
+            limit: 1,
+            scope: 'task',
+            auditId: 'user-budget-1'
+          }],
+          terminal: {
+            layer: 'user_budget',
+            meter: 'provider_transport_attempts',
+            used: 1,
+            limit: 1,
+            scope: 'task',
+            auditId: 'user-budget-1',
+            action: 'resource_limit'
+          }
+        }
+      }
+    })
+
+    await expect(produce(request(false, researchPrompt))).rejects.toMatchObject({
+      name: 'LessonGenerationResourceTerminalError',
+      stopReason: 'resource_limit',
+      terminal: expect.objectContaining({
+        meter: 'provider_transport_attempts',
+        used: 1,
+        limit: 1,
+        scope: 'task'
+      })
+    })
+    expect(dependencies.callProvider).not.toHaveBeenCalled()
+    expect(dependencies.runAgentLoop).toHaveBeenCalledTimes(1)
+  })
+
+
+  it('does not publish a local fallback when the direct structured response reaches an explicit total-token boundary', async () => {
+    dependencies.callProvider.mockResolvedValueOnce({
+      text: JSON.stringify(validPlan),
+      usage: { totalTokens: 5 }
+    })
+    const prepared = request(false)
+    prepared.resourceGovernance = {
+      userBudget: {
+        limits: [{ meter: 'total_tokens', limit: 5, scope: 'task', auditId: 'direct-total-boundary' }]
+      }
+    }
+
+    await expect(produce(prepared)).rejects.toMatchObject({
+      name: 'LessonGenerationResourceTerminalError',
+      stopReason: 'resource_limit',
+      terminal: expect.objectContaining({ meter: 'total_tokens', used: 5, limit: 5 })
+    })
+    expect(dependencies.callProvider).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps component-only provider usage as local observability instead of charging a total-token boundary', async () => {
+    dependencies.callProvider.mockResolvedValueOnce({
+      text: JSON.stringify(validPlan),
+      usage: { promptTokens: 1, completionTokens: 1 }
+    })
+    const prepared = request(false)
+    prepared.resourceGovernance = {
+      userBudget: {
+        limits: [{ meter: 'total_tokens', limit: 2, scope: 'task', auditId: 'components-not-quota' }]
+      }
+    }
+
+    await expect(produce(prepared)).resolves.toMatchObject({ source: 'ai', plan: validPlan })
+  })
+
+  it('aggregates explicit totals from the initial direct request and compact retry', async () => {
+    dependencies.callProvider
+      .mockResolvedValueOnce({ text: '首次输出不是 JSON。', usage: { totalTokens: 5 } })
+      .mockResolvedValueOnce({ text: JSON.stringify(validPlan), usage: { totalTokens: 5 } })
+    const prepared = request(false)
+    prepared.resourceGovernance = {
+      userBudget: {
+        limits: [{ meter: 'total_tokens', limit: 10, scope: 'task', auditId: 'initial-and-compact-totals' }]
+      }
+    }
+
+    await expect(produce(prepared)).rejects.toMatchObject({
+      name: 'LessonGenerationResourceTerminalError',
+      stopReason: 'resource_limit',
+      terminal: expect.objectContaining({
+        meter: 'total_tokens',
+        used: 10,
+        limit: 10,
+        auditId: 'initial-and-compact-totals'
+      })
+    })
+    expect(dependencies.callProvider).toHaveBeenCalledTimes(2)
+  })
+
+  it('aggregates research and direct explicit totals in separate child lanes', async () => {
+    dependencies.runAgentLoop.mockImplementationOnce(async (input: {
+      resourceGovernor: { consume: (meter: 'total_tokens', amount: number) => void }
+    }) => {
+      input.resourceGovernor.consume('total_tokens', 5)
+      return { finalText: '工具输出不是 JSON。', stopReason: 'error', usage: {} }
+    })
+    dependencies.callProvider.mockResolvedValueOnce({ text: JSON.stringify(validPlan), usage: { totalTokens: 5 } })
+    const prepared = request(false, researchPrompt)
+    prepared.resourceGovernance = {
+      userBudget: {
+        limits: [{ meter: 'total_tokens', limit: 10, scope: 'task', auditId: 'research-and-direct-totals' }]
+      }
+    }
+
+    await expect(produce(prepared)).rejects.toMatchObject({
+      name: 'LessonGenerationResourceTerminalError',
+      stopReason: 'resource_limit',
+      terminal: expect.objectContaining({
+        meter: 'total_tokens',
+        used: 10,
+        limit: 10,
+        auditId: 'research-and-direct-totals'
+      })
+    })
+    expect(dependencies.runAgentLoop).toHaveBeenCalledTimes(1)
+    expect(dependencies.callProvider).toHaveBeenCalledTimes(1)
+  })
+
+  it('preflights the compact retry against the same direct-action governor instead of falling back after a resource terminal', async () => {
+    dependencies.callProvider.mockResolvedValueOnce({ text: '首次输出不是 JSON。' })
+    const prepared = request(false)
+    prepared.resourceGovernance = {
+      userBudget: {
+        limits: [{ meter: 'logical_requests', limit: 1, scope: 'task', auditId: 'one-direct-request' }]
+      }
+    }
+
+    await expect(produce(prepared)).rejects.toMatchObject({
+      name: 'LessonGenerationResourceTerminalError',
+      stopReason: 'resource_limit',
+      terminal: expect.objectContaining({ meter: 'logical_requests', used: 1, limit: 1 })
+    })
+    expect(dependencies.callProvider).toHaveBeenCalledTimes(1)
+  })
+
+  it('shares one governor between tool-enabled research and a direct fallback request', async () => {
+    dependencies.runAgentLoop.mockImplementationOnce(async (input: {
+      resourceGovernor: { claim: (meter: 'provider_transport_attempts') => void }
+    }) => {
+      input.resourceGovernor.claim('provider_transport_attempts')
+      return { finalText: '工具输出不是 JSON。', stopReason: 'error', usage: {} }
+    })
+    let directDispatches = 0
+    dependencies.callProvider.mockImplementationOnce(async (input: {
+      beforeTransportDispatch?: () => void | Promise<void>
+    }) => {
+      await input.beforeTransportDispatch?.()
+      directDispatches += 1
+      return { text: JSON.stringify(validPlan) }
+    })
+    const prepared = request(false, researchPrompt)
+    prepared.resourceGovernance = {
+      userBudget: {
+        limits: [{ meter: 'provider_transport_attempts', limit: 1, scope: 'task', auditId: 'shared-research-and-direct' }]
+      }
+    }
+
+    await expect(produce(prepared)).rejects.toMatchObject({
+      name: 'LessonGenerationResourceTerminalError',
+      stopReason: 'resource_limit',
+      terminal: expect.objectContaining({ meter: 'provider_transport_attempts', used: 1, limit: 1 })
+    })
+    expect(dependencies.runAgentLoop).toHaveBeenCalledTimes(1)
+    // The facade is entered so its adapter preflight can reject the dispatch;
+    // no provider request is simulated after the shared boundary is reached.
+    expect(dependencies.callProvider).toHaveBeenCalledTimes(1)
+    expect(directDispatches).toBe(0)
   })
 
   it('keeps the no-provider fallback aligned with the explicit lesson brief instead of emitting StudiumX onboarding content', async () => {

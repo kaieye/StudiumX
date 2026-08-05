@@ -66,6 +66,7 @@ export const teachingInvokeChannels = {
   submitConversationTurn: 'teach:submit-conversation-turn',
   cancelConversationTurn: 'teach:cancel-conversation-turn',
   listInterruptedAgentRuns: 'teach:list-interrupted-agent-runs',
+  listTerminalAgentRunNotices: 'teach:list-terminal-agent-run-notices',
   replayAgentChatEvents: 'teach:agent-chat-replay',
   cancelAgentChatStream: 'teach:cancel-agent-chat-stream',
   steerAgentChatStream: 'teach:agent-chat-steer',

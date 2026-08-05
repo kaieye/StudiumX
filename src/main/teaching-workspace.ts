@@ -58,6 +58,10 @@ import {
   type TeachingConversationRuntimeStream,
   type TemporaryChatContext
 } from './teaching-conversation-runtime'
+import {
+  resolveUnconstrainedAgentRunResourcePolicy,
+  type AgentRunResourcePolicyResolver
+} from './ai/agent-run-resource-policy'
 import { loadSkillOrchestrationAuthorityFactsForWorkspace } from './skill-orchestration-authority-bridge'
 import { createSkillOrchestrationStateStore } from './skill-orchestration-state-store'
 import { createSkillOrchestrationDiagnosticsStore } from './skill-orchestration-diagnostics-store'
@@ -245,6 +249,7 @@ import type {
   TeachingSettingsV1,
   TeachingWorkspaceChangeSummary,
   TeachingWorkspaceSummary,
+  AgentRunTerminalNotice,
   InterruptedAgentRun,
   WorkspaceMarkdownDocument,
   WorkspaceItemMetaPayload,
@@ -432,6 +437,8 @@ type TeachingWorkspaceServiceOptions = {
    * before agent-run inject (ADR-0137). When present, preferred over bare session manager.
    */
   mcpHost?: import('./mcp/host').McpHost | null
+  /** Main-owned resolver for user, deployment, and emergency resource policy layers. */
+  resourcePolicyResolver?: AgentRunResourcePolicyResolver
 }
 
 export class TeachingWorkspaceService {
@@ -439,6 +446,7 @@ export class TeachingWorkspaceService {
   private readonly appDataRoot: string
   private readonly mcpSessionManager: import('./mcp/session-manager').McpSessionManager | null
   private readonly mcpHost: import('./mcp/host').McpHost | null
+  private readonly resourcePolicyResolver?: AgentRunResourcePolicyResolver
   private readonly defaultRoot: string
   private readonly settingsProvider?: () => Promise<TeachingSettingsV1>
   private readonly skillLibraryService?: SkillLibraryService
@@ -471,6 +479,7 @@ export class TeachingWorkspaceService {
     this.appDataRoot = dirname(this.registryPath)
     this.mcpSessionManager = options.mcpSessionManager ?? null
     this.mcpHost = options.mcpHost ?? null
+    this.resourcePolicyResolver = options.resourcePolicyResolver
     this.defaultRoot = options.defaultRoot
     this.settingsProvider = options.settingsProvider
     this.skillLibraryService = options.skillLibraryService
@@ -720,6 +729,13 @@ export class TeachingWorkspaceService {
   async listInterruptedAgentRuns(): Promise<InterruptedAgentRun[]> {
     const stores = await this.agentRunStores()
     return (await Promise.all(stores.map((store) => store.listInterrupted().catch(() => [])))).flat()
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  /** Read-only durable terminal notices; never resumes or replays provider/tool work. */
+  async listTerminalAgentRunNotices(): Promise<AgentRunTerminalNotice[]> {
+    const stores = await this.agentRunStores()
+    return (await Promise.all(stores.map((store) => store.listTerminalNotices().catch(() => [])))).flat()
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
@@ -1164,6 +1180,7 @@ export class TeachingWorkspaceService {
       appDataRoot: this.appDataRoot,
       mcpSessionManager: this.mcpSessionManager,
       mcpHost: this.mcpHost,
+      resourcePolicyResolver: this.resourcePolicyResolver,
       runStore: new AgentRunStore(runStorageRoot),
       loadSettings: () => this.loadSettings(),
       listMemories: (workspaceRoot, includeDeleted) => this.memoryStore.list(workspaceRoot, includeDeleted === true),
@@ -1254,37 +1271,53 @@ export class TeachingWorkspaceService {
       : payload.mode === 'teaching'
         ? 'workspace' as const
         : undefined
-    const existingLocation = payload.conversationId
+    let existingLocation = payload.conversationId
       ? await this.findAgentConversationLocation(workspace.rootPath, payload.conversationId, requestedScope)
           .catch((error: unknown) => {
             if (error instanceof Error && error.message === 'Conversation not found.') return null
             throw error
           })
       : null
-    const existing = existingLocation?.record ?? null
-    const isTemporaryConversation = existingLocation?.global === true || payload.mode === 'temporary'
-    const storageRoot = isTemporaryConversation ? this.appDataRoot : workspace.rootPath
+    let isTemporaryConversation = existingLocation?.global === true || payload.mode === 'temporary'
+    let storageRoot = isTemporaryConversation ? this.appDataRoot : workspace.rootPath
     if (isTemporaryConversation) await this.ensureTemporaryConversationStructure()
     const runId = payload.runId?.trim()
-    const runStore = runId ? new AgentRunStore(storageRoot) : null
-    const stagedParentTurn = runStore && runId
+    let runStore = runId ? new AgentRunStore(storageRoot) : null
+    let stagedParentTurn = runStore && runId
       ? await runStore.readParentTurnStage(runId).catch(() => null)
       : null
+
+    // A lost renderer response retries with the same run id, but does not yet
+    // know the conversation id. Once staging has bound that id, resolve it
+    // before deriving any placement or audit identity. Otherwise a retry would
+    // recreate the same id with a new createdAt and fail the append-only audit.
+    if (!existingLocation && !payload.conversationId && stagedParentTurn?.targetConversationId) {
+      existingLocation = await this.findAgentConversationLocation(
+        workspace.rootPath,
+        stagedParentTurn.targetConversationId,
+        requestedScope
+      ).catch((error: unknown) => {
+        if (error instanceof Error && error.message === 'Conversation not found.') return null
+        throw error
+      })
+      const resolvedTemporaryConversation = existingLocation?.global === true || payload.mode === 'temporary'
+      if (resolvedTemporaryConversation !== isTemporaryConversation) {
+        isTemporaryConversation = resolvedTemporaryConversation
+        storageRoot = isTemporaryConversation ? this.appDataRoot : workspace.rootPath
+        if (isTemporaryConversation) await this.ensureTemporaryConversationStructure()
+        runStore = runId ? new AgentRunStore(storageRoot) : null
+        stagedParentTurn = runStore && runId
+          ? await runStore.readParentTurnStage(runId).catch(() => null)
+          : null
+      }
+    }
+
+    const existing = existingLocation?.record ?? null
     const title = sanitizePersistedConversationTitle(existing?.title ?? deriveConversationTitle(turns, now))
     const id = existing?.id ?? stagedParentTurn?.targetConversationId ?? await nextAgentConversationId(storageRoot, title, now)
     const existingBranch = existing ? inferAgentConversationBranchMetadata(existing) : null
     if (existingBranch?.status === 'deleted') throw new Error('Deleted conversation branches cannot be updated.')
     if (existingBranch?.status === 'archived') throw new Error('Archived conversation branches must be restored before updating.')
-    if (existingBranch && payload.expectedBranchRevision === undefined) {
-      throw new Error('Expected branch revision is required when saving an existing conversation.')
-    }
-    if (
-      existingBranch &&
-      payload.expectedBranchRevision !== undefined &&
-      payload.expectedBranchRevision !== existingBranch.revision
-    ) {
-      throw new AgentConversationBranchRevisionConflictError(payload.expectedBranchRevision, existingBranch.revision)
-    }
     turns = turns.map((turn) => turn.metadata?.provenance
       ? turn
       : {
@@ -1302,15 +1335,6 @@ export class TeachingWorkspaceService {
       : agentConversationDirectoryRelativePath({ ...payload, createdAt })
     const relativePath = existing?.relativePath ?? agentConversationMarkdownRelativePath(id, newConversationDir)
     if (!isTemporaryConversation) await ensureTeachingContentDirectories(workspace.rootPath)
-    const stagedAllowances = collectStagedChildTranscriptAllowances(turns)
-    const authorizedAllowances = stagedAllowances.length > 0
-      ? await this.authorizeStagedChildTranscriptPromotion({
-          payload,
-          workspaceId: workspace.id,
-          storageRoot,
-          allowances: stagedAllowances
-        })
-      : []
     if (runStore && runId) {
       if (!stagedParentTurn) {
         throw new Error('Parent turn staging is unavailable; refusing an unverified conversation save.')
@@ -1333,7 +1357,47 @@ export class TeachingWorkspaceService {
         throw new Error('Conversation user input does not match the staged parent turn.')
       }
       turns = attachAgentParentTurnCommit(turns, runId)
+
+      // The canonical record can commit before the renderer receives its save
+      // response (or before durable stage settlement). A same-run retry must
+      // only observe and, when needed, settle that exact record — never rewrite
+      // it with a new revision, audit trace, or promoted-artifact capability.
+      const savedProof = stagedParentTurn.expectedParentTurnProof
+      const hasCanonicalStagedParentTurn = existing &&
+        stagedParentTurn.targetConversationId === existing.id &&
+        typeof savedProof === 'string' &&
+        hasAgentParentTurnCommit(existing.turns, runId, savedProof)
+      if (hasCanonicalStagedParentTurn) {
+        if (stagedParentTurn.status === 'awaiting_conversation_save') {
+          await runStore.settleParentTurn(runId, existing.id, savedProof)
+        } else if (stagedParentTurn.status !== 'settled') {
+          throw new Error('Parent turn staging is not eligible for an idempotent conversation save.')
+        }
+        return {
+          state: await this.buildState(registry, workspace.id, payload.selectedLessonPath ?? null),
+          conversation: toAgentConversationSummary(existing, {}, workspace.id)
+        }
+      }
     }
+    if (existingBranch && payload.expectedBranchRevision === undefined) {
+      throw new Error('Expected branch revision is required when saving an existing conversation.')
+    }
+    if (
+      existingBranch &&
+      payload.expectedBranchRevision !== undefined &&
+      payload.expectedBranchRevision !== existingBranch.revision
+    ) {
+      throw new AgentConversationBranchRevisionConflictError(payload.expectedBranchRevision, existingBranch.revision)
+    }
+    const stagedAllowances = collectStagedChildTranscriptAllowances(turns)
+    const authorizedAllowances = stagedAllowances.length > 0
+      ? await this.authorizeStagedChildTranscriptPromotion({
+          payload,
+          workspaceId: workspace.id,
+          storageRoot,
+          allowances: stagedAllowances
+        })
+      : []
 
     const record: AgentConversationRecord = {
       id,
@@ -2361,6 +2425,13 @@ export class TeachingWorkspaceService {
     const now = options.fixedEffectTimestamp ?? new Date().toISOString()
     const lifecycleEventId = options.fixedLifecycleEventId ?? randomUUID()
     const index = await this.loadWorkspaceIndex(workspace)
+    // Resolve once at this host-owned action boundary. No IPC/direct-action field
+    // can supply the policy itself; the snapshot governs the entire lesson provider operation.
+    const resourcePolicy = await (this.resourcePolicyResolver ?? resolveUnconstrainedAgentRunResourcePolicy)({
+      runId: `lesson-${lifecycleEventId}`,
+      workspaceId: workspace.id,
+      mode: 'teaching'
+    })
 
     const generation = await runLessonGenerationPipeline({
       workspace,
@@ -2374,7 +2445,8 @@ export class TeachingWorkspaceService {
       retrieveMemories: (query) => this.memoryStore.retrieve(query),
       callbacks: options.callbacks,
       bindCanonicalSession: async ({ lesson, assessment }) => this.openCanonicalLessonSession(workspace, lesson, assessment),
-      reservedTransactionId: options.reservedTransactionId
+      reservedTransactionId: options.reservedTransactionId,
+      resourceGovernance: resourcePolicy.governance
     })
 
     await this.saveWorkspaceIndex(workspace.rootPath, {

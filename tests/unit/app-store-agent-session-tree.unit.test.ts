@@ -355,6 +355,91 @@ describe('appStore Agent session lifecycle', () => {
     expect(recoveryNotice?.processEvents?.[0]?.isError).toBeUndefined()
   })
 
+  it('opens the newest durable terminal notice without replaying it after restart', async () => {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+    const recovered = record('terminal-conversation', 'active', 6)
+    const recoveredTree = tree('terminal-conversation', { 'terminal-conversation': { status: 'active', revision: 6 } })
+    const readConversation = vi.fn(async (payload: { conversationId: string; scope?: string }) => {
+      if (payload.conversationId === 'terminal-conversation' && payload.scope === 'workspace') return recovered
+      throw new Error('Conversation not found.')
+    })
+    const readTree = vi.fn(async () => recoveredTree)
+    installApi({
+      getState: vi.fn(async () => appState()),
+      getSettings: vi.fn(async () => originalState.settings),
+      listInterruptedAgentRuns: vi.fn(async () => [{
+        runId: 'older-interruption', streamId: 'stream-interruption', workspaceId: 'workspace-1', conversationId: 'older',
+        status: 'interrupted', previousStatus: 'running', lastDurableSequence: 1,
+        updatedAt: '2026-08-05T09:00:00.000Z', interruptedAt: '2026-08-05T09:00:00.000Z',
+        reason: 'restart', operationReviewCount: 0, usage: {}
+      }] as never),
+      listTerminalAgentRunNotices: vi.fn(async () => [{
+        runId: 'newer-terminal', streamId: 'stream-terminal', workspaceId: 'workspace-1', conversationId: 'terminal-conversation',
+        status: 'failed', stopReason: 'resource_limit', updatedAt: '2026-08-05T11:00:00.000Z',
+        completedAt: '2026-08-05T11:00:00.000Z', operationReviewCount: 1,
+        usage: {
+          providerCalls: 2, toolCalls: 1, childRuns: 0, durationMs: 100,
+          resourceGovernance: {
+            configured: [],
+            terminal: { layer: 'user_budget', meter: 'total_tokens', used: 500, limit: 500, scope: 'run', action: 'resource_limit' }
+          }
+        }
+      }] as never),
+      readAgentConversation: readConversation as TeachingSystemApi['readAgentConversation'],
+      readAgentConversationSessionTree: readTree
+    })
+
+    await useAppStore.getState().initialize()
+
+    expect(readConversation).toHaveBeenCalledWith({ workspaceId: 'workspace-1', conversationId: 'terminal-conversation', scope: 'workspace' })
+    expect(readConversation).not.toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'older' }))
+    expect(useAppStore.getState()).toMatchObject({ activeConversationId: 'terminal-conversation', activeConversationScope: 'workspace', activeConversationRevision: 6 })
+    expect(useAppStore.getState().agentStatus).toContain('不会自动继续或重放')
+    const notice = useAppStore.getState().agentTurns.at(-1)
+    expect(notice?.content).toContain('资源边界')
+    expect(notice?.content).toContain('已用 / 上限：500 / 500')
+    expect(notice?.content).toContain('没有创建 canonical conversation settlement')
+    expect(notice?.content).toContain('不会重放 provider 或工具工作')
+    expect(notice?.content).toContain('开始一个新的明确回合')
+    expect(notice?.metadata?.provenance).toEqual({ kind: 'recovery_notice' })
+    expect(notice?.processEvents?.[0]).toMatchObject({ kind: 'status', title: '资源边界已停止', status: 'resource_limit' })
+  })
+
+  it('presents a durable no-progress terminal distinctly without retrying or replaying after restart', async () => {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+    const recovered = record('no-progress-conversation', 'active', 3)
+    const recoveredTree = tree('no-progress-conversation', { 'no-progress-conversation': { status: 'active', revision: 3 } })
+    const readConversation = vi.fn(async (payload: { conversationId: string; scope?: string }) => {
+      if (payload.conversationId === 'no-progress-conversation' && payload.scope === 'workspace') return recovered
+      throw new Error('Conversation not found.')
+    })
+    installApi({
+      getState: vi.fn(async () => appState()),
+      getSettings: vi.fn(async () => originalState.settings),
+      listInterruptedAgentRuns: vi.fn(async () => []),
+      listTerminalAgentRunNotices: vi.fn(async () => [{
+        runId: 'no-progress-terminal', streamId: 'stream-no-progress', workspaceId: 'workspace-1', conversationId: 'no-progress-conversation',
+        status: 'failed', stopReason: 'no_progress', updatedAt: '2026-08-05T12:00:00.000Z',
+        completedAt: '2026-08-05T12:00:00.000Z', operationReviewCount: 0,
+        usage: { providerCalls: 4, toolCalls: 4, childRuns: 0, durationMs: 100 }
+      }] as never),
+      readAgentConversation: readConversation as TeachingSystemApi['readAgentConversation'],
+      readAgentConversationSessionTree: vi.fn(async () => recoveredTree)
+    })
+
+    await useAppStore.getState().initialize()
+
+    expect(readConversation).toHaveBeenCalledWith({ workspaceId: 'workspace-1', conversationId: 'no-progress-conversation', scope: 'workspace' })
+    expect(useAppStore.getState().agentStatus).toContain('不会自动继续或重放')
+    const notice = useAppStore.getState().agentTurns.at(-1)
+    expect(notice?.content).toContain('重复操作未带来安全进展')
+    expect(notice?.content).toContain('不会自动继续，也不会重放 provider 或工具工作')
+    expect(notice?.content).toContain('开始一个新的明确回合')
+    expect(notice?.processEvents?.[0]).toMatchObject({
+      kind: 'status', title: '重复操作未产生进展', status: 'no_progress'
+    })
+  })
+
   it('durably opens an active branch loaded from the catalog', async () => {
     const initialTree = tree('root', {
       root: { status: 'active', revision: 2 },

@@ -26,17 +26,14 @@ function sleep(ms: number): Promise<void> {
 
 function control(overrides: Partial<{
   canceled: boolean
-  toolBudget: number
 }> = {}) {
   let started = 0
   let errors = 0
-  const maxTools = overrides.toolBudget ?? 100
   return {
     started: () => started,
     errors: () => errors,
     ctl: {
       isCanceled: () => overrides.canceled === true,
-      budgetStop: () => (started >= maxTools ? ('tool_calls' as const) : undefined),
       startToolCall: () => {
         started += 1
       },
@@ -216,7 +213,6 @@ describe('executeToolBatch hybrid scheduling', () => {
       undefined,
       {
         isCanceled: () => canceled,
-        budgetStop: () => undefined,
         startToolCall: () => {},
         recordToolError: () => {},
         onToolCall: () => {}
@@ -228,13 +224,13 @@ describe('executeToolBatch hybrid scheduling', () => {
     expect(writeHandler).not.toHaveBeenCalled()
   })
 
-  it('honors tool budget admission and stops without running remaining calls', async () => {
+  it('does not use aggregate tool-count admission to stop remaining calls', async () => {
     const writeHandler = vi.fn(async () => JSON.stringify({ ok: true }))
     const handlers: ToolHandlerMap = {
       read_workspace_file: async () => JSON.stringify({ ok: true }),
       write_workspace_file: writeHandler
     }
-    const { ctl, started } = control({ toolBudget: 1 })
+    const { ctl, started } = control()
     const outcome = await executeToolBatch(
       [
         toolCall('read_workspace_file', '{"path":"a.md"}', 'r1'),
@@ -244,10 +240,9 @@ describe('executeToolBatch hybrid scheduling', () => {
       undefined,
       ctl
     )
-    expect(started()).toBe(1)
-    expect(outcome.results).toHaveLength(1)
-    expect(outcome.exhausted).toBe('tool_calls')
-    expect(writeHandler).not.toHaveBeenCalled()
+    expect(started()).toBe(2)
+    expect(outcome.results).toHaveLength(2)
+    expect(writeHandler).toHaveBeenCalledTimes(1)
   })
 
   it('supports recovery-style resolveCall skips without invoking handlers', async () => {
@@ -292,7 +287,6 @@ describe('runAgentLoop hybrid batch wiring (B-03)', () => {
     const value = defaultSettings('C:/agent-loop-batch-fixture')
     value.generator.endpointFormat = 'chat_completions'
     value.generator.requestTimeoutMs = 50
-    value.tools.maxIterations = 3
     return value
   }
 
@@ -363,8 +357,7 @@ describe('runAgentLoop hybrid batch wiring (B-03)', () => {
             inFlight -= 1
             return JSON.stringify({ ok: true })
           }
-        },
-        maxIterations: 2
+        }
       })
       expect(result.finalText).toBe('读完了')
       expect(result.usage.toolCalls).toBe(2)
@@ -408,8 +401,7 @@ describe('runAgentLoop hybrid batch wiring (B-03)', () => {
             parameters: { type: 'object', properties: {} }
           }
         }],
-        toolHandlers: { read_workspace_file: handler },
-        maxIterations: 2
+        toolHandlers: { read_workspace_file: handler }
       })
       expect(handler).not.toHaveBeenCalled()
       expect(result.usage.toolCalls).toBe(0)

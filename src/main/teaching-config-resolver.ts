@@ -103,14 +103,6 @@ export type TeachingLoopConfigValue = {
     windowsSandboxLevel: WindowsSandboxLevel
     webSearch: boolean
     webFetch: boolean
-    maxIterations: number
-    runBudget: {
-      maxDurationMs: number
-      maxProviderCalls: number
-      maxToolCalls: number
-      maxTotalTokens: number
-      warningThreshold: number
-    }
   }
   memory: {
     enabled: boolean
@@ -270,10 +262,7 @@ export function resolveTeachingConfig(scope: TeachingConfigScope): ResolvedTeach
   const resolvedValue: TeachingLoopConfigValue = {
     schemaVersion: TEACHING_CONFIG_SCHEMA_VERSION,
     generator: { ...value.generator },
-    tools: {
-      ...value.tools,
-      runBudget: { ...value.tools.runBudget }
-    },
+    tools: { ...value.tools },
     memory: { ...value.memory },
     workspace: { ...value.workspace },
     provider: {
@@ -366,17 +355,10 @@ function applyOverlay(
   }
   if (overlay.tools) {
     for (const [key, fieldValue] of Object.entries(overlay.tools)) {
-      if (key === 'runBudget' || key === 'enabled') continue
+      if (key === 'enabled') continue
       if (fieldValue === undefined) continue
       ;(value.tools as Record<string, unknown>)[key] = fieldValue
       setSource(assignments, `tools.${key}`, source)
-    }
-    if (overlay.tools.runBudget) {
-      for (const [key, fieldValue] of Object.entries(overlay.tools.runBudget)) {
-        if (fieldValue === undefined) continue
-        ;(value.tools.runBudget as Record<string, unknown>)[key] = fieldValue
-        setSource(assignments, `tools.runBudget.${key}`, source)
-      }
     }
   }
   if (overlay.memory) {
@@ -462,9 +444,7 @@ function projectTeachingLoopConfig(settings: TeachingSettingsV1): MutableLoopCon
       sandboxMode: settings.tools.sandboxMode ?? 'workspace_write',
       windowsSandboxLevel: settings.tools.windowsSandboxLevel ?? 'restricted_token',
       webSearch: settings.tools.webSearch,
-      webFetch: settings.tools.webFetch,
-      maxIterations: settings.tools.maxIterations,
-      runBudget: { ...settings.tools.runBudget }
+      webFetch: settings.tools.webFetch
     },
     memory: { ...settings.memory },
     workspace: {
@@ -501,10 +481,7 @@ function projectTeachingLoopConfig(settings: TeachingSettingsV1): MutableLoopCon
 function cloneLoopConfig(value: MutableLoopConfig): MutableLoopConfig {
   return {
     generator: { ...value.generator },
-    tools: {
-      ...value.tools,
-      runBudget: { ...value.tools.runBudget }
-    },
+    tools: { ...value.tools },
     memory: { ...value.memory },
     workspace: { ...value.workspace },
     provider: {
@@ -526,11 +503,7 @@ function recordFullSource(
   source: TeachingConfigSourceKind
 ): void {
   for (const key of Object.keys(value.generator)) setSource(assignments, `generator.${key}`, source)
-  for (const key of Object.keys(value.tools)) {
-    if (key === 'runBudget') continue
-    setSource(assignments, `tools.${key}`, source)
-  }
-  for (const key of Object.keys(value.tools.runBudget)) setSource(assignments, `tools.runBudget.${key}`, source)
+  for (const key of Object.keys(value.tools)) setSource(assignments, `tools.${key}`, source)
   for (const key of Object.keys(value.memory)) setSource(assignments, `memory.${key}`, source)
   for (const key of Object.keys(value.workspace)) setSource(assignments, `workspace.${key}`, source)
   setSource(assignments, 'provider.activeProviderId', source)

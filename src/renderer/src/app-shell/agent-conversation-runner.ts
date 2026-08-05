@@ -86,11 +86,10 @@ export type AgentConversationTurnRunnerApi = Pick<
   TeachingSystemApi,
   | 'submitConversationTurn'
   | 'cancelConversationTurn'
-  | 'onAgentChatEvent'
   | 'readAgentConversation'
   | 'readAgentConversationSessionTree'
   | 'getState'
->
+> & Partial<Pick<TeachingSystemApi, 'onAgentChatEvent'>>
 
 export type AgentConversationTurnRunnerDependencies<TError> = {
   getState: () => AgentConversationTurnRunnerState
@@ -170,6 +169,7 @@ function cancelRefreshMessage(): string {
  */
 export class AgentConversationTurnRunner<TError> {
   private unsubscribeRealtime: (() => void) | null = null
+  private subscribedApi: AgentConversationTurnRunnerApi | null = null
   private submissionsInFlight = 0
   private readonly bufferedRealtimeEvents = new Map<string, AgentRealtimeEvent[]>()
   private activeHostStream: ActiveHostStream | null = null
@@ -535,8 +535,13 @@ export class AgentConversationTurnRunner<TError> {
   }
 
   private ensureRealtimeSubscription(api: AgentConversationTurnRunnerApi): void {
-    if (this.unsubscribeRealtime) return
-    this.unsubscribeRealtime = api.onAgentChatEvent((event) => this.receiveRealtimeEvent(event))
+    if (this.subscribedApi === api && this.unsubscribeRealtime) return
+    if (this.unsubscribeRealtime) this.unsubscribeRealtime()
+    this.unsubscribeRealtime = null
+    this.subscribedApi = api
+    const subscribe = api.onAgentChatEvent
+    if (typeof subscribe !== 'function') return
+    this.unsubscribeRealtime = subscribe((event) => this.receiveRealtimeEvent(event))
   }
 
   private receiveRealtimeEvent(event: AgentRealtimeDeliveryEvent): void {
@@ -705,6 +710,28 @@ export class AgentConversationTurnRunner<TError> {
           assistantId: active.assistantId,
           message: event.message ?? 'The conversation could not be completed.'
         }),
+        agentChatBusy: false
+      })
+      return
+    }
+    if (event.outcome === 'resource_limit' || event.outcome === 'suspended' || event.outcome === 'no_progress' || event.outcome === 'context_unrecoverable' || event.outcome === 'retry_exhausted') {
+      const state = this.dependencies.getState()
+      const pending = state.pendingAgentConversation
+      if (!pending || pending.summary.id !== active.pendingConversationId) return
+      // A resource/retry terminal is not a completed turn. Keep the optimistic
+      // transcript visible and require explicit user input for continuation.
+      const status = event.outcome === 'resource_limit'
+        ? '已达到明确资源边界'
+        : event.outcome === 'suspended'
+          ? '运行已暂停'
+          : event.outcome === 'context_unrecoverable'
+            ? '上下文无法安全压缩；请开始新的明确对话，或选择更大的 context window'
+            : event.outcome === 'no_progress'
+              ? '重复操作未产生安全进展；未自动重试或重放'
+              : '自动重试已耗尽，未自动继续请求'
+      this.dependencies.setState({
+        pendingAgentConversation: { ...pending, status },
+        agentStatus: status,
         agentChatBusy: false
       })
       return

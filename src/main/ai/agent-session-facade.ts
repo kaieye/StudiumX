@@ -30,6 +30,11 @@ import {
   type AgentSessionQueueProjection,
   type ProjectAgentSessionQueueOptions
 } from './agent-session-queue-projection'
+import type {
+  AgentResourceTerminalStatus,
+  AgentRunUsageAggregate,
+  AgentTerminalReason
+} from '../../shared/teaching-types'
 
 /** Defeats method-local CFA: host may call abort()/setPhase while executeRun awaits. */
 function isCancelingPhase(phase: BusyInputPhase): boolean {
@@ -78,6 +83,12 @@ export type AgentSessionRunResult = {
   finalText?: string
   canceled?: boolean
   error?: string
+  /** Resource terminals are not successful completion and require explicit continuation. */
+  resourceStopped?: true
+  status?: AgentResourceTerminalStatus
+  message?: string
+  stopReason?: AgentTerminalReason
+  usage?: AgentRunUsageAggregate
 }
 
 /**

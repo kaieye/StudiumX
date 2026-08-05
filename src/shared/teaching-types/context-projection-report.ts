@@ -75,6 +75,19 @@ export type ProjectionBudgetSnapshot = {
   overBudget: boolean
 }
 
+/** Redacted request-fit geometry, emitted only by provider request projection. */
+export type RequestFitSnapshot = {
+  inputMessageTokens: number
+  toolSchemaTokens: number
+  framingTokens: number
+  outputReserveTokens: number
+  extraTokens: number
+  projectedTokens: number
+  effectiveContextWindowTokens: number
+  contextWindowSource: 'configured' | 'catalog' | 'model_name_hint' | 'conservative_default'
+  estimateSource: 'local' | 'provider' | 'mixed'
+}
+
 /**
  * Stable, redacted projection audit. Fingerprint is deterministic for the same
  * facts/config and never derived from raw prompt text.
@@ -86,6 +99,8 @@ export type ContextProjectionReport = {
   omitted: readonly ProjectionOmittedItem[]
   truncation: ProjectionTruncation
   budget: ProjectionBudgetSnapshot
+  /** Present for provider request projection; omitted for teaching assembly. */
+  requestFit?: RequestFitSnapshot
   provenance: readonly ProjectionProvenanceRef[]
   fingerprint: string
 }

@@ -31,9 +31,7 @@ import type {
 
 export type ParsedOverlay = {
   generator?: Partial<TeachingLoopConfigValue['generator']>
-  tools?: Partial<Omit<TeachingLoopConfigValue['tools'], 'runBudget'>> & {
-    runBudget?: Partial<TeachingLoopConfigValue['tools']['runBudget']>
-  }
+  tools?: Partial<TeachingLoopConfigValue['tools']>
   memory?: Partial<TeachingLoopConfigValue['memory']>
   workspace?: Partial<TeachingLoopConfigValue['workspace']>
   provider?: {
@@ -92,19 +90,8 @@ export function parseTeachingLoopOverlay(
       assignEnum(section, 'approvalMode', tools, 'approvalMode', AGENT_APPROVAL_MODES, source, 'tools.approvalMode', diagnostics, overlay)
       assignBoolean(section, 'webSearch', tools, 'webSearch', source, 'tools.webSearch', diagnostics, overlay)
       assignBoolean(section, 'webFetch', tools, 'webFetch', source, 'tools.webFetch', diagnostics, overlay)
-      assignInteger(section, 'maxIterations', tools, 'maxIterations', 0, 64, source, 'tools.maxIterations', diagnostics, overlay)
-      if ('runBudget' in section) {
-        const budgetSection = requireObject(section.runBudget, source, 'tools.runBudget', diagnostics)
-        if (budgetSection) {
-          const runBudget: NonNullable<NonNullable<ParsedOverlay['tools']>['runBudget']> = {}
-          assignInteger(budgetSection, 'maxDurationMs', runBudget, 'maxDurationMs', 5_000, 60 * 60_000, source, 'tools.runBudget.maxDurationMs', diagnostics, overlay)
-          assignInteger(budgetSection, 'maxProviderCalls', runBudget, 'maxProviderCalls', 1, 500, source, 'tools.runBudget.maxProviderCalls', diagnostics, overlay)
-          assignInteger(budgetSection, 'maxToolCalls', runBudget, 'maxToolCalls', 1, 1_000, source, 'tools.runBudget.maxToolCalls', diagnostics, overlay)
-          assignInteger(budgetSection, 'maxTotalTokens', runBudget, 'maxTotalTokens', 1_000, 4_000_000, source, 'tools.runBudget.maxTotalTokens', diagnostics, overlay)
-          assignNumber(budgetSection, 'warningThreshold', runBudget, 'warningThreshold', 0.5, 0.95, source, 'tools.runBudget.warningThreshold', diagnostics, overlay)
-          if (Object.keys(runBudget).length > 0) tools.runBudget = runBudget
-        }
-      }
+      // ADR-0171 migration: persisted run limits are intentionally accepted then dropped.
+      // They are not settings fields and never enter the resolved runtime snapshot.
       if (Object.keys(tools).length > 0) overlay.tools = tools
     }
   }

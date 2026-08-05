@@ -140,7 +140,6 @@ try {
   settings.generator.endpointFormat = 'chat_completions'
   settings.generator.requestTimeoutMs = 5000
   settings.tools.enabled = true
-  settings.tools.maxIterations = 0
   settings.provider.providers = settings.provider.providers.map((provider) =>
     provider.id === 'custom'
       ? {

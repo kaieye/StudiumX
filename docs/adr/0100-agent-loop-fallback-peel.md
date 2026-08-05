@@ -37,7 +37,7 @@ ADR-0075 将模块尺寸政策与巨石 **按触达 peel** 纪律正式化。`ag
 ### 3. 不变量
 
 - Degraded / tools-unsupported 路径仍用 `legacyRequestFromMessages` 折叠 transcript。
-- Durable-success 与 budget-exhaustion fallback 仍经 `safeFallbackText` fail-closed（抛错或 null → 空串）。
+- 原 budget-exhaustion fallback 的 `safeFallbackText` 接线是该次 peel 的历史实现事实；其作为正常学习终止路径的产品政策已由 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md) 取代，待后续代码切片删除。
 - 无循环依赖：`agent-loop-fallback` 仅依赖 `ChatMessage` 类型（`provider-adapter`）。
 - 不触达 teaching-workspace / learning-session-ledger / teaching-turn-coordinator。
 

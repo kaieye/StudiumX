@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import type { AgentRunBudget, AgentRunUsageAggregate } from '../../shared/teaching-types'
+import type { AgentRunUsageAggregate } from '../../shared/teaching-types'
 
 export type AgentRunCheckpointStatus =
   | 'running'
@@ -12,6 +12,12 @@ export type AgentRunCheckpointStatus =
   | 'canceled'
   | 'interrupted'
 
+/**
+ * Durable crash-recovery observation, not a continuation intent. Startup recovery
+ * only marks an in-flight run interrupted and routes ambiguous tool work to review;
+ * it never recreates a provider request or replays tools. Any later continuation is
+ * a new canonical turn and must use the host's normal expectedRevision CAS path.
+ */
 export type AgentRunCheckpoint = {
   version: 1
   runId: string
@@ -30,7 +36,6 @@ export type AgentRunCheckpoint = {
   operationJournalPointer: string
   pendingPermissionId?: string
   pendingElicitationId?: string
-  budget: AgentRunBudget
   usage: AgentRunUsageAggregate
   stopReason?: string
   interruptionReason?: string
@@ -176,24 +181,6 @@ export type AgentOperationRecord = {
 
 const SAFE_ID = /^[A-Za-z0-9._:-]{1,160}$/
 
-export const DEFAULT_AGENT_RUN_BUDGET: AgentRunBudget = {
-  maxDurationMs: 20 * 60_000,
-  maxProviderCalls: 64,
-  maxToolCalls: 128,
-  maxTotalTokens: 500_000,
-  warningThreshold: 0.8
-}
-
-export function normalizeAgentRunBudget(input: Partial<AgentRunBudget> | null | undefined): AgentRunBudget {
-  return {
-    maxDurationMs: boundedInteger(input?.maxDurationMs, 5_000, 60 * 60_000, DEFAULT_AGENT_RUN_BUDGET.maxDurationMs),
-    maxProviderCalls: boundedInteger(input?.maxProviderCalls, 1, 500, DEFAULT_AGENT_RUN_BUDGET.maxProviderCalls),
-    maxToolCalls: boundedInteger(input?.maxToolCalls, 1, 1_000, DEFAULT_AGENT_RUN_BUDGET.maxToolCalls),
-    maxTotalTokens: boundedInteger(input?.maxTotalTokens, 1_000, 4_000_000, DEFAULT_AGENT_RUN_BUDGET.maxTotalTokens),
-    warningThreshold: boundedNumber(input?.warningThreshold, 0.5, 0.95, DEFAULT_AGENT_RUN_BUDGET.warningThreshold)
-  }
-}
-
 export function emptyAgentRunUsage(): AgentRunUsageAggregate {
   return {
     providerCalls: 0,
@@ -213,12 +200,4 @@ export function agentOperationId(runId: string, toolCallId: string): string {
 
 export function assertSafeId(value: string, label: string): void {
   if (!SAFE_ID.test(value)) throw new Error(`Invalid ${label}.`)
-}
-
-function boundedInteger(value: unknown, min: number, max: number, fallback: number): number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max ? value : fallback
-}
-
-function boundedNumber(value: unknown, min: number, max: number, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : fallback
 }

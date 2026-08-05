@@ -66,6 +66,29 @@ describe('product-agent-chat-invoker mapping', () => {
     ).toEqual({ streamId: 's2', error: 'boom' })
 
     expect(
+      mapAgentChatStreamResultToRunResult('s-resource', {
+        resourceStopped: true,
+        status: 'resource_limit',
+        message: 'limit reached',
+        stopReason: 'resource_limit',
+        usage: {
+          providerCalls: 1,
+          toolCalls: 0,
+          toolErrors: 0,
+          iterations: 1,
+          childRuns: 0,
+          durationMs: 10
+        }
+      })
+    ).toMatchObject({
+      streamId: 's-resource',
+      resourceStopped: true,
+      status: 'resource_limit',
+      stopReason: 'resource_limit',
+      message: 'limit reached'
+    })
+
+    expect(
       mapAgentChatStreamResultToRunResult('s3', {
         turns: [],
         finalText: 'answer',

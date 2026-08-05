@@ -292,7 +292,13 @@ describe('local plan diagnostics (ADR-0163 §2.6)', () => {
   it('refuses a symlinked local diagnostics parent', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'studiumx-diagnostics-link-'))
     const outside = await mkdtemp(join(tmpdir(), 'studiumx-diagnostics-outside-'))
-    await symlink(outside, join(workspaceRoot, '.agent-sessions'))
+    try {
+      await symlink(outside, join(workspaceRoot, '.agent-sessions'))
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES')) return
+      throw error
+    }
     const store = createSkillOrchestrationDiagnosticsStore({ workspaceRoot })
     expect(await store.record({
       planId: 'sop1_deadbeef',

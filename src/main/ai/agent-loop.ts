@@ -32,29 +32,47 @@ import {
 import { createToolsSchemaGuardState } from './tools/tools-schema-fingerprint'
 import { applyToolsSchemaGuard } from './agent-loop-schema-guard'
 import type {
-  AgentRunBudget,
-  AgentRunBudgetStopReason,
   AgentRunUsageAggregate,
+  AgentRunResourceGovernance,
   TeachingSettingsV1,
   TeachingModelProviderProfile
 } from '../../shared/teaching-types'
 import type { AgentLoopStatus } from '../../shared/teaching-types'
-import { normalizeAgentRunBudget } from './agent-run-store'
 import { AgentLoopExecutionState } from './agent-loop-execution-state'
+import type { AgentRunResourceGovernor } from './agent-run-resource-governance'
 import { legacyRequestFromMessages, safeFallbackText } from './agent-loop-fallback'
-import { budgetStopReasonFromError } from './agent-loop-budget-reason'
 import { closeOpenToolCalls } from './close-open-tool-calls'
 import { TOOL_CANCELED_MESSAGE } from './tools/tool-arguments'
 import { stripDsmlToolCallBlocks } from './provider-adapter/dsml-tool-calls'
+import { classifyProviderRecovery } from '../../shared/provider-recovery'
+import { effectiveMaxOutputTokens } from '../../shared/model-provider-catalog'
 import {
   emptyContextFileLedger,
   recordFileTouchesFromToolBatch,
   type ContextFileLedger
 } from './context-file-ledger'
 
-export type AgentLoopStopReason = 'final_answer' | 'max_iterations' | 'budget_exhausted' | 'error' | 'degraded' | 'canceled'
+export type AgentLoopStopReason =
+  | 'final_answer'
+  | 'error'
+  | 'degraded'
+  | 'canceled'
+  | 'no_progress'
+  | 'context_unrecoverable'
+  | 'retry_exhausted'
+  | 'resource_limit'
+  | 'suspended'
 
 export type AgentLoopUsage = AgentRunUsageAggregate
+
+const CONTEXT_UNRECOVERABLE_MESSAGE = '上下文无法继续压缩。请开始新的续接，或选择更大的 context window。'
+
+class ContextUnrecoverableError extends Error {
+  constructor() {
+    super(CONTEXT_UNRECOVERABLE_MESSAGE)
+    this.name = 'ContextUnrecoverableError'
+  }
+}
 
 export type AgentLoopDiagnostic = {
   kind: 'provider_call' | 'tool_call' | 'tool_result' | 'stop'
@@ -95,16 +113,11 @@ export type RunAgentLoopOptions = {
   toolResultTurnBudget?: Partial<ToolResultTurnBudgetConfig>
   /** Applied only to the first normal model request; subsequent turns return to automatic tool selection. */
   initialToolChoice?: ToolChoice
-  maxIterations?: number
   jsonMode?: boolean
-  maxIterationsBehavior?: 'force_final_answer' | 'error'
-  shouldErrorOnMaxIterations?: () => boolean
-  maxIterationsErrorMessage?: string
   /**
    * Tightly bounded recovery for a required business tool that has not
-   * received an execution opportunity before the model returns a final answer
-   * or the normal iteration cap is reached. Recovery calls remain subject to
-   * the hard run budget.
+   * received an execution opportunity before the model returns a final answer.
+   * This is an explicit business-operation recovery, not a run quota.
    */
   iterationLimitRecovery?: {
     shouldAttempt: () => boolean
@@ -114,14 +127,6 @@ export type RunAgentLoopOptions = {
     maxAttempts?: number
   }
   signal?: AbortSignal
-  budget?: Partial<AgentRunBudget>
-  /**
-   * Deterministic last-resort answer for runs where a durable business action
-   * already succeeded but no provider call remains to summarize it. Returning
-   * text converts budget exhaustion into a degraded completion while retaining
-   * the budget stop reason in usage.
-   */
-  budgetExhaustionFallback?: (reason: AgentRunBudgetStopReason, transcript: readonly ChatMessage[]) => string | null | undefined
   /**
    * Deterministic confirmation used when a durable operation succeeded but the
    * provider ignored no-tool finalization or returned an empty final answer.
@@ -145,6 +150,10 @@ export type RunAgentLoopOptions = {
   now?: () => number
   callbacks?: { onEvent?: (e: AgentLoopEvent) => void }
   contextCompaction?: ContextCompactionOptions
+  /** Explicit user/deployment constraints plus a high host emergency fuse. */
+  resourceGovernance?: AgentRunResourceGovernance
+  /** Internal host-owned shared ledger for delegated child runs. */
+  resourceGovernor?: AgentRunResourceGovernor
 }
 
 export type RunAgentLoopResult = {
@@ -158,7 +167,6 @@ export type RunAgentLoopResult = {
   usage: AgentRunUsageAggregate
 }
 
-const DEFAULT_MAX_ITERATIONS = 8
 
 /**
  * Non-streaming tool-calling loop (v1). Each turn calls callChatProvider; if
@@ -168,27 +176,35 @@ const DEFAULT_MAX_ITERATIONS = 8
  * (messages/responses) degrade to one legacy single-shot call.
  */
 export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentLoopResult> {
-  const budget = normalizeAgentRunBudget(opts.budget ?? opts.settings.tools.runBudget)
   const execution = new AgentLoopExecutionState({
-    budget,
     now: opts.now ?? Date.now,
     signal: opts.signal,
-    onEvent: opts.callbacks?.onEvent
+    onEvent: opts.callbacks?.onEvent,
+    resourceGovernance: opts.resourceGovernance,
+    resourceGovernor: opts.resourceGovernor
   })
   const runSignal = execution.signal
   const format = opts.settings.generator.endpointFormat
   const supported = toolsSupportedForFormat(format)
-  const requestedMaxIter = opts.maxIterations ?? opts.settings.tools.maxIterations ?? DEFAULT_MAX_ITERATIONS
-  const maxIter = Number.isFinite(requestedMaxIter) ? Math.max(0, Math.floor(requestedMaxIter)) : DEFAULT_MAX_ITERATIONS
-  const hasIterationLimit = maxIter > 0
   const transcript: ChatMessage[] = [...opts.messages]
-  const emit = (event: AgentLoopEvent): void => execution.emit(event)
+  const emit = (event: AgentLoopEvent): void => {
+    if (event.type === 'context_compaction_started') execution.startCompactionOperation()
+    execution.emit(event)
+  }
   /** Live deterministic file-touch ledger (projection floor; not settlement). */
   let fileTouchLedger: ContextFileLedger = emptyContextFileLedger()
   const requestContext = new RequestContextProjector({
     modelId: opts.settings.generator.model,
     provider: opts.provider,
     compaction: opts.contextCompaction,
+    // Reserve exactly the completion ceiling serialized by the provider adapter.
+    // Catalog caps remain a request-geometry rule rather than an invisible
+    // conservative buffer, so pre-dispatch fit checks and wire payload agree.
+    outputReserveTokens: effectiveMaxOutputTokens(
+      opts.provider,
+      opts.settings.generator.model,
+      opts.settings.generator.maxOutputTokens
+    ),
     onTrace: emit,
     fileTouchLedger: () => fileTouchLedger,
     summarize: async (request) => {
@@ -199,23 +215,18 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
           maxOutputTokens: Math.min(opts.settings.generator.maxOutputTokens, request.maxSummaryTokens)
         }
       }
+      execution.startCompactionSummaryAttempt()
       if (!toolsSupportedForFormat(summarySettings.generator.endpointFormat)) {
-        const stop = execution.budgetStop('provider')
-        if (stop) throw new Error(`agent budget exhausted: ${stop}`)
-        execution.startProviderCall()
         const summary = await callProvider({
           settings: summarySettings,
           provider: opts.provider,
           request: legacyRequestFromMessages(request.messages),
-          signal: runSignal
+          signal: request.signal ?? runSignal,
+          beforeTransportDispatch: () => execution.startProviderCall()
         })
         execution.recordProviderUsage(summary.usage)
-        execution.maybeWarnBudget()
         return summary.text
       }
-      const stop = execution.budgetStop('provider')
-      if (stop) throw new Error(`agent budget exhausted: ${stop}`)
-      execution.startProviderCall()
       const summary = await callChatProvider({
         settings: summarySettings,
         provider: opts.provider,
@@ -225,10 +236,10 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
           toolChoice: 'none',
           jsonMode: false
         },
-        signal: runSignal
+        signal: request.signal ?? runSignal,
+        beforeTransportDispatch: () => execution.startProviderCall()
       })
       execution.recordProviderUsage(summary.usage, 'provider_reported', summary.finishReason)
-      execution.maybeWarnBudget()
       return summary.text
     }
   })
@@ -239,27 +250,53 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     tools: ToolDefinition[],
     projection?: {
       compactionTriggerPoint?: 'pre_send' | 'mid_stream' | 'post_tool'
-      hardBudgetExhausted?: boolean
-      runBudgetStopPending?: boolean
+      forceCompaction?: boolean
     }
-  ): Promise<ChatMessage[]> => {
+  ) => {
     const messageTurnIds = messages.map((_, index) =>
       index < initialMessageCount ? initialMessageTurnIds?.[index] : undefined
     )
-    // Hard budget remains sole authority when already exhausted; skip compaction work.
-    const hardBudgetExhausted = projection?.hardBudgetExhausted === true || Boolean(execution.budgetStop('provider'))
-    return (
-      await requestContext.project(messages, tools, messageTurnIds, {
-        compactionTriggerPoint: projection?.compactionTriggerPoint ?? 'pre_send',
-        hardBudgetExhausted,
-        runBudgetStopPending: projection?.runBudgetStopPending
-      })
-    ).messages
+    return requestContext.project(messages, tools, messageTurnIds, {
+      compactionTriggerPoint: projection?.compactionTriggerPoint ?? 'pre_send',
+      forceCompaction: projection?.forceCompaction,
+      signal: runSignal
+    })
   }
   const toolsSchemaGuard = createToolsSchemaGuardState()
+  /**
+   * A provider overflow is scoped to one logical provider request. It gets one
+   * forced, projection-only compaction retry; it never becomes a run budget or
+   * an unbounded compact/retry loop. Each caller supplies its own request
+   * projection so unsupported endpoints and finalization share the same rule.
+   */
+  const invokeWithContextOverflowRecovery = async <T>(input: {
+    prepare: (forceCompaction: boolean) => Promise<{
+      messages: ChatMessage[]
+      estimatedTokens: number
+      contextWindowTokens: number
+    }>
+    invoke: (messages: ChatMessage[]) => Promise<T>
+  }): Promise<T> => {
+    execution.startLogicalRequest()
+    let overflowRecoveryAttempted = false
+    for (;;) {
+      const projection = await input.prepare(overflowRecoveryAttempted)
+      if (projection.estimatedTokens >= projection.contextWindowTokens) {
+        throw new ContextUnrecoverableError()
+      }
+      try {
+        return await input.invoke(projection.messages)
+      } catch (error) {
+        if (!classifyProviderRecovery(error).shouldCompress) throw error
+        if (overflowRecoveryAttempted) throw new ContextUnrecoverableError()
+        overflowRecoveryAttempted = true
+        execution.noteContextOverflowRecovery()
+        emit({ type: 'status', status: 'thinking', message: '检测到上下文溢出，正在压缩上下文后重试一次…' })
+      }
+    }
+  }
   let degradedReason: string | undefined
   let iterations = 0
-  let exhausted: AgentRunBudgetStopReason | undefined
   let durableFinalizationRequested = false
   const canceledResult = (toolsSupported: boolean): RunAgentLoopResult => {
     // B-12: close unpaired tool_calls so canceled transcripts stay pair-closed.
@@ -282,66 +319,50 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     }
     return execution.canceled(transcript, toolsSupported, degradedReason)
   }
-  const exhaustedResult = (toolsSupported: boolean, reason: AgentRunBudgetStopReason): RunAgentLoopResult => {
-    let fallbackText = ''
-    try {
-      fallbackText = opts.budgetExhaustionFallback?.(reason, transcript)?.trim() ?? ''
-    } catch {
-      // A fallback must never hide the original budget boundary.
-    }
-    if (!fallbackText) return execution.exhausted(transcript, toolsSupported, degradedReason, reason)
 
-    const assistantMsg: ChatMessage = { role: 'assistant', content: fallbackText }
-    transcript.push(assistantMsg)
-    emit({ type: 'status', status: 'answering', message: '核心操作已完成，正在整理结果…' })
-    emit({ type: 'token', delta: fallbackText })
-    emit({ type: 'assistant_message', message: assistantMsg })
-    return execution.completed(transcript, {
-      finalText: fallbackText,
-      toolsSupported,
-      degradedReason: degradedReason ?? 'budget_exhausted_after_durable_success',
-      stopReason: 'degraded'
-    }, reason)
-  }
 
   if (!supported) {
+    if (execution.isResourceTerminated) return execution.resourceStopped(transcript, false, degradedReason)
     if (execution.isCanceled) return canceledResult(false)
     iterations = 1
     execution.setIterations(iterations)
     emit({ type: 'status', status: 'answering', message: '当前端点格式不支持工具调用，已降级为纯文本生成。' })
     try {
-      const preStop = execution.budgetStop('provider')
-      if (preStop) return exhaustedResult(false, preStop)
       let answerStarted = false
-      const request = legacyRequestFromMessages(
-        await prepareMessagesForProvider(transcript, [], { compactionTriggerPoint: 'pre_send' })
-      )
-      const result = await invokeProviderWithRetry({
-        execution,
-        emit,
-        signal: runSignal,
-        invoke: async () =>
-          streamProvider({
-            settings: opts.settings,
-            provider: opts.provider,
-            request,
-            callbacks: {
-              onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-              onToken: (delta) => {
-                if (!answerStarted) {
-                  answerStarted = true
-                  emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
-                }
-                emit({ type: 'token', delta })
-              }
-            },
-            signal: runSignal
+      const result = await invokeWithContextOverflowRecovery({
+        prepare: (forceCompaction) => prepareMessagesForProvider(transcript, [], {
+          compactionTriggerPoint: 'pre_send',
+          forceCompaction
+        }),
+        invoke: async (messages) =>
+          invokeProviderWithRetry({
+            execution,
+            emit,
+            signal: runSignal,
+            logicalRequest: false,
+            invoke: async () =>
+              streamProvider({
+                settings: opts.settings,
+                provider: opts.provider,
+                request: legacyRequestFromMessages(messages),
+                callbacks: {
+                  onReasoning: (delta) => emit({ type: 'reasoning', delta }),
+                  onToken: (delta) => {
+                    if (!answerStarted) {
+                      answerStarted = true
+                      emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
+                    }
+                    emit({ type: 'token', delta })
+                  }
+                },
+                signal: runSignal,
+                beforeTransportDispatch: () => execution.startProviderCall()
+              })
           })
       })
       execution.recordProviderUsage(result.usage)
-      execution.maybeWarnBudget()
+      if (execution.isResourceTerminated) return execution.resourceStopped(transcript, false, degradedReason)
       if (execution.isCanceled) return canceledResult(false)
-      if (execution.isDurationExhausted) return exhaustedResult(false, 'duration')
       const cleanedText = stripDsmlToolCallBlocks(result.text)
       const assistantMsg: ChatMessage = { role: 'assistant', content: cleanedText }
       transcript.push(assistantMsg)
@@ -353,91 +374,114 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         stopReason: 'degraded'
       })
     } catch (error) {
+      if (execution.isResourceTerminated) return execution.resourceStopped(transcript, false, degradedReason)
       if (execution.isCanceled) return canceledResult(false)
-      if (execution.isDurationExhausted) return exhaustedResult(false, 'duration')
-      const budgetReason = budgetStopReasonFromError(error)
-      if (budgetReason) return exhaustedResult(false, budgetReason)
       const message = error instanceof Error ? error.message : String(error)
-      return execution.failed(transcript, false, 'unsupported_endpoint_format', message)
+      return execution.failed(
+        transcript,
+        false,
+        'unsupported_endpoint_format',
+        message,
+        error instanceof ContextUnrecoverableError ? 'context_unrecoverable' : undefined
+      )
     }
   }
 
-  for (let index = 0; !hasIterationLimit || index < maxIter; index++) {
+  let firstNormalRequest = true
+  let overflowRecoveryAttempted = false
+  let forceContextCompaction = false
+  let previousNoProgressPattern: string | undefined
+  let consecutiveNoProgressPatterns = 0
+
+  for (let index = 0; ; index += 1) {
+    if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
     if (execution.isCanceled) return canceledResult(true)
-    const providerStop = execution.budgetStop('provider')
-    if (providerStop) {
-      exhausted = providerStop
-      break
-    }
     iterations = index + 1
     execution.setIterations(iterations)
     emit({ type: 'status', status: 'thinking' })
     let result: ChatAdapterResult
     const bufferedAnswerDeltas: string[] = []
     try {
-      const messages = await prepareMessagesForProvider(transcript, opts.tools, {
-        compactionTriggerPoint: index === 0 ? 'pre_send' : 'post_tool'
+      // Pre-send compaction belongs to an already-authorized logical request. An
+      // overflow retry keeps the logical request claimed by its original attempt.
+      if (!forceContextCompaction) execution.startLogicalRequest()
+      if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
+      const projection = await prepareMessagesForProvider(transcript, opts.tools, {
+        compactionTriggerPoint: index === 0 ? 'pre_send' : 'post_tool',
+        forceCompaction: forceContextCompaction
       })
-      const afterCompactionStop = execution.budgetStop('provider')
-      if (afterCompactionStop) {
-        exhausted = afterCompactionStop
-        break
-      }
-      const schemaDecision = applyToolsSchemaGuard(toolsSchemaGuard, opts.tools, emit)
-      if (!schemaDecision.ok) {
+      // Never dispatch a request whose final projection is already known not to
+      // fit the advertised context window. This applies to normal sends as well
+      // as the one forced overflow-recovery compaction attempt.
+      if (projection.estimatedTokens >= projection.contextWindowTokens) {
         return execution.failed(
           transcript,
           true,
           degradedReason,
-          schemaDecision.reason
+          '上下文在压缩后仍超过模型窗口。请开始新的续接，或选择更大的 context window。',
+          'context_unrecoverable'
         )
       }
+      const schemaDecision = applyToolsSchemaGuard(toolsSchemaGuard, opts.tools, emit)
+      if (!schemaDecision.ok) return execution.failed(transcript, true, degradedReason, schemaDecision.reason)
       result = await invokeProviderWithRetry({
         execution,
         emit,
         signal: runSignal,
+        logicalRequest: false,
         invoke: async () =>
           streamChatProvider({
             settings: opts.settings,
             provider: opts.provider,
             request: {
-              messages,
+              messages: projection.messages,
               tools: opts.tools,
-              toolChoice: index === 0 ? (opts.initialToolChoice ?? 'auto') : 'auto',
+              toolChoice: firstNormalRequest ? (opts.initialToolChoice ?? 'auto') : 'auto',
               jsonMode: opts.jsonMode === true
             },
             callbacks: {
               onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-              // A provider may emit explanatory text before requesting a tool. Buffer the
-              // iteration until we know it is the final answer so intermediate preambles do
-              // not leak into (and get concatenated with) the user-facing response.
               onToken: (delta) => bufferedAnswerDeltas.push(delta)
             },
-            signal: runSignal
+            signal: runSignal,
+            beforeTransportDispatch: () => execution.startProviderCall()
           })
       })
       execution.recordProviderUsage(result.usage, 'provider_reported', result.finishReason)
-      execution.maybeWarnBudget()
+      firstNormalRequest = false
+      overflowRecoveryAttempted = false
+      forceContextCompaction = false
     } catch (error) {
+      if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
       if (execution.isCanceled) return canceledResult(true)
-      if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
-      const budgetReason = budgetStopReasonFromError(error)
-      if (budgetReason) return exhaustedResult(true, budgetReason)
+      const recovery = classifyProviderRecovery(error)
+      if (recovery.shouldCompress) {
+        if (overflowRecoveryAttempted) {
+          return execution.failed(
+            transcript,
+            true,
+            degradedReason,
+            '上下文仍无法继续压缩。请开始新的续接，或选择更大的 context window。',
+            'context_unrecoverable'
+          )
+        }
+        overflowRecoveryAttempted = true
+        execution.noteContextOverflowRecovery()
+        forceContextCompaction = true
+        emit({ type: 'status', status: 'thinking', message: '检测到上下文溢出，正在压缩上下文后重试一次…' })
+        continue
+      }
       const message = error instanceof Error ? error.message : String(error)
       return execution.failed(transcript, true, degradedReason, message)
     }
+    if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
     if (execution.isCanceled) return canceledResult(true)
-    if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
     degradedReason ??= result.degradedReason
 
     const cleanedAssistantText = stripDsmlToolCallBlocks(result.text || '')
     if (result.toolCalls.length === 0) {
-      // Prefer the assembled/stripped answer text. Raw buffered deltas may still
-      // contain DSML tool markup that only gets cleaned after the stream ends.
       let answerText = cleanedAssistantText || stripDsmlToolCallBlocks(bufferedAnswerDeltas.join(''))
-      if (!answerText.trim()) {
-        return execution.failed(transcript, true, degradedReason, '模型返回了空答复。')
-      }
+      if (!answerText.trim()) return execution.failed(transcript, true, degradedReason, '模型返回了空答复。')
       const normalized = opts.normalizeFinalAnswer?.(answerText)
       if (normalized?.finalText.trim()) {
         answerText = normalized.finalText
@@ -446,10 +490,8 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       const assistantMsg: ChatMessage = { role: 'assistant', content: answerText }
       transcript.push(assistantMsg)
       emit({ type: 'assistant_message', message: assistantMsg })
-      // A model can prematurely produce prose even when the caller requires a
-      // durable business action (for example generate_lesson). Keep that prose
-      // internal and enter the same bounded recovery path used at the iteration
-      // limit instead of presenting a successful answer followed by an error.
+      // A caller may require a durable business action. That dedicated recovery is
+      // not an iteration quota and is kept separate from normal learning runs.
       if (opts.iterationLimitRecovery?.shouldAttempt() === true) break
       emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
       emit({ type: 'token', delta: answerText })
@@ -468,46 +510,32 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     transcript.push(assistantMsg)
     emit({ type: 'assistant_message', message: assistantMsg })
 
-    // A-02: never execute tools when the provider finished due to length/truncation.
-    // Partial tool_calls under length are unsafe; reject the whole batch with zero handlers.
-    if (result.finishReason === 'length' && result.toolCalls.length > 0) {
+    if (result.finishReason === 'length') {
       const rejectedCount = result.toolCalls.length
-      emit({
-        type: 'status',
-        status: 'error',
-        message: `输出因长度截断，已拒绝执行 ${rejectedCount} 个工具调用，避免不完整参数导致副作用。`
-      })
+      emit({ type: 'status', status: 'error', message: `输出因长度截断，已拒绝执行 ${rejectedCount} 个工具调用，避免不完整参数导致副作用。` })
       for (const call of result.toolCalls) {
-        const content = JSON.stringify({
-          error: 'tool_calls_rejected_due_to_length',
-          message: '模型输出因 length/max_tokens 截断，本批工具调用未执行。',
-          toolName: call.function.name
-        })
+        const content = JSON.stringify({ error: 'tool_calls_rejected_due_to_length', message: '模型输出因 length/max_tokens 截断，本批工具调用未执行。', toolName: call.function.name })
         transcript.push({ role: 'tool', tool_call_id: call.id, content })
-        emit({
-          type: 'tool_result',
-          toolCallId: call.id,
-          name: call.function.name,
-          result: content,
-          isError: true
-        })
+        emit({ type: 'tool_result', toolCallId: call.id, name: call.function.name, result: content, isError: true })
         execution.recordToolError()
       }
-      // Keep the transcript pair closed and ask the model (or finalization) to continue without side effects.
       continue
     }
 
     emit({ type: 'status', status: 'tool_running' })
+    try {
+      execution.ensureToolOperationCapacity(result.toolCalls.length)
+    } catch {
+      return execution.resourceStopped(transcript, true, degradedReason)
+    }
     const batchOutcome = await executeToolBatch(result.toolCalls, opts.toolHandlers, {
-      emit: (event) => emit(event),
-      signal: runSignal,
-      runId: opts.runId
+      emit: (event) => emit(event), signal: runSignal, runId: opts.runId, resourceGovernor: execution.resourceGovernorHandle
     }, {
-      isCanceled: () => execution.isCanceled,
-      budgetStop: () => execution.budgetStop('tool'),
+      // Stop admitting operations for either parent cancellation or a resource boundary.
+      // The caller below preserves the distinct terminal classification.
+      isCanceled: () => execution.signal.aborted,
       startToolCall: () => execution.startToolCall(),
       recordToolError: () => execution.recordToolError(),
-      isDurationExhausted: () => execution.isDurationExhausted,
       onToolCall: (call) => emit({ type: 'tool_call', toolCall: call })
     })
     if (batchOutcome.canceled) {
@@ -515,30 +543,44 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
         emit({ type: 'tool_result', toolCallId: toolResult.toolCallId, name: toolResult.name, result: toolResult.content, isError: toolResult.isError })
       }
+      if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
       return canceledResult(true)
     }
-    if (batchOutcome.durationExhausted) return exhaustedResult(true, 'duration')
-    if (batchOutcome.exhausted) exhausted = batchOutcome.exhausted
+    if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
     const turnToolResults = batchOutcome.results
-    fileTouchLedger = recordFileTouchesFromToolBatch({
-      ledger: fileTouchLedger,
-      calls: result.toolCalls,
-      results: turnToolResults
-    })
+    fileTouchLedger = recordFileTouchesFromToolBatch({ ledger: fileTouchLedger, calls: result.toolCalls, results: turnToolResults })
     const budgetedTurnResults = await applyTurnToolResultBudget(turnToolResults, opts)
+    if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
     for (const toolResult of budgetedTurnResults) {
       transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
       emit({ type: 'tool_result', toolCallId: toolResult.toolCallId, name: toolResult.name, result: toolResult.content, isError: toolResult.isError })
     }
     emit({ type: 'status', status: 'tool_done' })
-    if (exhausted) break
+
+    const pattern = result.toolCalls.map((call) => `${call.function.name}:${call.function.arguments}`).join('|')
+    const madeNoProgress = turnToolResults.length > 0 && turnToolResults.every((item) => item.isError)
+    if (madeNoProgress && pattern === previousNoProgressPattern) {
+      consecutiveNoProgressPatterns += 1
+    } else {
+      previousNoProgressPattern = madeNoProgress ? pattern : undefined
+      consecutiveNoProgressPatterns = madeNoProgress ? 1 : 0
+    }
+    if (consecutiveNoProgressPatterns >= 3) {
+      return execution.failed(
+        transcript,
+        true,
+        degradedReason,
+        '工具调用重复且没有产生新的进展，已暂停本段执行。请调整请求或开始新的续接。',
+        'no_progress'
+      )
+    }
     if (opts.shouldFinalizeAfterToolExecution?.() === true) {
       durableFinalizationRequested = true
       break
     }
   }
 
-  if (!exhausted && !durableFinalizationRequested && opts.iterationLimitRecovery?.shouldAttempt() === true) {
+  if (!durableFinalizationRequested && opts.iterationLimitRecovery?.shouldAttempt() === true) {
     const recovery = opts.iterationLimitRecovery
     const maxRecoveryAttempts = Number.isFinite(recovery.maxAttempts)
       ? Math.max(1, Math.floor(recovery.maxAttempts ?? 1))
@@ -546,13 +588,8 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     const allowedRecoveryTools = new Set(recovery.tools.map((tool) => tool.function.name))
 
     for (let attempt = 1; attempt <= maxRecoveryAttempts && recovery.shouldAttempt(); attempt += 1) {
+      if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
       if (execution.isCanceled) return canceledResult(true)
-      const providerStop = execution.budgetStop('provider')
-      if (providerStop) {
-        exhausted = providerStop
-        break
-      }
-
       emit({
         type: 'status',
         status: 'thinking',
@@ -565,14 +602,6 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
           ...transcript,
           { role: 'user', content: recovery.instruction }
         ]
-        const messages = await prepareMessagesForProvider(recoveryMessages, recovery.tools, {
-          compactionTriggerPoint: 'mid_stream'
-        })
-        const afterCompactionStop = execution.budgetStop('provider')
-        if (afterCompactionStop) {
-          exhausted = afterCompactionStop
-          break
-        }
         const recoverySchemaDecision = applyToolsSchemaGuard(toolsSchemaGuard, recovery.tools, emit)
         if (!recoverySchemaDecision.ok) {
           return execution.failed(
@@ -582,42 +611,52 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
             recoverySchemaDecision.reason
           )
         }
-        recoveryResult = await invokeProviderWithRetry({
-          execution,
-          emit,
-          signal: runSignal,
-          invoke: async () =>
-            streamChatProvider({
-              settings: opts.settings,
-              provider: opts.provider,
-              request: {
-                messages,
-                tools: recovery.tools,
-                toolChoice: recovery.toolChoice,
-                jsonMode: opts.jsonMode === true
-              },
-              callbacks: {
-                onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-                // Recovery prose is not user-facing; only the subsequent no-tool
-                // finalization is streamed into the answer.
-                onToken: () => undefined
-              },
-              signal: runSignal
+        recoveryResult = await invokeWithContextOverflowRecovery({
+          prepare: (forceCompaction) => prepareMessagesForProvider(recoveryMessages, recovery.tools, {
+            compactionTriggerPoint: 'mid_stream',
+            forceCompaction
+          }),
+          invoke: async (messages) =>
+            invokeProviderWithRetry({
+              execution,
+              emit,
+              signal: runSignal,
+              logicalRequest: false,
+              invoke: async () =>
+                streamChatProvider({
+                  settings: opts.settings,
+                  provider: opts.provider,
+                  request: {
+                    messages,
+                    tools: recovery.tools,
+                    toolChoice: recovery.toolChoice,
+                    jsonMode: opts.jsonMode === true
+                  },
+                  callbacks: {
+                    onReasoning: (delta) => emit({ type: 'reasoning', delta }),
+                    // Recovery prose is not user-facing; only the subsequent no-tool
+                    // finalization is streamed into the answer.
+                    onToken: () => undefined
+                  },
+                  signal: runSignal,
+                  beforeTransportDispatch: () => execution.startProviderCall()
+                })
             })
         })
         execution.recordProviderUsage(recoveryResult.usage, 'provider_reported', recoveryResult.finishReason)
-        execution.maybeWarnBudget()
+        if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
         degradedReason ??= recoveryResult.degradedReason
       } catch (error) {
+        if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
         if (execution.isCanceled) return canceledResult(true)
-        if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
-        const budgetReason = budgetStopReasonFromError(error)
-        if (budgetReason) {
-          exhausted = budgetReason
-          break
-        }
         const message = error instanceof Error ? error.message : String(error)
-        return execution.failed(transcript, true, degradedReason, message)
+        return execution.failed(
+          transcript,
+          true,
+          degradedReason,
+          message,
+          error instanceof ContextUnrecoverableError ? 'context_unrecoverable' : undefined
+        )
       }
 
       if (recoveryResult.toolCalls.length === 0) continue
@@ -657,16 +696,22 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       }
 
       emit({ type: 'status', status: 'tool_running' })
+      try {
+        execution.ensureToolOperationCapacity(recoveryResult.toolCalls.length)
+      } catch {
+        return execution.resourceStopped(transcript, true, degradedReason)
+      }
       const recoveryBatch = await executeToolBatch(recoveryResult.toolCalls, opts.toolHandlers, {
         emit: (event) => emit(event),
         signal: runSignal,
-        runId: opts.runId
+        runId: opts.runId,
+        resourceGovernor: execution.resourceGovernorHandle
       }, {
-        isCanceled: () => execution.isCanceled,
-        budgetStop: () => execution.budgetStop('tool'),
+        // Stop admitting operations for either parent cancellation or a resource boundary.
+        // The caller below preserves the distinct terminal classification.
+        isCanceled: () => execution.signal.aborted,
         startToolCall: () => execution.startToolCall(),
         recordToolError: () => execution.recordToolError(),
-        isDurationExhausted: () => execution.isDurationExhausted,
         onToolCall: (call) => emit({ type: 'tool_call', toolCall: call }),
         resolveCall: (call) => {
           if (allowedRecoveryTools.has(call.function.name) && recovery.shouldAttempt()) {
@@ -689,10 +734,10 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
           transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
           emit({ type: 'tool_result', toolCallId: toolResult.toolCallId, name: toolResult.name, result: toolResult.content, isError: toolResult.isError })
         }
+        if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
         return canceledResult(true)
       }
-      if (recoveryBatch.durationExhausted) return exhaustedResult(true, 'duration')
-      if (recoveryBatch.exhausted) exhausted = recoveryBatch.exhausted
+      if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
       const recoveryTurnResults = recoveryBatch.results
       fileTouchLedger = recordFileTouchesFromToolBatch({
         ledger: fileTouchLedger,
@@ -700,6 +745,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         results: recoveryTurnResults
       })
       const budgetedRecoveryResults = await applyTurnToolResultBudget(recoveryTurnResults, opts)
+      if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
       for (const toolResult of budgetedRecoveryResults) {
         transcript.push({ role: 'tool', tool_call_id: toolResult.toolCallId, content: toolResult.content })
         emit({
@@ -711,25 +757,28 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         })
       }
       emit({ type: 'status', status: 'tool_done' })
-      if (exhausted) break
     }
   }
 
-  if (!exhausted && !durableFinalizationRequested && (opts.maxIterationsBehavior === 'error' || opts.shouldErrorOnMaxIterations?.() === true)) {
-    const message = opts.maxIterationsErrorMessage ?? '达到工具调用上限，任务尚未完成。请提高工具调用上限或简化请求后重试。'
-    return execution.failed(transcript, true, degradedReason, message, 'max_iterations')
+  // The recovery is bounded because it protects one explicit business
+  // operation—not because it limits the run. If the required operation is
+  // still absent after those attempts, do not silently continue to a normal
+  // final answer that would misrepresent the state of the work.
+  if (!durableFinalizationRequested && opts.iterationLimitRecovery?.shouldAttempt() === true) {
+    return execution.failed(
+      transcript,
+      true,
+      degradedReason,
+      '必要操作未完成，无法安全继续本段执行。请调整请求或开始新的续接。'
+    )
   }
 
-  const finalStop = execution.budgetStop('provider') ?? (exhausted === 'tool_calls' ? undefined : exhausted)
-  if (finalStop) return exhaustedResult(true, finalStop)
   emit({
     type: 'status',
     status: 'answering',
-    message: exhausted
-      ? '运行预算即将用完，生成最终答复。'
-      : durableFinalizationRequested
-        ? '核心操作已完成，正在生成最终答复。'
-        : '达到工具调用上限，生成最终答复。'
+    message: durableFinalizationRequested
+      ? '核心操作已完成，正在生成最终答复。'
+      : '正在生成最终答复。'
   })
   try {
     // Optional bounded maintenance round before the no-tool final answer. After
@@ -743,32 +792,36 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     let final: ChatAdapterResult | null = null
     if (durableFinalizationRequested && opts.finalizationTools && opts.finalizationTools.length > 0) {
       const maintenanceTools = opts.finalizationTools
-      const maintenanceMessages = await prepareMessagesForProvider(transcript, maintenanceTools, {
-        compactionTriggerPoint: 'mid_stream'
-      })
-      const afterMaintenanceCompactionStop = execution.budgetStop('provider')
-      if (afterMaintenanceCompactionStop) return exhaustedResult(true, afterMaintenanceCompactionStop)
-      const maintenance = await invokeProviderWithRetry({
-        execution,
-        emit,
-        signal: runSignal,
-        invoke: async () =>
-          streamChatProvider({
-            settings: opts.settings,
-            provider: opts.provider,
-            request: { messages: maintenanceMessages, tools: maintenanceTools, toolChoice: 'auto', jsonMode: opts.jsonMode === true },
-            callbacks: {
-              onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-              // Maintenance prose is not user-facing until it becomes the final
-              // answer; only the no-tool round streams tokens as they arrive.
-              onToken: () => undefined
-            },
-            signal: runSignal
+      const maintenance = await invokeWithContextOverflowRecovery({
+        prepare: (forceCompaction) => prepareMessagesForProvider(transcript, maintenanceTools, {
+          compactionTriggerPoint: 'mid_stream',
+          forceCompaction
+        }),
+        invoke: async (messages) =>
+          invokeProviderWithRetry({
+            execution,
+            emit,
+            signal: runSignal,
+            logicalRequest: false,
+            invoke: async () =>
+              streamChatProvider({
+                settings: opts.settings,
+                provider: opts.provider,
+                request: { messages, tools: maintenanceTools, toolChoice: 'auto', jsonMode: opts.jsonMode === true },
+                callbacks: {
+                  onReasoning: (delta) => emit({ type: 'reasoning', delta }),
+                  // Maintenance prose is not user-facing until it becomes the final
+                  // answer; only the no-tool round streams tokens as they arrive.
+                  onToken: () => undefined
+                },
+                signal: runSignal,
+                beforeTransportDispatch: () => execution.startProviderCall()
+              })
           })
       })
       execution.recordProviderUsage(maintenance.usage, 'provider_reported', maintenance.finishReason)
+      if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
       if (execution.isCanceled) return canceledResult(true)
-      if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
       degradedReason ??= maintenance.degradedReason
 
       if (maintenance.toolCalls.length === 0) {
@@ -791,16 +844,22 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         transcript.push(maintenanceAssistant)
         emit({ type: 'assistant_message', message: maintenanceAssistant })
         emit({ type: 'status', status: 'tool_running' })
+        try {
+          execution.ensureToolOperationCapacity(maintenance.toolCalls.length)
+        } catch {
+          return execution.resourceStopped(transcript, true, degradedReason)
+        }
         const maintenanceBatch = await executeToolBatch(maintenance.toolCalls, opts.toolHandlers, {
           emit,
           signal: runSignal,
-          runId: opts.runId
+          runId: opts.runId,
+          resourceGovernor: execution.resourceGovernorHandle
         }, {
-          isCanceled: () => execution.isCanceled,
-          budgetStop: () => execution.budgetStop('tool'),
+          // Stop admitting operations for either parent cancellation or a resource boundary.
+        // The caller below preserves the distinct terminal classification.
+        isCanceled: () => execution.signal.aborted,
           startToolCall: () => execution.startToolCall(),
           recordToolError: () => execution.recordToolError(),
-          isDurationExhausted: () => execution.isDurationExhausted,
           onToolCall: (call) => emit({ type: 'tool_call', toolCall: call }),
           resolveCall: (call) => {
             if (maintenanceTools.some((tool) => tool.function.name === call.function.name)) return 'execute'
@@ -822,46 +881,52 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
           emit({ type: 'tool_result', toolCallId: toolResult.toolCallId, name: toolResult.name, result: toolResult.content, isError: toolResult.isError })
         }
         emit({ type: 'status', status: 'tool_done' })
-        if (maintenanceBatch.canceled) return canceledResult(true)
-        if (maintenanceBatch.durationExhausted) return exhaustedResult(true, 'duration')
-        if (maintenanceBatch.exhausted) return exhaustedResult(true, maintenanceBatch.exhausted)
+        if (maintenanceBatch.canceled) {
+          if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
+          return canceledResult(true)
+        }
+        if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
       }
     }
 
     // No-tool final answer round. Skipped when the maintenance round already
     // produced direct final prose.
     if (!finalText) {
-      const messages = await prepareMessagesForProvider(transcript, [], {
-        compactionTriggerPoint: 'mid_stream'
-      })
-      const afterCompactionStop = execution.budgetStop('provider')
-      if (afterCompactionStop) return exhaustedResult(true, afterCompactionStop)
       let answerStarted = false
-      final = await invokeProviderWithRetry({
-        execution,
-        emit,
-        signal: runSignal,
-        invoke: async () =>
-          streamChatProvider({
-            settings: opts.settings,
-            provider: opts.provider,
-            request: { messages, tools: [], toolChoice: 'none', jsonMode: opts.jsonMode === true },
-            callbacks: {
-              onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-              onToken: (delta) => {
-                if (!answerStarted) {
-                  answerStarted = true
-                  emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
-                }
-                emit({ type: 'token', delta })
-              }
-            },
-            signal: runSignal
+      final = await invokeWithContextOverflowRecovery({
+        prepare: (forceCompaction) => prepareMessagesForProvider(transcript, [], {
+          compactionTriggerPoint: 'mid_stream',
+          forceCompaction
+        }),
+        invoke: async (messages) =>
+          invokeProviderWithRetry({
+            execution,
+            emit,
+            signal: runSignal,
+            logicalRequest: false,
+            invoke: async () =>
+              streamChatProvider({
+                settings: opts.settings,
+                provider: opts.provider,
+                request: { messages, tools: [], toolChoice: 'none', jsonMode: opts.jsonMode === true },
+                callbacks: {
+                  onReasoning: (delta) => emit({ type: 'reasoning', delta }),
+                  onToken: (delta) => {
+                    if (!answerStarted) {
+                      answerStarted = true
+                      emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
+                    }
+                    emit({ type: 'token', delta })
+                  }
+                },
+                signal: runSignal,
+                beforeTransportDispatch: () => execution.startProviderCall()
+              })
           })
       })
       execution.recordProviderUsage(final.usage, 'provider_reported', final.finishReason)
+      if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
       if (execution.isCanceled) return canceledResult(true)
-      if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
       degradedReason ??= final.degradedReason
       // Finalization already requested toolChoice:none with an empty tool list. Some
       // providers still emit native/DSML tool calls here; recover any prose first and
@@ -879,29 +944,23 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         finalText = '核心操作已完成。最终答复阶段模型仍尝试继续调用工具，已停止并保留已完成结果。'
         degradedReason ??= 'final_answer_ignored_tool_calls'
       } else {
-        return execution.failed(transcript, true, degradedReason, '达到限制后，模型仍请求继续调用工具，未返回最终答复。')
+        return execution.failed(transcript, true, degradedReason, '模型仍请求继续调用工具，未返回最终答复。')
       }
     } else if (final && final.toolCalls.length > 0) {
       degradedReason ??= 'final_answer_ignored_tool_calls'
     }
     if (!finalText.trim()) {
-      const exhaustedReason = exhausted
-      const budgetFallback = exhaustedReason
-        ? safeFallbackText((messages) => opts.budgetExhaustionFallback?.(exhaustedReason, messages), transcript)
-        : ''
       const durableFallback = durableFinalizationRequested
         ? safeFallbackText(opts.durableSuccessFallback, transcript)
         : ''
-      if (budgetFallback || durableFallback) {
-        finalText = budgetFallback || durableFallback
-        degradedReason ??= budgetFallback
-          ? 'budget_exhausted_after_durable_success'
-          : 'empty_final_answer_after_durable_success'
+      if (durableFallback) {
+        finalText = durableFallback
+        degradedReason ??= 'empty_final_answer_after_durable_success'
       } else if (durableFinalizationRequested) {
         finalText = '核心操作已完成。'
         degradedReason ??= 'empty_final_answer_after_durable_success'
       } else {
-        return execution.failed(transcript, true, degradedReason, '达到限制后，模型返回了空答复。')
+        return execution.failed(transcript, true, degradedReason, '模型返回了空答复。')
       }
     }
     const assistantMsg: ChatMessage = { role: 'assistant', content: finalText }
@@ -911,15 +970,19 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       finalText,
       toolsSupported: true,
       degradedReason,
-      stopReason: exhausted ? 'budget_exhausted' : durableFinalizationRequested ? 'final_answer' : 'max_iterations'
-    }, exhausted)
+      stopReason: 'final_answer'
+    })
   } catch (error) {
+    if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
     if (execution.isCanceled) return canceledResult(true)
-    if (execution.isDurationExhausted) return exhaustedResult(true, 'duration')
-    const budgetReason = budgetStopReasonFromError(error)
-    if (budgetReason) return exhaustedResult(true, budgetReason)
     const message = error instanceof Error ? error.message : String(error)
-    return execution.failed(transcript, true, degradedReason, message)
+    return execution.failed(
+      transcript,
+      true,
+      degradedReason,
+      message,
+      error instanceof ContextUnrecoverableError ? 'context_unrecoverable' : undefined
+    )
   }
 }
 
@@ -931,13 +994,17 @@ async function invokeProviderWithRetry<T>(opts: {
   signal: AbortSignal
   invoke: () => Promise<T>
   maxAttempts?: number
+  /** False when an outer logical request owns compact-and-resend recovery. */
+  logicalRequest?: boolean
 }): Promise<T> {
   const maxAttempts = opts.maxAttempts ?? DEFAULT_PROVIDER_RETRY_MAX_ATTEMPTS
+  if (opts.logicalRequest !== false) opts.execution.startLogicalRequest()
   return withProviderRetry({
     budget: { maxAttempts, attemptsUsed: 0 },
     signal: opts.signal,
     extractRetryAfterMs: extractRetryAfterMsFromError,
     onRetry: (info) => {
+      if (opts.execution.isResourceTerminated) return
       opts.execution.noteProviderRetry(info.attempt, info.reasonCode, info.delayMs)
       opts.emit({
         type: 'status',
@@ -949,23 +1016,14 @@ async function invokeProviderWithRetry<T>(opts: {
       // Non-retryable first-failure keeps silent UX (immediate fail).
       // Exhausted attempt budget or multi-attempt fail surfaces a stable code.
       if (info.reasonCode !== 'auto_retry_exhausted' && info.attemptsUsed <= 1) return
+      opts.execution.noteProviderRetryExhausted()
       opts.emit({
         type: 'status',
-        status: 'thinking',
-        message: `auto_retry_exhausted:${info.decision.reasonCode}:attempts=${info.attemptsUsed}`
+        status: 'retry_exhausted',
+        message: `自动重试已耗尽：${info.decision.reasonCode}（尝试 ${info.attemptsUsed} 次）`
       })
     },
-    run: async () => {
-      const stop = opts.execution.budgetStop('provider')
-      if (stop) {
-        throw Object.assign(new Error(`agent budget exhausted: ${stop}`), {
-          name: 'AgentBudgetExhaustedError',
-          budgetStopReason: stop
-        })
-      }
-      opts.execution.startProviderCall()
-      return opts.invoke()
-    }
+    run: () => opts.invoke()
   })
 }
 

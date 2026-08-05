@@ -97,14 +97,12 @@ const server = createServer(async (req, res) => {
               {
                 label: '检查 mission',
                 prompt: '读取 MISSION.md，并用一句话总结学习目标。',
-                profile: 'workspace_audit',
-                maxIterations: 3
+                profile: 'workspace_audit'
               },
               {
                 label: '检查 resources',
                 prompt: '读取 RESOURCES.md，并用一句话总结资料范围。',
-                profile: 'workspace_audit',
-                maxIterations: 3
+                profile: 'workspace_audit'
               }
             ]
           })
@@ -119,8 +117,7 @@ const server = createServer(async (req, res) => {
         makeToolCall('call-delegate', 'delegate_task', {
           label: '检查 mission',
           prompt: '读取 MISSION.md，并用一句话总结学习目标。',
-          profile: 'read_only',
-          maxIterations: 3
+          profile: 'read_only'
         })
       ]
     })
@@ -249,7 +246,6 @@ try {
   settings.tools.workspaceRead = true
   settings.tools.webSearch = true
   settings.tools.webFetch = true
-  settings.tools.maxIterations = 4
   settings.provider.providers = settings.provider.providers.map((provider) =>
     provider.id === 'custom'
       ? {
@@ -290,7 +286,6 @@ try {
       ],
       tools: parentRegistry.definitions(),
       toolHandlers: parentRegistry.handlerMap(buildToolContext(settings, { workspaceRoot: tempRoot })),
-      maxIterations: 4,
       callbacks: { onEvent: (event) => events.push(event) }
     })
     return { events, result }

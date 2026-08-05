@@ -1,8 +1,8 @@
 # ADR-0145：压缩 pressure / 单飞 / mid-run 保护（LiveAgent Phase A）
 
-- **状态：** **已实施**（2026-07-24）：`compaction-pressure-controller.ts` + `context-compactor.ts` 接线；pre_send / post_tool / **mid_stream 触发标签** + 单飞 join + pressure ladder；硬 run budget 优先。**说明：** 当前 `mid_stream` 是 call-site **标签**，不是真正的 mid-token overflow 拦截；并发调用 **join 复用第一次 flight 结果**。
+- **状态：** **已实施**（2026-07-24）：`compaction-pressure-controller.ts` + `context-compactor.ts` 接线；pre_send / post_tool / **mid_stream 触发标签** + 单飞 join + pressure ladder。**修订（2026-08-04）：** [ADR-0171](0171-continuous-agent-runs-and-context-governance.md) 已移除“硬 run budget 优先”的产品政策；运行时代码迁移另行实施。**说明：** 当前 `mid_stream` 是 call-site **标签**，不是真正的 mid-token overflow 拦截；并发调用 **join 复用第一次 flight 结果**。
 - **日期：** 2026-07-23
-- **范围：** 在既有 `ContextCompactor`（[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)）之上，冻结 **多触发点**、**单飞互斥** 与 **pressure ladder**（压完仍超阈时加强 prune）；默认仍 **reference-only / 非 durable rewrite**；与 **硬 run budget / durable-success fallback** 共存时 **硬预算优先**。
+- **范围：** 在既有 `ContextCompactor`（[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)）之上，冻结 **多触发点**、**单飞互斥** 与 **pressure ladder**（压完仍超阈时加强 prune）；默认仍 **reference-only / 非 durable rewrite**；上下文压力应通过压缩、续接或明确错误处理，而非全局 run-token 停机。
 - **相关：** LiveAgent 历史研究清单（已结项） §2.3、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)、[ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)、[ADR-0100](0100-agent-loop-fallback-peel.md)、[ADR-0103](0103-agent-loop-budget-reason-peel.md)、[ADR-0121](0121-improvements-adoption-closeout.md) §6.14、[ADR-0143](0143-context-file-touch-ledger.md)
 - **实现落点：** `src/main/ai/compaction-pressure-controller.ts`；`src/main/ai/context-compactor.ts`；`agent-loop` / request-context projector / teaching conversation runtime 调用点
 
@@ -11,10 +11,10 @@
 ADR-0064 已 hardening 切点、不足缩减守卫与审计字段；产品路径具备 hygiene → threshold → compact 阶梯（ADR-0045）。长会话弱项在于 **运行中压力调度**：
 
 - 仅 pre-send 触发时 mid-stream / 工具后仍可能炸窗；
-- 并发多次 compact 浪费预算并竞态改写投影；
+- 并发多次 compact 浪费资源并竞态改写投影；
 - 压完仍超阈时缺少 **阶梯加强**，易硬死或无脑连压。
 
-LiveAgent 以 multi-trigger + single-flight + pressure ladder 处理同类问题。采纳时必须服从 StudiumX：**默认不 durable rewrite 会话正文**；多轴硬预算不可被 soft compaction 替代。
+LiveAgent 以 multi-trigger + single-flight + pressure ladder 处理同类问题。采纳时必须服从 StudiumX：**默认不 durable rewrite 会话正文**；上下文压力优先由 compaction 处理，不得以累计 run-token 作为终止理由。
 
 ## 2. 决策
 
@@ -47,12 +47,13 @@ LiveAgent 以 multi-trigger + single-flight + pressure ladder 处理同类问题
 3. 不足缩减仍 **fail closed 保留原始 transcript**（ADR-0064 不变量）；
 4. ladder **不得** 默认打开 durable rewrite session JSON body。
 
-### 2.4 与硬预算的共存
+### 2.4 与运行边界的协作
 
 | 规则 | 说明 |
 | --- | --- |
-| **硬 run budget** | `maxProviderCalls` / run 预算轴与 durable-success / budget fallback **优先** |
-| **冲突时** | 若 compaction 调度与硬停机条件冲突：**硬预算 wins**（停机 / fallback 路径，不无限 compact） |
+| **无全局 run 终止预算** | 不以累计 token、provider 调用次数或运行时长停止正常学习 / agent run，也不进入 budget fallback。 |
+| **上下文压力** | provider 上下文接近或达到上限时先调度 compaction / pressure ladder；若仍无法形成合法请求，报告明确的上下文错误，不把它表述为学习额度耗尽。 |
+| **明确停止** | 用户取消、不可恢复 provider error 或本地工具的独立安全/超时失败可结束对应操作；它们不建立累计 run 配额。 |
 | **压缩结果** | 仅影响 **provider 投影**；**不是** teaching SoT，**不是** settlement 输入 |
 | **默认持久化** | **保持** ADR-0064 / ADR-0121：reference-only；ADR-0045 层 B durable boundary **仍不** 由本 ADR 默认开启 |
 
@@ -76,7 +77,7 @@ LiveAgent 以 multi-trigger + single-flight + pressure ladder 处理同类问题
 | mid-stream overflow | **未**实现流式 token 半段溢出拦截；`mid_stream` 仅为标签 / 审计字段（`void input.triggerPoint`） |
 | single-flight | **join 语义**：并发调用共享第一次 flight 的 Promise 与结果 |
 | pressure ladder | compact 成功且仍超阈时 escalate prune 档；有界、fail-closed |
-| hard budget | 预算耗尽 / stop pending 时 no-op，优先于再压 |
+| explicit stop | 仅用户取消或不可恢复错误时 no-op；累计 token 不得使压缩停机 |
 
 
 ## 3. 实现形状（已落地）
@@ -86,7 +87,7 @@ src/main/ai/compaction-pressure-controller.ts  # pressure state + single-flight 
 src/main/ai/context-compactor.ts               # wires controller into compact path
 src/main/ai/agent-loop.ts (or equivalent)      # pre_send / post_tool (+ mid_stream label) call sites
 src/main/ai/request-context-projection.ts
-# tests: single-flight mutex, ladder escalate, hard-budget wins, reference-only default regression
+# tests: single-flight mutex, ladder escalate, no-global-run-budget policy regression, reference-only default regression
 ```
 
 验收已由本 ADR 的实现落点和目标测试闭环。
@@ -97,7 +98,7 @@ src/main/ai/request-context-projection.ts
 | --- | --- |
 | ADR-0064 | **基线**；本 ADR 加调度与 pressure，不换引擎、不取消 reduction guard |
 | ADR-0045 | 阶梯 A 内 hardening；层 B durable **仍延期/可选，非默认** |
-| ADR-0057 / 0100 / 0103 | 硬预算与 fallback **优先于** 无限 compact |
+| ADR-0057 / 0100 / 0103 / 0171 | 重试局部有界；上下文压力由 compaction 处理；不得以累计 run-token fallback 终止 |
 | ADR-0143 | 压缩后文件触碰地板数据的并列 Phase A 项 |
 | ADR-0121 §6.14 | 默认非 durable rewrite 会话正文 **保持** |
 
@@ -109,4 +110,4 @@ src/main/ai/request-context-projection.ts
 
 ## 6. 一句话
 
-**多触发点（含 mid_stream 标签）压缩 + 单飞 join + 仍超阈则 pressure ladder；默认 reference-only；与硬 run budget 冲突时硬预算赢；真 mid-token overflow 拦截非本 ADR 当前交付。**
+**多触发点（含 mid_stream 标签）压缩 + 单飞 join + 仍超阈则 pressure ladder；默认 reference-only；不以累计 run-token 停机；真 mid-token overflow 拦截非本 ADR 当前交付。**

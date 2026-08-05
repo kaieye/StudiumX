@@ -10,8 +10,8 @@
  */
 
 import type { ToolCall } from '../provider-adapter'
-import type { AgentRunBudgetStopReason } from '../../../shared/teaching-types'
 import type { ToolCallContext, ToolHandlerMap, ToolRuntimeEvent } from './registry'
+import type { AgentRunResourceGovernor } from '../agent-run-resource-governance'
 import { classifyToolEffect } from './effect-policy'
 import {
   dispatchReadToolsInParallel,
@@ -27,19 +27,18 @@ export type ToolBatchCallContext = Readonly<{
   emit?: (event: ToolRuntimeEvent) => void
   signal?: AbortSignal
   runId?: string
+  resourceGovernor?: AgentRunResourceGovernor
 }>
 
 export type ToolBatchControl = Readonly<{
   isCanceled: () => boolean
-  budgetStop: () => AgentRunBudgetStopReason | undefined
   startToolCall: () => void
   recordToolError: () => void
-  isDurationExhausted?: () => boolean
   onToolCall?: (call: ToolCall) => void
   /**
    * Optional per-call gate (recovery allow-list). Return `'execute'` to run the
    * tool, or `{ skip }` to record a synthetic result without invoking the handler.
-   * Skipped calls still count against the tool budget when admitted.
+   * Skipped calls are still recorded as observed tool calls.
    */
   resolveCall?: (call: ToolCall) => 'execute' | { skip: ToolExecutionResult }
   /** Parallel read concurrency (clamped by the dispatcher). Default 4. */
@@ -48,9 +47,7 @@ export type ToolBatchControl = Readonly<{
 
 export type ToolBatchResult = Readonly<{
   results: ToolExecutionResult[]
-  exhausted?: AgentRunBudgetStopReason
   canceled?: boolean
-  durationExhausted?: boolean
 }>
 
 type BatchSegment =
@@ -64,8 +61,8 @@ type AdmittedSlot =
 /**
  * Execute a model tool-call batch with hybrid scheduling:
  * contiguous pure-`read` runs → parallel; everything else → serial.
- * Stops early on cancel / tool budget / duration exhaustion (same semantics as
- * the former serial for-loop in agent-loop).
+ * Stops early only when the caller cancels. Per-tool execution limits remain
+ * enforced inside the dispatcher and are returned as individual outcomes.
  */
 export async function executeToolBatch(
   toolCalls: readonly ToolCall[],
@@ -84,30 +81,20 @@ export async function executeToolBatch(
     if (control.isCanceled()) {
       return { results, canceled: true }
     }
-    if (control.isDurationExhausted?.()) {
-      return { results, durationExhausted: true }
-    }
-
     if (segment.kind === 'read') {
       const partial = await executeReadSegment(segment.calls, toolHandlers, callCtx, control)
       results.push(...partial.results)
       if (partial.canceled) return { results, canceled: true }
-      if (partial.durationExhausted) return { results, durationExhausted: true }
-      if (partial.exhausted) return { results, exhausted: partial.exhausted }
       continue
     }
 
     const partial = await executeSerialCall(segment.call, toolHandlers, callCtx, control)
     if (partial.skippedAdmission) {
       if (partial.canceled) return { results, canceled: true }
-      if (partial.durationExhausted) return { results, durationExhausted: true }
-      if (partial.exhausted) return { results, exhausted: partial.exhausted }
       return { results }
     }
     if (partial.result) results.push(partial.result)
     if (partial.canceled) return { results, canceled: true }
-    if (partial.durationExhausted) return { results, durationExhausted: true }
-    if (partial.exhausted) return { results, exhausted: partial.exhausted }
   }
 
   return { results }
@@ -146,25 +133,13 @@ async function executeReadSegment(
   control: ToolBatchControl
 ): Promise<ToolBatchResult> {
   const slots: AdmittedSlot[] = []
-  let stopReason: AgentRunBudgetStopReason | undefined
   let canceledDuringAdmit = false
-  let durationDuringAdmit = false
 
   for (const call of calls) {
     if (control.isCanceled()) {
       canceledDuringAdmit = true
       break
     }
-    if (control.isDurationExhausted?.()) {
-      durationDuringAdmit = true
-      break
-    }
-    const toolStop = control.budgetStop()
-    if (toolStop) {
-      stopReason = toolStop
-      break
-    }
-
     control.startToolCall()
     control.onToolCall?.(call)
 
@@ -191,7 +166,8 @@ async function executeReadSegment(
         toolName: runnable[0].call.function.name,
         ...(callCtx?.emit ? { emit: callCtx.emit } : {}),
         ...(callCtx?.signal ? { signal: callCtx.signal } : {}),
-        ...(callCtx?.runId ? { runId: callCtx.runId } : {})
+        ...(callCtx?.runId ? { runId: callCtx.runId } : {}),
+        ...(callCtx?.resourceGovernor ? { resourceGovernor: callCtx.resourceGovernor } : {})
       } satisfies ToolCallContext,
       {
         concurrency: control.concurrency ?? DEFAULT_PARALLEL_READ_CONCURRENCY
@@ -207,12 +183,6 @@ async function executeReadSegment(
 
   if (canceledDuringAdmit || control.isCanceled()) {
     return { results, canceled: true }
-  }
-  if (durationDuringAdmit || control.isDurationExhausted?.()) {
-    return { results, durationExhausted: true }
-  }
-  if (stopReason) {
-    return { results, exhausted: stopReason }
   }
   return { results }
 }
@@ -255,22 +225,12 @@ async function executeSerialCall(
   control: ToolBatchControl
 ): Promise<{
   result?: ToolExecutionResult
-  exhausted?: AgentRunBudgetStopReason
   canceled?: boolean
-  durationExhausted?: boolean
   skippedAdmission?: boolean
 }> {
   if (control.isCanceled()) {
     return { canceled: true, skippedAdmission: true }
   }
-  if (control.isDurationExhausted?.()) {
-    return { durationExhausted: true, skippedAdmission: true }
-  }
-  const toolStop = control.budgetStop()
-  if (toolStop) {
-    return { exhausted: toolStop, skippedAdmission: true }
-  }
-
   control.startToolCall()
   control.onToolCall?.(call)
 
@@ -282,7 +242,8 @@ async function executeSerialCall(
       toolName: call.function.name,
       ...(callCtx?.emit ? { emit: callCtx.emit } : {}),
       ...(callCtx?.signal ? { signal: callCtx.signal } : {}),
-      ...(callCtx?.runId ? { runId: callCtx.runId } : {})
+      ...(callCtx?.runId ? { runId: callCtx.runId } : {}),
+        ...(callCtx?.resourceGovernor ? { resourceGovernor: callCtx.resourceGovernor } : {})
     })
   } else {
     result = resolution.skip
@@ -292,9 +253,6 @@ async function executeSerialCall(
 
   if (control.isCanceled()) {
     return { result, canceled: true }
-  }
-  if (control.isDurationExhausted?.()) {
-    return { result, durationExhausted: true }
   }
   return { result }
 }

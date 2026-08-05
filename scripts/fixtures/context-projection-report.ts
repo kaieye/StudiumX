@@ -128,8 +128,9 @@ const overBudget = buildRequestContextProjectionReport({
   transcriptLength: transcript.length,
   projectedMessages: projected.messages,
   tools: [tool],
-  estimate: { messageTokens: 9_000, overheadTokens: 100, totalTokens: 9_100, source: 'local' },
+  estimate: { messageTokens: 9_000, toolSchemaTokens: 100, framingTokens: 0, outputReserveTokens: 0, extraTokens: 0, overheadTokens: 100, totalTokens: 9_100, source: 'local' },
   contextWindowTokens: 1_000,
+  contextWindowSource: 'configured',
   trace: projected.trace
 })
 assert.equal(overBudget.budget.overBudget, true)

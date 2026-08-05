@@ -7,6 +7,7 @@ import type {
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
   AgentProjectionInvalidation,
+  AgentRunTerminalNotice,
   InterruptedAgentRun,
   AgentConversationRecord,
   AgentConversationCheckpoint,
@@ -256,6 +257,8 @@ export type TeachingSystemApi = {
     onInvalidation?: (event: AgentProjectionInvalidation) => void
   ) => Promise<AgentChatStreamDone>
   listInterruptedAgentRuns: () => Promise<InterruptedAgentRun[]>
+  /** Read-only resource/retry terminal projection; it never continues a prior run. */
+  listTerminalAgentRunNotices: () => Promise<AgentRunTerminalNotice[]>
   replayAgentChatEvents: (payload: ReplayAgentChatEventsPayload) => Promise<AgentEventBusReplay>
   cancelAgentChatStream: (streamId: string) => Promise<{ canceled: boolean }>
   /** Mid-run steer on an active stream (≠ abort). Product autoDrain remains false (ADR-0082). */

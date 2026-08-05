@@ -6,14 +6,15 @@ import {
   callChatInvocation,
   callTextInvocation,
   streamChatInvocation,
-  streamTextInvocation
+  streamTextInvocation,
+  type ProviderTransportDispatchHook
 } from './provider-adapter/invocation'
 import type { ProviderUsage } from './provider-adapter/response-parser'
 import type { ProviderStopReason } from './provider-hooks'
 
 export { toolsSupportedForFormat } from './provider-adapter/formats'
 export { adapterAuthHeaders } from './provider-adapter/request-builder'
-export { ProviderAdapterError, type AdapterErrorKind } from './provider-adapter/invocation'
+export { ProviderAdapterError, type AdapterErrorKind, type ProviderTransportDispatchHook } from './provider-adapter/invocation'
 
 export type AdapterRequest = {
   systemPrompt: string
@@ -102,6 +103,7 @@ export async function callProvider(opts: {
   request: AdapterRequest
   callbacks?: AdapterCallbacks
   signal?: AbortSignal
+  beforeTransportDispatch?: ProviderTransportDispatchHook
 }): Promise<AdapterResult> {
   return callTextInvocation(opts)
 }
@@ -113,6 +115,7 @@ export async function streamProvider(opts: {
   request: AdapterRequest
   callbacks: AdapterCallbacks
   signal?: AbortSignal
+  beforeTransportDispatch?: ProviderTransportDispatchHook
 }): Promise<AdapterResult> {
   return streamTextInvocation(opts)
 }
@@ -124,6 +127,7 @@ export async function callChatProvider(opts: {
   request: ChatAdapterRequest
   callbacks?: ChatAdapterCallbacks
   signal?: AbortSignal
+  beforeTransportDispatch?: ProviderTransportDispatchHook
 }): Promise<ChatAdapterResult> {
   return callChatInvocation(opts)
 }
@@ -135,6 +139,7 @@ export async function streamChatProvider(opts: {
   request: ChatAdapterRequest
   callbacks: ChatAdapterCallbacks
   signal?: AbortSignal
+  beforeTransportDispatch?: ProviderTransportDispatchHook
 }): Promise<ChatAdapterResult> {
   return streamChatInvocation(opts)
 }

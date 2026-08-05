@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_TEACHING_AGENT_RUN_BUDGET,
   createTeachingSettingsDefaults,
   mergeTeachingSettings,
   normalizeTeachingSettings
@@ -17,8 +16,45 @@ describe('teaching settings schema', () => {
       version: 2,
       workspace: { defaultRoot: fallbackRoot },
       worktree: { rootPath: 'C:\\StudiumX\\workspace\\.worktrees' },
-      tools: { enabled: true, maxIterations: 0, runBudget: DEFAULT_TEACHING_AGENT_RUN_BUDGET },
+      tools: { enabled: true, workspaceShell: true },
       appBehavior: { closeAction: 'tray', closeToTray: true }
+    })
+  })
+
+  it('keeps user resource budgets opt-in and normalizes their explicit per-run limits', () => {
+    expect(createTeachingSettingsDefaults(fallbackRoot).resourceBudget).toEqual({
+      enabled: false,
+      providerTransportAttempts: 20,
+      toolOperationAttempts: 40,
+      durationMinutes: 30,
+      totalTokens: 200_000
+    })
+
+    expect(normalizeTeachingSettings({
+      resourceBudget: {
+        enabled: true,
+        providerTransportAttempts: 0,
+        toolOperationAttempts: 10_000.6,
+        durationMinutes: 2_000,
+        totalTokens: 999
+      }
+    }, fallbackRoot).resourceBudget).toEqual({
+      enabled: true,
+      providerTransportAttempts: 1,
+      toolOperationAttempts: 10_000,
+      durationMinutes: 1_440,
+      totalTokens: 1_000
+    })
+
+    const merged = mergeTeachingSettings(createTeachingSettingsDefaults(fallbackRoot), {
+      resourceBudget: { enabled: true, durationMinutes: 12 }
+    })
+    expect(merged.resourceBudget).toEqual({
+      enabled: true,
+      providerTransportAttempts: 20,
+      toolOperationAttempts: 40,
+      durationMinutes: 12,
+      totalTokens: 200_000
     })
   })
 
@@ -178,6 +214,7 @@ describe('teaching settings schema', () => {
         approvalMode: 'write-everywhere',
         webSearch: false,
         webFetch: true,
+        // Retired persisted fields must be tolerated and removed on normalization.
         maxIterations: 0,
         runBudget: {
           maxDurationMs: '6000',
@@ -233,15 +270,7 @@ describe('teaching settings schema', () => {
         workspaceRead: false,
         approvalMode: 'request_approval',
         webSearch: false,
-        webFetch: true,
-        maxIterations: 0,
-        runBudget: {
-          maxDurationMs: 20 * 60_000,
-          maxProviderCalls: 64,
-          maxToolCalls: 12,
-          maxTotalTokens: 500_000,
-          warningThreshold: 0.8
-        }
+        webFetch: true
       },
       webSearch: {
         backend: 'auto',
@@ -260,6 +289,8 @@ describe('teaching settings schema', () => {
       log: { retentionDays: 1 }
     })
     expect(normalized.generator).not.toHaveProperty('generateLearningRecord')
+    expect(normalized.tools).not.toHaveProperty('maxIterations')
+    expect(normalized.tools).not.toHaveProperty('runBudget')
 
     expect(custom).toMatchObject({
       name: 'Custom Provider',
@@ -275,7 +306,10 @@ describe('teaching settings schema', () => {
   it('keeps main and renderer wrappers equivalent for incomplete settings documents', () => {
     const malformed = {
       provider: { providers: [{ id: 'custom', models: ['model-z'], docsUrl: 'https://ignore.test' }] },
-      tools: { runBudget: { maxToolCalls: 33 } },
+      tools: {
+        maxIterations: 33,
+        runBudget: { maxToolCalls: 33 }
+      },
       pet: { appearance: 'lulu' },
       worktree: {}
     }
@@ -333,17 +367,27 @@ describe('teaching settings schema', () => {
     expect(custom.models).toEqual(['my-custom-model'])
   })
 
-  it('deep-merges a partial update before normalization without losing a stored budget', () => {
+  it('preserves a free-form generator model that is not in the provider list', () => {
+    const normalized = normalizeTeachingSettings({
+      provider: {
+        providers: [{ id: 'deepseek', models: ['deepseek-chat', 'deepseek-reasoner'] }]
+      },
+      generator: { providerId: 'deepseek', model: 'custom-deepseek-v7' }
+    }, fallbackRoot)
+
+    expect(normalized.generator.model).toBe('custom-deepseek-v7')
+  })
+
+  it('deep-merges supported tool settings without restoring retired run limits', () => {
     const current = createTeachingSettingsDefaults(fallbackRoot)
     const merged = mergeTeachingSettings(current, {
-      tools: { runBudget: { maxToolCalls: 44 } },
+      tools: { workspaceRead: false },
       workspace: { showAllCourseFiles: true }
     })
 
-    expect(merged.tools.runBudget).toEqual({
-      ...DEFAULT_TEACHING_AGENT_RUN_BUDGET,
-      maxToolCalls: 44
-    })
+    expect(merged.tools.workspaceRead).toBe(false)
+    expect(merged.tools).not.toHaveProperty('maxIterations')
+    expect(merged.tools).not.toHaveProperty('runBudget')
     expect(merged.workspace).toMatchObject({
       defaultRoot: fallbackRoot,
       showAllCourseFiles: true

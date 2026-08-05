@@ -22,8 +22,8 @@ function provider(): TeachingModelProviderProfile {
   }
 }
 
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 }
 
 function sseResponse(events: unknown[]): Response {
@@ -52,7 +52,7 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     expect(result.usage.usageProvenance).toBe('provider_reported')
   })
 
-  it('omits provenance when the provider reports no usage', async () => {
+  it('reports unknown provenance when the provider reports no usage', async () => {
     globalThis.fetch = (async () =>
       jsonResponse({ choices: [{ message: { content: 'final answer' } }] })) as typeof fetch
 
@@ -65,7 +65,7 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     })
 
     expect(result.stopReason).toBe('final_answer')
-    expect(result.usage).not.toHaveProperty('usageProvenance')
+    expect(result.usage.usageProvenance).toBe('unknown')
   })
 
   it('streams reasoning, preparation status, and the buffered final answer in order', async () => {
@@ -92,6 +92,117 @@ describe('runAgentLoop provider hooks end-to-end', () => {
       { type: 'token', delta: '第一段第二段' },
       { type: 'status', status: 'done' }
     ])
+  })
+
+  it('accounts every adapter transport dispatch when a streaming request falls back after timeout', async () => {
+    let fetches = 0
+    globalThis.fetch = (async () => {
+      fetches += 1
+      if (fetches === 1) throw new Error('timeout before first token')
+      return jsonResponse({ choices: [{ message: { content: 'fallback answer' }, finish_reason: 'stop' }] })
+    }) as typeof fetch
+
+    const result = await runAgentLoop({
+      settings: settings(),
+      provider: provider(),
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      toolHandlers: {}
+    })
+
+    expect(result.stopReason).toBe('final_answer')
+    expect(fetches).toBe(2)
+    expect(result.usage.operationAccounting).toMatchObject({
+      logicalRequests: 1,
+      providerTransportAttempts: 2
+    })
+    expect(result.usage.providerCalls).toBe(2)
+  })
+
+  it('accounts the no-tool adapter retry after a provider rejects function tools', async () => {
+    let fetches = 0
+    globalThis.fetch = (async () => {
+      fetches += 1
+      if (fetches === 1) return jsonResponse({ error: { message: 'function tools are not supported' } }, 400)
+      return jsonResponse({ choices: [{ message: { content: 'degraded answer' }, finish_reason: 'stop' }] })
+    }) as typeof fetch
+
+    const result = await runAgentLoop({
+      settings: settings(),
+      provider: provider(),
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [{ type: 'function', function: { name: 'lookup', description: 'lookup', parameters: { type: 'object', properties: {} } } }],
+      toolHandlers: {}
+    })
+
+    expect(result.stopReason).toBe('final_answer')
+    expect(result.degradedReason).toBe('provider_rejected_tools')
+    expect(fetches).toBe(2)
+    expect(result.usage.operationAccounting).toMatchObject({
+      logicalRequests: 1,
+      providerTransportAttempts: 2
+    })
+  })
+
+  it('counts all three dispatches when a streaming timeout is followed by a tool rejection retry', async () => {
+    let fetches = 0
+    globalThis.fetch = (async () => {
+      fetches += 1
+      if (fetches === 1) throw new Error('timeout before first token')
+      if (fetches === 2) return jsonResponse({ error: { message: 'tool functions are unsupported' } }, 400)
+      return jsonResponse({ choices: [{ message: { content: 'recovered answer' }, finish_reason: 'stop' }] })
+    }) as typeof fetch
+
+    const result = await runAgentLoop({
+      settings: settings(),
+      provider: provider(),
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [{ type: 'function', function: { name: 'lookup', description: 'lookup', parameters: { type: 'object', properties: {} } } }],
+      toolHandlers: {}
+    })
+
+    expect(result.stopReason).toBe('final_answer')
+    expect(fetches).toBe(3)
+    expect(result.usage.operationAccounting).toMatchObject({
+      logicalRequests: 1,
+      providerTransportAttempts: 3
+    })
+  })
+
+  it('stops at the host resource boundary before a fallback can make a second network dispatch', async () => {
+    let fetches = 0
+    globalThis.fetch = (async () => {
+      fetches += 1
+      throw new Error('timeout before first token')
+    }) as typeof fetch
+
+    const result = await runAgentLoop({
+      settings: settings(),
+      provider: provider(),
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      toolHandlers: {},
+      resourceGovernance: {
+        userBudget: {
+          limits: [{ meter: 'provider_transport_attempts', limit: 1, scope: 'task', auditId: 'one-transport' }]
+        }
+      }
+    })
+
+    expect(result.stopReason).toBe('resource_limit')
+    expect(result.finalText).toBe('')
+    expect(fetches).toBe(1)
+    expect(result.usage.operationAccounting).toMatchObject({
+      logicalRequests: 1,
+      providerTransportAttempts: 1
+    })
+    expect(result.usage.resourceGovernance?.terminal).toMatchObject({
+      meter: 'provider_transport_attempts',
+      used: 1,
+      limit: 1,
+      scope: 'task',
+      action: 'resource_limit'
+    })
   })
 
   it('does not concatenate text emitted before a tool call into the final answer', async () => {
@@ -156,7 +267,6 @@ describe('runAgentLoop provider hooks end-to-end', () => {
           return JSON.stringify({ ok: true })
         }
       },
-      budget: { maxIterations: 4, maxToolCalls: 3, maxProviderCalls: 4 },
       callbacks: { onEvent: (event) => { if (event.type === 'token') tokens.push(event.delta) } }
     })
 
@@ -197,8 +307,6 @@ describe('runAgentLoop provider hooks end-to-end', () => {
           return JSON.stringify({ ok: true })
         }
       },
-      shouldErrorOnMaxIterations: () => !generationAttempted,
-      maxIterationsErrorMessage: '课程尚未生成。',
       iterationLimitRecovery: {
         shouldAttempt: () => !generationAttempted,
         instruction: '立即调用 generate_lesson，不要只返回讲解。',
@@ -214,11 +322,12 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     expect(responses).toHaveLength(0)
   })
 
-  it('uses a bounded required-tool recovery pass before failing at the iteration limit', async () => {
+  it('uses a bounded required-tool recovery pass after normal work returns premature prose', async () => {
     const responses = [
       sseResponse([{
         choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-lookup', type: 'function', function: { name: 'lookup', arguments: '{}' } }] } }]
       }]),
+      sseResponse([{ choices: [{ delta: { content: '资料已查到。' } }] }]),
       sseResponse([{
         choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-generate', type: 'function', function: { name: 'generate_lesson', arguments: '{\"topic\":\"动量守恒\",\"firstLessonFocus\":\"用碰撞实验判断封闭系统的总动量是否保持不变。\"}' } }] } }]
       }]),
@@ -254,9 +363,6 @@ describe('runAgentLoop provider hooks end-to-end', () => {
           return JSON.stringify({ ok: true })
         }
       },
-      maxIterations: 1,
-      shouldErrorOnMaxIterations: () => !generationAttempted,
-      maxIterationsErrorMessage: '课程尚未生成。',
       iterationLimitRecovery: {
         shouldAttempt: () => !generationAttempted,
         instruction: '立即调用 generate_lesson，不要调用其他工具。',
@@ -269,15 +375,15 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     expect(result.error).toBeUndefined()
     expect(result.finalText).toBe('课程已生成。')
     expect(generationAttempted).toBe(true)
-    expect(requestBodies).toHaveLength(3)
-    expect(requestBodies[1]).toMatchObject({
+    expect(requestBodies).toHaveLength(4)
+    expect(requestBodies[2]).toMatchObject({
       tool_choice: { type: 'function', function: { name: 'generate_lesson' } },
       tools: [expect.objectContaining({ function: expect.objectContaining({ name: 'generate_lesson' }) })]
     })
     // No-tool finalization is represented by omitting the tool fields at the
     // HTTP boundary; this is accepted by stricter OpenAI-compatible gateways.
-    expect(requestBodies[2]).not.toHaveProperty('tool_choice')
-    expect(requestBodies[2]).not.toHaveProperty('tools')
+    expect(requestBodies[3]).not.toHaveProperty('tool_choice')
+    expect(requestBodies[3]).not.toHaveProperty('tools')
   })
 
   it('bounds required-tool recovery when the provider still refuses the forced tool', async () => {
@@ -286,7 +392,8 @@ describe('runAgentLoop provider hooks end-to-end', () => {
         choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-lookup', type: 'function', function: { name: 'lookup', arguments: '{}' } }] } }]
       }]),
       sseResponse([{ choices: [{ delta: { content: '我还需要继续规划。' } }] }]),
-      sseResponse([{ choices: [{ delta: { content: '仍然不调用工具。' } }] }])
+      sseResponse([{ choices: [{ delta: { content: '仍然不调用工具。' } }] }]),
+      sseResponse([{ choices: [{ delta: { content: '恢复阶段仍未调用必要工具。' } }] }])
     ]
     globalThis.fetch = (async () => responses.shift()!) as typeof fetch
     let generationAttempted = false
@@ -314,9 +421,6 @@ describe('runAgentLoop provider hooks end-to-end', () => {
           return JSON.stringify({ ok: true })
         }
       },
-      maxIterations: 1,
-      shouldErrorOnMaxIterations: () => !generationAttempted,
-      maxIterationsErrorMessage: '课程尚未生成。',
       iterationLimitRecovery: {
         shouldAttempt: () => !generationAttempted,
         instruction: '立即调用 generate_lesson。',
@@ -326,9 +430,9 @@ describe('runAgentLoop provider hooks end-to-end', () => {
       }
     })
 
-    expect(result.stopReason).toBe('max_iterations')
-    expect(result.error).toBe('课程尚未生成。')
-    expect(result.usage.providerCalls).toBe(3)
+    expect(result.stopReason).toBe('error')
+    expect(result.error).toBe('必要操作未完成，无法安全继续本段执行。请调整请求或开始新的续接。')
+    expect(result.usage.providerCalls).toBe(4)
     expect(generationAttempted).toBe(false)
     expect(responses).toHaveLength(0)
   })
@@ -449,17 +553,16 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     expect(result.degradedReason).toBe('final_answer_ignored_tool_calls')
   })
 
-  it('uses a deterministic successful-operation fallback when provider budget is exhausted after a durable tool succeeds', async () => {
+  it('continues to finalization after durable success despite legacy aggregate usage thresholds', async () => {
     const responses = [
       sseResponse([{
         choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-generate-budget', type: 'function', function: { name: 'generate_lesson', arguments: '{}' } }] } }]
-      }])
+      }]),
+      sseResponse([{ choices: [{ delta: { content: '课程已生成并可以开始学习。' } }] }])
     ]
     globalThis.fetch = (async () => responses.shift()!) as typeof fetch
     let generated = false
     const events: Array<{ type: string; status?: string; delta?: string }> = []
-    const fallbackText = '课程已成功生成并保存：Claude Code 记忆系统架构总览（lessons/0001-claude-code.html）。后续整理因本轮模型调用预算到达上限而停止，但不影响已生成课件。'
-
     const result = await runAgentLoop({
       settings: settings(),
       provider: provider(),
@@ -471,14 +574,6 @@ describe('runAgentLoop provider hooks end-to-end', () => {
           return JSON.stringify({ ok: true, path: 'lessons/0001-claude-code.html' })
         }
       },
-      budget: {
-        maxDurationMs: 60_000,
-        maxProviderCalls: 1,
-        maxToolCalls: 4,
-        maxTotalTokens: 100_000,
-        warningThreshold: 0.8
-      },
-      budgetExhaustionFallback: (reason) => generated && reason === 'provider_calls' ? fallbackText : null,
       callbacks: { onEvent: (event) => {
         if (event.type === 'status') events.push({ type: event.type, status: event.status })
         if (event.type === 'token') events.push({ type: event.type, delta: event.delta })
@@ -486,11 +581,12 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     })
 
     expect(result.error).toBeUndefined()
-    expect(result.stopReason).toBe('degraded')
-    expect(result.finalText).toBe(fallbackText)
-    expect(result.messages.at(-1)).toEqual({ role: 'assistant', content: fallbackText })
-    expect(result.usage.budgetStopReason).toBe('provider_calls')
-    expect(events).toContainEqual({ type: 'token', delta: fallbackText })
+    expect(result.stopReason).toBe('final_answer')
+    expect(result.finalText).toBe('课程已生成并可以开始学习。')
+    expect(result.messages.at(-1)).toEqual({ role: 'assistant', content: '课程已生成并可以开始学习。' })
+    expect(result.usage.providerCalls).toBe(2)
+    expect(result.usage).not.toHaveProperty('budgetStopReason')
+    expect(events).toContainEqual({ type: 'token', delta: '课程已生成并可以开始学习。' })
     expect(events).not.toContainEqual(expect.objectContaining({ type: 'status', status: 'error' }))
   })
 

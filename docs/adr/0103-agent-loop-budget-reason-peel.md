@@ -1,6 +1,6 @@
 # ADR-0103：Agent loop budgetStopReasonFromError 纯助手 peel
 
-- **状态：** 已实施（ADOPTION S-03 residual by-touch peel）
+- **状态：** 已实施（ADOPTION S-03 residual by-touch peel）；其中 run-budget stop reason 的产品政策已由 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md) 于 2026-08-04 取代，映射代码待后续切片删除。
 - **日期：** 2026-07-21
 - **范围：** 将 `agent-loop.ts` 底部**纯**错误映射助手 `budgetStopReasonFromError` 抽到旁路模块；**不**改 retry、schema guard、tool-result budget、provider I/O 或 budget 策略本身
 - **相关：** [ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)、[ADR-0075](0075-module-size-policy-and-giant-peel.md)、[ADR-0090](0090-teaching-config-overlay-parse-peel.md)、[ADR-0100](0100-agent-loop-fallback-peel.md)、[ADOPTION S-03](0121-improvements-adoption-closeout.md)
@@ -33,7 +33,7 @@ ADR-0075 将模块尺寸政策与巨石 **按触达 peel** 纪律正式化。ADR
 
 ### 2. 行为与公共面
 
-- 函数体与 peel 前逐字等价：非 object / 缺字段 / 未知字符串 → `undefined`；仅接受 `'duration' | 'provider_calls' | 'tool_calls' | 'total_tokens'`。
+- 函数体与 peel 前逐字等价是该次 peel 的历史实现事实：非 object / 缺字段 / 未知字符串 → `undefined`；仅接受 `'duration' | 'provider_calls' | 'tool_calls' | 'total_tokens'`。其中 run 级 reason 的继续使用已被 ADR-0171 取代。
 - **不**把 `budgetStopReasonFromError` 提升为跨包产品公共面；仍为 main AI 内部实现细节。
 - 无 retry 策略变更、无 budget 语义变更、无 settlement / toolsReplayed 变更。
 

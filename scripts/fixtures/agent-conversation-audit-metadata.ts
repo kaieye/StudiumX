@@ -76,7 +76,7 @@ const events: AgentLoopEvent[] = [
   },
   {
     type: 'context_estimated',
-    estimate: { messageTokens: 1000, overheadTokens: 200, totalTokens: 1200, source: 'local' }
+    estimate: { messageTokens: 1000, toolSchemaTokens: 200, framingTokens: 0, outputReserveTokens: 0, extraTokens: 0, overheadTokens: 200, totalTokens: 1200, source: 'local' }
   },
   {
     type: 'context_compaction_completed',

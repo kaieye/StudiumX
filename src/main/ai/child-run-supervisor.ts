@@ -1,5 +1,7 @@
 import type { AgentArtifactRef } from '../../shared/teaching-types'
 import type { ToolRuntimeChildRunRecord, ToolRuntimeEvent } from './tools/registry'
+import type { AgentRunResourceBoundarySnapshot } from '../../shared/teaching-types'
+import type { AgentRunResourceGovernor } from './agent-run-resource-governance'
 
 export type ChildAgentProfile = 'read_only' | 'research' | 'workspace_audit'
 export type ChildRunStatus = ToolRuntimeChildRunRecord['status']
@@ -9,7 +11,6 @@ export type ChildRunInput = {
   prompt: string
   context?: string
   profile?: ChildAgentProfile
-  maxIterations?: number
   timeoutMs?: number
 }
 
@@ -20,6 +21,7 @@ export type ChildRunResult = {
   label: string
   profile: ChildAgentProfile
   status: ChildRunStatus
+  stopReason?: ToolRuntimeChildRunRecord['stopReason']
   summary: string
   error?: string
   citations?: Array<{ sourceId: string; url: string; title?: string }>
@@ -33,7 +35,14 @@ export type ChildRunRecord = ToolRuntimeChildRunRecord & {
   parentStreamId?: string
 }
 
-export type SupervisedChildRun = Required<ChildRunInput> & { profile: ChildAgentProfile }
+export type SupervisedChildRun = {
+  label: string
+  prompt: string
+  context: string
+  profile: ChildAgentProfile
+  /** Local child-execution timeout; it aborts this child without imposing a run-wide quota. */
+  timeoutMs: number
+}
 
 export type ChildRunExecutionResult = Omit<ChildRunResult, 'childRunId' | 'label' | 'profile' | 'status'> & {
   status: 'completed' | 'failed' | 'canceled'
@@ -92,6 +101,7 @@ export class ChildRunStore {
       throw new Error(`Illegal child run transition: ${current.status} -> ${status}`)
     }
     const next: ChildRunRecord = { ...current, ...patch, status }
+    assertResourceStopIsFailed(next)
     this.records.set(id, next)
     this.persist(next)
     return next
@@ -121,6 +131,7 @@ export class ChildRunStore {
   private patch(id: string, patch: Partial<ChildRunRecord>): ChildRunRecord {
     const current = this.require(id)
     const next: ChildRunRecord = { ...current, ...patch }
+    assertResourceStopIsFailed(next)
     this.records.set(id, next)
     this.persist(next)
     return next
@@ -148,6 +159,7 @@ type SupervisedJob = {
   controller?: AbortController
   timer?: ReturnType<typeof setTimeout>
   detachParentAbort?: () => void
+  detachResourceAbort?: () => void
   terminalResult?: ChildRunResult
   cancelPersistence?: Promise<boolean>
   canceledEventEmitted?: boolean
@@ -162,6 +174,7 @@ export class ChildRunSupervisor {
     execute: ChildRunExecutor
     parentStreamId?: string
     signal?: AbortSignal
+    resourceGovernor?: AgentRunResourceGovernor
     store?: ChildRunStore
   }) {
     this.store = options.store ?? new ChildRunStore()
@@ -215,13 +228,28 @@ export class ChildRunSupervisor {
     }
     emit({ type: 'child_run_queued', child: toRuntimeRecord(record) })
     const cancelFromParent = (): void => {
-      void this.cancel(job, '子任务已取消或超时。').catch(() => undefined)
+      const boundary = this.options.resourceGovernor?.boundary
+      void (boundary
+        ? this.stopForResource(job, boundary)
+        : this.cancel(job, '子任务已取消或超时。')
+      ).catch(() => undefined)
     }
     if (this.options.signal?.aborted) {
       await this.cancel(job, '子任务已取消或超时。')
     } else if (this.options.signal) {
       this.options.signal.addEventListener('abort', cancelFromParent, { once: true })
       job.detachParentAbort = () => this.options.signal?.removeEventListener('abort', cancelFromParent)
+    }
+
+    const stopFromResourceBoundary = (): void => {
+      const boundary = this.options.resourceGovernor?.boundary
+      if (boundary) void this.stopForResource(job, boundary).catch(() => undefined)
+    }
+    if (this.options.resourceGovernor?.isTerminated) {
+      stopFromResourceBoundary()
+    } else if (this.options.resourceGovernor) {
+      this.options.resourceGovernor.signal.addEventListener('abort', stopFromResourceBoundary, { once: true })
+      job.detachResourceAbort = () => this.options.resourceGovernor?.signal.removeEventListener('abort', stopFromResourceBoundary)
     }
     return job
   }
@@ -241,7 +269,13 @@ export class ChildRunSupervisor {
     job.controller = controller
     const running = this.store.transition(job.id, 'running', { startedAt: new Date().toISOString() })
     await this.store.flush()
-    job.emit({ type: 'child_run_started', child: toRuntimeRecord(running) })
+    const afterStart = this.store.get(job.id)
+    if (!afterStart || isTerminal(afterStart.status)) {
+      const result = this.requireTerminalResult(job, afterStart ?? running)
+      this.dispose(job)
+      return result
+    }
+    job.emit({ type: 'child_run_started', child: toRuntimeRecord(afterStart) })
     job.timer = setTimeout(() => {
       void this.cancel(job, '子任务已取消或超时。').catch(() => undefined)
     }, job.input.timeoutMs)
@@ -304,9 +338,13 @@ export class ChildRunSupervisor {
     }
     if (current.status !== 'running') return this.requireTerminalResult(job, current)
 
-    const terminal = this.store.transition(job.id, output.status, {
+    // A resource terminal never becomes a successful child result, even if a
+    // future executor accidentally supplies it with a completed status.
+    const terminalStatus: ChildRunStatus = output.stopReason ? 'failed' : output.status
+    const terminal = this.store.transition(job.id, terminalStatus, {
       summary: output.summary,
       error: output.error,
+      stopReason: terminalStatus === 'failed' ? output.stopReason : undefined,
       usage: output.usage,
       archive: output.archive,
       completedAt: new Date().toISOString()
@@ -314,8 +352,8 @@ export class ChildRunSupervisor {
     const result = this.resultFrom(job, terminal, output)
     job.terminalResult = result
     await this.store.flush()
-    if (output.status === 'completed') job.emit({ type: 'child_run_completed', child: toRuntimeRecord(terminal) })
-    else if (output.status === 'failed') job.emit({ type: 'child_run_failed', child: toRuntimeRecord(terminal) })
+    if (terminal.status === 'completed') job.emit({ type: 'child_run_completed', child: toRuntimeRecord(terminal) })
+    else if (terminal.status === 'failed') job.emit({ type: 'child_run_failed', child: toRuntimeRecord(terminal) })
     else job.emit({ type: 'child_run_canceled', child: toRuntimeRecord(terminal) })
     return result
   }
@@ -347,13 +385,46 @@ export class ChildRunSupervisor {
     return job.cancelPersistence
   }
 
+  /** Preserve a parent resource terminal as a failed child, never as canceled. */
+  private stopForResource(job: SupervisedJob | undefined, boundary: AgentRunResourceBoundarySnapshot): Promise<boolean> {
+    if (!job) return Promise.resolve(false)
+    if (job.cancelPersistence) return job.cancelPersistence
+    const current = this.store.get(job.id)
+    if (!current || isTerminal(current.status)) return Promise.resolve(false)
+    job.controller?.abort(boundary)
+    const summary = boundary.action === 'suspended'
+      ? '子任务因父运行资源治理暂停，未完成。'
+      : '子任务达到父运行资源边界，未完成。'
+    const failed = this.store.transition(job.id, 'failed', {
+      summary,
+      error: boundary.action === 'suspended' ? 'suspended' : 'resource_limit',
+      stopReason: boundary.action === 'suspended' ? 'suspended' : 'resource_limit',
+      completedAt: new Date().toISOString()
+    })
+    job.terminalResult = this.resultFrom(job, failed, {
+      status: 'failed',
+      stopReason: failed.stopReason,
+      summary,
+      error: failed.error,
+      usage: failed.usage
+    })
+    job.cancelPersistence = this.store.flush().then(() => {
+      job.emit({ type: 'child_run_failed', child: toRuntimeRecord(failed) })
+      return true
+    })
+    return job.cancelPersistence
+  }
+
   private composeSignal(controllerSignal: AbortSignal): AbortSignal {
-    return this.options.signal ? AbortSignal.any([this.options.signal, controllerSignal]) : controllerSignal
+    const signals = [this.options.signal, this.options.resourceGovernor?.signal, controllerSignal]
+      .filter((signal): signal is AbortSignal => signal !== undefined)
+    return signals.length === 1 ? signals[0] : AbortSignal.any(signals)
   }
 
   private dispose(job: SupervisedJob): void {
     if (job.timer) clearTimeout(job.timer)
     job.detachParentAbort?.()
+    job.detachResourceAbort?.()
     this.jobs.delete(job.id)
   }
 
@@ -374,6 +445,7 @@ export class ChildRunSupervisor {
       label: job.input.label,
       profile: job.input.profile,
       status: record.status,
+      stopReason: record.status === 'failed' ? output.stopReason ?? record.stopReason : undefined,
       summary: output.summary,
       error: output.error,
       filesRead: output.filesRead,
@@ -389,9 +461,15 @@ export class ChildRunSupervisor {
   }
 }
 
+function assertResourceStopIsFailed(record: ChildRunRecord): void {
+  if (record.stopReason && record.status !== 'failed') {
+    throw new Error('A child resource terminal must use failed status.')
+  }
+}
+
 function isLegalTransition(from: ChildRunStatus, to: ChildRunStatus): boolean {
   if (from === to) return true
-  if (from === 'queued') return to === 'running' || to === 'canceled'
+  if (from === 'queued') return to === 'running' || to === 'canceled' || to === 'failed'
   if (from === 'running') return to === 'completed' || to === 'failed' || to === 'canceled'
   return false
 }
@@ -406,6 +484,7 @@ function toRuntimeRecord(record: ChildRunRecord): ToolRuntimeChildRunRecord {
     label: record.label,
     profile: record.profile,
     status: record.status,
+    stopReason: record.stopReason,
     summary: record.summary,
     error: record.error,
     startedAt: record.startedAt,

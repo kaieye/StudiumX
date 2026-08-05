@@ -6,7 +6,8 @@ import type {
   AgentChatStreamChunk,
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
-  AgentLoopStatus
+  AgentLoopStatus,
+  AgentStreamTerminalStatus
 } from '../../shared/teaching-types'
 import type { AgentLoopEvent } from './agent-loop'
 import {
@@ -93,7 +94,7 @@ export class AgentEventBus {
     const payload = pruneUndefined({ streamId: this.streamId, status, message })
     this.record({ kind: 'status', payload })
     this.onStatus(payload)
-    if (status === 'done' || status === 'canceled' || status === 'error') {
+    if (status === 'done' || status === 'canceled' || status === 'resource_limit' || status === 'suspended' || status === 'no_progress' || status === 'context_unrecoverable' || status === 'retry_exhausted' || status === 'error') {
       this.publishTerminal(status, message)
     }
   }
@@ -105,7 +106,7 @@ export class AgentEventBus {
   }
 
   publishTerminal(
-    outcome: Extract<AgentLoopStatus, 'done' | 'canceled' | 'error'>,
+    outcome: AgentStreamTerminalStatus,
     message?: string
   ): void {
     if (this.terminalEvent) return
@@ -146,7 +147,7 @@ export class AgentEventBus {
       | { kind: 'tool'; payload: AgentChatStreamToolEvent }
       | {
           kind: 'terminal'
-          outcome: Extract<AgentLoopStatus, 'done' | 'canceled' | 'error'>
+          outcome: AgentStreamTerminalStatus
           message?: string
         }
   ): AgentRealtimeEvent {

@@ -7,7 +7,8 @@ import type {
   ProjectionOmittedItem,
   ProjectionOmissionReason,
   ProjectionProvenanceRef,
-  ProjectionTruncation
+  ProjectionTruncation,
+  RequestFitSnapshot
 } from '../../shared/teaching-types/context-projection-report'
 import { CONTEXT_PROJECTION_REPORT_SCHEMA_VERSION } from '../../shared/teaching-types/context-projection-report'
 import type { GroundingExclusionCode, GroundingPack } from '../../shared/teaching-types/grounding'
@@ -61,6 +62,7 @@ export type RequestProjectionReportInput = {
   tools: readonly ToolDefinition[]
   estimate: TokenEstimate
   contextWindowTokens: number
+  contextWindowSource: RequestFitSnapshot['contextWindowSource']
   trace: readonly RequestProjectionTraceEvent[]
 }
 
@@ -169,7 +171,7 @@ export function buildTeachingContextProjectionReport(
 export function buildRequestContextProjectionReport(
   input: RequestProjectionReportInput
 ): ContextProjectionReport {
-  const { projectedMessages, tools, estimate, contextWindowTokens, trace, transcriptLength } = input
+  const { projectedMessages, tools, estimate, contextWindowTokens, contextWindowSource, trace, transcriptLength } = input
   const included: ProjectionIncludedItem[] = projectedMessages.map((message, index) => {
     if (message.role === 'system' && isCompactionSummary(message.content)) {
       return {
@@ -197,7 +199,7 @@ export function buildRequestContextProjectionReport(
     included.push({
       id: `tools:${tools.length}`,
       kind: 'tool_schema',
-      estimatedTokens: estimate.overheadTokens
+      estimatedTokens: estimate.toolSchemaTokens
     })
   }
 
@@ -315,6 +317,17 @@ export function buildRequestContextProjectionReport(
     omitted: sortOmitted(omitted),
     truncation,
     budget,
+    requestFit: {
+      inputMessageTokens: estimate.messageTokens,
+      toolSchemaTokens: estimate.toolSchemaTokens,
+      framingTokens: estimate.framingTokens,
+      outputReserveTokens: estimate.outputReserveTokens,
+      extraTokens: estimate.extraTokens,
+      projectedTokens: estimate.totalTokens,
+      effectiveContextWindowTokens: contextWindowTokens,
+      contextWindowSource,
+      estimateSource: estimate.source
+    },
     provenance: sortProvenance(dedupeProvenance(provenance))
   })
 }

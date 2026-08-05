@@ -16,7 +16,7 @@
 | 无自动 remote telemetry | 本地优先指**不静默上传**、**不**默认 phone-home / Statsig / Mixpanel 式外发；不禁止用户显式开启的账号与多端同步。同步状态不得反向改写教学决策事实。 |
 | effect lattice + TOOL_CONTRACT | `read` / `workspace_write` / `external_write` / `privileged` 三态审批；**禁止 YOLO / always-approve 标签** |
 | Settlement sole-writer | `TeachingTurnCoordinator` / host 为 outcome settlement 唯一写入路径；IPC 须 `expectedRevision`；fork 路径保持 `toolsReplayed: false` |
-| 多轴硬预算 | run budget + durable-success / budget fallback；禁止用 soft reminder 替代硬预算 |
+| 持续运行与上下文治理 | 反对不透明、低位、默认的累计 token / provider 调用次数 / 工具调用次数 / 运行时长 / iteration quota；允许可审计的高位 emergency fuse、用户显式资源预算与部署/组织策略，触发时仅报告 `resource_limit` / `suspended`，不得伪装为 provider quota 或学习成功。优先通过上下文压缩、续接与用户可取消的运行处理压力；模型上下文上限、工具超时和工具输出截断属于局部技术边界。教学 authority、settlement sole-writer、`expectedRevision`、`toolsReplayed:false`、审批/effect 与恢复不自动重放工具不变。详见 [ADR-0171](docs/adr/0171-continuous-agent-runs-and-context-governance.md)。 |
 | 同意门控 memory | 无人批不自动注入 / 不启动自动 memory phase；**禁止 FTS5 / 向量库作产品搜索** |
 | Blocking 领域门禁优先 | teaching / privacy / security 领域门禁 **优先于** 泛型 lint 与覆盖率时尚 |
 
@@ -51,7 +51,7 @@ git config core.hooksPath .githooks
 
 ## 3. 红线（Do not）
 
-1. **不要**增加、恢复或信任 `tools.enabled` 总开关；工具执行仍须经过具体 capability、工作区信任、审批、预算、路径围栏与沙箱。不要用 YOLO / DangerFullAccess / always-approve 标签；不要宣称 Docker/VM 级 OS sandbox 完备（ADR-0152/0153）。
+1. **不要**增加、恢复或信任 `tools.enabled` 总开关；工具执行仍须经过具体 capability、工作区信任、审批、路径围栏、沙箱与局部技术边界。不要用 YOLO / DangerFullAccess / always-approve 标签；不要宣称 Docker/VM 级 OS sandbox 完备（ADR-0152/0153）。
 2. **不要** 加 YOLO / DangerFullAccess / always-approve 默认或 UI 标签（`full_access` 仅称「本课放行 / 宽松策略」）。
 3. **MCP 产品面**以 [ADR-0142](docs/adr/0142-mcp-product-surface-settings-only.md) 为准：Settings **仅** list/editor/import/OAuth；**不要**再挂 marketplace 设置页或半成品市场入口。host/foundation（ADR-0140 store/IPC）可保留。所有 MCP tools 仍必须入 effect lattice 与 approval；禁止 YOLO 标签、jiti 全权限扩展、code-mode 执行不可信代码或 shell-escalation 旁路；secret 永不进 public DTO / Doctor / support bundle。
 4. **不要** 默认远程 OTEL / phone-home；本地 doctor / support-bundle 须脱敏与同意。

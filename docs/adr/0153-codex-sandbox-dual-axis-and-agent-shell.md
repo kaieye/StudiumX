@@ -2,7 +2,7 @@
 
 - **状态：** **已实施（合格交付，2026-07-25；不含 Windows OS helper）**
 - **日期：** 2026-07-24
-- **修订：** 2026-08-02 — 基于实际教学对话体验，移除 `tools.enabled` 产品总开关：Settings 不展示该选项，legacy 持久化/overlay 值仅为兼容接受且加载/解析后强制为 `true`。审批、工作区信任、沙箱、预算与路径围栏不变。2026-07-25 — Stage A–F 已完成并通过合格交付验证；将完成态、边界和验证入口收口至本 ADR。
+- **修订：** 2026-08-02 — 基于实际教学对话体验，移除 `tools.enabled` 产品总开关：Settings 不展示该选项，legacy 持久化/overlay 值仅为兼容接受且加载/解析后强制为 `true`。审批、工作区信任、沙箱、路径围栏与局部技术边界不变；全局 run-token 预算政策见 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md)。2026-07-25 — Stage A–F 已完成并通过合格交付验证；将完成态、边界和验证入口收口至本 ADR。
 - **范围：** 将 Codex 的 **SandboxMode × AskForApproval** 双轴模型迁入 StudiumX TypeScript 策略与设置面；把工作区命令/`shell` 定义为 **主流 Agent 一等工具**（工具调用应用级启用，`workspaceShell` 默认可用）。**不**整仓 vendoring `codex-rs` 的 Windows RestrictedToken / Linux bwrap / macOS Seatbelt 原生 helper 二进制（Windows OS helper 为可选 Stage G，**不阻塞** A–F 合格）。**不**改变 settlement sole-writer / Evidence 权威。
 - **关联：** [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md)（审批轴与命令工具形状；**默认值由本 ADR supersede**）；[ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)（平台能力诚实分层；**不**承担 shell 产品面）；Codex `SandboxMode` / `SandboxPolicy` / `sandboxing` crate；`TOOL_CONTRACT.md`
 - **完成记录：** Stage A–F 已于 2026-07-25 完成；Stage G（Windows RestrictedToken helper）是可选延期项，不阻塞合格交付。
@@ -17,7 +17,7 @@
 | Windows 在无 helper 时 fail-closed 为 `notConfigured`；Settings / Doctor / 执行路径文案一致 | 不使用 YOLO / DangerFullAccess / always-approve 标签；工具默认开启不等于绕过审批或沙箱 |
 | cancel、超时、输出预算、审批和回归契约已闭环 | 不把 shell 输出写入 Teaching Evidence、LearningSession ledger 或 outcome settlement |
 
-工具调用是应用级能力：Settings 不提供 `tools.enabled` 总开关，既有或新写入的 legacy 值仅为兼容接受，并在加载/解析时归一化为 `true`。`workspaceShell` 默认 `true`，但仍可显式关闭。工具可用不等于自动放行：`sandboxMode × approvalMode`、工作区信任、cwd/路径围栏、effect lattice、硬预算与审批门持续适用。
+工具调用是应用级能力：Settings 不提供 `tools.enabled` 总开关，既有或新写入的 legacy 值仅为兼容接受，并在加载/解析时归一化为 `true`。`workspaceShell` 默认 `true`，但仍可显式关闭。工具可用不等于自动放行：`sandboxMode × approvalMode`、工作区信任、cwd/路径围栏、effect lattice、审批门以及局部超时/输出边界持续适用；不设置全局累计 run-token 终止配额。
 
 Windows RestrictedToken helper（Stage G）未随该合格交付打包。没有 helper 时产品只提供 policy fence/readiness 的诚实投影，绝不宣称 OS 级、Docker 或 VM 级隔离。
 
@@ -100,7 +100,7 @@ policy fence 与 OS transform 子集可共存；合格交付取决于主路径�
 
 1. 不 vendoring 完整 `codex-rs` / 不引入 Docker/OpenSandbox/Cube 为默认 shell 后端。
 2. 不把 shell 输出写入 ledger / outcome。
-3. 不因应用级工具调用启用而绕过 effect lattice、工作区信任、审批、预算或路径围栏。
+3. 不因应用级工具调用启用而绕过 effect lattice、工作区信任、审批、路径围栏或局部技术边界。
 4. 不因 policy fence 或 OS transform 子集而宣称 Docker / VM 级 OS 隔离。
 5. 不整包替换为 pi sandbox 扩展或 Grok sandbox 产品线。
 

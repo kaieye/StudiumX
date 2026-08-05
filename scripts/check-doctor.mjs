@@ -55,8 +55,7 @@ try {
         workspaceRead: true,
         approvalMode: 'request_approval',
         webSearch: true,
-        webFetch: true,
-        maxIterations: 8
+        webFetch: true
       },
       privacy: {
         maskApiKeys: true,

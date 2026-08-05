@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  COMPACTION_HARD_BUDGET_AUTHORITY,
   CompactionPressureController,
   CompactionSingleFlight,
   CONTEXT_COMPACTOR_CUT_POINT_STRATEGY,
@@ -9,7 +8,6 @@ import {
   createCompactionPressureState,
   nextPressureState,
   pressureOptionOverrides,
-  shouldSkipCompactionForHardBudget
 } from '../../src/main/ai/context-compactor'
 import { ContextEstimator } from '../../src/main/ai/context-estimator'
 import type { ChatMessage, ToolCall } from '../../src/main/ai/provider-adapter'
@@ -204,34 +202,23 @@ describe('ContextCompactor pressure ladder escalate-on-still-over', () => {
   })
 })
 
-describe('hard budget authority vs compaction', () => {
-  it('documents hard budget authority and skips compact when exhausted', async () => {
-    expect(COMPACTION_HARD_BUDGET_AUTHORITY.softReminderSubstitutesHardBudget).toBe(false)
-    expect(COMPACTION_HARD_BUDGET_AUTHORITY.hardRunBudgetAuthoritative).toBe(true)
-    expect(COMPACTION_HARD_BUDGET_AUTHORITY.durableSuccessFallbackAuthoritative).toBe(true)
-    expect(COMPACTION_HARD_BUDGET_AUTHORITY.durableRewriteDefault).toBe(false)
-    expect(shouldSkipCompactionForHardBudget({ hardBudgetExhausted: true })).toBe(true)
-    expect(shouldSkipCompactionForHardBudget({ runBudgetStopPending: true })).toBe(true)
-    expect(shouldSkipCompactionForHardBudget({})).toBe(false)
-
+describe('aggregate observability never suppresses compaction', () => {
+  it('continues a projection-only compaction without any aggregate budget authority', async () => {
     const messages = buildLongTranscript()
     let summarizeCalls = 0
     const compactor = new ContextCompactor(
       baseOptions({
         summarize: async () => {
           summarizeCalls += 1
-          return 'should not run under hard budget'
+          return 'aggregate usage is observability only'
         }
       })
     )
-    const result = await compactor.compactIfNeeded({
-      messages,
-      hardBudgetExhausted: true
-    })
-    expect(result.changed).toBe(false)
-    expect(result.messages).toBe(messages)
-    expect(summarizeCalls).toBe(0)
-    expect(result.events).toEqual([])
+
+    const result = await compactor.compactIfNeeded({ messages, forceCompaction: true })
+    expect(result.changed).toBe(true)
+    expect(summarizeCalls).toBe(1)
+    expect(messages).toEqual(buildLongTranscript())
   })
 })
 
@@ -239,7 +226,6 @@ describe('default compaction remains reference-only / non-durable', () => {
   it('keeps ADR-0064 product defaults and reference-only summary markers', async () => {
     expect(CONTEXT_COMPACTOR_CUT_POINT_STRATEGY.durableRewriteDefault).toBe(false)
     expect(CONTEXT_COMPACTOR_CUT_POINT_STRATEGY.referenceOnlySummary).toBe(true)
-    expect(COMPACTION_HARD_BUDGET_AUTHORITY.durableRewriteDefault).toBe(false)
 
     const messages = buildLongTranscript()
     const original = messages.map((m) => ({ ...m }))

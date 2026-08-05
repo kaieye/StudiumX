@@ -876,7 +876,7 @@
     },
     "baseUrl": "Base URL",
     "models": {
-      "label": "默认模型",
+      "label": "模型",
       "placeholder": "输入或选择模型"
     },
     "actions": {

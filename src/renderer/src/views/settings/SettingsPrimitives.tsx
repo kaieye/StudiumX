@@ -392,6 +392,11 @@ export function SettingsComboBox({
 }) {
   const [open, setOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
+  // Draft text remains authoritative until the settings round-trip acknowledges
+  // the exact value typed or selected by the learner. This prevents a slower,
+  // earlier IPC response from reverting a later free-form model entry.
+  const [draft, setDraft] = useState(value)
+  const [awaitingCommit, setAwaitingCommit] = useState(false)
   // Live filter as the user types. Kept separate from `value` so opening the
   // dropdown always shows the full model list — the committed value must not
   // hide the other models (e.g. opening with 'glm-5.1' must not filter out
@@ -414,6 +419,14 @@ export function SettingsComboBox({
       setHighlightedIndex(0)
     }
   }, [open])
+
+  useEffect(() => {
+    if (value === draft) {
+      if (awaitingCommit) setAwaitingCommit(false)
+      return
+    }
+    if (!awaitingCommit) setDraft(value)
+  }, [awaitingCommit, draft, value])
 
   useEffect(() => {
     setHighlightedIndex((current) => Math.min(current, Math.max(0, visibleOptions.length - 1)))
@@ -445,6 +458,9 @@ export function SettingsComboBox({
 
   const selectOption = (option: string): void => {
     onSelect(option)
+    setDraft(option)
+    setAwaitingCommit(true)
+    setQuery('')
     setOpen(false)
   }
 
@@ -465,9 +481,15 @@ export function SettingsComboBox({
     }
     if (event.key === 'Enter') {
       event.preventDefault()
-      const option = visibleOptions[highlightedIndex]
-      if (open && option) {
-        selectOption(option)
+      if (open) {
+        const option = visibleOptions[highlightedIndex]
+        // If the typed query still matches a visible option, select it normally.
+        // Otherwise commit the free-form typed value (already saved via onInput).
+        if (option && (!normalizedQuery || option.toLowerCase().includes(normalizedQuery))) {
+          selectOption(option)
+        } else {
+          setOpen(false)
+        }
       } else {
         setOpen(true)
       }
@@ -484,9 +506,11 @@ export function SettingsComboBox({
         className="settings-input settings-combobox-input"
         placeholder={placeholder}
         role="combobox"
-        value={value}
+        value={draft}
         onClick={() => setOpen(true)}
         onChange={(event) => {
+          setDraft(event.target.value)
+          setAwaitingCommit(true)
           setQuery(event.target.value)
           onInput(event.target.value)
         }}

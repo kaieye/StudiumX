@@ -64,6 +64,10 @@ import {
   type CreateTeachingMemoryPayload,
   type LessonStreamChunk,
   type LessonSummary,
+  type AgentResourceLimitLayer,
+  type AgentResourceLimitScope,
+  type AgentResourceMeter,
+  type AgentRunTerminalNotice,
   type InterruptedAgentRun,
   type ListUpstreamModelsResult,
   type ProgressSummary,
@@ -842,6 +846,18 @@ function createAgentConversationTurnRunner(
 export const useAppStore = create<StoreState>((set, get) => {
   let learningAssetReader: LearningAssetReader | null = null
   let agentConversationTurnRunner: AgentConversationTurnRunner<UserError> | null = null
+  // Settings controls can emit updates on every keystroke. Serialize their IPC
+  // writes and corresponding state read-backs so an older response cannot win
+  // the race against a newer setting value.
+  let settingsUpdateQueue: Promise<void> = Promise.resolve()
+  const enqueueSettingsUpdate = <T>(operation: () => Promise<T>): Promise<T> => {
+    const pending = settingsUpdateQueue.then(operation, operation)
+    settingsUpdateQueue = pending.then(
+      () => undefined,
+      () => undefined
+    )
+    return pending
+  }
   const getAgentConversationTurnRunner = (): AgentConversationTurnRunner<UserError> => {
     agentConversationTurnRunner ??= createAgentConversationTurnRunner(get, set)
     return agentConversationTurnRunner
@@ -1078,33 +1094,35 @@ export const useAppStore = create<StoreState>((set, get) => {
       return
     }
     try {
-      const [state, rawSettings, interruptedRuns] = await Promise.all([
+      const [state, rawSettings, interruptedRuns, terminalNotices] = await Promise.all([
         api.getState(),
         api.getSettings(),
-        api.listInterruptedAgentRuns()
+        api.listInterruptedAgentRuns(),
+        // Defensive compatibility for an older preload during a desktop upgrade.
+        api.listTerminalAgentRunNotices?.() ?? []
       ])
       const settings = normalizeRendererSettings(rawSettings)
       applySettingsSideEffects(settings)
-      const interruptedRunsInCurrentWorkspace = interruptedRuns
+      const durableNoticesInCurrentWorkspace = [...interruptedRuns, ...terminalNotices]
         .filter((run) => state.activeWorkspace
           ? run.workspaceId === state.activeWorkspace.id
           : !run.workspaceId)
-        .sort((left, right) => right.interruptedAt.localeCompare(left.interruptedAt))
-      // Open only the newest run; its notice retains the full workspace count so older runs are not hidden.
-      const interrupted = interruptedRunsInCurrentWorkspace[0]
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      // Open only the newest record; all remaining durable notices remain explicitly counted for review.
+      const durableNotice = durableNoticesInCurrentWorkspace[0]
       let recoveryConversation: AgentConversationRecord | null = null
       let recoveryConversationScope: AgentConversationLookupScope | null = null
       let recoverySessionTree: AgentConversationSessionTree | null = null
-      if (interrupted?.workspaceId && interrupted.conversationId) {
+      if (durableNotice?.workspaceId && durableNotice.conversationId) {
         const [workspaceConversation, temporaryConversation] = await Promise.all([
           api.readAgentConversation({
-            workspaceId: interrupted.workspaceId,
-            conversationId: interrupted.conversationId,
+            workspaceId: durableNotice.workspaceId,
+            conversationId: durableNotice.conversationId,
             scope: 'workspace'
           }).catch(() => null),
           api.readAgentConversation({
-            workspaceId: interrupted.workspaceId,
-            conversationId: interrupted.conversationId,
+            workspaceId: durableNotice.workspaceId,
+            conversationId: durableNotice.conversationId,
             scope: 'temporary'
           }).catch(() => null)
         ])
@@ -1114,14 +1132,14 @@ export const useAppStore = create<StoreState>((set, get) => {
         }
         if (recoveryConversation && recoveryConversationScope) {
           recoverySessionTree = await api.readAgentConversationSessionTree({
-            workspaceId: interrupted.workspaceId,
-            conversationId: interrupted.conversationId,
+            workspaceId: durableNotice.workspaceId,
+            conversationId: durableNotice.conversationId,
             scope: recoveryConversationScope
           }).catch(() => null)
         }
       }
-      const recoveryTurns = interrupted
-        ? [...(recoveryConversation?.turns ?? []), interruptedAgentRunNotice(interrupted, interruptedRunsInCurrentWorkspace.length)]
+      const recoveryTurns = durableNotice
+        ? [...(recoveryConversation?.turns ?? []), durableAgentRunNotice(durableNotice, durableNoticesInCurrentWorkspace.length)]
         : []
       set({
         appState: state,
@@ -1129,11 +1147,15 @@ export const useAppStore = create<StoreState>((set, get) => {
         taskPrompt: state.activeWorkspace?.lessons.length ? nextPrompt : defaultPrompt,
         loading: false,
         agentTurns: recoveryTurns,
-        activeConversationId: interrupted?.conversationId ?? null,
+        activeConversationId: durableNotice?.conversationId ?? null,
         activeConversationScope: recoveryConversationScope,
         activeConversationRevision: recoveryConversation?.branch?.revision ?? (recoveryConversation ? 0 : null),
         activeSessionTree: recoverySessionTree,
-        agentStatus: interrupted ? '上次运行已中断，需要人工确认；不会自动继续或重做。' : '',
+        agentStatus: durableNotice
+          ? durableNotice.status === 'interrupted'
+            ? '上次运行已中断，需要人工确认；不会自动继续或重做。'
+            : '上次运行已到达终态边界；不会自动继续或重放。请开始新的明确回合。'
+          : '',
         agentChatBusy: false,
         agentBusyAckMessage: null,
         agentBusyFollowUpQueue: [],
@@ -1192,7 +1214,7 @@ export const useAppStore = create<StoreState>((set, get) => {
     const api = window.teachingSystem
     if (!api) return
     try {
-      const settings = normalizeRendererSettings(await api.updateSettings(patch))
+      const settings = normalizeRendererSettings(await enqueueSettingsUpdate(() => api.updateSettings(patch)))
       applySettingsSideEffects(settings)
       set({ settings, error: null })
     } catch (error) {
@@ -2332,6 +2354,14 @@ export const useAppStore = create<StoreState>((set, get) => {
   })
 })
 
+type DurableAgentRunNotice = InterruptedAgentRun | AgentRunTerminalNotice
+
+function durableAgentRunNotice(run: DurableAgentRunNotice, currentWorkspaceRunCount: number): AgentChatTurn {
+  return run.status === 'interrupted'
+    ? interruptedAgentRunNotice(run, currentWorkspaceRunCount)
+    : terminalAgentRunNotice(run, currentWorkspaceRunCount)
+}
+
 function interruptedAgentRunNotice(run: InterruptedAgentRun, currentWorkspaceRunCount: number): AgentChatTurn {
   const waiting = run.previousStatus === 'waiting_for_permission'
     ? '退出时正在等待写入审批；旧审批已失效。'
@@ -2377,6 +2407,89 @@ function interruptedAgentRunNotice(run: InterruptedAgentRun, currentWorkspaceRun
       provenance: { kind: 'recovery_notice' }
     }
   }
+}
+
+function terminalAgentRunNotice(run: AgentRunTerminalNotice, currentWorkspaceRunCount: number): AgentChatTurn {
+  const noticeCount = currentWorkspaceRunCount > 1
+    ? `当前工作区共有 ${currentWorkspaceRunCount} 个持久化运行提示需要检查。已自动打开最新一项；其余 ${currentWorkspaceRunCount - 1} 项仍需要检查。`
+    : '当前工作区共有 1 个持久化运行提示需要检查。'
+  const review = run.operationReviewCount > 0
+    ? ` 请先检查可能已执行的 ${run.operationReviewCount} 个写入；它们已开始但完成状态不明。`
+    : ''
+  const terminal = run.usage.resourceGovernance?.terminal
+  const resourceBoundary = terminal
+    ? `\n\n**资源边界**\n- 层级：${resourceLayerLabel(terminal.layer)}\n- 计量：${resourceMeterLabel(terminal.meter)}\n- 已用 / 上限：${terminal.used} / ${terminal.limit}\n- 作用域：${resourceScopeLabel(terminal.scope)}`
+    : ''
+  const inputEvidence = run.userInputPreview
+    ? `\n\n**本轮输入（已脱敏）**\n${run.userInputPreview}`
+    : ''
+  const confirmedEvidence = run.confirmedAssistantPreview
+    ? `\n\n**已确认但未提交的回答（已脱敏）**\n${run.confirmedAssistantPreview}${run.confirmedAssistantTruncated ? '\n\n（恢复证据已截断。）' : ''}`
+    : ''
+  const partialEvidence = (run.unrecoverableAssistantDeltaBytes ?? 0) > 0 && !run.confirmedAssistantPreview
+    ? `\n\n检测到约 ${run.unrecoverableAssistantDeltaBytes} 字节未完成流式片段；这些片段不会被当作最终回答。`
+    : ''
+  const boundaryEvidence = run.evidence?.length
+    ? `\n\n**已持久化边界**\n${run.evidence.slice(-6).map((item) => `- ${item.title}${item.detail ? `：${item.detail}` : ''}`).join('\n')}`
+    : ''
+  const stopExplanation = run.stopReason === 'resource_limit'
+    ? '上次 Agent 运行达到明确、可审计的资源边界后停止；这不是 provider 配额、计费状态或学习成功。'
+    : run.stopReason === 'suspended'
+      ? '上次 Agent 运行被紧急资源保险丝暂停；这不是 provider 配额、计费状态或学习成功。'
+      : run.stopReason === 'no_progress'
+        ? '上次 Agent 运行检测到重复操作未带来安全进展后停止；这不是 provider 配额、计费状态或学习成功。'
+        : run.stopReason === 'context_unrecoverable'
+          ? '上次 Agent 运行无法安全压缩上下文后停止；这不是 provider 配额、计费状态或学习成功。'
+          : '上次 Agent 运行已用尽有界重试；这不是 provider 配额、计费状态或学习成功。'
+  const terminalTitle = run.stopReason === 'retry_exhausted'
+    ? '重试已用尽'
+    : run.stopReason === 'no_progress'
+      ? '重复操作未产生进展'
+      : run.stopReason === 'context_unrecoverable'
+        ? '上下文无法安全压缩'
+        : '资源边界已停止'
+  const content = `${stopExplanation}${noticeCount}${review} 没有创建 canonical conversation settlement；此只读提示不会自动继续，也不会重放 provider 或工具工作。${resourceBoundary}${inputEvidence}${confirmedEvidence}${partialEvidence}${boundaryEvidence}\n\n请检查已有结果和可能的副作用后，开始一个新的明确回合。`
+  return {
+    id: `terminal-${run.runId}`,
+    role: 'assistant',
+    content,
+    createdAt: run.completedAt,
+    processEvents: [{
+      id: `terminal-event-${run.runId}`,
+      kind: 'status',
+      status: run.stopReason,
+      title: terminalTitle,
+      detail: stopExplanation,
+      createdAt: run.completedAt
+    }],
+    metadata: {
+      version: 1,
+      runUsage: run.usage,
+      provenance: { kind: 'recovery_notice' }
+    }
+  }
+}
+
+function resourceLayerLabel(layer: AgentResourceLimitLayer): string {
+  return ({
+    user_budget: '用户预算',
+    deployment_policy: '部署策略',
+    emergency_fuse: '紧急保险丝'
+  })[layer]
+}
+
+function resourceMeterLabel(meter: AgentResourceMeter): string {
+  return ({
+    logical_requests: '逻辑请求',
+    provider_transport_attempts: 'provider 传输尝试',
+    tool_operation_attempts: '工具操作尝试',
+    duration_ms: '运行时长（毫秒）',
+    total_tokens: '总 token'
+  })[meter]
+}
+
+function resourceScopeLabel(scope: AgentResourceLimitScope): string {
+  return ({ task: '任务', run: '运行', workspace: '工作区', tenant: '租户', deployment: '部署' })[scope]
 }
 
 

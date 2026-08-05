@@ -49,7 +49,6 @@
 | OS sandbox 产品面（bwrap / seatbelt / RestrictedToken）当写盘替代 | **禁止**宣称为本模型一部分 |
 | 把 Windows 较弱写改名为 strict / CAS | **禁止** |
 | 拆 `TeachingTurnCoordinator` / settlement sole-writer / `expectedRevision` | **禁止** |
-| 用 soft reminder 替代硬预算 | **禁止** |
 
 本 ADR **只**借 Codex 的 **pathname 写简单性**，**不**借其 shell / sandbox / danger 产品面。
 

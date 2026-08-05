@@ -467,13 +467,61 @@ export function SettingsView({
                   onChange={(webFetch) => void configuration.updateSetting('tools.webFetch', webFetch)}
                 />
               </SettingsRow>
-              <SettingsRow label="最大工具调用轮数" detail="默认 0（不限轮数），仍受时长、模型调用、工具调用和 Token 运行预算保护">
+              <SettingsRow
+                label="显式运行资源预算"
+                detail="仅在你主动开启后，对新启动的单次 Agent / 课程生成运行生效；到达上限会以资源限制停止，不是 provider 配额或学习完成。不会自动重放工具或 provider 请求。"
+              >
+                <ToggleSwitch
+                  checked={settings.resourceBudget.enabled}
+                  onChange={(enabled) => void configuration.updateSetting('resourceBudget.enabled', enabled)}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="Provider 实际 dispatch 上限"
+                detail="按实际网络请求计数；流式 fallback、可重试 transport 和 no-tool retry 都会分别计入。"
+              >
                 <NumberInput
-                  max={64}
-                  min={0}
+                  value={settings.resourceBudget.providerTransportAttempts}
+                  min={1}
+                  max={10_000}
                   step={1}
-                  value={settings.tools.maxIterations}
-                  onChange={(maxIterations) => void configuration.updateSetting('tools.maxIterations', maxIterations)}
+                  onChange={(value) => void configuration.updateSetting('resourceBudget.providerTransportAttempts', value)}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="工具操作尝试上限"
+                detail="按工具操作尝试计数；审批、effect lattice 与路径围栏不会因预算改变。"
+              >
+                <NumberInput
+                  value={settings.resourceBudget.toolOperationAttempts}
+                  min={1}
+                  max={10_000}
+                  step={1}
+                  onChange={(value) => void configuration.updateSetting('resourceBudget.toolOperationAttempts', value)}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="运行时长上限（分钟）"
+                detail="按单次运行墙钟时间计数；保存后用于下一次启动，不中断已在执行的运行。"
+              >
+                <NumberInput
+                  value={settings.resourceBudget.durationMinutes}
+                  min={1}
+                  max={1_440}
+                  step={1}
+                  onChange={(value) => void configuration.updateSetting('resourceBudget.durationMinutes', value)}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="已报告总 token 上限"
+                detail="仅对 provider 明确报告的 total_tokens 计数；缺失或仅 component usage 不会被伪造成 token 配额。"
+              >
+                <NumberInput
+                  value={settings.resourceBudget.totalTokens}
+                  min={1_000}
+                  max={100_000_000}
+                  step={1_000}
+                  onChange={(value) => void configuration.updateSetting('resourceBudget.totalTokens', value)}
                 />
               </SettingsRow>
               <SettingsRow label="端点格式支持" detail={

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   buildSkillOrchestrationPlanInput,
   buildSkillOrchestrationReadinessFromCatalog,
-  deriveSkillOrchestrationBudgetPressure,
   filterSkillReferencesToActiveBodies,
   mergeSelectedSkillIds,
   resolveCurrentSkillOrchestrationStage,
@@ -36,21 +35,6 @@ function planFor(selected: string[], mode?: 'teaching_turn' | 'artifact_workflow
 }
 
 
-
-describe('deriveSkillOrchestrationBudgetPressure', () => {
-  it('derives only a soft planner pressure signal from configured hard-budget headroom', () => {
-    expect(deriveSkillOrchestrationBudgetPressure({
-      maxTotalTokens: 10_000,
-      warningThreshold: 0.5,
-      selectedSkillCount: 2
-    })).toBe(true)
-    expect(deriveSkillOrchestrationBudgetPressure({
-      maxTotalTokens: 500_000,
-      warningThreshold: 0.8,
-      selectedSkillCount: 8
-    })).toBe(false)
-  })
-})
 
 describe('resolveHostSkillOrchestrationMode', () => {
   it('uses artifact_workflow when a workflow router is selected even in teaching chat', () => {

@@ -3,6 +3,7 @@ import { waitFor } from '@testing-library/react'
 import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
 import type {
   AgentChatTurn,
+  AgentRealtimeEvent,
   LessonSummary,
   ReviewCard,
   TeachingAppState,
@@ -82,27 +83,96 @@ function completedAgentTurns(): AgentChatTurn[] {
   ]
 }
 
-function successfulAgentApi(conversationId = 'conversation-1'): Partial<TeachingSystemApi> {
+function hostAgentApi(
+  outcome: { canceled: true } | { error: true; message: string } | null = null,
+  conversationId = 'conversation-1'
+): Partial<TeachingSystemApi> {
+  let eventHandler: ((event: AgentRealtimeEvent) => void) | undefined
+  let runIndex = 0
+  const conversation = {
+    id: conversationId,
+    title: 'Completed conversation',
+    createdAt,
+    updatedAt: createdAt,
+    relativePath: `.studiumx/agent-conversations/${conversationId}.json`,
+    absolutePath: `/workspace/.studiumx/agent-conversations/${conversationId}.json`,
+    messageCount: completedAgentTurns().length,
+    branch: {
+      schemaVersion: 1 as const,
+      sessionId: 'session-1',
+      branchId: `branch-${conversationId}`,
+      revision: 1,
+      status: 'active' as const
+    },
+    turns: completedAgentTurns()
+  }
+
   return {
-    agentChatStream: vi.fn(async () => ({ turns: completedAgentTurns(), toolsSupported: true })),
-    saveAgentConversation: vi.fn(async (payload) => ({
-      state: appState(),
-      conversation: {
-        id: conversationId,
-        title: 'Completed conversation',
-        createdAt,
-        updatedAt: createdAt,
-        relativePath: `.studiumx/agent-conversations/${conversationId}.json`,
-        absolutePath: `/workspace/.studiumx/agent-conversations/${conversationId}.json`,
-        messageCount: payload.turns.length
+    getState: vi.fn(async () => appState()),
+    submitConversationTurn: vi.fn(async () => {
+      runIndex += 1
+      const streamId = `host-stream-${runIndex}`
+      queueMicrotask(() => {
+        if (outcome?.canceled) {
+          eventHandler?.({
+            sequence: 1,
+            streamId,
+            kind: 'terminal',
+            createdAt,
+            outcome: 'canceled'
+          })
+          return
+        }
+        if (outcome?.error) {
+          eventHandler?.({
+            sequence: 1,
+            streamId,
+            kind: 'terminal',
+            createdAt,
+            outcome: 'error',
+            message: outcome.message
+          })
+          return
+        }
+        eventHandler?.({
+          sequence: 1,
+          streamId,
+          kind: 'terminal',
+          createdAt,
+          outcome: 'done'
+        })
+      })
+      return {
+        code: 'started' as const,
+        activeTurnId: 'turn-1',
+        streamId,
+        conversationId
       }
-    })),
+    }),
+    onAgentChatEvent: vi.fn((handler) => {
+      eventHandler = handler
+      return () => {
+        eventHandler = undefined
+      }
+    }),
+    readAgentConversation: vi.fn(async () => conversation),
     readAgentConversationSessionTree: vi.fn(async () => ({
       schemaVersion: 1,
       sessionId: 'session-1',
       rootConversationId: conversationId,
       activeConversationId: conversationId,
-      branches: []
+      openBranchId: `branch-${conversationId}`,
+      branches: [{
+        sessionId: 'session-1',
+        branchId: `branch-${conversationId}`,
+        conversationId,
+        title: 'Completed conversation',
+        status: 'active' as const,
+        revision: 1,
+        head: { turnId: 'assistant-1', turnCount: completedAgentTurns().length, updatedAt: createdAt },
+        relativePath: `.studiumx/agent-conversations/${conversationId}.json`,
+        isOpen: true
+      }]
     }))
   }
 }
@@ -143,25 +213,27 @@ afterEach(() => {
 
 describe('appStore Pet operation error sources', () => {
   it('records a successful Agent result only after the same run saves its conversation', async () => {
-    installApi(successfulAgentApi('conversation-1'))
+    installApi(hostAgentApi(null, 'conversation-1'))
 
     await useAppStore.getState().agentChat()
 
-    expect(useAppStore.getState().agentPetNotificationResult).toMatchObject({
-      runId: expect.stringMatching(/^pending-/),
-      resultId: expect.stringMatching(/^pending-.*:conversation-1$/),
+    await waitFor(() => expect(useAppStore.getState().agentPetNotificationResult).toMatchObject({
+      runId: expect.stringMatching(/^host-stream-/),
+      resultId: expect.stringMatching(/^host-stream-.*:conversation-1$/),
       targetId: 'conversation-1'
-    })
+    }))
   })
 
   it('does not reuse an Agent result identity across consecutive runs', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(1_000)
-    installApi(successfulAgentApi('conversation-shared'))
+    installApi(hostAgentApi(null, 'conversation-shared'))
 
     await useAppStore.getState().agentChat()
+    await waitFor(() => expect(useAppStore.getState().agentPetNotificationResult).not.toBeNull())
     const first = useAppStore.getState().agentPetNotificationResult
     useAppStore.setState({ activeConversationId: null, agentInput: 'Help again' })
     await useAppStore.getState().agentChat()
+    await waitFor(() => expect(useAppStore.getState().agentPetNotificationResult).not.toBeNull())
     const second = useAppStore.getState().agentPetNotificationResult
 
     expect(first?.runId).not.toBe(second?.runId)
@@ -182,7 +254,7 @@ describe('appStore Pet operation error sources', () => {
         createdAt: 1
       }
     })
-    installApi({ agentChatStream: vi.fn(async () => done) })
+    installApi(hostAgentApi(done))
 
     await useAppStore.getState().agentChat()
 
@@ -190,19 +262,17 @@ describe('appStore Pet operation error sources', () => {
   })
 
   it('records Agent runner failures with the pending conversation lifecycle id', async () => {
-    installApi({
-      agentChatStream: vi.fn(async () => ({ error: true as const, message: 'Agent unavailable' }))
-    })
+    installApi(hostAgentApi({ error: true, message: 'Agent unavailable' }))
 
     await useAppStore.getState().agentChat()
 
-    expect(useAppStore.getState().petNotificationErrors).toEqual([
+    await waitFor(() => expect(useAppStore.getState().petNotificationErrors).toEqual([
       expect.objectContaining({
         source: 'agent',
         sourceId: expect.stringMatching(/^pending-/),
         error: expect.objectContaining({ message: 'Agent unavailable' })
       })
-    ])
+    ]))
   })
 
   it('records lesson generation failures without classifying unrelated global errors', async () => {

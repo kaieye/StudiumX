@@ -675,7 +675,6 @@ export type TokenUsageNumbers = {
   iterations: number
   childRuns: number
   durationMs: number
-  budgetStopReason?: 'duration' | 'provider_calls' | 'tool_calls' | 'total_tokens'
 }
 
 /** Normalized usage unit before aggregation. */
@@ -719,7 +718,6 @@ export type TokenAnalytics = {
     iterations: number
     childRuns: number
     durationMs: number
-    budgetStops: number
   }
   byDay: Array<{
     date: AnalyticsLocalDate

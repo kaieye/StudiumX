@@ -145,6 +145,17 @@ describe('AgentConversationTurnLane (ADR-0170)', () => {
     expect(subject.snapshot().lanes[0]).toMatchObject({ phase: 'canceling', queueDepth: 0 })
   })
 
+  it('suspends after a resource terminal without promoting queued follow-ups', () => {
+    const subject = lane()
+    const first = started(subject.submit(intent('request-1', 'first')))
+    subject.submit(intent('request-2', 'must wait for explicit continuation'))
+
+    expect(subject.suspend({ target: canonical(), activeTurnId: first.activeTurnId, streamId: first.streamId }))
+      .toEqual({ code: 'released' })
+    expect(subject.snapshot().lanes[0]).toMatchObject({ phase: 'idle', queueDepth: 0 })
+    expect(subject.submit(intent('request-3', 'new explicit input')).code).toBe('started')
+  })
+
   it('releases the lane after failure and accepts subsequent work', () => {
     const subject = lane()
     const first = started(subject.submit(intent('request-1', 'first')))

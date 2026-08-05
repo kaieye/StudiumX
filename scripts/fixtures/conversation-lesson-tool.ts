@@ -47,10 +47,8 @@ let pipelineRequests = 0
 let pipelineBodies: MockRequest[] = []
 let conversationMode:
   | 'normal'
-  | 'budget-exhaustion'
   | 'captured-rag-onboarding'
-  | 'onboarding-budget-exhaustion'
-  | 'onboarding-final-tool-call-error' = 'normal'
+  = 'normal'
 let onboardingConversationRequests = 0
 
 const server = createServer(async (req, res) => {
@@ -80,46 +78,6 @@ const server = createServer(async (req, res) => {
           message: {
             role: 'assistant',
             content
-          }
-        }
-      ]
-    })
-    return
-  }
-
-  if (conversationMode === 'budget-exhaustion') {
-    const forcedFinalWithoutTools = !Array.isArray(body.tools) || body.tools.length === 0
-    const hasToolResult = messages.some((message) => message.role === 'tool')
-    if (forcedFinalWithoutTools || hasToolResult) {
-      reply({
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: '好，资料齐了。开始生成第二课。'
-            }
-          }
-        ]
-      })
-      return
-    }
-
-    reply({
-      choices: [
-        {
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [
-              {
-                id: 'call-read-before-lesson',
-                type: 'function',
-                function: {
-                  name: 'read_workspace_file',
-                  arguments: JSON.stringify({ path: 'MISSION.md' })
-                }
-              }
-            ]
           }
         }
       ]
@@ -186,125 +144,6 @@ const server = createServer(async (req, res) => {
                 arguments: call.arguments
               }
             }))
-          }
-        }
-      ]
-    })
-    return
-  }
-
-  if (conversationMode === 'onboarding-budget-exhaustion' || conversationMode === 'onboarding-final-tool-call-error') {
-    onboardingConversationRequests += 1
-    const forcedFinalWithoutTools = !Array.isArray(body.tools) || body.tools.length === 0
-    if (forcedFinalWithoutTools) {
-      if (conversationMode === 'onboarding-final-tool-call-error') {
-        reply({
-          choices: [
-            {
-              message: {
-                role: 'assistant',
-                content: null,
-                tool_calls: [
-                  {
-                    id: 'call-forced-final-still-wants-lesson',
-                    type: 'function',
-                    function: {
-                      name: 'generate_lesson',
-                      arguments: JSON.stringify({
-                        topic: 'RAG 检索增强生成',
-                        firstLessonFocus: '用一张流程图讲清 RAG 的核心流程'
-                      })
-                    }
-                  }
-                ]
-              }
-            }
-          ]
-        })
-        return
-      }
-      reply({
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: '好的，MISSION.md 已锁定为「RAG 面试准备」。现在生成第一节课——最关键的起步内容。'
-            }
-          }
-        ]
-      })
-      return
-    }
-
-    const scriptedCalls = [
-      {
-        id: 'call-onboarding-list',
-        name: 'list_workspace',
-        arguments: JSON.stringify({ path: '.', recursive: true })
-      },
-      {
-        id: 'call-onboarding-read',
-        name: 'read_workspace_file',
-        arguments: JSON.stringify({ path: 'MISSION.md' })
-      },
-      {
-        id: 'call-onboarding-ask',
-        name: 'ask',
-        arguments: JSON.stringify({
-          questions: [
-            {
-              header: '学习动机',
-              question: '你为什么想学 RAG？',
-              options: [
-                { label: '面试准备', description: '准备 AI/ML 相关岗位面试' },
-                { label: '项目落地', description: '在自有数据上搭建 RAG 系统' }
-              ]
-            }
-          ]
-        })
-      },
-      {
-        id: 'call-onboarding-write',
-        name: 'write_workspace_file',
-        arguments: JSON.stringify({
-          path: 'MISSION.md',
-          overwrite: true,
-          content: [
-            '# Mission: 学透 RAG，通过面试',
-            '',
-            '## Why',
-            '准备 AI/ML 岗位面试，需要系统理解 RAG 的原理、流程和关键设计权衡。',
-            '',
-            '## Success looks like',
-            '- 能清晰解释 RAG 是什么、为什么需要它、三步核心流程',
-            '',
-            '## Constraints',
-            '- 每节 15-20 分钟，概念讲解为主'
-          ].join('\n')
-        })
-      }
-    ]
-    const next = scriptedCalls[onboardingConversationRequests - 1] ?? {
-      id: `call-onboarding-extra-read-${onboardingConversationRequests}`,
-      name: 'read_workspace_file',
-      arguments: JSON.stringify({ path: 'MISSION.md' })
-    }
-    reply({
-      choices: [
-        {
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [
-              {
-                id: next.id,
-                type: 'function',
-                function: {
-                  name: next.name,
-                  arguments: next.arguments
-                }
-              }
-            ]
           }
         }
       ]
@@ -492,116 +331,12 @@ try {
   assert.equal(lessonFiles.some((name) => name.startsWith('0002-')), true, 'the local fallback lesson should be persisted as lesson 0002')
   assert.match(failure.generatedLessons?.[0]?.objective ?? '', /五个核心步骤|面试话术/, 'the fallback must remain aligned with the explicit lesson brief')
 
-  // --- Scenario 3: reaching the loop limit before generate_lesson must not
-  // bypass the agent loop and invoke the side-effecting lesson pipeline.
-  conversationMode = 'budget-exhaustion'
-  pipelineMode = 'success'
-  pipelineRequests = 0
-  settings.tools.maxIterations = 1
-  const exhausted = await service.agentChatStream(
-    {
-      workspaceId: workspace.id,
-      mode: 'teaching',
-      messages: [],
-      userInput: '第一节课学完了，直接开始第二节课，内容多一点。'
-    },
-    {
-      streamId: 'lesson-tool-budget-exhaustion-stream',
-      onChunk: () => {},
-      onStatus: () => {},
-      onTool: () => {}
-    }
-  )
-
-  assert.equal('error' in exhausted, true, 'loop exhaustion should surface a truthful manual-retry boundary')
-  assert.equal(pipelineRequests, 0, 'loop exhaustion must not auto-run the lesson generation pipeline')
-  const filesAfterExhaustion = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterExhaustion.length, 4, 'loop exhaustion should not add another lesson or reference page')
-  assert.equal(filesAfterExhaustion.some((name) => name.startsWith('0003-')), false)
-
-  // --- Scenario 4: a new learner can enter with a broad topic, answer one
-  // clarification question, and have the agent decide to generate the first
-  // lesson. If the loop ends immediately after the mission write, StudiumX
-  // keeps that completed operation but does not infer and run a second side effect.
-  conversationMode = 'onboarding-budget-exhaustion'
-  onboardingConversationRequests = 0
-  pipelineMode = 'success'
-  pipelineRequests = 0
-  settings.tools.maxIterations = 4
-  const onboardingStreamId = 'lesson-tool-onboarding-budget-exhaustion-stream'
-  const onboarding = await service.agentChatStream(
-    {
-      workspaceId: workspace.id,
-      mode: 'teaching',
-      messages: [],
-      userInput: '我想学习RAG'
-    },
-    {
-      streamId: onboardingStreamId,
-      onChunk: () => {},
-      onStatus: () => {},
-      onTool: (event) => {
-        if (event.toolCall.name !== 'ask') return
-        setTimeout(() => {
-          resolveAskPending(onboardingStreamId, event.toolCall.id, [
-            { questionId: 'q1', selected: ['面试准备'] }
-          ])
-        }, 0)
-      }
-    }
-  )
-
-  assert.equal('canceled' in onboarding, false)
-  assert.equal('generatedLessons' in onboarding ? onboarding.generatedLessons : undefined, undefined)
-  assert.equal(pipelineRequests, 0, 'onboarding exhaustion must not auto-run generate_lesson')
-  const filesAfterOnboarding = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterOnboarding.some((name) => name.startsWith('0003-')), false)
-
-  // --- Scenario 5: some OpenAI-compatible providers still return tool_calls
-  // during a no-tools final-answer round. A returned tool_call is not an
-  // authorization to execute the side effect out of band.
-  conversationMode = 'onboarding-final-tool-call-error'
-  onboardingConversationRequests = 0
-  pipelineMode = 'success'
-  pipelineRequests = 0
-  settings.tools.maxIterations = 4
-  const finalToolCallStreamId = 'lesson-tool-final-tool-call-error-stream'
-  const finalToolCall = await service.agentChatStream(
-    {
-      workspaceId: workspace.id,
-      mode: 'teaching',
-      messages: [],
-      userInput: '我想学习RAG'
-    },
-    {
-      streamId: finalToolCallStreamId,
-      onChunk: () => {},
-      onStatus: () => {},
-      onTool: (event) => {
-        if (event.toolCall.name !== 'ask') return
-        setTimeout(() => {
-          resolveAskPending(finalToolCallStreamId, event.toolCall.id, [
-            { questionId: 'q1', selected: ['面试准备'] }
-          ])
-        }, 0)
-      }
-    }
-  )
-
-  assert.equal('canceled' in finalToolCall, false)
-  assert.equal('generatedLessons' in finalToolCall ? finalToolCall.generatedLessons : undefined, undefined)
-  assert.equal(pipelineRequests, 0, 'a forced-final tool_call must not trigger out-of-band generation')
-  const filesAfterFinalToolCall = (await readdir(join(workspace.rootPath, 'lessons'))).filter((name) => name.endsWith('.html'))
-  assert.equal(filesAfterFinalToolCall.some((name) => name.startsWith('0003-')), false)
-
-  // --- Scenario 6: replay the captured "我想学习RAG" trace. The persisted
-  // generic limit is one iteration, but a durable teaching request still needs
-  // enough room to inspect the workspace and execute generate_lesson.
+  // --- Scenario 3: replay the captured "我想学习RAG" trace. The persisted
+  // continuous execution must leave room to inspect the workspace and execute generate_lesson.
   conversationMode = 'captured-rag-onboarding'
   onboardingConversationRequests = 0
   pipelineMode = 'success'
   pipelineRequests = 0
-  settings.tools.maxIterations = 1
   const capturedOnboarding = await service.agentChatStream(
     {
       workspaceId: workspace.id,
@@ -628,14 +363,13 @@ try {
     .filter((name) => name.endsWith('.html'))
   assert.equal(filesAfterCapturedOnboarding.some((name) => name.startsWith('0003-')), true, 'lesson 0003 should exist on disk')
 
-  // --- Scenario 7: malformed JSON should get one compact full regeneration.
+  // --- Scenario 4: malformed JSON should get one compact full regeneration.
   // The compact round is intentionally shorter
   // and should rescue providers that clipped or broke the first JSON object.
   conversationMode = 'normal'
   pipelineMode = 'compact-recovery'
   pipelineRequests = 0
   pipelineBodies = []
-  settings.tools.maxIterations = 0
   const compactRecovery = await service.agentChatStream(
     {
       workspaceId: workspace.id,

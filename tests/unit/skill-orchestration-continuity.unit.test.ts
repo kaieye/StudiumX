@@ -208,7 +208,13 @@ describe('skill orchestration state store (ADR-0156)', () => {
   it('refuses a symlinked local state parent', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sx-orch-state-link-'))
     const outside = await mkdtemp(join(tmpdir(), 'sx-orch-state-outside-'))
-    await symlink(outside, join(root, '.agent-sessions'))
+    try {
+      await symlink(outside, join(root, '.agent-sessions'))
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES')) return
+      throw error
+    }
     const store = createSkillOrchestrationStateStore({ workspaceRoot: root })
 
     expect(await store.save('conv-1', state())).toBe(false)

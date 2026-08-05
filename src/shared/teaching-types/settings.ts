@@ -227,6 +227,17 @@ export type TeachingSettingsV1 = {
     enabled: boolean
     maxInjected: number
   }
+  /**
+   * Optional user-owned per-run resource budget (ADR-0171). Disabled by
+   * default; when enabled it applies only to newly started runs.
+   */
+  resourceBudget: {
+    enabled: boolean
+    providerTransportAttempts: number
+    toolOperationAttempts: number
+    durationMinutes: number
+    totalTokens: number
+  }
   tools: {
     /**
      * Legacy persisted/DTO compatibility field. It is always normalized to true;
@@ -254,14 +265,6 @@ export type TeachingSettingsV1 = {
     windowsSandboxLevel: WindowsSandboxLevel
     webSearch: boolean
     webFetch: boolean
-    maxIterations: number
-    runBudget: {
-      maxDurationMs: number
-      maxProviderCalls: number
-      maxToolCalls: number
-      maxTotalTokens: number
-      warningThreshold: number
-    }
   }
   webSearch: {
     backend: WebSearchBackend
@@ -330,6 +333,7 @@ export type TeachingSettingsPatch = Partial<
     | 'workspace'
     | 'worktree'
     | 'memory'
+    | 'resourceBudget'
     | 'tools'
     | 'notifications'
     | 'pet'
@@ -346,10 +350,9 @@ export type TeachingSettingsPatch = Partial<
   workspace?: Partial<TeachingSettingsV1['workspace']>
   worktree?: Partial<TeachingSettingsV1['worktree']>
   memory?: Partial<TeachingSettingsV1['memory']>
+  resourceBudget?: Partial<TeachingSettingsV1['resourceBudget']>
   /** Legacy `tools.enabled` patches are accepted for compatibility but normalized to true. */
-  tools?: Partial<Omit<TeachingSettingsV1['tools'], 'runBudget'>> & {
-    runBudget?: Partial<TeachingSettingsV1['tools']['runBudget']>
-  }
+  tools?: Partial<TeachingSettingsV1['tools']>
   webSearch?: Partial<TeachingSettingsV1['webSearch']>
   notifications?: Partial<TeachingSettingsV1['notifications']>
   pet?: Partial<Omit<TeachingSettingsV1['pet'], 'notificationPreferences'>> & {

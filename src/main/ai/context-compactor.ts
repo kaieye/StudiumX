@@ -1,23 +1,20 @@
 import type { ChatMessage, ToolDefinition } from './provider-adapter'
-import { ContextEstimator, type TokenEstimate } from './context-estimator'
+import { ContextEstimator, type ContextOverhead, type TokenEstimate } from './context-estimator'
 import {
   modelContextWindowTokens
 } from '../../shared/model-provider-catalog'
 import {
   CompactionPressureController,
-  shouldSkipCompactionForHardBudget,
   type CompactionPressureOptionOverrides,
   type CompactionTriggerPoint
 } from './compaction-pressure-controller'
 
 export {
-  COMPACTION_HARD_BUDGET_AUTHORITY,
   CompactionPressureController,
   CompactionSingleFlight,
   createCompactionPressureState,
   nextPressureState,
   pressureOptionOverrides,
-  shouldSkipCompactionForHardBudget
 } from './compaction-pressure-controller'
 export type {
   CompactionPressureLevel,
@@ -25,6 +22,17 @@ export type {
   CompactionPressureState,
   CompactionTriggerPoint
 } from './compaction-pressure-controller'
+
+export type ContextWindowEstimateSource =
+  | 'configured'
+  | 'catalog'
+  | 'model_name_hint'
+  | 'conservative_default'
+
+export type ContextWindowEstimate = {
+  tokens: number
+  source: Exclude<ContextWindowEstimateSource, 'configured'>
+}
 
 export type ContextCompactionMode = 'normal' | 'aggressive' | 'manual'
 export type ContextCompactionReason = 'soft_threshold' | 'hard_threshold' | 'manual'
@@ -73,6 +81,8 @@ export type ContextCompactionSummaryRequest = {
   sourceDigest: string
   inputTokens: number
   maxSummaryTokens: number
+  /** Caller cancellation propagates through provider-backed summarization. */
+  signal?: AbortSignal
 }
 
 export type ContextCompactionOptions = {
@@ -215,7 +225,8 @@ type CompactionPlan = {
   summaryInputTokens: number
 }
 
-const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000
+/** Unknown models use a deliberately conservative local fallback, never an optimistic catalog-sized window. */
+export const DEFAULT_CONTEXT_WINDOW_TOKENS = 16_000
 const DEFAULT_SOFT_THRESHOLD_RATIO = 0.6
 const DEFAULT_HARD_THRESHOLD_RATIO = 0.8
 const DEFAULT_NORMAL_TAIL_RATIO = 0.35
@@ -262,12 +273,14 @@ export class ContextCompactor {
    * post_tool for audit; labels do **not** change algorithm or start a second flight.
    * Concurrent callers join the first in-flight compact (see CompactionSingleFlight).
    * Shipping mid_stream is a trigger label only — not a true mid-token overflow
-   * interceptor. Hard run budget remains authoritative: exhausted/pending → no-op.
+   * interceptor. Aggregate run usage never suppresses compaction.
    */
   async compactIfNeeded(input: {
     messages: ChatMessage[]
     tools?: ToolDefinition[]
     estimate?: TokenEstimate
+    /** Non-message fit terms which must survive candidate re-estimation. */
+    requestOverhead?: Omit<ContextOverhead, 'tools'>
     /** IDs aligned with messages, used only for persisted conversation lineage. */
     messageTurnIds?: readonly (string | undefined)[]
     /**
@@ -275,9 +288,10 @@ export class ContextCompactor {
      * Currently unused by the compact body (join + ladder are label-agnostic).
      */
     triggerPoint?: CompactionTriggerPoint
-    /** When true, skip compaction (hard run budget / durable-success authority). */
-    hardBudgetExhausted?: boolean
-    runBudgetStopPending?: boolean
+    /** Force a compaction attempt even when the normal thresholds were not crossed. */
+    forceCompaction?: boolean
+    /** Caller cancellation propagates through provider-backed summarization. */
+    signal?: AbortSignal
   }): Promise<ContextCompactionResult> {
     // Label retained for future policy / audit; body is trigger-agnostic today.
     void input.triggerPoint
@@ -288,11 +302,15 @@ export class ContextCompactor {
     messages: ChatMessage[]
     tools?: ToolDefinition[]
     estimate?: TokenEstimate
+    requestOverhead?: Omit<ContextOverhead, 'tools'>
     messageTurnIds?: readonly (string | undefined)[]
-    hardBudgetExhausted?: boolean
-    runBudgetStopPending?: boolean
+    forceCompaction?: boolean
+    signal?: AbortSignal
   }): Promise<ContextCompactionResult> {
-    const estimateBefore = input.estimate ?? this.estimator.estimateRequest(input.messages, { tools: input.tools })
+    const estimateBefore = input.estimate ?? this.estimator.estimateRequest(input.messages, {
+      tools: input.tools,
+      ...input.requestOverhead
+    })
     const unchanged = (): ContextCompactionResult => ({
       messages: input.messages,
       changed: false,
@@ -302,18 +320,10 @@ export class ContextCompactor {
     })
 
     if (!this.options.enabled) return unchanged()
-    if (
-      shouldSkipCompactionForHardBudget({
-        hardBudgetExhausted: input.hardBudgetExhausted,
-        runBudgetStopPending: input.runBudgetStopPending
-      })
-    ) {
-      return unchanged()
-    }
-    if (!this.options.force && this.options.now() < this.failureCooldownUntil) return unchanged()
+    if (!this.options.force && !input.forceCompaction && this.options.now() < this.failureCooldownUntil) return unchanged()
 
     const pressureOverrides = this.pressure.optionOverrides()
-    const plan = this.plan(input.messages, input.tools, estimateBefore, input.messageTurnIds, pressureOverrides)
+    const plan = this.plan(input.messages, input.tools, estimateBefore, input.messageTurnIds, pressureOverrides, input.forceCompaction === true)
     if (!plan) return unchanged()
 
     const cutAudit = cutAuditFromPlan(plan)
@@ -338,7 +348,8 @@ export class ContextCompactor {
         reason: plan.reason,
         sourceDigest: plan.sourceDigest,
         inputTokens: plan.summaryInputTokens,
-        maxSummaryTokens: this.options.maxSummaryTokens
+        maxSummaryTokens: this.options.maxSummaryTokens,
+        signal: input.signal
       })
       const cleanSummary = cleanSummaryText(summary)
       if (!cleanSummary) {
@@ -366,7 +377,10 @@ export class ContextCompactor {
         })
       }
       const candidateMessages = [...plan.systemPrefix, summaryMessage, ...plan.tailMessages]
-      const estimateAfter = this.estimator.estimateRequest(candidateMessages, { tools: input.tools })
+      const estimateAfter = this.estimator.estimateRequest(candidateMessages, {
+        tools: input.tools,
+        ...input.requestOverhead
+      })
       const replacedTokens = this.estimator.estimateMessages(plan.compactedMessages)
       const summaryTokens = this.estimator.estimateMessage(summaryMessage)
       const beforeTokens = estimateBefore.totalTokens
@@ -499,14 +513,15 @@ export class ContextCompactor {
     tools: ToolDefinition[] | undefined,
     estimate: TokenEstimate,
     messageTurnIds: readonly (string | undefined)[] | undefined,
-    pressureOverrides: CompactionPressureOptionOverrides
+    pressureOverrides: CompactionPressureOptionOverrides,
+    forceCompaction: boolean
   ): CompactionPlan | null {
     const contextWindowTokens = this.options.contextWindowTokens
     const softThreshold = this.options.softThresholdTokens ?? Math.floor(contextWindowTokens * this.options.softThresholdRatio)
     const hardThreshold = this.options.hardThresholdTokens ?? Math.floor(contextWindowTokens * this.options.hardThresholdRatio)
     const trigger = triggerForEstimate({
       estimate,
-      force: this.options.force,
+      force: this.options.force || forceCompaction,
       softThreshold,
       hardThreshold,
       preferAggressive: pressureOverrides.preferAggressive
@@ -559,25 +574,37 @@ export class ContextCompactor {
   }
 }
 
-export function inferContextWindowTokens(
+/**
+ * Resolve the effective provider context window and preserve how that value was
+ * obtained. Callers with an explicit configured value should record
+ * `configured` themselves; this resolver covers catalog, model-name hints, and
+ * a deliberately conservative fallback for unknown models.
+ */
+export function resolveContextWindowEstimate(
   modelId: string,
   provider?: { id?: string; baseUrl?: string }
-): number {
+): ContextWindowEstimate {
   const catalogContextWindow = modelContextWindowTokens({
     providerId: provider?.id,
     providerBaseUrl: provider?.baseUrl,
     modelId
   })
-  if (catalogContextWindow) return catalogContextWindow
+  if (catalogContextWindow) return { tokens: catalogContextWindow, source: 'catalog' }
   const model = modelId.toLowerCase()
   const explicit = /(?:^|[^0-9])(\d{2,3})k(?:[^0-9]|$)/i.exec(model)?.[1]
-  if (explicit) return Number(explicit) * 1000
+  if (explicit) return { tokens: Number(explicit) * 1000, source: 'model_name_hint' }
   if (/gpt-5|gpt-4\.1|gpt-4o|claude|deepseek|glm-5|mimo|grok|gemini/.test(model)) {
-    return 128_000
+    return { tokens: 128_000, source: 'model_name_hint' }
   }
-  if (/32k/.test(model)) return 32_000
-  if (/16k/.test(model)) return 16_000
-  return DEFAULT_CONTEXT_WINDOW_TOKENS
+  return { tokens: DEFAULT_CONTEXT_WINDOW_TOKENS, source: 'conservative_default' }
+}
+
+/** Backward-compatible token-only context-window helper. */
+export function inferContextWindowTokens(
+  modelId: string,
+  provider?: { id?: string; baseUrl?: string }
+): number {
+  return resolveContextWindowEstimate(modelId, provider).tokens
 }
 
 export function buildSummaryRequestMessages(input: {

@@ -11,7 +11,8 @@ import type { AgentLoopEvent } from '../../src/main/ai/agent-loop'
 import type {
   AgentChatStreamChunk,
   AgentChatStreamStatus,
-  AgentChatStreamToolEvent
+  AgentChatStreamToolEvent,
+  AgentRealtimeEvent
 } from '../../src/shared/teaching-types'
 import { createAgentEventBus } from '../../src/main/ai/agent-event-bus'
 
@@ -220,6 +221,48 @@ describe('wrapPresentationCallbacks + AgentEventBus isolation', () => {
       wrapped.onTool({ streamId: 's', toolCall: { id: '1', name: 'x', arguments: '' } })
     ).not.toThrow()
   })
+
+  it('records retry exhaustion as a sticky terminal outcome', () => {
+    const realtime: AgentRealtimeEvent[] = []
+    const bus = createAgentEventBus({
+      streamId: 'bus-retry-exhausted',
+      now: () => '2026-08-05T00:00:00.000Z',
+      onChunk: () => undefined,
+      onStatus: () => undefined,
+      onTool: () => undefined,
+      onRealtimeEvent: (event) => realtime.push(event)
+    })
+
+    bus.publishStatus('retry_exhausted', 'Retries were exhausted.')
+    bus.publishStatus('error', 'Later generic error must not replace the terminal.')
+
+    expect(realtime.filter((event) => event.kind === 'terminal')).toEqual([
+      expect.objectContaining({ kind: 'terminal', outcome: 'retry_exhausted', message: 'Retries were exhausted.' })
+    ])
+    expect(bus.terminal()).toEqual(expect.objectContaining({ kind: 'terminal', outcome: 'retry_exhausted' }))
+  })
+
+  it.each(['no_progress', 'context_unrecoverable'] as const)(
+    'records %s as a sticky distinct terminal outcome',
+    (outcome) => {
+      const realtime: AgentRealtimeEvent[] = []
+      const bus = createAgentEventBus({
+        streamId: `bus-${outcome}`,
+        onChunk: () => undefined,
+        onStatus: () => undefined,
+        onTool: () => undefined,
+        onRealtimeEvent: (event) => realtime.push(event)
+      })
+
+      bus.publishStatus(outcome, 'Stopped without automatic continuation.')
+      bus.publishStatus('error', 'A later generic error must not replace the terminal.')
+
+      expect(realtime.filter((event) => event.kind === 'terminal')).toEqual([
+        expect.objectContaining({ kind: 'terminal', outcome, message: 'Stopped without automatic continuation.' })
+      ])
+      expect(bus.terminal()).toEqual(expect.objectContaining({ kind: 'terminal', outcome }))
+    }
+  )
 
   it('AgentEventBus continues mapping after presentation throw; cancel still records terminal', () => {
     const statuses: AgentChatStreamStatus[] = []

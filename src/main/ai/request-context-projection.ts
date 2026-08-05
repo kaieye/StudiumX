@@ -1,8 +1,9 @@
 import type { ChatMessage, ToolDefinition } from './provider-adapter'
-import { ContextEstimator, type TokenEstimate } from './context-estimator'
+import { ContextEstimator, type ContextOverhead, type TokenEstimate } from './context-estimator'
 import {
   ContextCompactor,
-  inferContextWindowTokens,
+  resolveContextWindowEstimate,
+  type ContextWindowEstimateSource,
   type CompactionTriggerPoint,
   type ContextCompactionEvent,
   type ContextCompactionOptions,
@@ -42,6 +43,12 @@ export type RequestContextProjectionTrace =
 
 export type RequestContextProjection = {
   messages: ChatMessage[]
+  /** Context limit used for this provider projection; not a teaching authority. */
+  contextWindowTokens: number
+  /** Final request estimate after hygiene, compaction, and ledger injection. */
+  estimatedTokens: number
+  /** Provenance for the effective context-window value used to fit this request. */
+  contextWindowSource: ContextWindowEstimateSource
   trace: RequestContextProjectionTrace[]
   /** Privacy-safe budget/provenance audit of this projection (P1-6). */
   report: ContextProjectionReport
@@ -56,6 +63,12 @@ export type RequestContextProjectorOptions = {
   modelId: string
   provider?: { id?: string; baseUrl?: string }
   compaction?: ContextCompactionOptions
+  /** Conservative provider-owned chat/request framing allowance. Default: 256 tokens. */
+  providerFramingTokens?: number
+  /** Completion reservation for this provider request. Default: 1,024 tokens. */
+  outputReserveTokens?: number
+  /** Other endpoint-specific request overhead kept separately in the fit audit. */
+  extraRequestTokens?: number
   hygiene?: RequestHistoryHygieneOptions
   summarize: ContextCompactorSummarizer
   onTrace?: (event: RequestContextProjectionTrace) => void
@@ -85,6 +98,8 @@ export class RequestContextProjector {
   private readonly hygiene: RequestHistoryHygieneOptions
   private readonly onTrace?: (event: RequestContextProjectionTrace) => void
   private readonly contextWindowTokens: number
+  private readonly contextWindowSource: ContextWindowEstimateSource
+  private readonly requestOverhead: Omit<ContextOverhead, 'tools'>
   private readonly fileTouchLedgerSource?:
     | ContextFileLedger
     | (() => ContextFileLedger | undefined)
@@ -98,8 +113,15 @@ export class RequestContextProjector {
     this.fileTouchLedgerSource = options.fileTouchLedger
     this.fileTouchLedgerBudget = options.fileTouchLedgerBudget
     this.injectFileTouchLedger = options.injectFileTouchLedger !== false
-    this.contextWindowTokens =
-      options.compaction?.contextWindowTokens ?? inferContextWindowTokens(options.modelId, options.provider)
+    const configuredWindow = positiveInteger(options.compaction?.contextWindowTokens)
+    const resolvedWindow = resolveContextWindowEstimate(options.modelId, options.provider)
+    this.contextWindowTokens = configuredWindow ?? resolvedWindow.tokens
+    this.contextWindowSource = configuredWindow ? 'configured' : resolvedWindow.source
+    this.requestOverhead = {
+      framingTokens: nonNegativeInteger(options.providerFramingTokens, DEFAULT_PROVIDER_FRAMING_TOKENS),
+      outputReserveTokens: nonNegativeInteger(options.outputReserveTokens, DEFAULT_OUTPUT_RESERVE_TOKENS),
+      extraTokens: nonNegativeInteger(options.extraRequestTokens, 0)
+    }
     this.compactor = new ContextCompactor({
       estimator: this.estimator,
       enabled: options.compaction?.enabled ?? true,
@@ -128,14 +150,19 @@ export class RequestContextProjector {
     options?: {
       /** Multi-point trigger for compaction single-flight / audit (pre_send | mid_stream | post_tool). */
       compactionTriggerPoint?: CompactionTriggerPoint
-      hardBudgetExhausted?: boolean
-      runBudgetStopPending?: boolean
+      /** Force compaction for one context-overflow recovery attempt. */
+      forceCompaction?: boolean
+      /** Cancels an in-flight compaction/provider summary. */
+      signal?: AbortSignal
     }
   ): Promise<RequestContextProjection> {
     // Strip prior ledger data messages so hygiene/compaction never treat them as history.
     const cleanedTranscript = stripFileTouchLedgerMessages(transcript)
     const hygiene = applyRequestHistoryHygiene(cleanedTranscript, this.hygiene, this.estimator)
-    const estimate = this.estimator.estimateRequest(hygiene.messages, { tools })
+    const estimate = this.estimator.estimateRequest(hygiene.messages, {
+      tools,
+      ...this.requestOverhead
+    })
     const trace: RequestContextProjectionTrace[] = []
     const recordTrace = (event: RequestContextProjectionTrace): void => {
       trace.push(event)
@@ -146,13 +173,14 @@ export class RequestContextProjector {
       messages: hygiene.messages,
       tools,
       estimate,
+      requestOverhead: this.requestOverhead,
       messageTurnIds:
         messageTurnIds?.length === cleanedTranscript.length || messageTurnIds?.length === transcript.length
           ? messageTurnIds
           : undefined,
       triggerPoint: options?.compactionTriggerPoint ?? 'pre_send',
-      hardBudgetExhausted: options?.hardBudgetExhausted,
-      runBudgetStopPending: options?.runBudgetStopPending
+      forceCompaction: options?.forceCompaction,
+      signal: options?.signal
     })
     for (const event of compaction.events) recordTrace(event)
     recordTrace({ type: 'context_estimated', estimate: compaction.estimateAfter })
@@ -163,16 +191,24 @@ export class RequestContextProjector {
       ? appendFileTouchLedgerDataMessage(compaction.messages, fileTouchLedger)
       : compaction.messages
 
+    const projectedEstimate = this.estimator.estimateRequest(projectedMessages, {
+      tools,
+      ...this.requestOverhead
+    })
     const report = buildRequestContextProjectionReport({
       transcriptLength: transcript.length,
       projectedMessages,
       tools,
-      estimate: compaction.estimateAfter,
+      estimate: projectedEstimate,
       contextWindowTokens: this.contextWindowTokens,
+      contextWindowSource: this.contextWindowSource,
       trace
     })
     return {
       messages: projectedMessages,
+      contextWindowTokens: this.contextWindowTokens,
+      contextWindowSource: this.contextWindowSource,
+      estimatedTokens: projectedEstimate.totalTokens,
       trace,
       report,
       ...(fileTouchLedger.entries.length > 0 ? { fileTouchLedger } : {})
@@ -189,4 +225,19 @@ export class RequestContextProjector {
     }
     return rebuildFileTouchLedgerFromTranscript(transcript, this.fileTouchLedgerBudget)
   }
+}
+
+
+const DEFAULT_PROVIDER_FRAMING_TOKENS = 256
+const DEFAULT_OUTPUT_RESERVE_TOKENS = 1_024
+
+function positiveInteger(value: number | undefined): number | undefined {
+  if (!Number.isFinite(value) || value === undefined) return undefined
+  const normalized = Math.floor(value)
+  return normalized > 0 ? normalized : undefined
+}
+
+function nonNegativeInteger(value: number | undefined, fallback: number): number {
+  if (!Number.isFinite(value) || value === undefined) return fallback
+  return Math.max(0, Math.floor(value))
 }

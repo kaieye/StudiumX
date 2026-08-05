@@ -1,4 +1,4 @@
-import type { AgentArtifactRef, AgentRealtimeEvent, AgentRunBudget, InterruptedAgentRun } from '../../shared/teaching-types'
+import type { AgentArtifactRef, AgentRealtimeEvent, AgentRunTerminalNotice, InterruptedAgentRun } from '../../shared/teaching-types'
 import { AgentOperationJournal } from './agent-operation-journal'
 import { AgentParentTurnStaging } from './agent-parent-turn-staging'
 import { ChildRunStore, type ChildRunRecord } from './child-run-supervisor'
@@ -7,10 +7,8 @@ import { AgentRunPersistence } from './agent-run-persistence'
 import type { AgentOperationRecord, AgentParentTurnStage, AgentRunCheckpoint, AgentRunChildRecord } from './agent-run-types'
 
 export {
-  DEFAULT_AGENT_RUN_BUDGET,
   agentOperationId,
   emptyAgentRunUsage,
-  normalizeAgentRunBudget
 } from './agent-run-types'
 export type {
   AgentOperationRecord,
@@ -72,7 +70,6 @@ export class AgentRunStore {
     workspaceId?: string
     conversationId?: string
     parentTurn?: { userInput: string }
-    budget: AgentRunBudget
   }): Promise<AgentRunCheckpoint> {
     return this.lifecycle.create(input)
   }
@@ -129,6 +126,11 @@ export class AgentRunStore {
 
   listInterrupted(): Promise<InterruptedAgentRun[]> {
     return this.lifecycle.listInterrupted()
+  }
+
+  /** Read-only terminal-boundary projection; never resumes or replays a run. */
+  listTerminalNotices(): Promise<AgentRunTerminalNotice[]> {
+    return this.lifecycle.listTerminalNotices()
   }
 
   /**

@@ -236,6 +236,37 @@ describe('AgentConversationReader process outcomes', () => {
     expect(panel.querySelector('.agent-process-event')).not.toHaveClass('is-error')
   })
 
+  it.each([
+    ['resource_limit', '已达到资源边界', '需要调整资源'],
+    ['suspended', '运行已暂停', '紧急保护已触发'],
+    ['no_progress', '未检测到安全进展', '未自动重试或重放'],
+    ['context_unrecoverable', '上下文无法继续', '请开始新的明确对话'],
+    ['retry_exhausted', '重试已用尽', '未自动重试或重放']
+  ] as const)('renders %s as attention instead of failure or completion', (kind, title, label) => {
+    const limited: AgentConversationTurnPresentation = {
+      turnId: kind,
+      active: false,
+      status: { kind },
+      answeredAsks: [],
+      sources: [],
+      items: [{
+        id: `${kind}-status`,
+        kind: 'status',
+        label: title,
+        state: kind
+      }]
+    }
+
+    renderUi(<AgentConversationReader presentation={limited} />)
+
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).toHaveTextContent(title)
+    expect(panel).toHaveTextContent(label)
+    expect(panel).not.toHaveTextContent('处理失败')
+    expect(panel).not.toHaveTextContent('已完成')
+    expect(panel.querySelector('.agent-process-event')).toHaveClass('is-attention')
+  })
+
   it('retains failed, canceled, and completed header semantics', () => {
     const makePresentation = (kind: 'failed' | 'canceled' | 'completed'): AgentConversationTurnPresentation => ({
       turnId: kind,

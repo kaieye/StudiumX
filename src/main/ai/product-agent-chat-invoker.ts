@@ -55,7 +55,21 @@ export function mapAgentChatStreamResultToRunResult(
     return { streamId, canceled: true }
   }
   if ('error' in result && result.error === true) {
-    return { streamId, error: result.message }
+    return {
+      streamId,
+      error: result.message,
+      ...(result.stopReason ? { stopReason: result.stopReason } : {})
+    }
+  }
+  if ('resourceStopped' in result && result.resourceStopped === true) {
+    return {
+      streamId,
+      resourceStopped: true,
+      status: result.status,
+      message: result.message,
+      stopReason: result.stopReason,
+      usage: result.usage
+    }
   }
   if ('finalText' in result) {
     return {
@@ -63,5 +77,5 @@ export function mapAgentChatStreamResultToRunResult(
       finalText: result.finalText
     }
   }
-  return { streamId }
+  throw new Error('Unsupported agent stream terminal result.')
 }

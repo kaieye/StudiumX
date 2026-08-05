@@ -41,6 +41,7 @@ describe('buildOfficeSceneOccupants', () => {
         serverMember('alice', '我', 5, true),
         serverMember('bob', '小明', 1, false),
       ],
+      localSelf: serverMember('local-only', '本机回退', 9, true),
       seatCount,
     })
 
@@ -65,13 +66,20 @@ describe('buildOfficeSceneOccupants', () => {
     expect(occupants.get('desk-3')?.name).toBe('小明')
   })
 
-  it('does not render a local or relay fallback before a server roster is received', () => {
+  it('renders the local user pet while a server roster is unavailable', () => {
+    const localSelf = serverMember('alice', '我', 0, true)
     const occupants = buildOfficeSceneOccupants({
       serverRosterAvailable: false,
-      leaderboardMembers: [serverMember('alice', '我', 0, true)],
+      leaderboardMembers: [],
+      localSelf,
       seatCount,
     })
 
-    expect(occupants).toEqual(new Map())
+    expect(occupants.size).toBe(1)
+    expect(occupants.get('desk-1')).toMatchObject({
+      kind: 'self',
+      name: '我',
+      petAppearance: 'lulu-capybara'
+    })
   })
 })

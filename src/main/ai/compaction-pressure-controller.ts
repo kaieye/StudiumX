@@ -3,8 +3,7 @@
  *
  * Authority split (product floor):
  * - Projection compaction remains **reference-only / non-durable** (ADR-0064).
- * - **Hard run budget** and durable-success fallback remain authoritative; this
- *   module must never substitute soft reminders for hard budget stops.
+ * - Aggregate usage is local observability only and never suppresses compaction.
  * - Concurrent pre-send / mid-stream / post-tool style triggers share one in-flight
  *   compaction; pressure escalates only when a completed compact still sits over threshold.
  */
@@ -18,21 +17,6 @@ export type CompactionPressureState = {
   level: CompactionPressureLevel
   consecutiveStillOver: number
 }
-
-/**
- * Pure product-floor flags: compaction must not fight hard budget / fallback.
- * Callers may document or gate via `shouldSkipCompactionForHardBudget`.
- */
-export const COMPACTION_HARD_BUDGET_AUTHORITY = {
-  /** Soft reminders / soft thresholds never replace hard run budget stops. */
-  softReminderSubstitutesHardBudget: false,
-  /** When a hard run budget stop is pending/exhausted, budget is sole authority. */
-  hardRunBudgetAuthoritative: true,
-  /** Durable-success fallback remains a host path; compaction is not a substitute. */
-  durableSuccessFallbackAuthoritative: true,
-  /** Default compaction stays non-durable projection rewrite only (ADR-0064). */
-  durableRewriteDefault: false
-} as const
 
 export type CompactionPressureOptionOverrides = {
   /** Multiplier applied to normal/aggressive tail ratios (lower = keep less tail). */
@@ -84,18 +68,6 @@ export function pressureOptionOverrides(level: CompactionPressureLevel): Compact
     default:
       return { tailRatioScale: 1, preferAggressive: false, minTailMessagesDelta: 0 }
   }
-}
-
-/**
- * Hard budget / durable-success authority gate.
- * When true, callers should skip starting a new compaction attempt.
- */
-export function shouldSkipCompactionForHardBudget(input: {
-  hardBudgetExhausted?: boolean
-  runBudgetStopPending?: boolean
-}): boolean {
-  if (!COMPACTION_HARD_BUDGET_AUTHORITY.hardRunBudgetAuthoritative) return false
-  return input.hardBudgetExhausted === true || input.runBudgetStopPending === true
 }
 
 /**

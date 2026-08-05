@@ -10,7 +10,7 @@ import {
   AgentRunPersistence,
   type AgentRunPersistenceOptions
 } from '../../src/main/ai/agent-run-persistence'
-import { DEFAULT_AGENT_RUN_BUDGET, emptyAgentRunUsage, type AgentRunCheckpoint } from '../../src/main/ai/agent-run-store'
+import { emptyAgentRunUsage, type AgentRunCheckpoint } from '../../src/main/ai/agent-run-store'
 
 const roots: string[] = []
 
@@ -30,7 +30,6 @@ function checkpoint(runId: string, status: AgentRunCheckpoint['status'] = 'runni
     createdAt: '2026-07-18T00:00:00.000Z',
     updatedAt: '2026-07-18T00:00:00.000Z',
     operationJournalPointer: `.agent-sessions/operations/${runId}`,
-    budget: DEFAULT_AGENT_RUN_BUDGET,
     usage: emptyAgentRunUsage()
   }
 }

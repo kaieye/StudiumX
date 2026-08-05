@@ -216,6 +216,36 @@ describe('Agent conversation presentation', () => {
     ])
   })
 
+  it.each([
+    'resource_limit',
+    'suspended',
+    'retry_exhausted',
+    'no_progress',
+    'context_unrecoverable'
+  ] as const)('preserves recovered %s as its structured terminal state rather than interruption or completion', (status) => {
+    const presentation = buildAgentConversationPresentation({
+      turns: [assistantTurn({
+        processEvents: [{
+          id: `recovered-${status}`,
+          kind: 'status',
+          title: `recovered-${status}`,
+          status,
+          createdAt
+        }],
+        metadata: {
+          version: 1,
+          provenance: { kind: 'recovery_notice' }
+        }
+      })],
+      activeTurnId: 'assistant-1'
+    }).turns[0]
+
+    expect(presentation).toMatchObject({ active: false, status: { kind: status } })
+    expect(presentation.items).toEqual([
+      expect.objectContaining({ id: `event:recovered-${status}`, state: status })
+    ])
+  })
+
   it('keeps real failed, canceled, and completed terminal states distinct', () => {
     const terminal = (status: 'error' | 'canceled' | 'done') => buildAgentConversationPresentation({
       turns: [assistantTurn({ processEvents: [{
@@ -245,6 +275,27 @@ describe('Agent conversation presentation', () => {
       items: [expect.objectContaining({ state: 'complete' })]
     })
   })
+
+  it.each(['no_progress', 'context_unrecoverable'] as const)(
+    'keeps %s distinct from failure and completion in the process presentation',
+    (status) => {
+      const presentation = buildAgentConversationPresentation({
+        turns: [assistantTurn({ processEvents: [{
+          id: `terminal-${status}`,
+          kind: 'status',
+          title: `terminal-${status}`,
+          status,
+          createdAt
+        }] })],
+        activeTurnId: 'assistant-1'
+      }).turns[0]
+
+      expect(presentation).toMatchObject({ active: false, status: { kind: status } })
+      expect(presentation.items).toEqual([
+        expect.objectContaining({ id: `event:terminal-${status}`, state: status })
+      ])
+    }
+  )
 
   it('stops presenting a turn as active as soon as a terminal status arrives', () => {
     const presentation = buildAgentConversationPresentation({

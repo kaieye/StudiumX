@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url'
 import { APP_NAME, resolveWindowsAppUserModelId } from './app-identity'
 import { TeachingSettingsService } from './teaching-settings'
 import { TeachingWorkspaceService } from './teaching-workspace'
+import {
+  createAgentRunResourcePolicyResolver,
+  userAgentRunResourceBudgetFromSettings
+} from './ai/agent-run-resource-policy'
+import { loadManagedDeploymentResourcePolicyFromRoot } from './ai/agent-run-managed-resource-policy'
 import { SkillLibraryService } from './skill-library'
 import { LearningAnalyticsService } from './teaching/services/learning-analytics'
 import { LocalDataIndex } from './local-data-index'
@@ -356,12 +361,22 @@ if (!hasSingleInstanceLock) {
         })
         await skillLibraryService.listSkills()
 
+        // Resource policy is snapped at each run start. User limits come only from
+        // validated settings, while organization limits come only from the contained
+        // main-process managed document; neither accepts renderer start-payload data.
+        const resourcePolicyResolver = createAgentRunResourcePolicyResolver({
+          loadUserBudget: async () => userAgentRunResourceBudgetFromSettings(await settingsService.load()),
+          loadDeploymentPolicy: async () => loadManagedDeploymentResourcePolicyFromRoot({
+            rootPath: userDataPath
+          })
+        })
         const workspaceService = new TeachingWorkspaceService({
           registryPath,
           defaultRoot,
           settingsProvider: () => settingsService.load(),
           skillLibraryService,
           logger,
+          resourcePolicyResolver,
           mcpSessionManager: mcpHost?.getSessionManager() ?? null,
           mcpHost: mcpHost ?? null
         })

@@ -15,7 +15,6 @@ const DSML_TOOL_CALL = '<｜｜DSML｜｜tool_calls>\n' +
   '</｜｜DSML｜｜tool_calls>'
 
 const requests: Array<{ messages?: Array<{ role?: string }>; tools?: unknown[] }> = []
-let serverMode: 'always-tool-text' | 'tool-then-final' = 'always-tool-text'
 
 const server = createServer(async (req, res) => {
   const chunks: Buffer[] = []
@@ -24,7 +23,7 @@ const server = createServer(async (req, res) => {
   const parsed = (body ? JSON.parse(body) : {}) as { messages?: Array<{ role?: string }>; tools?: unknown[] }
   requests.push(parsed)
   const hasToolResult = parsed.messages?.some((message) => message.role === 'tool') === true
-  const content = serverMode === 'tool-then-final' && hasToolResult
+  const content = hasToolResult
     ? 'Done after the tool result.'
     : DSML_TOOL_CALL
 
@@ -105,7 +104,6 @@ try {
     toolHandlers: {
       web_search: async () => JSON.stringify({ count: 0, results: [] })
     },
-    maxIterations: 1,
     callbacks: {
       onEvent: (event) => {
         if (event.type === 'status') statuses.push(event.status)
@@ -113,41 +111,14 @@ try {
     }
   })
 
-  assert.equal(requests.length, 2, 'agent loop should force one no-tools final turn after the tool budget is exhausted')
-  assert.equal(result.stopReason, 'error')
-  assert.match(result.error ?? '', /未返回最终答复/)
-  assert.equal(result.finalText, '')
-  assert.ok(statuses.includes('error'), 'empty forced final answer should be surfaced as an error status')
-
-  serverMode = 'tool-then-final'
-  requests.length = 0
-  statuses.length = 0
-  const unlimited = await runAgentLoop({
-    settings,
-    provider,
-    messages: [
-      { role: 'system', content: 'Use tools when needed.' },
-      { role: 'user', content: 'Prepare a RAG interview lesson.' }
-    ],
-    tools: [webSearchTool],
-    toolHandlers: {
-      web_search: async () => JSON.stringify({ count: 0, results: [] })
-    },
-    maxIterations: 0,
-    callbacks: {
-      onEvent: (event) => {
-        if (event.type === 'status') statuses.push(event.status)
-      }
-    }
-  })
-
-  assert.equal(requests.length, 2, 'maxIterations=0 should keep looping until the model returns a final answer')
-  assert.equal(unlimited.stopReason, 'final_answer')
-  assert.equal(unlimited.finalText, 'Done after the tool result.')
+  assert.equal(requests.length, 2, 'the agent loop should continue after a tool result until the model returns a final answer')
+  assert.equal(result.stopReason, 'final_answer')
+  assert.equal(result.finalText, 'Done after the tool result.')
   assert.ok(
     Array.isArray(requests[1]?.tools) && requests[1]!.tools!.length > 0,
-    'unbounded continuation should keep tools available on the post-tool model turn'
+    'continuous continuation should keep tools available on the post-tool model turn'
   )
+  assert.ok(statuses.includes('tool_done'), 'the tool round should emit completion before normal finalization')
 
   console.log('agent loop empty final guard ok')
 } finally {

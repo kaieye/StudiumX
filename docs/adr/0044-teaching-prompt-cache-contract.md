@@ -37,7 +37,7 @@ Stable prefix identity 取决于：
 - 只有经验证的 app-shipped `teach` 全文可进入 stable prefix；personal/custom skill 即使同 id 也不得 shadow kernel。
 - 非 kernel 全文只能进入当前 stage 的 dynamic turn-tail；later/advisory/blocked/excluded 正文不得装配。
 - plan projection 不含 skill body、secret、路径或 learner Evidence。
-- ledger、settlement sole-writer、`expectedRevision`、`toolsReplayed:false`、effect lattice 与硬 `AgentRunBudget` 不由本 ADR 改变。
+- ledger、settlement sole-writer、`expectedRevision`、`toolsReplayed:false` 与 effect lattice 不由本 ADR 改变；全局 `AgentRunBudget` 终止政策已由 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md) 取代，provider context / output 与单次工具 timeout / result 等局部技术边界仍保持。
 
 ## 实现与验证
 

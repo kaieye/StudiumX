@@ -108,8 +108,10 @@ try {
   settings.generator.model = 'fake-chat-model'
   settings.generator.endpointFormat = 'chat_completions'
   settings.generator.requestTimeoutMs = 5000
+  // ADR-0171 §2.1-A: keep the output reserve small so the pre-dispatch fit check
+  // (framing 256 + output reserve) does not dominate the configured context window.
+  settings.generator.maxOutputTokens = 512
   settings.tools.enabled = true
-  settings.tools.maxIterations = 0
   settings.provider.providers = settings.provider.providers.map((provider) =>
     provider.id === 'custom'
       ? {
@@ -135,11 +137,11 @@ try {
     const originalMessages = buildLongHistory()
     const compactionConfig = {
       enabled: true,
-      contextWindowTokens: 1_600,
-      softThresholdTokens: 900,
-      hardThresholdTokens: 1_200,
-      normalTailRatio: 0.35,
-      aggressiveTailRatio: 0.25,
+      contextWindowTokens: 22_000,
+      softThresholdTokens: 8_000,
+      hardThresholdTokens: 21_000,
+      normalTailRatio: 0.05,
+      aggressiveTailRatio: 0.05,
       minTailMessages: 4,
       minMessagesToCompact: 4,
       summaryInputTokenLimit: 1_200,

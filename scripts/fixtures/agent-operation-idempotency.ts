@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { AgentRunStore, DEFAULT_AGENT_RUN_BUDGET } from '../../src/main/ai/agent-run-store'
+import { AgentRunStore } from '../../src/main/ai/agent-run-store'
 import { ToolRegistry, buildDefaultRegistry, buildToolContext } from '../../src/main/ai/tools/registry'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import { getWorkspaceWriteToolAvailability } from '../../src/main/ai/tools/workspace'
@@ -15,8 +15,8 @@ try {
   settings.tools.approvalMode = 'full_access'
   settings.tools.workspaceRead = true
   const store = new AgentRunStore(root)
-  await store.create({ runId: 'run-a', streamId: 'run-a', budget: DEFAULT_AGENT_RUN_BUDGET })
-  await store.create({ runId: 'run-b', streamId: 'run-b', budget: DEFAULT_AGENT_RUN_BUDGET })
+  await store.create({ runId: 'run-a', streamId: 'run-a' })
+  await store.create({ runId: 'run-b', streamId: 'run-b' })
   await mkdir(join(root, 'notes'), { recursive: true })
 
   let executions = 0
@@ -133,8 +133,7 @@ try {
   const workspaceToolCallId = 'workspace-write-replay'
   await store.create({
     runId: workspaceRunId,
-    streamId: workspaceRunId,
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    streamId: workspaceRunId
   })
   const workspaceWriteRegistry = buildDefaultRegistry(settings, {
     workspaceRoot: root,

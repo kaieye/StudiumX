@@ -8,6 +8,7 @@ import {
   type SupervisedChildRun
 } from './child-run-supervisor'
 import type { ToolRuntimeEvent } from './tools/registry'
+import type { AgentRunResourceGovernor } from './agent-run-resource-governance'
 import { buildDefaultRegistry, buildToolContext } from './tools/registry'
 import {
   loadAndMergeToolPolicyDocumentsFromWorkspace,
@@ -62,14 +63,14 @@ export type DelegationRuntimeOptions = {
   stageTranscript?: (childRunId: string, transcript: string) => Promise<AgentArtifactRef>
   /** Optional parent allow-list; when set, child tools are intersected and subset-proved (B-10). */
   parentAllowedToolNames?: readonly string[]
+  /** Shared host ledger inherited from the parent run; children cannot widen it. */
+  resourceGovernor?: AgentRunResourceGovernor
 }
 
 export type DelegationRuntimeRunOptions = {
   emit?: (event: ToolRuntimeEvent) => void
 }
 
-const DEFAULT_CHILD_MAX_ITERATIONS = 4
-const MAX_CHILD_MAX_ITERATIONS = 10
 const DEFAULT_CHILD_TIMEOUT_MS = 120_000
 const MAX_CHILD_TIMEOUT_MS = 300_000
 const MAX_PARALLEL_CHILD_TASKS = 8
@@ -97,13 +98,14 @@ export class DelegationRuntime {
     this.supervisor = new ChildRunSupervisor({
       parentStreamId: options.parentStreamId,
       signal: options.signal,
+      resourceGovernor: options.resourceGovernor,
       store: options.store,
       execute: (input, lifecycle) => this.executeChild(input, lifecycle)
     })
   }
 
   async runChild(input: ChildRunInput, options: DelegationRuntimeRunOptions = {}): Promise<ChildRunResult> {
-    return this.supervisor.run(normalizeChildRunInput(input, this.options.settings.tools.maxIterations), options)
+    return this.supervisor.run(normalizeChildRunInput(input), options)
   }
 
   async runChildren(input: ParallelChildRunInput, options: DelegationRuntimeRunOptions = {}): Promise<ParallelChildRunResult> {
@@ -119,7 +121,7 @@ export class DelegationRuntime {
       Math.min(DEFAULT_PARALLEL_CHILD_CONCURRENCY, tasks.length)
     )
     const results = await this.supervisor.runMany(
-      tasks.map((task) => normalizeChildRunInput(task, this.options.settings.tools.maxIterations)),
+      tasks.map((task) => normalizeChildRunInput(task)),
       concurrency,
       options
     )
@@ -175,12 +177,8 @@ export class DelegationRuntime {
         })),
         workspaceRoot: this.options.workspaceRoot,
         runId: lifecycle.childRunId,
-        maxIterations: input.maxIterations,
-        // A bounded child that has already gathered evidence should spend one
-        // final provider call summarizing partial findings instead of failing
-        // and returning no usable research to its parent.
-        maxIterationsBehavior: 'force_final_answer',
         signal: lifecycle.signal,
+        resourceGovernor: this.options.resourceGovernor?.createChild(),
         callbacks: {
           onEvent: (event) => {
             childEvents.push(event)
@@ -201,6 +199,18 @@ export class DelegationRuntime {
       const citations = extractCitations(result.messages)
       if (result.stopReason === 'canceled') {
         output = { status: 'canceled', summary: '子任务已取消或超时。', filesRead, citations, usage }
+      } else if (result.stopReason === 'resource_limit' || result.stopReason === 'suspended') {
+        output = {
+          status: 'failed',
+          stopReason: result.stopReason,
+          summary: result.stopReason === 'suspended'
+            ? '子任务因资源治理暂停，未完成。'
+            : '子任务达到资源边界，未完成。',
+          error: result.stopReason,
+          filesRead,
+          citations,
+          usage
+        }
       } else if (result.error) {
         const childError = latestChildToolError(childEvents) ?? result.error
         output = {
@@ -252,6 +262,8 @@ export class DelegationRuntime {
 export function resolveChildToolAllowList(options: {
   profile: ChildAgentProfile
   parentAllowedToolNames?: readonly string[]
+  /** Shared host ledger inherited from the parent run; children cannot widen it. */
+  resourceGovernor?: AgentRunResourceGovernor
 }): string[] {
   const proposed = toolNamesForProfile(options.profile)
   if (options.parentAllowedToolNames === undefined) return proposed
@@ -267,6 +279,8 @@ export function childRegistryForProfile(options: {
   profile: ChildAgentProfile
   /** When provided, child tools are intersected with this parent grant (B-10). */
   parentAllowedToolNames?: readonly string[]
+  /** Shared host ledger inherited from the parent run; children cannot widen it. */
+  resourceGovernor?: AgentRunResourceGovernor
 }) {
   const allow = resolveChildToolAllowList({
     profile: options.profile,
@@ -292,24 +306,17 @@ export function toolNamesForProfile(profile: ChildAgentProfile): string[] {
   return [...WORKSPACE_READ_TOOL_NAMES, ...WEB_TOOL_NAMES]
 }
 
-function normalizeChildRunInput(input: ChildRunInput, settingsMaxIterations: number): Required<ChildRunInput> & {
-  profile: ChildAgentProfile
-} {
+function normalizeChildRunInput(input: ChildRunInput): SupervisedChildRun {
   const label = cleanText(input.label).slice(0, 80) || '只读子任务'
   const prompt = cleanText(input.prompt)
   if (!prompt) throw new Error('delegate_task 缺少 prompt。')
   const context = cleanText(input.context).slice(0, 12_000)
   const profile = normalizeProfile(input.profile)
-  const defaultIterations =
-    settingsMaxIterations > 0
-      ? Math.min(MAX_CHILD_MAX_ITERATIONS, Math.max(1, settingsMaxIterations))
-      : DEFAULT_CHILD_MAX_ITERATIONS
   return {
     label,
     prompt,
     context,
     profile,
-    maxIterations: clampInteger(input.maxIterations, 1, MAX_CHILD_MAX_ITERATIONS, defaultIterations),
     timeoutMs: clampInteger(input.timeoutMs, 1_000, MAX_CHILD_TIMEOUT_MS, DEFAULT_CHILD_TIMEOUT_MS)
   }
 }
@@ -318,7 +325,7 @@ function normalizeProfile(value: unknown): ChildAgentProfile {
   return value === 'research' || value === 'workspace_audit' ? value : 'read_only'
 }
 
-function buildChildMessages(input: Required<ChildRunInput> & { profile: ChildAgentProfile }): ChatMessage[] {
+function buildChildMessages(input: SupervisedChildRun): ChatMessage[] {
   const contextBlock = input.context
     ? ['<parent-context>', input.context, '</parent-context>', ''].join('\n')
     : ''
@@ -357,7 +364,7 @@ function buildChildTranscript(input: {
     label: input.input.label,
     profile: input.input.profile,
     status: input.output.status,
-    stopReason: input.stopReason,
+    stopReason: input.output.stopReason ?? input.stopReason,
     error: input.output.error,
     usage: input.output.usage,
     messages: input.messages

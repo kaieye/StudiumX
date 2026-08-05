@@ -9,19 +9,10 @@ afterEach(() => {
   globalThis.fetch = originalFetch
 })
 
-const budget = {
-  maxDurationMs: 60_000,
-  maxProviderCalls: 10,
-  maxToolCalls: 10,
-  maxTotalTokens: 100_000,
-  warningThreshold: 0.8
-}
-
 function settings(): TeachingSettingsV1 {
   const value = defaultSettings('C:/agent-loop-finish-length-fixture')
   value.generator.endpointFormat = 'chat_completions'
   value.generator.requestTimeoutMs = 50
-  value.tools.maxIterations = 3
   return value
 }
 
@@ -48,7 +39,7 @@ function sseResponse(events: unknown[]): Response {
 
 describe('AgentLoopExecutionState finish reason ledger', () => {
   it('records the real finish reason instead of forging stop', () => {
-    const execution = new AgentLoopExecutionState({ budget, now: () => 1_000 })
+    const execution = new AgentLoopExecutionState({ now: () => 1_000 })
     execution.startProviderCall()
     execution.recordProviderUsage({ totalTokens: 10 }, 'provider_reported', 'length')
 
@@ -61,7 +52,7 @@ describe('AgentLoopExecutionState finish reason ledger', () => {
   })
 
   it('does not forge a stop event when finishReason is absent', () => {
-    const execution = new AgentLoopExecutionState({ budget, now: () => 1_000 })
+    const execution = new AgentLoopExecutionState({ now: () => 1_000 })
     execution.startProviderCall()
     execution.recordProviderUsage({ totalTokens: 10 })
 
@@ -75,7 +66,7 @@ describe('AgentLoopExecutionState finish reason ledger', () => {
   })
 
   it('passes tool_calls and stop through the ledger', () => {
-    const execution = new AgentLoopExecutionState({ budget, now: () => 1_000 })
+    const execution = new AgentLoopExecutionState({ now: () => 1_000 })
     execution.startProviderCall()
     execution.recordProviderUsage(undefined, 'provider_reported', 'tool_calls')
     execution.startProviderCall()
@@ -127,7 +118,6 @@ describe('runAgentLoop length tool rejection (A-02)', () => {
         }
       }],
       toolHandlers: { write_workspace_file: handler },
-      maxIterations: 2,
       callbacks: {
         onEvent: (event) => {
           if (event.type === 'status') events.push({ type: event.type, status: event.status })
@@ -182,7 +172,6 @@ describe('runAgentLoop length tool rejection (A-02)', () => {
         function: { name: 'lookup', description: 'lookup', parameters: { type: 'object', properties: {} } }
       }],
       toolHandlers: { lookup: handler },
-      maxIterations: 2
     })
 
     expect(handler).toHaveBeenCalledTimes(1)

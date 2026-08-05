@@ -10,7 +10,7 @@
  */
 import type { TeachingSystemApi } from '@shared/teaching-types/system-api'
 import type { TeachingAppState } from '@shared/teaching-types/workspace'
-import type { InterruptedAgentRun } from '@shared/teaching-types/agent'
+import type { AgentRunTerminalNotice, InterruptedAgentRun } from '@shared/teaching-types/agent'
 
 const EMPTY_STATE: TeachingAppState = {
   workspaces: [],
@@ -35,6 +35,10 @@ export const feature: Partial<TeachingSystemApi> = {
   },
 
   async listInterruptedAgentRuns(): Promise<InterruptedAgentRun[]> {
+    return []
+  },
+
+  async listTerminalAgentRunNotices(): Promise<AgentRunTerminalNotice[]> {
     return []
   },
 

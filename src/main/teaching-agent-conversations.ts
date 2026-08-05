@@ -740,6 +740,7 @@ function normalizeChildRuns(value: unknown): AgentChildRunWithArchive[] {
       label: textValue(record.label, MAX_SHORT_TEXT) ?? childRunId,
       profile: textValue(record.profile, MAX_SHORT_TEXT) ?? 'read_only',
       status: normalizeChildRunStatus(record.status),
+      stopReason: normalizeChildRunStopReason(record.stopReason),
       summary: textValue(record.summary, MAX_TEXT),
       error: textValue(record.error, 1000),
       filesRead: normalizeStringArray(record.filesRead, MAX_METADATA_FILES, MAX_SHORT_TEXT),
@@ -811,6 +812,10 @@ function normalizeContextEstimate(value: unknown): AgentContextEstimateMetadata 
   if (totalTokens === undefined) return undefined
   return {
     messageTokens: numberValue(record.messageTokens) ?? 0,
+    toolSchemaTokens: numberValue(record.toolSchemaTokens),
+    framingTokens: numberValue(record.framingTokens),
+    outputReserveTokens: numberValue(record.outputReserveTokens),
+    extraTokens: numberValue(record.extraTokens),
     overheadTokens: numberValue(record.overheadTokens) ?? 0,
     totalTokens,
     source: textValue(record.source, MAX_SHORT_TEXT) ?? 'local'
@@ -906,6 +911,10 @@ function normalizeChildRunStatus(value: unknown): AgentChildRunMetadata['status'
     : 'completed'
 }
 
+function normalizeChildRunStopReason(value: unknown): AgentChildRunMetadata['stopReason'] {
+  return value === 'resource_limit' || value === 'suspended' ? value : undefined
+}
+
 function normalizeChildUsage(value: unknown): AgentChildRunMetadata['usage'] | undefined {
   if (!value || typeof value !== 'object') return undefined
   const record = value as Record<string, unknown>
@@ -932,12 +941,6 @@ function normalizeRunUsage(value: unknown): AgentRunUsageAggregate | undefined {
   const providerCalls = numberValue(record.providerCalls)
   const toolCalls = numberValue(record.toolCalls)
   if (providerCalls === undefined || toolCalls === undefined) return undefined
-  const budgetStopReason: AgentRunUsageAggregate['budgetStopReason'] = record.budgetStopReason === 'duration' ||
-    record.budgetStopReason === 'provider_calls' ||
-    record.budgetStopReason === 'tool_calls' ||
-    record.budgetStopReason === 'total_tokens'
-    ? record.budgetStopReason
-    : undefined
   return pruneUndefined({
     providerCalls,
     toolCalls,
@@ -948,8 +951,106 @@ function normalizeRunUsage(value: unknown): AgentRunUsageAggregate | undefined {
     promptTokens: numberValue(record.promptTokens),
     completionTokens: numberValue(record.completionTokens),
     totalTokens: numberValue(record.totalTokens),
-    budgetStopReason
+    operationAccounting: normalizeOperationAccounting(record.operationAccounting),
+    resourceGovernance: normalizeResourceGovernance(record.resourceGovernance)
   })
+}
+
+function normalizeOperationAccounting(value: unknown): AgentRunUsageAggregate['operationAccounting'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  // Resource accounting is an auditable host fact, not a permissive display
+  // projection. A partial or coerced record would make an interrupted run look
+  // less expensive than it was, so retain it only when every counter is a
+  // concrete non-negative safe integer from durable JSON.
+  const logicalRequests = resourceCountValue(record.logicalRequests)
+  const providerTransportAttempts = resourceCountValue(record.providerTransportAttempts)
+  const transportRetries = resourceCountValue(record.transportRetries)
+  const overflowRecoveries = resourceCountValue(record.overflowRecoveries)
+  const compactionOperations = resourceCountValue(record.compactionOperations)
+  const compactionSummaryAttempts = resourceCountValue(record.compactionSummaryAttempts)
+  const toolOperationAttempts = resourceCountValue(record.toolOperationAttempts)
+  if (logicalRequests === undefined || providerTransportAttempts === undefined || transportRetries === undefined ||
+    overflowRecoveries === undefined || compactionOperations === undefined || compactionSummaryAttempts === undefined ||
+    toolOperationAttempts === undefined) return undefined
+  return {
+    logicalRequests,
+    providerTransportAttempts,
+    transportRetries,
+    overflowRecoveries,
+    compactionOperations,
+    compactionSummaryAttempts,
+    toolOperationAttempts
+  }
+}
+
+function normalizeResourceGovernance(value: unknown): AgentRunUsageAggregate['resourceGovernance'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const configured = Array.isArray(record.configured)
+    ? record.configured.slice(0, MAX_METADATA_ITEMS).flatMap((item) => normalizeResourceLimit(item))
+    : []
+  const terminal = normalizeResourceBoundary(record.terminal)
+  return configured.length > 0 || terminal ? {
+    configured,
+    ...(terminal ? { terminal } : {})
+  } : undefined
+}
+
+function normalizeResourceLimit(value: unknown): NonNullable<AgentRunUsageAggregate['resourceGovernance']>['configured'][number][] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  const record = value as Record<string, unknown>
+  if (!isResourceLayer(record.layer) || !isResourceMeter(record.meter) || !isResourceScope(record.scope)) return []
+  const limit = positiveResourceValue(record.limit)
+  if (limit === undefined) return []
+  return [{
+    layer: record.layer,
+    meter: record.meter,
+    limit,
+    scope: record.scope,
+    ...(textValue(record.auditId, MAX_SHORT_TEXT) ? { auditId: textValue(record.auditId, MAX_SHORT_TEXT) } : {})
+  }]
+}
+
+function normalizeResourceBoundary(value: unknown): NonNullable<AgentRunUsageAggregate['resourceGovernance']>['terminal'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (!isResourceLayer(record.layer) || !isResourceMeter(record.meter) || !isResourceScope(record.scope) ||
+    (record.action !== 'resource_limit' && record.action !== 'suspended')) return undefined
+  const used = resourceCountValue(record.used)
+  const limit = positiveResourceValue(record.limit)
+  if (used === undefined || limit === undefined) return undefined
+  return {
+    layer: record.layer,
+    meter: record.meter,
+    used,
+    limit,
+    scope: record.scope,
+    action: record.action,
+    ...(textValue(record.auditId, MAX_SHORT_TEXT) ? { auditId: textValue(record.auditId, MAX_SHORT_TEXT) } : {})
+  }
+}
+
+function resourceCountValue(value: unknown): number | undefined {
+  const normalized = nonNegativeInteger(value)
+  return normalized === null ? undefined : normalized
+}
+
+function positiveResourceValue(value: unknown): number | undefined {
+  const normalized = resourceCountValue(value)
+  return normalized && normalized > 0 ? normalized : undefined
+}
+
+function isResourceLayer(value: unknown): value is 'user_budget' | 'deployment_policy' | 'emergency_fuse' {
+  return value === 'user_budget' || value === 'deployment_policy' || value === 'emergency_fuse'
+}
+
+function isResourceMeter(value: unknown): value is 'logical_requests' | 'provider_transport_attempts' | 'tool_operation_attempts' | 'duration_ms' | 'total_tokens' {
+  return value === 'logical_requests' || value === 'provider_transport_attempts' || value === 'tool_operation_attempts' || value === 'duration_ms' || value === 'total_tokens'
+}
+
+function isResourceScope(value: unknown): value is 'task' | 'run' | 'workspace' | 'tenant' | 'deployment' {
+  return value === 'task' || value === 'run' || value === 'workspace' || value === 'tenant' || value === 'deployment'
 }
 
 function normalizeCitations(value: unknown): AgentChildRunMetadata['citations'] | undefined {

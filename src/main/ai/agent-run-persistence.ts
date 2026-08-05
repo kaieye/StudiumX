@@ -3,7 +3,7 @@ import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, stat, u
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import { redactAgentSecretText } from '../../shared/agent-secret-redaction'
-import type { AgentArtifactRef, AgentRunBudget, AgentRunUsageAggregate } from '../../shared/teaching-types'
+import type { AgentArtifactRef, AgentRunUsageAggregate } from '../../shared/teaching-types'
 import { writeContentAddressedFile } from '../path-access'
 import type {
   AgentOperationRecord,
@@ -19,6 +19,7 @@ const MAX_RESULT_BYTES = 16 * 1024
 const MAX_PARENT_TURN_STAGE_BYTES = 96 * 1024
 const MAX_PARENT_TURN_PREVIEW_BYTES = 16 * 1024
 const MAX_PARENT_TURN_EVIDENCE = 32
+const MAX_RESOURCE_METADATA_ITEMS = 20
 const CHILD_TRANSCRIPT_DIRECTORY = '.agent-sessions/child-transcripts'
 
 /** Windows codes that commonly indicate a transient file lock / sharing violation. */
@@ -446,7 +447,6 @@ function validateCheckpoint(value: unknown): AgentRunCheckpoint {
     operationJournalPointer: safePointerValue(record.operationJournalPointer),
     ...(record.pendingPermissionId !== undefined ? { pendingPermissionId: safeIdValue(record.pendingPermissionId, 'pendingPermissionId') } : {}),
     ...(record.pendingElicitationId !== undefined ? { pendingElicitationId: safeIdValue(record.pendingElicitationId, 'pendingElicitationId') } : {}),
-    budget: validateBudget(record.budget),
     usage: validateUsage(record.usage),
     ...(record.stopReason !== undefined ? { stopReason: redactedShortText(record.stopReason) } : {}),
     ...(record.interruptionReason !== undefined ? { interruptionReason: redactedShortText(record.interruptionReason) } : {})
@@ -516,21 +516,11 @@ function validateChildUsage(value: unknown): NonNullable<AgentRunChildRecord['us
   }
 }
 
-function validateBudget(value: unknown): AgentRunBudget {
-  const record = strictRecord(value, ['maxDurationMs', 'maxProviderCalls', 'maxToolCalls', 'maxTotalTokens', 'warningThreshold'])
-  return {
-    maxDurationMs: integerInRange(record.maxDurationMs, 5_000, 60 * 60_000),
-    maxProviderCalls: integerInRange(record.maxProviderCalls, 1, 500),
-    maxToolCalls: integerInRange(record.maxToolCalls, 1, 1_000),
-    maxTotalTokens: integerInRange(record.maxTotalTokens, 1_000, 4_000_000),
-    warningThreshold: numberInRange(record.warningThreshold, 0.5, 0.95)
-  }
-}
-
 function validateUsage(value: unknown): AgentRunUsageAggregate {
   const record = strictRecord(value, [
     'providerCalls', 'toolCalls', 'toolErrors', 'iterations', 'childRuns', 'durationMs',
-    'promptTokens', 'completionTokens', 'totalTokens', 'budgetStopReason', 'usageProvenance'
+    'promptTokens', 'completionTokens', 'totalTokens', 'usageProvenance', 'operationAccounting',
+    'resourceGovernance'
   ])
   return {
     providerCalls: nonNegativeInteger(record.providerCalls),
@@ -542,8 +532,60 @@ function validateUsage(value: unknown): AgentRunUsageAggregate {
     ...(record.promptTokens !== undefined ? { promptTokens: nonNegativeInteger(record.promptTokens) } : {}),
     ...(record.completionTokens !== undefined ? { completionTokens: nonNegativeInteger(record.completionTokens) } : {}),
     ...(record.totalTokens !== undefined ? { totalTokens: nonNegativeInteger(record.totalTokens) } : {}),
-    ...(record.budgetStopReason !== undefined ? { budgetStopReason: stringEnum(record.budgetStopReason, ['duration', 'provider_calls', 'tool_calls', 'total_tokens'] as const) } : {}),
-    ...(record.usageProvenance !== undefined ? { usageProvenance: stringEnum(record.usageProvenance, ['provider_reported', 'local_estimate', 'unknown'] as const) } : {})
+    ...(record.usageProvenance !== undefined ? { usageProvenance: stringEnum(record.usageProvenance, ['provider_reported', 'local_estimate', 'unknown'] as const) } : {}),
+    ...(record.operationAccounting !== undefined ? { operationAccounting: validateOperationAccounting(record.operationAccounting) } : {}),
+    ...(record.resourceGovernance !== undefined ? { resourceGovernance: validateResourceGovernance(record.resourceGovernance) } : {})
+  }
+}
+
+function validateOperationAccounting(value: unknown): NonNullable<AgentRunUsageAggregate['operationAccounting']> {
+  const record = strictRecord(value, [
+    'logicalRequests', 'providerTransportAttempts', 'transportRetries', 'overflowRecoveries',
+    'compactionOperations', 'compactionSummaryAttempts', 'toolOperationAttempts'
+  ])
+  return {
+    logicalRequests: safeNonNegativeInteger(record.logicalRequests),
+    providerTransportAttempts: safeNonNegativeInteger(record.providerTransportAttempts),
+    transportRetries: safeNonNegativeInteger(record.transportRetries),
+    overflowRecoveries: safeNonNegativeInteger(record.overflowRecoveries),
+    compactionOperations: safeNonNegativeInteger(record.compactionOperations),
+    compactionSummaryAttempts: safeNonNegativeInteger(record.compactionSummaryAttempts),
+    toolOperationAttempts: safeNonNegativeInteger(record.toolOperationAttempts)
+  }
+}
+
+function validateResourceGovernance(value: unknown): NonNullable<AgentRunUsageAggregate['resourceGovernance']> {
+  const record = strictRecord(value, ['configured', 'terminal'])
+  if (!Array.isArray(record.configured) || record.configured.length > MAX_RESOURCE_METADATA_ITEMS) {
+    throw new Error('Invalid resource governance configuration.')
+  }
+  return {
+    configured: record.configured.map(validateResourceLimit),
+    ...(record.terminal !== undefined ? { terminal: validateResourceBoundary(record.terminal) } : {})
+  }
+}
+
+function validateResourceLimit(value: unknown): NonNullable<AgentRunUsageAggregate['resourceGovernance']>['configured'][number] {
+  const record = strictRecord(value, ['layer', 'meter', 'limit', 'scope', 'auditId'])
+  return {
+    layer: stringEnum(record.layer, ['user_budget', 'deployment_policy', 'emergency_fuse'] as const),
+    meter: stringEnum(record.meter, ['logical_requests', 'provider_transport_attempts', 'tool_operation_attempts', 'duration_ms', 'total_tokens'] as const),
+    limit: positiveSafeInteger(record.limit),
+    scope: stringEnum(record.scope, ['task', 'run', 'workspace', 'tenant', 'deployment'] as const),
+    ...(record.auditId !== undefined ? { auditId: safeIdValue(record.auditId, 'auditId') } : {})
+  }
+}
+
+function validateResourceBoundary(value: unknown): NonNullable<AgentRunUsageAggregate['resourceGovernance']>['terminal'] {
+  const record = strictRecord(value, ['layer', 'meter', 'used', 'limit', 'scope', 'auditId', 'action'])
+  return {
+    layer: stringEnum(record.layer, ['user_budget', 'deployment_policy', 'emergency_fuse'] as const),
+    meter: stringEnum(record.meter, ['logical_requests', 'provider_transport_attempts', 'tool_operation_attempts', 'duration_ms', 'total_tokens'] as const),
+    used: safeNonNegativeInteger(record.used),
+    limit: positiveSafeInteger(record.limit),
+    scope: stringEnum(record.scope, ['task', 'run', 'workspace', 'tenant', 'deployment'] as const),
+    ...(record.auditId !== undefined ? { auditId: safeIdValue(record.auditId, 'auditId') } : {}),
+    action: stringEnum(record.action, ['resource_limit', 'suspended'] as const)
   }
 }
 
@@ -744,15 +786,22 @@ function nonNegativeInteger(value: unknown): number {
   return value
 }
 
+function safeNonNegativeInteger(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('Expected a non-negative safe integer.')
+  return value
+}
+
+function positiveSafeInteger(value: unknown): number {
+  const normalized = safeNonNegativeInteger(value)
+  if (normalized <= 0) throw new Error('Expected a positive safe integer.')
+  return normalized
+}
+
 function integerInRange(value: unknown, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) throw new Error(`Expected an integer between ${min} and ${max}.`)
   return value
 }
 
-function numberInRange(value: unknown, min: number, max: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw new Error(`Expected a number between ${min} and ${max}.`)
-  return value
-}
 
 function shortText(value: unknown): string {
   if (typeof value !== 'string' || value.length > 2000) throw new Error('Invalid short text.')

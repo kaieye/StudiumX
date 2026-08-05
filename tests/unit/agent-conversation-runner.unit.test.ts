@@ -561,6 +561,54 @@ describe('AgentConversationTurnRunner ADR-0170 host submission', () => {
     })
   })
 
+  it('keeps a resource terminal pending and does not project it as completed', async () => {
+    const harness = makeHarness({})
+
+    await harness.runner.run({ inputOverride: 'Use the explicit task budget' })
+    harness.event({
+      sequence: 2,
+      streamId: 'host-stream-1',
+      kind: 'terminal',
+      createdAt,
+      outcome: 'resource_limit',
+      message: '已达到为本次任务明确设置的资源边界。'
+    })
+    await flush()
+
+    expect(harness.getState()).toMatchObject({
+      agentChatBusy: false,
+      agentStatus: '已达到明确资源边界',
+      pendingAgentConversation: expect.objectContaining({ status: '已达到明确资源边界' })
+    })
+    expect(harness.getState().pendingAgentConversation).not.toBeNull()
+  })
+
+  it.each([
+    ['no_progress', '重复操作未产生安全进展；未自动重试或重放'],
+    ['context_unrecoverable', '上下文无法安全压缩；请开始新的明确对话，或选择更大的 context window']
+  ] as const)('keeps %s pending without refreshing it as a completed turn', async (outcome, status) => {
+    const read = vi.fn(async ({ conversationId }: { conversationId: string }) => conversation(conversationId))
+    const harness = makeHarness({ readAgentConversation: read })
+
+    await harness.runner.run({ inputOverride: 'Do not automatically continue this turn' })
+    harness.event({
+      sequence: 2,
+      streamId: 'host-stream-1',
+      kind: 'terminal',
+      createdAt,
+      outcome,
+      message: 'Host stopped safely.'
+    })
+    await flush()
+
+    expect(read).not.toHaveBeenCalled()
+    expect(harness.getState()).toMatchObject({
+      agentChatBusy: false,
+      agentStatus: status,
+      pendingAgentConversation: expect.objectContaining({ status })
+    })
+  })
+
   it('settles a fast error terminal that arrives before the started disposition resolves', async () => {
     let resolveSubmit!: (value: {
       code: 'started'

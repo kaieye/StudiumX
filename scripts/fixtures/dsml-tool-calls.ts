@@ -117,8 +117,7 @@ try {
         capturedArgs = args
         return JSON.stringify({ query: (args as { query?: string }).query, count: 0, results: [] })
       }
-    },
-    maxIterations: 2
+    }
   })
 
   assert.equal(requests.length, 2, 'DSML content tool calls should continue the agent loop')

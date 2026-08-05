@@ -7,7 +7,11 @@ import {
   type AdapterCallbacks
 } from './ai/provider-adapter'
 import { buildCompactLessonRegenerationPrompt } from './ai/lesson-prompts'
-import { runAgentLoop } from './ai/agent-loop'
+import { runAgentLoop, type RunAgentLoopResult } from './ai/agent-loop'
+import {
+  AgentRunResourceBoundaryError,
+  AgentRunResourceGovernor
+} from './ai/agent-run-resource-governance'
 import { buildDefaultRegistry, buildToolContext } from './ai/tools/registry'
 import {
   loadAndMergeToolPolicyDocumentsFromWorkspace,
@@ -16,13 +20,13 @@ import {
 import { cleanText } from './teaching-workspace-paths'
 import { type LessonPlan, type LessonPlanSource } from '../shared/lesson-schema'
 import { classifyProviderError, providerErrorReason } from '../shared/provider-error'
-import type { TeachingSettingsV1 } from '../shared/teaching-types'
+import type {
+  AgentRunResourceBoundarySnapshot,
+  AgentRunResourceGovernance,
+  AgentRunUsageAggregate,
+  TeachingSettingsV1
+} from '../shared/teaching-types'
 import { parseLessonPlan, type LessonPlanParseDiagnostic } from './lesson-plan-parsing'
-
-/** A nested research pass must stay bounded even when the conversational setting is unlimited. */
-const MAX_LESSON_PLAN_TOOL_ITERATIONS = 2
-const MAX_LESSON_RESEARCH_DURATION_MS = 45_000
-const MAX_LESSON_RESEARCH_PROVIDER_CALLS = 2
 
 export type PreparedLessonPlanRequest = {
   workspace: {
@@ -37,6 +41,8 @@ export type PreparedLessonPlanRequest = {
   systemPrompt: string
   userPrompt: string
   callbacks: AdapterCallbacks
+  /** Host-owned snapshot captured at the direct lesson action boundary. */
+  resourceGovernance?: AgentRunResourceGovernance
 }
 
 export type LessonPlanProductionResult = {
@@ -54,87 +60,150 @@ export class LessonGenerationError extends Error {
 }
 
 /**
+ * A host-owned resource boundary is a terminal generation outcome, not an
+ * invalid-output/provider failure. Callers must not turn it into a local
+ * fallback lesson because doing so would make an interrupted operation look
+ * like a successful course generation.
+ */
+export class LessonGenerationResourceTerminalError extends LessonGenerationError {
+  readonly stopReason: 'resource_limit' | 'suspended'
+  readonly terminal?: AgentRunResourceBoundarySnapshot
+  readonly usage?: AgentRunUsageAggregate
+
+  constructor(input: {
+    stopReason: 'resource_limit' | 'suspended'
+    terminal?: AgentRunResourceBoundarySnapshot
+    usage?: AgentRunUsageAggregate
+  }) {
+    super(formatResourceTerminalMessage(input))
+    this.name = 'LessonGenerationResourceTerminalError'
+    this.stopReason = input.stopReason
+    this.terminal = input.terminal
+    this.usage = input.usage
+  }
+}
+
+type LessonProviderResourceLane = {
+  resourceGovernor: AgentRunResourceGovernor
+  /** Sum per-response explicit provider totals into this direct-call lane. */
+  providerReportedTotalTokens: number
+}
+
+type ResearchPlanAttempt =
+  | { kind: 'plan'; plan: LessonPlan }
+  | { kind: 'unavailable'; reason?: string }
+  | {
+      kind: 'resource_terminal'
+      stopReason: 'resource_limit' | 'suspended'
+      terminal?: AgentRunResourceBoundarySnapshot
+      usage?: AgentRunUsageAggregate
+    }
+
+/**
  * Production policy for LessonPlan generation. Ordinary lessons go directly
- * to the structured provider request. A bounded tool pass is reserved for an
+ * to the structured provider request. A tool-enabled pass is reserved for an
  * explicit research request, and invalid structured output receives at most
  * one compact regeneration before the brief-aligned local fallback is used.
  */
 export async function produce(prepared: PreparedLessonPlanRequest): Promise<LessonPlanProductionResult> {
-  const { workspace, mission, prompt, sequence, settings, systemPrompt, userPrompt, callbacks } = prepared
+  const { workspace, mission, prompt, sequence, settings, systemPrompt, userPrompt, callbacks, resourceGovernance } = prepared
   const provider = resolveActiveProvider(settings)
   if (!provider || !provider.apiKey.trim()) {
     return localFallbackResult(prompt, mission, sequence, settings, '未配置 API Key')
   }
 
-  // Respect the configured output budget: silently expanding it makes non-streaming
-  // providers wait longer and can turn an otherwise bounded lesson request into a timeout.
-  const productionSettings = settings
-
-  if (lessonResearchRequested(prompt)) {
-    const researchedPlan = await requestResearchPlan({
-      workspace,
-      productionSettings,
-      provider,
-      systemPrompt,
-      userPrompt,
-      callbacks
-    })
-    if (researchedPlan) return { plan: researchedPlan, source: 'ai' }
+  // One governor is intentionally shared by research, the ordinary structured
+  // request, and its single compact retry. A research fallback therefore cannot
+  // escape the direct lesson action's host-owned resource boundary.
+  const resourceGovernor = new AgentRunResourceGovernor({ governance: resourceGovernance })
+  // Direct provider responses each report a per-request total. Keep their
+  // cumulative total in one child lane so the root ledger receives only the
+  // deltas and can aggregate it with the separate research lane.
+  const directProviderLane: LessonProviderResourceLane = {
+    resourceGovernor: resourceGovernor.createChild(),
+    providerReportedTotalTokens: 0
   }
-
-  let rawOutput: string
   try {
-    rawOutput = await requestInitialPlan({ productionSettings, provider, systemPrompt, userPrompt, callbacks })
-  } catch (error) {
-    if (error instanceof LessonGenerationError) {
-      return localFallbackResult(
-        prompt,
-        mission,
-        sequence,
-        settings,
-        `${error.message}，已使用本地学习任务模板`
-      )
+    // Respect the configured output budget: silently expanding it makes non-streaming
+    // providers wait longer and can turn an otherwise bounded lesson request into a timeout.
+    const productionSettings = settings
+
+    if (lessonResearchRequested(prompt)) {
+      const researched = await requestResearchPlan({
+        workspace,
+        productionSettings,
+        provider,
+        systemPrompt,
+        userPrompt,
+        callbacks,
+        resourceGovernor
+      })
+      if (researched.kind === 'resource_terminal') {
+        throw new LessonGenerationResourceTerminalError(researched)
+      }
+      if (researched.kind === 'plan') return { plan: researched.plan, source: 'ai' }
     }
-    throw error
-  }
 
-  const initial = validate(rawOutput, callbacks, '首次生成')
-  if (initial.plan) return { plan: initial.plan, source: 'ai' }
-
-  let compactText: string
-  try {
-    compactText = await requestCompactRetry({
-      productionSettings,
-      provider,
-      systemPrompt,
-      userPrompt,
-      diagnostic: initial.diagnostic,
-      callbacks
-    })
-  } catch (error) {
-    if (error instanceof LessonGenerationError) {
-      return localFallbackResult(
-        prompt,
-        mission,
-        sequence,
-        settings,
-        `${error.message}，已使用本地学习任务模板`
-      )
+    let rawOutput: string
+    try {
+      rawOutput = await requestInitialPlan({ productionSettings, provider, systemPrompt, userPrompt, callbacks, resourceLane: directProviderLane })
+    } catch (error) {
+      if (error instanceof LessonGenerationResourceTerminalError) throw error
+      if (error instanceof LessonGenerationError) {
+        return localFallbackResult(
+          prompt,
+          mission,
+          sequence,
+          settings,
+          `${error.message}，已使用本地学习任务模板`
+        )
+      }
+      throw error
     }
-    throw error
-  }
 
-  const compact = validate(compactText, callbacks, '紧凑重试')
-  if (compact.plan) {
-    return { plan: compact.plan, source: 'ai', reason: '首次输出未通过校验，已用紧凑重试重新生成' }
+    const initial = validate(rawOutput, callbacks, '首次生成')
+    if (initial.plan) return { plan: initial.plan, source: 'ai' }
+
+    let compactText: string
+    try {
+      compactText = await requestCompactRetry({
+        productionSettings,
+        provider,
+        systemPrompt,
+        userPrompt,
+        diagnostic: initial.diagnostic,
+        callbacks,
+        resourceLane: directProviderLane
+      })
+    } catch (error) {
+      if (error instanceof LessonGenerationResourceTerminalError) throw error
+      if (error instanceof LessonGenerationError) {
+        return localFallbackResult(
+          prompt,
+          mission,
+          sequence,
+          settings,
+          `${error.message}，已使用本地学习任务模板`
+        )
+      }
+      throw error
+    }
+
+    const compact = validate(compactText, callbacks, '紧凑重试')
+    if (compact.plan) {
+      return { plan: compact.plan, source: 'ai', reason: '首次输出未通过校验，已用紧凑重试重新生成' }
+    }
+    return localFallbackResult(
+      prompt,
+      mission,
+      sequence,
+      settings,
+      `AI 课程输出结构校验失败（${compact.diagnostic.message}），已使用本地学习任务模板`
+    )
+  } finally {
+    directProviderLane.resourceGovernor.dispose()
+    resourceGovernor.dispose()
   }
-  return localFallbackResult(
-    prompt,
-    mission,
-    sequence,
-    settings,
-    `AI 课程输出结构校验失败（${compact.diagnostic.message}），已使用本地学习任务模板`
-  )
 }
 
 async function requestResearchPlan(opts: {
@@ -144,8 +213,9 @@ async function requestResearchPlan(opts: {
   systemPrompt: string
   userPrompt: string
   callbacks: AdapterCallbacks
-}): Promise<LessonPlan | null> {
-  if (!toolsSupportedForFormat(opts.productionSettings.generator.endpointFormat)) return null
+  resourceGovernor: AgentRunResourceGovernor
+}): Promise<ResearchPlanAttempt> {
+  if (!toolsSupportedForFormat(opts.productionSettings.generator.endpointFormat)) return { kind: 'unavailable' }
 
   // `generate_lesson` remains available for untrusted workspaces, but its
   // nested research agent must not regain generic workspace-file access.
@@ -170,8 +240,9 @@ async function requestResearchPlan(opts: {
 
   const registry = buildDefaultRegistry(opts.productionSettings, workspaceToolOptions)
   const toolDefinitions = registry.definitions()
-  if (!toolDefinitions.length) return null
+  if (!toolDefinitions.length) return { kind: 'unavailable' }
 
+  const researchResourceGovernor = opts.resourceGovernor.createChild()
   try {
     const loopResult = await runAgentLoop({
       settings: opts.productionSettings,
@@ -185,8 +256,7 @@ async function requestResearchPlan(opts: {
       workspaceRoot: workspaceToolOptions.workspaceRoot,
       runId: `lesson-plan-${Date.now()}`,
       jsonMode: true,
-      maxIterations: lessonPlanToolMaxIterations(opts.productionSettings.tools.maxIterations),
-      budget: lessonResearchBudget(opts.productionSettings),
+      resourceGovernor: researchResourceGovernor,
       callbacks: {
         onEvent: (event) => {
           if (event.type === 'status') {
@@ -200,16 +270,42 @@ async function requestResearchPlan(opts: {
         }
       }
     })
+    const terminal = resourceTerminalFromLoopResult(loopResult)
+    if (terminal) return terminal
     const parsed = validate(loopResult.finalText, opts.callbacks, '工具生成')
-    if (parsed.plan) return parsed.plan
+    if (parsed.plan) return { kind: 'plan', plan: parsed.plan }
     console.warn(
       `[StudiumX] Tool-augmented lesson output was invalid; retrying with a fresh direct structured request: ${parsed.diagnostic.message}`
     )
   } catch (error) {
     const reason = error instanceof ProviderAdapterError ? adapterReason(error) : error instanceof Error ? error.message : '未知错误'
     console.warn(`[StudiumX] Tool-augmented lesson generation fell back to direct generation: ${reason}`)
+  } finally {
+    researchResourceGovernor.dispose()
   }
-  return null
+  return { kind: 'unavailable' }
+}
+
+function resourceTerminalFromLoopResult(loopResult: RunAgentLoopResult): ResearchPlanAttempt | undefined {
+  if (loopResult.stopReason !== 'resource_limit' && loopResult.stopReason !== 'suspended') return undefined
+  return {
+    kind: 'resource_terminal',
+    stopReason: loopResult.stopReason,
+    terminal: loopResult.usage.resourceGovernance?.terminal,
+    usage: loopResult.usage
+  }
+}
+
+function formatResourceTerminalMessage(input: {
+  stopReason: 'resource_limit' | 'suspended'
+  terminal?: AgentRunResourceBoundarySnapshot
+}): string {
+  const terminal = input.terminal
+  const action = input.stopReason === 'suspended' ? '紧急安全熔断器暂停' : '资源边界'
+  const meter = terminal
+    ? `（计量 ${terminal.meter}，已用 ${terminal.used}/${terminal.limit}，scope=${terminal.scope}）`
+    : ''
+  return `课程生成因${action}${meter}停止；课程尚未生成，不会自动重试或回放旧请求。请调整预算或开始新的续接。`
 }
 
 async function requestInitialPlan(opts: {
@@ -218,13 +314,32 @@ async function requestInitialPlan(opts: {
   systemPrompt: string
   userPrompt: string
   callbacks: AdapterCallbacks
+  resourceLane: LessonProviderResourceLane
 }): Promise<string> {
   try {
-    const result = opts.productionSettings.generator.streaming
-      ? await streamProvider({ settings: opts.productionSettings, provider: opts.provider, request: { systemPrompt: opts.systemPrompt, userPrompt: opts.userPrompt, jsonMode: true }, callbacks: opts.callbacks })
-      : await callProvider({ settings: opts.productionSettings, provider: opts.provider, request: { systemPrompt: opts.systemPrompt, userPrompt: opts.userPrompt, jsonMode: true }, callbacks: opts.callbacks })
+    const result = await invokeGovernedLessonProvider({
+      resourceLane: opts.resourceLane,
+      invoke: () => opts.productionSettings.generator.streaming
+        ? streamProvider({
+            settings: opts.productionSettings,
+            provider: opts.provider,
+            request: { systemPrompt: opts.systemPrompt, userPrompt: opts.userPrompt, jsonMode: true },
+            callbacks: opts.callbacks,
+            signal: opts.resourceLane.resourceGovernor.signal,
+            beforeTransportDispatch: () => opts.resourceLane.resourceGovernor.claim('provider_transport_attempts')
+          })
+        : callProvider({
+            settings: opts.productionSettings,
+            provider: opts.provider,
+            request: { systemPrompt: opts.systemPrompt, userPrompt: opts.userPrompt, jsonMode: true },
+            callbacks: opts.callbacks,
+            signal: opts.resourceLane.resourceGovernor.signal,
+            beforeTransportDispatch: () => opts.resourceLane.resourceGovernor.claim('provider_transport_attempts')
+          })
+    })
     return result.text
   } catch (error) {
+    if (error instanceof LessonGenerationResourceTerminalError) throw error
     const reason = error instanceof ProviderAdapterError ? adapterReason(error) : error instanceof Error ? error.message : '未知错误'
     throw new LessonGenerationError(`课程生成请求失败：${reason}`)
   }
@@ -237,27 +352,79 @@ async function requestCompactRetry(opts: {
   userPrompt: string
   diagnostic: LessonPlanParseDiagnostic
   callbacks: AdapterCallbacks
+  resourceLane: LessonProviderResourceLane
 }): Promise<string> {
   opts.callbacks.onStatus?.('calling')
   try {
-    const result = await callProvider({
-      settings: opts.productionSettings,
-      provider: opts.provider,
-      request: {
-        systemPrompt: opts.systemPrompt,
-        userPrompt: buildCompactLessonRegenerationPrompt({
-          userPrompt: opts.userPrompt,
-          validationError: opts.diagnostic.message
-        }),
-        jsonMode: true
-      },
-      callbacks: opts.callbacks
+    const result = await invokeGovernedLessonProvider({
+      resourceLane: opts.resourceLane,
+      invoke: () => callProvider({
+        settings: opts.productionSettings,
+        provider: opts.provider,
+        request: {
+          systemPrompt: opts.systemPrompt,
+          userPrompt: buildCompactLessonRegenerationPrompt({
+            userPrompt: opts.userPrompt,
+            validationError: opts.diagnostic.message
+          }),
+          jsonMode: true
+        },
+        callbacks: opts.callbacks,
+        signal: opts.resourceLane.resourceGovernor.signal,
+        beforeTransportDispatch: () => opts.resourceLane.resourceGovernor.claim('provider_transport_attempts')
+      })
     })
     return result.text
   } catch (error) {
+    if (error instanceof LessonGenerationResourceTerminalError) throw error
     const reason = error instanceof ProviderAdapterError ? adapterReason(error) : error instanceof Error ? error.message : '未知错误'
     throw new LessonGenerationError(`课程计划紧凑重试请求失败：${reason}（首次校验错误：${opts.diagnostic.message}）`)
   }
+}
+
+/**
+ * Reserve exactly one logical request for each direct provider call. The
+ * adapter invokes the transport preflight once per actual network dispatch,
+ * including its bounded fallback paths. Explicit provider totals are the only
+ * token values that can trip the total-token boundary; component-only usage remains local
+ * observability and cannot be presented as provider quota.
+ */
+async function invokeGovernedLessonProvider<T extends { usage?: { totalTokens?: number } }>(opts: {
+  resourceLane: LessonProviderResourceLane
+  invoke: () => Promise<T>
+}): Promise<T> {
+  const resourceGovernor = opts.resourceLane.resourceGovernor
+  try {
+    resourceGovernor.claim('logical_requests')
+    const result = await opts.invoke()
+    if (result.usage?.totalTokens !== undefined) {
+      const reportedTotalTokens = Number.isFinite(result.usage.totalTokens)
+        ? Math.max(0, Math.floor(result.usage.totalTokens))
+        : 0
+      opts.resourceLane.providerReportedTotalTokens += reportedTotalTokens
+      resourceGovernor.consume('total_tokens', opts.resourceLane.providerReportedTotalTokens)
+    }
+    throwIfLessonResourceTerminated(resourceGovernor)
+    return result
+  } catch (error) {
+    if (error instanceof LessonGenerationResourceTerminalError) throw error
+    if (error instanceof AgentRunResourceBoundaryError || resourceGovernor.isTerminated) {
+      throw resourceTerminalFromGovernor(resourceGovernor)
+    }
+    throw error
+  }
+}
+
+function throwIfLessonResourceTerminated(resourceGovernor: AgentRunResourceGovernor): void {
+  if (resourceGovernor.isTerminated) throw resourceTerminalFromGovernor(resourceGovernor)
+}
+
+function resourceTerminalFromGovernor(resourceGovernor: AgentRunResourceGovernor): LessonGenerationResourceTerminalError {
+  const terminal = resourceGovernor.boundary
+  return new LessonGenerationResourceTerminalError({
+    stopReason: terminal?.action === 'suspended' ? 'suspended' : 'resource_limit',
+    ...(terminal ? { terminal } : {})
+  })
 }
 
 function validate(text: string, callbacks: AdapterCallbacks, stage: string) {
@@ -277,21 +444,6 @@ function lessonResearchRequested(prompt: string): boolean {
     /(?:最新|实时|截至|今日|今天|近期|现行|当前(?:版本|政策|规定|数据|状态|进展|资料|信息))/i,
     /\b(?:latest|current version|up-to-date|today|recent|real-time|as of|official docs?|authoritative sources?|citations?|search the web|web search|browse the web|look up online)\b/i
   ].some((pattern) => pattern.test(normalized))
-}
-
-function lessonPlanToolMaxIterations(configuredMaxIterations: number): number {
-  if (!Number.isFinite(configuredMaxIterations) || configuredMaxIterations <= 0) {
-    return MAX_LESSON_PLAN_TOOL_ITERATIONS
-  }
-  return Math.min(Math.floor(configuredMaxIterations), MAX_LESSON_PLAN_TOOL_ITERATIONS)
-}
-
-function lessonResearchBudget(settings: TeachingSettingsV1): TeachingSettingsV1['tools']['runBudget'] {
-  return {
-    ...settings.tools.runBudget,
-    maxDurationMs: Math.min(settings.tools.runBudget.maxDurationMs, MAX_LESSON_RESEARCH_DURATION_MS),
-    maxProviderCalls: Math.min(settings.tools.runBudget.maxProviderCalls, MAX_LESSON_RESEARCH_PROVIDER_CALLS)
-  }
 }
 
 function localFallbackResult(

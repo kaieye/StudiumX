@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { SettingsComboBox } from '../../src/renderer/src/views/settings/SettingsPrimitives'
 
@@ -75,5 +75,90 @@ describe('SettingsComboBox', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'my-model' } })
 
     expect(onInput).toHaveBeenCalledWith('my-model')
+  })
+
+  it('closes the dropdown on Enter for a free-form model that does not match any option', () => {
+    const onSelect = vi.fn()
+    render(
+      <SettingsComboBox
+        value="glm-5.1"
+        options={['glm-5.1', 'glm-5.2']}
+        onInput={vi.fn()}
+        onSelect={onSelect}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('combobox'))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'my-model' } })
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' })
+
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('keeps free-form typed text in the input instead of reverting to the committed value', () => {
+    render(
+      <SettingsComboBox
+        value="glm-5.1"
+        options={['glm-5.1', 'glm-5.2']}
+        onInput={vi.fn()}
+        onSelect={vi.fn()}
+      />
+    )
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'my-model' } })
+
+    expect(screen.getByRole('combobox')).toHaveValue('my-model')
+  })
+
+  it('does not overwrite typed text with a stale committed value while focused', () => {
+    const { rerender } = render(
+      <SettingsComboBox
+        value="glm-5.1"
+        options={['glm-5.1', 'glm-5.2']}
+        onInput={vi.fn()}
+        onSelect={vi.fn()}
+      />
+    )
+
+    fireEvent.focus(screen.getByRole('combobox'))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'my-model' } })
+    rerender(
+      <SettingsComboBox
+        value="glm-5.1"
+        options={['glm-5.1', 'glm-5.2']}
+        onInput={vi.fn()}
+        onSelect={vi.fn()}
+      />
+    )
+
+    expect(screen.getByRole('combobox')).toHaveValue('my-model')
+  })
+
+  it('does not revert a typed custom model after a stale settings response and blur', async () => {
+    const { rerender } = render(
+      <SettingsComboBox
+        value="glm-5.1"
+        options={['glm-5.1', 'glm-5.2']}
+        onInput={vi.fn()}
+        onSelect={vi.fn()}
+      />
+    )
+    const input = screen.getByRole('combobox')
+
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'my-model' } })
+    // Simulates an earlier IPC settings update completing after the latest edit.
+    rerender(
+      <SettingsComboBox
+        value="glm-5.1"
+        options={['glm-5.1', 'glm-5.2']}
+        onInput={vi.fn()}
+        onSelect={vi.fn()}
+      />
+    )
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveValue('my-model'))
   })
 })

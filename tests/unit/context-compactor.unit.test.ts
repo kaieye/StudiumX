@@ -214,6 +214,28 @@ describe('ContextCompactor failure paths', () => {
     }
   })
 
+  it('lets an explicit forced compaction bypass a prior ordinary failure cooldown', async () => {
+    const messages = buildLongTranscript()
+    let attempts = 0
+    const compactor = new ContextCompactor(
+      baseOptions({
+        failureCooldownMs: 60_000,
+        now: () => Date.parse('2026-07-06T00:00:00.000Z'),
+        summarize: async () => {
+          attempts += 1
+          throw new Error('summary provider unavailable')
+        }
+      })
+    )
+
+    await compactor.compactIfNeeded({ messages })
+    const forced = await compactor.compactIfNeeded({ messages, forceCompaction: true })
+
+    expect(forced.changed).toBe(false)
+    expect(attempts).toBe(2)
+    expect(forced.events.some((event) => event.type === 'context_compaction_failed')).toBe(true)
+  })
+
   it('preserves original transcript when reduction is insufficient', async () => {
     const messages = buildLongTranscript()
     const estimator = new ContextEstimator()

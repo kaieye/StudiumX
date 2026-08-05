@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { saveAgentConversationArchive } from '../../src/main/agent-conversation-archive'
-import { AgentRunStore, DEFAULT_AGENT_RUN_BUDGET } from '../../src/main/ai/agent-run-store'
+import { AgentRunStore } from '../../src/main/ai/agent-run-store'
 import { agentParentTurnDigest, attachAgentParentTurnCommit, hasAgentParentTurnCommit, readRawAgentConversationRecord } from '../../src/main/teaching-agent-conversations'
 import {
   OMITTED_SENSITIVE_USER_INPUT,
@@ -183,8 +183,7 @@ describe('persisted user-history sanitizer', () => {
       runId,
       streamId: runId,
       workspaceId: 'workspace-1',
-      parentTurn: { userInput: record.turns[0]!.content },
-      budget: DEFAULT_AGENT_RUN_BUDGET
+      parentTurn: { userInput: record.turns[0]!.content }
     })
     await store.confirmParentTurnFinal(runId, record.turns[1]!.content)
     record.turns = attachAgentParentTurnCommit(record.turns, runId)
@@ -313,6 +312,129 @@ describe('persisted user-history sanitizer', () => {
     expect(persisted).toContain('Please explain OAuth')
     expect(persisted).toContain(OMITTED_SENSITIVE_USER_INPUT)
     expect(persisted).toContain('OAuth notes')
+  })
+
+  it('preserves complete durable resource audit facts and drops malformed resource records without coercion', async () => {
+    const rootPath = await root()
+    await mkdir(join(rootPath, 'conversation'), { recursive: true })
+    const id = 'chat-20260805-resource-governance'
+    await writeFile(join(rootPath, 'conversation', `${id}.json`), `${JSON.stringify({
+      id,
+      title: 'Resource governance parser',
+      createdAt: '2026-08-05T00:00:00.000Z',
+      updatedAt: '2026-08-05T00:00:02.000Z',
+      relativePath: `conversation/${id}.md`,
+      messageCount: 4,
+      turns: [
+        { id: 'u1', role: 'user', content: 'Continue safely', createdAt: '2026-08-05T00:00:00.000Z' },
+        {
+          id: 'a1', role: 'assistant', content: 'Paused safely', createdAt: '2026-08-05T00:00:01.000Z',
+          metadata: {
+            version: 1,
+            childRuns: [{
+              childRunId: 'child-resource-limit',
+              label: 'Budgeted research',
+              profile: 'research',
+              status: 'failed',
+              stopReason: 'resource_limit',
+              error: 'resource_limit'
+            }],
+            runUsage: {
+              providerCalls: 3, toolCalls: 2, toolErrors: 1, iterations: 3, childRuns: 0, durationMs: 1_200,
+              operationAccounting: {
+                logicalRequests: 3,
+                providerTransportAttempts: 4,
+                transportRetries: 1,
+                overflowRecoveries: 1,
+                compactionOperations: 2,
+                compactionSummaryAttempts: 2,
+                toolOperationAttempts: 2
+              },
+              resourceGovernance: {
+                configured: [
+                  { layer: 'user_budget', meter: 'total_tokens', limit: 8_000, scope: 'task', auditId: 'lesson-budget' },
+                  { layer: 'emergency_fuse', meter: 'duration_ms', limit: 86_400_000, scope: 'run', auditId: 'host-emergency-duration' }
+                ],
+                terminal: {
+                  layer: 'user_budget', meter: 'total_tokens', used: 8_000, limit: 8_000, scope: 'task',
+                  auditId: 'lesson-budget', action: 'resource_limit'
+                }
+              }
+            }
+          }
+        },
+        { id: 'u2', role: 'user', content: 'Record malformed audit facts safely', createdAt: '2026-08-05T00:00:02.000Z' },
+        {
+          id: 'a2', role: 'assistant', content: 'Invalid audit input', createdAt: '2026-08-05T00:00:03.000Z',
+          metadata: {
+            version: 1,
+            childRuns: [{
+              childRunId: 'child-malformed-terminal',
+              label: 'Malformed terminal',
+              profile: 'research',
+              status: 'failed',
+              stopReason: 'done'
+            }],
+            runUsage: {
+              providerCalls: 1,
+              toolCalls: 0,
+              operationAccounting: {
+                logicalRequests: '1',
+                providerTransportAttempts: 1,
+                transportRetries: 0,
+                overflowRecoveries: 0,
+                compactionOperations: 0,
+                compactionSummaryAttempts: 0,
+                toolOperationAttempts: 0
+              },
+              resourceGovernance: {
+                configured: [{ layer: 'user_budget', meter: 'total_tokens', limit: '8000', scope: 'task' }],
+                terminal: {
+                  layer: 'user_budget', meter: 'total_tokens', used: -1, limit: 8_000, scope: 'task', action: 'resource_limit'
+                }
+              }
+            }
+          }
+        }
+      ]
+    }, null, 2)}\n`)
+
+    const persisted = await readRawAgentConversationRecord(rootPath, id)
+    const validChild = persisted.turns[1]!.metadata!.childRuns![0]
+    expect(validChild).toMatchObject({
+      childRunId: 'child-resource-limit',
+      status: 'failed',
+      stopReason: 'resource_limit',
+      error: 'resource_limit'
+    })
+    const validUsage = persisted.turns[1]!.metadata!.runUsage!
+    expect(validUsage.operationAccounting).toEqual({
+      logicalRequests: 3,
+      providerTransportAttempts: 4,
+      transportRetries: 1,
+      overflowRecoveries: 1,
+      compactionOperations: 2,
+      compactionSummaryAttempts: 2,
+      toolOperationAttempts: 2
+    })
+    expect(validUsage.resourceGovernance).toEqual({
+      configured: [
+        { layer: 'user_budget', meter: 'total_tokens', limit: 8_000, scope: 'task', auditId: 'lesson-budget' },
+        { layer: 'emergency_fuse', meter: 'duration_ms', limit: 86_400_000, scope: 'run', auditId: 'host-emergency-duration' }
+      ],
+      terminal: {
+        layer: 'user_budget', meter: 'total_tokens', used: 8_000, limit: 8_000, scope: 'task',
+        auditId: 'lesson-budget', action: 'resource_limit'
+      }
+    })
+
+    const malformedChild = persisted.turns[3]!.metadata!.childRuns![0]
+    expect(malformedChild).toMatchObject({ childRunId: 'child-malformed-terminal', status: 'failed' })
+    expect(malformedChild.stopReason).toBeUndefined()
+    const malformedUsage = persisted.turns[3]!.metadata!.runUsage!
+    expect(malformedUsage).toMatchObject({ providerCalls: 1, toolCalls: 0 })
+    expect(malformedUsage.operationAccounting).toBeUndefined()
+    expect(malformedUsage.resourceGovernance).toBeUndefined()
   })
 })
 

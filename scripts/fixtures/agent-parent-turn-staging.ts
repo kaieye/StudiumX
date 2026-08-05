@@ -5,7 +5,7 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { AgentRunStore, DEFAULT_AGENT_RUN_BUDGET } from '../../src/main/ai/agent-run-store'
+import { AgentRunStore } from '../../src/main/ai/agent-run-store'
 import {
   attachAgentParentTurnCommit,
   hasAgentParentTurnCommit,
@@ -37,8 +37,7 @@ try {
     conversationId: 'conversation-existing',
     parentTurn: {
       userInput: `请总结这段材料。 api_key=${inputSecret} ${inputPassword} ${inputQuotedPassword} ${inputJsonPassphrase}`
-    },
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    }
   })
   const providerBeforeStage = await store.readParentTurnStage('run-provider-before')
   assert.equal(providerBeforeStage.status, 'running')
@@ -68,8 +67,7 @@ try {
     runId: 'run-stream-tools',
     streamId: 'run-stream-tools',
     workspaceId: 'workspace-1',
-    parentTurn: { userInput: '请读取工作区并给出结论。' },
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    parentTurn: { userInput: '请读取工作区并给出结论。' }
   })
   await store.recordParentTurnEvent('run-stream-tools', {
     sequence: 1,
@@ -202,8 +200,7 @@ try {
     runId: 'run-operation-window',
     streamId: 'run-operation-window',
     workspaceId: 'workspace-1',
-    parentTurn: { userInput: '模拟恢复过程中的二次崩溃。' },
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    parentTurn: { userInput: '模拟恢复过程中的二次崩溃。' }
   })
   const windowOperation = await store.operations.startOperation({
     runId: 'run-operation-window',
@@ -244,8 +241,7 @@ try {
     runId: 'run-awaiting-save',
     streamId: 'run-awaiting-save',
     workspaceId: 'workspace-1',
-    parentTurn: { userInput: '生成最终说明。' },
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    parentTurn: { userInput: '生成最终说明。' }
   })
   await store.confirmParentTurnFinal('run-awaiting-save', `最终说明完成。 Authorization: Bearer ${finalSecret} ${finalQuotedPassphrase}`)
   await store.prepareParentTurnSave('run-awaiting-save', 'conversation-awaiting', 'a'.repeat(64))
@@ -290,8 +286,7 @@ try {
     runId: 'run-conversation-saved',
     streamId: 'run-conversation-saved',
     workspaceId: 'workspace-1',
-    parentTurn: { userInput: '保存后不要重复恢复。' },
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    parentTurn: { userInput: '保存后不要重复恢复。' }
   })
   await store.confirmParentTurnFinal('run-conversation-saved', '这是已经保存的最终回复。')
   await store.prepareParentTurnSave('run-conversation-saved', 'conversation-saved', 'b'.repeat(64))
@@ -318,8 +313,7 @@ try {
     runId: 'run-canceled',
     streamId: 'run-canceled',
     workspaceId: 'workspace-1',
-    parentTurn: { userInput: '取消这个请求。' },
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    parentTurn: { userInput: '取消这个请求。' }
   })
   await store.markParentTurnTerminal('run-canceled', 'canceled', `用户取消 token=${cancelSecret}`)
   await store.update('run-canceled', { status: 'canceled', completedAt: now(), stopReason: 'canceled' })
@@ -333,8 +327,7 @@ try {
     runId: 'run-valid-among-invalid',
     streamId: 'run-valid-among-invalid',
     workspaceId: 'workspace-1',
-    parentTurn: { userInput: '有效记录不能被坏记录阻塞。' },
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    parentTurn: { userInput: '有效记录不能被坏记录阻塞。' }
   })
   const parentTurnsDirectory = join(root, '.agent-sessions', 'parent-turns')
   await writeFile(join(parentTurnsDirectory, 'corrupt-stage.json'), '{not-json')
@@ -352,8 +345,7 @@ try {
     () => store.create({
       runId: '../escape-parent-turn',
       streamId: 'escape-parent-turn',
-      parentTurn: { userInput: 'unsafe' },
-      budget: DEFAULT_AGENT_RUN_BUDGET
+      parentTurn: { userInput: 'unsafe' }
     }),
     /runId/
   )
@@ -399,8 +391,7 @@ async function assertSymlinkContainment(clock: () => string): Promise<void> {
       () => new AgentRunStore(storageRoot, clock).create({
         runId: 'run-symlink-escape',
         streamId: 'run-symlink-escape',
-        parentTurn: { userInput: 'must remain contained' },
-        budget: DEFAULT_AGENT_RUN_BUDGET
+        parentTurn: { userInput: 'must remain contained' }
       }),
       /symlink|escapes storage root/i
     )

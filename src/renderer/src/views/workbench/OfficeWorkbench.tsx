@@ -124,8 +124,8 @@ function mapServerMemberToRoomMember(member: SyncStudyRoomMember): StudyRoomMemb
  * Merge server-backed members into the relay-based leaderboard.
  *
  * Server presence carries account-profile names, so it is the authoritative
- * roster whenever it is available. The local relay remains a fallback only
- * while no server roster has been received.
+ * roster whenever it is available. Before it arrives, the scene renders only
+ * the local learner rather than treating relay peers as shared-room members.
  */
 function mergeServerMembers(server: SyncStudyRoomMember[]): StudyRoomMember[] {
   return server
@@ -138,37 +138,52 @@ export type BuildOfficeSceneOccupantsInput = {
   serverRosterAvailable: boolean
   /** Server roster only: each member carries its authoritative desk position. */
   leaderboardMembers: readonly StudyRoomMember[]
+  /** The local learner, rendered only before the shared roster is available. */
+  localSelf?: StudyRoomMember
   seatCount: number
+}
+
+function addOfficeSceneOccupant(
+  occupantsByDeskId: Map<DeskId, OfficeSceneSeatOccupant>,
+  member: StudyRoomMember,
+  seatCount: number,
+  kind: OfficeSceneSeatOccupant['kind']
+): void {
+  if (!Number.isInteger(member.seatIndex) || member.seatIndex < 0 || member.seatIndex >= seatCount) return
+  const deskId = deskIdForSeatIndex(member.seatIndex)
+  // The server enforces unique (roomId, seatIndex); keeping the first makes a
+  // malformed legacy response harmless rather than moving anyone locally.
+  if (occupantsByDeskId.has(deskId)) return
+  occupantsByDeskId.set(deskId, {
+    kind,
+    name: member.nickname,
+    petAppearance: member.petAppearance,
+    status: member.status,
+    timerMode: member.timerMode,
+    todayFocusSeconds: member.todayFocusSeconds
+  })
 }
 
 /**
  * Assign one occupant (pet) per desk from the server-authoritative roster.
  *
- * Local relay claims and focus-duration ordering are intentionally excluded:
- * all clients render the same account at the `seatIndex` assigned by the
- * study-room service.
+ * Until the shared roster is available (for example, when the user is offline
+ * or has not signed in), render only the local learner at their durable local
+ * seat. This preserves the local-first self-study-room experience without
+ * presenting relay peers as shared-room facts.
  */
 export function buildOfficeSceneOccupants(
   input: BuildOfficeSceneOccupantsInput
 ): Map<DeskId, OfficeSceneSeatOccupant> {
-  const { serverRosterAvailable, leaderboardMembers, seatCount } = input
+  const { serverRosterAvailable, leaderboardMembers, localSelf, seatCount } = input
   const occupantsByDeskId = new Map<DeskId, OfficeSceneSeatOccupant>()
-  if (!serverRosterAvailable) return occupantsByDeskId
+  if (!serverRosterAvailable) {
+    if (localSelf) addOfficeSceneOccupant(occupantsByDeskId, localSelf, seatCount, 'self')
+    return occupantsByDeskId
+  }
 
   for (const member of leaderboardMembers) {
-    if (!Number.isInteger(member.seatIndex) || member.seatIndex < 0 || member.seatIndex >= seatCount) continue
-    const deskId = deskIdForSeatIndex(member.seatIndex)
-    // The server enforces unique (roomId, seatIndex); keeping the first makes a
-    // malformed legacy response harmless rather than moving anyone locally.
-    if (occupantsByDeskId.has(deskId)) continue
-    occupantsByDeskId.set(deskId, {
-      kind: member.isSelf ? 'self' : 'peer',
-      name: member.nickname,
-      petAppearance: member.petAppearance,
-      status: member.status,
-      timerMode: member.timerMode,
-      todayFocusSeconds: member.todayFocusSeconds
-    })
+    addOfficeSceneOccupant(occupantsByDeskId, member, seatCount, member.isSelf ? 'self' : 'peer')
   }
 
   return occupantsByDeskId
@@ -503,18 +518,20 @@ export function OfficeWorkbench({ showNotification }: OfficeWorkbenchProps) {
     }
   }, [isFullscreen, notificationsEnabled, quietUntilMs])
 
-  const serverSelfSeatIndex = studyRoomPresence.hasReceivedRoster
+  const localSelf = viewModel.roomMembers.find((member) => member.isSelf)
+  const selectedSeatIndex = studyRoomPresence.hasReceivedRoster
     ? studyRoomPresence.members.find((member) => member.isSelf)?.seatIndex ?? -1
-    : -1
+    : localSelf?.seatIndex ?? -1
   const clockTime = clockState.current
   const occupantsByDeskId = buildOfficeSceneOccupants({
     serverRosterAvailable: studyRoomPresence.hasReceivedRoster,
     leaderboardMembers,
+    localSelf,
     seatCount: workbenchSeatCount
   })
   const seatState: OfficeSceneSeatState = {
-    userSeatIndex: serverSelfSeatIndex >= 0 && serverSelfSeatIndex < workbenchSeatCount
-      ? serverSelfSeatIndex
+    userSeatIndex: selectedSeatIndex >= 0 && selectedSeatIndex < workbenchSeatCount
+      ? selectedSeatIndex
       : -1,
     activeRoomName: viewModel.activeRoom.name,
     connectionLabel: viewModel.connectionLabel,

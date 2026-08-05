@@ -14,6 +14,7 @@ import {
 import type {
   AgentChatMessage,
   LessonSummary,
+  AgentRunResourceGovernance,
   TeachingMemoryRecord,
   TeachingSettingsV1
 } from '../shared/teaching-types'
@@ -67,6 +68,8 @@ export async function runLessonGenerationPipeline(options: {
   bindCanonicalSession?: (publication: Pick<LessonArtifactPublication, 'lesson' | 'assessment'>) => Promise<void | (() => Promise<void>)>
   /** Direct-UI reserved publisher journal id; agent path omits this. */
   reservedTransactionId?: string
+  /** Host-owned policy resolved once for this direct lesson action. */
+  resourceGovernance?: AgentRunResourceGovernance
 }): Promise<LessonGenerationResult> {
   const {
     workspace,
@@ -80,7 +83,8 @@ export async function runLessonGenerationPipeline(options: {
     retrieveMemories,
     callbacks,
     bindCanonicalSession,
-    reservedTransactionId
+    reservedTransactionId,
+    resourceGovernance
   } = options
 
   const mission = await readMissionSummary(workspace.rootPath, workspace.name)
@@ -115,7 +119,8 @@ export async function runLessonGenerationPipeline(options: {
       missionTitle: mission.title,
       memories: recalledMemories
     }),
-    callbacks: callbacks ?? {}
+    callbacks: callbacks ?? {},
+    resourceGovernance
   }
   const { plan, source, reason } = await produce(prepared)
 

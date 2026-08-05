@@ -389,8 +389,16 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             }
           })
           productStreamResult = result
-          if ('error' in result && result.error) return { streamId, error: result.message }
+          if ('error' in result && result.error) return { streamId, error: result.message, stopReason: result.stopReason }
           if ('canceled' in result && result.canceled) return { streamId, canceled: true }
+          if ('resourceStopped' in result && result.resourceStopped) return {
+            streamId,
+            resourceStopped: true,
+            status: result.status,
+            message: result.message,
+            stopReason: result.stopReason,
+            usage: result.usage
+          }
           if (!('turns' in result)) return { streamId, error: 'conversation_turn_result_unavailable' }
 
           // The runtime may return a complete transcript, but it must prove the
@@ -485,10 +493,15 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       cancelStreamAskPending(streamId)
       cancelStreamToolPermissionPending(streamId)
 
-      const release = failed
-        ? context.conversationTurnLane.fail({ target: releaseTarget, activeTurnId, streamId })
-        : context.conversationTurnLane.complete({ target: releaseTarget, activeTurnId, streamId })
-      if (release.code === 'released' && release.next) startReservedConversationTurn(release.next)
+      const resourceTerminal = Boolean(productStreamResult && 'resourceStopped' in productStreamResult && productStreamResult.resourceStopped)
+      const release = resourceTerminal
+        ? context.conversationTurnLane.suspend({ target: releaseTarget, activeTurnId, streamId })
+        : failed
+          ? context.conversationTurnLane.fail({ target: releaseTarget, activeTurnId, streamId })
+          : context.conversationTurnLane.complete({ target: releaseTarget, activeTurnId, streamId })
+      // Resource terminals require explicit user continuation; never drain queued
+      // follow-ups after a resource boundary. Retry exhaustion remains fail-path behavior.
+      if (!resourceTerminal && release.code === 'released' && release.next) startReservedConversationTurn(release.next)
     }
   }
 
@@ -515,6 +528,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({ channel: teachingInvokeChannels.getAppVersion, parser: () => undefined, action: () => app.getVersion(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.getSettings, parser: () => undefined, action: () => settings.load(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({ channel: teachingInvokeChannels.listInterruptedAgentRuns, parser: () => undefined, action: () => service.listInterruptedAgentRuns(), reply: identityReply, streamCleanup: noStreamCleanup }),
+    command({ channel: teachingInvokeChannels.listTerminalAgentRunNotices, parser: () => undefined, action: () => service.listTerminalAgentRunNotices(), reply: identityReply, streamCleanup: noStreamCleanup }),
     command({
       channel: teachingInvokeChannels.updateSettings, parser: (payload) => parseSettingsPatch(payload),
       action: async (_event, payload) => { const updated = await settings.patch(payload); void context.applyAppBehavior(updated); return updated },

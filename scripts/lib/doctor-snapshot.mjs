@@ -428,8 +428,7 @@ function summarizeSettings(settings, info) {
       workspaceRead: settings.tools?.workspaceRead !== false,
       approvalMode: stringValue(settings.tools?.approvalMode),
       webSearch: settings.tools?.webSearch !== false,
-      webFetch: settings.tools?.webFetch === true,
-      maxIterations: numberValue(settings.tools?.maxIterations)
+      webFetch: settings.tools?.webFetch === true
     },
     workspacePathPolicy: {
       defaultRootConfigured: Boolean(stringValue(settings.workspace?.defaultRoot)),

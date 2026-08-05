@@ -62,8 +62,7 @@ function tokenResult(
         toolErrors: 0,
         iterations: 2,
         childRuns: 0,
-        durationMs: 12_000,
-        budgetStops: 0
+        durationMs: 12_000
       },
       byDay: [
         { date: query.range.to, promptTokens: 200, completionTokens: 50, totalTokens: 250, runs: 1 },
@@ -123,8 +122,7 @@ function emptyTokenResult(
         toolErrors: 0,
         iterations: 0,
         childRuns: 0,
-        durationMs: 0,
-        budgetStops: 0
+        durationMs: 0
       },
       byDay: [],
       byDayByModel: [],

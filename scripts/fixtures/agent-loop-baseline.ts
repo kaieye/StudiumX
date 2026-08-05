@@ -10,7 +10,7 @@ import type { AgentLoopEvent } from '../../src/main/ai/agent-loop'
 import type { ToolCall, ToolDefinition } from '../../src/main/ai/provider-adapter'
 import type { ToolHandlerMap } from '../../src/main/ai/tools/registry'
 
-type Scenario = 'no-tools' | 'single-tool' | 'multi-tool' | 'tool-error' | 'max-iterations' | 'max-iterations-tool-with-text' | 'degraded'
+type Scenario = 'no-tools' | 'single-tool' | 'multi-tool' | 'tool-error' | 'degraded'
 
 type RecordedRequest = {
   scenario: Scenario
@@ -80,16 +80,7 @@ const server = createServer(async (req, res) => {
         tool_calls: [makeToolCall('call-broken', 'broken_tool', { value: true })]
       }
     }
-    if (toolResults.length > 0) {
-      if (scenario === 'max-iterations-tool-with-text') {
-        return {
-          role: 'assistant',
-          content: 'I will keep reading before I answer.',
-          tool_calls: [makeToolCall('call-dangling', 'web_search', { query: 'more context' })]
-        }
-      }
-      return { role: 'assistant', content: 'Forced final after max iterations.' }
-    }
+    if (toolResults.length > 0) return { role: 'assistant', content: 'Final answer after continued tool work.' }
     return {
       role: 'assistant',
       content: '',
@@ -143,7 +134,6 @@ try {
   settings.generator.endpointFormat = 'chat_completions'
   settings.generator.requestTimeoutMs = 5000
   settings.tools.enabled = true
-  settings.tools.maxIterations = 0
   settings.provider.providers = settings.provider.providers.map((provider) =>
     provider.id === 'custom'
       ? {
@@ -167,9 +157,7 @@ try {
   }
 
   const runScenario = async (nextScenario: Scenario, options: {
-    maxIterations?: number
     toolHandlers?: ToolHandlerMap
-    maxIterationsBehavior?: 'force_final_answer' | 'error'
     signal?: AbortSignal
     endpointFormat?: 'chat_completions' | 'messages'
   } = {}): Promise<{ events: AgentLoopEvent[]; result: Awaited<ReturnType<typeof runAgentLoop>> }> => {
@@ -185,8 +173,6 @@ try {
         messages: baseMessages,
         tools: [webSearchTool, webFetchTool],
         toolHandlers: options.toolHandlers ?? toolHandlers,
-        maxIterations: options.maxIterations,
-        maxIterationsBehavior: options.maxIterationsBehavior,
         signal: options.signal,
         callbacks: {
           onEvent: (event) => events.push(event)
@@ -279,38 +265,6 @@ try {
   assert.ok(errorEvent)
   assert.match(errorEvent.result, /simulated handler failure/)
 
-  const maxIterations = await runScenario('max-iterations', { maxIterations: 1 })
-  assert.equal(maxIterations.result.stopReason, 'max_iterations')
-  assert.equal(maxIterations.result.finalText, 'Forced final after max iterations.')
-  assert.equal(maxIterations.result.iterations, 1)
-  assert.equal(requests.length, 2)
-  assert.equal(requests[1]?.body.tools, undefined, 'forced final request should omit tools from the provider body')
-  assert.equal(requests[1]?.body.tool_choice, undefined, 'forced final request should omit tool_choice from the provider body')
-  assert.ok(maxIterations.events.some((event) => event.type === 'status' && event.status === 'answering'))
-  assert.deepEqual(terminalStatuses(maxIterations.events), ['done'])
-
-  const maxIterationsError = await runScenario('max-iterations', {
-    maxIterations: 1,
-    maxIterationsBehavior: 'error'
-  })
-  assert.equal(maxIterationsError.result.stopReason, 'max_iterations')
-  assert.equal(maxIterationsError.result.finalText, '')
-  assert.match(maxIterationsError.result.error ?? '', /达到工具调用上限/)
-  assert.equal(requests.length, 1, 'maxIterationsBehavior=error should not make a forced final provider call')
-  assert.ok(maxIterationsError.events.some((event) => event.type === 'status' && event.status === 'error'))
-
-  const danglingFinalTool = await runScenario('max-iterations-tool-with-text', { maxIterations: 1 })
-  assert.equal(danglingFinalTool.result.stopReason, 'max_iterations')
-  assert.equal(danglingFinalTool.result.finalText, 'I will keep reading before I answer.')
-  assert.equal(danglingFinalTool.result.error, undefined)
-  assert.equal(danglingFinalTool.result.degradedReason, 'final_answer_ignored_tool_calls')
-  assert.equal(
-    danglingFinalTool.result.messages.some(
-      (message) => message.role === 'assistant' && message.tool_calls?.some((call) => call.id === 'call-dangling')
-    ),
-    false,
-    'an unexecuted forced-final tool call must not be persisted into the conversation'
-  )
 
   const controller = new AbortController()
   controller.abort()

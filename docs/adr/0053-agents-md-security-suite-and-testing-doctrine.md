@@ -31,7 +31,7 @@ scripts/check-agent-external-content-boundary.mjs
 
 | 块 | 内容 |
 | --- | --- |
-| 产品地板 | 文件 SoT；无默认 shell / MCP marketplace / 自动 remote telemetry；effect lattice + 禁 YOLO；settlement sole-writer + `expectedRevision` / `toolsReplayed:false`；多轴硬预算；同意 memory；Blocking 领域门禁优先 |
+| 产品地板 | 文件 SoT；无默认 shell / MCP marketplace / 自动 remote telemetry；effect lattice + 禁 YOLO；settlement sole-writer + `expectedRevision` / `toolsReplayed:false`；持续运行与上下文治理（无累计 run-token 终止配额）；同意 memory；Blocking 领域门禁优先 |
 | 命令图 | `typecheck`、`check:security`、`check:prepush`、`check:tool-contract`、`check:teaching-evidence`、doctor、unit 等 |
 | 红线 | 与 ADOPTION §5 / CONTRIBUTING 对齐的 Do not 列表 |
 | 改哪测哪 | 模块 → 最小检查映射摘要 |

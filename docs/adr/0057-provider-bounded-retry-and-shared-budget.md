@@ -1,6 +1,6 @@
-# ADR-0057：Provider 有界 jittered retry 与共享 run budget
+# ADR-0057：Provider 有界 jittered retry 与局部重试边界
 
-- **状态：** 已实施
+- **状态：** 已实施；其中“共享 run budget”政策已由 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md) 于 2026-08-04 取代，运行时代码迁移已完成。
 - **日期：** 2026-07-21
 - **范围：** 纯策略 `provider-retry.ts` + `agent-loop` 对 provider 调用失败路径的有界自动重试接线
 - **相关：** [ADR-0052](0052-provider-error-and-recovery-taxonomy.md)（A-04 flags）、[ADOPTION A-05](0121-improvements-adoption-closeout.md)
@@ -8,27 +8,27 @@
 ## 背景
 
 A-04 已提供双轴中的 recovery flags（`classifyProviderRecovery` → `retryable` / `shouldCompress` / `shouldFallback`），但 `agent-loop` 在 `streamChatProvider` / recovery / finalization 等路径上仍是「首个 provider 错误即 `execution.failed`」。  
-真正的节流/上游 transient（429、5xx、timeout、network、empty_stream）需要 **有界、可注入、计入 run budget** 的自动重试；billing / auth / overflow / length 则 **永久禁止** 自动重试。
+真正的节流/上游 transient（429、5xx、timeout、network、empty_stream）需要 **有界、可注入** 的自动重试；billing / auth / overflow / length 则 **永久禁止** 自动重试。重试次数是单次 transport recovery 的局部边界，不是学习或 agent run 的累计配额。
 
 ## 决策
 
 ### 1. 纯策略模块 `src/shared/provider-retry.ts`
 
 - `planProviderRetry`：根据 `classifyProviderRecovery(error).retryable` 与 `ProviderRetryBudget` 决定 `retry | fail`。
-- `withProviderRetry`：小异步 helper——sleep + 再调用；**不**负责 maxProviderCalls 记账（由 loop 在每次 `run(attempt)` 内 `budgetStop` + `startProviderCall`）。
+- `withProviderRetry`：小异步 helper——sleep + 再调用；**不**负责全局 run 记账，调用方只记录本次 transport attempt 的诊断。
 - 默认 `maxAttempts = 3`（1 次原始 + 最多 2 次重试）。
 - Backoff：base ≈ 250ms，指数，**full jitter**，上限 8s；若存在 `retryAfterMs` 则 `max(backoff, retryAfter)` 再加小 jitter。
 - AbortSignal 中止等待。
 - **无** credential 多 key 旋转 API；**无** 本切片强制 circuit-breaker。
 
-### 2. 共享 budget 双轴
+### 2. 局部重试边界，不设共享 run budget
 
-| 轴 | 权威 | 作用 |
+| 边界 | 权威 | 作用 |
 | --- | --- | --- |
-| Run budget | 既有 `AgentLoopExecutionState` / `maxProviderCalls` / duration / tokens | 每次 retry 尝试仍 `startProviderCall`，耗尽则 `budget_exhausted` |
-| Retry attempt cap | `ProviderRetryBudget.maxAttempts`（默认 3） | 单次逻辑 provider 调用的 transport 重试上限 |
+| 全局 run 配额 | **无** | 正常学习 / agent run 不以累计 token、provider 调用次数或运行时长终止；不得以 `budget_exhausted` 阻断后续模型或工具调用。 |
+| Retry attempt cap | `ProviderRetryBudget.maxAttempts`（默认 3） | 仅限制同一逻辑 provider 调用的 transport 重试次数；耗尽后把本次 provider failure 正常交回调用路径。 |
 
-两轴同时生效：任一先到即停止。
+局部重试耗尽不创建累计 run budget，也不构成学习额度耗尽。
 
 ### 3. Loop 接线（仅 provider 错误路径）
 

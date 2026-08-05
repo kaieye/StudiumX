@@ -5,7 +5,6 @@ import { join } from 'node:path'
 
 import {
   AgentRunStore,
-  DEFAULT_AGENT_RUN_BUDGET,
   agentOperationId
 } from '../../src/main/ai/agent-run-store'
 import { ChildRunSupervisor } from '../../src/main/ai/child-run-supervisor'
@@ -21,8 +20,7 @@ try {
     runId: 'run-permission',
     streamId: 'run-permission',
     workspaceId: 'workspace-1',
-    conversationId: 'conversation-1',
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    conversationId: 'conversation-1'
   })
   await store.update('run-permission', {
     status: 'waiting_for_permission',
@@ -84,8 +82,7 @@ try {
   const preAbortedStore = new AgentRunStore(preAbortedRoot, now)
   await preAbortedStore.create({
     runId: 'run-pre-aborted',
-    streamId: 'run-pre-aborted',
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    streamId: 'run-pre-aborted'
   })
   const parentController = new AbortController()
   parentController.abort()
@@ -108,7 +105,6 @@ try {
     prompt: 'Do not execute this child.',
     context: '',
     profile: 'read_only',
-    maxIterations: 1,
     timeoutMs: 1_000
   })
   assert.equal(preAbortedExecutorRan, false)
@@ -126,8 +122,7 @@ try {
   await assert.rejects(
     store.create({
       runId: 'run-permission',
-      streamId: 'run-permission',
-      budget: DEFAULT_AGENT_RUN_BUDGET
+      streamId: 'run-permission'
     }),
     /already exists/
   )
@@ -170,8 +165,7 @@ try {
 
   await restarted.create({
     runId: 'run-child-terminal',
-    streamId: 'run-child-terminal',
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    streamId: 'run-child-terminal'
   })
   await restarted.update('run-child-terminal', { status: 'completed', completedAt: now() })
   const terminalChildStore = restarted.createChildRunStore('run-child-terminal')
@@ -209,8 +203,7 @@ try {
 
   await restarted.create({
     runId: 'run-ask',
-    streamId: 'run-ask',
-    budget: DEFAULT_AGENT_RUN_BUDGET
+    streamId: 'run-ask'
   })
   await restarted.update('run-ask', {
     status: 'waiting_for_elicitation',
@@ -251,7 +244,6 @@ try {
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt: '2026-07-01T00:00:01.000Z',
     operationJournalPointer: `.agent-sessions/operations/${legacyRunId}`,
-    budget: DEFAULT_AGENT_RUN_BUDGET,
     usage: { providerCalls: 1, toolCalls: 1, toolErrors: 0, iterations: 1, childRuns: 0, durationMs: 12 }
   }))
   await writeFile(join(root, '.agent-sessions', 'operations', legacyRunId, `${legacyOperationId}.json`), JSON.stringify({
@@ -276,17 +268,17 @@ try {
 
   await writeFile(join(runsDirectory, 'corrupt.json'), '{not-json')
   await writeFile(join(runsDirectory, 'unknown.json'), JSON.stringify({ version: 99, extra: 'prompt text must not load' }))
-  const invalidBudget = JSON.parse(await readFile(join(runsDirectory, 'run-ask.json'), 'utf8'))
-  invalidBudget.runId = 'invalid-budget'
-  invalidBudget.streamId = 'invalid-budget'
-  invalidBudget.operationJournalPointer = '.agent-sessions/operations/invalid-budget'
-  invalidBudget.budget.maxProviderCalls = 'many'
-  await writeFile(join(runsDirectory, 'invalid-budget.json'), JSON.stringify(invalidBudget))
+  const invalidCheckpoint = JSON.parse(await readFile(join(runsDirectory, 'run-ask.json'), 'utf8'))
+  invalidCheckpoint.runId = 'invalid-checkpoint'
+  invalidCheckpoint.streamId = 'invalid-checkpoint'
+  invalidCheckpoint.operationJournalPointer = '.agent-sessions/operations/invalid-checkpoint'
+  invalidCheckpoint.usage.providerCalls = 'many'
+  await writeFile(join(runsDirectory, 'invalid-checkpoint.json'), JSON.stringify(invalidCheckpoint))
   await secondRestart.listInterrupted()
   const quarantined = await readdir(runsDirectory)
   assert.equal(quarantined.some((name) => name.startsWith('corrupt.json.corrupt-')), true)
   assert.equal(quarantined.some((name) => name.startsWith('unknown.json.corrupt-')), true)
-  assert.equal(quarantined.some((name) => name.startsWith('invalid-budget.json.corrupt-')), true)
+  assert.equal(quarantined.some((name) => name.startsWith('invalid-checkpoint.json.corrupt-')), true)
 
   assert.equal(defaultSettings(root).tools.approvalMode, 'request_approval')
   assert.equal(normalizeSettings({ tools: { workspaceWritePermission: 'read_only' } }, root).tools.approvalMode, 'request_approval')
@@ -306,8 +298,7 @@ try {
   try {
     await secondRestart.create({
       runId: 'run-artifact-symlink',
-      streamId: 'run-artifact-symlink',
-      budget: DEFAULT_AGENT_RUN_BUDGET
+      streamId: 'run-artifact-symlink'
     })
     const symlinkArtifact = await secondRestart.operations.startOperation({
       runId: 'run-artifact-symlink',
@@ -345,8 +336,7 @@ try {
       await assert.rejects(
         new AgentRunStore(symlinkRoot).create({
           runId: 'escaped-run',
-          streamId: 'escaped-run',
-          budget: DEFAULT_AGENT_RUN_BUDGET
+          streamId: 'escaped-run'
         }),
         /escapes storage root through a symlink/
       )

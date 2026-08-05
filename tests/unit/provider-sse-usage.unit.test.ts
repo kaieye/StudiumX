@@ -30,7 +30,7 @@ describe('extractUsage stream event shapes', () => {
     expect(extractUsage('messages', {
       type: 'message_delta',
       usage: { input_tokens: 20, output_tokens: 5 }
-    })).toEqual({ promptTokens: 20, completionTokens: 5, totalTokens: 25 })
+    })).toEqual({ promptTokens: 20, completionTokens: 5 })
   })
 
   it('reads responses.completed nested usage', () => {

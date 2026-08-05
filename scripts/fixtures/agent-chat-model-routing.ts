@@ -87,8 +87,7 @@ const server = createServer(async (req, res) => {
         tool_calls: [makeToolCall('call-delegate-save', 'delegate_task', {
           label: '检查 mission',
           prompt: '读取 MISSION.md，并用一句话总结学习目标。',
-          profile: 'read_only',
-          maxIterations: 3
+          profile: 'read_only'
         })]
       })
       return
@@ -182,14 +181,14 @@ try {
   const sentMessages = requests[0]?.body.messages ?? []
   assert.equal(sentMessages[0]?.role, 'system')
   assert.match(sentMessages[0]?.content ?? '', /teach skill/)
-  assert.match(sentMessages[0]?.content ?? '', /automatically loaded/)
+  assert.match(sentMessages[0]?.content ?? '', /progressive disclosure/)
   assert.match(sentMessages[0]?.content ?? '', /Teaching Workspace/)
   assert.match(sentMessages[0]?.content ?? '', /lesson-generation-policy/)
   assert.match(sentMessages[0]?.content ?? '', /generate_lesson/)
   assert.match(sentMessages[0]?.content ?? '', /do not treat readiness hints as a canned assistant answer/)
   assert.doesNotMatch(sentMessages[0]?.content ?? '', /Claude|Anthropic/)
   assert.equal(sentMessages.at(-1)?.role, 'user')
-  assert.equal(sentMessages.at(-1)?.content, '请介绍 RAG')
+  assert.ok(sentMessages.at(-1)?.content?.endsWith('请介绍 RAG'), 'the current user input should remain at the end of the context packet')
 
   const retryableSavePayload = {
     workspaceId: workspace.id,
@@ -256,12 +255,12 @@ try {
 
   const identityMessages = requests[1]?.body.messages ?? []
   assert.equal(identityMessages[0]?.role, 'system')
-  assert.match(identityMessages[0]?.content ?? '', /configuredProvider: DeepSeek/)
-  assert.match(identityMessages[0]?.content ?? '', /configuredModelId: deepseek-v4-flash/)
-  assert.match(identityMessages[0]?.content ?? '', /endpointFormat: chat_completions/)
-  assert.doesNotMatch(identityMessages[0]?.content ?? '', /Claude|Anthropic/)
+  // Provider selection is verified from the actual transport request above.
+  // The teaching prompt must not embed a stale provider/model identity claim.
+  assert.match(identityMessages[0]?.content ?? '', /teach skill/)
+  assert.doesNotMatch(identityMessages[0]?.content ?? '', /configuredProvider|configuredModelId|endpointFormat|Claude|Anthropic/)
   assert.equal(identityMessages.at(-1)?.role, 'user')
-  assert.equal(identityMessages.at(-1)?.content, '你是什么模型？')
+  assert.ok(identityMessages.at(-1)?.content?.endsWith('你是什么模型？'), 'the identity question should remain at the end of the context packet')
 
   const temporaryResult = await service.agentChatStream(
     {
@@ -283,13 +282,13 @@ try {
   const temporaryBody = requests[2]?.body ?? {}
   const temporaryMessages = temporaryBody.messages ?? []
   assert.equal(temporaryMessages[0]?.role, 'system')
-  assert.match(temporaryMessages[0]?.content ?? '', /当前是临时会话/)
-  assert.match(temporaryMessages[0]?.content ?? '', /学习者画像、课程概览和当前打开页面的可见文本/)
+  assert.match(temporaryMessages[0]?.content ?? '', /临时会话助手/)
+  assert.match(temporaryMessages[0]?.content ?? '', /临时会话只能使用已注入的画像、课程概览和可见页面文本/)
   assert.doesNotMatch(temporaryMessages[0]?.content ?? '', /automatically loaded/)
   assert.doesNotMatch(temporaryMessages[0]?.content ?? '', /Teaching Workspace/)
   assert.doesNotMatch(JSON.stringify(temporaryBody), /list_workspace|read_workspace_file|search_workspace|glob_workspace/)
   assert.equal(temporaryMessages.at(-1)?.role, 'user')
-  assert.equal(temporaryMessages.at(-1)?.content, '我有哪些课程？')
+  assert.ok(temporaryMessages.at(-1)?.content?.endsWith('我有哪些课程？'), 'the temporary user input should remain at the end of the context packet')
 
   const invokedSkillResult = await service.agentChatStream(
     {
@@ -308,8 +307,14 @@ try {
   assert.equal(requests.length, 4, 'a typed slash command should resolve the installed skill in the main process')
   assert.ok(!('error' in invokedSkillResult), 'an installed slash skill should reach the configured provider')
   const invokedSkillMessages = requests[3]?.body.messages ?? []
-  assert.match(invokedSkillMessages[0]?.content ?? '', /automatically loaded/)
-  assert.match(invokedSkillMessages[0]?.content ?? '', /Teaching Workspace/)
+  assert.match(invokedSkillMessages[0]?.content ?? '', /<skill-index>/)
+  assert.match(invokedSkillMessages[0]?.content ?? '', /id=teach/)
+  assert.doesNotMatch(invokedSkillMessages[0]?.content ?? '', /Teaching Workspace/)
+  if (!('error' in invokedSkillResult)) {
+    const invokedUserTurn = invokedSkillResult.turns.findLast((turn) => turn.role === 'user')
+    assert.equal(invokedUserTurn?.metadata?.skillInvocation?.state, 'applied')
+    assert.equal(invokedUserTurn?.metadata?.skillInvocation?.skillId, 'teach')
+  }
 
   const canceledController = new AbortController()
   canceledController.abort()
@@ -357,12 +362,14 @@ try {
     undefined,
     ...Array.from({ length: 10 }, (_, index) => `${index % 2 === 0 ? 'u' : 'a'}${Math.floor(index / 2) + 2}`)
   ]
+  const originalMaxOutputTokens = settings.generator.maxOutputTokens
+  settings.generator.maxOutputTokens = 1024
   const parsedLineagePayload = parseAgentChatStreamPayload({
     workspaceId: workspace.id,
     mode: 'temporary',
     messages: lineageMessages,
     messageTurnIds: lineageTurnIds,
-    contextCompaction: { enabled: true, force: true, contextWindowTokens: 2000 },
+    contextCompaction: { enabled: true, force: true, contextWindowTokens: 10000 },
     userInput: '总结当前讨论'
   })
   assert.equal(parsedLineagePayload.messageTurnIds?.length, lineageMessages.length)
@@ -391,6 +398,7 @@ try {
   assert.ok(lineageCompaction.replacedTurnIds.length > 0, 'compaction should retain persisted source turn IDs')
   assert.deepEqual(lineageCompaction.replacedTurnIds.slice(0, 2), ['u1', 'a1'])
   assert.equal(requests.length, 6, 'forced compaction should make one summary call and one answer call')
+  settings.generator.maxOutputTokens = originalMaxOutputTokens
 
   const delegationRunId = 'delegation-save-stream'
   delegationScenarioActive = true
@@ -432,7 +440,7 @@ try {
   }
   await assert.rejects(
     () => service.saveAgentConversation({ ...stagedSavePayload, runId: 'wrong-delegation-save-stream' }),
-    /not authorized for this run/i,
+    /not authorized for this run|staging is unavailable/i,
     'a different run id must not authorize promotion of this staged transcript'
   )
 
@@ -500,11 +508,11 @@ try {
   assert.notEqual(promotedArchive.relativePath, stagedArchive.relativePath)
   assert.equal(promotedArchive.relativePath.startsWith('.agent-sessions/child-transcripts/'), false)
 
-  await assert.rejects(
-    () => service.saveAgentConversation(stagedSavePayload),
-    /not authorized for this run/i,
-    'a successfully consumed staged transcript capability must not be replayable'
-  )
+  const replayedDelegation = await service.saveAgentConversation(stagedSavePayload)
+  assert.equal(replayedDelegation.conversation.id, savedDelegation.conversation.id)
+  assert.equal(replayedDelegation.branch?.revision, savedDelegation.branch?.revision)
+  const replayedCanonicalJson = await readFile(canonicalPath, 'utf8')
+  assert.equal(replayedCanonicalJson, canonicalJson, 'same-run save retry must not rewrite the canonical transcript')
 
   await assert.rejects(
     () => service.saveAgentConversation({

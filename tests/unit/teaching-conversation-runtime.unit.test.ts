@@ -69,7 +69,7 @@ describe('temporary conversation runtime tool availability', () => {
         conversationId: 'temporary-conversation-1',
         mode: 'temporary',
         messages: [],
-        userInput: '请查一下今天的 AI 新闻。'
+        userInput: '请简短介绍一下 AI 的发展方向。'
       },
       {
         streamId: 'temporary-tools-run',
@@ -829,13 +829,11 @@ describe('skill orchestration runtime evaluation (ADR-0151 / ADR-0163)', () => {
     expect(providerFetch).not.toHaveBeenCalled()
   })
 
-  it('uses configured budget pressure for planner deferral while preserving the hard AgentRun budget', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'studiumx-orchestration-budget-'))
+  it('uses an explicit orchestration pressure fact without persisting a run budget', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-orchestration-pressure-'))
     createdRoots.push(root)
     const settings = configuredSettings(root)
     settings.memory.enabled = false
-    settings.tools.runBudget.maxTotalTokens = 10_000
-    settings.tools.runBudget.warningThreshold = 0.5
     const recordOrchestrationDiagnostics = vi.fn(async () => {})
     globalThis.fetch = (async () => jsonResponse({ choices: [{ message: { content: '预算内完成。' } }] })) as typeof fetch
     const runStore = new AgentRunStore(root)
@@ -861,6 +859,7 @@ describe('skill orchestration runtime evaluation (ADR-0151 / ADR-0163)', () => {
         ],
         loadSkillReferences: async () => [fixtureCoreTeachingKernelReference()],
         recordOrchestrationDiagnostics,
+        skillOrchestrationFacts: { budgetConstrained: true },
         buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
         runStore
       }
@@ -873,7 +872,7 @@ describe('skill orchestration runtime evaluation (ADR-0151 / ADR-0163)', () => {
       userOverrideStatus: 'not_supported'
     }))
     const checkpoint = await runStore.readCheckpoint('orchestration-budget-run')
-    expect(checkpoint.budget).toMatchObject({ maxTotalTokens: 10_000, warningThreshold: 0.5 })
+    expect(checkpoint).not.toHaveProperty('budget')
   })
 
   it('does not manufacture completed orchestration stages when provider execution is canceled', async () => {
@@ -1039,5 +1038,56 @@ describe('skill orchestration runtime evaluation (ADR-0151 / ADR-0163)', () => {
     expect(provider).not.toHaveBeenCalled()
     expect(onTool).not.toHaveBeenCalled()
     expect(createMemory).not.toHaveBeenCalled()
+  })
+})
+
+describe('teaching conversation resource policy ownership', () => {
+  it('captures host-resolved governance for the normal conversation startup and ignores payload policy-shaped data', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-resource-policy-runtime-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    const resolvePolicy = vi.fn(async () => ({
+      version: 1 as const,
+      resolvedAt: '2026-08-05T00:00:00.000Z',
+      governance: {
+        deploymentPolicy: {
+          limits: [{ meter: 'provider_transport_attempts' as const, limit: 4, scope: 'deployment' as const, auditId: 'host-only-policy' }]
+        }
+      }
+    }))
+    globalThis.fetch = (async () => jsonResponse({ choices: [{ message: { content: '主机策略已在本轮启动时捕获。' } }] })) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'resource-policy-run',
+        workspaceId: 'workspace-1',
+        conversationId: 'conversation-1',
+        mode: 'temporary',
+        messages: [],
+        userInput: '你好',
+        // Unknown renderer data is not read by the host resolver or forwarded
+        // as a governance object. This reflects an untrusted IPC payload at runtime.
+        deploymentPolicy: { limits: [{ meter: 'logical_requests', limit: 1, scope: 'deployment' }] }
+      } as never,
+      { streamId: 'resource-policy-run', onChunk: vi.fn(), onStatus: vi.fn(), onTool: vi.fn() },
+      null,
+      {
+        loadSettings: async () => settings,
+        resourcePolicyResolver: resolvePolicy,
+        listMemories: async () => [],
+        createMemory: async () => { throw new Error('memory should not be created') },
+        loadSkillReferences: async () => [],
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    expect(resolvePolicy).toHaveBeenCalledWith({
+      runId: 'resource-policy-run', workspaceId: 'workspace-1', conversationId: 'conversation-1', mode: 'temporary'
+    })
+    expect(result).toMatchObject({ finalText: '主机策略已在本轮启动时捕获。' })
+    expect('turns' in result && result.usage.resourceGovernance?.configured).toEqual(expect.arrayContaining([
+      expect.objectContaining({ layer: 'deployment_policy', meter: 'provider_transport_attempts', auditId: 'host-only-policy' })
+    ]))
   })
 })

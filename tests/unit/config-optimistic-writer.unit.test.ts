@@ -23,7 +23,7 @@ function baseResolved(user?: unknown) {
 describe('config optimistic concurrency (CAS)', () => {
   it('happy path: matching fingerprint applies overlay and returns a new fingerprint', () => {
     const current = baseResolved({
-      tools: { enabled: false, maxIterations: 2 },
+      tools: { enabled: false, workspaceRead: false },
       generator: { temperature: 0.2 }
     })
 
@@ -31,14 +31,14 @@ describe('config optimistic concurrency (CAS)', () => {
       currentResolved: current,
       expectedFingerprint: current.fingerprint,
       nextOverlay: {
-        tools: { enabled: true, maxIterations: 4 },
+        tools: { enabled: true, workspaceRead: true },
         generator: { temperature: 0.6 }
       },
       layer: 'user',
       baseScope: {
         fallbackDefaultRoot: FALLBACK_ROOT,
         user: {
-          tools: { enabled: false, maxIterations: 2 },
+          tools: { enabled: false, workspaceRead: false },
           generator: { temperature: 0.2 }
         }
       }
@@ -47,7 +47,7 @@ describe('config optimistic concurrency (CAS)', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value.tools.enabled).toBe(true)
-    expect(result.value.tools.maxIterations).toBe(4)
+    expect(result.value.tools.workspaceRead).toBe(true)
     expect(result.value.generator.temperature).toBe(0.6)
     expect(result.fingerprint).toMatch(/^sha256:[a-f0-9]{64}$/)
     expect(result.fingerprint).not.toBe(current.fingerprint)
@@ -190,26 +190,26 @@ describe('config optimistic concurrency (CAS)', () => {
   it('applies workspace layer overlays without clobbering user layer', () => {
     const current = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
-      user: { tools: { enabled: true, maxIterations: 3 } },
-      workspace: { tools: { maxIterations: 5 } }
+      user: { tools: { enabled: true, workspaceRead: false } },
+      workspace: { tools: { workspaceRead: true } }
     })
 
     const result = compareAndProjectConfigWrite({
       currentResolved: current,
       expectedFingerprint: current.fingerprint,
-      nextOverlay: { tools: { maxIterations: 9 }, memory: { maxInjected: 4 } },
+      nextOverlay: { tools: { workspaceRead: true }, memory: { maxInjected: 4 } },
       layer: 'workspace',
       baseScope: {
         fallbackDefaultRoot: FALLBACK_ROOT,
-        user: { tools: { enabled: true, maxIterations: 3 } },
-        workspace: { tools: { maxIterations: 5 } }
+        user: { tools: { enabled: true, workspaceRead: false } },
+        workspace: { tools: { workspaceRead: true } }
       }
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value.tools.enabled).toBe(true)
-    expect(result.value.tools.maxIterations).toBe(9)
+    expect(result.value.tools.workspaceRead).toBe(true)
     expect(result.value.memory.maxInjected).toBe(4)
     expect(result.layer).toBe('workspace')
   })
@@ -235,7 +235,7 @@ describe('config optimistic concurrency (CAS)', () => {
 
   it('writeConfigOptimistic adapter: CAS then atomic write; mismatch skips write', async () => {
     let written: unknown = null
-    const userDoc = { tools: { enabled: false, maxIterations: 1 } }
+    const userDoc = { tools: { enabled: false, workspaceRead: false } }
     const resolved = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
       user: userDoc
@@ -264,7 +264,7 @@ describe('config optimistic concurrency (CAS)', () => {
 
     const ok = await writeConfigOptimistic(store, {
       expectedFingerprint: resolved.fingerprint,
-      next: { tools: { enabled: true, maxIterations: 7 } },
+      next: { tools: { enabled: true, workspaceRead: true } },
       layer: 'user'
     })
     expect(ok.ok).toBe(true)
@@ -299,21 +299,21 @@ describe('config optimistic concurrency (CAS)', () => {
 
   it('preserves managed layer through CAS re-resolve on user write', () => {
     const managedDoc = {
-      tools: { enabled: true, maxIterations: 11 },
+      tools: { enabled: true, workspaceRead: true },
       memory: { maxInjected: 9 }
     }
-    const userDoc = { tools: { maxIterations: 3 } }
+    const userDoc = { tools: { workspaceRead: false } }
     const current = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
       managed: managedDoc,
       user: userDoc
     })
 
-    // User still wins on maxIterations; managed contributes memory. The legacy
+    // User still wins on workspaceRead; managed contributes memory. The legacy
     // tools.enabled field is compatibility-only and is normalized to true, so
     // it must not retain managed-layer provenance.
     expect(current.value.tools.enabled).toBe(true)
-    expect(current.value.tools.maxIterations).toBe(3)
+    expect(current.value.tools.workspaceRead).toBe(false)
     expect(current.value.memory.maxInjected).toBe(9)
     expect(current.sources.some((s) => s.source === 'managed' && s.path === 'tools.enabled')).toBe(
       false
@@ -325,7 +325,7 @@ describe('config optimistic concurrency (CAS)', () => {
     const result = compareAndProjectConfigWrite({
       currentResolved: current,
       expectedFingerprint: current.fingerprint,
-      nextOverlay: { tools: { maxIterations: 9 } },
+      nextOverlay: { tools: { workspaceRead: true } },
       layer: 'user',
       baseScope: {
         fallbackDefaultRoot: FALLBACK_ROOT,
@@ -336,8 +336,8 @@ describe('config optimistic concurrency (CAS)', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    // User write updated maxIterations; managed fields that user did not touch survive.
-    expect(result.value.tools.maxIterations).toBe(9)
+    // User write updated workspaceRead; managed fields that user did not touch survive.
+    expect(result.value.tools.workspaceRead).toBe(true)
     expect(result.value.tools.enabled).toBe(true)
     expect(result.value.memory.maxInjected).toBe(9)
     expect(
@@ -351,7 +351,7 @@ describe('config optimistic concurrency (CAS)', () => {
     const dropped = compareAndProjectConfigWrite({
       currentResolved: current,
       expectedFingerprint: current.fingerprint,
-      nextOverlay: { tools: { maxIterations: 9 } },
+      nextOverlay: { tools: { workspaceRead: true } },
       layer: 'user',
       baseScope: {
         fallbackDefaultRoot: FALLBACK_ROOT,
@@ -374,7 +374,7 @@ describe('config optimistic concurrency (CAS)', () => {
       tools: { enabled: true },
       memory: { maxInjected: 7 }
     }
-    const userDoc = { tools: { maxIterations: 2 } }
+    const userDoc = { tools: { workspaceRead: false } }
     const resolved = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
       managed: managedDoc,
@@ -397,17 +397,17 @@ describe('config optimistic concurrency (CAS)', () => {
 
     const ok = await writeConfigOptimistic(store, {
       expectedFingerprint: resolved.fingerprint,
-      next: { tools: { maxIterations: 5 } },
+      next: { tools: { workspaceRead: true } },
       layer: 'user'
     })
     expect(ok.ok).toBe(true)
     if (!ok.ok) return
     expect(ok.value).toBeDefined()
     const value = ok.value as {
-      tools: { enabled: boolean; maxIterations: number }
+      tools: { enabled: boolean; workspaceRead: boolean }
       memory: { maxInjected: number }
     }
-    expect(value.tools.maxIterations).toBe(5)
+    expect(value.tools.workspaceRead).toBe(true)
     expect(value.tools.enabled).toBe(true)
     expect(value.memory.maxInjected).toBe(7)
     expect(written).toMatchObject({

@@ -1,8 +1,9 @@
 import { lstat, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import type { ToolDefinition } from '../provider-adapter'
-import type { AgentArtifactRef, TeachingSettingsV1 } from '../../../shared/teaching-types'
+import type { AgentArtifactRef, AgentChildRunStopReason, TeachingSettingsV1 } from '../../../shared/teaching-types'
 import type { AgentOperationJournal, AgentOperationRecord } from '../agent-operation-journal'
+import type { AgentRunResourceGovernor } from '../agent-run-resource-governance'
 import { webSearchTool } from './web_search'
 import { webFetchTool } from './web_fetch'
 import {
@@ -107,6 +108,8 @@ export type ToolRuntimeChildRunRecord = {
   label: string
   profile: string
   status: ToolRuntimeChildRunStatus
+  /** Resource boundary that terminally stopped the child; it is never a completed result. */
+  stopReason?: AgentChildRunStopReason
   summary?: string
   error?: string
   startedAt?: string
@@ -140,6 +143,8 @@ export type ToolCallContext = {
   /** Abort signal for this tool call / parent agent run. */
   signal?: AbortSignal
   runId?: string
+  /** Host-owned shared resource ledger; never supplied by renderer/tool arguments. */
+  resourceGovernor?: AgentRunResourceGovernor
 }
 
 /** A tool handler with its ToolContext already bound (ctx curried in). */

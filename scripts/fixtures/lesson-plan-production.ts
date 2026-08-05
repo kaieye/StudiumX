@@ -75,7 +75,6 @@ ${JSON.stringify(VALID_PLAN)}
   toolSettings.tools.workspaceRead = true
   toolSettings.tools.webSearch = false
   toolSettings.tools.webFetch = false
-  toolSettings.tools.maxIterations = 2
   queuedResponses = [JSON.stringify(VALID_PLAN)]
   const beforeToolRequest = providerRequests.length
   const toolResult = await produce(prepared(toolSettings, [], '请检索官方文档中当前版本的 RAG API，并给出引用来源。', true))

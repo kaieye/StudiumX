@@ -1,4 +1,5 @@
 import { runAgentLoop, type AgentLoopEvent } from './ai/agent-loop'
+import { resolveUnconstrainedAgentRunResourcePolicy, type AgentRunResourcePolicyResolver, type AgentRunResourcePolicySnapshot } from './ai/agent-run-resource-policy'
 import { parseExplicitSkillInvocation } from '../shared/explicit-skill-invocation'
 import type { ExplicitSkillInvocationResolution } from './explicit-skill-invocation'
 import { createAgentEventBus, type AgentEventBus } from './ai/agent-event-bus'
@@ -12,7 +13,7 @@ import { createAskToolEntry } from './ai/tools/ask'
 import { createDelegationToolEntries } from './ai/tools/delegation'
 import { createReadSkillResourceTool } from './ai/tools/skill-resource'
 import { createMemoryTools } from './ai/tools/memory-tools'
-import { AgentRunStore, emptyAgentRunUsage, normalizeAgentRunBudget } from './ai/agent-run-store'
+import { AgentRunStore, emptyAgentRunUsage } from './ai/agent-run-store'
 import { recordTurnUsageObservation, type UsageApprovalStatus, type UsageLedgerStatus } from './usage-ledger'
 import type { ContextCompactionOptions } from './ai/context-compactor'
 import { deriveConversationTurnContext } from './teaching-conversation-turn-context'
@@ -25,10 +26,7 @@ import {
 } from './platform/platform-capability-registry'
 import {
   createLessonToolLifecycle,
-  lessonGenerationBudgetFallback,
-  lessonGenerationSuccessFallback,
-  lessonGenerationMaxIterations,
-  lessonGenerationRunBudget
+  lessonGenerationSuccessFallback
 } from './teaching-conversation-lesson-tool'
 import { createConversationPermissionResolver } from './teaching-conversation-permissions'
 import { replaceUnavailableWorkspaceReadPromise } from './teaching-workspace-tool-unavailable-fallback'
@@ -45,7 +43,6 @@ import {
   buildSkillOrchestrationPlanDiagnosticsFact,
   buildSkillOrchestrationPlanInput,
   buildSkillOrchestrationReadinessFromCatalog,
-  deriveSkillOrchestrationBudgetPressure,
   evaluateSkillOrchestrationStageGates,
   filterSkillReferencesToActiveBodies,
   mergeSelectedSkillIds,
@@ -65,6 +62,7 @@ import type {
   AgentChatStreamToolEvent,
   AgentChatTurn,
   AgentRealtimeEvent,
+  AgentTerminalReason,
   CreateTeachingMemoryPayload,
   LessonSummary,
   InstalledSkillReference,
@@ -111,6 +109,11 @@ export type TeachingConversationRuntimeStream = {
 
 export type TeachingConversationRuntimeDeps = {
   loadSettings: () => Promise<TeachingSettingsV1>
+  /**
+   * Main-process-only resource policy resolution captured once before this run.
+   * Renderer/IPC payloads cannot provide deployment or emergency boundaries.
+   */
+  resourcePolicyResolver?: AgentRunResourcePolicyResolver
   listMemories: (workspaceRoot?: string, includeDeleted?: boolean) => Promise<TeachingMemoryRecord[]>
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
   deleteMemory?: (memoryId: string, workspaceRoot?: string) => Promise<void>
@@ -198,33 +201,42 @@ export async function runTeachingConversationTurn(
   }
 
   const settings = await deps.loadSettings()
-  const budget = normalizeAgentRunBudget(settings.tools.runBudget)
+  const resourcePolicy = await (deps.resourcePolicyResolver ?? resolveUnconstrainedAgentRunResourcePolicy)({
+    runId: stream.streamId,
+    ...(payload.workspaceId?.trim() ? { workspaceId: payload.workspaceId.trim() } : {}),
+    ...(payload.conversationId?.trim() ? { conversationId: payload.conversationId.trim() } : {}),
+    mode: payload.mode === 'temporary' ? 'temporary' : 'teaching'
+  })
   await deps.runStore.create({
     runId: stream.streamId,
     streamId: stream.streamId,
     workspaceId: payload.workspaceId,
     conversationId: payload.conversationId,
-    parentTurn: { userInput },
-    budget
+    parentTurn: { userInput }
   })
   try {
     const result = await runTeachingConversationTurnActive(payload, stream, workspace, {
       ...deps,
       loadSettings: async () => settings
-    })
+    }, resourcePolicy)
     const usage = result.usage ?? emptyAgentRunUsage()
     const status = 'canceled' in result
       ? 'canceled'
-      : 'error' in result
+      : 'resourceStopped' in result || 'error' in result
         ? 'failed'
         : 'awaiting_conversation_save'
     if ('turns' in result) {
       await deps.runStore.confirmParentTurnFinal(stream.streamId, result.finalText)
     } else {
+      const terminalReason = 'resourceStopped' in result
+        ? result.message
+        : 'error' in result
+          ? result.message
+          : '运行已取消。'
       await deps.runStore.markParentTurnTerminal(
         stream.streamId,
         'canceled' in result ? 'canceled' : 'failed',
-        'error' in result ? result.message : '运行已取消。'
+        terminalReason
       )
     }
     await deps.runStore.update(stream.streamId, {
@@ -273,7 +285,8 @@ async function runTeachingConversationTurnActive(
   payload: AgentChatStreamPayload,
   stream: TeachingConversationRuntimeStream,
   workspace: TeachingConversationRuntimeWorkspace | null,
-  deps: TeachingConversationRuntimeDeps
+  deps: TeachingConversationRuntimeDeps,
+  resourcePolicy: AgentRunResourcePolicySnapshot
 ): Promise<AgentChatStreamResult> {
   const userInput = payload.userInput.trim()
 
@@ -475,12 +488,6 @@ async function runTeachingConversationTurnActive(
       ? await deps.loadOrchestrationState(orchestrationConversationId).catch(() => null)
       : null
   const orchestrationPriorState = priorStateFromConversationOrchestrationState(priorOrchestrationState)
-  const configuredRunBudget = normalizeAgentRunBudget(settings.tools.runBudget)
-  const configuredBudgetPressure = deriveSkillOrchestrationBudgetPressure({
-    maxTotalTokens: configuredRunBudget.maxTotalTokens,
-    warningThreshold: configuredRunBudget.warningThreshold,
-    selectedSkillCount: requestedSkillIds.length
-  })
   const skillOrchestrationPlan = planSkillOrchestration(
     buildSkillOrchestrationPlanInput({
       selectedSkillIds: requestedSkillIds,
@@ -493,8 +500,7 @@ async function runTeachingConversationTurnActive(
       resourceReadiness: orchestrationFacts?.resourceReadiness,
       evidenceStatus: orchestrationFacts?.evidenceStatus,
       availableArtifacts: orchestrationFacts?.availableArtifacts,
-      budgetConstrained:
-        orchestrationFacts?.budgetConstrained === true || configuredBudgetPressure,
+      budgetConstrained: orchestrationFacts?.budgetConstrained === true,
       preferArtifactProfile: orchestrationFacts?.preferArtifactProfile,
       ...(orchestrationPriorState ? { priorState: orchestrationPriorState } : {})
     })
@@ -704,19 +710,6 @@ async function runTeachingConversationTurnActive(
     undefined
   ]
   const lessonGenerationRequested = lessonTool.isGenerationRequested(userInput)
-  const maxIterations = lessonGenerationRequested
-    ? lessonGenerationMaxIterations(settings.tools.maxIterations)
-    : settings.tools.maxIterations
-  // Keep the longer ceiling available for every turn that can invoke the
-  // durable lesson pipeline. The model may legitimately call generate_lesson
-  // after a short confirmation such as “开始吧”, which is not always matched
-  // by the explicit generation-intent heuristic above.
-  const runBudget = lessonTool.enabled
-    ? lessonGenerationRunBudget(settings.tools.runBudget)
-    : settings.tools.runBudget
-  if (runBudget !== settings.tools.runBudget) {
-    await deps.runStore.update(stream.streamId, { budget: runBudget })
-  }
 
   const lessonIterationRecovery = lessonGenerationRequested
     ? (() => {
@@ -764,16 +757,9 @@ async function runTeachingConversationTurnActive(
     initialToolChoice: requiresFreshWebSearch
       ? { type: 'function', function: { name: 'web_search' } }
       : undefined,
-    maxIterations,
-    shouldErrorOnMaxIterations: () =>
-      lessonGenerationRequested && !lessonTool.hasAttemptedGeneration(),
-    maxIterationsErrorMessage:
-      '本轮操作次数已达到上限，课程尚未生成。当前对话和规划内容已保留；请继续发送“生成课程”重试，或在设置中提高工具调用上限。',
     iterationLimitRecovery: lessonIterationRecovery ?? webSearchIterationRecovery,
     contextCompaction: buildContextCompactionOptions(payload.contextCompaction),
-    budget: runBudget,
-    budgetExhaustionFallback: (reason) =>
-      lessonGenerationBudgetFallback(lessonTool.generatedLessons(), reason),
+    resourceGovernance: resourcePolicy.governance,
     durableSuccessFallback: () =>
       lessonGenerationSuccessFallback(lessonTool.generatedLessons()),
     shouldFinalizeAfterToolExecution: () => lessonTool.generatedLessons().length > 0,
@@ -797,8 +783,20 @@ async function runTeachingConversationTurnActive(
   if (result.stopReason === 'canceled') {
     return { canceled: true, usage: result.usage }
   }
+  if (result.stopReason === 'resource_limit' || result.stopReason === 'suspended') {
+    return {
+      resourceStopped: true,
+      status: result.stopReason,
+      message: result.stopReason === 'suspended'
+        ? '运行已由高位紧急熔断器暂停。'
+        : '已达到为本次任务明确设置的资源边界。',
+      usage: result.usage,
+      stopReason: result.stopReason
+    }
+  }
   if (result.error) {
-    return { error: true, message: result.error, usage: result.usage }
+    const stopReason = result.stopReason as AgentTerminalReason | undefined
+    return { error: true, message: result.error, usage: result.usage, ...(stopReason ? { stopReason } : {}) }
   }
   if (lessonGenerationRequested && !lessonTool.hasAttemptedGeneration()) {
     return {

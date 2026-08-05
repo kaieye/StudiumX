@@ -450,8 +450,7 @@ function buildTokens(series: DemoDay[]): TokenAnalytics {
       toolErrors: 0,
       iterations: 0,
       childRuns: 0,
-      durationMs: 0,
-      budgetStops: 1
+      durationMs: 0
     }
   )
   const lastDate = series.at(-1)?.date ?? '2026-07-25'

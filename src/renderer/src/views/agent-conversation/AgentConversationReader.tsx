@@ -236,6 +236,11 @@ function processHeaderFor(status: unknown, active: boolean): {
     case 'failed': return { title: '处理失败', label: '发生错误' }
     case 'canceled': return { title: '处理已取消', label: '已取消' }
     case 'interrupted': return { title: '运行中断', label: '需确认', icon: 'attention' }
+    case 'resource_limit': return { title: '已达到资源边界', label: '需要调整资源', icon: 'attention' }
+    case 'suspended': return { title: '运行已暂停', label: '紧急保护已触发', icon: 'attention' }
+    case 'context_unrecoverable': return { title: '上下文无法继续', label: '请开始新的明确对话', icon: 'attention' }
+    case 'no_progress': return { title: '未检测到安全进展', label: '未自动重试或重放', icon: 'attention' }
+    case 'retry_exhausted': return { title: '重试已用尽', label: '未自动重试或重放', icon: 'attention' }
     default: return { title: active ? '思考中' : '思考结束', label: active ? '进行中' : '已完成' }
   }
 }
@@ -378,7 +383,7 @@ function processPrimaryLabel(item: AgentConversationProvenanceItem): string {
 function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
   const secondary = safeProcessSecondaryText(item)
   return (
-    <div className={`agent-process-event${item.state === 'error' ? ' is-error' : ''}${item.state === 'active' ? ' is-active' : ''}`}>
+    <div className={`agent-process-event${item.state === 'error' ? ' is-error' : ''}${item.state === 'active' ? ' is-active' : ''}${item.state === 'resource_limit' || item.state === 'suspended' || item.state === 'no_progress' || item.state === 'context_unrecoverable' || item.state === 'retry_exhausted' ? ' is-attention' : ''}`}>
       <span className="agent-process-event-icon"><ProcessIcon item={item} /></span>
       <div className="agent-process-event-copy">
         <strong>{processPrimaryLabel(item)}</strong>
@@ -412,6 +417,10 @@ function reasoningProgressSummary(state: AgentConversationProvenanceItem['state'
     case 'error': return '思考过程未能完成。'
     case 'canceled': return '思考过程已取消。'
     case 'interrupted': return '思考过程被中断，等待确认。'
+    case 'resource_limit': return '已达到本次任务的资源边界。'
+    case 'suspended': return '运行已由紧急保护暂停。'
+    case 'no_progress': return '重复操作未产生安全进展；未自动重试或重放。'
+    case 'context_unrecoverable': return '上下文无法安全压缩；请开始新的明确对话。'
     default: return '已完成分析并生成回答。'
   }
 }
@@ -483,12 +492,17 @@ function safeDiagnosticState(state: AgentConversationProvenanceItem['state']): s
     case 'canceled': return '已取消'
     case 'pending': return '等待处理'
     case 'interrupted': return '需确认'
+    case 'resource_limit': return '已达到资源边界'
+    case 'suspended': return '已由紧急保护暂停'
+    case 'no_progress': return '未检测到安全进展'
+    case 'context_unrecoverable': return '上下文无法安全压缩'
     default: return '已记录'
   }
 }
 
 function ProcessIcon({ item }: { item: AgentConversationProvenanceItem }) {
   if (item.state === 'interrupted') return <Bell size={13} />
+  if (item.state === 'resource_limit' || item.state === 'suspended' || item.state === 'no_progress' || item.state === 'context_unrecoverable' || item.state === 'retry_exhausted') return <AlertCircle size={13} />
   if (item.state === 'error') return <AlertCircle size={13} />
   if (item.state === 'active') return <Loader2 className="spin" size={13} />
   if (item.kind === 'permission_request') return <Bell size={13} />

@@ -49,8 +49,8 @@ Decision status：`active_now`、`scheduled_later`、`advisory_only`、`excluded
 
 - 对话级 continuity 使用 [ADR-0156](0156-skill-orchestration-conversation-continuity.md) 的 bounded local projection；损坏/缺失 fail-soft，不能替代 ledger。
 - stage gate 只消费 allow-listed canonical artifact type facts；verifier 成功、模型自述或取消不得制造完成 stage。
-- `deriveSkillOrchestrationBudgetPressure` 从配置的 `maxTotalTokens × warningThreshold` 与选择数推导 soft planner signal，只延后 enhancer/variant/packager。
-- soft pressure 永不替换或放宽 `AgentRunBudget`；hard duration/provider/tool/token 预算继续由 agent loop/store 执行。
+- `deriveSkillOrchestrationBudgetPressure` 只能从当前 provider context pressure、已选能力数和局部工作量推导 soft planner signal，只延后 enhancer/variant/packager；不得读取或推导累计 run token 配额。
+- soft pressure 不改变 settlement、effect 或 approval；正常运行没有 `AgentRunBudget` 的累计 duration/provider/tool/token 终止配额，具体工具仍可各自执行超时和输出截断。
 
 ## 6. Evidence 与 settlement 红线
 

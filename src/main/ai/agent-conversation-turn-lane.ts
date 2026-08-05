@@ -282,6 +282,11 @@ export class AgentConversationTurnLane {
     return this.release(input)
   }
 
+  /** Resource terminals release the active reservation without auto-starting queued turns. */
+  suspend(input: { target: ConversationLaneKey; activeTurnId: string; streamId: string }): AgentConversationTurnLaneRelease {
+    return this.release(input, false)
+  }
+
   /**
    * Atomically promotes a pending lane after its first canonical record exists.
    * Queued intents remain on the same lane object and retain their FIFO order.
@@ -340,7 +345,7 @@ export class AgentConversationTurnLane {
     })
   }
 
-  private release(input: { target: ConversationLaneKey; activeTurnId: string; streamId: string }): AgentConversationTurnLaneRelease {
+  private release(input: { target: ConversationLaneKey; activeTurnId: string; streamId: string }, continueQueued = true): AgentConversationTurnLaneRelease {
     const target = normalizeConversationLaneKey(input?.target)
     const activeTurnId = normalizedNonEmpty(input?.activeTurnId)
     const streamId = normalizedNonEmpty(input?.streamId)
@@ -353,6 +358,10 @@ export class AgentConversationTurnLane {
     if (active.streamId !== streamId) return { code: 'stream_mismatch' }
 
     lane.active = undefined
+    if (!continueQueued) {
+      lane.queued.splice(0, lane.queued.length)
+      return { code: 'released' }
+    }
     const nextIntent = lane.queued.shift()
     if (!nextIntent) return { code: 'released' }
 

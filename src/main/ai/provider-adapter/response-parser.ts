@@ -29,8 +29,10 @@ export function extractUsage(format: ModelEndpointFormat, body: unknown): Provid
   void format
   const promptTokens = finiteTokenCount(usage.prompt_tokens ?? usage.input_tokens)
   const completionTokens = finiteTokenCount(usage.completion_tokens ?? usage.output_tokens)
+  // Keep an explicit provider total distinct from local arithmetic. Consumers
+  // may estimate prompt + completion for observability, but host resource
+  // governance must never charge that estimate as provider-reported quota.
   const totalTokens = finiteTokenCount(usage.total_tokens)
-    ?? (promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined)
   if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) return undefined
   return {
     ...(promptTokens !== undefined ? { promptTokens } : {}),

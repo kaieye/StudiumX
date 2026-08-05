@@ -1,7 +1,16 @@
 import type { ChatMessage, ToolDefinition } from './provider-adapter'
 
+/**
+ * A request-fit estimate with its independently auditable components.
+ * `totalTokens` includes input messages, tool schemas, provider framing, the
+ * reserved completion budget, and caller-supplied extra overhead.
+ */
 export type TokenEstimate = {
   messageTokens: number
+  toolSchemaTokens: number
+  framingTokens: number
+  outputReserveTokens: number
+  extraTokens: number
   overheadTokens: number
   totalTokens: number
   source: 'local' | 'provider' | 'mixed'
@@ -9,6 +18,11 @@ export type TokenEstimate = {
 
 export type ContextOverhead = {
   tools?: ToolDefinition[]
+  /** Conservative allowance for provider-owned chat/request framing. */
+  framingTokens?: number
+  /** Completion space reserved before dispatch; never treated as input text. */
+  outputReserveTokens?: number
+  /** Other known endpoint overhead, kept separate from the named fit components. */
   extraTokens?: number
 }
 
@@ -72,14 +86,26 @@ export class ContextEstimator {
 
   estimateRequest(messages: ChatMessage[], overhead: ContextOverhead = {}): TokenEstimate {
     const messageTokens = this.estimateMessages(messages)
-    const overheadTokens = this.estimateTools(overhead.tools) + Math.max(0, overhead.extraTokens ?? 0)
+    const toolSchemaTokens = this.estimateTools(overhead.tools)
+    const framingTokens = nonNegativeInteger(overhead.framingTokens)
+    const outputReserveTokens = nonNegativeInteger(overhead.outputReserveTokens)
+    const extraTokens = nonNegativeInteger(overhead.extraTokens)
+    const overheadTokens = toolSchemaTokens + framingTokens + outputReserveTokens + extraTokens
     return {
       messageTokens,
+      toolSchemaTokens,
+      framingTokens,
+      outputReserveTokens,
+      extraTokens,
       overheadTokens,
       totalTokens: messageTokens + overheadTokens,
       source: 'local'
     }
   }
+}
+
+function nonNegativeInteger(value: number | undefined): number {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value!)) : 0
 }
 
 function safeStringify(value: unknown): string {

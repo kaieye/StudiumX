@@ -94,12 +94,17 @@ describe('Teaching token evidence discovery', () => {
     roots.push(rootPath)
     const ledgerDirectory = join(rootPath, '.studiumx')
     await mkdir(ledgerDirectory, { recursive: true })
-    const row = (createdAt: string, updatedAt: string, totalTokens: number) => JSON.stringify({
+    const row = (createdAt: string, updatedAt: string, totalTokens: number, legacyBudgetStopReason = false) => JSON.stringify({
       version: 1,
       type: 'conversation_snapshot',
       createdAt,
       conversation: { id: 'fallback', title: 'Fallback', updatedAt, messageCount: 1, courseRelativePath: 'courses/algebra' },
-      evidence: { runUsage: usage(totalTokens) }
+      evidence: {
+        runUsage: {
+          ...usage(totalTokens),
+          ...(legacyBudgetStopReason ? { budgetStopReason: 'total_tokens' } : {})
+        }
+      }
     })
     await writeFile(
       join(ledgerDirectory, durableJsonlSealedSegmentFileName('learning-work.jsonl', '2026-06', 1)),
@@ -108,13 +113,14 @@ describe('Teaching token evidence discovery', () => {
     )
     await writeFile(
       join(rootPath, LEARNING_WORK_LEDGER_RELATIVE_PATH),
-      `${row('2026-07-01T12:00:00.000Z', '2026-07-01T11:00:00.000Z', 80)}\n`,
+      `${row('2026-07-01T12:00:00.000Z', '2026-07-01T11:00:00.000Z', 80, true)}\n`,
       'utf8'
     )
 
     const result = await readLatestLedgerSnapshots(rootPath)
     expect(result).toMatchObject({ scanned: 2, invalid: 0, readError: false })
     expect(result.latestByConversation.get('fallback')).toMatchObject({ usage: { totalTokens: 80 } })
+    expect(result.latestByConversation.get('fallback')?.usage).not.toHaveProperty('budgetStopReason')
   })
 
   it('reconciles readable, unreadable, missing, duplicate, invalid, stale, and fallback evidence through explicit adapters', async () => {

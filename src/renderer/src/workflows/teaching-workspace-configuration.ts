@@ -96,7 +96,6 @@ export type TeachingWorkspaceSettingsPath =
   | 'tools.windowsSandboxLevel'
   | 'tools.webSearch'
   | 'tools.webFetch'
-  | 'tools.maxIterations'
   | 'webSearch.backend'
   | 'webSearch.fallbackEnabled'
   | 'webSearch.maxResults'
@@ -115,6 +114,11 @@ export type TeachingWorkspaceSettingsPath =
   | 'workspace.showAllCourseFiles'
   | 'memory.enabled'
   | 'memory.maxInjected'
+  | 'resourceBudget.enabled'
+  | 'resourceBudget.providerTransportAttempts'
+  | 'resourceBudget.toolOperationAttempts'
+  | 'resourceBudget.durationMinutes'
+  | 'resourceBudget.totalTokens'
   | 'notifications.enabled'
   | 'notifications.lessonGenerated'
   | 'notifications.workspaceImported'
@@ -167,7 +171,6 @@ export function buildTeachingWorkspaceSettingsPatch(
     case 'tools.windowsSandboxLevel':
     case 'tools.webSearch':
     case 'tools.webFetch':
-    case 'tools.maxIterations':
       return { tools: { [path.slice('tools.'.length)]: value } }
     case 'webSearch.backend':
     case 'webSearch.fallbackEnabled':
@@ -190,6 +193,12 @@ export function buildTeachingWorkspaceSettingsPatch(
     case 'memory.enabled':
     case 'memory.maxInjected':
       return { memory: { [path.slice('memory.'.length)]: value } }
+    case 'resourceBudget.enabled':
+    case 'resourceBudget.providerTransportAttempts':
+    case 'resourceBudget.toolOperationAttempts':
+    case 'resourceBudget.durationMinutes':
+    case 'resourceBudget.totalTokens':
+      return { resourceBudget: { [path.slice('resourceBudget.'.length)]: value } }
     case 'notifications.enabled':
     case 'notifications.lessonGenerated':
     case 'notifications.workspaceImported':

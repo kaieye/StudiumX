@@ -42,32 +42,32 @@ describe('TeachingConfigResolver', () => {
     const resolved = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
       managed: {
-        tools: { enabled: true, maxIterations: 1 },
+        tools: { workspaceRead: false },
         memory: { maxInjected: 2 },
         generator: { temperature: 0.1 }
       },
       user: {
-        tools: { enabled: true, maxIterations: 2 },
+        tools: { workspaceRead: true },
         memory: { maxInjected: 3 },
         generator: { temperature: 0.2 }
       },
       workspace: {
-        tools: { maxIterations: 4 },
+        tools: { workspaceRead: false },
         memory: { maxInjected: 5 },
         generator: { temperature: 0.5 }
       },
       sessionOverride: {
-        tools: { maxIterations: 6 },
+        tools: { workspaceRead: true },
         generator: { temperature: 0.7 }
       }
     })
 
     expect(resolved.value.tools.enabled).toBe(true)
-    expect(resolved.value.tools.maxIterations).toBe(6)
+    expect(resolved.value.tools.workspaceRead).toBe(true)
     expect(resolved.value.memory.maxInjected).toBe(5)
     expect(resolved.value.generator.temperature).toBe(0.7)
     expect(sourceOf(resolved, 'tools.enabled')).toBe('default')
-    expect(sourceOf(resolved, 'tools.maxIterations')).toBe('session_override')
+    expect(sourceOf(resolved, 'tools.workspaceRead')).toBe('session_override')
     expect(sourceOf(resolved, 'memory.maxInjected')).toBe('workspace')
     expect(sourceOf(resolved, 'generator.temperature')).toBe('session_override')
     expect(sourceOf(resolved, 'workspace.defaultRoot')).toBe('default')
@@ -77,34 +77,34 @@ describe('TeachingConfigResolver', () => {
     const managedOnly = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
       managed: {
-        tools: { enabled: true, maxIterations: 3 },
+        tools: { webFetch: true },
         generator: { model: 'managed-model' }
       }
     })
     expect(managedOnly.value.tools.enabled).toBe(true)
-    expect(managedOnly.value.tools.maxIterations).toBe(3)
+    expect(managedOnly.value.tools.webFetch).toBe(true)
     expect(managedOnly.value.generator.model).toBe('managed-model')
     expect(sourceOf(managedOnly, 'tools.enabled')).toBe('default')
-    expect(sourceOf(managedOnly, 'tools.maxIterations')).toBe('managed')
+    expect(sourceOf(managedOnly, 'tools.webFetch')).toBe('managed')
     expect(sourceOf(managedOnly, 'generator.model')).toBe('managed')
 
     const userWins = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
       managed: {
-        tools: { enabled: true, maxIterations: 3 },
+        tools: { webFetch: true },
         generator: { model: 'managed-model', temperature: 0.1 }
       },
       user: {
-        tools: { maxIterations: 8 },
+        tools: { webFetch: false },
         generator: { model: 'user-model' }
       }
     })
     expect(userWins.value.tools.enabled).toBe(true)
-    expect(userWins.value.tools.maxIterations).toBe(8)
+    expect(userWins.value.tools.webFetch).toBe(false)
     expect(userWins.value.generator.model).toBe('user-model')
     expect(userWins.value.generator.temperature).toBe(0.1)
     expect(sourceOf(userWins, 'tools.enabled')).toBe('default')
-    expect(sourceOf(userWins, 'tools.maxIterations')).toBe('user')
+    expect(sourceOf(userWins, 'tools.webFetch')).toBe('user')
     expect(sourceOf(userWins, 'generator.model')).toBe('user')
     expect(sourceOf(userWins, 'generator.temperature')).toBe('managed')
   })
@@ -148,31 +148,36 @@ describe('TeachingConfigResolver', () => {
     const resolved = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
       managed: 'not-an-object',
-      user: { tools: { enabled: true, maxIterations: 2 } }
+      user: { tools: { webSearch: false } }
     })
 
     expect(resolved.value.tools.enabled).toBe(true)
-    expect(resolved.value.tools.maxIterations).toBe(2)
-    expect(sourceOf(resolved, 'tools.enabled')).toBe('default')
+    expect(resolved.value.tools.webSearch).toBe(false)
+    expect(sourceOf(resolved, 'tools.webSearch')).toBe('user')
     expect(resolved.diagnostics.some(
       (item) => item.code === 'invalid_layer' && item.source === 'managed'
     )).toBe(true)
   })
 
-  it('ignores legacy tools.enabled overlays while fingerprinting effective tool policy changes', () => {
+  it('drops retired run limits and legacy tools.enabled overlays', () => {
     const base = resolveTeachingConfig({ fallbackDefaultRoot: FALLBACK_ROOT })
-    const legacyFalse = resolveTeachingConfig({
+    const legacy = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
-      managed: { tools: { enabled: false } }
-    })
-    const withManagedBudget = resolveTeachingConfig({
-      fallbackDefaultRoot: FALLBACK_ROOT,
-      managed: { tools: { maxIterations: 1 } }
+      managed: {
+        tools: {
+          enabled: false,
+          maxIterations: 1,
+          runBudget: { maxToolCalls: 1 }
+        }
+      }
     })
 
-    expect(legacyFalse.fingerprint).toBe(base.fingerprint)
-    expect(legacyFalse.value.tools.enabled).toBe(true)
-    expect(withManagedBudget.fingerprint).not.toBe(base.fingerprint)
+    expect(legacy.fingerprint).toBe(base.fingerprint)
+    expect(legacy.value.tools.enabled).toBe(true)
+    expect(legacy.value.tools).not.toHaveProperty('maxIterations')
+    expect(legacy.value.tools).not.toHaveProperty('runBudget')
+    expect(legacy.sources.some((item) => item.path.startsWith('tools.maxIterations'))).toBe(false)
+    expect(legacy.sources.some((item) => item.path.startsWith('tools.runBudget'))).toBe(false)
   })
 
   it('allows managed to set provider baseUrl (trusted org layer; denylist workspace-only)', () => {
@@ -221,31 +226,40 @@ describe('TeachingConfigResolver', () => {
 
   it('accepts managed through resolveTeachingConfigFromSettings adapter', () => {
     const settings = createTeachingSettingsDefaults(FALLBACK_ROOT)
-    settings.tools.maxIterations = 9
     const resolved = resolveTeachingConfigFromSettings(settings, {
       managed: {
-        tools: { enabled: true, maxIterations: 1 },
+        tools: {
+          enabled: true,
+          maxIterations: 1,
+          runBudget: { maxToolCalls: 1 }
+        },
         generator: { model: 'managed-adapter-model' }
       },
-      workspace: { tools: { maxIterations: 4 } }
+      workspace: {
+        tools: {
+          maxIterations: 4,
+          runBudget: { maxProviderCalls: 1 }
+        }
+      }
     })
 
     // Full TeachingSettingsV1 user document overrides managed tools fields it projects.
     expect(resolved.value.tools.enabled).toBe(settings.tools.enabled)
     expect(sourceOf(resolved, 'tools.enabled')).toBe('default')
-    // managed < user < workspace → workspace wins maxIterations
-    expect(resolved.value.tools.maxIterations).toBe(4)
-    expect(sourceOf(resolved, 'tools.maxIterations')).toBe('workspace')
-    // user document also projects generator.model, so managed model does not win
+    expect(resolved.value.tools).not.toHaveProperty('maxIterations')
+    expect(resolved.value.tools).not.toHaveProperty('runBudget')
+    // User document also projects generator.model, so managed model does not win.
     expect(sourceOf(resolved, 'generator.model')).toBe('user')
     expect(resolved.value.generator.model).not.toBe('managed-adapter-model')
-    // Prove options.managed is wired: field only present on managed, absent from user/workspace
-    // Use privacy.allowExternalLinks flip via managed then confirm user default overrides;
-    // instead assert diagnostics empty and fingerprint differs from no-managed path when managed wins.
     const withoutManaged = resolveTeachingConfigFromSettings(settings, {
-      workspace: { tools: { maxIterations: 4 } }
+      workspace: {
+        tools: {
+          maxIterations: 4,
+          runBudget: { maxProviderCalls: 1 }
+        }
+      }
     })
-    // Same effective value when managed is fully covered by user+workspace → same fingerprint
+    // Retired fields make no effective configuration change.
     expect(resolved.fingerprint).toBe(withoutManaged.fingerprint)
 
     // When user settings leave a loop field free of managed-only path: inject managed without full user projection
@@ -322,7 +336,7 @@ describe('TeachingConfigResolver', () => {
     const resolved = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
       user: {
-        tools: { enabled: true, maxIterations: 3 }
+        tools: { webSearch: false }
       },
       workspace: 'not-an-object',
       sessionOverride: {
@@ -334,43 +348,48 @@ describe('TeachingConfigResolver', () => {
 
     // Valid user layer applied; invalid workspace layer skipped entirely.
     expect(resolved.value.tools.enabled).toBe(true)
-    expect(resolved.value.tools.maxIterations).toBe(3)
+    expect(resolved.value.tools.webSearch).toBe(false)
     expect(sourceOf(resolved, 'tools.enabled')).toBe('default')
-    expect(sourceOf(resolved, 'tools.maxIterations')).toBe('user')
+    expect(sourceOf(resolved, 'tools.webSearch')).toBe('user')
 
     // Invalid session fields skipped — no half-applied values.
     expect(resolved.value.tools.enabled).toBe(true)
-    expect(resolved.value.tools.maxIterations).toBe(3)
+    expect(resolved.value.tools.webSearch).toBe(false)
+    expect(resolved.value.tools).not.toHaveProperty('maxIterations')
+    expect(resolved.value.tools).not.toHaveProperty('runBudget')
     expect(resolved.value.memory.maxInjected).not.toBe(0)
     expect(resolved.value.generator.temperature).toBeLessThanOrEqual(2)
 
     expect(resolved.diagnostics.some((item) => item.code === 'invalid_layer' && item.source === 'workspace')).toBe(true)
     expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'tools.enabled')).toBe(false)
-    expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'tools.maxIterations')).toBe(true)
-    expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'tools.runBudget')).toBe(true)
+    expect(resolved.diagnostics.some((item) => item.path?.startsWith('tools.maxIterations'))).toBe(false)
+    expect(resolved.diagnostics.some((item) => item.path?.startsWith('tools.runBudget'))).toBe(false)
     expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'memory.maxInjected')).toBe(true)
     expect(resolved.diagnostics.some((item) => item.code === 'invalid_field' && item.path === 'generator.temperature')).toBe(true)
   })
 
-  it('ignores legacy session tools.enabled while fingerprinting effective teaching-loop values', () => {
+  it('ignores retired session run limits while fingerprinting effective teaching-loop values', () => {
     const base = resolveTeachingConfig({ fallbackDefaultRoot: FALLBACK_ROOT })
-    const legacyFalse = resolveTeachingConfig({
+    const legacy = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
-      sessionOverride: { tools: { enabled: false } }
-    })
-    const changed = resolveTeachingConfig({
-      fallbackDefaultRoot: FALLBACK_ROOT,
-      sessionOverride: { tools: { maxIterations: 1 } }
+      sessionOverride: {
+        tools: {
+          enabled: false,
+          maxIterations: 1,
+          runBudget: { maxTotalTokens: 1_000 }
+        }
+      }
     })
     const same = resolveTeachingConfig({
       fallbackDefaultRoot: FALLBACK_ROOT,
       user: { pet: { enabled: false }, notifications: { enabled: false } }
     })
 
-    expect(legacyFalse.fingerprint).toBe(base.fingerprint)
-    expect(changed.fingerprint).not.toBe(base.fingerprint)
+    expect(legacy.fingerprint).toBe(base.fingerprint)
     expect(same.fingerprint).toBe(base.fingerprint)
-    expect(legacyFalse.value.tools.enabled).toBe(true)
+    expect(legacy.value.tools.enabled).toBe(true)
+    expect(legacy.value.tools).not.toHaveProperty('maxIterations')
+    expect(legacy.value.tools).not.toHaveProperty('runBudget')
     expect(same.value.tools.enabled).toBe(true)
   })
 
@@ -454,8 +473,7 @@ describe('TeachingConfigResolver', () => {
             endpointFormat: 'chat_completions',
             models: ['gpt-4o-mini', 'workspace-model']
           }]
-        },
-        tools: { maxIterations: 4 }
+        }
       }
     })
 
@@ -467,7 +485,6 @@ describe('TeachingConfigResolver', () => {
     expect(provider!.models).toContain('workspace-model')
     expect(sourceOf(resolved, 'provider.providers.0.baseUrl')).toBe('user')
     expect(sourceOf(resolved, 'provider.providers.0.name')).toBe('workspace')
-    expect(sourceOf(resolved, 'tools.maxIterations')).toBe('workspace')
 
     const denied = resolved.diagnostics.filter((item) => item.code === 'workspace_denylist')
     expect(denied.length).toBeGreaterThanOrEqual(1)

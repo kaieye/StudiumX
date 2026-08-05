@@ -21,6 +21,8 @@ import { readChatSseStream, readSseStream } from './sse-parser'
 
 export type AdapterErrorKind = 'no_api_key' | 'network' | 'http' | 'parse' | 'timeout' | 'unsupported'
 
+export type ProviderTransportDispatchHook = () => void | Promise<void>
+
 export class ProviderAdapterError extends Error {
   readonly kind: AdapterErrorKind
 
@@ -35,6 +37,8 @@ type InvocationBase = {
   settings: TeachingSettingsV1
   provider: TeachingModelProviderProfile
   signal?: AbortSignal
+  /** Host-owned preflight invoked once immediately before each network dispatch. */
+  beforeTransportDispatch?: ProviderTransportDispatchHook
 }
 
 type JsonRequest = {
@@ -151,8 +155,9 @@ export async function streamChatInvocation(opts: InvocationBase & {
   } catch (error) {
     if (includeTools && isToolRejection(error)) {
       const fallback = await requestChatJson(opts, false)
-      emitStreamingChat(opts.callbacks, fallback.result)
-      return fallback.result
+      const result = { ...fallback.result, degradedReason: 'provider_rejected_tools' as const }
+      emitStreamingChat(opts.callbacks, result)
+      return result
     }
     if (!shouldFallbackAfterFirstTokenTimeout(error, opts.signal)) throw error
     const fallback = await requestChatJson(opts)
@@ -164,8 +169,9 @@ export async function streamChatInvocation(opts: InvocationBase & {
     const error = await toHttpError(response)
     if (includeTools && isToolRejection(error)) {
       const fallback = await requestChatJson(opts, false)
-      emitStreamingChat(opts.callbacks, fallback.result)
-      return fallback.result
+      const result = { ...fallback.result, degradedReason: 'provider_rejected_tools' as const }
+      emitStreamingChat(opts.callbacks, result)
+      return result
     }
     throw error
   }
@@ -287,6 +293,10 @@ async function requestJson(base: InvocationBase, build: () => JsonRequest): Prom
 async function requestResponse(base: InvocationBase, build: () => JsonRequest): Promise<Response> {
   const { url, init } = build()
   assertProviderRequestUrl(url)
+  // Fallbacks inside this adapter can issue additional requests. Keep the
+  // resource preflight outside the network-error wrapper so a host boundary
+  // stays distinguishable from provider connectivity failures.
+  await base.beforeTransportDispatch?.()
   try {
     return await fetchWithOptionalProxy(
       url,

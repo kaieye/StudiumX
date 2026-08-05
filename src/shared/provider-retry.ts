@@ -3,7 +3,7 @@
  *
  * Pure planning lives in `planProviderRetry`. The small async helper
  * `withProviderRetry` only sleeps and re-invokes; call sites must still
- * account each attempt against the shared run budget (maxProviderCalls).
+ * record each attempt in request-local observability; retry bounds never impose a run-wide quota.
  *
  * Retry is gated **only** by `classifyProviderRecovery(error).retryable`.
  * Never auto-retries billing / auth / context_overflow / max_tokens.
@@ -126,8 +126,8 @@ export function planProviderRetry(input: {
 
 /**
  * Run `opts.run(attempt)` with bounded retries on retryable provider failures.
- * `attempt` is 1-based. The caller must perform budget accounting inside `run`
- * (or around each attempt) so shared maxProviderCalls remains authoritative.
+ * `attempt` is 1-based. The caller records attempt usage inside `run`
+ * (or around each attempt); this retry bound is local to one provider request.
  */
 export async function withProviderRetry<T>(opts: {
   run: (attempt: number) => Promise<T>

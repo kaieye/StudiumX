@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { ToolRegistry, ToolRunPermissionGrants, buildToolContext } from '../../src/main/ai/tools/registry'
-import { AgentRunStore, DEFAULT_AGENT_RUN_BUDGET } from '../../src/main/ai/agent-run-store'
+import { AgentRunStore } from '../../src/main/ai/agent-run-store'
 import { defaultSettings } from '../../src/main/teaching-settings'
 
 const root = await mkdtemp(join(tmpdir(), 'studiumx-scoped-permissions-'))
@@ -110,7 +110,7 @@ try {
   const fullAccessSettings = defaultSettings(root)
   fullAccessSettings.tools.approvalMode = 'full_access'
   const store = new AgentRunStore(root)
-  await store.create({ runId: 'full-access-run', streamId: 'full-access-run', budget: DEFAULT_AGENT_RUN_BUDGET })
+  await store.create({ runId: 'full-access-run', streamId: 'full-access-run' })
   let fullAccessRequests = 0
   const fullAccessHandlers = registry.handlerMap(buildToolContext(fullAccessSettings, {
     workspaceRoot: root,
