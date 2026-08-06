@@ -112,6 +112,49 @@ describe('teaching workspace configuration flow', () => {
     })
   })
 
+  it('syncs generator.endpointFormat when updating the active provider upstream format', async () => {
+    const settings = createTeachingSettingsDefaults(workspaceRoot)
+    const captured: TeachingSettingsPatch[] = []
+    const configuration = createTeachingWorkspaceConfiguration({
+      adapter: createAdapter({
+        updateSettings: async (patch) => {
+          captured.push(patch)
+        }
+      }),
+      getSettings: () => settings,
+      getWorkspaceRoot: () => workspaceRoot
+    })
+
+    await configuration.updateModelProviderEndpointFormat('deepseek', 'messages')
+
+    expect(captured).toHaveLength(1)
+    const patch = captured[0]!
+    expect(patch.provider?.providers?.find((provider) => provider.id === 'deepseek')?.endpointFormat).toBe('messages')
+    expect(patch.generator?.endpointFormat).toBe('messages')
+  })
+
+  it('updates a non-active provider upstream format without touching generator.endpointFormat', async () => {
+    const settings = createTeachingSettingsDefaults(workspaceRoot)
+    expect(settings.generator.providerId).toBe('deepseek')
+    const captured: TeachingSettingsPatch[] = []
+    const configuration = createTeachingWorkspaceConfiguration({
+      adapter: createAdapter({
+        updateSettings: async (patch) => {
+          captured.push(patch)
+        }
+      }),
+      getSettings: () => settings,
+      getWorkspaceRoot: () => workspaceRoot
+    })
+
+    await configuration.updateModelProviderEndpointFormat('glm', 'responses')
+
+    expect(captured).toHaveLength(1)
+    const patch = captured[0]!
+    expect(patch.provider?.providers?.find((provider) => provider.id === 'glm')?.endpointFormat).toBe('responses')
+    expect(patch.generator?.endpointFormat).toBeUndefined()
+  })
+
   it('filters learner memory and refreshes records and diagnostics after a successful mutation', async () => {
     const events: string[] = []
     const configuration = createTeachingWorkspaceConfiguration({

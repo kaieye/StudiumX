@@ -28,6 +28,7 @@ import {
   WEB_SEARCH_BACKENDS,
   AGENT_APPROVAL_MODES,
   AGENT_SANDBOX_MODES,
+  type ModelEndpointFormat,
   type ModelReasoningEffort,
   type SettingsSection,
   type TeachingModelProviderProfile,
@@ -262,6 +263,43 @@ export function reasoningEffortLabel(effort: ModelReasoningEffort): string {
 
 export function reasoningEffortDescription(effort: ModelReasoningEffort): string {
   return i18n.t(`reasoning.description.${effort}`)
+}
+
+/**
+ * Upstream endpoint formats exposed in the Model settings page.
+ * `custom_endpoint` is intentionally omitted from the selector — it is a
+ * provider-preset concern, not a user-facing choice among the three upstream
+ * shapes (OpenAI Chat Completions, OpenAI Responses, Anthropic Messages).
+ */
+export const MODEL_ENDPOINT_FORMAT_SELECTOR_OPTIONS: ReadonlyArray<ModelEndpointFormat> = [
+  'chat_completions',
+  'responses',
+  'messages'
+]
+
+export function endpointFormatLabel(format: ModelEndpointFormat): string {
+  switch (format) {
+    case 'chat_completions':
+      return i18n.t('model.endpointFormat.chat_completions')
+    case 'responses':
+      return i18n.t('model.endpointFormat.responses')
+    case 'messages':
+      return i18n.t('model.endpointFormat.messages')
+    case 'custom_endpoint':
+      return i18n.t('model.endpointFormat.custom_endpoint')
+  }
+}
+
+/**
+ * The currently selected upstream format, coerced into the selectable set.
+ * `custom_endpoint` is a provider-preset concern and never appears in the
+ * selector; if a provider somehow carries it, the control presents the first
+ * upstream shape so the user always chooses among the three documented formats.
+ */
+export function selectedEndpointFormat(settings: TeachingSettingsV1): ModelEndpointFormat {
+  return MODEL_ENDPOINT_FORMAT_SELECTOR_OPTIONS.includes(settings.generator.endpointFormat)
+    ? settings.generator.endpointFormat
+    : MODEL_ENDPOINT_FORMAT_SELECTOR_OPTIONS[0]
 }
 
 function systemThemePreference(): ResolvedTheme {

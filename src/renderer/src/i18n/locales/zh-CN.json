@@ -875,6 +875,14 @@
       "hide": "隐藏 API Key"
     },
     "baseUrl": "Base URL",
+    "endpointFormat": {
+      "label": "上游格式",
+      "detail": "决定向上游 API 发送的请求形状；messages 用于 Anthropic 兼容端点。responses / messages 暂不支持工具调用，将降级为纯文本。",
+      "chat_completions": "Chat completions",
+      "responses": "Responses",
+      "messages": "Anthropic messages",
+      "custom_endpoint": "自定义端点"
+    },
     "models": {
       "label": "模型",
       "placeholder": "输入或选择模型"

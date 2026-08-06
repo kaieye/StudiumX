@@ -875,6 +875,14 @@
       "hide": "Hide API key"
     },
     "baseUrl": "Base URL",
+    "endpointFormat": {
+      "label": "Upstream format",
+      "detail": "Determines the request shape sent to the upstream API; messages is for Anthropic-compatible endpoints. responses / messages do not support tool calls and degrade to plain text.",
+      "chat_completions": "Chat completions",
+      "responses": "Responses",
+      "messages": "Anthropic messages",
+      "custom_endpoint": "Custom endpoint"
+    },
     "models": {
       "label": "Model",
       "placeholder": "Type or select a model"

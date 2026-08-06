@@ -3,6 +3,7 @@ import { TEACHING_MODEL_PROVIDER_PRESETS } from '../../../shared/teaching-types'
 import type {
   CreateTeachingMemoryPayload,
   ListUpstreamModelsResult,
+  ModelEndpointFormat,
   ProbeProviderPayload,
   ProbeProviderResult,
   RemoveTeachingGitWorktreePayload,
@@ -265,7 +266,7 @@ export function createTeachingWorkspaceConfiguration({
     return preset ? { ...preset, apiKey: '' } : null
   }
 
-  const persistProvider = async (providerId: string, patch: Partial<TeachingModelProviderProfile>, options?: { syncModel?: boolean; activate?: boolean }): Promise<void> => {
+  const persistProvider = async (providerId: string, patch: Partial<TeachingModelProviderProfile>, options?: { syncModel?: boolean; syncEndpointFormat?: boolean; activate?: boolean }): Promise<void> => {
     const settings = getSettings()
     const current = resolveProvider(providerId)
     if (!current) return
@@ -274,13 +275,19 @@ export function createTeachingWorkspaceConfiguration({
     const providers = exists
       ? settings.provider.providers.map((provider) => provider.id === providerId ? nextProvider : provider)
       : [...settings.provider.providers, nextProvider]
-    const syncModel = options?.syncModel && settings.generator.providerId === providerId
+    const isActiveGenerator = settings.generator.providerId === providerId
+    const syncModel = options?.syncModel && isActiveGenerator
+    const syncEndpointFormat = options?.syncEndpointFormat === true && isActiveGenerator
+    const generatorPatch: Partial<TeachingSettingsV1['generator']> = {
+      ...(syncModel ? { model: nextProvider.models[0] ?? '' } : {}),
+      ...(syncEndpointFormat ? { endpointFormat: nextProvider.endpointFormat } : {})
+    }
     await adapter.updateSettings({
       provider: {
         ...(options?.activate ? { activeProviderId: providerId } : {}),
         providers
       },
-      ...(syncModel ? { generator: { model: nextProvider.models[0] ?? '' } } : {})
+      ...(Object.keys(generatorPatch).length > 0 ? { generator: generatorPatch } : {})
     })
   }
 
@@ -356,6 +363,9 @@ export function createTeachingWorkspaceConfiguration({
 
     updateModelProviderModels: (providerId: string, models: string[], syncGeneratorModel = true): Promise<void> =>
       persistProvider(providerId, { models }, { syncModel: syncGeneratorModel }),
+
+    updateModelProviderEndpointFormat: (providerId: string, endpointFormat: ModelEndpointFormat): Promise<void> =>
+      persistProvider(providerId, { endpointFormat }, { syncEndpointFormat: true }),
 
     probeModelProvider: async (providerId: string): Promise<void> => {
       const provider = resolveProvider(providerId)

@@ -17,10 +17,13 @@ import {
 } from '../../../../../shared/teaching-types'
 import {
   activeModelProvider,
+  endpointFormatLabel,
+  MODEL_ENDPOINT_FORMAT_SELECTOR_OPTIONS,
   modelListProbeSupportedForProvider,
   modelSettingsProviderIds,
   reasoningEffortLabel,
   reasoningEffortOptionsForSettings,
+  selectedEndpointFormat,
   selectedReasoningEffort
 } from '../../../workflows/settings'
 import {
@@ -115,6 +118,22 @@ export function ModelProviderSettingsSection({
           <SettingsTextInput
             value={activeModelSettingsProvider.baseUrl}
             onChange={(baseUrl) => updateProvider({ baseUrl })}
+          />
+        </SettingsRow>
+        <SettingsRow
+          label={t('model.endpointFormat.label')}
+          detail={t('model.endpointFormat.detail')}
+        >
+          <SegmentedControl
+            value={selectedEndpointFormat(settings)}
+            options={MODEL_ENDPOINT_FORMAT_SELECTOR_OPTIONS.map((format) => ({
+              value: format,
+              label: endpointFormatLabel(format)
+            }))}
+            onChange={(endpointFormat) => void configuration.updateModelProviderEndpointFormat(
+              activeModelSettingsProvider.id,
+              endpointFormat
+            )}
           />
         </SettingsRow>
         <SettingsRow label={t('model.models.label')}>
