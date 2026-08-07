@@ -28,6 +28,8 @@ export interface AuthLoginScreenProps {
   onLogin: () => void
   /** Cancel the active challenge. */
   onCancel: () => void
+  /** Show a cancel action before a QR challenge has been started. */
+  showCancel?: boolean
   /** Optional native external-link bridge; browser callers leave this unset. */
   onOpenExternal?: (url: string) => Promise<void>
 }
@@ -39,6 +41,7 @@ export function AuthLoginScreen({
   busy = false,
   onLogin,
   onCancel,
+  showCancel = false,
   onOpenExternal
 }: AuthLoginScreenProps) {
   const { t } = useTranslation()
@@ -81,7 +84,7 @@ export function AuthLoginScreen({
             </button>
           </div>
         ) : (
-          <div className="auth-screen-actions">
+          <div className={`auth-screen-actions${showCancel ? ' auth-screen-actions--inline' : ''}`}>
             <button
               type="button"
               className="auth-screen-button auth-screen-button--wechat"
@@ -91,6 +94,15 @@ export function AuthLoginScreen({
               <img className="auth-screen-wechat-icon" src={wechatLoginIcon} alt="" aria-hidden="true" />
               <span>{t('auth.signInWithWechat', { defaultValue: '微信扫码登录' })}</span>
             </button>
+            {showCancel ? (
+              <button
+                type="button"
+                className="auth-screen-button auth-screen-button--ghost"
+                onClick={onCancel}
+              >
+                {t('auth.login.cancel', { defaultValue: '取消登录' })}
+              </button>
+            ) : null}
           </div>
         )
       }

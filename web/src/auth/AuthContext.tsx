@@ -2,8 +2,9 @@
  * Auth context + provider for the StudiumX Web app.
  *
  * Exposes `{ user, status, login, logout }` where `status` is one of
- * `'loading' | 'authenticated' | 'unauthenticated'`. The protected app shell
- * (App.tsx) gates rendering on `status`.
+ * `'loading' | 'authenticated' | 'unauthenticated'`. The application remains
+ * available in local mode; status is used by explicitly protected features
+ * and the account settings login flow.
  *
  * Lifecycle:
  *   - On mount: if `hasRefreshToken()`, call `fetchMe()` (which transparently

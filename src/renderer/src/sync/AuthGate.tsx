@@ -1,14 +1,15 @@
 /**
- * App-level auth gate.
+ * Auth gate for an explicitly protected feature.
  *
- * Mirrors Livo's AuthGuard: on mount it validates the persisted session, and
- * while no valid session exists it shows the LoginScreen instead of the app.
+ * The application itself is usable in local mode. Callers mount this gate
+ * only around features that require an account, such as the online study
+ * room. It validates a persisted session before exposing its children and
+ * otherwise presents the existing login flow.
  *
  * - `checkSyncSession` only contacts the server when a token is already
- *   present (first launch = no network call), so the splash is skipped for
- *   not-yet-logged-in users - they go straight to the login card.
- * - Reactive to the sync store: logging in hides the gate; logging out
- *   immediately re-shows it.
+ *   present, so a guest does not cause an auth-related network request.
+ * - Reactive to the sync store: logging in exposes the feature; logging out
+ *   returns to its login prompt.
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -17,18 +18,8 @@ import { useSyncState } from './sync-store'
 import { LoginScreen } from './LoginScreen'
 import { AuthLoadingScreen } from '../ui/AuthLoadingScreen'
 
-export function AuthGate({ children }: { children: ReactNode }) {
+export function AuthGate({ children, onCancel }: { children: ReactNode; onCancel?: () => void }) {
   const syncState = useSyncState()
-  // The browser shell owns authentication in `web/src/auth/AuthContext`.
-  // Mounting the desktop session validator here as well would issue a second
-  // request through the Electron sync client (whose default endpoint is the
-  // production sync service), briefly race the web auth mirror, and can show
-  // the desktop login screen over an already-authenticated web session. The
-  // outer web gate only mounts the shared renderer after its token pair has
-  // been validated, so the inner desktop gate is intentionally a no-op on
-  // Web while retaining the original behavior for Electron.
-  const isWeb = window.teachingSystem?.platform === 'web'
-  if (isWeb) return <>{children}</>
 
   // Only show the validation splash when there is a persisted token to check.
   const initialHasToken = useRef(Boolean(syncState.accessToken)).current
@@ -58,7 +49,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   const authenticated = Boolean(syncState.accessToken)
   if (!authenticated) {
-    return <LoginScreen />
+    return <LoginScreen onCancel={onCancel} />
   }
 
   return <>{children}</>

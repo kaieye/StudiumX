@@ -5,7 +5,7 @@
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/dev.mjs",
     "build": "tsc --noEmit && electron-vite build",
     "rebuild:better-sqlite3:electron": "electron-rebuild --force --only better-sqlite3",
     "rebuild:better-sqlite3:node": "pnpm rebuild better-sqlite3",

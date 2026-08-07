@@ -26,7 +26,7 @@ import { useAppStore } from '../app-shell/appStore'
 import { AuthLoginScreen } from '../ui/AuthLoginScreen'
 
 
-export function LoginScreen() {
+export function LoginScreen({ onCancel }: { onCancel?: () => void }) {
   const openExternal = useAppStore((state) => state.openExternal)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -104,7 +104,8 @@ export function LoginScreen() {
     abortRef.current = null
     setBusy(false)
     setChallenge(null)
-  }, [])
+    onCancel?.()
+  }, [onCancel])
 
   const handleWidgetError = useCallback((message: string) => {
     setChallenge(null)
@@ -118,6 +119,7 @@ export function LoginScreen() {
       busy={busy}
       error={error}
       challengeStage={challenge ? <WechatLoginWidget challenge={challenge} onError={handleWidgetError} /> : undefined}
+      showCancel={Boolean(onCancel)}
       onLogin={() => { void handleWechatLogin() }}
       onCancel={handleCancel}
       onOpenExternal={openExternal}

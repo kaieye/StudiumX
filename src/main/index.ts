@@ -43,6 +43,23 @@ const isDev = Boolean(process.env.ELECTRON_RENDERER_URL)
 /** Windows AppUserModelID: groups the taskbar button and pins its icon source. */
 const APP_USER_MODEL_ID = resolveWindowsAppUserModelId(app.isPackaged)
 
+/**
+ * electron-vite is launched as a child during development. The dev launcher
+ * forwards terminal signals to Electron, but Electron still needs an explicit
+ * bridge from those OS signals to its asynchronous app shutdown lifecycle.
+ */
+function requestQuitFromSignal(): void {
+  if (app.isReady()) {
+    app.quit()
+  } else {
+    // There are no initialized services to drain before app.whenReady().
+    app.exit(0)
+  }
+}
+
+process.on('SIGINT', requestQuitFromSignal)
+process.on('SIGTERM', requestQuitFromSignal)
+
 // Set a stable Windows identity before the first window is created. Without a
 // custom AppUserModelID, development runs are grouped under electron.exe and
 // Windows uses Electron's executable icon for the taskbar button.

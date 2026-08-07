@@ -3,16 +3,14 @@
  *
  * Wired into the Settings shell under the "account" nav section. The top of
  * the panel renders a Livo-style account card (avatar, display name, login
- * badge and logout. Authentication happens at the application login gate, so
- * this page only exposes the signed-in account and a manual sync action. The
- * sync action reads the local canonical study-planning snapshot (READ-ONLY)
- * and pushes it to the server. Sync code NEVER writes back to local teaching
- * authority.
+ * badge plus an explicit login/logout action. The sync action reads the local
+ * canonical study-planning snapshot (READ-ONLY) and pushes it to the server.
+ * Sync code NEVER writes back to local teaching authority.
  */
 
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GraduationCap, LogOut, RefreshCw } from 'lucide-react'
+import { GraduationCap, LogIn, LogOut, RefreshCw } from 'lucide-react'
 import { useAppStore } from '../app-shell/appStore'
 import {
   SettingsCard,
@@ -32,6 +30,7 @@ import {
   createStudyPlanningSyncBridge,
   readLocalStudyPlanningSnapshot
 } from './sync-engine-bridge'
+import { LoginScreen } from './LoginScreen'
 
 export function AccountSyncSettingsSection() {
   const { t } = useTranslation()
@@ -39,6 +38,7 @@ export function AccountSyncSettingsSection() {
   const workspaceRoot = useAppStore((state) => state.appState.activeWorkspace?.rootPath ?? null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [loginRequested, setLoginRequested] = useState(false)
 
   const apiClient = useMemo(
     () =>
@@ -132,6 +132,10 @@ export function AccountSyncSettingsSection() {
   const localName = t('account.status.local', { defaultValue: '本地模式' })
   const deviceLabel = syncState.deviceId ?? t('account.device.none', { defaultValue: '未生成' })
 
+  if (loginRequested && !loggedIn) {
+    return <LoginScreen onCancel={() => setLoginRequested(false)} />
+  }
+
   return (
     <SettingsPanel
       title={t('account.title', { defaultValue: '账号与同步' })}
@@ -177,7 +181,18 @@ export function AccountSyncSettingsSection() {
               <LogOut size={14} />
               {t('account.logout.label', { defaultValue: '退出登录' })}
             </button>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => setLoginRequested(true)}
+              disabled={busy}
+              aria-label={t('account.login.label', { defaultValue: '登录' })}
+            >
+              <LogIn size={14} />
+              {t('account.login.label', { defaultValue: '登录' })}
+            </button>
+          )}
         </div>
       </div>
 

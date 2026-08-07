@@ -237,11 +237,6 @@ function App() {
   const { settings, sidebarCollapsed, setSidebarCollapsed } = useAppStore()
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth)
   const sidebarResizePolicy = resolveSidebarResizePolicy(sidebarCollapsed)
-  // Suppress the floating pet until the user is past the auth gate so it
-  // never overlays the login/splash screen.
-  const syncState = useSyncState()
-  const appAccessible = Boolean(syncState.accessToken)
-
   useEffect(() => {
     applySettingsSideEffects(settings)
     if (settings.theme !== 'system' || typeof window.matchMedia !== 'function') return
@@ -258,16 +253,14 @@ function App() {
         <DesktopAppFrame
           chrome={chrome}
           density={settings.density}
-          floatingContent={appAccessible ? <AppPet /> : null}
+          floatingContent={<AppPet />}
           onSidebarToggle={() => setSidebarCollapsed(!useAppStore.getState().sidebarCollapsed)}
           sidebarCollapsed={sidebarCollapsed}
           sidebarWidth={sidebarWidth}
         >
-          <AuthGate>
-            <Sidebar />
-            <SidebarResizeHandle policy={sidebarResizePolicy} onResize={setSidebarWidth} width={sidebarWidth} />
-            <MainArea />
-          </AuthGate>
+          <Sidebar />
+          <SidebarResizeHandle policy={sidebarResizePolicy} onResize={setSidebarWidth} width={sidebarWidth} />
+          <MainArea />
         </DesktopAppFrame>
         <AppUpdateDialog />
       </AppStudyRoomPresenceProvider>
@@ -1576,16 +1569,18 @@ function MainArea() {
       )}
 
       {view === 'workbench' && (
-        <Suspense
-          fallback={(
-            <section className="workbench-loading" aria-live="polite">
-              <span className="workbench-loading-spinner" aria-hidden="true" />
-              <span>正在加载自习室…</span>
-            </section>
-          )}
-        >
-          <OfficeWorkbench showNotification={showNotification} />
-        </Suspense>
+        <AuthGate onCancel={() => setView('overview')}>
+          <Suspense
+            fallback={(
+              <section className="workbench-loading" aria-live="polite">
+                <span className="workbench-loading-spinner" aria-hidden="true" />
+                <span>正在加载自习室…</span>
+              </section>
+            )}
+          >
+            <OfficeWorkbench showNotification={showNotification} />
+          </Suspense>
+        </AuthGate>
       )}
 
       {changeDiff && (

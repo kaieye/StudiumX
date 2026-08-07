@@ -25,7 +25,7 @@ describe('AuthGate', () => {
     })
   })
 
-  it('requires login even if a legacy continue-local preference exists', () => {
+  it('requires login for a protected feature even if a legacy continue-local preference exists', () => {
     localStorage.setItem('studiumx.auth.continueLocal', '1')
 
     render(
@@ -51,7 +51,7 @@ describe('AuthGate', () => {
     expect(screen.queryByTestId('login-screen')).not.toBeInTheDocument()
   })
 
-  it('delegates authentication to the web shell instead of showing the desktop gate', () => {
+  it('requires login for a protected feature on the web shell too', () => {
     Object.defineProperty(window, 'teachingSystem', {
       configurable: true,
       value: { platform: 'web' }
@@ -63,7 +63,7 @@ describe('AuthGate', () => {
       </AuthGate>
     )
 
-    expect(screen.getByText('protected application')).toBeInTheDocument()
-    expect(screen.queryByTestId('login-screen')).not.toBeInTheDocument()
+    expect(screen.getByTestId('login-screen')).toBeInTheDocument()
+    expect(screen.queryByText('protected application')).not.toBeInTheDocument()
   })
 })
