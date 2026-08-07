@@ -31,7 +31,6 @@ import {
   type TeachingWorkspaceConfigurationStatus
 } from '../../../workflows/teaching-workspace-configuration'
 import {
-  SegmentedControl,
   SettingsCard,
   SettingsComboBox,
   SettingsPanel,
@@ -124,7 +123,8 @@ export function ModelProviderSettingsSection({
           label={t('model.endpointFormat.label')}
           detail={t('model.endpointFormat.detail')}
         >
-          <SegmentedControl
+          <SettingsSelect
+            ariaLabel={t('model.endpointFormat.label')}
             value={selectedEndpointFormat(settings)}
             options={MODEL_ENDPOINT_FORMAT_SELECTOR_OPTIONS.map((format) => ({
               value: format,
@@ -152,7 +152,8 @@ export function ModelProviderSettingsSection({
           />
         </SettingsRow>
         <SettingsRow label={t('reasoning.title')}>
-          <SegmentedControl
+          <SettingsSelect
+            ariaLabel={t('reasoning.title')}
             value={selectedReasoningEffort(settings)}
             options={reasoningEffortOptionsForSettings(settings).map((effort) => ({
               value: effort,
