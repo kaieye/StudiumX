@@ -1423,27 +1423,32 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
       // Reserved without result is operation_in_flight (M2), not payload_mismatch.
       return this.rejectResult(command, existing.sessionId, 'operation_in_flight')
     }
+    // The command cache preserves exactly-once settlement. For a repeated public
+    // commit request, project the durable idempotency state rather than replaying
+    // the original "committed" response; the committer is intentionally not called
+    // again and the coordinator remains the sole-writer entry point.
+    const remembered = projectDuplicateCommitResult(command, existing.result)
     const key = scopeKey(command.workspaceId, command.turnId)
     const bus = this.buses.get(key)
     const archivedTerminal = this.closedTurnArchives.get(key)?.terminal ?? null
     if (!bus || bus.isClosed()) {
       return {
-        ...existing.result,
+        ...remembered,
         turnId: command.turnId,
         acceptance: 'duplicate',
-        events: existing.result.events,
-        terminal: bus?.terminal() ?? existing.result.terminal ?? archivedTerminal
+        events: remembered.events,
+        terminal: bus?.terminal() ?? remembered.terminal ?? archivedTerminal
       }
     }
 
     // Duplicate rejected results: same rejection, no accepted/duplicate accepted semantics.
     if (existing.result.acceptance === 'rejected') {
       return {
-        ...existing.result,
+        ...remembered,
         turnId: command.turnId,
         acceptance: 'duplicate',
-        events: existing.result.events,
-        terminal: bus.terminal() ?? existing.result.terminal
+        events: remembered.events,
+        terminal: bus.terminal() ?? remembered.terminal
       }
     }
 
@@ -1463,11 +1468,11 @@ class DefaultTeachingTurnCoordinator implements TeachingTurnCoordinator {
     })
 
     return {
-      ...existing.result,
+      ...remembered,
       turnId: command.turnId,
       acceptance: 'duplicate',
-      events: [...existing.result.events, duplicateEvent],
-      terminal: bus.terminal() ?? existing.result.terminal
+      events: [...remembered.events, duplicateEvent],
+      terminal: bus.terminal() ?? remembered.terminal
     }
   }
 
@@ -2280,6 +2285,27 @@ function guessSessionIdForReject(commandInput: unknown): string {
     return `pending:${commandInput.operationId}`
   }
   return 'invalid'
+}
+
+/**
+ * A duplicate commit command is a replay of the same durable settlement, not a
+ * second settlement attempt. Preserve the cached coordinator result while
+ * exposing the public committer's idempotency state to the IPC adapter.
+ */
+function projectDuplicateCommitResult(
+  command: TeachingTurnCommand,
+  result: TeachingTurnExecuteResult
+): TeachingTurnExecuteResult {
+  if (command.type !== 'commit_outcome' || result.commitResult?.status !== 'committed') {
+    return result
+  }
+  return {
+    ...result,
+    commitResult: {
+      ...result.commitResult,
+      status: 'already_committed'
+    }
+  }
 }
 
 function scopeKey(workspaceId: string, turnId: string): string {

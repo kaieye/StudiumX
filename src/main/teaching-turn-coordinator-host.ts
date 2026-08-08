@@ -20,6 +20,7 @@ import { createNextTeachingStepPlanner, type NextTeachingStepPlanner } from './n
 import { deriveReviewScheduleFromScan } from './review-schedule-facts'
 import { loadTeachingLoopFactSource } from './teaching-loop-fact-source'
 import { readTeachingLoopDurableInputsForWorkspace } from './skill-orchestration-authority-bridge'
+import { createE2ECrashFaults } from './testing/e2e-learning-outcome-crash'
 import type { TeachingLoopMissionInput, TeachingLoopResourceInput } from './teaching-loop-facts'
 import {
   createTeachingTurnCoordinator,
@@ -120,7 +121,8 @@ class DefaultTeachingTurnCoordinatorHost implements TeachingTurnCoordinatorHost 
         createLearningOutcomeCommitter({
           workspaceRoot,
           ledger: ledger as LearningSessionLedger,
-          now: options.now
+          now: options.now,
+          testingFaults: createE2ECrashFaults(process.env)
         }))
     this.createPlanner = options.createPlanner ?? (() => createNextTeachingStepPlanner())
     this.readPresentationFacts = options.readPresentationFacts ?? readTeachingLoopDurableInputsForWorkspace

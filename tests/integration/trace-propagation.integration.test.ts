@@ -420,7 +420,7 @@ describe('C-5 archive trace propagation', () => {
       prompt: 'Traceable lesson',
       messages: []
     })
-    if (generatedLesson.disposition !== \"succeeded\" && generatedLesson.disposition !== \"reused\") {
+    if (generatedLesson.disposition !== 'succeeded' && generatedLesson.disposition !== 'reused') {
       throw new Error(`expected lesson success, got ${generatedLesson.disposition}`)
     }
     const lesson = generatedLesson.lesson

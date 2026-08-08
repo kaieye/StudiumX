@@ -213,17 +213,39 @@ describe('TeachingTurnCoordinatorHost', () => {
   it('routes commitLearningOutcome through a workspace-scoped coordinator sole-writer path', async () => {
     const commit = vi.fn(async () => ({
       status: 'committed' as const,
-      outcome: { kind: 'needs_practice' as const },
-      recordSaved: true
+      outcome: {
+        kind: 'needs_practice' as const,
+        outcomeId: 'outcome-host-1',
+        evidenceEventIds: ['evidence-host-1']
+      },
+      recordSaved: false,
+      record: null,
+      catalogRecordPresent: false
     }))
-    const reconcile = vi.fn(async () => ({ status: 'ok' as const }))
-    const open = vi.fn(async () => ({
+    const reconcile = vi.fn(async () => ({
+      sessionId: 'session-1',
+      state: 'settled' as const,
+      marker: {
+        schemaVersion: 1 as const,
+        sessionId: 'session-1',
+        outcomeId: 'outcome-host-1',
+        operationId: 'operation-host-1',
+        kind: 'needs_practice' as const,
+        evidenceEventIds: ['evidence-host-1'],
+        evaluatorVersion: 1,
+        record: null
+      },
+      record: null,
+      catalogRecordPresent: false,
+      diagnostics: [] as const
+    }))
+    const session = {
       schemaVersion: 1,
       id: 'session-1',
       workspaceId: 'workspace-1',
-      source: 'canonical',
+      source: 'canonical' as const,
       readOnly: false,
-      status: 'active',
+      status: 'active' as const,
       version: 1,
       createdAt: '2026-07-18T10:00:00.000Z',
       updatedAt: '2026-07-18T10:00:00.000Z',
@@ -234,8 +256,9 @@ describe('TeachingTurnCoordinatorHost', () => {
       eventCount: 1,
       outcomeRef: null,
       events: []
-    }))
-    const load = vi.fn(async () => open.mock.results[0]?.value ?? null)
+    }
+    const open = vi.fn(async () => session)
+    const load = vi.fn(async () => session)
     const scan = vi.fn(async () => ({
       sessions: [],
       canonicalSessions: [],
@@ -269,11 +292,14 @@ describe('TeachingTurnCoordinatorHost', () => {
       operationId: 'operation-host-1'
     }
 
-    const result = await host.commitLearningOutcome(request)
-    expect(result.status === 'committed' || result.status === 'retryable_failure' || result.status === 'already_committed' || result.status === 'insufficient_evidence' || result.status === 'conflict' || result.status === 'non_retryable_failure').toBe(true)
-    // Host must have resolved the registered workspace root before orchestration.
-    expect(result).toHaveProperty('status')
-    expect(['committed','already_committed','insufficient_evidence','conflict','retryable_failure','non_retryable_failure']).toContain(result.status)
+    const first = await host.commitLearningOutcome(request)
+    const replay = await host.commitLearningOutcome(request)
+
+    expect(first).toMatchObject({ status: 'committed', outcome: { kind: 'needs_practice' }, recordSaved: false })
+    expect(replay).toMatchObject({ status: 'already_committed', outcome: { kind: 'needs_practice' }, recordSaved: false })
+    // Host must resolve the registered workspace root and preserve coordinator
+    // sole-writer idempotency instead of calling the committer twice.
+    expect(commit).toHaveBeenCalledTimes(1)
   })
 
   it('projects execute results without bulky assembly payloads', async () => {

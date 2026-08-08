@@ -5,8 +5,11 @@ import { teachingEventChannels } from '../shared/teaching-ipc-contract'
 
 // electron-updater is published as CommonJS. Import its default namespace so
 // Electron's native ESM loader can load it reliably in both development and
-// packaged builds.
-const { autoUpdater } = electronUpdater
+// packaged builds. Its autoUpdater export lazily instantiates against Electron's
+// app singleton, so do not read it while Node-based integration tests import this module.
+function getAutoUpdater(): UpdateChecker {
+  return electronUpdater.autoUpdater as UpdateChecker
+}
 
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000
 
@@ -323,7 +326,7 @@ let controller: AppUpdaterController | undefined
 function createController(): AppUpdaterController {
   controller ??= createAppUpdaterController({
     app,
-    updater: autoUpdater,
+    updater: getAutoUpdater(),
     emit: broadcastUpdateState,
     notifyUpdateReady
   })

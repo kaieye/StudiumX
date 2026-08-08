@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveE2ECrashPoint, isInitialCatalogReconcileOperation } from '../../src/main/teaching-workspace'
+import { resolveE2ECrashPoint, isInitialCatalogReconcileOperation } from '../../src/main/testing/e2e-learning-outcome-crash'
 
 describe('resolveE2ECrashPoint', () => {
   it('rejects crash seam outside explicit E2E test runtime', () => {

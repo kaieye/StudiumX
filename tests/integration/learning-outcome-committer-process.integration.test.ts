@@ -45,8 +45,10 @@ async function createWorkspace(): Promise<string> {
 beforeAll(async () => {
   workerRoot = await mkdtemp(join(tmpdir(), 'studiumx-outcome-committer-worker-'))
   workerPath = join(workerRoot, 'worker.mjs')
-  const esbuildBinary = join(process.cwd(), 'node_modules', 'esbuild', 'bin', 'esbuild')
-  await runCommand(esbuildBinary, [
+  // The esbuild launcher is JavaScript on Windows, so run it through Node rather
+  // than asking spawn/execFile to execute its extensionless script directly.
+  await runCommand(process.execPath, [
+    require.resolve('esbuild/bin/esbuild'),
     join(process.cwd(), 'scripts', 'fixtures', 'learning-outcome-committer-process-worker.ts'),
     '--bundle',
     '--platform=node',
@@ -256,6 +258,7 @@ async function terminateWorker(child: ChildProcessWithoutNullStreams): Promise<v
   child.kill('SIGKILL')
   await waitForExit(child).catch(() => undefined)
 }
+
 
 async function runCommand(command: string, args: string[]): Promise<void> {
   await new Promise<void>((resolve, reject) => {

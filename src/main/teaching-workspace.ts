@@ -6,7 +6,7 @@ import { resolveExplicitSkillInvocation } from './explicit-skill-invocation'
 import { Logger } from './logger'
 import { TeachingMemoryStore } from './teaching-memory'
 import { createLearningSessionLedger, type LearningSessionLedger } from './learning-session-ledger'
-import { createLearningOutcomeCommitter, type LearningOutcomeCommitter, type LearningOutcomeCommitterFaultPoint } from './learning-outcome-committer'
+import { createLearningOutcomeCommitter, type LearningOutcomeCommitter } from './learning-outcome-committer'
 import { createLessonInteractionRecorder } from './lesson-interaction-recorder'
 import { inspectGitWorkspace } from './teaching-git'
 import {
@@ -111,27 +111,7 @@ import {
 import type { LearningSessionSnapshot } from '../shared/teaching-types/learning-session'
 import type { LearningOutcomeCommitResult } from '../shared/teaching-types/learning-outcome'
 
-const E2E_CRASH_POINTS: readonly LearningOutcomeCommitterFaultPoint[] = [
-  'after_stage_flush',
-  'before_catalog_reconcile',
-  'after_record_publish',
-  'after_outcome_publish'
-]
-
-/** Returns a crash seam only for explicitly marked Electron E2E test runtimes. */
-export function resolveE2ECrashPoint(env: NodeJS.ProcessEnv): LearningOutcomeCommitterFaultPoint | undefined {
-  if (env.NODE_ENV !== 'test' || env.STUDIUMX_TEST !== '1' || env.STUDIUMX_E2E !== '1') return undefined
-  const candidate = env.STUDIUMX_E2E_CRASH_POINT
-  return E2E_CRASH_POINTS.includes(candidate as LearningOutcomeCommitterFaultPoint)
-    ? candidate as LearningOutcomeCommitterFaultPoint
-    : undefined
-}
-
-/** Only the first evidence revision is exempted so correction (outcome-seq-2) still crashes. */
-export function isInitialCatalogReconcileOperation(point: LearningOutcomeCommitterFaultPoint, operationId: string): boolean {
-  return point === 'before_catalog_reconcile' && operationId === 'outcome-seq-1'
-}
-
+import { createE2ECrashFaults } from './testing/e2e-learning-outcome-crash'
 import type { CommitLearningOutcomeRequest } from '../shared/teaching-types/system-api'
 import { isLearningSessionId } from '../shared/teaching-placement'
 import { persistedAgentParentTurnProof, sanitizePersistedConversationTitle } from '../shared/agent-persisted-history'
@@ -489,19 +469,13 @@ export class TeachingWorkspaceService {
     this.learningOutcomeLedgerFactory = options.learningOutcomeLedgerFactory ?? ((workspaceRoot) =>
       createLearningSessionLedger({ workspaceRoot })
     )
-    this.learningOutcomeCommitterFactory = options.learningOutcomeCommitterFactory ?? ((workspaceRoot, ledger) => {
-      const crashPoint = resolveE2ECrashPoint(process.env)
-      return createLearningOutcomeCommitter({
+    this.learningOutcomeCommitterFactory = options.learningOutcomeCommitterFactory ?? ((workspaceRoot, ledger) =>
+      createLearningOutcomeCommitter({
         workspaceRoot,
         ledger: ledger as LearningSessionLedger,
-        testingFaults: crashPoint ? {
-          inject: async (point, context) => {
-            if (point === crashPoint && isInitialCatalogReconcileOperation(point, context.operationId)) return
-            if (point === crashPoint) process.kill(process.pid, 'SIGKILL')
-          }
-        } : undefined
+        testingFaults: createE2ECrashFaults(process.env)
       })
-    })
+    )
     this.memoryStore = new TeachingMemoryStore({
       rootDir: join(this.appDataRoot, 'memory'),
       settingsProvider: () => this.loadSettings()

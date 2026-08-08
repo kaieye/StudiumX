@@ -112,8 +112,11 @@ function TeachingTurnReader({ presentation, onAction, openSourcesKey, compact }:
         <p
           id={yourTurnId}
           className="teaching-turn-panel__status teaching-turn-panel__your-turn"
-          role={needsYou ? 'status' : 'note'}
-          aria-live={needsYou ? 'polite' : 'off'}
+          // A saved announcement is a second, dedicated live region below. Keep the
+          // current-phase description as a note in that state so assistive tech does
+          // not announce two near-identical status updates for one learner action.
+          role={needsYou && !liveAnnouncement ? 'status' : 'note'}
+          aria-live={needsYou && !liveAnnouncement ? 'polite' : 'off'}
           aria-atomic="true"
           aria-label={presentation.accessibleNames.currentPhase}
           data-phase-state={activePhase.state}

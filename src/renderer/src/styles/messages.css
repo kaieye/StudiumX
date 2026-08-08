@@ -1028,14 +1028,18 @@
   padding: 0 12px;
   border: 0;
   border-radius: 9px;
-  background: var(--accent, #3b82f6);
+  /* The app accent may be too light for white text; preserve a 4.5:1 action label contrast. */
+  background: #1d4ed8;
   color: #fff;
   font-size: 13px;
   font-weight: 650;
   cursor: pointer;
 }
+.teaching-turn-panel__action:hover {
+  background: #1e40af;
+}
 .teaching-turn-panel__action:focus-visible {
-  outline: 2px solid var(--accent, #3b82f6);
+  outline: 2px solid #1d4ed8;
   outline-offset: 2px;
 }
 .teaching-turn-panel__sources,
