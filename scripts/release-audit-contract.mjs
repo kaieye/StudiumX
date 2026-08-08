@@ -14,7 +14,8 @@ export const knownPlatformSkip = /POSIX|descriptor-relative|FIFO|platform capabi
  * creation under Windows privilege, native macOS/Linux-only publish paths).
  *
  * Plan §2.2 / §4: unexplained skips block release; capability-gated skips must
- * be explicit and inventoried. Exact budgets fail closed if new skips appear.
+ * be explicit and inventoried. Budgets are upper bounds: fewer skips are safe,
+ * while any new skip beyond the inventory fails closed.
  * Update only when the new skips are documented capability gates, never to hide
  * product regressions.
  *
@@ -114,10 +115,10 @@ function isBudgetedVitestSkip(skip, platform, commandKey) {
   if (!budget) return false
 
   const filesSkipped = parseVitestSkipCount(skip, 'files')
-  if (filesSkipped !== null) return filesSkipped === budget.filesSkipped
+  if (filesSkipped !== null) return filesSkipped <= budget.filesSkipped
 
   const testsSkipped = parseVitestSkipCount(skip, 'tests')
-  if (testsSkipped !== null) return testsSkipped === budget.testsSkipped
+  if (testsSkipped !== null) return testsSkipped <= budget.testsSkipped
 
   return false
 }

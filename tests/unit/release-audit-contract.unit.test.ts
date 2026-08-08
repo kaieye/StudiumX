@@ -45,7 +45,7 @@ describe('release audit contract', () => {
     expect(classifyAuditCommandResult(1, [])).toMatchObject({ failed: true })
   })
 
-  it('accepts only exact win32 vitest skip budgets for unit and integration summaries', () => {
+  it('accepts win32 vitest skips up to the inventoried budget and rejects drift above it', () => {
     const unitArgv = ['pnpm', 'run', 'test:unit']
     expect(auditCommandKey(unitArgv)).toBe('pnpm run test:unit')
     expect(platformReleaseSkipBudget.win32['pnpm run test:unit']).toMatchObject({
@@ -65,6 +65,17 @@ describe('release audit contract', () => {
       failed: false
     })
 
+    expect(classifyAuditCommandResult(0, [
+      'Test Files  457 passed | 2 skipped (459)',
+      'Tests  4292 passed | 37 skipped (4329)'
+    ], { argv: unitArgv, platform: 'win32' })).toEqual({
+      knownSkips: [
+        'Test Files  457 passed | 2 skipped (459)',
+        'Tests  4292 passed | 37 skipped (4329)'
+      ],
+      unknownSkips: [],
+      failed: false
+    })
     expect(classifyAuditCommandResult(0, [
       'Tests  1246 passed | 70 skipped (1316)'
     ], { argv: unitArgv, platform: 'win32' })).toMatchObject({
