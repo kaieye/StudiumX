@@ -603,6 +603,7 @@ export class AgentConversationTurnRunner<TError> {
       ...(current.appState !== appStateResult ? { appState: appStateResult } : {}),
       activeConversationId: event.conversationId,
       activeConversationScope: 'temporary',
+      activeConversationRevision: conversation.branch?.revision ?? 0,
       pendingAgentConversation: null,
       agentChatBusy: false,
       agentStatus: ''

@@ -674,7 +674,8 @@ describe('AgentConversationTurnRunner ADR-0170 host submission', () => {
           id: 'temp-1', workspaceId: 'workspace-1', title: 'Ask pet question',
           createdAt, updatedAt: createdAt,
           relativePath: 'conversations/temp-1.md', absolutePath: '/workspace/conversations/temp-1.md',
-          messageCount: 2
+          messageCount: 2,
+          branch: { schemaVersion: 1, sessionId: 'temp-1', branchId: 'temp-1', revision: 1, status: 'active' }
         }]
       }
     })
@@ -685,7 +686,8 @@ describe('AgentConversationTurnRunner ADR-0170 host submission', () => {
       agentChatBusy: false,
       pendingAgentConversation: null,
       activeConversationId: 'temp-1',
-      activeConversationScope: 'temporary'
+      activeConversationScope: 'temporary',
+      activeConversationRevision: 1
     })
     expect(harness.getState().agentTurns.at(-1)).toMatchObject({ role: 'assistant', content: 'Pet answer' })
   })
