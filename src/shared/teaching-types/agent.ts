@@ -697,6 +697,22 @@ export type AgentConversationTurnStartedRealtimeEvent = {
 }
 
 /**
+ * Main-only lifecycle projection for an ADR-0170 pending lane that was promoted
+ * to a canonical conversation after its first successful save. It carries only
+ * the opaque routing id and the saved canonical conversation id; transcript,
+ * input, tool data, and secrets never travel here. `sequence: 0` keeps it out
+ * of the positive, stream-local AgentEventBus sequence so replay ignores it
+ * while direct onAgentChatEvent subscribers can reconcile the completed draft.
+ */
+export type AgentConversationPromotedRealtimeEvent = {
+  sequence: 0
+  streamId: string
+  kind: 'conversation_promoted'
+  createdAt: string
+  conversationId: string
+}
+
+/**
  * Positive-sequence runtime events emitted and persisted by AgentEventBus.
  * Keep the host-only lifecycle notification out of this union: runtime
  * consumers intentionally exhaust over chunk/status/tool/terminal only.
@@ -739,6 +755,7 @@ export type AgentRealtimeEvent =
 export type AgentRealtimeDeliveryEvent =
   | AgentRealtimeEvent
   | AgentConversationTurnStartedRealtimeEvent
+  | AgentConversationPromotedRealtimeEvent
 
 export type AgentEventBusReplay = {
   streamId: string

@@ -192,34 +192,42 @@ describe('runAgentLoop ADR-0171 context governance', () => {
     expect(JSON.stringify(providerRequest.messages)).toContain('LATEST_USER')
   })
 
-  it('uses the same one-time overflow recovery for unsupported endpoints', async () => {
-    const unsupportedSettings = settings()
-    unsupportedSettings.generator.endpointFormat = 'messages'
+  it('routes native Anthropic tool calls for the messages endpoint format', async () => {
+    const messagesSettings = settings()
+    messagesSettings.generator.endpointFormat = 'messages'
+    const lookupTool = {
+      type: 'function' as const,
+      function: { name: 'lookup_glossary', description: 'Look up a term', parameters: { type: 'object', properties: { term: { type: 'string' } } } }
+    }
     const responses = [
-      contextOverflowResponse(),
-      jsonResponse({
-        content: [{ type: 'text', text: 'Compact the unsupported-endpoint history.' }],
-        stop_reason: 'end_turn'
-      }),
-      jsonResponse({
-        content: [{ type: 'text', text: 'Recovered unsupported endpoint.' }],
-        stop_reason: 'end_turn'
-      })
+      sseResponse([
+        { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_1', name: 'lookup_glossary' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"term":"glossary"}' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'tool_use' } },
+        { type: 'message_stop' }
+      ]),
+      sseResponse([
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Glossary resolved.' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+        { type: 'message_stop' }
+      ])
     ]
     globalThis.fetch = (async () => responses.shift()!) as typeof fetch
 
     const result = await runAgentLoop({
-      settings: unsupportedSettings,
+      settings: messagesSettings,
       provider: { ...provider(), endpointFormat: 'messages' },
-      messages: longTranscript(),
-      tools: [],
-      toolHandlers: {},
-      contextCompaction: forcedCompactionOptions
+      messages: [{ role: 'user', content: 'Look up glossary' }],
+      tools: [lookupTool],
+      toolHandlers: { lookup_glossary: async () => 'glossary definition' }
     })
 
-    expect(result.stopReason).toBe('degraded')
-    expect(result.finalText).toBe('Recovered unsupported endpoint.')
-    expect(result.usage.providerCalls).toBe(3)
+    expect(result.stopReason).toBe('final_answer')
+    expect(result.finalText).toBe('Glossary resolved.')
+    expect(result.messages.some((m) => m.role === 'assistant' && (m.tool_calls?.length ?? 0) > 0)).toBe(true)
     expect(responses).toHaveLength(0)
   })
 

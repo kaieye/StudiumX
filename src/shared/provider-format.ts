@@ -87,7 +87,7 @@ const FORMAT_ADAPTERS = {
   },
   responses: {
     format: 'responses',
-    toolsSupported: false,
+    toolsSupported: true,
     probeSupported: true,
     authHeaders: bearerHeaders,
     requestHeaders: (apiKey) => withJsonContentType(bearerHeaders(apiKey)),
@@ -96,7 +96,7 @@ const FORMAT_ADAPTERS = {
   },
   messages: {
     format: 'messages',
-    toolsSupported: false,
+    toolsSupported: true,
     probeSupported: true,
     authHeaders: anthropicHeaders,
     requestHeaders: (apiKey) => withJsonContentType(anthropicHeaders(apiKey)),
@@ -134,3 +134,4 @@ export function toolsSupportedForFormat(format: ModelEndpointFormat): boolean {
 export function modelListProbeSupportedForFormat(format: ModelEndpointFormat): boolean {
   return providerFormatAdapter(format).probeSupported
 }
+

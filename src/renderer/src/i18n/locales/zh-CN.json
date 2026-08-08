@@ -877,7 +877,7 @@
     "baseUrl": "Base URL",
     "endpointFormat": {
       "label": "上游格式",
-      "detail": "决定向上游 API 发送的请求形状；messages 用于 Anthropic 兼容端点。responses / messages 暂不支持工具调用，将降级为纯文本。",
+      "detail": "决定向上游 API 发送的请求形状；messages 用于 Anthropic 兼容端点。responses / messages 同样支持工具调用。",
       "chat_completions": "Chat completions",
       "responses": "Responses",
       "messages": "Anthropic messages",
@@ -1957,3 +1957,4 @@
     "close": "关闭"
   }
 }
+

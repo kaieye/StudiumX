@@ -33,6 +33,7 @@ export type TeachingWorkspaceNavigatorProps = {
   showAllCourseFiles: boolean
   defaultRoot: string
   loading: boolean
+  agentChatBusy: boolean
   onSelectWorkspace: (workspaceId: string) => Promise<void>
   onSetOverviewDialogMode: (mode: 'teaching') => void
   onOpenWorkspaceTeachingMode: () => void
@@ -56,7 +57,7 @@ export function TeachingWorkspaceNavigator({
   workspaces, activeWorkspace, temporaryConversations, selectedLessonPath,
   selectedCourseRelativePath: _selectedCourseRelativePath, selectedCourseWorkspaceId: _selectedCourseWorkspaceId, view,
   activeConversationId, pendingAgentConversation, showAllCourseFiles, defaultRoot,
-  loading, onSelectWorkspace, onSetOverviewDialogMode, onOpenWorkspaceTeachingMode,
+  loading, agentChatBusy, onSelectWorkspace, onSetOverviewDialogMode, onOpenWorkspaceTeachingMode,
   onSelectCourseFolder, onLoadLesson, onLoadCourseHtmlFile, onLoadWorkspaceMarkdownFile,
   onLoadAgentConversation, onRestorePendingAgentConversation, onOpenPath,
   onImportWorkspace, onImportWorkspacePath,
@@ -105,7 +106,7 @@ export function TeachingWorkspaceNavigator({
               key={workspaceNodeKey(workspace.id, node.relativePath)} node={node} workspace={workspace} level={0} treeRoot="courses"
               expandedPaths={state.expandedPaths} selectedLessonPath={selectedLessonPath}
               selectedFolderKey={state.selectedFolderKey}
-              activeConversationId={activeConversationId} loading={loading}
+              activeConversationId={activeConversationId} loading={loading} agentChatBusy={agentChatBusy}
               onToggle={(workspaceId, relativePath) => dispatch({ type: 'toggle-path', workspaceId, relativePath })}
               onSelectFolder={(workspaceId, relativePath) => dispatch({ type: 'select-folder', workspaceId, relativePath })}
               onClearFolderSelection={() => dispatch({ type: 'clear-folder-selection' })}
@@ -137,6 +138,7 @@ export function TeachingWorkspaceNavigator({
         <div className="sidebar-disclosure-inner"><div className="workspace-conversation-list is-flat">
           {visibleTemporaryConversations.length === 0 ? <div className="workspace-conversation-empty">{t('sidebar.emptyConversations')}</div> : visibleTemporaryConversations.map((conversation) => <ConversationListRow
             key={conversation.id} conversation={conversation} isActiveConversation={conversation.id === activeConversationId}
+            agentChatBusy={agentChatBusy}
             onOpen={() => conversation.pending ? onRestorePendingAgentConversation() : void onLoadAgentConversation(conversation.id, conversation.workspaceId, 'temporary')}
             onSetWorkspaceItemMeta={onSetWorkspaceItemMeta} onRenameAgentConversation={onRenameAgentConversation} onRemoveWorkspaceItem={onRemoveWorkspaceItem}
           />)}
@@ -332,9 +334,10 @@ function RemoveWorkspaceItemDialog({ itemName, onClose, onConfirm }: {
   </div>, document.body)
 }
 
-function ConversationListRow({ conversation, isActiveConversation, onOpen, onSetWorkspaceItemMeta, onRenameAgentConversation, onRemoveWorkspaceItem }: {
+function ConversationListRow({ conversation, isActiveConversation, agentChatBusy, onOpen, onSetWorkspaceItemMeta, onRenameAgentConversation, onRemoveWorkspaceItem }: {
   conversation: AgentConversationSummary & { pending?: boolean }
   isActiveConversation: boolean
+  agentChatBusy: boolean
   onOpen: () => void
   onSetWorkspaceItemMeta: TeachingWorkspaceNavigatorProps['onSetWorkspaceItemMeta']
   onRenameAgentConversation: TeachingWorkspaceNavigatorProps['onRenameAgentConversation']
@@ -350,6 +353,7 @@ function ConversationListRow({ conversation, isActiveConversation, onOpen, onSet
     setRemoveDialogOpen(false)
     void onRemoveWorkspaceItem({ workspaceId: conversation.workspaceId, relativePath: conversation.relativePath, kind: 'conversation', mode: 'list' })
   }
+  const inProgress = Boolean(conversation.pending && agentChatBusy)
   const isForkedBranch = Boolean(conversation.branch?.parentBranchId)
   const rename = (title: string): void => {
     setRenameDialogOpen(false)
@@ -357,10 +361,10 @@ function ConversationListRow({ conversation, isActiveConversation, onOpen, onSet
   }
   return <div className={`workspace-conversation-row ${isActiveConversation ? 'is-selected' : ''}${conversation.pending ? ' is-pending' : ''}${isForkedBranch ? ' is-fork' : ''}`} title={conversation.absolutePath}>
     <button type="button" className="workspace-conversation-main" onClick={onOpen}>
-      {conversation.pending ? <Loader2 className="spin" size={13} /> : isForkedBranch ? <GitFork size={13} /> : conversation.pinned ? <Pin size={11} className="row-pin-indicator" /> : <MessageSquare size={13} />}
+      {inProgress ? <Loader2 className="spin" size={13} /> : isForkedBranch ? <GitFork size={13} /> : conversation.pinned ? <Pin size={11} className="row-pin-indicator" /> : <MessageSquare size={13} />}
       <span className="workspace-conversation-body">
         <span className="workspace-conversation-title">{conversation.title}</span>
-        {conversation.pending
+        {inProgress
           ? <span className="workspace-conversation-meta">{t('sidebar.pendingConversation')}</span>
           : null}
       </span>
@@ -373,7 +377,7 @@ function ConversationListRow({ conversation, isActiveConversation, onOpen, onSet
 
 function WorkspaceFileNodeRow({
   node, workspace, level, treeRoot, expandedPaths, selectedLessonPath,
-  selectedFolderKey, activeConversationId, loading,
+  selectedFolderKey, activeConversationId, loading, agentChatBusy,
   onToggle, onSelectFolder, onClearFolderSelection,
   onEnsureWorkspaceSelected, onSetOverviewDialogMode, onOpenWorkspaceTeachingMode,
   onOpenPath, onOpenHtmlFile, onOpenMarkdownFile, onOpenCourse, onOpenLesson, onOpenConversation,
@@ -388,6 +392,7 @@ function WorkspaceFileNodeRow({
   selectedFolderKey: string | null
   activeConversationId: string | null
   loading: boolean
+  agentChatBusy: boolean
   onToggle: (workspaceId: string, relativePath: string) => void
   onSelectFolder: (workspaceId: string, relativePath: string) => void
   onClearFolderSelection: () => void
@@ -413,6 +418,7 @@ function WorkspaceFileNodeRow({
   const lesson = workspace.lessons.find((item) => sameRelativePath(item.relativePath, node.relativePath))
   const conversation = workspace.conversations.find((item) => sameRelativePath(item.relativePath, node.relativePath))
   const isPendingConversation = isPendingConversationSummary(conversation)
+  const inProgress = Boolean(isPendingConversation && agentChatBusy)
   const isWorkspaceFolder = treeRoot === 'courses' && level === 0 && isDirectory && normalizePath(node.relativePath) === ''
   const isCourseFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && isSidebarCourseFolderPath(node.relativePath)
   const isContentFolder = treeRoot === 'courses' && isDirectory && !isWorkspaceFolder && !isCourseFolder && isSidebarContentFolderPath(node.relativePath)
@@ -529,7 +535,7 @@ function WorkspaceFileNodeRow({
     <div className={`workspace-node-row ${isSelected ? 'is-selected' : ''} ${isDirectory ? 'is-directory' : ''} ${isHtmlFile ? 'is-html-file' : ''} ${isMarkdownFile ? 'is-markdown-file' : ''} ${conversation ? 'is-conversation' : ''} ${isPendingConversation ? 'is-pending' : ''} ${isWorkspaceFolder ? 'is-workspace-folder' : ''} ${isCourseFolder ? 'is-course-folder' : ''} ${isContentFolder ? 'is-content-folder' : ''}`}
       style={{ paddingLeft: 4 + level * 12 }} role="treeitem" aria-expanded={isDirectory ? isExpanded : undefined}>
       <button className="workspace-node-button" type="button" title={node.absolutePath} aria-expanded={isDirectory ? isExpanded : undefined} onClick={() => void handleOpen()}>
-        {isPendingConversation ? <Loader2 className="spin" size={13} /> : <Icon size={13} />}
+        {inProgress ? <Loader2 className="spin" size={13} /> : <Icon size={13} />}
         {node.pinned ? <Pin size={10} className="row-pin-indicator" /> : null}
         <span className="collapsible-label">{conversation?.title ?? lesson?.sessionName ?? node.name}</span>
         {isDirectory ? <span className="workspace-node-chevron" aria-hidden="true">{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span> : null}
@@ -543,7 +549,7 @@ function WorkspaceFileNodeRow({
         key={workspaceNodeKey(workspace.id, child.relativePath)} node={child} workspace={workspace} level={level + 1} treeRoot={treeRoot}
         expandedPaths={expandedPaths} selectedLessonPath={selectedLessonPath}
         selectedFolderKey={selectedFolderKey}
-        activeConversationId={activeConversationId} loading={loading}
+        activeConversationId={activeConversationId} loading={loading} agentChatBusy={agentChatBusy}
         onToggle={onToggle} onSelectFolder={onSelectFolder} onClearFolderSelection={onClearFolderSelection}
         onEnsureWorkspaceSelected={onEnsureWorkspaceSelected} onSetOverviewDialogMode={onSetOverviewDialogMode}
         onOpenWorkspaceTeachingMode={onOpenWorkspaceTeachingMode} onOpenPath={onOpenPath} onOpenHtmlFile={onOpenHtmlFile}

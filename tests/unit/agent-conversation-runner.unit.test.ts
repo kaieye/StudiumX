@@ -653,4 +653,40 @@ describe('AgentConversationTurnRunner ADR-0170 host submission', () => {
     })
   })
 
+  it('retains and surfaces a completed answer after a new temporary lane is promoted', async () => {
+    const submit = vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-pending', streamId: 'host-stream-pending' }))
+    const harness = makeHarness({ submitConversationTurn: submit })
+
+    await harness.runner.run({ inputOverride: 'Ask pet question', mode: 'temporary' })
+    expect(harness.getState().activeConversationId).toBe('pending-42')
+    harness.event({ sequence: 1, streamId: 'host-stream-pending', kind: 'chunk', createdAt, payload: { streamId: 'host-stream-pending', delta: 'Pet ' } })
+    harness.event({ sequence: 2, streamId: 'host-stream-pending', kind: 'chunk', createdAt, payload: { streamId: 'host-stream-pending', delta: 'answer' } })
+    harness.event({ sequence: 3, streamId: 'host-stream-pending', kind: 'terminal', createdAt, outcome: 'done' })
+    await flush()
+
+    // The host has now saved + promoted the pending lane. The refreshed catalog
+    // includes the temporary conversation and the lifecycle event names it so the
+    // renderer can point the active projection at the saved conversation.
+    harness.setState({
+      appState: {
+        ...appState(workspace()),
+        temporaryConversations: [{
+          id: 'temp-1', workspaceId: 'workspace-1', title: 'Ask pet question',
+          createdAt, updatedAt: createdAt,
+          relativePath: 'conversations/temp-1.md', absolutePath: '/workspace/conversations/temp-1.md',
+          messageCount: 2
+        }]
+      }
+    })
+    harness.event({ sequence: 0, streamId: 'host-stream-pending', kind: 'conversation_promoted', createdAt, conversationId: 'temp-1' })
+    await flush()
+
+    expect(harness.getState()).toMatchObject({
+      agentChatBusy: false,
+      pendingAgentConversation: null,
+      activeConversationId: 'temp-1',
+      activeConversationScope: 'temporary'
+    })
+    expect(harness.getState().agentTurns.at(-1)).toMatchObject({ role: 'assistant', content: 'Pet answer' })
+  })
 })

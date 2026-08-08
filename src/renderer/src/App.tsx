@@ -306,6 +306,7 @@ function Sidebar() {
   const loading = useAppStore((s) => s.loading)
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const pendingAgentConversation = useAppStore((s) => s.pendingAgentConversation)
+  const agentChatBusy = useAppStore((s) => s.agentChatBusy)
   const selectWorkspace = useAppStore((s) => s.selectWorkspace)
   const setOverviewDialogMode = useAppStore((s) => s.setOverviewDialogMode)
   const selectCourseFolder = useAppStore((s) => s.selectCourseFolder)
@@ -375,6 +376,7 @@ function Sidebar() {
           view={view}
           activeConversationId={activeConversationId}
           pendingAgentConversation={pendingAgentConversation}
+          agentChatBusy={agentChatBusy}
           showAllCourseFiles={settings.workspace.showAllCourseFiles}
           defaultRoot={settings.workspace.defaultRoot}
           loading={loading}

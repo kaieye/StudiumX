@@ -12,6 +12,7 @@ import {
 import type {
   AgentChatMode,
   AgentConversationTurnStartedRealtimeEvent,
+  AgentConversationPromotedRealtimeEvent,
   AgentChatStreamChunk,
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
@@ -176,6 +177,8 @@ export class AgentConversationTurnRunner<TError> {
   private activeTarget: ConversationLaneKey | null = null
   private activeExpectedBranchRevision: number | undefined
   private queuedProjectionSeed = 0
+  /** Last settled host stream, used to reconcile a just-saved pending lane. */
+  private settledStream: { streamId: string; pendingConversationId: string } | null = null
 
   constructor(private readonly dependencies: AgentConversationTurnRunnerDependencies<TError>) {}
 
@@ -549,6 +552,10 @@ export class AgentConversationTurnRunner<TError> {
       this.activateQueuedHostStream(event)
       return
     }
+    if (event.kind === 'conversation_promoted') {
+      void this.reconcilePromotedConversation(event)
+      return
+    }
     const active = this.activeHostStream
     if (active?.streamId === event.streamId) {
       this.projectRealtimeEvent(active, event)
@@ -561,6 +568,45 @@ export class AgentConversationTurnRunner<TError> {
       if (events.length < 128) events.push(event)
       this.bufferedRealtimeEvents.set(event.streamId, events)
     }
+  }
+
+  /**
+   * Reconciles a pending temporary conversation after the host promotes its
+   * pending lane to a canonical conversation id. The terminal outcome normally
+   * settles the renderer draft first (into the no-conversationId branch) because
+   * the terminal is published before the first save; this lifecycle event arrives
+   * after the save and carries the definitive id. It points the active projection
+   * at the saved temporary conversation so a completed answer is not dropped or
+   * deferred to the next user turn.
+   */
+  private async reconcilePromotedConversation(event: AgentConversationPromotedRealtimeEvent): Promise<void> {
+    const active = this.activeHostStream
+    const owned = Boolean(
+      (active && active.streamId === event.streamId) ||
+      (this.settledStream && this.settledStream.streamId === event.streamId)
+    )
+    if (!owned) return
+    if (active && active.streamId === event.streamId && active.conversationId !== event.conversationId) {
+      active.conversationId = event.conversationId
+    }
+    const state = this.dependencies.getState()
+    // Only reconcile a still-pending draft the renderer owns. If the learner has
+    // already moved to another conversation, leave the active projection alone.
+    if (!state.activeConversationId?.startsWith('pending-') && !(active && active.streamId === event.streamId)) return
+    const api = this.dependencies.getApi()
+    const appStateResult = await api?.getState()
+    if (!appStateResult) return
+    const current = this.dependencies.getState()
+    const conversation = appStateResult.temporaryConversations.find((item) => item.id === event.conversationId)
+    if (!conversation) return
+    this.dependencies.setState({
+      ...(current.appState !== appStateResult ? { appState: appStateResult } : {}),
+      activeConversationId: event.conversationId,
+      activeConversationScope: 'temporary',
+      pendingAgentConversation: null,
+      agentChatBusy: false,
+      agentStatus: ''
+    })
   }
 
   private activateQueuedHostStream(event: AgentConversationTurnStartedRealtimeEvent): void {
@@ -687,6 +733,7 @@ export class AgentConversationTurnRunner<TError> {
 
   private async finishHostStream(active: ActiveHostStream, event: Extract<AgentRealtimeEvent, { kind: 'terminal' }>): Promise<void> {
     if (this.activeHostStream?.streamId !== active.streamId) return
+    this.settledStream = { streamId: active.streamId, pendingConversationId: active.pendingConversationId }
     this.activeHostStream = null
     this.activeTarget = null
     this.activeExpectedBranchRevision = undefined

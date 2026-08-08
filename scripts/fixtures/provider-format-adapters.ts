@@ -9,8 +9,8 @@ import {
 
 assert.equal(toolsSupportedForFormat('chat_completions'), true)
 assert.equal(toolsSupportedForFormat('custom_endpoint'), true)
-assert.equal(toolsSupportedForFormat('responses'), false)
-assert.equal(toolsSupportedForFormat('messages'), false)
+assert.equal(toolsSupportedForFormat('responses'), true)
+assert.equal(toolsSupportedForFormat('messages'), true)
 
 assert.deepEqual(providerProbeHeaders('chat_completions', 'sk-test'), {
   Accept: 'application/json',
@@ -39,3 +39,4 @@ assert.equal(providerFormatAdapter('custom_endpoint').probeSupported, false)
 assert.match(providerFormatAdapter('custom_endpoint').unsupportedProbeMessage ?? '', /不支持/)
 
 console.log('provider format adapters ok')
+

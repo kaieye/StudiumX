@@ -9,6 +9,7 @@ import {
   teachingWorkspaceNavigatorReducer,
   workspaceNodeKey
 } from '../../src/renderer/src/app-shell/teaching-workspace-navigator-state'
+import type { PendingAgentConversation } from '../../src/renderer/src/agent-conversation-state'
 import type { AgentConversationSummary, LessonSummary, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 
 const lesson: LessonSummary = {
@@ -44,7 +45,7 @@ function renderNavigator(overrides: Partial<TeachingWorkspaceNavigatorProps> = {
   }
   render(<TeachingWorkspaceNavigator workspaces={[workspace]} activeWorkspace={workspace} temporaryConversations={[]} selectedLessonPath={null}
     selectedCourseRelativePath={null} selectedCourseWorkspaceId={null}
-    view="overview" activeConversationId={null} pendingAgentConversation={null} showAllCourseFiles={false} defaultRoot="D:/math" loading={false}
+    view="overview" activeConversationId={null} pendingAgentConversation={null} agentChatBusy={false} showAllCourseFiles={false} defaultRoot="D:/math" loading={false}
     {...callbacks} {...overrides} />)
   return callbacks
 }
@@ -204,5 +205,38 @@ describe('TeachingWorkspaceNavigator', () => {
     expect(callbacks.onRenameAgentConversation).toHaveBeenCalledWith({
       workspaceId: 'workspace-1', conversationId: 'temporary-rename', title: 'Renamed title', scope: 'temporary', expectedRevision: 3
     })
+  })
+
+  it('only shows the in-progress spinner while the pending conversation is actively running', async () => {
+    const pendingConversation: PendingAgentConversation = {
+      workspaceId: 'workspace-1',
+      sourceConversationId: null,
+      sourceConversationRevision: null,
+      mode: 'temporary',
+      status: '',
+      toolsSupported: null,
+      summary: {
+        id: 'pending-1', workspaceId: 'workspace-1', title: 'Running draft', createdAt: '2026-08-08', updatedAt: '2026-08-08',
+        relativePath: 'conversations/pending-1.md', absolutePath: 'D:/app-data/conversations/pending-1.md', messageCount: 2,
+        pending: true
+      },
+      turns: [
+        { id: 'u-1', role: 'user', content: 'Hello', createdAt: '2026-08-08T00:00:00.000Z' },
+        { id: 'a-1', role: 'assistant', content: '', createdAt: '2026-08-08T00:00:00.000Z' }
+      ]
+    }
+
+    renderNavigator({ temporaryConversations: [], pendingAgentConversation: pendingConversation, agentChatBusy: true })
+    const rowWhileRunning = screen.getByText('Running draft').closest('.workspace-conversation-row')
+    expect(rowWhileRunning).toHaveClass('is-pending')
+    expect(within(rowWhileRunning!).getByText('进行中')).toBeInTheDocument()
+    expect(rowWhileRunning!.querySelector('.spin')).not.toBeNull()
+
+    cleanup()
+    renderNavigator({ temporaryConversations: [], pendingAgentConversation: pendingConversation, agentChatBusy: false })
+    const rowAfterEnded = screen.getByText('Running draft').closest('.workspace-conversation-row')
+    expect(rowAfterEnded).toHaveClass('is-pending')
+    expect(within(rowAfterEnded!).queryByText('进行中')).toBeNull()
+    expect(rowAfterEnded!.querySelector('.spin')).toBeNull()
   })
 })

@@ -156,6 +156,100 @@ export async function readSseStream(
   }
 }
 
+/** Native Anthropic Messages stream tool-call / text deltas. */
+function extractAnthropicChatDelta(event: unknown): {
+  content?: string
+  reasoning?: string
+  toolCalls?: ToolCallFragment[]
+  finishReason?: ProviderStopReason
+} {
+  const record = event as { type?: string; index?: number; content_block?: unknown; delta?: unknown }
+  const index = typeof record.index === 'number' ? record.index : 0
+  switch (record.type) {
+    case 'content_block_start': {
+      const cb = record.content_block && typeof record.content_block === 'object'
+        ? (record.content_block as { type?: string; id?: string; name?: string })
+        : undefined
+      if (cb?.type === 'tool_use' && cb.name) {
+        return { toolCalls: [{ index, id: cb.id, name: cb.name }] }
+      }
+      return {}
+    }
+    case 'content_block_delta': {
+      const delta = record.delta && typeof record.delta === 'object'
+        ? (record.delta as { type?: string; text?: string; thinking?: string; partial_json?: string })
+        : undefined
+      if (delta?.type === 'text_delta' && delta.text) return { content: delta.text }
+      if (delta?.type === 'thinking_delta' && delta.thinking) return { reasoning: delta.thinking }
+      if (delta?.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+        return { toolCalls: [{ index, arguments: delta.partial_json }] }
+      }
+      return {}
+    }
+    case 'message_delta': {
+      const md = record.delta && typeof record.delta === 'object'
+        ? (record.delta as { stop_reason?: string })
+        : undefined
+      if (typeof md?.stop_reason === 'string' && md.stop_reason.trim()) {
+        return { finishReason: normalizeStopReason(md.stop_reason) }
+      }
+      return {}
+    }
+    default:
+      return {}
+  }
+}
+
+/** Native OpenAI Responses stream tool-call / text deltas. */
+function extractResponsesChatDelta(event: unknown): {
+  content?: string
+  reasoning?: string
+  toolCalls?: ToolCallFragment[]
+  finishReason?: ProviderStopReason
+} {
+  const record = event as {
+    type?: string
+    output_index?: number
+    delta?: unknown
+    item?: unknown
+    response?: unknown
+  }
+  const index = typeof record.output_index === 'number' ? record.output_index : 0
+  switch (record.type) {
+    case 'response.output_text.delta':
+      return typeof record.delta === 'string' ? { content: record.delta } : {}
+    case 'response.reasoning_summary_text.delta':
+    case 'response.reasoning_summary.delta':
+    case 'response.reasoning_text.delta':
+      return typeof record.delta === 'string' ? { reasoning: record.delta } : {}
+    case 'response.output_item.added': {
+      const item = record.item && typeof record.item === 'object'
+        ? (record.item as { type?: string; id?: string; name?: string })
+        : undefined
+      if (item?.type === 'function_call' && item.name) {
+        return { toolCalls: [{ index, id: item.id, name: item.name }] }
+      }
+      return {}
+    }
+    case 'response.function_call_arguments.delta':
+      return typeof record.delta === 'string'
+        ? { toolCalls: [{ index, arguments: record.delta }] }
+        : {}
+    case 'response.completed': {
+      const resp = record.response && typeof record.response === 'object'
+        ? (record.response as { status?: string; incomplete_details?: { reason?: string } })
+        : undefined
+      if (resp?.status === 'incomplete') {
+        const detail = resp.incomplete_details?.reason
+        return { finishReason: detail ? normalizeStopReason(detail) : 'length' }
+      }
+      return { finishReason: 'stop' }
+    }
+    default:
+      return {}
+  }
+}
+
 function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
   content?: string
   reasoning?: string
@@ -163,6 +257,8 @@ function extractChatDelta(format: ModelEndpointFormat, event: unknown): {
   finishReason?: ProviderStopReason
 } {
   if (!event || typeof event !== 'object') return {}
+  if (format === 'responses') return extractResponsesChatDelta(event)
+  if (format === 'messages') return extractAnthropicChatDelta(event)
   if (!toolsSupportedForFormat(format)) {
     return extractStreamDelta(format, event)
   }

@@ -172,8 +172,9 @@ export type RunAgentLoopResult = {
  * Non-streaming tool-calling loop (v1). Each turn calls callChatProvider; if
  * the response carries tool_calls, dispatches them (errors become tool results
  * so the model can self-correct) and loops; otherwise the text is the final
- * answer, emitted as a single token chunk. Unsupported endpoint formats
- * (messages/responses) degrade to one legacy single-shot call.
+ * answer, emitted as a single token chunk. Endpoint formats that do not
+ * support tool calls degrade to one legacy single-shot call (all current
+ * formats support tool calls).
  */
 export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentLoopResult> {
   const execution = new AgentLoopExecutionState({
@@ -1052,4 +1053,7 @@ async function applyTurnToolResultBudget(
     isError: entry.isError === true
   }))
 }
+
+
+
 

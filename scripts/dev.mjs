@@ -1,8 +1,20 @@
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { forwardSignal } from './dev-process-tree.mjs'
 
-const electronViteCommand = process.platform === 'win32' ? 'electron-vite.cmd' : 'electron-vite'
-const child = spawn(electronViteCommand, ['dev'], {
+// Run the electron-vite CLI through `node` directly instead of the platform
+// `.cmd` / shell shim. Node >= 22 throws `spawn EINVAL` when spawning `.cmd`
+// or `.bat` files without `shell: true` (the silent auto-shell fallback was
+// removed), and `shell: true` would bring shell-argument quoting (DEP0190)
+// plus PATH/escaping fragility. Invoking the JS entry keeps `pnpm dev`
+// working across every supported Node version and platform, and the spawned
+// `node` process remains the dev-tree leader for signal forwarding.
+const require = createRequire(import.meta.url)
+const electronVitePackageJson = require.resolve('electron-vite/package.json')
+const electronViteCli = join(dirname(electronVitePackageJson), 'bin', 'electron-vite.js')
+
+const child = spawn(process.execPath, [electronViteCli, 'dev'], {
   stdio: 'inherit',
   // Put the launcher and the Electron process it creates in their own group so
   // one signal can terminate the complete development process tree.

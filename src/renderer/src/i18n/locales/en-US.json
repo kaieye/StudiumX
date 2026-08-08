@@ -877,7 +877,7 @@
     "baseUrl": "Base URL",
     "endpointFormat": {
       "label": "Upstream format",
-      "detail": "Determines the request shape sent to the upstream API; messages is for Anthropic-compatible endpoints. responses / messages do not support tool calls and degrade to plain text.",
+      "detail": "Determines the request shape sent to the upstream API; messages is for Anthropic-compatible endpoints. responses and messages also support tool calls.",
       "chat_completions": "Chat completions",
       "responses": "Responses",
       "messages": "Anthropic messages",
@@ -1957,3 +1957,4 @@
     "close": "Close"
   }
 }
+

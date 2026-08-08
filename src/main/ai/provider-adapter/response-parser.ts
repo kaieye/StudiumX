@@ -125,7 +125,55 @@ export function extractText(format: ModelEndpointFormat, body: unknown): string 
   return ''
 }
 
+/** Native Responses API tool calls: `output[].type === 'function_call'`. */
+function extractResponsesToolCalls(body: unknown): ToolCall[] {
+  const output = (body as { output?: unknown })?.output
+  if (!Array.isArray(output)) return []
+  const calls: ToolCall[] = []
+  for (const item of output) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as { type?: string; id?: string; name?: string; arguments?: unknown }
+    if (record.type !== 'function_call') continue
+    calls.push({
+      id: record.id || `call_${calls.length}`,
+      type: 'function',
+      function: {
+        name: record.name || '',
+        arguments: typeof record.arguments === 'string'
+          ? record.arguments
+          : JSON.stringify(record.arguments ?? {})
+      }
+    })
+  }
+  return calls
+}
+
+/** Native Anthropic Messages tool calls: `content[].type === 'tool_use'`. */
+function extractMessagesToolCalls(body: unknown): ToolCall[] {
+  const content = (body as { content?: unknown })?.content
+  if (!Array.isArray(content)) return []
+  const calls: ToolCall[] = []
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue
+    const record = block as { type?: string; id?: string; name?: string; input?: unknown }
+    if (record.type !== 'tool_use') continue
+    calls.push({
+      id: record.id || `tool_${calls.length}`,
+      type: 'function',
+      function: {
+        name: record.name || '',
+        arguments: typeof record.input === 'string'
+          ? record.input
+          : JSON.stringify(record.input ?? {})
+      }
+    })
+  }
+  return calls
+}
+
 export function extractToolCalls(format: ModelEndpointFormat, body: unknown): ToolCall[] {
+  if (format === 'responses') return extractResponsesToolCalls(body)
+  if (format === 'messages') return extractMessagesToolCalls(body)
   if (!toolsSupportedForFormat(format)) return []
   const choices = (body as { choices?: unknown })?.choices
   if (!Array.isArray(choices) || choices.length === 0) return []
@@ -150,4 +198,3 @@ export function extractToolCalls(format: ModelEndpointFormat, body: unknown): To
         : ''
   return [...nativeCalls, ...parseDsmlToolCalls(text)]
 }
-

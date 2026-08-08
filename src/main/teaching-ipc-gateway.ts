@@ -447,6 +447,13 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             moveConversationTurnOwnersToCanonicalTarget(context, reservation.target, promotion.target)
             const binding = context.conversationTurnStreams.get(streamId)
             if (binding && binding.activeTurnId === activeTurnId) binding.target = promotion.target
+            safeSend(sender, teachingEventChannels.agentChatEvent, {
+              sequence: 0,
+              streamId,
+              kind: 'conversation_promoted',
+              createdAt: new Date().toISOString(),
+              conversationId: saved.conversation.id
+            })
           }
           return mapAgentChatStreamResultToRunResult(streamId, result)
         } catch (error) {
