@@ -1,0 +1,415 @@
+/* Mind map view styles — dark-theme neutral via the app's design tokens. */
+
+.mindmap-view-shell {
+  height: 100%;
+  min-height: 0;
+}
+
+.mindmap-view {
+  display: grid;
+  grid-template-columns: 240px 1fr 300px;
+  height: 100%;
+  min-height: 0;
+  background: var(--surface-subtle);
+}
+
+/* ---- left: document list ---- */
+
+.mindmap-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.mindmap-list__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--line);
+}
+
+.mindmap-list__head strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mindmap-list__create {
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--line);
+}
+
+.mindmap-list__create input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.mindmap-list__create input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.mindmap-list__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-xs);
+}
+
+.mindmap-list__empty {
+  padding: var(--space-lg) var(--space-md);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.mindmap-list__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.mindmap-list__item:hover {
+  background: var(--surface-hover);
+}
+
+.mindmap-list__item.is-active {
+  background: var(--accent-soft);
+}
+
+.mindmap-list__item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mindmap-list__item-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.mindmap-list__item-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+}
+
+.mindmap-list__item:hover .mindmap-list__item-delete {
+  opacity: 1;
+}
+
+/* ---- center: stage + toolbar ---- */
+
+.mindmap-stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.mindmap-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.mindmap-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.mindmap-rename {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-muted);
+}
+
+.mindmap-rename input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.mindmap-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--amber-soft);
+  border-bottom: 1px solid var(--line);
+}
+
+.mindmap-sheet-tabs {
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.mindmap-sheet-tab {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+}
+
+.mindmap-sheet-tab.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.mindmap-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  flex: 1;
+  padding: var(--space-xl);
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ---- canvas ---- */
+
+.mindmap-canvas {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 1px 1px, var(--line-muted) 1px, transparent 0),
+    var(--surface-subtle);
+  background-size: 22px 22px;
+}
+
+.mindmap-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+}
+
+.mindmap-edge {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+
+.mindmap-node-rect {
+  fill: var(--surface-solid);
+  stroke: var(--line);
+  stroke-width: 1.2;
+  transition: stroke 120ms ease, fill 120ms ease;
+}
+
+.mindmap-node-group.is-selected .mindmap-node-rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: var(--accent-soft);
+}
+
+.mindmap-node-group:hover .mindmap-node-rect {
+  stroke: var(--accent);
+}
+
+.mindmap-node-label {
+  font-size: 12px;
+  font-weight: 500;
+  fill: var(--text);
+  pointer-events: none;
+}
+
+.mindmap-node-foreign {
+  overflow: visible;
+}
+
+.mindmap-node-input-wrap {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 6px;
+}
+
+.mindmap-node-input {
+  width: 100%;
+  padding: 2px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xs);
+}
+
+.mindmap-node-input:focus {
+  outline: none;
+}
+
+.mindmap-collapse-badge {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--accent);
+  cursor: pointer;
+}
+
+.mindmap-node-action {
+  fill: var(--surface-solid);
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  cursor: pointer;
+}
+
+.mindmap-node-action--danger {
+  stroke: var(--red);
+}
+
+.mindmap-node-action-label {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--accent);
+  pointer-events: none;
+}
+
+.mindmap-node-action-label--danger {
+  fill: var(--red);
+}
+
+/* ---- right: AI panel ---- */
+
+.mindmap-ai-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+.mindmap-ai-panel__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.mindmap-ai-panel__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.mindmap-ai-panel__label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.mindmap-ai-panel__input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  resize: vertical;
+}
+
+.mindmap-ai-panel__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.mindmap-ai-panel__actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.mindmap-ai-panel__stream {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border-radius: var(--radius-md);
+}
+
+.mindmap-ai-panel__stream > span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.mindmap-ai-panel__stream-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mindmap-ai-panel__error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 12px;
+  color: var(--red);
+  background: var(--rose-soft);
+  border: 1px solid var(--rose);
+  border-radius: var(--radius-md);
+}
+
+.mindmap-ai-panel__error > span {
+  font-weight: 600;
+}
+
+.mindmap-ai-panel__error p {
+  margin: 0;
+  color: var(--text-muted);
+  word-break: break-word;
+}

@@ -49,7 +49,8 @@ import {
   parseSubmitConversationTurnIntent,
   parseCancelConversationTurnIntent,
   parseWorkspaceItemRemovePayload, parseWorkspaceRemovePayload, parseRunTeachingDoctorPayload, parseProjectTeachingTurnReviewPayload, parseDecideTeachingTurnReviewPayload, parseProjectTeachingTurnReviewHandoffPayload, parseGetTeachingTurnReviewLastBundlePayload, parseSaveTeachingTurnReviewLastBundlePayload, requireStreamId, requireString,
-  requireWindowControlAction
+  requireWindowControlAction,
+  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapUpdatePayload, parseMindMapGeneratePayload, parseMindMapImportPayload, parseMindMapExportPayload
 } from './teaching-ipc-commands'
 import type { TeachingSettingsService } from './teaching-settings'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
@@ -79,7 +80,11 @@ import {
   runApplyStudyPlanningIpc,
   runReadStudyPlanningIpc
 } from './study-planning-ipc'
+import { createMindMapStore } from './mindmap/mind-map-store'
+import { generateMindMap, MindMapGenerationError } from './mindmap/mind-map-generation'
+import { exportXmindFile, readXmindFile } from './mindmap/xmind-file'
 import type { AgentChatStreamPayload, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AgentRealtimeEvent, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
+import type { MindMapDocument } from '../shared/mindmap/mind-map-types'
 import {
   normalizeAgentSandboxMode,
   resolveAgentSandboxReadiness
@@ -306,6 +311,39 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     resolveRegisteredWorkspaceRoot((await service.getState()).workspaces, rawWorkspaceRoot)
   const resolveOptionalWorkspaceRoot = async (rawWorkspaceRoot: string | undefined) =>
     resolveOptionalRegisteredWorkspaceRoot((await service.getState()).workspaces, rawWorkspaceRoot)
+
+  /**
+   * Resolve the workspace root for mind-map IPC. Prefers the explicitly provided
+   * registered `workspaceId`; otherwise falls back to the active workspace root.
+   */
+  const resolveMindMapWorkspaceRoot = async (workspaceId: string): Promise<string> => {
+    if (workspaceId) {
+      const access = await resolveGitWorkspaceRoot(workspaceId)
+      if (access.ok) return access.rootPath
+      throw new Error(`Mind map workspace unavailable: ${access.message}`)
+    }
+    const activeRoot = (await service.getState()).activeWorkspace?.rootPath
+    if (!activeRoot) throw new Error('Mind map requires an active teaching workspace.')
+    return activeRoot
+  }
+
+  /**
+   * Normalize a `MindMapGenerationError` into a structured, renderer-safe error.
+   * Provider/transport details are classified by the generation module; we surface
+   * the canonical message and keep the error kind for the caller.
+   */
+  /** Narrow guard: a strict envelope parser returned null → structured error. */
+  const requireMindMapPayload = <Payload>(payload: Payload | null, channel: string): Payload => {
+    if (payload === null) throw new Error(`Invalid IPC payload for ${channel}.`)
+    return payload
+  }
+
+  const mindMapGenerationIpcError = (error: unknown): Error => {
+    if (error instanceof MindMapGenerationError) {
+      return new Error(`Mind map generation failed (${error.kind}): ${error.message}`)
+    }
+    return error instanceof Error ? error : new Error(String(error))
+  }
 
   /**
    * ADR-0170 host runner. This function accepts only an already-reserved lane
@@ -1299,6 +1337,101 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             ? { ok: true as const, rootPath: access.rootPath }
             : { ok: false as const, message: access.message }
         }),
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.listMindMaps,
+      parser: (payload) => parseMindMapListPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'listMindMaps')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        return createMindMapStore(root).list()
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.createMindMap,
+      parser: (payload) => parseMindMapCreatePayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'createMindMap')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        return createMindMapStore(root).create(p.title)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.readMindMap,
+      parser: (payload) => parseMindMapAccessPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'readMindMap')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        return createMindMapStore(root).read(p.id)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.updateMindMap,
+      parser: (payload) => parseMindMapUpdatePayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'updateMindMap')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        return createMindMapStore(root).update(p.id, p.doc)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.deleteMindMap,
+      parser: (payload) => parseMindMapAccessPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'deleteMindMap')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        await createMindMapStore(root).remove(p.id)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.generateMindMap,
+      parser: (payload) => parseMindMapGeneratePayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'generateMindMap')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const loadedSettings = await settings.load()
+        let generated: MindMapDocument
+        try {
+          generated = await generateMindMap({ title: p.title, prompt: p.prompt, settings: loadedSettings })
+        } catch (error) {
+          throw mindMapGenerationIpcError(error)
+        }
+        // Persist the generated sheets behind a canonical document created by the
+        // store (authoritative id + timestamps), then return the persisted doc.
+        const store = createMindMapStore(root)
+        const created = await store.create(p.title)
+        return store.update(created.id, { ...generated, id: created.id, createdAt: created.createdAt, updatedAt: created.updatedAt })
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.importMindMapXmind,
+      parser: (payload) => parseMindMapImportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'importMindMapXmind')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const imported = await readXmindFile(p.sourcePath)
+        const store = createMindMapStore(root)
+        const created = await store.create(imported.title || '导入的思维导图')
+        return store.update(created.id, { ...imported, id: created.id, createdAt: created.createdAt, updatedAt: created.updatedAt })
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.exportMindMapXmind,
+      parser: (payload) => parseMindMapExportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'exportMindMapXmind')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const doc = await createMindMapStore(root).read(p.id)
+        return exportXmindFile(doc, p.destinationDirectory)
+      },
       reply: identityReply, streamCleanup: noStreamCleanup
     })
   ]

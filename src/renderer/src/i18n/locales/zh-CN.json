@@ -12,7 +12,8 @@
     "agent": "对话",
     "lessons": "课程",
     "resources": "资源",
-    "workbench": "自习室"
+    "workbench": "自习室",
+    "mindmap": "思维导图"
   },
   "sidebar": {
     "aria": "主导航",
@@ -1955,6 +1956,35 @@
     "restartLater": "稍后",
     "retry": "重试",
     "close": "关闭"
+  },
+  "mindmap": {
+    "viewTitle": "思维导图",
+    "newDocument": "新建导图",
+    "importXmind": "导入 XMind",
+    "exportXmind": "导出 XMind",
+    "aiTitle": "AI 生成",
+    "aiPromptLabel": "主题或提示词",
+    "aiPromptPlaceholder": "例如：细胞的有丝分裂过程",
+    "aiGenerate": "生成导图",
+    "aiCancel": "取消",
+    "aiStreaming": "正在生成…",
+    "aiError": "生成失败",
+    "retry": "重试",
+    "addChild": "添加子主题",
+    "addSibling": "添加同级主题",
+    "deleteNode": "删除主题",
+    "collapseAll": "全部折叠",
+    "expandAll": "全部展开",
+    "layout": "布局",
+    "note": "备注",
+    "emptyState": "尚无导图，点击「新建导图」开始",
+    "renameDocument": "重命名",
+    "newSheet": "新建画布",
+    "deleteDocument": "删除导图",
+    "noWorkspace": "请先选择一个工作区",
+    "save": "保存",
+    "enterTitle": "输入标题…",
+    "enterNodeTitle": "输入主题名称…",
+    "cancel": "取消"
   }
 }
-

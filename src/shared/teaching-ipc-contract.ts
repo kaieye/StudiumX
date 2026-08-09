@@ -15,6 +15,8 @@ export type TeachingEventChannel =
   | 'agentChatEvent'
   | 'systemPower'
   | 'appUpdateEvent'
+  | 'mindMapStreamChunk'
+  | 'mindMapStreamStatus'
 
 /** OS power fan-out payload (ADR-0129 §4 OS bridge). Signal only — not timer authority. */
 export type SystemPowerEvent = {
@@ -120,6 +122,14 @@ export const teachingInvokeChannels = {
   projectAgentSessionQueue: 'teach:project-agent-session-queue',
   readStudyPlanning: 'teach:read-study-planning',
   applyStudyPlanning: 'teach:apply-study-planning',
+  listMindMaps: 'teach:list-mind-maps',
+  createMindMap: 'teach:create-mind-map',
+  readMindMap: 'teach:read-mind-map',
+  updateMindMap: 'teach:update-mind-map',
+  deleteMindMap: 'teach:delete-mind-map',
+  generateMindMap: 'teach:generate-mind-map',
+  importMindMapXmind: 'teach:import-mind-map-xmind',
+  exportMindMapXmind: 'teach:export-mind-map-xmind',
   mcpGetConfig: 'teach:mcp-get-config',
   /** Live settings getter (ADR-0147); current store, not turn snapshot. */
   mcpGetMcpSettings: 'teach:mcp-get-settings',
@@ -165,7 +175,9 @@ export const teachingEventChannels = {
   agentChatTool: 'teach:agent-chat-tool',
   agentChatEvent: 'teach:agent-chat-event',
   systemPower: 'teach:system-power',
-  appUpdateEvent: 'teach:app-update-event'
+  appUpdateEvent: 'teach:app-update-event',
+  mindMapStreamChunk: 'teach:mind-map-stream-chunk',
+  mindMapStreamStatus: 'teach:mind-map-stream-status'
 } satisfies Record<TeachingEventChannel, string>
 
 const teachingEventChannelKeysAreExact: ExactKeySet<

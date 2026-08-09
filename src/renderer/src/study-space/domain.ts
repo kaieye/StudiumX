@@ -217,6 +217,7 @@ export function initialWorkspaceViewFromUrl(): WorkspaceView {
   try {
     const params = new URLSearchParams(window.location.search)
     if (params.has('workbench') || params.has('office')) return 'workbench'
+    if (params.has('mindmap')) return 'mindmap'
     return params.has('studySpace') || params.has('space') || params.has('studyRoom') || params.has('room')
       ? 'workbench'
       : 'agent'

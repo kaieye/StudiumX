@@ -40,6 +40,18 @@ import { normalizeProviderCustomHeaders } from '../shared/provider-custom-header
 import { getSkillOrchestrationPreset } from '../shared/skill-orchestration-presets'
 import { isSafeSkillId } from '../shared/skill-command'
 
+// Mind map IPC parsers live in a dedicated module to respect the module-size
+// policy (ADR-0075); re-export so the gateway can import them from one place.
+export {
+  parseMindMapListPayload,
+  parseMindMapCreatePayload,
+  parseMindMapAccessPayload,
+  parseMindMapUpdatePayload,
+  parseMindMapGeneratePayload,
+  parseMindMapImportPayload,
+  parseMindMapExportPayload
+} from './mindmap/mind-map-ipc-commands'
+
 const SAFE_CONVERSATION_ID = /^[a-z0-9][a-z0-9-]{0,99}$/
 const SAFE_OUTCOME_COMMIT_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?$/
 const MAX_SELECTED_SKILL_IDS = 8

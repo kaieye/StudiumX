@@ -8,7 +8,7 @@ import type {
   LearningSessionLessonRef
 } from './learning-session'
 
-export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'workbench' | 'review' | 'settings'
+export type WorkspaceView = 'overview' | 'lessons' | 'agent' | 'resources' | 'workbench' | 'review' | 'settings' | 'mindmap'
 
 export type WorkflowStepState = 'done' | 'active' | 'waiting' | 'error'
 

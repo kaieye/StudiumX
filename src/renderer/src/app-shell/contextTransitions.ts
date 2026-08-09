@@ -113,7 +113,8 @@ const PRIMARY_SHELL_VIEWS = new Set<WorkspaceView>([
   'resources',
   'workbench',
   'review',
-  'settings'
+  'settings',
+  'mindmap'
 ])
 
 export function openPrimaryView(

@@ -219,6 +219,15 @@ export const FEATURES: readonly FeatureDefinition[] = [
       'LAN default + optional self-hosted WSS relay (ADR-0143). No default cloud relay. Pairing secrets main-only; tools still use effect lattice + approval (no YOLO).',
     since: '2026-07',
     footprintHint: 4
+  },
+  {
+    id: 'mind-map',
+    stage: 'under_development',
+    title: '思维导图与 AI 辅助生成',
+    summary:
+      '原生导图编辑（数据模型镜像 XMind content：sheet→rootTopic→topic 递归树）+ AI 辅助生成（复用 provider 基建，Zod 校验）。导图是用户内容非教学权威；durable 工作区写；`.xmind` 导入/导出用 fflate；渲染器自绘 SVG。见 ADR-0172。',
+    since: '2026-08',
+    footprintHint: 3
   }
 ] as const
 

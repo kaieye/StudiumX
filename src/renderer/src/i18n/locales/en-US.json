@@ -12,7 +12,8 @@
     "agent": "Chat",
     "lessons": "Lessons",
     "resources": "Resources",
-    "workbench": "Study room"
+    "workbench": "Study room",
+    "mindmap": "Mind Map"
   },
   "sidebar": {
     "aria": "Main navigation",
@@ -1955,6 +1956,35 @@
     "restartLater": "Later",
     "retry": "Retry",
     "close": "Close"
+  },
+  "mindmap": {
+    "viewTitle": "Mind Map",
+    "newDocument": "New mind map",
+    "importXmind": "Import XMind",
+    "exportXmind": "Export XMind",
+    "aiTitle": "AI Generate",
+    "aiPromptLabel": "Topic or prompt",
+    "aiPromptPlaceholder": "e.g. Mitosis in cells",
+    "aiGenerate": "Generate",
+    "aiCancel": "Cancel",
+    "aiStreaming": "Generating…",
+    "aiError": "Generation failed",
+    "retry": "Retry",
+    "addChild": "Add child",
+    "addSibling": "Add sibling",
+    "deleteNode": "Delete topic",
+    "collapseAll": "Collapse all",
+    "expandAll": "Expand all",
+    "layout": "Layout",
+    "note": "Note",
+    "emptyState": "No mind maps yet",
+    "renameDocument": "Rename",
+    "newSheet": "New sheet",
+    "deleteDocument": "Delete mind map",
+    "noWorkspace": "Select a workspace first",
+    "save": "Save",
+    "enterTitle": "Enter a title…",
+    "enterNodeTitle": "Enter a topic name…",
+    "cancel": "Cancel"
   }
 }
-

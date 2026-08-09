@@ -21,6 +21,7 @@ import {
   LibraryBig,
   Loader2,
   MessageSquare,
+  Network,
   PanelLeftClose,
   PanelLeftOpen,
   Palette,
@@ -55,6 +56,10 @@ import { MarkdownPreview } from './markdown-preview'
 const OfficeWorkbench = lazy(async () => {
   const module = await import('./views/workbench/OfficeWorkbench')
   return { default: module.OfficeWorkbench }
+})
+const MindMapView = lazy(async () => {
+  const module = await import('./views/mindmap/MindMapView')
+  return { default: module.MindMapView }
 })
 import { readStudySnapshot } from './study-space/domain'
 import {
@@ -157,7 +162,8 @@ import {
 const navItems = [
   { id: 'overview', icon: Bot },
   { id: 'resources', icon: LibraryBig },
-  { id: 'workbench', icon: Wrench }
+  { id: 'workbench', icon: Wrench },
+  { id: 'mindmap', icon: Network }
 ] satisfies Array<{ id: WorkspaceView; icon: LucideIcon }>
 
 function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
@@ -1583,6 +1589,14 @@ function MainArea() {
             <OfficeWorkbench showNotification={showNotification} />
           </Suspense>
         </AuthGate>
+      )}
+
+      {view === 'mindmap' && (
+        <section className="mindmap-view-shell" aria-label={t('mindmap.viewTitle')}>
+          <Suspense fallback={null}>
+            <MindMapView />
+          </Suspense>
+        </section>
       )}
 
       {changeDiff && (

@@ -141,6 +141,16 @@ import type {
   ProjectAgentSessionQueuePayload,
   ProjectAgentSessionQueueResult
 } from './agent-session-queue'
+import type { MindMapDocument, MindMapSummary } from '../mindmap/mind-map-types'
+import type {
+  MindMapAccessPayload,
+  MindMapCreatePayload,
+  MindMapExportPayload,
+  MindMapGeneratePayload,
+  MindMapImportPayload,
+  MindMapListPayload,
+  MindMapUpdatePayload
+} from './mindmap'
 
 /** Versioned renderer command for committing a canonical Learning Session outcome. */
 export type CommitLearningOutcomeRequest = {
@@ -479,4 +489,20 @@ export type TeachingSystemApi = {
   >
   /** Push StudiumX user access token to main for system-default MCP auth. */
   mcpSetStudiumxAccessToken: (token: string | null) => Promise<void>
+  /** List mind maps in the workspace (docs/mindmap §4). */
+  listMindMaps: (payload: MindMapListPayload) => Promise<MindMapSummary[]>
+  /** Create a new empty mind map document. */
+  createMindMap: (payload: MindMapCreatePayload) => Promise<MindMapDocument>
+  /** Read one mind map document. */
+  readMindMap: (payload: MindMapAccessPayload) => Promise<MindMapDocument>
+  /** Update (persist) one mind map document. */
+  updateMindMap: (payload: MindMapUpdatePayload) => Promise<MindMapDocument>
+  /** Delete one mind map document (idempotent). */
+  deleteMindMap: (payload: MindMapAccessPayload) => Promise<void>
+  /** AI-generate a mind map from a prompt, then persist and return it. */
+  generateMindMap: (payload: MindMapGeneratePayload) => Promise<MindMapDocument>
+  /** Import an `.xmind` file, persist it, and return the document. */
+  importMindMapXmind: (payload: MindMapImportPayload) => Promise<MindMapDocument>
+  /** Export one mind map as an `.xmind` file into a directory. */
+  exportMindMapXmind: (payload: MindMapExportPayload) => Promise<{ path: string }>
 }

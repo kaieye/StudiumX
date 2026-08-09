@@ -35,7 +35,7 @@ describe('FeatureStage', () => {
 describe('FEATURES table integrity', () => {
   it('seeds a small honest teaching-only set', () => {
     expect(FEATURES.length).toBeGreaterThanOrEqual(6)
-    expect(FEATURES.length).toBeLessThanOrEqual(14)
+    expect(FEATURES.length).toBeLessThanOrEqual(16)
     expect(featureCount()).toBe(FEATURES.length)
   })
 
