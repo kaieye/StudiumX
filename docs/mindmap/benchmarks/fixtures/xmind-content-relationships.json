@@ -1,0 +1,41 @@
+[
+  {
+    "class": "sheet",
+    "id": "xmind-sheet-relationships",
+    "title": "关系线 Sheet",
+    "structureClass": "org.xmind.ui.logic.right",
+    "rootTopic": {
+      "class": "topic",
+      "id": "t1",
+      "title": "Root",
+      "children": {
+        "attached": [
+          {
+            "class": "topic",
+            "id": "t2",
+            "title": "节点 A"
+          },
+          {
+            "class": "topic",
+            "id": "t3",
+            "title": "节点 B"
+          }
+        ]
+      }
+    },
+    "relationships": [
+      {
+        "id": "rel-1",
+        "title": "依赖",
+        "end1Id": "t1",
+        "end2Id": "t2"
+      },
+      {
+        "id": "rel-2",
+        "title": "引用",
+        "end1Id": "t2",
+        "end2Id": "t3"
+      }
+    ]
+  }
+]

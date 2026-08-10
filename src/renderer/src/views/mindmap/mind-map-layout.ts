@@ -1,15 +1,20 @@
 import type {
-  MindMapNode,
-  MindMapSheet,
   MindMapStructureClass
 } from '../../../../shared/mindmap/mind-map-types'
+import type {
+  MindMapCallout,
+  MindMapMarker,
+  MindMapSheetV2,
+  MindMapSummary,
+  MindMapTopicV2
+} from '../../../../shared/mindmap/domain/types'
 
 /**
- * Pure, deterministic O(n) tree layout for a mind-map sheet.
+ * Pure, deterministic O(n) tree layout for a v2 mind-map sheet.
  *
  * This module has no React / DOM / IPC dependencies so it can be unit-tested
- * in isolation. The layout reads the sheet's `structureClass` to decide the
- * direction children spread from their parent:
+ * in isolation. The layout reads the sheet's `layout.structureClass` to decide
+ * the direction children spread from their parent:
  *
  * - `…right`  — all children to the right (+x)
  * - `…left`   — all children to the left (−x)
@@ -34,6 +39,8 @@ export type MindMapLayoutNode = {
   depth: number
   collapsed: boolean
   note?: string
+  /** Small, accessible XMind-style marker badges attached to the topic. */
+  markers?: MindMapMarker[]
 }
 
 export type MindMapLayoutEdge = {
@@ -41,9 +48,36 @@ export type MindMapLayoutEdge = {
   to: string
 }
 
+/** A sheet-level relationship connector projected into layout coordinates. */
+export type MindMapLayoutRelationship = {
+  id: string
+  from: string
+  to: string
+  label?: string
+}
+
+/** A topic annotation projected into layout coordinates. */
+export type MindMapLayoutCallout = {
+  id: string
+  topicId: string
+  text: string
+  position?: { x: number; y: number }
+}
+
+/** A sheet-level brace summary projected into layout coordinates. */
+export type MindMapLayoutSummary = {
+  id: string
+  from: string
+  to: string
+  label?: string
+}
+
 export type MindMapLayoutResult = {
   nodes: MindMapLayoutNode[]
   edges: MindMapLayoutEdge[]
+  relationships: MindMapLayoutRelationship[]
+  callouts: MindMapLayoutCallout[]
+  summaries: MindMapLayoutSummary[]
 }
 
 export const MIND_MAP_NODE_WIDTH = 160
@@ -77,7 +111,7 @@ function childDirections(
 }
 
 /** Total vertical extent of a node and its (expanded) descendants. */
-function subtreeHeight(node: MindMapNode): number {
+function subtreeHeight(node: MindMapTopicV2): number {
   if (node.collapsed || node.children.length === 0) return MIND_MAP_NODE_HEIGHT
   let total = MIND_MAP_VERTICAL_GAP
   for (const child of node.children) {
@@ -87,7 +121,7 @@ function subtreeHeight(node: MindMapNode): number {
 }
 
 function assignLayout(
-  node: MindMapNode,
+  node: MindMapTopicV2,
   centerX: number,
   topY: number,
   depth: number,
@@ -95,7 +129,7 @@ function assignLayout(
   nodes: MindMapLayoutNode[],
   edges: MindMapLayoutEdge[]
 ): void {
-  const structureClass = node.structureClass ?? inheritedStructureClass
+  const structureClass = node.style?.structureClass ?? inheritedStructureClass
   const isCollapsed = node.collapsed === true
 
   nodes.push({
@@ -107,7 +141,16 @@ function assignLayout(
     height: MIND_MAP_NODE_HEIGHT,
     depth,
     collapsed: isCollapsed,
-    note: node.note
+    note: node.note,
+    ...(node.markers && node.markers.length > 0
+      ? {
+          markers: node.markers.map(({ id, symbol, label }) => ({
+            id,
+            symbol,
+            ...(label !== undefined ? { label } : {})
+          }))
+        }
+      : {})
   })
 
   if (isCollapsed || node.children.length === 0) return
@@ -132,9 +175,41 @@ function assignLayout(
   }
 }
 
-export function computeMindMapLayout(sheet: MindMapSheet): MindMapLayoutResult {
+export function computeMindMapLayout(sheet: MindMapSheetV2): MindMapLayoutResult {
   const nodes: MindMapLayoutNode[] = []
   const edges: MindMapLayoutEdge[] = []
-  assignLayout(sheet.root, 0, 0, 0, sheet.structureClass, nodes, edges)
-  return { nodes, edges }
+  const relationships = sheet.elements
+    .filter((element) => element.type === 'relationship')
+    .map(({ id, from, to, label }) => ({
+      id,
+      from,
+      to,
+      ...(label !== undefined ? { label } : {})
+    }))
+  const callouts = sheet.elements
+    .filter((element): element is MindMapCallout => element.type === 'callout')
+    .map(({ id, topicId, text, position }) => ({
+      id,
+      topicId,
+      text,
+      ...(position !== undefined ? { position: { ...position } } : {})
+    }))
+  const summaries = sheet.elements
+    .filter((element): element is MindMapSummary => element.type === 'summary')
+    .map(({ id, from, to, label }) => ({
+      id,
+      from,
+      to,
+      ...(label !== undefined ? { label } : {})
+    }))
+  assignLayout(
+    sheet.root,
+    0,
+    0,
+    0,
+    sheet.layout.structureClass,
+    nodes,
+    edges
+  )
+  return { nodes, edges, relationships, callouts, summaries }
 }

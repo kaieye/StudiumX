@@ -32,8 +32,19 @@ export type MindMapNode = {
   collapsed?: boolean
   /** 子树局部布局覆盖（可选，默认继承 sheet）。 */
   structureClass?: MindMapStructureClass
+  /** Stable workspace asset ids attached to this topic (interop-only in v1). */
+  assetIds?: string[]
   /** 附加（attached）子分支。 */
   children: MindMapNode[]
+}
+
+/** A relationship connector represented by XMind's sheet-level relationship list. */
+export type MindMapRelationship = {
+  id: string
+  from: string
+  to: string
+  /** XMind relationship title, projected to the v2 element label. */
+  label?: string
 }
 
 export type MindMapSheet = {
@@ -42,6 +53,8 @@ export type MindMapSheet = {
   structureClass: MindMapStructureClass
   /** 中心主题（rootTopic）。 */
   root: MindMapNode
+  /** Sheet-level relationship connectors retained for XMind/v2 interop. */
+  relationships?: MindMapRelationship[]
 }
 
 /** 顶层文档：一个 .studiumx-mindmap 文件对应一个文档，可含多 sheet。 */

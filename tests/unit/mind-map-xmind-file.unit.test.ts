@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtemp, mkdir, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 
 import {
   buildXmindZip,
-  parseXmindZip
+  exportXmindFile,
+  parseXmindZip,
+  parseXmindZipWithCompatibilityReport,
+  readXmindFile,
+  readXmindFileWithCompatibilityReport
 } from '../../src/main/mindmap/xmind-file'
 import type { MindMapDocument } from '../../src/shared/mindmap/mind-map-types'
 
@@ -60,15 +68,23 @@ function sampleDocument(): MindMapDocument {
 /** Build a `.xmind`-shaped ZIP from raw content.json text plus extra entries. */
 function buildZipWithContent(
   contentJson: string,
-  extra: Record<string, string> = {}
+  extra: Record<string, string | Uint8Array> = {}
 ): Uint8Array {
   return zipSync({
     'content.json': strToU8(contentJson),
     'metadata.json': strToU8('{}'),
     'manifest.json': strToU8('{}'),
-    ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, strToU8(v)]))
+    ...Object.fromEntries(
+      Object.entries(extra).map(([k, v]) => [k, typeof v === 'string' ? strToU8(v) : v])
+    )
   })
 }
+
+const temporaryRoots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+})
 
 describe('buildXmindZip / parseXmindZip', () => {
   it('round-trips a document tree through the ZIP', () => {
@@ -100,6 +116,241 @@ describe('buildXmindZip / parseXmindZip', () => {
     expect(second.structureClass).toBe('org.xmind.ui.logic.map')
     expect(second.root.title).toBe('Second Root')
     expect(second.root.children).toEqual([])
+  })
+
+  it('returns a compatibility report for the exact imported content', () => {
+    const bytes = buildZipWithContent(
+      JSON.stringify([
+        {
+          class: 'sheet',
+          id: 'sheet-report',
+          title: 'Reported',
+          structureClass: 'org.xmind.ui.logic.right',
+          rootTopic: {
+            class: 'topic',
+            id: 'root-report',
+            title: 'Root',
+            style: { id: 'foreign-style' },
+            children: { attached: [] }
+          }
+        }
+      ])
+    )
+
+    const result = parseXmindZipWithCompatibilityReport(bytes)
+
+    expect(result.document.sheets[0]?.root.title).toBe('Root')
+    expect(result.compatibilityReport).toEqual({
+      preserved: expect.arrayContaining([
+        expect.objectContaining({ path: 'sheets', count: 1 })
+      ]),
+      approximated: expect.any(Array),
+      dropped: expect.arrayContaining([
+        expect.objectContaining({ path: 'topics[].style', count: 1 })
+      ]),
+      warnings: expect.any(Array)
+    })
+  })
+
+  it('reads a regular filesystem archive through the bounded handle path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xmind-file-'))
+    temporaryRoots.push(root)
+    const sourcePath = join(root, 'valid.xmind')
+    await writeFile(sourcePath, buildXmindZip(sampleDocument()))
+
+    await expect(readXmindFile(sourcePath)).resolves.toMatchObject({
+      title: 'Sheet 1',
+      sheets: expect.arrayContaining([
+        expect.objectContaining({ id: 'sheet-1' })
+      ])
+    })
+  })
+
+  it('reads the compatibility report without changing the legacy read result', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xmind-file-'))
+    temporaryRoots.push(root)
+    const sourcePath = join(root, 'reported.xmind')
+    await writeFile(
+      sourcePath,
+      buildZipWithContent(
+        JSON.stringify([
+          {
+            class: 'sheet',
+            id: 'sheet-report-file',
+            title: 'Reported file',
+            rootTopic: { class: 'topic', id: 'root-report-file', title: 'Root' }
+          }
+        ])
+      )
+    )
+
+    const legacy = await readXmindFile(sourcePath)
+    const withReport = await readXmindFileWithCompatibilityReport(sourcePath)
+
+    expect(withReport.document).toMatchObject({
+      schemaVersion: legacy.schemaVersion,
+      title: legacy.title,
+      sheets: legacy.sheets
+    })
+    expect(withReport.compatibilityReport).toEqual({
+      preserved: expect.any(Array),
+      approximated: expect.any(Array),
+      dropped: expect.any(Array),
+      warnings: expect.any(Array)
+    })
+  })
+
+  it('imports one referenced embedded PNG and projects its asset id onto the topic', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xmind-file-assets-'))
+    temporaryRoots.push(root)
+    const sourcePath = join(root, 'embedded.xmind')
+    const imageBytes = new Uint8Array([137, 80, 78, 71, 1, 2, 3])
+    await writeFile(
+      sourcePath,
+      buildZipWithContent(
+        JSON.stringify([
+          {
+            class: 'sheet',
+            id: 'sheet-image',
+            title: 'Image sheet',
+            rootTopic: {
+              class: 'topic',
+              id: 'root-image',
+              title: 'Diagram',
+              image: { src: 'attachments/diagram.png' }
+            }
+          }
+        ]),
+        { 'attachments/diagram.png': imageBytes }
+      )
+    )
+
+    let importedBytes: Uint8Array | undefined
+    const result = await readXmindFileWithCompatibilityReport(sourcePath, {
+      nowIso: NOW,
+      importEmbeddedImage: (image) => {
+        importedBytes = image.bytes
+        return {
+          id: 'asset-1',
+          fileName: image.fileName,
+          mimeType: image.mimeType,
+          sizeBytes: image.bytes.byteLength
+        }
+      }
+    })
+
+    expect(importedBytes).toEqual(imageBytes)
+    expect(result.document.sheets[0]?.root.assetIds).toEqual(['asset-1'])
+    expect(result.assets).toEqual([
+      {
+        id: 'asset-1',
+        fileName: 'diagram.png',
+        mimeType: 'image/png',
+        sizeBytes: imageBytes.byteLength
+      }
+    ])
+    expect(result.compatibilityReport.approximated).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'topics[].image', count: 1 })
+      ])
+    )
+    expect(result.compatibilityReport.dropped).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'topics[].image' })])
+    )
+  })
+
+  it('does not extract unreferenced, nested, or non-PNG attachment entries', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xmind-file-attachment-filter-'))
+    temporaryRoots.push(root)
+    const sourcePath = join(root, 'filtered.xmind')
+    await writeFile(
+      sourcePath,
+      buildZipWithContent(
+        JSON.stringify([
+          {
+            class: 'sheet',
+            id: 'sheet-filter',
+            title: 'Filter',
+            rootTopic: {
+              class: 'topic',
+              id: 'root-filter',
+              title: 'Root',
+              image: { src: 'attachments/referenced.png' }
+            }
+          }
+        ]),
+        {
+          'attachments/referenced.png': new Uint8Array([1]),
+          'attachments/unreferenced.png': new Uint8Array([2]),
+          'attachments/nested/nested.png': new Uint8Array([3]),
+          'attachments/document.pdf': new Uint8Array([4])
+        }
+      )
+    )
+
+    const imported: string[] = []
+    const result = await readXmindFileWithCompatibilityReport(sourcePath, {
+      importEmbeddedImage: (image) => {
+        imported.push(image.zipPath)
+        return { id: 'asset-1', fileName: image.fileName }
+      }
+    })
+
+    expect(imported).toEqual(['attachments/referenced.png'])
+    expect(result.assets).toHaveLength(1)
+    expect(result.document.sheets[0]?.root.assetIds).toEqual(['asset-1'])
+  })
+
+  it('exports into a newly created directory with a traversal-safe filename', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xmind-file-'))
+    temporaryRoots.push(root)
+    const destination = join(root, 'nested', 'exports')
+
+    const result = await exportXmindFile(
+      { ...sampleDocument(), title: 'Study Plan / ../Secrets' },
+      destination
+    )
+
+    expect(result.path).toBe(join(destination, 'study-plan-secrets.xmind'))
+    const parsed = parseXmindZip(await readFile(result.path))
+    expect(parsed.sheets).toHaveLength(2)
+    expect(parsed.sheets[0]?.root.title).toBe('中心主题')
+  })
+
+  it('bounds filesystem imports before reading an oversized source', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xmind-file-'))
+    temporaryRoots.push(root)
+    const sourcePath = join(root, 'oversized.xmind')
+    await writeFile(sourcePath, '')
+    await truncate(sourcePath, 32 * 1024 * 1024 + 1)
+
+    await expect(readXmindFile(sourcePath)).rejects.toThrow(
+      /source exceeds the 33554432 byte safety limit/
+    )
+  })
+
+  it('rejects directories as filesystem import sources', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xmind-file-'))
+    temporaryRoots.push(root)
+    const sourcePath = join(root, 'not-a-file.xmind')
+    await mkdir(sourcePath)
+
+    await expect(readXmindFile(sourcePath)).rejects.toThrow(
+      /source must be a regular file/
+    )
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects symbolic-link import sources', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xmind-file-'))
+    temporaryRoots.push(root)
+    const sourcePath = join(root, 'valid.xmind')
+    const linkPath = join(root, 'linked.xmind')
+    await writeFile(sourcePath, buildXmindZip(sampleDocument()))
+    await symlink(sourcePath, linkPath)
+
+    await expect(readXmindFile(linkPath)).rejects.toThrow(
+      /source must be a regular file, not a directory or symlink/
+    )
   })
 
   it('writes a content.json entry that is a JSON array of sheets', () => {
@@ -145,6 +396,33 @@ describe('buildXmindZip / parseXmindZip', () => {
   it('throws a clear error on non-ZIP bytes', () => {
     const bytes = strToU8('this is not a zip archive at all')
     expect(() => parseXmindZip(bytes)).toThrow(/not a valid \.xmind/i)
+  })
+
+  it('rejects unsafe ZIP entry paths before extraction', () => {
+    const contentJson = JSON.stringify([
+      {
+        class: 'sheet',
+        id: 'sheet-safe',
+        title: 'Safe',
+        rootTopic: { class: 'topic', id: 'root-safe', title: 'Root' }
+      }
+    ])
+    const bytes = buildZipWithContent(contentJson, { '../outside.txt': 'x' })
+    expect(() => parseXmindZip(bytes)).toThrow(/unsafe entry path/i)
+  })
+
+  it('rejects entries that exceed the uncompressed import budget', () => {
+    const oversized = 'x'.repeat(8 * 1024 * 1024 + 1)
+    const bytes = buildZipWithContent('[]', { 'attachments/large.bin': oversized })
+    expect(() => parseXmindZip(bytes)).toThrow(/exceeds.*safety limit/i)
+  })
+
+  it('rejects archives with too many entries', () => {
+    const extras = Object.fromEntries(
+      Array.from({ length: 127 }, (_, index) => [`extra/${index}.bin`, 'x'])
+    )
+    const bytes = buildZipWithContent('[]', extras)
+    expect(() => parseXmindZip(bytes)).toThrow(/more than 128 entries/i)
   })
 
   it('tolerates unknown zip entries alongside content.json', () => {

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { basename, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import { cancelStreamToolPermissionPending, resolveToolPermissionPending } from './ai/tool-permission-pending'
 import type { AgentEventBus } from './ai/agent-event-bus'
@@ -50,7 +51,7 @@ import {
   parseCancelConversationTurnIntent,
   parseWorkspaceItemRemovePayload, parseWorkspaceRemovePayload, parseRunTeachingDoctorPayload, parseProjectTeachingTurnReviewPayload, parseDecideTeachingTurnReviewPayload, parseProjectTeachingTurnReviewHandoffPayload, parseGetTeachingTurnReviewLastBundlePayload, parseSaveTeachingTurnReviewLastBundlePayload, requireStreamId, requireString,
   requireWindowControlAction,
-  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapUpdatePayload, parseMindMapGeneratePayload, parseMindMapImportPayload, parseMindMapExportPayload
+  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapUpdatePayload, parseMindMapFlushPayload, parseMindMapSourceRefreshPayload, parseMindMapGeneratePayload, parseMindMapProposalGeneratePayload, parseMindMapCancelGenerationPayload, parseMindMapImportPayload, parseMindMapMarkdownImportPayload, parseMindMapOpmlImportPayload, parseMindMapExportPayload, parseMindMapMarkdownExportPayload, parseMindMapOpmlExportPayload, parseMindMapSvgExportPayload, parseMindMapPngExportPayload
 } from './teaching-ipc-commands'
 import type { TeachingSettingsService } from './teaching-settings'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
@@ -81,10 +82,48 @@ import {
   runReadStudyPlanningIpc
 } from './study-planning-ipc'
 import { createMindMapStore } from './mindmap/mind-map-store'
-import { generateMindMap, MindMapGenerationError } from './mindmap/mind-map-generation'
-import { exportXmindFile, readXmindFile } from './mindmap/xmind-file'
-import type { AgentChatStreamPayload, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AgentRealtimeEvent, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, TeachingSettingsV1 } from '../shared/teaching-types'
+import {
+  parseMindMapSourceRefreshApplyPayload
+} from './mindmap/mind-map-ipc-commands'
+import { previewMindMapSourceRefresh } from './mindmap/mind-map-source-refresh'
+import { MindMapAssetError, MindMapAssetStore } from './mindmap/mind-map-assets'
+import type { MindMapStore } from './mindmap/mind-map-store'
+import {
+  cancelMindMapGeneration,
+  generateMindMap,
+  generateMindMapProposal,
+  MindMapGenerationError
+} from './mindmap/mind-map-generation'
+import {
+  MindMapLessonError,
+  MindMapSelectedFileError,
+  resolveMindMapLesson,
+  resolveMindMapNotes,
+  resolveSelectedMindMapFile
+} from './mindmap/mind-map-selected-file'
+import { exportMindMapMarkdownFile } from './mindmap/markdown-file'
+import { importMindMapMarkdownFile } from './mindmap/markdown-import-file'
+import { importMindMapOpmlFile } from './mindmap/opml-import-file'
+import { exportMindMapOpmlFile } from './mindmap/opml-file'
+import { exportMindMapSvgFile } from './mindmap/svg-file'
+import { exportMindMapPngFile } from './mindmap/png-file'
+import { parseMindMapProposalApplyPayload } from './mindmap/mind-map-proposal-ipc'
+import {
+  exportXmindFile,
+  readXmindFileWithCompatibilityReport
+} from './mindmap/xmind-file'
+import type { AgentChatStreamPayload, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AgentRealtimeEvent, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, MindMapStreamStep, TeachingSettingsV1 } from '../shared/teaching-types'
+import type { MindMapAssetRef, MindMapDocumentV2 } from '../shared/mindmap/domain/types'
 import type { MindMapDocument } from '../shared/mindmap/mind-map-types'
+import type { MindMapUpdateResult } from '../shared/teaching-types/mindmap'
+import { migrateV1ToV2 } from '../shared/mindmap/migrations'
+import { applyMindMapProposal as applyReviewedMindMapProposal } from '../shared/mindmap/commands/mind-map-proposal'
+import { applyMindMapCommand } from '../shared/mindmap/commands/mind-map-reducer'
+import { buildMindMapSourceRefreshCommand } from '../shared/mindmap/commands/mind-map-source-refresh'
+import { buildMindMapProposalRequest } from '../shared/mindmap/commands/mind-map-proposal-request'
+import { convertV2ToV1 } from '../shared/mindmap/v2-to-v1'
+import { assessMindMapExportSnapshotReadiness } from '../shared/mindmap/export-readiness'
+import { getMindMapSvgExportDimensions } from '../shared/mindmap/svg-export'
 import {
   normalizeAgentSandboxMode,
   resolveAgentSandboxReadiness
@@ -109,6 +148,11 @@ export interface TeachingIpcRegistration {
    * Read-only for this channel; clear is a separate deliberate effect.
    */
   crashMarkerStore?: ProductTeachingDoctorCrashMarkerStore | null
+  /**
+   * Optional mind-map repository factory for host-owned composition and fault-injection tests.
+   * Production callers use the durable file-backed store by default.
+   */
+  mindMapStoreFactory?: (rootPath: string) => MindMapStore
   /**
    * Optional user MCP status source for TeachingDoctor (ADR-0128 Phase E).
    * Secret-free only; collector redacts command labels further.
@@ -298,6 +342,7 @@ export function registerTeachingIpcGateway(registration: TeachingIpcRegistration
 
 function createCommands(context: GatewayContext): GatewayCommand[] {
   const { workspaceService: service, settingsService: settings, skillLibraryService: skills, learningAnalyticsService: analytics } = context
+  const getMindMapStore = context.mindMapStoreFactory ?? createMindMapStore
   const retainAgentEventBus = (streamId: string, eventBus: AgentEventBus): void => {
     context.retainedAgentEventBuses.delete(streamId)
     context.retainedAgentEventBuses.set(streamId, eventBus)
@@ -317,12 +362,19 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
    * registered `workspaceId`; otherwise falls back to the active workspace root.
    */
   const resolveMindMapWorkspaceRoot = async (workspaceId: string): Promise<string> => {
+    const state = await service.getState()
     if (workspaceId) {
-      const access = await resolveGitWorkspaceRoot(workspaceId)
+      // Mind-map IPC envelopes carry the registered workspace identifier. Keep
+      // the path lookup as a compatibility fallback for older callers, but do
+      // not require renderers to expose a workspace root as an identifier.
+      const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
+      if (workspace) return workspace.rootPath
+
+      const access = await resolveRegisteredWorkspaceRoot(state.workspaces, workspaceId)
       if (access.ok) return access.rootPath
       throw new Error(`Mind map workspace unavailable: ${access.message}`)
     }
-    const activeRoot = (await service.getState()).activeWorkspace?.rootPath
+    const activeRoot = state.activeWorkspace?.rootPath
     if (!activeRoot) throw new Error('Mind map requires an active teaching workspace.')
     return activeRoot
   }
@@ -343,6 +395,71 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       return new Error(`Mind map generation failed (${error.kind}): ${error.message}`)
     }
     return error instanceof Error ? error : new Error(String(error))
+  }
+
+  /** Normalize selected-file failures without returning absolute paths or raw content. */
+  const mindMapSelectedFileIpcError = (error: unknown): Error => {
+    if (error instanceof MindMapSelectedFileError) {
+      return new Error(`Mind map selected file failed (${error.code}): ${error.message}`)
+    }
+    return new Error('Mind map selected file could not be resolved safely.')
+  }
+
+  /** Normalize fixed `NOTES.md` failures without returning absolute paths or raw content. */
+  const mindMapNotesIpcError = (error: unknown): Error => {
+    if (error instanceof MindMapSelectedFileError) {
+      return new Error(`Mind map notes failed (${error.code}): ${error.message}`)
+    }
+    return new Error('Mind map NOTES.md could not be resolved safely.')
+  }
+
+  /** Normalize Lesson failures without returning absolute paths or raw HTML. */
+  const mindMapLessonIpcError = (error: unknown): Error => {
+    if (error instanceof MindMapLessonError) {
+      return new Error(`Mind map lesson failed (${error.code}): ${error.message}`)
+    }
+    return new Error('Mind map Lesson could not be resolved safely.')
+  }
+
+  /** Unwrap a CAS update result, surfacing a revision conflict as a structured error. */
+  const unwrapMindMapUpdate = (result: MindMapUpdateResult, channel: string): MindMapDocumentV2 => {
+    if (result.ok) return result.document
+    throw new Error(
+      `Mind map save conflict on ${channel}: expected revision ${result.expectedRevision}, current revision ${result.currentRevision}`
+    )
+  }
+
+  /**
+   * Imports are a two-phase repository operation: create establishes the
+   * destination identity, then update publishes the imported document. If the
+   * second phase fails (including a CAS conflict), remove the destination so a
+   * failed import cannot leave an empty product or durable-write artifacts.
+   */
+  const persistImportedMindMap = async (
+    rootPath: string,
+    imported: MindMapDocumentV2,
+    fallbackTitle: string,
+    channel: string
+  ): Promise<MindMapDocumentV2> => {
+    const store = getMindMapStore(rootPath)
+    let created: MindMapDocumentV2 | undefined
+    try {
+      created = await store.create(imported.title || fallbackTitle)
+      const result = await store.update(
+        created.id,
+        {
+          ...imported,
+          id: created.id,
+          createdAt: created.createdAt,
+          updatedAt: created.updatedAt
+        },
+        created.revision
+      )
+      return unwrapMindMapUpdate(result, channel)
+    } catch (error) {
+      if (created) await store.remove(created.id).catch(() => undefined)
+      throw error
+    }
   }
 
   /**
@@ -1345,7 +1462,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => {
         const p = requireMindMapPayload(payload, 'listMindMaps')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        return createMindMapStore(root).list()
+        return getMindMapStore(root).list()
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
@@ -1355,7 +1472,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => {
         const p = requireMindMapPayload(payload, 'createMindMap')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        return createMindMapStore(root).create(p.title)
+        return getMindMapStore(root).create(p.title)
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
@@ -1365,7 +1482,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => {
         const p = requireMindMapPayload(payload, 'readMindMap')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        return createMindMapStore(root).read(p.id)
+        return getMindMapStore(root).read(p.id)
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
@@ -1375,7 +1492,245 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => {
         const p = requireMindMapPayload(payload, 'updateMindMap')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        return createMindMapStore(root).update(p.id, p.doc)
+        return getMindMapStore(root).update(p.id, p.doc, p.expectedRevision)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.flushMindMap,
+      parser: (payload) => parseMindMapFlushPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'flushMindMap')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        await getMindMapStore(root).flush(p.id)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.previewMindMapSourceRefresh,
+      parser: (payload) => parseMindMapSourceRefreshPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'previewMindMapSourceRefresh')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const current = await getMindMapStore(root).read(p.id)
+        const preview = await previewMindMapSourceRefresh(current, root)
+        return {
+          documentId: current.id,
+          revision: current.revision,
+          ...preview
+        }
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.applyMindMapSourceRefresh,
+      parser: (payload) => parseMindMapSourceRefreshApplyPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'applyMindMapSourceRefresh')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const store = getMindMapStore(root)
+        const current = await store.read(p.id)
+
+        // A preview is only a review snapshot. Do not even construct a reducer
+        // command when the canonical document has moved since that preview.
+        if (current.revision !== p.expectedRevision) {
+          return {
+            ok: false as const,
+            code: 'revision_stale' as const,
+            expectedRevision: p.expectedRevision,
+            currentRevision: current.revision
+          }
+        }
+
+        const built = buildMindMapSourceRefreshCommand(
+          current,
+          p.updates,
+          new Date().toISOString()
+        )
+        if (!built.ok) return built
+
+        // An empty confirmation list is an explicit no-op and never creates a
+        // revision. The source files are never written by this lane.
+        if (built.command === null) {
+          return {
+            ok: true as const,
+            document: current,
+            command: null,
+            inverse: null,
+            appliedSourceIds: built.appliedSourceIds
+          }
+        }
+
+        const applied = applyMindMapCommand(current, built.command)
+        if (!applied.ok) {
+          return {
+            ok: false as const,
+            code: 'command_invalid' as const,
+            error: applied.error,
+            command: built.command
+          }
+        }
+
+        // Store CAS closes the read/reduce/write race if another edit lands
+        // after the revision check above.
+        const persisted = await store.update(p.id, applied.document, p.expectedRevision)
+        if (!persisted.ok) return persisted
+        return {
+          ok: true as const,
+          document: persisted.document,
+          command: built.command,
+          inverse: applied.inverse,
+          appliedSourceIds: built.appliedSourceIds
+        }
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.applyMindMapProposal,
+      parser: (payload) => parseMindMapProposalApplyPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'applyMindMapProposal')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const store = getMindMapStore(root)
+        const current = await store.read(p.id)
+
+        // Check the caller's revision before reducing provider commands. This
+        // keeps a stale review from even being evaluated against a newer
+        // canonical snapshot; the store CAS below closes the read/write race.
+        if (current.revision !== p.expectedRevision) {
+          return {
+            ok: false as const,
+            code: 'revision_stale' as const,
+            expectedRevision: p.expectedRevision,
+            currentRevision: current.revision
+          }
+        }
+
+        const applied = applyReviewedMindMapProposal(
+          current,
+          p.proposal.items,
+          p.decisions
+        )
+        if (!applied.ok) {
+          return {
+            ok: false as const,
+            code: 'command_invalid' as const,
+            proposalId: p.proposal.proposalId,
+            error: applied.error,
+            command: applied.command,
+            acceptedIds: applied.acceptedIds,
+            rejectedIds: applied.rejectedIds
+          }
+        }
+
+        // A review that accepts no items is an explicit no-op. It still returns
+        // the current snapshot, but never creates a durable revision.
+        if (applied.command === null) {
+          return {
+            ok: true as const,
+            proposalId: p.proposal.proposalId,
+            document: current,
+            command: null,
+            inverse: null,
+            acceptedIds: applied.acceptedIds,
+            rejectedIds: applied.rejectedIds
+          }
+        }
+
+        const persisted = await store.update(p.id, applied.document, p.expectedRevision)
+        if (!persisted.ok) {
+          return persisted
+        }
+        return {
+          ok: true as const,
+          proposalId: p.proposal.proposalId,
+          document: persisted.document,
+          command: applied.command,
+          inverse: applied.inverse,
+          acceptedIds: applied.acceptedIds,
+          rejectedIds: applied.rejectedIds
+        }
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.generateMindMapProposal,
+      parser: (payload) => parseMindMapProposalGeneratePayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'generateMindMapProposal')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const store = getMindMapStore(root)
+        const current = await store.read(p.id)
+        let selectedFileContext
+        let notesContext
+        let lessonContext
+        if (p.scope === 'selected-file') {
+          if (!p.selectedFile) {
+            throw new Error('Invalid mind-map proposal request (invalid_source_refs): selected-file scope requires a selected file.')
+          }
+          try {
+            selectedFileContext = await resolveSelectedMindMapFile(root, p.selectedFile.workspacePath)
+          } catch (error) {
+            throw mindMapSelectedFileIpcError(error)
+          }
+        } else if (p.scope === 'notes') {
+          try {
+            notesContext = await resolveMindMapNotes(root)
+          } catch (error) {
+            throw mindMapNotesIpcError(error)
+          }
+        } else if (p.scope === 'lesson') {
+          if (!p.lesson) {
+            throw new Error('Invalid mind-map proposal request (invalid_source_refs): lesson scope requires a Lesson.')
+          }
+          try {
+            lessonContext = await resolveMindMapLesson(root, p.lesson.workspacePath)
+          } catch (error) {
+            throw mindMapLessonIpcError(error)
+          }
+        } else if (p.selectedFile !== undefined) {
+          throw new Error('Invalid mind-map proposal request (source_out_of_scope): selectedFile is only valid for selected-file scope.')
+        }
+        const built = buildMindMapProposalRequest({
+          document: current,
+          scope: p.scope,
+          sheetId: p.sheetId,
+          selectedTopicIds: p.selectedTopicIds,
+          sourceRefs: p.sourceRefs,
+          selectedFileRef: selectedFileContext?.sourceRef,
+          notesRef: notesContext?.sourceRef,
+          lessonRef: lessonContext?.sourceRef
+        })
+        if (!built.ok) {
+          throw new Error(`Invalid mind-map proposal request (${built.code}): ${built.message}`)
+        }
+
+        const loadedSettings = await settings.load()
+        let proposal
+        try {
+          proposal = await generateMindMapProposal({
+            title: current.title,
+            prompt: p.prompt,
+            settings: loadedSettings,
+            document: current,
+            request: built.request,
+            selectedFileContext,
+            notesContext,
+            lessonContext,
+            generationId: p.generationId
+          })
+        } catch (error) {
+          throw mindMapGenerationIpcError(error)
+        }
+
+        // Read-only by construction: the proposal is returned with the exact
+        // snapshot revision that must be supplied to the later CAS apply lane.
+        return {
+          documentId: current.id,
+          revision: current.revision,
+          request: built.request,
+          proposal
+        }
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
@@ -1385,28 +1740,109 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => {
         const p = requireMindMapPayload(payload, 'deleteMindMap')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        await createMindMapStore(root).remove(p.id)
+        await getMindMapStore(root).remove(p.id)
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
     command({
       channel: teachingInvokeChannels.generateMindMap,
       parser: (payload) => parseMindMapGeneratePayload(payload),
-      action: async (_event, payload) => {
+      action: async (event, payload) => {
         const p = requireMindMapPayload(payload, 'generateMindMap')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
         const loadedSettings = await settings.load()
+        let selectedFileContext
+        let lessonContext
+        if (p.selectedFile) {
+          try {
+            selectedFileContext = await resolveSelectedMindMapFile(root, p.selectedFile.workspacePath)
+          } catch (error) {
+            throw mindMapSelectedFileIpcError(error)
+          }
+        } else if (p.lesson) {
+          try {
+            lessonContext = await resolveMindMapLesson(root, p.lesson.workspacePath)
+          } catch (error) {
+            throw mindMapLessonIpcError(error)
+          }
+        }
+        const generationId = p.generationId ?? randomUUID()
+        const sendStatus = (
+          step: MindMapStreamStep,
+          message?: string
+        ): void => {
+          safeSend(event.sender, teachingEventChannels.mindMapStreamStatus, {
+            generationId,
+            step,
+            ...(message ? { message } : {})
+          })
+        }
+        let streamStarted = false
+        sendStatus('calling')
         let generated: MindMapDocument
         try {
-          generated = await generateMindMap({ title: p.title, prompt: p.prompt, settings: loadedSettings })
+          generated = await generateMindMap({
+            title: p.title,
+            prompt: p.prompt,
+            settings: loadedSettings,
+            selectedFileContext,
+            lessonContext,
+            generationId
+          }, (delta) => {
+            if (!streamStarted) {
+              streamStarted = true
+              sendStatus('streaming')
+            }
+            safeSend(event.sender, teachingEventChannels.mindMapStreamChunk, {
+              generationId,
+              delta
+            })
+          })
+          sendStatus('validating')
         } catch (error) {
+          const step = error instanceof MindMapGenerationError && error.kind === 'cancelled'
+            ? 'cancelled'
+            : 'error'
+          sendStatus(step, errorMessage(error))
           throw mindMapGenerationIpcError(error)
         }
-        // Persist the generated sheets behind a canonical document created by the
-        // store (authoritative id + timestamps), then return the persisted doc.
-        const store = createMindMapStore(root)
-        const created = await store.create(p.title)
-        return store.update(created.id, { ...generated, id: created.id, createdAt: created.createdAt, updatedAt: created.updatedAt })
+        sendStatus('rendering')
+        try {
+          const migrated = migrateV1ToV2(generated)
+          if (!migrated.ok) {
+            throw new Error(`Mind map generation output failed migration: ${migrated.error.message}`)
+          }
+          // Persist the generated sheets behind a canonical document created by the
+          // store (authoritative id + timestamps), then return the persisted doc.
+          const store = getMindMapStore(root)
+          const created = await store.create(p.title)
+          const result = await store.update(
+            created.id,
+            { ...migrated.value, id: created.id, createdAt: created.createdAt, updatedAt: created.updatedAt },
+            created.revision
+          )
+          const persisted = unwrapMindMapUpdate(result, 'generateMindMap')
+          sendStatus('done')
+          return persisted
+        } catch (error) {
+          // Keep renderer lifecycle state correlated even when migration or the
+          // canonical persistence boundary fails after provider settlement.
+          sendStatus('error', errorMessage(error))
+          throw mindMapGenerationIpcError(error)
+        }
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.cancelMindMapGeneration,
+      parser: (payload) => parseMindMapCancelGenerationPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'cancelMindMapGeneration')
+        // Resolve the registered workspace before touching the process-owned
+        // generation registry. Cancellation is an IPC capability, not a
+        // renderer-only loading-state change.
+        await resolveMindMapWorkspaceRoot(p.workspaceId)
+        return { canceled: cancelMindMapGeneration(p.generationId) }
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
@@ -1416,10 +1852,104 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => {
         const p = requireMindMapPayload(payload, 'importMindMapXmind')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        const imported = await readXmindFile(p.sourcePath)
-        const store = createMindMapStore(root)
-        const created = await store.create(imported.title || '导入的思维导图')
-        return store.update(created.id, { ...imported, id: created.id, createdAt: created.createdAt, updatedAt: created.updatedAt })
+        const assetStore = new MindMapAssetStore({ rootPath: join(root, 'mindmap-assets') })
+        let createdAsset: MindMapAssetRef | undefined
+        try {
+          const imported = await readXmindFileWithCompatibilityReport(p.sourcePath, {
+            importEmbeddedImage: async (image) => {
+              const id = stableXmindAssetId(image.zipPath, image.bytes)
+              const importInput = {
+                id,
+                fileName: image.fileName,
+                mimeType: image.mimeType,
+                content: image.bytes
+              }
+              try {
+                const asset = await assetStore.importFromBytes(importInput)
+                createdAsset = asset
+                return asset
+              } catch (error) {
+                if (!(error instanceof MindMapAssetError) || error.code !== 'asset_exists') {
+                  throw error
+                }
+                // Re-importing the same XMind should be idempotent. Verify the
+                // existing bytes before reusing its metadata; never trust an
+                // id-only collision.
+                const existingRef: MindMapAssetRef = {
+                  id,
+                  fileName: image.fileName,
+                  mimeType: image.mimeType
+                }
+                const existingBytes = await assetStore.read(existingRef)
+                const incomingBytes = Buffer.from(image.bytes)
+                if (
+                  existingBytes.byteLength !== incomingBytes.byteLength ||
+                  !existingBytes.equals(incomingBytes)
+                ) {
+                  throw new Error('Mind-map asset id collision for embedded XMind image')
+                }
+                return {
+                  ...existingRef,
+                  sizeBytes: existingBytes.byteLength,
+                  sha256: createHash('sha256').update(existingBytes).digest('hex')
+                }
+              }
+            }
+          })
+          const migrated = migrateV1ToV2(imported.document)
+          if (!migrated.ok) {
+            throw new Error(`Imported mind map failed migration: ${migrated.error.message}`)
+          }
+          const document = await persistImportedMindMap(
+            root,
+            { ...migrated.value, assets: imported.assets ?? [] },
+            '导入的思维导图',
+            'importMindMapXmind'
+          )
+          // Keep the v2 document fields at the top level so legacy renderer and
+          // preload callers continue to read `id`, `title`, and `sheets`
+          // unchanged.  The report is response metadata, not canonical document
+          // state, and therefore is deliberately not persisted in the store.
+          return {
+            ...document,
+            compatibilityReport: imported.compatibilityReport
+          }
+        } catch (error) {
+          if (createdAsset) await assetStore.remove(createdAsset).catch(() => undefined)
+          throw error
+        }
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.importMindMapMarkdown,
+      parser: (payload) => parseMindMapMarkdownImportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'importMindMapMarkdown')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const imported = await importMindMapMarkdownFile(p.sourcePath)
+        return persistImportedMindMap(
+          root,
+          imported,
+          '导入的思维导图',
+          'importMindMapMarkdown'
+        )
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.importMindMapOpml,
+      parser: (payload) => parseMindMapOpmlImportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'importMindMapOpml')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const imported = await importMindMapOpmlFile(p.sourcePath)
+        return persistImportedMindMap(
+          root,
+          imported,
+          '导入的思维导图',
+          'importMindMapOpml'
+        )
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
@@ -1429,8 +1959,160 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => {
         const p = requireMindMapPayload(payload, 'exportMindMapXmind')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        const doc = await createMindMapStore(root).read(p.id)
-        return exportXmindFile(doc, p.destinationDirectory)
+        const store = getMindMapStore(root)
+
+        // Flush first, then read a fresh repository snapshot. The renderer
+        // proof is advisory input; readiness is decided again in the host so
+        // XMind cannot retain the legacy race that the other export formats
+        // already reject.
+        await store.flush(p.id)
+        const doc = await store.read(p.id)
+        const readiness = assessMindMapExportSnapshotReadiness({
+          snapshotRevision: p.snapshotRevision,
+          durableRevision: doc.revision,
+          expectedRevision: p.expectedRevision,
+          pendingWrites: p.pendingWrites,
+          dirty: p.dirty
+        })
+        if (!readiness.ready) {
+          throw new Error(
+            `Mind map XMind export refused: ${readiness.reasons.join(', ')}`
+          )
+        }
+        return exportXmindFile(convertV2ToV1(doc), p.destinationDirectory)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.exportMindMapMarkdown,
+      parser: (payload) => parseMindMapMarkdownExportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'exportMindMapMarkdown')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const store = getMindMapStore(root)
+
+        // Flush first, then read a fresh repository snapshot.  The renderer
+        // proof is only advisory input; readiness is decided again here so a
+        // stale or dirty candidate can never be serialized accidentally.
+        await store.flush(p.id)
+        const doc = await store.read(p.id)
+        const readiness = assessMindMapExportSnapshotReadiness({
+          snapshotRevision: p.snapshotRevision,
+          durableRevision: doc.revision,
+          expectedRevision: p.expectedRevision,
+          pendingWrites: p.pendingWrites,
+          dirty: p.dirty
+        })
+        if (!readiness.ready) {
+          throw new Error(
+            `Mind map Markdown export refused: ${readiness.reasons.join(', ')}`
+          )
+        }
+        return exportMindMapMarkdownFile(doc, p.destinationDirectory)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.exportMindMapOpml,
+      parser: (payload) => parseMindMapOpmlExportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'exportMindMapOpml')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const store = getMindMapStore(root)
+
+        // Flush first, then read a fresh repository snapshot.  The renderer
+        // proof is only advisory input; readiness is decided again here so a
+        // stale or dirty candidate can never be serialized accidentally.
+        await store.flush(p.id)
+        const doc = await store.read(p.id)
+        const readiness = assessMindMapExportSnapshotReadiness({
+          snapshotRevision: p.snapshotRevision,
+          durableRevision: doc.revision,
+          expectedRevision: p.expectedRevision,
+          pendingWrites: p.pendingWrites,
+          dirty: p.dirty
+        })
+        if (!readiness.ready) {
+          throw new Error(
+            `Mind map OPML export refused: ${readiness.reasons.join(', ')}`
+          )
+        }
+        return exportMindMapOpmlFile(doc, p.destinationDirectory)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.exportMindMapSvg,
+      parser: (payload) => parseMindMapSvgExportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'exportMindMapSvg')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const store = getMindMapStore(root)
+
+        // Flush first, then read a fresh repository snapshot.  The renderer
+        // proof is only advisory input; readiness is decided again here so a
+        // stale or dirty candidate can never be serialized accidentally.
+        await store.flush(p.id)
+        const doc = await store.read(p.id)
+        const readiness = assessMindMapExportSnapshotReadiness({
+          snapshotRevision: p.snapshotRevision,
+          durableRevision: doc.revision,
+          expectedRevision: p.expectedRevision,
+          pendingWrites: p.pendingWrites,
+          dirty: p.dirty
+        })
+        if (!readiness.ready) {
+          throw new Error(
+            `Mind map SVG export refused: ${readiness.reasons.join(', ')}`
+          )
+        }
+        const sheet = doc.sheets.find((candidate) => candidate.id === p.sheetId)
+        if (!sheet) {
+          throw new Error(`Mind map SVG export refused: sheet ${p.sheetId} is unavailable`)
+        }
+        if (p.input.title !== sheet.title) {
+          throw new Error('Mind map SVG export refused: layout title does not match the current sheet')
+        }
+        return exportMindMapSvgFile(p.input, p.destinationDirectory)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.exportMindMapPng,
+      parser: (payload) => parseMindMapPngExportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'exportMindMapPng')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const store = getMindMapStore(root)
+
+        // Flush first, then read a fresh repository snapshot. The renderer
+        // proof is advisory input; readiness is decided again in the host.
+        await store.flush(p.id)
+        const doc = await store.read(p.id)
+        const readiness = assessMindMapExportSnapshotReadiness({
+          snapshotRevision: p.snapshotRevision,
+          durableRevision: doc.revision,
+          expectedRevision: p.expectedRevision,
+          pendingWrites: p.pendingWrites,
+          dirty: p.dirty
+        })
+        if (!readiness.ready) {
+          throw new Error(
+            `Mind map PNG export refused: ${readiness.reasons.join(', ')}`
+          )
+        }
+        const sheet = doc.sheets.find((candidate) => candidate.id === p.sheetId)
+        if (!sheet) {
+          throw new Error(`Mind map PNG export refused: sheet ${p.sheetId} is unavailable`)
+        }
+        if (p.input.title !== sheet.title) {
+          throw new Error('Mind map PNG export refused: layout title does not match the current sheet')
+        }
+        return exportMindMapPngFile(
+          { ...p, title: p.input.title },
+          p.destinationDirectory,
+          getMindMapSvgExportDimensions(p.input)
+        )
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     })
@@ -1638,4 +2320,13 @@ function resolveProxyUrl(settings: TeachingSettingsV1): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function stableXmindAssetId(zipPath: string, bytes: Uint8Array): string {
+  return `xmind-${createHash('sha256')
+    .update(zipPath)
+    .update('\0')
+    .update(bytes)
+    .digest('hex')
+    .slice(0, 32)}`
 }

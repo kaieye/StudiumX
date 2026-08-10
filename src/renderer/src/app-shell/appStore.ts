@@ -27,6 +27,10 @@ import {
   type LearningAssetReader
 } from './learning-asset-reader'
 import {
+  createMindMapSourceJumpAdapter,
+  type MindMapSourceJumpOpenResult
+} from './mind-map-source-jump'
+import {
   activateWorkspaceContext,
   clearAgentConversationContext,
   clearMarkdownDocumentContext,
@@ -44,6 +48,7 @@ import {
   type ResourcePreviewFile
 } from './contextTransitions'
 import { type LessonStyleId } from '../../../shared/lesson-styles'
+import type { MindMapSourceRef } from '../../../shared/mindmap/domain/types'
 import { deriveWorkspaceRemovalUiPatch } from '../../../shared/workspace-removal-state'
 import {
   operationFeedback,
@@ -188,6 +193,8 @@ export type StoreState = {
   loadLesson: (lesson: LessonSummary) => Promise<void>
   loadCourseHtmlFile: (file: CoursePreviewFile) => Promise<void>
   loadWorkspaceMarkdownFile: (file: CoursePreviewFile, workspaceId?: string | null) => Promise<void>
+  /** Open only the file-level target of a mind-map source ref; block scroll is not implied. */
+  openMindMapSource: (sourceRef: MindMapSourceRef, workspaceId?: string | null) => Promise<MindMapSourceJumpOpenResult | { ok: false; reason: 'workspace_unavailable' }>
   setMarkdownDraft: (content: string) => void
   saveMarkdownDocument: () => Promise<void>
   openResourceHtmlPreview: (file: ResourcePreviewFile) => void
@@ -2142,6 +2149,30 @@ export const useAppStore = create<StoreState>((set, get) => {
       : get().appState.activeWorkspace
     if (!workspace) return
     await getLearningAssetReader()?.openMarkdownDocument({ workspace, file })
+  },
+  openMindMapSource: async (sourceRef, workspaceId) => {
+    const workspace = workspaceId === undefined || workspaceId === null
+      ? get().appState.activeWorkspace
+      : get().appState.workspaces.find((item) => item.id === workspaceId) ?? null
+    if (!workspace) return { ok: false, reason: 'workspace_unavailable' }
+
+    try {
+      return await createMindMapSourceJumpAdapter({
+        reader: getLearningAssetReader()
+      }).open({ sourceRef, workspace })
+    } catch (error) {
+      set({ error: toUserError(error) })
+      return {
+        ok: false,
+        reason: 'invalid_target',
+        target: {
+          kind: 'workspace',
+          locator: null,
+          readerPayload: null,
+          canResolve: false
+        }
+      }
+    }
   },
   setMarkdownDraft: (markdownDraft) => getLearningAssetReader()?.updateMarkdownDraft(markdownDraft),
   saveMarkdownDocument: async () => {

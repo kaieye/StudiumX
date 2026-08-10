@@ -21,7 +21,9 @@ import type {
   AgentChatStreamToolEvent,
   LessonStreamChunk,
   LessonStreamDone,
-  LessonStreamStatus
+  LessonStreamStatus,
+  MindMapStreamChunk,
+  MindMapStreamStatus
 } from '../shared/teaching-types'
 
 /** Register an ipcRenderer listener and return an unsubscribe function. */
@@ -179,10 +181,28 @@ const api: TeachingSystemApi = {
   createMindMap: (payload) => ipcRenderer.invoke(teachingInvokeChannels.createMindMap, payload),
   readMindMap: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readMindMap, payload),
   updateMindMap: (payload) => ipcRenderer.invoke(teachingInvokeChannels.updateMindMap, payload),
+  flushMindMap: (payload) => ipcRenderer.invoke(teachingInvokeChannels.flushMindMap, payload),
+  previewMindMapSourceRefresh: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.previewMindMapSourceRefresh, payload),
+  applyMindMapSourceRefresh: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.applyMindMapSourceRefresh, payload),
+  applyMindMapProposal: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.applyMindMapProposal, payload),
+  generateMindMapProposal: (payload) =>
+    ipcRenderer.invoke(teachingInvokeChannels.generateMindMapProposal, payload),
   deleteMindMap: (payload) => ipcRenderer.invoke(teachingInvokeChannels.deleteMindMap, payload),
   generateMindMap: (payload) => ipcRenderer.invoke(teachingInvokeChannels.generateMindMap, payload),
+  onMindMapStreamChunk: (handler) => registerIpcListener<MindMapStreamChunk>(teachingEventChannels.mindMapStreamChunk, handler),
+  onMindMapStreamStatus: (handler) => registerIpcListener<MindMapStreamStatus>(teachingEventChannels.mindMapStreamStatus, handler),
+  cancelMindMapGeneration: (payload) => ipcRenderer.invoke(teachingInvokeChannels.cancelMindMapGeneration, payload),
   importMindMapXmind: (payload) => ipcRenderer.invoke(teachingInvokeChannels.importMindMapXmind, payload),
+  importMindMapMarkdown: (payload) => ipcRenderer.invoke(teachingInvokeChannels.importMindMapMarkdown, payload),
+  importMindMapOpml: (payload) => ipcRenderer.invoke(teachingInvokeChannels.importMindMapOpml, payload),
   exportMindMapXmind: (payload) => ipcRenderer.invoke(teachingInvokeChannels.exportMindMapXmind, payload),
+  exportMindMapMarkdown: (payload) => ipcRenderer.invoke(teachingInvokeChannels.exportMindMapMarkdown, payload),
+  exportMindMapOpml: (payload) => ipcRenderer.invoke(teachingInvokeChannels.exportMindMapOpml, payload),
+  exportMindMapSvg: (payload) => ipcRenderer.invoke(teachingInvokeChannels.exportMindMapSvg, payload),
+  exportMindMapPng: (payload) => ipcRenderer.invoke(teachingInvokeChannels.exportMindMapPng, payload),
   mcpGetConfig: () => ipcRenderer.invoke(teachingInvokeChannels.mcpGetConfig),
   mcpGetMcpSettings: () => ipcRenderer.invoke(teachingInvokeChannels.mcpGetMcpSettings),
   mcpUpdateConfig: (payload) => ipcRenderer.invoke(teachingInvokeChannels.mcpUpdateConfig, payload),
@@ -237,4 +257,3 @@ const webRemoteControlApi = {
 contextBridge.exposeInMainWorld('teachingSystem', api)
 contextBridge.exposeInMainWorld('studiumxMusic', musicApi)
 contextBridge.exposeInMainWorld('studiumxWebRemoteControl', webRemoteControlApi)
-

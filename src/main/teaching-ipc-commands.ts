@@ -47,9 +47,20 @@ export {
   parseMindMapCreatePayload,
   parseMindMapAccessPayload,
   parseMindMapUpdatePayload,
+  parseMindMapFlushPayload,
+  parseMindMapSourceRefreshPayload,
+  parseMindMapSourceRefreshApplyPayload,
   parseMindMapGeneratePayload,
+  parseMindMapProposalGeneratePayload,
+  parseMindMapCancelGenerationPayload,
   parseMindMapImportPayload,
-  parseMindMapExportPayload
+  parseMindMapMarkdownImportPayload,
+  parseMindMapOpmlImportPayload,
+  parseMindMapExportPayload,
+  parseMindMapMarkdownExportPayload,
+  parseMindMapOpmlExportPayload,
+  parseMindMapSvgExportPayload,
+  parseMindMapPngExportPayload
 } from './mindmap/mind-map-ipc-commands'
 
 const SAFE_CONVERSATION_ID = /^[a-z0-9][a-z0-9-]{0,99}$/

@@ -32,9 +32,17 @@ export const mindMapNodeSchema: z.ZodType<
     note: z.string().optional(),
     collapsed: z.boolean().optional(),
     structureClass: mindMapStructureClassSchema.optional(),
+    assetIds: z.array(z.string().min(1)).optional(),
     children: z.array(z.lazy(() => mindMapNodeSchema)).default([])
   })
 )
+
+export const mindMapRelationshipSchema = z.object({
+  id: z.string().min(1),
+  from: z.string().min(1),
+  to: z.string().min(1),
+  label: z.string().optional()
+})
 
 export const mindMapSheetSchema = z.object({
   id: z.string().min(1),
@@ -42,7 +50,8 @@ export const mindMapSheetSchema = z.object({
   structureClass: mindMapStructureClassSchema.default(
     DEFAULT_MIND_MAP_STRUCTURE_CLASS
   ),
-  root: mindMapNodeSchema
+  root: mindMapNodeSchema,
+  relationships: z.array(mindMapRelationshipSchema).optional()
 })
 
 export const mindMapDocumentSchema = z.object({

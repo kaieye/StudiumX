@@ -1,0 +1,41 @@
+[
+  {
+    "class": "sheet",
+    "id": "xmind-sheet-basic",
+    "title": "Sheet 1",
+    "structureClass": "org.xmind.ui.logic.right",
+    "rootTopic": {
+      "class": "topic",
+      "id": "t1",
+      "title": "中心主题",
+      "children": {
+        "attached": [
+          {
+            "class": "topic",
+            "id": "t2",
+            "title": "分支 A",
+            "children": {
+              "attached": [
+                {
+                  "class": "topic",
+                  "id": "t3",
+                  "title": "A1"
+                },
+                {
+                  "class": "topic",
+                  "id": "t4",
+                  "title": "A2"
+                }
+              ]
+            }
+          },
+          {
+            "class": "topic",
+            "id": "t5",
+            "title": "分支 B"
+          }
+        ]
+      }
+    }
+  }
+]

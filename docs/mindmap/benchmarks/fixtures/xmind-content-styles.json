@@ -1,0 +1,36 @@
+[
+  {
+    "class": "sheet",
+    "id": "xmind-sheet-styles",
+    "title": "带样式的 Sheet",
+    "structureClass": "org.xmind.ui.logic.map",
+    "theme": {
+      "id": "benchmark-theme",
+      "name": "Benchmark Theme",
+      "background": "#ffffff"
+    },
+    "rootTopic": {
+      "class": "topic",
+      "id": "t1",
+      "title": "Root",
+      "style": {
+        "fill": "#dbeafe",
+        "line-color": "#2563eb",
+        "shape": "rounded-rect"
+      },
+      "children": {
+        "attached": [
+          {
+            "class": "topic",
+            "id": "t2",
+            "title": "样式分支",
+            "style": {
+              "fill": "#dcfce7",
+              "font-weight": "bold"
+            }
+          }
+        ]
+      }
+    }
+  }
+]

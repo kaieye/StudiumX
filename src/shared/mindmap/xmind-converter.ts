@@ -14,24 +14,32 @@ import {
 import type {
   MindMapDocument,
   MindMapNode,
+  MindMapRelationship,
   MindMapSheet,
   MindMapStructureClass
 } from './mind-map-types'
 
 const SHEET_CLASS = 'sheet'
 const TOPIC_CLASS = 'topic'
+const RELATIONSHIP_CLASS = 'relationship'
 
 /** Options for `xmindContentToDocument` (injectable timestamps). */
 export type XmindImportOptions = {
   /** ISO 8601 timestamp stamped onto the resulting document. */
   nowIso?: string
+  /**
+   * Resolve one bounded embedded-asset path to a workspace asset id.  The
+   * converter only receives the stable id; it never reads ZIP bytes or paths
+   * from the filesystem.
+   */
+  assetIdForPath?: (path: string) => string | undefined
 }
 
 /**
  * Map one XMind topic (with its `children.attached`) to a native node.
  * `structureClass` defaults forward-compatibly to `right` when absent.
  */
-function topicToNode(raw: unknown): MindMapNode {
+function topicToNode(raw: unknown, opts: XmindImportOptions): MindMapNode {
   const topic =
     typeof raw === 'object' && raw !== null
       ? (raw as Record<string, unknown>)
@@ -41,8 +49,10 @@ function topicToNode(raw: unknown): MindMapNode {
       ? (topic.children as Record<string, unknown>).attached
       : undefined
   const attached = Array.isArray(rawChildren)
-    ? rawChildren.map((child) => topicToNode(child))
+    ? rawChildren.map((child) => topicToNode(child, opts))
     : []
+  const imagePath = imageSourcePath(topic.image)
+  const assetId = imagePath !== undefined ? opts.assetIdForPath?.(imagePath) : undefined
   return {
     id: isNonEmptyString(topic.id) ? topic.id : '',
     title: typeof topic.title === 'string' ? topic.title : '',
@@ -55,7 +65,57 @@ function topicToNode(raw: unknown): MindMapNode {
     ...(asStructureClass(topic.structureClass) !== undefined
       ? { structureClass: asStructureClass(topic.structureClass) }
       : {}),
+    ...(isNonEmptyString(assetId) ? { assetIds: [assetId] } : {}),
     children: attached
+  }
+}
+
+/** Map one XMind relationship to the v1 interop shape used by the file codec. */
+function relationshipToV1(raw: unknown): MindMapRelationship | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+  const relationship = raw as Record<string, unknown>
+  const id = isNonEmptyString(relationship.id) ? relationship.id : ''
+  // XMind exports both endpoint wrappers (`end1`/`end2`) and the compact
+  // endpoint-id form (`end1Id`/`end2Id`). Prefer the explicit id fields when
+  // present, then accept the wrapper and v1-compatible aliases.
+  const from = relationshipEndpointId(
+    relationship.end1Id ?? relationship.end1 ?? relationship.from
+  )
+  const to = relationshipEndpointId(
+    relationship.end2Id ?? relationship.end2 ?? relationship.to
+  )
+  if (!id || !from || !to) return undefined
+
+  const label =
+    typeof relationship.title === 'string'
+      ? relationship.title
+      : typeof relationship.label === 'string'
+        ? relationship.label
+        : undefined
+
+  return {
+    id,
+    from,
+    to,
+    ...(label !== undefined ? { label } : {})
+  }
+}
+
+function relationshipEndpointId(value: unknown): string {
+  if (isNonEmptyString(value)) return value
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return ''
+  const id = (value as Record<string, unknown>).id
+  return isNonEmptyString(id) ? id : ''
+}
+
+/** Map a v1 relationship to XMind's endpoint-wrapper representation. */
+function relationshipToXmind(relationship: MindMapRelationship): Record<string, unknown> {
+  return {
+    class: RELATIONSHIP_CLASS,
+    id: relationship.id,
+    end1: { id: relationship.from },
+    end2: { id: relationship.to },
+    ...(relationship.label !== undefined ? { title: relationship.label } : {})
   }
 }
 
@@ -76,14 +136,22 @@ export function xmindContentToDocument(
           ? (rawSheet as Record<string, unknown>)
           : {}
       const rootRaw = sheet.rootTopic
-      const root = topicToNode(rootRaw)
+      const root = topicToNode(rootRaw, opts)
       return {
         id: isNonEmptyString(sheet.id) ? sheet.id : '',
         title: typeof sheet.title === 'string' ? sheet.title : '',
         structureClass:
           asStructureClass(sheet.structureClass) ??
           DEFAULT_MIND_MAP_STRUCTURE_CLASS,
-        root
+        root,
+        ...(Array.isArray(sheet.relationships)
+          ? (() => {
+              const relationships = sheet.relationships
+                .map(relationshipToV1)
+                .filter((relationship): relationship is MindMapRelationship => relationship !== undefined)
+              return relationships.length > 0 ? { relationships } : {}
+            })()
+          : {})
       }
     })
     .filter((sheet) => Boolean(sheet.id))
@@ -97,6 +165,12 @@ export function xmindContentToDocument(
     updatedAt: nowIso,
     sheets
   }
+}
+
+function imageSourcePath(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const src = (value as Record<string, unknown>).src
+  return typeof src === 'string' && src.length > 0 ? src : undefined
 }
 
 /** Map a native node to the XMind topic shape (with `children.attached`). */
@@ -130,7 +204,10 @@ export function documentToXmindContent(
     rootTopic: {
       class: TOPIC_CLASS,
       ...nodeToTopic(sheet.root)
-    }
+    },
+    ...(sheet.relationships !== undefined && sheet.relationships.length > 0
+      ? { relationships: sheet.relationships.map(relationshipToXmind) }
+      : {})
   }))
 }
 

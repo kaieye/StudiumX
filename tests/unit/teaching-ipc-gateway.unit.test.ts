@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto'
-import { mkdir, readFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,6 +10,10 @@ import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 import type { TeachingIpcRegistration } from '../../src/main/teaching-ipc-gateway'
 import { teachingEventChannels, teachingInvokeChannels } from '../../src/shared/teaching-ipc-contract'
+import { buildXmindZip, parseXmindZip } from '../../src/main/mindmap/xmind-file'
+import { createMindMapStore, type MindMapStore } from '../../src/main/mindmap/mind-map-store'
+import type { MindMapDocument } from '../../src/shared/mindmap/mind-map-types'
+import { strToU8, zipSync } from 'fflate'
 
 const electron = vi.hoisted(() => {
   const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>()
@@ -26,6 +30,21 @@ const pending = vi.hoisted(() => ({
   resolveAskPending: vi.fn(() => false),
   cancelStreamToolPermissionPending: vi.fn(),
   resolveToolPermissionPending: vi.fn(() => false)
+}))
+
+const mindMapGeneration = vi.hoisted(() => ({
+  generateMindMap: vi.fn(),
+  generateMindMapProposal: vi.fn(),
+  cancelMindMapGeneration: vi.fn(),
+  MindMapGenerationError: class MindMapGenerationError extends Error {
+    readonly kind: string
+
+    constructor(kind: string, message: string) {
+      super(message)
+      this.name = 'MindMapGenerationError'
+      this.kind = kind
+    }
+  }
 }))
 
 vi.mock('electron', () => ({
@@ -49,6 +68,7 @@ vi.mock('../../src/main/ai/tool-permission-pending', () => ({
   cancelStreamToolPermissionPending: pending.cancelStreamToolPermissionPending,
   resolveToolPermissionPending: pending.resolveToolPermissionPending
 }))
+vi.mock('../../src/main/mindmap/mind-map-generation', () => mindMapGeneration)
 
 const { registerTeachingIpcGateway } = await import('../../src/main/teaching-ipc-gateway')
 
@@ -190,6 +210,188 @@ describe('Teaching IPC gateway', () => {
     })).rejects.toThrow('No pending Ask or tool permission request matches')
     expect(pending.resolveAskPending).toHaveBeenCalledWith('unknown-host-stream', 'unknown-tool-call', [{ questionId: 'direction', selected: ['A'] }])
     expect(pending.resolveToolPermissionPending).toHaveBeenCalledWith('unknown-host-stream', 'unknown-tool-call', [{ questionId: 'direction', selected: ['A'] }])
+  })
+
+  it.each([
+    {
+      name: 'XMind',
+      channel: teachingInvokeChannels.importMindMapXmind,
+      fileName: 'course.xmind',
+      title: 'XMind Course',
+      writeSource: async (sourcePath: string) => {
+        const sourceDocument: MindMapDocument = {
+          schemaVersion: 1,
+          id: 'source-xmind',
+          title: 'XMind Course',
+          createdAt: '2026-08-09T00:00:00.000Z',
+          updatedAt: '2026-08-09T00:00:00.000Z',
+          sheets: [
+            {
+              id: 'sheet-xmind',
+              title: 'XMind Course',
+              structureClass: 'org.xmind.ui.logic.right',
+              root: {
+                id: 'root-xmind',
+                title: 'Study roots',
+                children: [{ id: 'topic-xmind', title: 'One branch', children: [] }]
+              }
+            }
+          ]
+        }
+        await writeFile(sourcePath, buildXmindZip(sourceDocument))
+      }
+    },
+    {
+      name: 'Markdown',
+      channel: teachingInvokeChannels.importMindMapMarkdown,
+      fileName: 'course.md',
+      title: 'Markdown Course',
+      writeSource: (sourcePath: string) => writeFile(
+        sourcePath,
+        '# Markdown Course\n\n## Basics\n- Study roots\n  - One branch\n',
+        'utf8'
+      )
+    },
+    {
+      name: 'OPML',
+      channel: teachingInvokeChannels.importMindMapOpml,
+      fileName: 'course.opml',
+      title: 'OPML Course',
+      writeSource: (sourcePath: string) => writeFile(
+        sourcePath,
+        '<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n' +
+          '<opml version=\"2.0\">\n' +
+          '  <head><title>OPML Course</title></head>\n' +
+          '  <body>\n' +
+          '    <outline text=\"Basics\" _studiumx_sheet_id=\"sheet-opml\">\n' +
+          '      <outline text=\"Study roots\" _studiumx_topic_id=\"root-opml\">\n' +
+          '        <outline text=\"One branch\" _studiumx_topic_id=\"topic-opml\" />\n' +
+          '      </outline>\n' +
+          '    </outline>\n' +
+          '  </body>\n' +
+          '</opml>\n',
+        'utf8'
+      )
+    }
+  ])('durably commits $name imports through the gateway', async ({ name, channel, fileName, title, writeSource }) => {
+    const runtime = await runtimeScope.create(`gateway-mind-map-${name.toLowerCase()}`)
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const sourcePath = join(rootPath, fileName)
+    await writeSource(sourcePath)
+
+    const getState = vi.fn().mockResolvedValue({ workspaces: [{ id: 'workspace-import', rootPath }] })
+    registerTeachingIpcGateway(registration({ workspaceService: { getState } }))
+
+    const result = await handler(channel)(event, { workspaceId: 'workspace-import', sourcePath }) as {
+      id: string
+      title: string
+      schemaVersion: number
+      revision: number
+      sheets: unknown[]
+      compatibilityReport?: unknown
+    }
+
+    expect(result).toMatchObject({
+      id: expect.any(String),
+      title,
+      schemaVersion: 2,
+      revision: 2,
+      sheets: expect.any(Array)
+    })
+    if (name === 'XMind') {
+      expect(result.compatibilityReport).toMatchObject({
+        preserved: expect.any(Array),
+        approximated: expect.any(Array),
+        dropped: expect.any(Array),
+        warnings: expect.any(Array)
+      })
+    }
+
+    const durablePath = join(rootPath, 'mindmaps', `${result.id}.json`)
+    const durable = JSON.parse(await readFile(durablePath, 'utf8')) as Record<string, unknown>
+    expect(durable).toMatchObject({
+      id: result.id,
+      title,
+      schemaVersion: 2,
+      revision: 2
+    })
+    expect(durable).not.toHaveProperty('compatibilityReport')
+    await expect(handler(teachingInvokeChannels.readMindMap)(event, {
+      workspaceId: 'workspace-import',
+      id: result.id
+    })).resolves.toEqual(durable)
+    await expect(readdir(join(rootPath, 'mindmaps'))).resolves.toEqual([`${result.id}.json`])
+  })
+
+  it.each([
+    { name: 'XMind', channel: teachingInvokeChannels.importMindMapXmind, fileName: 'invalid.xmind', content: Buffer.from('not a ZIP archive') },
+    { name: 'Markdown', channel: teachingInvokeChannels.importMindMapMarkdown, fileName: 'invalid.md', content: Buffer.from('plain prose is not a mind map\n', 'utf8') },
+    { name: 'OPML', channel: teachingInvokeChannels.importMindMapOpml, fileName: 'invalid.opml', content: Buffer.from('<!DOCTYPE opml><opml />', 'utf8') }
+  ])('does not leave a mind-map product when $name import fails', async ({ name, channel, fileName, content }) => {
+    const runtime = await runtimeScope.create(`gateway-mind-map-failure-${name.toLowerCase()}`)
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const sourcePath = join(rootPath, fileName)
+    await writeFile(sourcePath, content)
+
+    const getState = vi.fn().mockResolvedValue({ workspaces: [{ id: 'workspace-import', rootPath }] })
+    registerTeachingIpcGateway(registration({ workspaceService: { getState } }))
+
+    await expect(handler(channel)(event, { workspaceId: 'workspace-import', sourcePath })).rejects.toThrow()
+    await expect(readdir(join(rootPath, 'mindmaps'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('removes the created product and durable-write artifacts when an import update fails', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-post-create-failure')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const sourcePath = join(rootPath, 'course.md')
+    await writeFile(sourcePath, '# Markdown Course\n\n## Basics\n- Study roots\n', 'utf8')
+
+    const durableStore = createMindMapStore(rootPath)
+    let createdId: string | undefined
+    const remove = vi.fn(async (id: string) => durableStore.remove(id))
+    const injectedUpdate: MindMapStore['update'] = async (id, doc) => {
+      const mindMapsPath = join(rootPath, 'mindmaps')
+      const content = JSON.stringify({ ...doc, id, revision: doc.revision + 1 })
+      // Model the durable-write failure window after journal publication and
+      // before target replacement. The gateway must remove both artifacts.
+      await writeFile(join(mindMapsPath, `.${id}.json.journal`), content, 'utf8')
+      await writeFile(join(mindMapsPath, `.${id}.json.tmp`), content, 'utf8')
+      throw new Error('injected durable update failure')
+    }
+    const failingStore: MindMapStore = {
+      ...durableStore,
+      create: async (title) => {
+        const created = await durableStore.create(title)
+        createdId = created.id
+        return created
+      },
+      update: injectedUpdate,
+      remove
+    }
+    const mindMapStoreFactory = vi.fn(() => failingStore)
+    const getState = vi.fn().mockResolvedValue({ workspaces: [{ id: 'workspace-import', rootPath }] })
+    registerTeachingIpcGateway(registration({ workspaceService: { getState }, mindMapStoreFactory }))
+
+    await expect(handler(teachingInvokeChannels.importMindMapMarkdown)(event, {
+      workspaceId: 'workspace-import',
+      sourcePath
+    })).rejects.toThrow('injected durable update failure')
+
+    expect(mindMapStoreFactory).toHaveBeenCalledWith(rootPath)
+    expect(createdId).toEqual(expect.any(String))
+    const id = createdId as string
+    expect(remove).toHaveBeenCalledWith(id)
+    await expect(readdir(join(rootPath, 'mindmaps'))).resolves.toEqual([])
+    await expect(readFile(join(rootPath, 'mindmaps', `${id}.json`), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(rootPath, 'mindmaps', `.${id}.json.journal`), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(rootPath, 'mindmaps', `.${id}.json.tmp`), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+
+    const freshStore = createMindMapStore(rootPath)
+    await expect(freshStore.list()).resolves.toEqual([])
+    await expect(freshStore.read(id)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('maps a channel through its parser, action, and reply', async () => {
@@ -506,6 +708,245 @@ describe('Teaching IPC gateway', () => {
       content: 'Not authorized', scope: 'workspace', workspaceRoot: resolve('/unregistered/course')
     })).rejects.toThrow('limited to registered teaching workspaces')
     expect(createMemory).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the XMind compatibility report alongside legacy document fields', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-xmind-report')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const sourcePath = join(rootPath, 'incoming.xmind')
+    await writeFile(
+      sourcePath,
+      zipSync({
+        'content.json': strToU8(
+          JSON.stringify([
+            {
+              class: 'sheet',
+              id: 'sheet-report',
+              title: 'Reported',
+              rootTopic: {
+                class: 'topic',
+                id: 'root-report',
+                title: 'Root',
+                children: {
+                  attached: [
+                    {
+                      class: 'topic',
+                      id: 'child-report',
+                      title: 'Child'
+                    }
+                  ]
+                },
+                style: { id: 'foreign-style' }
+              },
+              relationships: [
+                {
+                  class: 'relationship',
+                  id: 'relationship-report',
+                  end1: { id: 'root-report' },
+                  end2: { id: 'child-report' },
+                  title: 'Connect'
+                }
+              ]
+            }
+          ])
+        )
+      })
+    )
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-1', rootPath }]
+    })
+    registerTeachingIpcGateway(registration({ workspaceService: { getState } }))
+
+    const result = await handler(teachingInvokeChannels.importMindMapXmind)(event, {
+      workspaceId: 'workspace-1',
+      sourcePath
+    })
+
+    expect(result).toMatchObject({
+      schemaVersion: 2,
+      title: 'Reported',
+      sheets: expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Reported',
+          elements: expect.arrayContaining([
+            {
+              id: 'relationship-report',
+              type: 'relationship',
+              from: 'root-report',
+              to: 'child-report',
+              label: 'Connect'
+            }
+          ])
+        })
+      ]),
+      compatibilityReport: {
+        approximated: expect.any(Array),
+        preserved: expect.arrayContaining([
+          expect.objectContaining({
+            path: 'sheets[].relationships',
+            count: 1
+          })
+        ]),
+        dropped: expect.arrayContaining([
+          expect.objectContaining({ path: 'topics[].style', count: 1 })
+        ]),
+        warnings: expect.any(Array)
+      }
+    })
+    expect((result as { compatibilityReport: unknown }).compatibilityReport).not.toHaveProperty(
+      'sourcePath'
+    )
+
+    const imported = result as {
+      id: string
+      revision: number
+      sheets: Array<{ elements?: unknown[] }>
+    }
+    const durablePath = join(rootPath, 'mindmaps', `${imported.id}.json`)
+    const durable = JSON.parse(await readFile(durablePath, 'utf8')) as {
+      sheets: Array<{ elements?: unknown[] }>
+    }
+    expect(durable.sheets[0]?.elements).toEqual(imported.sheets[0]?.elements)
+
+    const exported = await handler(teachingInvokeChannels.exportMindMapXmind)(event, {
+      workspaceId: 'workspace-1',
+      id: imported.id,
+      destinationDirectory: join(rootPath, 'exports'),
+      snapshotRevision: imported.revision,
+      expectedRevision: imported.revision,
+      pendingWrites: false,
+      dirty: false
+    }) as { path: string }
+    const exportedDocument = parseXmindZip(await readFile(exported.path))
+    expect(exportedDocument.sheets[0]?.relationships).toEqual([
+      {
+        id: 'relationship-report',
+        from: 'root-report',
+        to: 'child-report',
+        label: 'Connect'
+      }
+    ])
+  })
+
+  it('flushes before XMind export and refuses an unacknowledged renderer snapshot', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-xmind-export-readiness')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Readiness')
+    const flush = vi.spyOn(store, 'flush')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-xmind-export', rootPath }]
+    })
+    registerTeachingIpcGateway(
+      registration({
+        workspaceService: { getState },
+        mindMapStoreFactory: () => store
+      })
+    )
+
+    await expect(
+      handler(teachingInvokeChannels.exportMindMapXmind)(event, {
+        workspaceId: 'workspace-xmind-export',
+        id: created.id,
+        destinationDirectory: join(rootPath, 'exports'),
+        snapshotRevision: created.revision,
+        expectedRevision: created.revision,
+        pendingWrites: false,
+        dirty: true
+      })
+    ).rejects.toThrow('Mind map XMind export refused: dirty')
+    expect(flush).toHaveBeenCalledWith(created.id)
+  })
+
+  it('imports one embedded XMind PNG into workspace assets and persists only safe metadata', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-xmind-embedded-asset')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const sourcePath = join(rootPath, 'embedded.xmind')
+    const imageBytes = Buffer.from([137, 80, 78, 71, 9, 8, 7])
+    await writeFile(
+      sourcePath,
+      zipSync({
+        'content.json': strToU8(
+          JSON.stringify([
+            {
+              class: 'sheet',
+              id: 'sheet-asset',
+              title: 'Embedded image',
+              rootTopic: {
+                class: 'topic',
+                id: 'root-asset',
+                title: 'Root',
+                image: { src: 'attachments/diagram.png' },
+                attachment: { src: 'attachments/document.pdf' },
+                children: {
+                  attached: [
+                    {
+                      class: 'topic',
+                      id: 'child-asset',
+                      title: 'Second image',
+                      image: { src: 'attachments/second.png' }
+                    }
+                  ]
+                }
+              }
+            }
+          ])
+        ),
+        'attachments/diagram.png': imageBytes,
+        'attachments/second.png': new Uint8Array([1, 2]),
+        'attachments/document.pdf': new Uint8Array([3, 4])
+      })
+    )
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-asset', rootPath }]
+    })
+    registerTeachingIpcGateway(registration({ workspaceService: { getState } }))
+
+    const result = await handler(teachingInvokeChannels.importMindMapXmind)(event, {
+      workspaceId: 'workspace-asset',
+      sourcePath
+    }) as {
+      id: string
+      sheets: Array<{ root: { assetIds?: string[] } }>
+      assets: Array<{ id: string; fileName: string; mimeType?: string }>
+      compatibilityReport: {
+        approximated: unknown[]
+        dropped: unknown[]
+        warnings: unknown[]
+      }
+    }
+
+    expect(result.sheets[0]?.root.assetIds).toHaveLength(1)
+    expect(result.assets).toHaveLength(1)
+    const asset = result.assets[0]!
+    expect(asset.id).toMatch(/^xmind-[a-f0-9]{32}$/)
+    expect(asset).toMatchObject({ fileName: 'diagram.png', mimeType: 'image/png' })
+    expect(asset).not.toHaveProperty('absolutePath')
+    expect(result.compatibilityReport.approximated).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'topics[].image', count: 1 })])
+    )
+    expect(result.compatibilityReport.dropped).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'topics[].image' }),
+        expect.objectContaining({ path: 'topics[].attachment' })
+      ])
+    )
+    expect(result.compatibilityReport.warnings).toEqual(expect.any(Array))
+
+    const durablePath = join(rootPath, 'mindmaps', `${result.id}.json`)
+    const durable = JSON.parse(await readFile(durablePath, 'utf8')) as {
+      assets: typeof result.assets
+      sheets: typeof result.sheets
+    }
+    expect(durable.assets).toEqual(result.assets)
+    expect(JSON.stringify(durable)).not.toContain(sourcePath)
+    expect(JSON.stringify(durable)).not.toContain('attachments/')
+    await expect(
+      readFile(join(rootPath, 'mindmap-assets', asset.id, asset.fileName))
+    ).resolves.toEqual(imageBytes)
   })
 
   it('maps the narrow explicit per-id conversation projection command without renderer paths', async () => {
@@ -1355,6 +1796,869 @@ describe('Teaching IPC gateway', () => {
         outcome: 'error'
       })
     ))
+  })
+
+
+  it('settles accepted AI proposal items atomically through the reducer and CAS store', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-proposal-apply')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-proposal', rootPath }]
+    })
+    const mindMapStoreFactory = vi.fn(() => store)
+    registerTeachingIpcGateway(
+      registration({ workspaceService: { getState }, mindMapStoreFactory })
+    )
+
+    const proposal = {
+      schemaVersion: 1 as const,
+      proposalId: 'proposal-1',
+      scope: 'sheet' as const,
+      items: [
+        {
+          id: 'rename-document',
+          command: { type: 'document.rename' as const, title: 'Accepted title' }
+        },
+        {
+          id: 'rename-missing-sheet',
+          command: {
+            type: 'sheet.rename' as const,
+            sheetId: 'missing-sheet',
+            title: 'Rejected title'
+          }
+        }
+      ]
+    }
+
+    const result = await handler(teachingInvokeChannels.applyMindMapProposal)(event, {
+      workspaceId: 'workspace-proposal',
+      id: created.id,
+      expectedRevision: created.revision,
+      proposal,
+      decisions: {
+        'rename-document': 'accept',
+        'rename-missing-sheet': 'reject'
+      }
+    }) as {
+      ok: boolean
+      proposalId: string
+      document: { id: string; title: string; revision: number }
+      acceptedIds: string[]
+      rejectedIds: string[]
+      command: { type: string } | null
+      inverse: { type: string } | null
+    }
+
+    expect(result).toMatchObject({
+      ok: true,
+      proposalId: 'proposal-1',
+      document: {
+        id: created.id,
+        title: 'Accepted title',
+        revision: created.revision + 1
+      },
+      acceptedIds: ['rename-document'],
+      rejectedIds: ['rename-missing-sheet'],
+      command: { type: 'transaction' }
+    })
+    expect(result.inverse).toEqual(expect.objectContaining({ type: 'transaction' }))
+    await expect(store.read(created.id)).resolves.toMatchObject({
+      title: 'Accepted title',
+      revision: created.revision + 1
+    })
+  })
+
+  it('generates a provider proposal from the canonical snapshot without persisting it', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-proposal-generate')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const update = vi.spyOn(store, 'update')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-proposal', rootPath }]
+    })
+    const loadedSettings = defaultSettings(rootPath)
+    const load = vi.fn().mockResolvedValue(loadedSettings)
+    const proposal = {
+      schemaVersion: 1 as const,
+      proposalId: 'proposal-generated',
+      scope: 'sheet' as const,
+      items: [
+        {
+          id: 'rename-document',
+          command: { type: 'document.rename' as const, title: 'Suggested title' }
+        }
+      ]
+    }
+    mindMapGeneration.generateMindMapProposal.mockResolvedValueOnce(proposal)
+    registerTeachingIpcGateway(
+      registration({
+        workspaceService: { getState },
+        settingsService: { load },
+        mindMapStoreFactory: () => store
+      })
+    )
+
+    const result = await handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+      workspaceId: 'workspace-proposal',
+      id: created.id,
+      scope: 'sheet',
+      sheetId: created.sheets[0]!.id,
+      selectedTopicIds: [],
+      sourceRefs: [],
+      prompt: 'Suggest a concise title.'
+    }) as {
+      documentId: string
+      revision: number
+      request: {
+        schemaVersion: number
+        scope: string
+        documentId: string
+        sheetId: string
+        selectedTopicIds: string[]
+        sourceRefs: unknown[]
+      }
+      proposal: typeof proposal
+    }
+
+    expect(result).toEqual({
+      documentId: created.id,
+      revision: created.revision,
+      request: {
+        schemaVersion: 1,
+        scope: 'sheet',
+        documentId: created.id,
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: []
+      },
+      proposal
+    })
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(mindMapGeneration.generateMindMapProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Original',
+        prompt: 'Suggest a concise title.',
+        settings: loadedSettings,
+        document: expect.objectContaining({ id: created.id, revision: created.revision }),
+        request: expect.objectContaining({
+          schemaVersion: 1,
+          scope: 'sheet',
+          documentId: created.id,
+          sheetId: created.sheets[0]!.id,
+          selectedTopicIds: [],
+          sourceRefs: []
+        })
+      })
+    )
+    expect(update).not.toHaveBeenCalled()
+    await expect(store.read(created.id)).resolves.toMatchObject({
+      title: 'Original',
+      revision: created.revision
+    })
+  })
+
+  it('generates selected-file proposals from the registered workspace root without persistence or renderer content', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-selected-file')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    const selectedPath = join(rootPath, 'notes', 'biology.md')
+    await mkdir(join(rootPath, 'notes'), { recursive: true })
+    const selectedContent = 'Cells are the basic unit of life.'
+    await writeFile(selectedPath, selectedContent, 'utf8')
+
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const update = vi.spyOn(store, 'update')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-selected-file', rootPath }]
+    })
+    const loadedSettings = defaultSettings(rootPath)
+    const load = vi.fn().mockResolvedValue(loadedSettings)
+    const proposal = {
+      schemaVersion: 1 as const,
+      proposalId: 'proposal-selected-file',
+      scope: 'selected-file' as const,
+      items: []
+    }
+    mindMapGeneration.generateMindMapProposal.mockResolvedValueOnce(proposal)
+    registerTeachingIpcGateway(
+      registration({
+        workspaceService: { getState },
+        settingsService: { load },
+        mindMapStoreFactory: () => store
+      })
+    )
+
+    const result = await handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+      workspaceId: 'workspace-selected-file',
+      id: created.id,
+      scope: 'selected-file',
+      sheetId: created.sheets[0]!.id,
+      selectedTopicIds: [],
+      sourceRefs: [],
+      selectedFile: { workspacePath: 'notes/biology.md' },
+      prompt: 'Use the selected reading as context.'
+    }) as {
+      documentId: string
+      revision: number
+      request: Record<string, unknown>
+      proposal: typeof proposal
+    }
+
+    expect(result).toMatchObject({
+      documentId: created.id,
+      revision: created.revision,
+      proposal
+    })
+    expect(result.request).toMatchObject({
+      schemaVersion: 1,
+      scope: 'selected-file',
+      documentId: created.id,
+      sheetId: created.sheets[0]!.id,
+      selectedTopicIds: [],
+      sourceRefs: [],
+      selectedFile: {
+        id: expect.stringMatching(/^selected-file:[a-f0-9]{64}$/),
+        workspacePath: 'notes/biology.md',
+        contentHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+      }
+    })
+    expect(JSON.stringify(result)).not.toContain(selectedContent)
+    expect(JSON.stringify(result)).not.toContain(rootPath)
+    expect(mindMapGeneration.generateMindMapProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({ scope: 'selected-file' }),
+        selectedFileContext: expect.objectContaining({
+          content: selectedContent,
+          sourceRef: expect.objectContaining({ workspacePath: 'notes/biology.md' })
+        })
+      })
+    )
+    expect(update).not.toHaveBeenCalled()
+    await expect(store.read(created.id)).resolves.toMatchObject({
+      title: 'Original',
+      revision: created.revision
+    })
+
+    await expect(
+      handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+        workspaceId: 'workspace-selected-file',
+        id: created.id,
+        scope: 'selected-file',
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        selectedFile: { workspacePath: '../outside.md' },
+        prompt: 'unsafe'
+      })
+    ).rejects.toThrow('Invalid IPC payload for generateMindMapProposal.')
+    await expect(
+      handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+        workspaceId: 'workspace-selected-file',
+        id: created.id,
+        scope: 'selected-file',
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        selectedFile: { workspacePath: 'notes/missing.md' },
+        prompt: 'missing'
+      })
+    ).rejects.toThrow('Mind map selected file failed (missing_file)')
+    await expect(
+      handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+        workspaceId: 'workspace-selected-file',
+        id: created.id,
+        scope: 'selected-file',
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        selectedFile: { workspacePath: 'notes/biology.md' },
+        workspaceRoot: rootPath,
+        prompt: 'renderer must not supply roots'
+      })
+    ).rejects.toThrow('Invalid IPC payload for generateMindMapProposal.')
+    expect(mindMapGeneration.generateMindMapProposal).toHaveBeenCalledTimes(1)
+  })
+
+  it('generates Notes proposals from the registered workspace root without persistence or renderer content', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-notes')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const notesContent = '# Notes\nUse retrieval practice after each lesson.\n'
+    await writeFile(join(rootPath, 'NOTES.md'), notesContent, 'utf8')
+
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const update = vi.spyOn(store, 'update')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-notes', rootPath }]
+    })
+    const loadedSettings = defaultSettings(rootPath)
+    const load = vi.fn().mockResolvedValue(loadedSettings)
+    const proposal = {
+      schemaVersion: 1 as const,
+      proposalId: 'proposal-notes',
+      scope: 'notes' as const,
+      items: []
+    }
+    mindMapGeneration.generateMindMapProposal.mockResolvedValueOnce(proposal)
+    registerTeachingIpcGateway(
+      registration({
+        workspaceService: { getState },
+        settingsService: { load },
+        mindMapStoreFactory: () => store
+      })
+    )
+
+    const result = await handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+      workspaceId: 'workspace-notes',
+      id: created.id,
+      scope: 'notes',
+      sheetId: created.sheets[0]!.id,
+      selectedTopicIds: [],
+      sourceRefs: [],
+      prompt: 'Turn my notes into a reviewable map.'
+    }) as {
+      documentId: string
+      revision: number
+      request: Record<string, unknown>
+      proposal: typeof proposal
+    }
+
+    expect(result).toMatchObject({
+      documentId: created.id,
+      revision: created.revision,
+      proposal,
+      request: {
+        schemaVersion: 1,
+        scope: 'notes',
+        documentId: created.id,
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        notes: {
+          id: expect.stringMatching(/^notes:[a-f0-9]{64}$/),
+          workspacePath: 'NOTES.md',
+          contentHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+        }
+      }
+    })
+    expect(JSON.stringify(result)).not.toContain(notesContent)
+    expect(JSON.stringify(result)).not.toContain(rootPath)
+    expect(mindMapGeneration.generateMindMapProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({ scope: 'notes' }),
+        notesContext: expect.objectContaining({
+          content: notesContent,
+          sourceRef: expect.objectContaining({ workspacePath: 'NOTES.md' })
+        })
+      })
+    )
+    expect(update).not.toHaveBeenCalled()
+
+    await expect(
+      handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+        workspaceId: 'workspace-notes',
+        id: created.id,
+        scope: 'notes',
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        workspaceRoot: rootPath,
+        prompt: 'renderer must not supply roots'
+      })
+    ).rejects.toThrow('Invalid IPC payload for generateMindMapProposal.')
+    await rm(join(rootPath, 'NOTES.md'))
+    await expect(
+      handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+        workspaceId: 'workspace-notes',
+        id: created.id,
+        scope: 'notes',
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        prompt: 'missing'
+      })
+    ).rejects.toThrow('Mind map notes failed (missing_file)')
+    expect(mindMapGeneration.generateMindMapProposal).toHaveBeenCalledTimes(1)
+  })
+
+  it('generates Lesson proposals from the registered workspace root without persistence or renderer content', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-lesson')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    const lessonPath = join(rootPath, 'courses', 'biology', 'lesson', 'cell-structure.html')
+    await mkdir(join(rootPath, 'courses', 'biology', 'lesson'), { recursive: true })
+    const lessonContent = '<html><body><h1>Cell structure</h1><p>Membrane and nucleus.</p></body></html>'
+    await writeFile(lessonPath, lessonContent, 'utf8')
+
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const update = vi.spyOn(store, 'update')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-lesson', rootPath }]
+    })
+    const loadedSettings = defaultSettings(rootPath)
+    const load = vi.fn().mockResolvedValue(loadedSettings)
+    const proposal = {
+      schemaVersion: 1 as const,
+      proposalId: 'proposal-lesson',
+      scope: 'lesson' as const,
+      items: []
+    }
+    mindMapGeneration.generateMindMapProposal.mockResolvedValueOnce(proposal)
+    registerTeachingIpcGateway(
+      registration({
+        workspaceService: { getState },
+        settingsService: { load },
+        mindMapStoreFactory: () => store
+      })
+    )
+
+    const result = await handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+      workspaceId: 'workspace-lesson',
+      id: created.id,
+      scope: 'lesson',
+      sheetId: created.sheets[0]!.id,
+      selectedTopicIds: [],
+      sourceRefs: [],
+      lesson: { workspacePath: 'courses/biology/lesson/cell-structure.html' },
+      prompt: 'Turn this Lesson into a reviewable map.'
+    }) as {
+      documentId: string
+      revision: number
+      request: Record<string, unknown>
+      proposal: typeof proposal
+    }
+
+    expect(result).toMatchObject({
+      documentId: created.id,
+      revision: created.revision,
+      proposal,
+      request: {
+        schemaVersion: 1,
+        scope: 'lesson',
+        documentId: created.id,
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        lesson: {
+          id: expect.stringMatching(/^lesson:[a-f0-9]{64}$/),
+          workspacePath: 'courses/biology/lesson/cell-structure.html',
+          contentHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+        }
+      }
+    })
+    expect(JSON.stringify(result)).not.toContain(lessonContent)
+    expect(JSON.stringify(result)).not.toContain(rootPath)
+    expect(mindMapGeneration.generateMindMapProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Original',
+        prompt: 'Turn this Lesson into a reviewable map.',
+        settings: loadedSettings,
+        request: expect.objectContaining({
+          scope: 'lesson',
+          lesson: expect.objectContaining({
+            workspacePath: 'courses/biology/lesson/cell-structure.html'
+          })
+        }),
+        lessonContext: expect.objectContaining({
+          content: lessonContent,
+          sourceRef: expect.objectContaining({
+            workspacePath: 'courses/biology/lesson/cell-structure.html'
+          })
+        })
+      })
+    )
+    expect(update).not.toHaveBeenCalled()
+    await expect(store.read(created.id)).resolves.toMatchObject({
+      title: 'Original',
+      revision: created.revision
+    })
+
+    await expect(
+      handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+        workspaceId: 'workspace-lesson',
+        id: created.id,
+        scope: 'lesson',
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        lesson: { workspacePath: '../outside.html' },
+        prompt: 'unsafe'
+      })
+    ).rejects.toThrow('Invalid IPC payload for generateMindMapProposal.')
+    await expect(
+      handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+        workspaceId: 'workspace-lesson',
+        id: created.id,
+        scope: 'lesson',
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        lesson: { workspacePath: 'courses/biology/lesson/missing.html' },
+        prompt: 'missing'
+      })
+    ).rejects.toThrow('Mind map lesson failed (missing_file)')
+
+    await writeFile(lessonPath, Buffer.alloc(512 * 1024 + 1, 'x'))
+    await expect(
+      handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+        workspaceId: 'workspace-lesson',
+        id: created.id,
+        scope: 'lesson',
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        lesson: { workspacePath: 'courses/biology/lesson/cell-structure.html' },
+        prompt: 'oversized'
+      })
+    ).rejects.toThrow('Mind map lesson failed (over_limit)')
+
+    await expect(
+      handler(teachingInvokeChannels.generateMindMapProposal)(event, {
+        workspaceId: 'workspace-lesson',
+        id: created.id,
+        scope: 'lesson',
+        sheetId: created.sheets[0]!.id,
+        selectedTopicIds: [],
+        sourceRefs: [],
+        lesson: { workspacePath: 'courses/biology/lesson/cell-structure.html' },
+        workspaceRoot: rootPath,
+        prompt: 'renderer must not supply roots'
+      })
+    ).rejects.toThrow('Invalid IPC payload for generateMindMapProposal.')
+    expect(mindMapGeneration.generateMindMapProposal).toHaveBeenCalledTimes(1)
+  })
+
+  it('previews canonical source refreshes without persisting or returning source content', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-source-refresh')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    const sourcePath = join(rootPath, 'notes', 'biology.md')
+    await mkdir(join(rootPath, 'notes'), { recursive: true })
+    await writeFile(sourcePath, 'cells v1', 'utf8')
+    const contentHash = createHash('sha256').update('cells v1').digest('hex')
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const withSource = {
+      ...created,
+      sheets: created.sheets.map((sheet, index) => index === 0
+        ? {
+            ...sheet,
+            root: {
+              ...sheet.root,
+              sourceRefs: [{ id: 'source-1', workspacePath: 'notes/biology.md', contentHash }]
+            }
+          }
+        : sheet)
+    }
+    const persisted = await store.update(created.id, withSource, created.revision)
+    expect(persisted.ok).toBe(true)
+    const update = vi.spyOn(store, 'update')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-source-refresh', rootPath }]
+    })
+    registerTeachingIpcGateway(
+      registration({
+        workspaceService: { getState },
+        mindMapStoreFactory: () => store
+      })
+    )
+
+    const result = await handler(teachingInvokeChannels.previewMindMapSourceRefresh)(event, {
+      workspaceId: 'workspace-source-refresh',
+      id: created.id
+    }) as {
+      documentId: string
+      revision: number
+      entries: Array<{ status: string; currentContentHash?: string; change: string }>
+      changedCount: number
+      attentionCount: number
+    }
+
+    expect(result).toEqual({
+      documentId: created.id,
+      revision: created.revision + 1,
+      entries: [{
+        sourceRef: { id: 'source-1', workspacePath: 'notes/biology.md', contentHash },
+        topicIds: [created.sheets[0]!.root.id],
+        sheetIds: [created.sheets[0]!.id],
+        previousContentHash: contentHash,
+        currentContentHash: contentHash,
+        status: 'fresh',
+        changed: false,
+        change: 'unchanged'
+      }],
+      changedCount: 0,
+      attentionCount: 0
+    })
+    expect(update).not.toHaveBeenCalled()
+    expect(JSON.stringify(result)).not.toContain('cells v1')
+    await expect(store.read(created.id)).resolves.toMatchObject({ revision: created.revision + 1 })
+  })
+
+  it('applies explicitly confirmed source metadata to every occurrence through the reducer and CAS', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-source-refresh-apply')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    const sourcePath = join(rootPath, 'notes', 'biology.md')
+    await mkdir(join(rootPath, 'notes'), { recursive: true })
+    const oldBody = 'cells v1'
+    const newBody = 'cells v2 — private source body'
+    await writeFile(sourcePath, newBody, 'utf8')
+    const oldHash = createHash('sha256').update(oldBody).digest('hex')
+    const newHash = createHash('sha256').update(newBody).digest('hex')
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const sourceRef = { id: 'source-1', workspacePath: 'notes/biology.md', contentHash: oldHash, stale: true }
+    const withSource = {
+      ...created,
+      sheets: created.sheets.map((sheet, index) => index === 0
+        ? {
+            ...sheet,
+            root: {
+              ...sheet.root,
+              sourceRefs: [sourceRef],
+              children: [{
+                id: 'child-source',
+                title: 'Child source',
+                sourceRefs: [sourceRef],
+                children: []
+              }]
+            }
+          }
+        : sheet)
+    }
+    const persisted = await store.update(created.id, withSource, created.revision)
+    expect(persisted.ok).toBe(true)
+    if (!persisted.ok) throw new Error('failed to seed source refs')
+    const update = vi.spyOn(store, 'update')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-source-refresh-apply', rootPath }]
+    })
+    registerTeachingIpcGateway(
+      registration({ workspaceService: { getState }, mindMapStoreFactory: () => store })
+    )
+
+    const result = await handler(teachingInvokeChannels.applyMindMapSourceRefresh)(event, {
+      workspaceId: 'workspace-source-refresh-apply',
+      id: created.id,
+      expectedRevision: persisted.document.revision,
+      updates: [{
+        sourceRef: {
+          id: 'source-1',
+          workspacePath: './notes/biology.md',
+          contentHash: newHash,
+          stale: false
+        }
+      }]
+    }) as {
+      ok: boolean
+      document: { revision: number; sheets: Array<{ root: { sourceRefs?: Array<Record<string, unknown>>; children: Array<{ sourceRefs?: Array<Record<string, unknown>> }> } }> }
+      appliedSourceIds: string[]
+    }
+
+    expect(result.ok).toBe(true)
+    expect(result.appliedSourceIds).toEqual(['source-1'])
+    expect(result.document.revision).toBe(persisted.document.revision + 1)
+    expect(result.document.sheets[0]!.root.sourceRefs).toEqual([
+      expect.objectContaining({ id: 'source-1', workspacePath: 'notes/biology.md', contentHash: newHash, stale: false })
+    ])
+    expect(result.document.sheets[0]!.root.children[0]!.sourceRefs).toEqual([
+      expect.objectContaining({ id: 'source-1', workspacePath: 'notes/biology.md', contentHash: newHash, stale: false })
+    ])
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(result)).not.toContain(newBody)
+    await expect(store.read(created.id)).resolves.toMatchObject({ revision: persisted.document.revision + 1 })
+    await expect(readFile(sourcePath, 'utf8')).resolves.toBe(newBody)
+  })
+
+  it('rejects a stale source refresh apply without evaluating or persisting updates', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-source-refresh-apply-stale')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const changed = await store.update(created.id, { ...created, title: 'Newer title' }, created.revision)
+    expect(changed.ok).toBe(true)
+    const update = vi.spyOn(store, 'update')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-source-refresh-stale', rootPath }]
+    })
+    registerTeachingIpcGateway(
+      registration({ workspaceService: { getState }, mindMapStoreFactory: () => store })
+    )
+
+    const result = await handler(teachingInvokeChannels.applyMindMapSourceRefresh)(event, {
+      workspaceId: 'workspace-source-refresh-stale',
+      id: created.id,
+      expectedRevision: created.revision,
+      updates: [{
+        sourceRef: {
+          id: 'missing',
+          workspacePath: 'notes/missing.md',
+          contentHash: 'new-hash',
+          stale: false
+        }
+      }]
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'revision_stale',
+      expectedRevision: created.revision,
+      currentRevision: created.revision + 1
+    })
+    expect(update).not.toHaveBeenCalled()
+    await expect(store.read(created.id)).resolves.toMatchObject({ title: 'Newer title' })
+  })
+
+  it('returns a stale revision without evaluating or persisting a reviewed proposal', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-proposal-stale')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const changed = await store.update(
+      created.id,
+      { ...created, title: 'Newer title' },
+      created.revision
+    )
+    expect(changed.ok).toBe(true)
+    const update = vi.spyOn(store, 'update')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-proposal', rootPath }]
+    })
+    registerTeachingIpcGateway(
+      registration({ workspaceService: { getState }, mindMapStoreFactory: () => store })
+    )
+
+    const result = await handler(teachingInvokeChannels.applyMindMapProposal)(event, {
+      workspaceId: 'workspace-proposal',
+      id: created.id,
+      expectedRevision: created.revision,
+      proposal: {
+        schemaVersion: 1,
+        proposalId: 'proposal-stale',
+        scope: 'sheet',
+        items: [
+          {
+            id: 'rename-document',
+            command: { type: 'document.rename', title: 'Should not apply' }
+          }
+        ]
+      },
+      decisions: { 'rename-document': 'accept' }
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'revision_stale',
+      expectedRevision: created.revision,
+      currentRevision: created.revision + 1
+    })
+    expect(update).not.toHaveBeenCalled()
+    await expect(store.read(created.id)).resolves.toMatchObject({
+      title: 'Newer title',
+      revision: created.revision + 1
+    })
+  })
+
+  it('returns reducer errors without publishing a partial proposal transaction', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-proposal-command-error')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const update = vi.spyOn(store, 'update')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-proposal', rootPath }]
+    })
+    registerTeachingIpcGateway(
+      registration({ workspaceService: { getState }, mindMapStoreFactory: () => store })
+    )
+
+    const result = await handler(teachingInvokeChannels.applyMindMapProposal)(event, {
+      workspaceId: 'workspace-proposal',
+      id: created.id,
+      expectedRevision: created.revision,
+      proposal: {
+        schemaVersion: 1,
+        proposalId: 'proposal-invalid-command',
+        scope: 'sheet',
+        items: [
+          {
+            id: 'rename-missing-sheet',
+            command: {
+              type: 'sheet.rename',
+              sheetId: 'missing-sheet',
+              title: 'Must not apply'
+            }
+          }
+        ]
+      },
+      decisions: { 'rename-missing-sheet': 'accept' }
+    }) as {
+      ok: boolean
+      code: string
+      proposalId: string
+      error: { code: string }
+    }
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'command_invalid',
+      proposalId: 'proposal-invalid-command',
+      error: { code: 'INVALID_TRANSACTION' }
+    })
+    expect(update).not.toHaveBeenCalled()
+    await expect(store.read(created.id)).resolves.toMatchObject({
+      title: 'Original',
+      revision: created.revision
+    })
+  })
+
+  it('keeps rejected-only reviews as a durable no-op', async () => {
+    const runtime = await runtimeScope.create('gateway-mind-map-proposal-reject')
+    const rootPath = join(runtime.paths.workspace, 'registered-course')
+    await mkdir(rootPath, { recursive: true })
+    const store = createMindMapStore(rootPath)
+    const created = await store.create('Original')
+    const update = vi.spyOn(store, 'update')
+    const getState = vi.fn().mockResolvedValue({
+      workspaces: [{ id: 'workspace-proposal', rootPath }]
+    })
+    registerTeachingIpcGateway(
+      registration({ workspaceService: { getState }, mindMapStoreFactory: () => store })
+    )
+
+    const result = await handler(teachingInvokeChannels.applyMindMapProposal)(event, {
+      workspaceId: 'workspace-proposal',
+      id: created.id,
+      expectedRevision: created.revision,
+      proposal: {
+        schemaVersion: 1,
+        proposalId: 'proposal-reject',
+        scope: 'sheet',
+        items: [
+          {
+            id: 'rename-document',
+            command: { type: 'document.rename', title: 'Must not apply' }
+          }
+        ]
+      },
+      decisions: { 'rename-document': 'reject' }
+    }) as { ok: boolean; document: { revision: number; title: string }; command: unknown; inverse: unknown }
+
+    expect(result).toMatchObject({
+      ok: true,
+      document: { revision: created.revision, title: 'Original' },
+      command: null,
+      inverse: null
+    })
+    expect(update).not.toHaveBeenCalled()
   })
 
 })

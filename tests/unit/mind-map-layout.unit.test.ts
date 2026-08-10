@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { MindMapNode, MindMapSheet } from '../../src/shared/mindmap/mind-map-types'
+import type { MindMapStructureClass } from '../../src/shared/mindmap/mind-map-types'
+import type {
+  MindMapSheetV2,
+  MindMapTopicV2
+} from '../../src/shared/mindmap/domain/types'
 import {
   computeMindMapLayout,
   MIND_MAP_HORIZONTAL_GAP,
@@ -11,15 +15,31 @@ import {
 function node(
   id: string,
   title: string,
-  children: MindMapNode[] = [],
+  children: MindMapTopicV2[] = [],
   collapsed = false,
-  structureClass?: MindMapNode['structureClass']
-): MindMapNode {
-  return structureClass ? { id, title, children, collapsed, structureClass } : { id, title, children, collapsed }
+  structureClass?: MindMapStructureClass
+): MindMapTopicV2 {
+  return {
+    id,
+    title,
+    children,
+    ...(collapsed ? { collapsed: true } : {}),
+    ...(structureClass ? { style: { structureClass } } : {})
+  }
 }
 
-function sheet(root: MindMapNode, structureClass: MindMapSheet['structureClass'] = 'org.xmind.ui.logic.right'): MindMapSheet {
-  return { id: 'sheet-1', title: 'S', structureClass, root }
+function sheet(
+  root: MindMapTopicV2,
+  structureClass: MindMapStructureClass = 'org.xmind.ui.logic.right',
+  elements: MindMapSheetV2['elements'] = []
+): MindMapSheetV2 {
+  return {
+    id: 'sheet-1',
+    title: 'S',
+    root,
+    elements,
+    layout: { structureClass }
+  }
 }
 
 describe('computeMindMapLayout', () => {
@@ -35,6 +55,53 @@ describe('computeMindMapLayout', () => {
       { from: 'a', to: 'b' },
       { from: 'b', to: 'c' },
       { from: 'a', to: 'd' }
+    ])
+  })
+
+  it('retains labelled sheet relationships separately from tree edges', () => {
+    const root = node('a', 'A', [node('b', 'B'), node('c', 'C')])
+    const { edges, relationships, callouts, summaries } = computeMindMapLayout(
+      sheet(root, 'org.xmind.ui.logic.right', [
+        { id: 'rel-1', type: 'relationship', from: 'b', to: 'c', label: 'depends on' },
+        { id: 'callout-1', type: 'callout', topicId: 'a', text: 'note', position: { x: 12, y: 24 } },
+        { id: 'summary-1', type: 'summary', from: 'b', to: 'c', label: 'group' }
+      ])
+    )
+
+    expect(edges).toEqual([
+      { from: 'a', to: 'b' },
+      { from: 'a', to: 'c' }
+    ])
+    expect(relationships).toEqual([
+      { id: 'rel-1', from: 'b', to: 'c', label: 'depends on' }
+    ])
+    expect(callouts).toEqual([
+      { id: 'callout-1', topicId: 'a', text: 'note', position: { x: 12, y: 24 } }
+    ])
+    expect(summaries).toEqual([
+      { id: 'summary-1', from: 'b', to: 'c', label: 'group' }
+    ])
+  })
+
+  it('projects topic markers without changing tree geometry', () => {
+    const root = {
+      ...node('a', 'A', [node('b', 'B')]),
+      markers: [
+        { id: 'marker-1', symbol: '★', label: 'Important' },
+        { id: 'marker-2', symbol: '!', label: 'Review' }
+      ]
+    }
+    const layout = computeMindMapLayout(sheet(root))
+    const rootLayout = layout.nodes.find((layoutNode) => layoutNode.id === 'a')
+
+    expect(rootLayout?.markers).toEqual([
+      { id: 'marker-1', symbol: '★', label: 'Important' },
+      { id: 'marker-2', symbol: '!', label: 'Review' }
+    ])
+    expect(layout.edges).toEqual([{ from: 'a', to: 'b' }])
+    expect(layout.nodes.map(({ id, x, y }) => ({ id, x, y }))).toEqual([
+      { id: 'a', x: -80, y: 0 },
+      { id: 'b', x: 160, y: 0 }
     ])
   })
 

@@ -1,25 +1,51 @@
 import { create } from 'zustand'
 import type {
-  MindMapDocument,
-  MindMapNode,
-  MindMapSummary
-} from '../../../../shared/mindmap/mind-map-types'
+  MindMapCommand,
+  MindMapClipboardPayload,
+  MindMapExecuteOptions,
+  MindMapTopicUpdatePatch
+} from '../../../../shared/mindmap/commands'
+import { MindMapUndoRedoStack } from '../../../../shared/mindmap/commands/mind-map-undo-redo'
+import type {
+  MindMapDocumentV2,
+  MindMapSheetV2
+} from '../../../../shared/mindmap/domain/types'
+import type { MindMapSummary } from '../../../../shared/mindmap/mind-map-types'
+import type { MindMapMarkdownExportSnapshot } from '../../../../shared/teaching-types/mindmap'
 import { useAppStore } from '../../app-shell/appStore'
+import {
+  buildCollapseAllCommand,
+  buildCopyPayload,
+  buildCopySheetCommand,
+  buildCutPayload,
+  buildDuplicateCommand,
+  buildExpandAllCommand,
+  buildInsertAboveCommand,
+  buildInsertChildCommand,
+  buildInsertSiblingCommand,
+  buildOutdentCommand,
+  buildPasteCommandForPayload,
+  buildRemoveCommand,
+  buildToggleCollapseCommand,
+  findTopicInSheet
+} from './mind-map-commands'
 
 /**
  * Renderer state for the mind-map view (docs/mindmap/design.md §6.6).
  *
- * Holds the workspace document list, the currently-open document, selection and
- * AI generation state. All IPC calls are guarded against a null active
- * workspace; callers surface an empty state rather than throwing.
+ * Holds the workspace document list, the currently-open v2 document, selection,
+ * editing and AI generation state. Every document mutation goes through the
+ * shared `MindMapUndoRedoStack` (which funnels into the pure command reducer),
+ * then a debounced revisioned save. No direct zustand mutation bypasses the
+ * command/undo-redo path.
  */
-
-export type MindMapUpdatePatch = Partial<Pick<MindMapNode, 'title' | 'note'>>
 
 type MindMapViewState = {
   documents: MindMapSummary[]
-  current: MindMapDocument | null
+  current: MindMapDocumentV2 | null
   selectedNodeId: string | null
+  activeSheetId: string | null
+  editingNodeId: string | null
   generating: boolean
   streamText: string
   error: string | null
@@ -29,18 +55,42 @@ type MindMapViewState = {
   openDocument: (id: string) => Promise<void>
   createDocument: (title: string) => Promise<void>
   deleteDocument: (id: string) => Promise<void>
-  renameDocument: (title: string) => Promise<void>
-  newSheet: () => Promise<void>
 
-  updateNode: (nodeId: string, patch: MindMapUpdatePatch) => void
+  dispatchCommand: (command: MindMapCommand, options?: MindMapExecuteOptions) => void
+  undo: () => void
+  redo: () => void
+
+  renameDocument: (title: string) => void
+  newSheet: () => void
+  renameSheet: (sheetId: string, title: string) => void
+  duplicateSheet: (sheetId: string) => void
+  removeSheet: (sheetId: string) => void
+  reorderSheet: (sheetId: string, toIndex: number) => void
+
   addChild: (parentId: string) => void
   addSibling: (nodeId: string) => void
+  outdent: (nodeId: string) => void
+  insertAbove: (nodeId: string) => void
   deleteNode: (nodeId: string) => void
   toggleCollapse: (nodeId: string) => void
+  updateNode: (nodeId: string, patch: MindMapTopicUpdatePatch) => void
   collapseAll: () => void
   expandAll: () => void
 
+  copyNode: (nodeId: string) => void
+  cutNode: (nodeId: string) => void
+  pasteNode: (parentId: string) => void
+  duplicateNode: (nodeId: string) => void
+
+  setEditingNodeId: (id: string | null) => void
   setAiPrompt: (prompt: string) => void
+  /** Adopt a document already committed by the main-process canonical lane. */
+  adoptCommittedDocument: (
+    document: MindMapDocumentV2,
+    options?: { inverse?: MindMapCommand | null; label?: string }
+  ) => void
+  /** Drain local persistence and return a fail-closed export proof. */
+  flushForExport: () => Promise<MindMapMarkdownExportSnapshot | null>
   generate: (prompt: string) => Promise<void>
 }
 
@@ -48,86 +98,132 @@ function workspaceId(): string | null {
   return useAppStore.getState().appState?.activeWorkspace?.id ?? null
 }
 
-function newNode(title: string): MindMapNode {
-  return { id: crypto.randomUUID(), title, children: [] }
+function activeSheetOf(state: Pick<MindMapViewState, 'current' | 'activeSheetId'>): MindMapSheetV2 | undefined {
+  const doc = state.current
+  if (!doc) return undefined
+  return doc.sheets.find((sheet) => sheet.id === state.activeSheetId) ?? doc.sheets[0]
 }
 
-/** Immutably rebuild the tree with `fn` applied to the node with `id`. */
-function transformNode(
-  node: MindMapNode,
-  id: string,
-  fn: (node: MindMapNode) => MindMapNode
-): MindMapNode {
-  if (node.id === id) return fn(node)
-  const children = node.children.map((child) => transformNode(child, id, fn))
-  return hasChangedChildren(node, children) ? { ...node, children } : node
-}
-
-function hasChangedChildren(node: MindMapNode, children: MindMapNode[]): boolean {
-  return node.children.length !== children.length || node.children.some((c, i) => c !== children[i])
-}
-
-/** Remove the node with `id` (and its subtree) from the tree. */
-function pruneNode(node: MindMapNode, id: string): MindMapNode | null {
-  if (node.id === id) return null
-  const children: MindMapNode[] = []
-  for (const child of node.children) {
-    const kept = pruneNode(child, id)
-    if (kept) children.push(kept)
-  }
-  return hasChangedChildren(node, children) ? { ...node, children } : node
-}
-
-/** Insert `siblingNode` immediately after the node with `siblingId`. */
-function insertSibling(
-  node: MindMapNode,
-  siblingId: string,
-  siblingNode: MindMapNode
-): MindMapNode {
-  const index = node.children.findIndex((child) => child.id === siblingId)
-  if (index >= 0) {
-    const children = [...node.children]
-    children.splice(index + 1, 0, siblingNode)
-    return { ...node, children }
-  }
-  const children = node.children.map((child) => insertSibling(child, siblingId, siblingNode))
-  return hasChangedChildren(node, children) ? { ...node, children } : node
-}
-
-function setCollapsedEverywhere(node: MindMapNode, collapsed: boolean): MindMapNode {
-  return {
-    ...node,
-    collapsed,
-    children: node.children.map((child) => setCollapsedEverywhere(child, collapsed))
-  }
+/**
+ * Resolve a user-selected topic only in the active sheet. Topic IDs are
+ * unique within a sheet, not globally across a document, so searching every
+ * sheet can silently mutate a different sheet when IDs collide.
+ */
+function activeSheetContainingTopic(
+  state: Pick<MindMapViewState, 'current' | 'activeSheetId'>,
+  topicId: string
+): MindMapSheetV2 | undefined {
+  const sheet = activeSheetOf(state)
+  return sheet !== undefined && findTopicInSheet(sheet, topicId) !== undefined ? sheet : undefined
 }
 
 export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
-  // Debounced durable persist for node mutations. Only the head of a burst is
-  // flushed; trailing writes are coalesced so rapid typing does not spam IPC.
+  let undoStack: MindMapUndoRedoStack | null = null
+  let clipboard: MindMapClipboardPayload | null = null
   let persistTimer: ReturnType<typeof setTimeout> | null = null
+  let persistInFlight: Promise<boolean> | null = null
+  let mutationEpoch = 0
+  let dirty = false
+
+  const clearPendingPersist = (): void => {
+    if (persistTimer) {
+      clearTimeout(persistTimer)
+      persistTimer = null
+    }
+  }
+
+  const persistNow = async (): Promise<boolean> => {
+    const state = get()
+    const current = state.current
+    const workspace = workspaceId()
+    if (!current || !workspace) return false
+    const expectedRevision = current.revision
+    const epochAtSend = mutationEpoch
+    const result = await window.teachingSystem?.updateMindMap({
+      workspaceId: workspace,
+      id: current.id,
+      expectedRevision,
+      doc: current
+    })
+    if (!result) return false
+    if (!result.ok) {
+      set({
+        error:
+          `Mind map update conflict: expected revision ${result.expectedRevision}, ` +
+          `current is ${result.currentRevision}. Reload or save a copy.`
+      })
+      return false
+    }
+    const saved = result.document
+    const latest = get().current
+    if (!latest) return false
+    if (epochAtSend === mutationEpoch) {
+      // No edits since the save was sent; adopt the confirmed document.
+      if (undoStack) undoStack.replacePresent(saved)
+      set({ current: saved, error: null })
+      dirty = false
+    } else {
+      // New edits happened after the save was sent; keep the latest content but
+      // carry the confirmed revision forward so the next CAS matches the repo.
+      const merged = { ...latest, revision: saved.revision, updatedAt: saved.updatedAt }
+      if (undoStack) undoStack.replacePresent(merged)
+      set({ current: merged, error: null })
+      dirty = true
+    }
+    await refreshDocuments()
+    return true
+  }
+
+  const runPersist = (): Promise<boolean> => {
+    if (persistInFlight) return persistInFlight
+    const task = persistNow()
+    persistInFlight = task
+    void task.then(
+      () => {
+        if (persistInFlight === task) persistInFlight = null
+      },
+      () => {
+        if (persistInFlight === task) persistInFlight = null
+      }
+    )
+    return task
+  }
 
   const schedulePersist = (): void => {
     if (persistTimer) clearTimeout(persistTimer)
+    dirty = true
     persistTimer = setTimeout(() => {
       persistTimer = null
-      const state = get()
-      const id = state.current?.id
-      const workspace = workspaceId()
-      if (!id || !workspace || !state.current) return
-      void window.teachingSystem?.updateMindMap({
-        workspaceId: workspace,
-        id,
-        doc: state.current
-      })
+      void runPersist()
     }, 400)
   }
 
-  const mutateCurrent = (mutate: (doc: MindMapDocument) => MindMapDocument): void => {
-    const current = get().current
-    if (!current) return
-    const next = mutate(current)
-    set({ current: { ...next, updatedAt: new Date().toISOString() } })
+  const flushForExport = async (): Promise<MindMapMarkdownExportSnapshot | null> => {
+    const before = get().current
+    const workspace = workspaceId()
+    if (!before || !workspace) return null
+
+    // Cancel the debounce and synchronously drain the renderer's own save
+    // lane.  The main-process flush below cannot observe this private timer.
+    clearPendingPersist()
+    if (dirty || persistInFlight) await runPersist()
+
+    const after = get().current
+    if (!after || after.id !== before.id) return null
+
+    // Reuse the existing flush IPC as the final main-process boundary.  The
+    // Markdown handler still reads a fresh snapshot and rechecks every field.
+    await window.teachingSystem?.flushMindMap({ workspaceId: workspace, id: after.id })
+
+    const final = get().current
+    if (!final || final.id !== after.id) return null
+    return {
+      id: final.id,
+      snapshotRevision: final.revision,
+      expectedRevision: final.revision,
+      pendingWrites: persistTimer !== null || persistInFlight !== null,
+      dirty
+    }
   }
 
   const refreshDocuments = async (): Promise<void> => {
@@ -137,10 +233,56 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     if (documents) set({ documents })
   }
 
+  const dispatchCommand = (
+    command: MindMapCommand,
+    options?: MindMapExecuteOptions
+  ): void => {
+    const stack = undoStack
+    if (!stack) return
+    const result = stack.execute(command, options)
+    if (!result.ok) {
+      set({ error: `${result.error.code}: ${result.error.message}` })
+      return
+    }
+    mutationEpoch += 1
+    set({ current: stack.document, error: null })
+    schedulePersist()
+  }
+
+  const undo = (): void => {
+    const stack = undoStack
+    if (!stack) return
+    const result = stack.undo()
+    if (result === null) return
+    if (!result.ok) {
+      set({ error: `${result.error.code}: ${result.error.message}` })
+      return
+    }
+    mutationEpoch += 1
+    set({ current: stack.document, error: null })
+    schedulePersist()
+  }
+
+  const redo = (): void => {
+    const stack = undoStack
+    if (!stack) return
+    const result = stack.redo()
+    if (result === null) return
+    if (!result.ok) {
+      set({ error: `${result.error.code}: ${result.error.message}` })
+      return
+    }
+    mutationEpoch += 1
+    set({ current: stack.document, error: null })
+    schedulePersist()
+  }
+
   return {
     documents: [],
     current: null,
     selectedNodeId: null,
+    activeSheetId: null,
+    editingNodeId: null,
     generating: false,
     streamText: '',
     error: null,
@@ -165,7 +307,19 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       if (!workspace) return
       try {
         const current = await window.teachingSystem?.readMindMap({ workspaceId: workspace, id })
-        if (current) set({ current, selectedNodeId: current.sheets[0]?.root.id ?? null, error: null })
+        if (current) {
+          clearPendingPersist()
+          dirty = false
+          undoStack = new MindMapUndoRedoStack(current)
+          mutationEpoch += 1
+          set({
+            current,
+            selectedNodeId: current.sheets[0]?.root.id ?? null,
+            activeSheetId: current.sheets[0]?.id ?? null,
+            editingNodeId: null,
+            error: null
+          })
+        }
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) })
       }
@@ -177,7 +331,17 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       try {
         const current = await window.teachingSystem?.createMindMap({ workspaceId: workspace, title })
         if (current) {
-          set({ current, selectedNodeId: current.sheets[0]?.root.id ?? null, error: null })
+          clearPendingPersist()
+          dirty = false
+          undoStack = new MindMapUndoRedoStack(current)
+          mutationEpoch += 1
+          set({
+            current,
+            selectedNodeId: current.sheets[0]?.root.id ?? null,
+            activeSheetId: current.sheets[0]?.id ?? null,
+            editingNodeId: null,
+            error: null
+          })
           await refreshDocuments()
         }
       } catch (error) {
@@ -190,165 +354,255 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       if (!workspace) return
       try {
         await window.teachingSystem?.deleteMindMap({ workspaceId: workspace, id })
+        clearPendingPersist()
+        if (get().current?.id === id) dirty = false
+        if (get().current?.id === id) undoStack = null
         set((state) => ({
           documents: state.documents.filter((doc) => doc.id !== id),
-          ...(state.current?.id === id ? { current: null, selectedNodeId: null } : {})
+          ...(state.current?.id === id
+            ? { current: null, selectedNodeId: null, activeSheetId: null, editingNodeId: null }
+            : {})
         }))
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) })
       }
     },
 
-    renameDocument: async (title) => {
+    dispatchCommand,
+
+    undo,
+    redo,
+
+    renameDocument: (title) => {
+      dispatchCommand({ type: 'document.rename', title })
+    },
+
+    newSheet: () => {
       const current = get().current
-      const workspace = workspaceId()
-      if (!current || !workspace) return
-      const next = { ...current, title, updatedAt: new Date().toISOString() }
-      set({ current: next })
-      try {
-        const saved = await window.teachingSystem?.updateMindMap({
-          workspaceId: workspace,
-          id: current.id,
-          doc: next
-        })
-        if (saved) set({ current: saved })
-        await refreshDocuments()
-      } catch (error) {
-        set({ error: error instanceof Error ? error.message : String(error) })
+      if (!current) return
+      const sheetId = crypto.randomUUID()
+      const title = `Sheet ${current.sheets.length + 1}`
+      dispatchCommand({ type: 'sheet.create', sheetId, title })
+      const updated = get().current
+      const created = updated?.sheets.find((sheet) => sheet.id === sheetId)
+      if (created) {
+        set({ activeSheetId: sheetId, selectedNodeId: created.root.id })
       }
     },
 
-    newSheet: async () => {
+    renameSheet: (sheetId, title) => {
+      dispatchCommand({ type: 'sheet.rename', sheetId, title })
+    },
+
+    duplicateSheet: (sheetId) => {
       const current = get().current
-      const workspace = workspaceId()
-      if (!current || !workspace) return
-      const sheet = {
-        id: crypto.randomUUID(),
-        title: `Sheet ${current.sheets.length + 1}`,
-        structureClass: 'org.xmind.ui.logic.right' as const,
-        root: newNode('中心主题')
-      }
-      const next = {
-        ...current,
-        sheets: [...current.sheets, sheet],
-        updatedAt: new Date().toISOString()
-      }
-      set({ current: next, selectedNodeId: sheet.root.id })
-      try {
-        const saved = await window.teachingSystem?.updateMindMap({
-          workspaceId: workspace,
-          id: current.id,
-          doc: next
-        })
-        if (saved) set({ current: saved })
-      } catch (error) {
-        set({ error: error instanceof Error ? error.message : String(error) })
+      if (!current) return
+      const built = buildCopySheetCommand(current, sheetId)
+      if (built) {
+        dispatchCommand(built.command, { label: 'Duplicate sheet' })
+        set({ activeSheetId: built.newSheetId })
+        const updated = get().current
+        const created = updated?.sheets.find((sheet) => sheet.id === built.newSheetId)
+        if (created) set({ selectedNodeId: created.root.id })
       }
     },
 
-    updateNode: (nodeId, patch) => {
-      mutateCurrent((doc) => ({
-        ...doc,
-        sheets: doc.sheets.map((sheet) => ({
-          ...sheet,
-          root: transformNode(sheet.root, nodeId, (node) => ({ ...node, ...patch }))
-        }))
-      }))
-      schedulePersist()
+    removeSheet: (sheetId) => {
+      const current = get().current
+      if (!current) return
+      if (current.sheets.length <= 1) {
+        set({ error: 'Cannot remove the last sheet.' })
+        return
+      }
+      const index = current.sheets.findIndex((sheet) => sheet.id === sheetId)
+      dispatchCommand({ type: 'sheet.remove', sheetId })
+      const updated = get().current
+      if (!updated) return
+      let nextId = get().activeSheetId
+      if (nextId === sheetId) {
+        const next = updated.sheets[Math.min(index, updated.sheets.length - 1)] ?? updated.sheets[0]
+        nextId = next?.id ?? null
+      }
+      set({ activeSheetId: nextId, selectedNodeId: null })
+    },
+
+    reorderSheet: (sheetId, toIndex) => {
+      dispatchCommand({ type: 'sheet.reorder', sheetId, toIndex })
     },
 
     addChild: (parentId) => {
-      const child = newNode('')
-      mutateCurrent((doc) => ({
-        ...doc,
-        sheets: doc.sheets.map((sheet) => ({
-          ...sheet,
-          root: transformNode(sheet.root, parentId, (node) => ({
-            ...node,
-            collapsed: false,
-            children: [...node.children, child]
-          }))
-        }))
-      }))
-      set({ selectedNodeId: child.id })
-      schedulePersist()
+      const sheet = activeSheetContainingTopic(get(), parentId)
+      if (!sheet) return
+      const built = buildInsertChildCommand(sheet.id, parentId)
+      dispatchCommand(built.command, { label: 'Insert child' })
+      set({ selectedNodeId: built.nodeId })
     },
 
     addSibling: (nodeId) => {
-      const sibling = newNode('')
-      mutateCurrent((doc) => ({
-        ...doc,
-        sheets: doc.sheets.map((sheet) => ({
-          ...sheet,
-          root: insertSibling(sheet.root, nodeId, sibling)
-        }))
-      }))
-      set({ selectedNodeId: sibling.id })
-      schedulePersist()
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!sheet) return
+      const built = buildInsertSiblingCommand(sheet, nodeId)
+      if (built) {
+        dispatchCommand(built.command, { label: 'Insert sibling' })
+        set({ selectedNodeId: built.nodeId })
+      }
+    },
+
+    outdent: (nodeId) => {
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!sheet) return
+      const command = buildOutdentCommand(sheet, nodeId)
+      if (command) dispatchCommand(command, { label: 'Outdent' })
+    },
+
+    insertAbove: (nodeId) => {
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!sheet) return
+      const built = buildInsertAboveCommand(sheet, nodeId)
+      if (built) {
+        dispatchCommand(built.command, { label: 'Insert above' })
+        set({ selectedNodeId: built.nodeId })
+      }
     },
 
     deleteNode: (nodeId) => {
-      const current = get().current
-      if (!current) return
-      const root = current.sheets[0]?.root
-      if (root && root.id === nodeId) {
-        // Deleting the root would empty the tree; keep a minimal placeholder.
-        mutateCurrent((doc) => ({
-          ...doc,
-          sheets: doc.sheets.map((sheet) => ({ ...sheet, root: newNode('中心主题') }))
-        }))
-        set({ selectedNodeId: root.id })
-        schedulePersist()
-        return
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!sheet) return
+      const command = buildRemoveCommand(sheet, nodeId)
+      if (command) {
+        dispatchCommand(command, { label: 'Delete topic' })
+        set({ selectedNodeId: null })
       }
-      mutateCurrent((doc) => ({
-        ...doc,
-        sheets: doc.sheets.map((sheet) => {
-          const pruned = pruneNode(sheet.root, nodeId)
-          return pruned ? { ...sheet, root: pruned } : sheet
-        })
-      }))
-      set({ selectedNodeId: null })
-      schedulePersist()
     },
 
     toggleCollapse: (nodeId) => {
-      mutateCurrent((doc) => ({
-        ...doc,
-        sheets: doc.sheets.map((sheet) => ({
-          ...sheet,
-          root: transformNode(sheet.root, nodeId, (node) => ({
-            ...node,
-            collapsed: !(node.collapsed === true)
-          }))
-        }))
-      }))
-      schedulePersist()
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!sheet) return
+      const ref = findTopicInSheet(sheet, nodeId)
+      if (!ref) return
+      const collapsed = !(ref.node.collapsed === true)
+      dispatchCommand(buildToggleCollapseCommand(sheet.id, nodeId, collapsed), {
+        label: 'Toggle collapse'
+      })
+    },
+
+    updateNode: (nodeId, patch) => {
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!sheet) return
+      dispatchCommand(
+        { type: 'topic.update', sheetId: sheet.id, topicId: nodeId, patch },
+        { label: 'Update topic' }
+      )
     },
 
     collapseAll: () => {
-      mutateCurrent((doc) => ({
-        ...doc,
-        sheets: doc.sheets.map((sheet) => ({
-          ...sheet,
-          root: setCollapsedEverywhere(sheet.root, true)
-        }))
-      }))
-      schedulePersist()
+      const sheet = activeSheetOf(get())
+      if (!sheet) return
+      dispatchCommand(buildCollapseAllCommand(sheet.id, sheet.root), { label: 'Collapse all' })
     },
 
     expandAll: () => {
-      mutateCurrent((doc) => ({
-        ...doc,
-        sheets: doc.sheets.map((sheet) => ({
-          ...sheet,
-          root: setCollapsedEverywhere(sheet.root, false)
-        }))
-      }))
-      schedulePersist()
+      const sheet = activeSheetOf(get())
+      if (!sheet) return
+      dispatchCommand(buildExpandAllCommand(sheet.id, sheet.root), { label: 'Expand all' })
     },
 
+    copyNode: (nodeId) => {
+      const current = get().current
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!current || !sheet) return
+      const payload = buildCopyPayload(current, sheet.id, nodeId)
+      if (payload) clipboard = payload
+    },
+
+    cutNode: (nodeId) => {
+      const current = get().current
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!current || !sheet) return
+      const payload = buildCutPayload(current, sheet.id, nodeId)
+      if (payload) {
+        clipboard = payload
+        const command = buildRemoveCommand(sheet, nodeId)
+        if (command) {
+          dispatchCommand(command, { label: 'Cut topic' })
+          set({ selectedNodeId: null })
+        }
+      }
+    },
+
+    pasteNode: (parentId) => {
+      const current = get().current
+      const sheet = activeSheetContainingTopic(get(), parentId)
+      if (!current || !sheet || !clipboard || clipboard.kind === 'paste') return
+      const built = buildPasteCommandForPayload(
+        {
+          kind: 'paste',
+          data: clipboard.data,
+          targetSheetId: sheet.id,
+          targetParentId: parentId
+        },
+        sheet.id,
+        parentId
+      )
+      dispatchCommand(built.command, { label: 'Paste topic' })
+      if (built.pastedRootId) set({ selectedNodeId: built.pastedRootId })
+    },
+
+    duplicateNode: (nodeId) => {
+      const current = get().current
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!current || !sheet) return
+      const built = buildDuplicateCommand(current, sheet.id, nodeId)
+      if (built) {
+        dispatchCommand(built.command, { label: 'Duplicate topic' })
+        set({ selectedNodeId: built.pastedRootId })
+      }
+    },
+
+    setEditingNodeId: (editingNodeId) => set({ editingNodeId }),
+
     setAiPrompt: (aiPrompt) => set({ aiPrompt }),
+
+    adoptCommittedDocument: (document, options = {}) => {
+      const state = get()
+      const current = state.current
+      if (current !== null && current.id !== document.id) return
+
+      clearPendingPersist()
+      dirty = false
+      mutationEpoch += 1
+
+      if (undoStack === null) {
+        undoStack = new MindMapUndoRedoStack(document)
+      } else {
+        undoStack.commitExternal(
+          document,
+          options.inverse ?? null,
+          options.label ?? 'Apply AI proposal'
+        )
+      }
+
+      const activeSheetId =
+        state.activeSheetId && document.sheets.some((sheet) => sheet.id === state.activeSheetId)
+          ? state.activeSheetId
+          : document.sheets[0]?.id ?? null
+      const activeSheet = document.sheets.find((sheet) => sheet.id === activeSheetId)
+      const selectedNodeId =
+        state.selectedNodeId && activeSheet && findTopicInSheet(activeSheet, state.selectedNodeId)
+          ? state.selectedNodeId
+          : activeSheet?.root.id ?? null
+
+      set({
+        current: document,
+        selectedNodeId,
+        activeSheetId,
+        editingNodeId: null,
+        error: null
+      })
+      void refreshDocuments()
+    },
+
+    flushForExport,
 
     generate: async (prompt) => {
       const workspace = workspaceId()
@@ -361,9 +615,15 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
           prompt
         })
         if (current) {
+          clearPendingPersist()
+          dirty = false
+          undoStack = new MindMapUndoRedoStack(current)
+          mutationEpoch += 1
           set({
             current,
             selectedNodeId: current.sheets[0]?.root.id ?? null,
+            activeSheetId: current.sheets[0]?.id ?? null,
+            editingNodeId: null,
             streamText: '',
             aiPrompt: ''
           })

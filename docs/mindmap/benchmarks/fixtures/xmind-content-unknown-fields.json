@@ -1,0 +1,31 @@
+[
+  {
+    "class": "sheet",
+    "id": "xmind-sheet-unknown",
+    "title": "未知字段 Sheet",
+    "structureClass": "org.xmind.ui.logic.right",
+    "rootTopic": {
+      "class": "topic",
+      "id": "t1",
+      "title": "Root",
+      "x-custom-field": {
+        "nested": {
+          "value": 42
+        }
+      },
+      "children": {
+        "attached": [
+          {
+            "class": "topic",
+            "id": "t2",
+            "title": "分支",
+            "some-future-key": "future-value"
+          }
+        ]
+      }
+    },
+    "x-sheet-extension": {
+      "note": "unknown sheet field"
+    }
+  }
+]

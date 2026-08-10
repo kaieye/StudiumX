@@ -1,12 +1,13 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createMindMapStore } from '../../src/main/mindmap/mind-map-store'
-import { mindMapDocumentSchema } from '../../src/shared/mindmap/mind-map-schema'
-import type { MindMapDocument } from '../../src/shared/mindmap/mind-map-types'
+import { mindMapDocumentV2Schema } from '../../src/shared/mindmap/domain/schema'
+import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
+import type { MindMapUpdateResult } from '../../src/shared/teaching-types/mindmap'
 
 const createdRoots: string[] = []
 
@@ -25,26 +26,38 @@ async function tick(): Promise<void> {
   await new Promise((resolveTick) => setTimeout(resolveTick, 5))
 }
 
-function makeDocument(overrides: Partial<MindMapDocument> = {}): MindMapDocument {
+function makeDocument(overrides: Partial<MindMapDocumentV2> = {}): MindMapDocumentV2 {
   const now = '2026-08-09T00:00:00.000Z'
   return {
-    ...mindMapDocumentSchema.parse({
-      schemaVersion: 1,
+    ...mindMapDocumentV2Schema.parse({
+      schemaVersion: 2,
       id: 'doc-1',
+      revision: 1,
       title: 'Test',
       createdAt: now,
       updatedAt: now,
+      theme: { id: 'studiumx-default' },
       sheets: [
         {
           id: 'sheet-1',
           title: 'Sheet 1',
-          structureClass: 'org.xmind.ui.logic.right',
-          root: { id: 'root-1', title: 'Root', children: [] }
+          root: { id: 'root-1', title: 'Root', children: [] },
+          elements: [],
+          layout: { structureClass: 'org.xmind.ui.logic.right' }
         }
-      ]
+      ],
+      assets: []
     }),
     ...overrides
   }
+}
+
+/** Assert a CAS update succeeded and return the persisted v2 document. */
+function expectUpdateOk(result: MindMapUpdateResult): MindMapDocumentV2 {
+  if (result.ok) return result.document
+  throw new Error(
+    `Unexpected revision conflict: expected ${result.expectedRevision}, current ${result.currentRevision}`
+  )
 }
 
 describe('createMindMapStore', () => {
@@ -69,24 +82,26 @@ describe('createMindMapStore', () => {
     const store = createMindMapStore(root)
     const created = await store.create('Before')
 
-    const updated = await store.update(created.id, {
+    const updated = expectUpdateOk(await store.update(created.id, {
       ...created,
       title: 'After',
       sheets: [
         {
           id: 'sheet-1',
           title: 'Sheet 1',
-          structureClass: 'org.xmind.ui.logic.right',
-          root: { id: 'root-1', title: 'Root', children: [] }
+          root: { id: 'root-1', title: 'Root', children: [] },
+          elements: [],
+          layout: { structureClass: 'org.xmind.ui.logic.right' }
         },
         {
           id: 'sheet-2',
           title: 'Sheet 2',
-          structureClass: 'org.xmind.ui.logic.balanced',
-          root: { id: 'root-2', title: 'Root 2', children: [] }
+          root: { id: 'root-2', title: 'Root 2', children: [] },
+          elements: [],
+          layout: { structureClass: 'org.xmind.ui.logic.balanced' }
         }
       ]
-    })
+    }, created.revision))
 
     expect(updated.title).toBe('After')
     expect(updated.updatedAt).toBeDefined()
@@ -98,13 +113,70 @@ describe('createMindMapStore', () => {
     expect(read.updatedAt).toBe(updated.updatedAt)
   })
 
+  it('does not overwrite a confirmed update after a stale revision conflict', async () => {
+    const root = await createRoot()
+    const store = createMindMapStore(root)
+    const created = await store.create('Before')
+
+    const confirmed = expectUpdateOk(
+      await store.update(created.id, { ...created, title: 'Confirmed' }, created.revision)
+    )
+    expect(confirmed.revision).toBe(created.revision + 1)
+
+    const stale = await store.update(
+      created.id,
+      { ...created, title: 'Stale overwrite attempt' },
+      created.revision
+    )
+    expect(stale).toEqual({
+      ok: false,
+      code: 'revision_stale',
+      expectedRevision: created.revision,
+      currentRevision: confirmed.revision
+    })
+
+    const persisted = await store.read(created.id)
+    expect(persisted.title).toBe('Confirmed')
+    expect(persisted.revision).toBe(confirmed.revision)
+  })
+
+  it('serializes concurrent compare-and-swap updates for one document', async () => {
+    const root = await createRoot()
+    const store = createMindMapStore(root)
+    const created = await store.create('Before')
+
+    // Both callers intentionally use the same revision.  The repository must
+    // serialize the initial read + CAS check, not just the eventual file
+    // rename, so exactly one update can claim revision 2.
+    const [first, second] = await Promise.all([
+      store.update(created.id, { ...created, title: 'First writer' }, created.revision),
+      store.update(created.id, { ...created, title: 'Second writer' }, created.revision)
+    ])
+
+    const results = [first, second]
+    expect(results.filter((result) => result.ok)).toHaveLength(1)
+    expect(results.filter((result) => !result.ok)).toHaveLength(1)
+
+    const conflict = results.find((result) => !result.ok)
+    expect(conflict).toEqual({
+      ok: false,
+      code: 'revision_stale',
+      expectedRevision: created.revision,
+      currentRevision: created.revision + 1
+    })
+
+    const winner = results.find((result) => result.ok)
+    if (!winner || !winner.ok) throw new Error('Expected one successful update')
+    await expect(store.read(created.id)).resolves.toEqual(winner.document)
+  })
+
   it('update rejects a document whose id does not match', async () => {
     const root = await createRoot()
     const store = createMindMapStore(root)
     const created = await store.create('Doc')
 
     // Pass a different requested id than the document's own id.
-    await expect(store.update('other-id', created)).rejects.toThrow(/id mismatch/)
+    await expect(store.update('other-id', created, created.revision)).rejects.toThrow(/id mismatch/)
   })
 
   it('remove deletes the file', async () => {
@@ -140,9 +212,9 @@ describe('createMindMapStore', () => {
 
     // Force an ordering: update third last so it becomes the most recent.
     await tick()
-    await store.update(third.id, { ...third, title: 'third updated' })
+    await expectUpdateOk(await store.update(third.id, { ...third, title: 'third updated' }, third.revision))
     await tick()
-    await store.update(second.id, { ...second, title: 'second updated' })
+    await expectUpdateOk(await store.update(second.id, { ...second, title: 'second updated' }, second.revision))
 
     const list = await store.list()
 
@@ -162,7 +234,45 @@ describe('createMindMapStore', () => {
     await expect(store.remove('../../etc/passwd')).rejects.toThrow(/Invalid mind map id/)
 
     const doc = makeDocument({ id: 'UPPERCASE' })
-    await expect(store.update('UPPERCASE', doc)).rejects.toThrow(/Invalid mind map id/)
+    await expect(store.update('UPPERCASE', doc, 1)).rejects.toThrow(/Invalid mind map id/)
+  })
+
+  it('replaces a crash-recovery journal before the next update', async () => {
+    const root = await createRoot()
+    const initialStore = createMindMapStore(root)
+    const created = await initialStore.create('Before crash')
+
+    // Simulate a process crash after the journal was published but before the
+    // journal snapshot was renamed over the main document.
+    const recovered = {
+      ...created,
+      revision: created.revision + 1,
+      title: 'Recovered snapshot',
+      updatedAt: '2026-08-09T00:00:01.000Z'
+    }
+    const journalPath = join(root, 'mindmaps', `.${created.id}.json.journal`)
+    await writeFile(journalPath, JSON.stringify(recovered, null, 2))
+
+    const store = createMindMapStore(root)
+    await expect(store.read(created.id)).resolves.toEqual(recovered)
+
+    const updated = expectUpdateOk(
+      await store.update(
+        created.id,
+        { ...recovered, title: 'After recovery' },
+        recovered.revision
+      )
+    )
+
+    expect(updated.revision).toBe(recovered.revision + 1)
+    expect(updated.title).toBe('After recovery')
+    await expect(store.read(created.id)).resolves.toEqual(updated)
+    await expect(
+      readFile(join(root, 'mindmaps', `${created.id}.json`), 'utf8').then((content) =>
+        JSON.parse(content)
+      )
+    ).resolves.toEqual(updated)
+    await expect(readdir(join(root, 'mindmaps'))).resolves.toEqual([`${created.id}.json`])
   })
 
   it('durable write leaves no .tmp file after update', async () => {
@@ -170,7 +280,7 @@ describe('createMindMapStore', () => {
     const store = createMindMapStore(root)
     const created = await store.create('Doc')
 
-    await store.update(created.id, { ...created, title: 'Updated' })
+    await expectUpdateOk(await store.update(created.id, { ...created, title: 'Updated' }, created.revision))
 
     const files = await readdir(join(root, 'mindmaps'))
     expect(files).toHaveLength(1)

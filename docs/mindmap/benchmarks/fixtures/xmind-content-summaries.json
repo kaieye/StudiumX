@@ -1,0 +1,42 @@
+[
+  {
+    "class": "sheet",
+    "id": "xmind-sheet-summaries",
+    "title": "概要 Sheet",
+    "structureClass": "org.xmind.ui.logic.down",
+    "rootTopic": {
+      "class": "topic",
+      "id": "t1",
+      "title": "Root",
+      "children": {
+        "attached": [
+          {
+            "class": "topic",
+            "id": "t2",
+            "title": "A"
+          },
+          {
+            "class": "topic",
+            "id": "t3",
+            "title": "B"
+          },
+          {
+            "class": "topic",
+            "id": "t4",
+            "title": "C"
+          }
+        ]
+      }
+    },
+    "summaries": [
+      {
+        "id": "sum-1",
+        "title": "A–B 总结",
+        "range": {
+          "startId": "t2",
+          "endId": "t3"
+        }
+      }
+    ]
+  }
+]

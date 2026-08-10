@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "id": "benchmark-doc-10-nodes-v2",
+  "revision": 1,
+  "title": "10 节点基准导图 (v2)",
+  "createdAt": "2026-08-09T00:00:00.000Z",
+  "updatedAt": "2026-08-09T00:00:00.000Z",
+  "theme": {
+    "id": "benchmark-default",
+    "name": "Benchmark Default",
+    "background": "#ffffff",
+    "branchColors": [
+      "#2563eb",
+      "#16a34a",
+      "#dc2626"
+    ],
+    "textColor": "#1f2937",
+    "lineColor": "#94a3b8",
+    "fontFamily": "system-ui, sans-serif"
+  },
+  "sheets": [
+    {
+      "id": "s1",
+      "title": "Sheet 1",
+      "root": {
+        "id": "s1-n1",
+        "title": "Root",
+        "children": [
+          {
+            "id": "s1-n2",
+            "title": "Node 2",
+            "children": [
+              {
+                "id": "s1-n3",
+                "title": "Node 3",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "s1-n4",
+            "title": "Node 4",
+            "children": [
+              {
+                "id": "s1-n10",
+                "title": "Node 10",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "s1-n5",
+            "title": "Node 5",
+            "children": [
+              {
+                "id": "s1-n6",
+                "title": "Node 6",
+                "children": []
+              },
+              {
+                "id": "s1-n7",
+                "title": "Node 7",
+                "children": []
+              },
+              {
+                "id": "s1-n9",
+                "title": "Node 9",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "s1-n8",
+            "title": "Node 8",
+            "children": []
+          }
+        ]
+      },
+      "elements": [],
+      "layout": {
+        "structureClass": "org.xmind.ui.logic.right"
+      },
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      }
+    }
+  ],
+  "assets": [],
+  "interop": {
+    "migratedFrom": {
+      "schemaVersion": 1
+    }
+  }
+}

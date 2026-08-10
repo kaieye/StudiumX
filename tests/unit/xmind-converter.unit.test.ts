@@ -107,6 +107,80 @@ describe('documentToXmindContent', () => {
     const root = sheet.rootTopic as Record<string, unknown>
     expect(root.children).toBeUndefined()
   })
+
+  it('round-trips sheet relationships through XMind endpoint wrappers', () => {
+    const doc = sampleDocument()
+    doc.sheets[0].relationships = [
+      {
+        id: 'relationship-1',
+        from: 'root-1',
+        to: 'branch-1',
+        label: 'depends on'
+      }
+    ]
+
+    const content = documentToXmindContent(doc)
+    expect(content[0].relationships).toEqual([
+      {
+        class: 'relationship',
+        id: 'relationship-1',
+        end1: { id: 'root-1' },
+        end2: { id: 'branch-1' },
+        title: 'depends on'
+      }
+    ])
+
+    const roundTripped = xmindContentToDocument(content, { nowIso: NOW })
+    expect(roundTripped.sheets[0].relationships).toEqual([
+      {
+        id: 'relationship-1',
+        from: 'root-1',
+        to: 'branch-1',
+        label: 'depends on'
+      }
+    ])
+  })
+
+  it('imports XMind relationships that use compact endpoint ids', () => {
+    const doc = xmindContentToDocument(
+      [
+        {
+          class: 'sheet',
+          id: 'sheet-compact-relationship',
+          title: 'Compact relationship',
+          rootTopic: {
+            class: 'topic',
+            id: 'root-compact',
+            title: 'Root',
+            children: {
+              attached: [
+                { class: 'topic', id: 'child-compact', title: 'Child' }
+              ]
+            }
+          },
+          relationships: [
+            {
+              class: 'relationship',
+              id: 'relationship-compact',
+              end1Id: 'root-compact',
+              end2Id: 'child-compact',
+              title: 'depends on'
+            }
+          ]
+        }
+      ],
+      { nowIso: NOW }
+    )
+
+    expect(doc.sheets[0]?.relationships).toEqual([
+      {
+        id: 'relationship-compact',
+        from: 'root-compact',
+        to: 'child-compact',
+        label: 'depends on'
+      }
+    ])
+  })
 })
 
 describe('xmindContentToDocument', () => {
@@ -213,6 +287,41 @@ describe('xmindContentToDocument', () => {
     expect(doc.sheets[0].root.id).toBe('r1')
     expect(doc.sheets[0].root.children[0].id).toBe('c1')
     expect(doc.sheets[0].root.children[0].title).toBe('Child')
+  })
+
+  it('maps a resolved embedded image path to a topic asset id', () => {
+    const content = [
+      {
+        class: 'sheet',
+        id: 's1',
+        title: 'Images',
+        rootTopic: {
+          class: 'topic',
+          id: 'r1',
+          title: 'Root',
+          image: { src: 'attachments/diagram.png' },
+          children: {
+            attached: [
+              {
+                class: 'topic',
+                id: 'c1',
+                title: 'Child',
+                image: { src: 'attachments/other.png' }
+              }
+            ]
+          }
+        }
+      }
+    ]
+
+    const doc = xmindContentToDocument(content, {
+      nowIso: NOW,
+      assetIdForPath: (path) =>
+        path === 'attachments/diagram.png' ? 'asset-1' : undefined
+    })
+
+    expect(doc.sheets[0]?.root.assetIds).toEqual(['asset-1'])
+    expect(doc.sheets[0]?.root.children[0]).not.toHaveProperty('assetIds')
   })
 
   it('defaults a missing structureClass to right', () => {

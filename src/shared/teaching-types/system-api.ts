@@ -141,16 +141,36 @@ import type {
   ProjectAgentSessionQueuePayload,
   ProjectAgentSessionQueueResult
 } from './agent-session-queue'
-import type { MindMapDocument, MindMapSummary } from '../mindmap/mind-map-types'
+import type { MindMapDocumentV2 } from '../mindmap/domain/types'
+import type { MindMapSummary } from '../mindmap/mind-map-types'
 import type {
   MindMapAccessPayload,
+  MindMapCancelGenerationPayload,
   MindMapCreatePayload,
   MindMapExportPayload,
+  MindMapMarkdownExportPayload,
+  MindMapMarkdownImportPayload,
+  MindMapOpmlExportPayload,
+  MindMapOpmlImportPayload,
+  MindMapPngExportPayload,
+  MindMapSvgExportPayload,
   MindMapGeneratePayload,
   MindMapImportPayload,
+  MindMapXmindImportResult,
+  MindMapFlushPayload,
   MindMapListPayload,
-  MindMapUpdatePayload
+  MindMapProposalApplyPayload,
+  MindMapProposalApplyResult,
+  MindMapProposalGeneratePayload,
+  MindMapProposalGenerateResult,
+  MindMapSourceRefreshApplyPayload,
+  MindMapSourceRefreshApplyResult,
+  MindMapSourceRefreshPayload,
+  MindMapSourceRefreshPreviewResult,
+  MindMapUpdatePayload,
+  MindMapUpdateResult
 } from './mindmap'
+import type { MindMapStreamChunk, MindMapStreamStatus } from './mindmap'
 
 /** Versioned renderer command for committing a canonical Learning Session outcome. */
 export type CommitLearningOutcomeRequest = {
@@ -492,17 +512,51 @@ export type TeachingSystemApi = {
   /** List mind maps in the workspace (docs/mindmap §4). */
   listMindMaps: (payload: MindMapListPayload) => Promise<MindMapSummary[]>
   /** Create a new empty mind map document. */
-  createMindMap: (payload: MindMapCreatePayload) => Promise<MindMapDocument>
+  createMindMap: (payload: MindMapCreatePayload) => Promise<MindMapDocumentV2>
   /** Read one mind map document. */
-  readMindMap: (payload: MindMapAccessPayload) => Promise<MindMapDocument>
+  readMindMap: (payload: MindMapAccessPayload) => Promise<MindMapDocumentV2>
   /** Update (persist) one mind map document. */
-  updateMindMap: (payload: MindMapUpdatePayload) => Promise<MindMapDocument>
+  updateMindMap: (payload: MindMapUpdatePayload) => Promise<MindMapUpdateResult>
   /** Delete one mind map document (idempotent). */
   deleteMindMap: (payload: MindMapAccessPayload) => Promise<void>
   /** AI-generate a mind map from a prompt, then persist and return it. */
-  generateMindMap: (payload: MindMapGeneratePayload) => Promise<MindMapDocument>
-  /** Import an `.xmind` file, persist it, and return the document. */
-  importMindMapXmind: (payload: MindMapImportPayload) => Promise<MindMapDocument>
+  generateMindMap: (payload: MindMapGeneratePayload) => Promise<MindMapDocumentV2>
+  /** Receive provider deltas for the active, generation-correlated preview. */
+  onMindMapStreamChunk: (handler: (chunk: MindMapStreamChunk) => void) => () => void
+  /** Receive lifecycle statuses for the active, generation-correlated preview. */
+  onMindMapStreamStatus: (handler: (status: MindMapStreamStatus) => void) => () => void
+  /** Cancel an in-flight AI mind-map generation (propagates to the provider request). */
+  cancelMindMapGeneration: (payload: MindMapCancelGenerationPayload) => Promise<{ canceled: boolean }>
+  /** Import XMind while preserving legacy document fields and exposing the compatibility audit. */
+  importMindMapXmind: (payload: MindMapImportPayload) => Promise<MindMapXmindImportResult>
+  /** Import the StudiumX Markdown tree/notes subset, persist it, and return the document. */
+  importMindMapMarkdown: (payload: MindMapMarkdownImportPayload) => Promise<MindMapDocumentV2>
+  /** Import the StudiumX OPML tree/notes subset, persist it, and return the document. */
+  importMindMapOpml: (payload: MindMapOpmlImportPayload) => Promise<MindMapDocumentV2>
+  /** Flush pending mind map autosave before switching/closing/exporting. */
+  flushMindMap: (payload: MindMapFlushPayload) => Promise<void>
+  /** Preview source-anchor freshness without mutating the canonical document. */
+  previewMindMapSourceRefresh: (
+    payload: MindMapSourceRefreshPayload
+  ) => Promise<MindMapSourceRefreshPreviewResult>
+  /** Apply explicitly confirmed source metadata to every matching topic occurrence. */
+  applyMindMapSourceRefresh: (
+    payload: MindMapSourceRefreshApplyPayload
+  ) => Promise<MindMapSourceRefreshApplyResult>
+  /** Validate and CAS-apply reviewed AI proposal items through the reducer. */
+  applyMindMapProposal: (payload: MindMapProposalApplyPayload) => Promise<MindMapProposalApplyResult>
+  /** Generate a read-only, revision-bound provider proposal for later review/apply. */
+  generateMindMapProposal: (
+    payload: MindMapProposalGeneratePayload
+  ) => Promise<MindMapProposalGenerateResult>
   /** Export one mind map as an `.xmind` file into a directory. */
   exportMindMapXmind: (payload: MindMapExportPayload) => Promise<{ path: string }>
+  /** Export one clean, durably acknowledged mind map as Markdown. */
+  exportMindMapMarkdown: (payload: MindMapMarkdownExportPayload) => Promise<{ path: string }>
+  /** Export one clean, durably acknowledged mind map as OPML. */
+  exportMindMapOpml: (payload: MindMapOpmlExportPayload) => Promise<{ path: string }>
+  /** Export one clean, durably acknowledged rendered sheet as SVG. */
+  exportMindMapSvg: (payload: MindMapSvgExportPayload) => Promise<{ path: string }>
+  /** Export one clean, durably acknowledged rendered sheet as PNG. */
+  exportMindMapPng: (payload: MindMapPngExportPayload) => Promise<{ path: string }>
 }
