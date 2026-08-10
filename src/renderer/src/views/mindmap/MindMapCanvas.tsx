@@ -517,10 +517,12 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction }: Ca
             const isHovered = node.id === hoveredNodeId
             const focused = isSelected || isHovered
             const isEditing = node.id === editingNodeId
+            const depthClass = node.depth === 0 ? ' is-root' : node.depth === 1 ? ' is-branch' : ''
             return (
               <g
                 key={node.id}
-                className={`mindmap-node-group${isSelected ? ' is-selected' : ''}`}
+                className={`mindmap-node-group${isSelected ? ' is-selected' : ''}${depthClass}`}
+                data-depth={node.depth}
                 role="button"
                 tabIndex={isSelected ? 0 : -1}
                 aria-label={node.title || t('mindmap.untitledTopic')}
@@ -540,7 +542,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction }: Ca
                   y={node.y}
                   width={node.width}
                   height={node.height}
-                  rx={10}
+                  rx={node.depth === 0 ? node.height / 2 : 10}
                 />
                 {isEditing ? (
                   <foreignObject
@@ -614,19 +616,29 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction }: Ca
                 })}
 
                 {node.collapsed ? (
-                  <text
+                  <g
                     className="mindmap-collapse-badge"
-                    x={node.x + node.width}
-                    y={node.y + node.height / 2}
-                    textAnchor="middle"
-                    dominantBaseline="central"
                     onClick={(event) => {
                       event.stopPropagation()
                       toggleCollapse(node.id)
                     }}
                   >
-                    +
-                  </text>
+                    <circle
+                      className="mindmap-collapse-badge-circle"
+                      cx={node.x + node.width + 2}
+                      cy={node.y + node.height / 2}
+                      r={8}
+                    />
+                    <text
+                      className="mindmap-collapse-badge-symbol"
+                      x={node.x + node.width + 2}
+                      y={node.y + node.height / 2}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                    >
+                      +
+                    </text>
+                  </g>
                 ) : null}
 
                 {focused && !isEditing ? (

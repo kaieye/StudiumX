@@ -516,7 +516,7 @@
 
 .mindmap-search__result-fields {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 /* ---- current-sheet sources ---- */
@@ -572,7 +572,7 @@
   max-width: 100%;
   padding: 2px 6px;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.2;
   background: transparent;
   border: 1px solid var(--line);
@@ -654,7 +654,7 @@
 .mindmap-sources__item-location,
 .mindmap-sources__item-meta {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .mindmap-sources__refresh-status,
@@ -708,7 +708,7 @@
   gap: 6px;
   margin-top: 6px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .mindmap-sources__apply {
@@ -720,7 +720,7 @@
   min-height: 23px;
   padding: 3px 6px;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 10px;
   background: transparent;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -795,21 +795,21 @@
 .mindmap-sources__refresh-entry-head > span {
   flex: 0 0 auto;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .mindmap-sources__refresh-location,
 .mindmap-sources__refresh-unchanged {
   display: block;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .mindmap-sources__refresh-diff {
   display: grid;
   gap: 3px;
   margin: 5px 0 0;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .mindmap-sources__refresh-diff > div {
@@ -832,7 +832,7 @@
 .mindmap-sources__refresh-diff code {
   overflow-wrap: anywhere;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 8px;
+  font-size: 9px;
 }
 
 /* ---- center: stage + toolbar ---- */
@@ -847,9 +847,9 @@
 .mindmap-toolbar {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: 2px;
   flex-wrap: wrap;
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px var(--space-md);
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
@@ -857,7 +857,46 @@
 .mindmap-toolbar__group {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: 2px;
+}
+
+.mindmap-toolbar__group--end {
+  margin-left: auto;
+}
+
+.mindmap-toolbar__divider {
+  flex: 0 0 1px;
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--line-strong);
+}
+
+.mindmap-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.mindmap-tool:hover:not(:disabled),
+.mindmap-tool:focus-visible {
+  color: var(--accent);
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.mindmap-tool:disabled {
+  cursor: default;
+  opacity: 0.38;
 }
 
 .mindmap-rename {
@@ -1077,24 +1116,32 @@
 .mindmap-sheet-tabs {
   display: flex;
   gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px var(--space-md);
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
 
 .mindmap-sheet-tab {
-  padding: 4px 10px;
+  padding: 4px 12px;
   font-size: 12px;
   color: var(--text-muted);
   background: transparent;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.mindmap-sheet-tab:hover:not(.is-active) {
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 .mindmap-sheet-tab.is-active {
   color: var(--accent);
+  font-weight: 600;
   background: var(--accent-soft);
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .mindmap-empty {
@@ -1105,9 +1152,13 @@
   gap: var(--space-sm);
   flex: 1;
   padding: var(--space-xl);
-  color: var(--text-muted);
+  color: var(--text-soft);
   font-size: 13px;
   text-align: center;
+}
+
+.mindmap-empty svg {
+  color: var(--text-faint);
 }
 
 /* ---- canvas ---- */
@@ -1122,6 +1173,13 @@
   background-size: 22px 22px;
 }
 
+.mindmap-canvas--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+
 .mindmap-svg {
   display: block;
   width: 100%;
@@ -1132,8 +1190,9 @@
 
 .mindmap-edge {
   fill: none;
-  stroke: var(--line-strong);
-  stroke-width: 1.5;
+  stroke: color-mix(in srgb, var(--accent) 30%, var(--line-strong));
+  stroke-width: 1.75;
+  stroke-linecap: round;
 }
 
 /* Sheet-level relationships are intentionally distinct from tree edges. */
@@ -1218,15 +1277,41 @@
 
 .mindmap-node-rect {
   fill: var(--surface-solid);
-  stroke: var(--line);
+  stroke: var(--line-strong);
   stroke-width: 1.2;
-  transition: stroke 120ms ease, fill 120ms ease;
+  filter: drop-shadow(0 1px 3px rgba(20, 47, 95, 0.12));
+  transition: stroke 120ms ease, fill 120ms ease, filter 120ms ease;
+}
+
+/* Depth-tiered node styling: root stands out, first-level branches are
+   tinted, deeper topics stay quiet. */
+.mindmap-node-group.is-root .mindmap-node-rect {
+  fill: var(--accent);
+  stroke: var(--accent);
+  filter: drop-shadow(0 3px 8px color-mix(in srgb, var(--accent) 38%, transparent));
+}
+
+.mindmap-node-group.is-root .mindmap-node-label {
+  fill: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mindmap-node-group.is-branch .mindmap-node-rect {
+  fill: var(--accent-soft);
+  stroke: color-mix(in srgb, var(--accent) 42%, transparent);
 }
 
 .mindmap-node-group.is-selected .mindmap-node-rect {
   stroke: var(--accent);
   stroke-width: 2;
   fill: var(--accent-soft);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 45%, transparent));
+}
+
+.mindmap-node-group.is-root.is-selected .mindmap-node-rect {
+  fill: var(--accent);
+  stroke: var(--accent-hover);
 }
 
 .mindmap-node-group:hover .mindmap-node-rect {
@@ -1240,6 +1325,16 @@
 .mindmap-node-group:focus-visible .mindmap-node-rect {
   stroke: var(--accent);
   stroke-width: 2;
+}
+
+/* The dark accent is a light blue — flip the root label to a dark ink so it
+   stays readable on the accent fill. */
+:root[data-resolved-theme="dark"] .mindmap-node-group.is-root .mindmap-node-label {
+  fill: #10131a;
+}
+
+:root[data-resolved-theme="dark"] .mindmap-node-rect {
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.4));
 }
 
 .mindmap-node-label {
@@ -1276,10 +1371,24 @@
 }
 
 .mindmap-collapse-badge {
-  font-size: 13px;
+  cursor: pointer;
+}
+
+.mindmap-collapse-badge-circle {
+  fill: var(--surface-solid);
+  stroke: var(--accent);
+  stroke-width: 1.3;
+}
+
+.mindmap-collapse-badge:hover .mindmap-collapse-badge-circle {
+  fill: var(--accent-soft);
+}
+
+.mindmap-collapse-badge-symbol {
+  font-size: 12px;
   font-weight: 700;
   fill: var(--accent);
-  cursor: pointer;
+  pointer-events: none;
 }
 
 .mindmap-node-action {
@@ -1287,10 +1396,19 @@
   stroke: var(--accent);
   stroke-width: 1.4;
   cursor: pointer;
+  transition: fill 120ms ease;
+}
+
+.mindmap-node-action:hover {
+  fill: var(--accent-soft);
 }
 
 .mindmap-node-action--danger {
   stroke: var(--red);
+}
+
+.mindmap-node-action--danger:hover {
+  fill: color-mix(in srgb, var(--red) 12%, var(--surface-solid));
 }
 
 .mindmap-node-action-label {

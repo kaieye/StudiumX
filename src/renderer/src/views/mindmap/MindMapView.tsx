@@ -1,9 +1,11 @@
 import {
-  ChevronDown,
   ChevronUp,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Crosshair,
   Download,
   FileCode,
+  FileImage,
   FilePlus2,
   FileText,
   FolderOpen,
@@ -618,92 +620,95 @@ export function MindMapView() {
           <div className="mindmap-toolbar__group">
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={!current}
               onClick={() => setRenaming(true)}
               title={t('mindmap.renameDocument')}
+              aria-label={t('mindmap.renameDocument')}
             >
-              <Pencil size={14} />
-              {t('mindmap.renameDocument')}
+              <Pencil size={15} />
             </button>
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={!current}
               onClick={newSheet}
               title={t('mindmap.newSheet')}
+              aria-label={t('mindmap.newSheet')}
             >
-              <FilePlus2 size={14} />
-              {t('mindmap.newSheet')}
+              <FilePlus2 size={15} />
             </button>
           </div>
+          <span className="mindmap-toolbar__divider" aria-hidden="true" />
           <div className="mindmap-toolbar__group">
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={!current}
               onClick={collapseAll}
               title={t('mindmap.collapseAll')}
+              aria-label={t('mindmap.collapseAll')}
             >
-              <ChevronDown size={14} />
-              {t('mindmap.collapseAll')}
+              <ChevronsDownUp size={15} />
             </button>
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={!current}
               onClick={expandAll}
               title={t('mindmap.expandAll')}
+              aria-label={t('mindmap.expandAll')}
             >
-              <ChevronUp size={14} />
-              {t('mindmap.expandAll')}
+              <ChevronsUpDown size={15} />
             </button>
           </div>
+          <span className="mindmap-toolbar__divider" aria-hidden="true" />
           <div className="mindmap-toolbar__group">
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={!current || !selectedSourceRef}
               onClick={() => void openSelectedSource()}
               title={t('mindmap.openSource')}
+              aria-label={t('mindmap.openSource')}
             >
-              <FolderOpen size={14} />
-              {t('mindmap.openSource')}
+              <FolderOpen size={15} />
             </button>
           </div>
+          <span className="mindmap-toolbar__divider" aria-hidden="true" />
           <div className="mindmap-toolbar__group">
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={!current}
               onClick={() => triggerViewportAction('fit')}
               title={t('mindmap.fitCanvas')}
+              aria-label={t('mindmap.fitCanvas')}
             >
-              <Maximize2 size={14} />
-              {t('mindmap.fitCanvas')}
+              <Maximize2 size={15} />
             </button>
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={!current}
               onClick={() => triggerViewportAction('actual')}
               title={t('mindmap.actualSize')}
+              aria-label={t('mindmap.actualSize')}
             >
-              <RotateCcw size={14} />
-              {t('mindmap.actualSize')}
+              <RotateCcw size={15} />
             </button>
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={!current}
               onClick={() => triggerViewportAction('center')}
               title={t('mindmap.centerCanvas')}
+              aria-label={t('mindmap.centerCanvas')}
             >
-              <Crosshair size={14} />
-              {t('mindmap.centerCanvas')}
+              <Crosshair size={15} />
             </button>
           </div>
-          <div className="mindmap-toolbar__group">
+          <div className="mindmap-toolbar__group mindmap-toolbar__group--end">
             <input
               ref={fileInputRef}
               type="file"
@@ -713,63 +718,64 @@ export function MindMapView() {
             />
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={busy}
               onClick={() => fileInputRef.current?.click()}
               title={t('mindmap.importFormats')}
+              aria-label={t('mindmap.import')}
             >
-              <Upload size={14} />
-              {t('mindmap.import')}
+              <Upload size={15} />
             </button>
+            <span className="mindmap-toolbar__divider" aria-hidden="true" />
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={busy || !current}
               onClick={() => void handleExport()}
               title={t('mindmap.exportXmind')}
+              aria-label={t('mindmap.exportXmind')}
             >
-              <Download size={14} />
-              {t('mindmap.exportXmind')}
+              <Download size={15} />
             </button>
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={busy || !current}
               onClick={() => void handleMarkdownExport()}
               title={t('mindmap.exportMarkdown')}
+              aria-label={t('mindmap.exportMarkdown')}
             >
-              <FileText size={14} />
-              {t('mindmap.exportMarkdown')}
+              <FileText size={15} />
             </button>
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={busy || !current}
               onClick={() => void handleOpmlExport()}
               title={t('mindmap.exportOpml')}
+              aria-label={t('mindmap.exportOpml')}
             >
-              <FileCode size={14} />
-              {t('mindmap.exportOpml')}
+              <FileCode size={15} />
             </button>
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={busy || !current}
               onClick={() => void handleSvgExport()}
               title={t('mindmap.exportSvg')}
+              aria-label={t('mindmap.exportSvg')}
             >
-              <ImageIcon size={14} />
-              {t('mindmap.exportSvg')}
+              <ImageIcon size={15} />
             </button>
             <button
               type="button"
-              className="ghost-button"
+              className="mindmap-tool"
               disabled={busy || !current}
               onClick={() => void handlePngExport()}
               title={t('mindmap.exportPng')}
+              aria-label={t('mindmap.exportPng')}
             >
-              <ImageIcon size={14} />
-              {t('mindmap.exportPng')}
+              <FileImage size={15} />
             </button>
           </div>
         </div>
