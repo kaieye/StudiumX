@@ -1560,7 +1560,7 @@ function MainArea() {
       )}
 
       {view === 'workbench' && (
-        <AuthGate onCancel={() => setView('overview')}>
+        <AuthGate presentation="overlay" onCancel={() => setView('overview')}>
           <Suspense
             fallback={(
               <section className="workbench-loading" aria-live="polite">

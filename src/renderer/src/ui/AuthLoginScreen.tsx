@@ -18,6 +18,8 @@ const TERMS_OF_SERVICE_URL = 'https://studiumx.cn/terms.html'
 export interface AuthLoginScreenProps {
   /** Rendered QR/widget content while a challenge is active. */
   challengeStage?: ReactNode
+  /** Place this login card above the calling page instead of a standalone surface. */
+  overlay?: boolean
   /** Whether a QR challenge is currently visible. */
   hasChallenge: boolean
   /** Error copy shown above the login stage. */
@@ -36,6 +38,7 @@ export interface AuthLoginScreenProps {
 
 export function AuthLoginScreen({
   challengeStage,
+  overlay = false,
   hasChallenge,
   error,
   busy = false,
@@ -55,6 +58,7 @@ export function AuthLoginScreen({
   return (
     <AuthScreenLayout
       ariaLabel={t('auth.title', { defaultValue: '登录 StudiumX' })}
+      overlay={overlay}
       title={t('auth.welcome', { defaultValue: '欢迎使用 StudiumX' })}
       error={error}
       stage={

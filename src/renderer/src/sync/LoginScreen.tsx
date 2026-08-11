@@ -1,5 +1,5 @@
 /**
- * Full-screen login interface.
+ * Login interface that can either replace a protected surface or sit above it.
  *
  * The official WeChat login widget renders the QR challenge in this card. We
  * must not re-encode the server's qrconnect URL with a generic QR library: the
@@ -26,7 +26,7 @@ import { useAppStore } from '../app-shell/appStore'
 import { AuthLoginScreen } from '../ui/AuthLoginScreen'
 
 
-export function LoginScreen({ onCancel }: { onCancel?: () => void }) {
+export function LoginScreen({ onCancel, overlay = false }: { onCancel?: () => void; overlay?: boolean }) {
   const openExternal = useAppStore((state) => state.openExternal)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -115,6 +115,7 @@ export function LoginScreen({ onCancel }: { onCancel?: () => void }) {
 
   return (
     <AuthLoginScreen
+      overlay={overlay}
       hasChallenge={Boolean(challenge)}
       busy={busy}
       error={error}

@@ -10,6 +10,8 @@ import type { ReactNode } from 'react'
  */
 export interface AuthScreenLayoutProps {
   ariaLabel: string
+  /** Overlay the caller's page rather than paint a standalone auth background. */
+  overlay?: boolean
   title: ReactNode
   error?: ReactNode
   stage: ReactNode
@@ -19,6 +21,7 @@ export interface AuthScreenLayoutProps {
 
 export function AuthScreenLayout({
   ariaLabel,
+  overlay = false,
   title,
   error,
   stage,
@@ -26,7 +29,7 @@ export function AuthScreenLayout({
   footer
 }: AuthScreenLayoutProps) {
   return (
-    <div className="auth-screen" role="dialog" aria-modal="true" aria-label={ariaLabel}>
+    <div className={`auth-screen${overlay ? ' auth-screen--overlay' : ''}`} role="dialog" aria-modal="true" aria-label={ariaLabel}>
       <div className="auth-screen-drag-region" aria-hidden="true" />
       <div className="auth-screen-card">
         <div className="auth-screen-brand">
