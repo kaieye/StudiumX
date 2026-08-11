@@ -1958,6 +1958,7 @@
     "close": "关闭"
   },
   "mindmap": {
+    "recentMaps": "最近",
     "viewTitle": "思维导图",
     "localSave": "已保存到本地",
     "share": "分享",

@@ -8,7 +8,6 @@ import {
   FileImage,
   FilePlus2,
   FileText,
-  FolderOpen,
   Image as ImageIcon,
   ListPlus,
   Loader2,
@@ -31,6 +30,7 @@ import { useAppStore } from '../../app-shell/appStore'
 import { MindMapAiPanel } from './MindMapAiPanel'
 import { MindMapCanvas, type MindMapCanvasViewportAction } from './MindMapCanvas'
 import { MindMapDocumentList } from './MindMapDocumentList'
+import { MindMapHomeGallery } from './MindMapHomeGallery'
 import {
   MindMapExportFeedback,
   type MindMapExportFeedbackState,
@@ -1007,23 +1007,17 @@ export function MindMapView() {
             />
           </>
         ) : (
-          <div className="mindmap-empty">
-            <FolderOpen size={22} aria-hidden="true" />
-            <p>{t('mindmap.emptyState')}</p>
-            <button
-              type="button"
-              className="mindmap-empty__action"
-              disabled={creating}
-              onClick={handleCreate}
-            >
-              <Plus size={15} aria-hidden="true" />
-              {t('mindmap.newDocument')}
-            </button>
-          </div>
+          <MindMapHomeGallery
+            documents={documents}
+            workspaceId={activeWorkspace.id}
+            creating={creating}
+            onCreate={handleCreate}
+            onOpenDocument={openDocument}
+          />
         )}
       </div>
 
-      <MindMapAiPanel open={inspectorOpen} onToggle={toggleInspector} />
+      <MindMapAiPanel open={current ? inspectorOpen : false} onToggle={toggleInspector} />
     </div>
   )
 }

@@ -1958,6 +1958,7 @@
     "close": "Close"
   },
   "mindmap": {
+    "recentMaps": "Recent",
     "viewTitle": "Mind Map",
     "localSave": "Saved locally",
     "share": "Share",

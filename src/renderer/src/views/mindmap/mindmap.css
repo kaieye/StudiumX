@@ -3561,3 +3561,130 @@
 .mindmap-inspector-tab-content--ai {
   padding-top: 14px;
 }
+
+/* Home gallery: recent maps are presented as centred XMind-style cards when
+ * no document is open. */
+.mindmap-home {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 72px clamp(28px, 6vw, 96px) 56px;
+  background: var(--surface-subtle);
+}
+
+.mindmap-home__header {
+  width: min(1120px, 100%);
+  margin: 0 auto 32px;
+}
+
+.mindmap-home__header h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(28px, 3vw, 38px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.mindmap-home__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 328px));
+  justify-content: center;
+  gap: 42px 48px;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.mindmap-home-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 18px;
+  padding: 0;
+  color: var(--text);
+  text-align: center;
+  background: transparent;
+  border: 0;
+  border-radius: 18px;
+  cursor: pointer;
+}
+
+.mindmap-home-card:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--mm-focus) 70%, transparent);
+  outline-offset: 8px;
+}
+
+.mindmap-home-card__preview {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 328 / 204;
+  place-items: center;
+  overflow: hidden;
+  background: var(--surface-solid);
+  border: 1px solid color-mix(in srgb, var(--line-muted) 70%, transparent);
+  border-radius: 20px;
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--text) 8%, transparent);
+  transition: transform var(--mm-transition-med), box-shadow var(--mm-transition-med);
+}
+
+.mindmap-home-card:hover .mindmap-home-card__preview {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.mindmap-home-card__preview--new {
+  color: color-mix(in srgb, var(--text-muted) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 94%, var(--surface-subtle));
+}
+
+.mindmap-home-card__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 14px;
+}
+
+.mindmap-home-card__title {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mindmap-home__hint {
+  margin: 40px auto 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Keep the collapse affordance inside the 48px rail.  The previous padding
+ * left only ~20px for a 30px button, clipping the hit target after collapse. */
+.mindmap-list.is-collapsed {
+  overflow: hidden;
+}
+
+.mindmap-list.is-collapsed .mindmap-list__head {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.mindmap-list.is-collapsed .mindmap-list__head-actions {
+  width: 30px;
+  justify-content: center;
+}
+
+.mindmap-list.is-collapsed .mindmap-list__collapse {
+  display: inline-flex;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
