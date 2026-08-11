@@ -89,10 +89,12 @@
   app-region: drag;
   -webkit-app-region: drag;
 }.topbar-surface-corner {
-  display: none;
-}.app-shell.is-sidebar-collapsed .topbar-surface-corner {
   /* Recreate the white content surface's left-top curve underneath the
-     continuous title strip without turning the strip itself into a notch. */
+     continuous title strip without turning the strip itself into a notch.
+     The overlay is always mounted and fades with the same directional timing
+     as the movable divider: it must not pop in/out with display toggles,
+     because the surrounding surfaces animate for 280ms — an instant switch
+     flashes a square white corner at the rail seam. */
   position: absolute;
   top: 100%;
   left: 0;
@@ -109,9 +111,18 @@
     transparent var(--app-shell-main-radius),
     var(--app-shell-chrome-bg) var(--app-shell-main-radius)
   );
+  opacity: 0;
   pointer-events: none;
   app-region: no-drag;
   -webkit-app-region: no-drag;
+  /* Expansion carries the corner away from the rail: fade it out immediately
+     so no chrome notch travels across the white surface. */
+  transition: opacity var(--sidebar-divider-hide-duration) ease-out;
+}.app-shell.is-sidebar-collapsed .topbar-surface-corner {
+  /* Collapse: appear only once the contracting edge has nearly landed on the
+     rail, taking over from the session panel's own rounded top corner. */
+  opacity: 1;
+  transition: opacity var(--sidebar-divider-show-duration) ease-out var(--sidebar-divider-show-delay);
 }.app-shell.platform-win32 .topbar {
   min-height: var(--window-chrome-height);
   padding-right: calc(20px + var(--window-control-overlay-width));
@@ -155,8 +166,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .main-area,
-  .topbar {
+  .topbar,
+  .topbar-surface-corner,
+  .app-shell.is-sidebar-collapsed .topbar-surface-corner {
     transition-duration: 1ms;
+    transition-delay: 0ms;
   }
 }
 

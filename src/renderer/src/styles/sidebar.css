@@ -65,6 +65,8 @@
   border-color: transparent;
   background: rgba(20, 47, 95, 0.09);
   box-shadow: none;
+}.sidebar-rail-account {
+  margin-top: auto;
 }.sidebar-panel {
   position: relative;
   z-index: 1;
@@ -76,11 +78,13 @@
   min-height: 0;
   padding: 0;
   border: 0;
-  /* The session pane remains visually attached to the fixed icon rail, so
-     only its rail-facing corners are rounded. Its conversation-facing edge
-     stays square and is separated solely by the outer vertical divider. */
-  border-radius: var(--app-shell-main-radius) 0 0 var(--app-shell-main-radius);
-  background: var(--app-shell-main-bg);
+  /* Pure clipping surface. The white surface and its rail-facing rounded
+     corners live on the fixed-width inner content: if they lived here, CSS
+     would proportionally flatten the radii as the collapsing width drops
+     below the corner size, flashing a square-ended white sliver right in the
+     rounded seam at the end of collapse / start of expansion. */
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -93,6 +97,12 @@
   height: 100%;
   min-height: 0;
   padding: 10px 12px 12px;
+  /* The session pane remains visually attached to the fixed icon rail, so
+     only its rail-facing corners are rounded. Its conversation-facing edge
+     stays square and is separated solely by the outer vertical divider.
+     This width never changes during collapse, so the radii never clamp. */
+  border-radius: var(--app-shell-main-radius) 0 0 var(--app-shell-main-radius);
+  background: var(--app-shell-main-bg);
 }.sidebar-resizer {
   grid-column: 2;
   position: relative;
@@ -105,37 +115,53 @@
   /* Overlay the shared panel edge instead of reserving a grey gutter. */
   background: transparent;
   transform: translateX(-4px);
-  opacity: 1;
   cursor: col-resize;
   app-region: no-drag;
   -webkit-app-region: no-drag;
-  transition: opacity var(--session-panel-motion-duration) var(--session-panel-motion-easing);
 }.sidebar-resizer::before {
   content: "";
   position: absolute;
+  /* Full-height seam. The retract-and-fade motion below keeps it away from
+     the rounded rail-facing corners while the panel is collapsing/expanding,
+     so no static endcap inset is needed. */
   top: 0;
   bottom: 0;
-  left: calc(50% - 0.5px);
-  width: 1px;
+  left: calc(50% - 0.25px);
+  width: 0.5px;
+  border-radius: 999px;
   background: var(--app-shell-divider);
   opacity: 1;
+  transform: scaleY(1);
+  transform-origin: center;
+  /* Expansion starts at the rail-facing rounded edge. Keep the seam absent
+     until the panel has moved well away from it, then grow it back from its
+     midpoint so no square endpoint ever appears near the rounded corners. */
   transition:
     background 140ms ease,
-    opacity 140ms ease,
-    width 140ms ease;
+    width 140ms ease,
+    opacity var(--sidebar-divider-show-duration) ease-out var(--sidebar-divider-show-delay),
+    transform var(--sidebar-divider-show-duration) ease-out var(--sidebar-divider-show-delay);
 }.sidebar-resizer:hover::before,
 .sidebar-resizer:focus-visible::before,
 body.is-sidebar-resizing .sidebar-resizer::before {
-  width: 2px;
-  left: calc(50% - 1px);
+  width: 1px;
+  left: calc(50% - 0.5px);
   background: rgba(95, 120, 158, 0.34);
   opacity: 1;
 }.sidebar-resizer.is-disabled {
   pointer-events: none;
   cursor: default;
 }.app-shell.is-sidebar-collapsed .sidebar-resizer {
-  opacity: 0;
   pointer-events: none;
+}.app-shell.is-sidebar-collapsed .sidebar-resizer::before {
+  /* On collapse the endpoints retract toward the midpoint while fading, so the
+     seam never meets the panel's rounded rail-facing corners as a square-ended
+     line — even if the timing drifts by a frame or two. */
+  opacity: 0;
+  transform: scaleY(0.4);
+  transition:
+    opacity var(--sidebar-divider-hide-duration) ease-out,
+    transform var(--sidebar-divider-hide-duration) ease-out;
 }.app-shell.platform-darwin .sidebar {
   /* Reserve the native traffic-light strip outside the sidebar itself so the
      chrome colour remains uninterrupted across the full top edge. */
@@ -167,8 +193,11 @@ body.is-sidebar-resizing .sidebar-resizer::before {
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar-panel,
-  .sidebar-resizer {
+  .sidebar-resizer,
+  .sidebar-resizer::before,
+  .app-shell.is-sidebar-collapsed .sidebar-resizer::before {
     transition-duration: 1ms;
+    transition-delay: 0ms;
   }
 }
 
@@ -674,42 +703,7 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   color: var(--text);
 }
 
-/* ----- Sidebar Footer ----- */.sidebar-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 14px;
-  border-top: 1px solid var(--line-muted);
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
-}
-
-.sidebar-user {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  gap: 8px;
-  margin-right: auto;
-  padding: 2px 6px 2px 2px;
-  color: var(--text);
-  border: 1px solid transparent;
-  border-radius: 11px;
-  background: transparent;
-  overflow: hidden;
-  text-align: left;
-  transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease;
-}.sidebar-user:hover {
-  border-color: var(--line);
-  background: var(--surface-solid);
-  box-shadow: var(--shadow-card);
-}.sidebar-user:active {
-  transform: scale(0.98);
-}.sidebar-user-avatar {
+/* ----- Account avatar in the icon rail ----- */.sidebar-user-avatar {
   display: grid;
   place-items: center;
   width: 28px;
@@ -728,15 +722,6 @@ body.is-sidebar-resizing .sidebar-resizer::before {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}.sidebar-user-name {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ----- Icon Button (reusable) ----- */.icon-button {

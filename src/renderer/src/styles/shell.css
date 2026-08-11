@@ -248,6 +248,13 @@
      while its full-width inner content is clipped by the moving edge. */
   --session-panel-motion-duration: 280ms;
   --session-panel-motion-easing: cubic-bezier(0.38, 0, 0.24, 1);
+  /* The movable seam must leave before its moving x-position can meet the
+     rounded rail-facing edge. It returns only after expansion has carried it
+     well clear of that edge — the show delay sits in the back half of the
+     280ms panel motion. These are deliberately separate by direction. */
+  --sidebar-divider-hide-duration: 80ms;
+  --sidebar-divider-show-delay: 175ms;
+  --sidebar-divider-show-duration: 100ms;
   --sidebar-panel-expanded-width: calc(var(--sidebar-width) - var(--sidebar-rail-width, 60px));
   display: grid;
   /* The resizer uses a zero-width grid track and overlaps the session/main

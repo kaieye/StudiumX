@@ -165,8 +165,14 @@ assert.match(
 
 assert.match(
   css,
-  /\.sidebar-panel \{[\s\S]*border: 0;[\s\S]*border-radius: var\(--app-shell-main-radius\) 0 0 var\(--app-shell-main-radius\);[\s\S]*background: var\(--app-shell-main-bg\);[\s\S]*box-shadow: none;/,
-  'the session panel should keep rounded rail-facing corners and a square conversation-facing edge'
+  /\.sidebar-panel \{[\s\S]*border: 0;[\s\S]*border-radius: 0;[\s\S]*background: transparent;[\s\S]*box-shadow: none;/,
+  'the outer session panel must stay a transparent clipping surface so its radii never clamp while collapsing'
+)
+
+assert.match(
+  css,
+  /\.sidebar-panel-motion-content \{[\s\S]*border-radius: var\(--app-shell-main-radius\) 0 0 var\(--app-shell-main-radius\);[\s\S]*background: var\(--app-shell-main-bg\);/,
+  'the fixed-width inner content should carry the white surface and its rounded rail-facing corners'
 )
 
 assert.match(
@@ -183,8 +189,8 @@ assert.match(
 
 assert.match(
   css,
-  /\.app-shell \{[\s\S]*--session-panel-motion-duration: 280ms;[\s\S]*--session-panel-motion-easing: cubic-bezier\(0\.38, 0, 0\.24, 1\);[\s\S]*--sidebar-panel-expanded-width: calc\(var\(--sidebar-width\) - var\(--sidebar-rail-width, 60px\)\);[\s\S]*transition: grid-template-columns var\(--session-panel-motion-duration\) var\(--session-panel-motion-easing\);/,
-  'the shell should use the reference width-collapse timing and retain the last expanded panel width'
+  /\.app-shell \{[\s\S]*--session-panel-motion-duration: 280ms;[\s\S]*--session-panel-motion-easing: cubic-bezier\(0\.38, 0, 0\.24, 1\);[\s\S]*--sidebar-divider-hide-duration: 80ms;[\s\S]*--sidebar-divider-show-delay: 175ms;[\s\S]*--sidebar-divider-show-duration: 100ms;[\s\S]*--sidebar-panel-expanded-width: calc\(var\(--sidebar-width\) - var\(--sidebar-rail-width, 60px\)\);[\s\S]*transition: grid-template-columns var\(--session-panel-motion-duration\) var\(--session-panel-motion-easing\);/,
+  'the shell should retain the panel motion timing and directional divider safety window'
 )
 
 assert.match(
@@ -231,8 +237,38 @@ assert.doesNotMatch(
 
 assert.match(
   css,
-  /\.app-shell\.is-sidebar-collapsed \.sidebar-resizer \{[\s\S]*opacity: 0;[\s\S]*pointer-events: none;/,
-  'the movable session/conversation divider should fade out rather than disappear abruptly'
+  /\.app-shell\.is-sidebar-collapsed \.sidebar-resizer \{[^}]*pointer-events: none;/,
+  'the movable divider should stop intercepting pointer events while collapsed'
+)
+
+assert.match(
+  css,
+  /\.app-shell\.is-sidebar-collapsed \.sidebar-resizer::before \{[^}]*opacity: 0;[^}]*transform: scaleY\(0\.4\);[^}]*transition:\s*opacity var\(--sidebar-divider-hide-duration\) ease-out,\s*transform var\(--sidebar-divider-hide-duration\) ease-out;/,
+  'the seam should retract toward its midpoint while fading, so no square endpoint reaches the rounded rail seam'
+)
+
+assert.match(
+  css,
+  /\.sidebar-resizer::before \{[^}]*transition:[^}]*opacity var\(--sidebar-divider-show-duration\) ease-out var\(--sidebar-divider-show-delay\),\s*transform var\(--sidebar-divider-show-duration\) ease-out var\(--sidebar-divider-show-delay\);/,
+  'the seam should wait for expansion to clear the rounded rail seam before growing back from its midpoint'
+)
+
+assert.match(
+  css,
+  /\.sidebar-resizer::before \{[^}]*top: 0;[^}]*bottom: 0;[^}]*border-radius: 999px;/,
+  'the visible divider seam should span the full divider height; the retract-and-fade motion keeps it clear of the rounded endcaps'
+)
+
+assert.doesNotMatch(
+  css,
+  /--sidebar-divider-(?:safe-delay|fade-duration)/,
+  'the divider must not rely on a timing-only workaround to avoid the rounded seam'
+)
+
+assert.match(
+  css,
+  /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.sidebar-panel,\s*\.sidebar-resizer,\s*\.sidebar-resizer::before,\s*\.app-shell\.is-sidebar-collapsed \.sidebar-resizer::before \{[\s\S]*transition-duration: 1ms;[\s\S]*transition-delay: 0ms;/,
+  'reduced motion should remove divider animation delay together with the animation duration'
 )
 
 assert.doesNotMatch(
@@ -267,7 +303,7 @@ assert.match(
 
 assert.match(
   css,
-  /\.sidebar-resizer::before \{[\s\S]*top: 0;[\s\S]*bottom: 0;[\s\S]*left: calc\(50% - 0\.5px\);[\s\S]*width: 1px;[\s\S]*background: var\(--app-shell-divider\);[\s\S]*opacity: 1;/,
+  /\.sidebar-resizer::before \{[\s\S]*top: 0;[\s\S]*bottom: 0;[\s\S]*left: calc\(50% - 0\.25px\);[\s\S]*width: 0\.5px;[\s\S]*background: var\(--app-shell-divider\);[\s\S]*opacity: 1;/,
   'the adjustable seam should draw one visible vertical separator'
 )
 
@@ -309,7 +345,7 @@ assert.match(
 
 assert.match(
   css,
-  /\.topbar-surface-corner \{[\s\S]*display: none;[\s\S]*\}\.app-shell\.is-sidebar-collapsed \.topbar-surface-corner \{[\s\S]*position: absolute;[\s\S]*top: 100%;[\s\S]*left: 0;[\s\S]*width: var\(--app-shell-main-radius\);[\s\S]*height: var\(--app-shell-main-radius\);[\s\S]*background: radial-gradient\([\s\S]*circle at 100% 100%,[\s\S]*transparent var\(--app-shell-main-radius\),[\s\S]*var\(--app-shell-chrome-bg\) var\(--app-shell-main-radius\)[\s\S]*\);/,
+  /\.topbar-surface-corner \{[\s\S]*position: absolute;[\s\S]*top: 100%;[\s\S]*left: 0;[\s\S]*width: var\(--app-shell-main-radius\);[\s\S]*height: var\(--app-shell-main-radius\);[\s\S]*background: radial-gradient\([\s\S]*circle at 100% 100%,[\s\S]*transparent var\(--app-shell-main-radius\),[\s\S]*var\(--app-shell-chrome-bg\) var\(--app-shell-main-radius\)[\s\S]*\);[\s\S]*opacity: 0;[\s\S]*transition: opacity var\(--sidebar-divider-hide-duration\) ease-out;[\s\S]*\}\.app-shell\.is-sidebar-collapsed \.topbar-surface-corner \{[\s\S]*opacity: 1;[\s\S]*transition: opacity var\(--sidebar-divider-show-duration\) ease-out var\(--sidebar-divider-show-delay\);/,
   'the collapsed title strip should reveal the conversation surface through a left-top rounded corner'
 )
 

@@ -30,7 +30,6 @@ import {
   RefreshCw,
   Save,
   Search,
-  Settings,
   SlidersHorizontal,
   Square,
   Play,
@@ -337,12 +336,6 @@ function Sidebar() {
     setAvatarLoadFailed(false)
   }, [syncState.user?.avatarUrl])
 
-  const openUpdateDialog = useCallback((): void => {
-    // Updater is desktop-only; the Web adapter's stub would throw.
-    if (window.teachingSystem?.platform === 'web') return
-    void window.teachingSystem?.openAppUpdateDialog?.()
-  }, [])
-
   return (
     <DesktopSidebarFrame collapsed={sidebarCollapsed} ariaLabel={t('sidebar.aria')}>
       <nav className="sidebar-icon-rail" aria-label={t('sidebar.aria')}>
@@ -371,6 +364,21 @@ function Sidebar() {
             </button>
           )
         })}
+        <button
+          className="sidebar-rail-item sidebar-rail-account"
+          type="button"
+          title={t('sidebar.account')}
+          aria-label={t('sidebar.account')}
+          onClick={() => openSettings('account')}
+        >
+          <span className="sidebar-user-avatar" aria-hidden="true">
+            {syncState.user?.avatarUrl && !avatarLoadFailed ? (
+              <img src={syncState.user.avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setAvatarLoadFailed(true)} />
+            ) : (
+              avatarInitial
+            )}
+          </span>
+        </button>
       </nav>
 
       <div className="sidebar-panel">
@@ -407,37 +415,6 @@ function Sidebar() {
               onRemoveWorkspaceItem={removeWorkspaceItem}
               onRemoveWorkspace={removeWorkspace}
             />
-          </div>
-
-          <div className="sidebar-footer">
-            <button
-              className="sidebar-user"
-              type="button"
-              title={t('sidebar.account')}
-              aria-label={t('sidebar.account')}
-              onClick={() => openSettings('account')}
-            >
-              <span className="sidebar-user-avatar" aria-hidden="true">
-                {syncState.user?.avatarUrl && !avatarLoadFailed ? (
-                  <img src={syncState.user.avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setAvatarLoadFailed(true)} />
-                ) : (
-                  avatarInitial
-                )}
-              </span>
-              <span className="sidebar-user-name collapsible-label">{displayName}</span>
-            </button>
-            <button className="icon-button" type="button" aria-label={t('sidebar.settings')} onClick={() => openSettings('model')} title={t('sidebar.settings')}>
-              <Settings size={16} />
-            </button>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label={t('sidebar.checkForUpdates')}
-              title={t('sidebar.checkForUpdates')}
-              onClick={openUpdateDialog}
-            >
-              <RefreshCw size={16} />
-            </button>
           </div>
         </div>
       </div>
