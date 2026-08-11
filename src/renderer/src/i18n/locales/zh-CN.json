@@ -1857,7 +1857,8 @@
     "userServiceAgreement": "《用户服务协议》",
     "checking": "正在检查登录状态…",
     "login": {
-      "opening": "正在打开系统浏览器…"
+      "opening": "正在打开系统浏览器…",
+      "close": "关闭登录"
     }
   },
   "account": {
@@ -1959,6 +1960,9 @@
   },
   "mindmap": {
     "recentMaps": "最近",
+    "backToGallery": "返回思维导图主页",
+    "homeSearchPlaceholder": "搜索思维导图",
+    "closeUtilityPanel": "关闭功能面板",
     "viewTitle": "思维导图",
     "localSave": "已保存到本地",
     "share": "分享",
@@ -2208,6 +2212,10 @@
     "note": "备注",
     "emptyState": "尚无导图，点击「新建导图」开始",
     "renameDocument": "重命名",
+    "copyDocument": "复制导图",
+    "removeDocument": "移除导图",
+    "copyOf": "{{title}} 副本",
+    "documentActions": "导图操作",
     "collapseList": "收起列表",
     "expandList": "展开列表",
     "newSheet": "新建画布",

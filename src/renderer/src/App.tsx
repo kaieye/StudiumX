@@ -165,6 +165,10 @@ const navItems = [
   { id: 'mindmap', icon: Network }
 ] satisfies Array<{ id: WorkspaceView; icon: LucideIcon }>
 
+function shouldShowSidebarSessionPanel(view: WorkspaceView): boolean {
+  return view !== 'workbench' && view !== 'mindmap'
+}
+
 function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
   const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number }
   return Boolean(nativeEvent.isComposing || nativeEvent.keyCode === 229)
@@ -239,9 +243,11 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 
 function App() {
   const chrome = resolveWindowChromePolicy(window.teachingSystem?.platform ?? 'win32')
-  const { settings, sidebarCollapsed, setSidebarCollapsed } = useAppStore()
+  const { settings, sidebarCollapsed, setSidebarCollapsed, view } = useAppStore()
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth)
-  const sidebarResizePolicy = resolveSidebarResizePolicy(sidebarCollapsed)
+  const sessionPanelVisible = shouldShowSidebarSessionPanel(view)
+  const effectiveSidebarCollapsed = sidebarCollapsed || !sessionPanelVisible
+  const sidebarResizePolicy = resolveSidebarResizePolicy(effectiveSidebarCollapsed)
   useEffect(() => {
     applySettingsSideEffects(settings)
     if (settings.theme !== 'system' || typeof window.matchMedia !== 'function') return
@@ -260,10 +266,11 @@ function App() {
           density={settings.density}
           floatingContent={<AppPet />}
           onSidebarToggle={() => setSidebarCollapsed(!useAppStore.getState().sidebarCollapsed)}
-          sidebarCollapsed={sidebarCollapsed}
+          sidebarCollapsed={effectiveSidebarCollapsed}
+          sidebarToggleVisible={sessionPanelVisible}
           sidebarWidth={sidebarWidth}
         >
-          <Sidebar />
+          <Sidebar sessionPanelVisible={sessionPanelVisible} />
           <SidebarResizeHandle policy={sidebarResizePolicy} onResize={setSidebarWidth} width={sidebarWidth} />
           <MainArea />
         </DesktopAppFrame>
@@ -290,7 +297,7 @@ function SidebarToggleIcon({
 // Sidebar
 // ================================================================
 
-function Sidebar() {
+function Sidebar({ sessionPanelVisible }: { sessionPanelVisible: boolean }) {
   const { t } = useTranslation()
   const {
     view,
@@ -337,7 +344,7 @@ function Sidebar() {
   }, [syncState.user?.avatarUrl])
 
   return (
-    <DesktopSidebarFrame collapsed={sidebarCollapsed} ariaLabel={t('sidebar.aria')}>
+    <DesktopSidebarFrame collapsed={sidebarCollapsed || !sessionPanelVisible} ariaLabel={t('sidebar.aria')}>
       <nav className="sidebar-icon-rail" aria-label={t('sidebar.aria')}>
         {navItems.map((item) => {
           const Icon = item.icon
@@ -360,7 +367,8 @@ function Sidebar() {
                 setView(item.id)
               }}
             >
-              <Icon size={22} aria-hidden="true" />
+              <Icon size={16} aria-hidden="true" />
+              <span className="sidebar-rail-label">{t(`nav.${item.id}`)}</span>
             </button>
           )
         })}
@@ -381,43 +389,45 @@ function Sidebar() {
         </button>
       </nav>
 
-      <div className="sidebar-panel">
-        <div className="sidebar-panel-motion-content">
-          <div className="sidebar-content">
-            <TeachingWorkspaceNavigator
-              workspaces={appState.workspaces}
-              activeWorkspace={active}
-              temporaryConversations={appState.temporaryConversations}
-              selectedLessonPath={view === 'lessons' && (lessonReaderOpen || selectedMarkdownDocument) ? selectedLessonPath : null}
-              selectedCourseRelativePath={selectedCourseRelativePath}
-              selectedCourseWorkspaceId={selectedCourseWorkspaceId}
-              view={view}
-              activeConversationId={activeConversationId}
-              pendingAgentConversation={pendingAgentConversation}
-              agentChatBusy={agentChatBusy}
-              showAllCourseFiles={settings.workspace.showAllCourseFiles}
-              defaultRoot={settings.workspace.defaultRoot}
-              loading={loading}
-              onSelectWorkspace={selectWorkspace}
-              onSetOverviewDialogMode={setOverviewDialogMode}
-              onOpenWorkspaceTeachingMode={openWorkspaceTeachingMode}
-              onSelectCourseFolder={selectCourseFolder}
-              onLoadLesson={loadLesson}
-              onLoadCourseHtmlFile={loadCourseHtmlFile}
-              onLoadWorkspaceMarkdownFile={loadWorkspaceMarkdownFile}
-              onLoadAgentConversation={loadAgentConversation}
-              onRestorePendingAgentConversation={restorePendingAgentConversation}
-              onOpenPath={openPath}
-              onImportWorkspace={importWorkspace}
-              onImportWorkspacePath={importWorkspacePath}
-              onSetWorkspaceItemMeta={setWorkspaceItemMeta}
-              onRenameAgentConversation={renameAgentConversation}
-              onRemoveWorkspaceItem={removeWorkspaceItem}
-              onRemoveWorkspace={removeWorkspace}
-            />
+      {sessionPanelVisible ? (
+        <div className="sidebar-panel">
+          <div className="sidebar-panel-motion-content">
+            <div className="sidebar-content">
+              <TeachingWorkspaceNavigator
+                workspaces={appState.workspaces}
+                activeWorkspace={active}
+                temporaryConversations={appState.temporaryConversations}
+                selectedLessonPath={view === 'lessons' && (lessonReaderOpen || selectedMarkdownDocument) ? selectedLessonPath : null}
+                selectedCourseRelativePath={selectedCourseRelativePath}
+                selectedCourseWorkspaceId={selectedCourseWorkspaceId}
+                view={view}
+                activeConversationId={activeConversationId}
+                pendingAgentConversation={pendingAgentConversation}
+                agentChatBusy={agentChatBusy}
+                showAllCourseFiles={settings.workspace.showAllCourseFiles}
+                defaultRoot={settings.workspace.defaultRoot}
+                loading={loading}
+                onSelectWorkspace={selectWorkspace}
+                onSetOverviewDialogMode={setOverviewDialogMode}
+                onOpenWorkspaceTeachingMode={openWorkspaceTeachingMode}
+                onSelectCourseFolder={selectCourseFolder}
+                onLoadLesson={loadLesson}
+                onLoadCourseHtmlFile={loadCourseHtmlFile}
+                onLoadWorkspaceMarkdownFile={loadWorkspaceMarkdownFile}
+                onLoadAgentConversation={loadAgentConversation}
+                onRestorePendingAgentConversation={restorePendingAgentConversation}
+                onOpenPath={openPath}
+                onImportWorkspace={importWorkspace}
+                onImportWorkspacePath={importWorkspacePath}
+                onSetWorkspaceItemMeta={setWorkspaceItemMeta}
+                onRenameAgentConversation={renameAgentConversation}
+                onRemoveWorkspaceItem={removeWorkspaceItem}
+                onRemoveWorkspace={removeWorkspace}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </DesktopSidebarFrame>
   )
 }
@@ -1067,7 +1077,6 @@ function MainArea() {
   }))
   const chrome = resolveWindowChromePolicy(window.teachingSystem?.platform ?? 'win32')
   const isWindows = chrome.adapter === 'windows'
-  const showInlineSidebarToggle = chrome.sidebarTogglePlacement === 'inline-topbar'
   const {
     view,
     settingsSection,
@@ -1103,6 +1112,9 @@ function MainArea() {
     clearError,
     showNotification
   } = useAppStore()
+  const sessionPanelVisible = shouldShowSidebarSessionPanel(view)
+  const showInlineSidebarToggle = chrome.sidebarTogglePlacement === 'inline-topbar'
+  const showSessionPanelToggle = sessionPanelVisible && showInlineSidebarToggle
 
   useEffect(() => {
     void initialize()
@@ -1301,7 +1313,7 @@ function MainArea() {
     >
       {readingResourceHtml ? (
         <>
-          {showInlineSidebarToggle && renderSidebarToggle('icon-button reader-sidebar-toggle')}
+          {showSessionPanelToggle && renderSidebarToggle('icon-button reader-sidebar-toggle')}
           <button
             className={`icon-button reader-preview-back${isWindows ? ' reader-preview-back--alone' : ''}`}
             type="button"
@@ -1312,9 +1324,9 @@ function MainArea() {
           </button>
         </>
       ) : readingCourseHtml || readingMarkdown ? (
-        showInlineSidebarToggle ? renderSidebarToggle('icon-button reader-sidebar-toggle') : null
+        showSessionPanelToggle ? renderSidebarToggle('icon-button reader-sidebar-toggle') : null
       ) : (
-        <DesktopTopbar leading={showInlineSidebarToggle ? renderSidebarToggle() : null} />
+        <DesktopTopbar leading={showSessionPanelToggle ? renderSidebarToggle() : null} />
       )}
 
       {error && (

@@ -1857,7 +1857,8 @@
     "userServiceAgreement": "Terms of Service",
     "checking": "Checking sign-in status…",
     "login": {
-      "opening": "Opening your browser…"
+      "opening": "Opening your browser…",
+      "close": "Close sign-in"
     }
   },
   "account": {
@@ -1959,6 +1960,9 @@
   },
   "mindmap": {
     "recentMaps": "Recent",
+    "backToGallery": "Back to mind maps",
+    "homeSearchPlaceholder": "Search mind maps",
+    "closeUtilityPanel": "Close panel",
     "viewTitle": "Mind Map",
     "localSave": "Saved locally",
     "share": "Share",
@@ -2208,6 +2212,10 @@
     "note": "Note",
     "emptyState": "No mind maps yet",
     "renameDocument": "Rename",
+    "copyDocument": "Copy mind map",
+    "removeDocument": "Remove mind map",
+    "copyOf": "{{title}} copy",
+    "documentActions": "Mind map actions",
     "collapseList": "Collapse list",
     "expandList": "Expand list",
     "newSheet": "New sheet",

@@ -108,6 +108,8 @@ export function sidebarWidthForKeyboardKey(
 export interface DesktopAppFrameProps {
   chrome: WindowChromePolicy
   sidebarCollapsed: boolean
+  /** Hide the chrome control when the current surface intentionally has no session panel. */
+  sidebarToggleVisible?: boolean
   sidebarWidth: number
   density: string
   onSidebarToggle: () => void
@@ -118,6 +120,7 @@ export interface DesktopAppFrameProps {
 export function DesktopAppFrame({
   chrome,
   sidebarCollapsed,
+  sidebarToggleVisible = true,
   sidebarWidth,
   density,
   onSidebarToggle,
@@ -134,7 +137,12 @@ export function DesktopAppFrame({
       data-window-chrome={chrome.adapter}
       style={frameStyle}
     >
-      <WindowChrome chrome={chrome} sidebarCollapsed={sidebarCollapsed} onSidebarToggle={onSidebarToggle} />
+      <WindowChrome
+        chrome={chrome}
+        sidebarCollapsed={sidebarCollapsed}
+        sidebarToggleVisible={sidebarToggleVisible}
+        onSidebarToggle={onSidebarToggle}
+      />
       <div
         className={`app-shell${platformClass}${collapsedClass}`}
         data-density={density}
@@ -150,16 +158,18 @@ export function DesktopAppFrame({
 interface WindowChromeProps {
   chrome: WindowChromePolicy
   sidebarCollapsed: boolean
+  sidebarToggleVisible: boolean
   onSidebarToggle: () => void
 }
 
-function WindowChrome({ chrome, sidebarCollapsed, onSidebarToggle }: WindowChromeProps) {
+function WindowChrome({ chrome, sidebarCollapsed, sidebarToggleVisible, onSidebarToggle }: WindowChromeProps) {
   if (chrome.titlebar === 'none') return null
   if (chrome.titlebar === 'native-overlay') {
     return (
       <WindowsWindowChromeAdapter
         dragRegionClass={chrome.sidebarDragRegionClass as 'windows-sidebar-drag-region'}
         sidebarCollapsed={sidebarCollapsed}
+        sidebarToggleVisible={sidebarToggleVisible}
         onSidebarToggle={onSidebarToggle}
       />
     )
@@ -169,6 +179,7 @@ function WindowChrome({ chrome, sidebarCollapsed, onSidebarToggle }: WindowChrom
       <MacWindowChromeAdapter
         dragRegionClass={chrome.sidebarDragRegionClass as 'mac-sidebar-drag-region'}
         sidebarCollapsed={sidebarCollapsed}
+        sidebarToggleVisible={sidebarToggleVisible}
         onSidebarToggle={onSidebarToggle}
       />
     )
@@ -179,18 +190,21 @@ function WindowChrome({ chrome, sidebarCollapsed, onSidebarToggle }: WindowChrom
 function WindowsWindowChromeAdapter({
   dragRegionClass,
   sidebarCollapsed,
+  sidebarToggleVisible,
   onSidebarToggle
 }: Omit<WindowChromeProps, 'chrome'> & { dragRegionClass: 'windows-sidebar-drag-region' }) {
   return (
     <>
       <SidebarDragRegion className={dragRegionClass} collapsed={sidebarCollapsed} />
-      <SidebarToggleChrome
-        chromeClassName="windows-sidebar-toggle-chrome"
-        buttonClassName="windows-sidebar-toggle"
-        iconClassName="windows-sidebar-action-icon"
-        sidebarCollapsed={sidebarCollapsed}
-        onSidebarToggle={onSidebarToggle}
-      />
+      {sidebarToggleVisible ? (
+        <SidebarToggleChrome
+          chromeClassName="windows-sidebar-toggle-chrome"
+          buttonClassName="windows-sidebar-toggle"
+          iconClassName="windows-sidebar-action-icon"
+          sidebarCollapsed={sidebarCollapsed}
+          onSidebarToggle={onSidebarToggle}
+        />
+      ) : null}
       <div className="windows-window-chrome" aria-hidden="true" />
     </>
   )
@@ -199,18 +213,21 @@ function WindowsWindowChromeAdapter({
 function MacWindowChromeAdapter({
   dragRegionClass,
   sidebarCollapsed,
+  sidebarToggleVisible,
   onSidebarToggle
 }: Omit<WindowChromeProps, 'chrome'> & { dragRegionClass: 'mac-sidebar-drag-region' }) {
   return (
     <>
       <SidebarDragRegion className={dragRegionClass} collapsed={sidebarCollapsed} />
-      <SidebarToggleChrome
-        chromeClassName="mac-sidebar-toggle-chrome"
-        buttonClassName="mac-sidebar-toggle"
-        iconClassName="mac-sidebar-action-icon"
-        sidebarCollapsed={sidebarCollapsed}
-        onSidebarToggle={onSidebarToggle}
-      />
+      {sidebarToggleVisible ? (
+        <SidebarToggleChrome
+          chromeClassName="mac-sidebar-toggle-chrome"
+          buttonClassName="mac-sidebar-toggle"
+          iconClassName="mac-sidebar-action-icon"
+          sidebarCollapsed={sidebarCollapsed}
+          onSidebarToggle={onSidebarToggle}
+        />
+      ) : null}
     </>
   )
 }

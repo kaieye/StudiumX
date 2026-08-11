@@ -142,6 +142,24 @@ describe('window chrome policy', () => {
     expect(web.container.querySelectorAll('.window-control-btn')).toHaveLength(0)
   })
 
+  it('can omit native session-panel controls on panel-free surfaces', () => {
+    const windows = renderUi(
+      <DesktopAppFrame
+        chrome={resolveWindowChromePolicy('win32')}
+        density="comfortable"
+        onSidebarToggle={vi.fn()}
+        sidebarCollapsed
+        sidebarToggleVisible={false}
+        sidebarWidth={232}
+      >
+        <div>study room</div>
+      </DesktopAppFrame>
+    )
+
+    expect(windows.container.querySelector('.window-chrome-drag-region')).toHaveClass('windows-sidebar-drag-region')
+    expect(windows.container.querySelector('.windows-sidebar-toggle-chrome')).not.toBeInTheDocument()
+  })
+
   it('keeps the policy-owned drag and no-drag contract in the global stylesheet', () => {
     const entryStyles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
     const chromeStyles = readFileSync(resolve(process.cwd(), 'src/renderer/src/app-frame/window-chrome.css'), 'utf8')

@@ -100,6 +100,34 @@
   animation: auth-card-in 0.32s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* The study-room overlay uses a bare icon rather than a framed/circular action. */
+.auth-screen-close {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.18s ease;
+}
+
+.auth-screen-close:hover {
+  color: var(--text);
+}
+
+.auth-screen-close:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 62%, transparent);
+  outline-offset: 2px;
+}
+
 @keyframes auth-card-in {
   from {
     opacity: 0;

@@ -32,6 +32,8 @@ export interface AuthLoginScreenProps {
   onCancel: () => void
   /** Show a cancel action before a QR challenge has been started. */
   showCancel?: boolean
+  /** Close an overlay login panel from its top-right corner. */
+  onClose?: () => void
   /** Optional native external-link bridge; browser callers leave this unset. */
   onOpenExternal?: (url: string) => Promise<void>
 }
@@ -45,6 +47,7 @@ export function AuthLoginScreen({
   onLogin,
   onCancel,
   showCancel = false,
+  onClose,
   onOpenExternal
 }: AuthLoginScreenProps) {
   const { t } = useTranslation()
@@ -61,6 +64,8 @@ export function AuthLoginScreen({
       overlay={overlay}
       title={t('auth.welcome', { defaultValue: '欢迎使用 StudiumX' })}
       error={error}
+      onClose={onClose}
+      closeLabel={t('auth.login.close', { defaultValue: '关闭登录' })}
       stage={
         hasChallenge ? (
           <div className="auth-screen-qr">{challengeStage}</div>
@@ -70,7 +75,7 @@ export function AuthLoginScreen({
       }
       actions={
         hasChallenge ? (
-          <div className="auth-screen-actions auth-screen-actions--inline">
+          <div className={`auth-screen-actions${onClose ? '' : ' auth-screen-actions--inline'}`}>
             <button
               type="button"
               className="auth-screen-button auth-screen-button--ghost"
@@ -79,13 +84,15 @@ export function AuthLoginScreen({
             >
               {t('auth.login.refreshQr', { defaultValue: '刷新二维码' })}
             </button>
-            <button
-              type="button"
-              className="auth-screen-button auth-screen-button--ghost"
-              onClick={onCancel}
-            >
-              {t('auth.login.cancel', { defaultValue: '取消登录' })}
-            </button>
+            {onClose ? null : (
+              <button
+                type="button"
+                className="auth-screen-button auth-screen-button--ghost"
+                onClick={onCancel}
+              >
+                {t('auth.login.cancel', { defaultValue: '取消登录' })}
+              </button>
+            )}
           </div>
         ) : (
           <div className={`auth-screen-actions${showCancel ? ' auth-screen-actions--inline' : ''}`}>

@@ -212,15 +212,14 @@ export function SettingsView({
       if (event.target === event.currentTarget) onClose()
     }}>
       <section className="settings-view" aria-label={t('settings.aria')} role="dialog" aria-modal="true">
-        <GlassIconButton
-          className="settings-close-button"
+        <button
+          className="settings-close-button settings-view-close-button"
           type="button"
-          size="sm"
           aria-label={t('settings.close')}
           onClick={onClose}
         >
           <X size={17} />
-        </GlassIconButton>
+        </button>
         <aside className="settings-nav" aria-label={t('settings.navAria')}>
         <div className="settings-nav-heading">{t('settings.navHeading')}</div>
         {settingsNavItems.map((item) => {

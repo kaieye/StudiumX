@@ -147,20 +147,26 @@ assert.match(
 
 assert.match(
   appRoot,
-  /<nav className="sidebar-icon-rail" aria-label=\{t\('sidebar\.aria'\)\}>[\s\S]*className=\{`sidebar-rail-item \${view === item\.id \? 'is-active' : ''}\`\}[\s\S]*<Icon size=\{22\} aria-hidden="true" \/>/,
-  'new chat, resources, study room, and mind map navigation should move to the larger icon rail'
+  /<nav className="sidebar-icon-rail" aria-label=\{t\('sidebar\.aria'\)\}>[\s\S]*className=\{`sidebar-rail-item \${view === item\.id \? 'is-active' : ''}\`\}[\s\S]*<Icon size=\{16\} aria-hidden="true" \/>\s*<span className="sidebar-rail-label">\{t\(`nav\.\$\{item\.id\}`\)\}<\/span>/,
+  'new chat, resources, study room, and mind map navigation should render IMA-style icon captions'
 )
 
 assert.match(
   css,
-  /\.sidebar-icon-rail \{[\s\S]*flex: 0 0 var\(--sidebar-rail-width, 60px\);[\s\S]*flex-direction: column;[\s\S]*align-items: center;[\s\S]*width: var\(--sidebar-rail-width, 60px\);[\s\S]*min-width: var\(--sidebar-rail-width, 60px\);[\s\S]*background: var\(--app-shell-sidebar-bg\);[\s\S]*app-region: no-drag;/,
+  /\.sidebar-icon-rail \{[\s\S]*flex: 0 0 var\(--sidebar-rail-width, 72px\);[\s\S]*flex-direction: column;[\s\S]*align-items: center;[\s\S]*width: var\(--sidebar-rail-width, 72px\);[\s\S]*min-width: var\(--sidebar-rail-width, 72px\);[\s\S]*background: var\(--app-shell-sidebar-bg\);[\s\S]*app-region: no-drag;/,
   'the left navigation rail should remain vertical, clickable, and fixed while the session pane resizes'
 )
 
 assert.match(
   css,
-  /\.sidebar-rail-item \{[\s\S]*width: 44px;[\s\S]*height: 44px;[\s\S]*border-radius: 14px;/,
-  'rail navigation icons should be larger touch targets'
+  /\.sidebar-rail-item \{[\s\S]*display: inline-flex;[\s\S]*flex-direction: column;[\s\S]*gap: 4px;[\s\S]*width: 64px;[\s\S]*height: 56px;[\s\S]*border-radius: 12px;/,
+  'rail navigation controls should follow the IMA-style icon-and-caption layout'
+)
+
+assert.match(
+  css,
+  /\.sidebar-rail-label \{[\s\S]*font-size: 12px;[\s\S]*font-weight: 400;[\s\S]*line-height: 16px;[\s\S]*text-align: center;[\s\S]*white-space: nowrap;/,
+  'rail captions should stay compact, legible, and directly below their icons'
 )
 
 assert.match(
@@ -177,7 +183,7 @@ assert.match(
 
 assert.match(
   css,
-  /\.app-shell\.is-sidebar-collapsed \{[\s\S]*grid-template-columns: var\(--sidebar-rail-width, 60px\) 0 minmax\(0, 1fr\);/,
+  /\.app-shell\.is-sidebar-collapsed \{[\s\S]*grid-template-columns: var\(--sidebar-rail-width, 72px\) 0 minmax\(0, 1fr\);/,
   'collapsing the session panel should retain the fixed icon-rail grid column'
 )
 
@@ -189,7 +195,7 @@ assert.match(
 
 assert.match(
   css,
-  /\.app-shell \{[\s\S]*--session-panel-motion-duration: 280ms;[\s\S]*--session-panel-motion-easing: cubic-bezier\(0\.38, 0, 0\.24, 1\);[\s\S]*--sidebar-divider-hide-duration: 80ms;[\s\S]*--sidebar-divider-show-delay: 175ms;[\s\S]*--sidebar-divider-show-duration: 100ms;[\s\S]*--sidebar-panel-expanded-width: calc\(var\(--sidebar-width\) - var\(--sidebar-rail-width, 60px\)\);[\s\S]*transition: grid-template-columns var\(--session-panel-motion-duration\) var\(--session-panel-motion-easing\);/,
+  /\.app-shell \{[\s\S]*--session-panel-motion-duration: 280ms;[\s\S]*--session-panel-motion-easing: cubic-bezier\(0\.38, 0, 0\.24, 1\);[\s\S]*--sidebar-divider-hide-duration: 80ms;[\s\S]*--sidebar-divider-show-delay: 175ms;[\s\S]*--sidebar-divider-show-duration: 100ms;[\s\S]*--sidebar-panel-expanded-width: calc\(var\(--sidebar-width\) - var\(--sidebar-rail-width, 72px\)\);[\s\S]*transition: grid-template-columns var\(--session-panel-motion-duration\) var\(--session-panel-motion-easing\);/,
   'the shell should retain the panel motion timing and directional divider safety window'
 )
 

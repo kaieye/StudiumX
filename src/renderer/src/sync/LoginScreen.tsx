@@ -120,9 +120,10 @@ export function LoginScreen({ onCancel, overlay = false }: { onCancel?: () => vo
       busy={busy}
       error={error}
       challengeStage={challenge ? <WechatLoginWidget challenge={challenge} onError={handleWidgetError} /> : undefined}
-      showCancel={Boolean(onCancel)}
+      showCancel={Boolean(onCancel) && !overlay}
       onLogin={() => { void handleWechatLogin() }}
       onCancel={handleCancel}
+      onClose={overlay && onCancel ? handleCancel : undefined}
       onOpenExternal={openExternal}
     />
   )

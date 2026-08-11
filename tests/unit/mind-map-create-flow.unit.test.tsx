@@ -5,6 +5,7 @@ import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
 import { MindMapView } from '../../src/renderer/src/views/mindmap/MindMapView'
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
+import type { MindMapSummary } from '../../src/shared/mindmap/mind-map-types'
 import type { TeachingSystemApi, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 
 vi.mock('../../src/renderer/src/views/mindmap/MindMapAiPanel', () => ({ MindMapAiPanel: () => null }))
@@ -115,6 +116,15 @@ afterEach(() => {
 })
 
 describe('MindMapView create flow', () => {
+  it('shows the card gallery and its search field without editor rails initially', () => {
+    const { container } = render(<MindMapView />)
+
+    expect(screen.getByPlaceholderText('Search mind maps')).toBeInTheDocument()
+    expect(container.querySelector('.mindmap-home')).toBeInTheDocument()
+    expect(container.querySelector('.mindmap-list')).not.toBeInTheDocument()
+    expect(container.querySelector('.mindmap-stage')).not.toBeInTheDocument()
+  })
+
   it('opens the title form first and creates only after a title is submitted', async () => {
     render(<MindMapView />)
 
@@ -134,5 +144,129 @@ describe('MindMapView create flow', () => {
       title: 'Chemistry'
     }))
     expect(useMindMapViewStore.getState().current?.title).toBe('Chemistry')
+  })
+
+  it('shows rename, copy, and remove actions when a preview card is right-clicked', async () => {
+    const source = makeDocument('Chemistry')
+    const summary: MindMapSummary = {
+      id: source.id,
+      title: source.title,
+      updatedAt: source.updatedAt,
+      sheetCount: source.sheets.length
+    }
+    const copied = {
+      ...source,
+      id: 'mind-map-copy',
+      revision: 1,
+      title: 'Chemistry copy',
+      createdAt: '2026-08-10T01:00:00.000Z',
+      updatedAt: '2026-08-10T01:00:00.000Z'
+    }
+    const listMindMaps = vi.fn(async () => [summary])
+    const readMindMap = vi.fn(async ({ id }: { id: string }) =>
+      id === copied.id ? copied : source
+    )
+    const createMindMap = vi.fn(async () => copied)
+    const updateMindMap = vi.fn(async (payload: { doc: MindMapDocumentV2 }) => ({
+      ok: true as const,
+      document: payload.doc
+    }))
+    const deleteMindMap = vi.fn(async () => undefined)
+    Object.defineProperty(window, 'teachingSystem', {
+      configurable: true,
+      value: {
+        listMindMaps,
+        readMindMap,
+        createMindMap,
+        updateMindMap,
+        deleteMindMap
+      } as Partial<TeachingSystemApi>
+    })
+
+    render(<MindMapView />)
+
+    const card = await screen.findByRole('button', { name: 'Chemistry' })
+    fireEvent.contextMenu(card, { clientX: 100, clientY: 120 })
+
+    expect(screen.getByRole('menu', { name: 'Mind map actions' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Copy mind map' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Remove mind map' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
+    const renameInput = screen.getByRole('textbox', { name: 'Rename' })
+    fireEvent.change(renameInput, { target: { value: 'Organic chemistry' } })
+    fireEvent.submit(renameInput.closest('form')!)
+    await waitFor(() =>
+      expect(updateMindMap).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceId: 'workspace-1',
+          id: source.id,
+          expectedRevision: source.revision,
+          doc: expect.objectContaining({ title: 'Organic chemistry' })
+        })
+      )
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Chemistry' }), {
+      clientX: 100,
+      clientY: 120
+    })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy mind map' }))
+    await waitFor(() =>
+      expect(createMindMap).toHaveBeenCalledWith({
+        workspaceId: 'workspace-1',
+        title: 'Chemistry copy'
+      })
+    )
+    expect(updateMindMap).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        workspaceId: 'workspace-1',
+        id: copied.id,
+        expectedRevision: copied.revision,
+        doc: expect.objectContaining({
+          id: copied.id,
+          title: 'Chemistry copy',
+          sheets: source.sheets
+        })
+      })
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Chemistry' }), {
+      clientX: 100,
+      clientY: 120
+    })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove mind map' }))
+    await waitFor(() =>
+      expect(deleteMindMap).toHaveBeenCalledWith({ workspaceId: 'workspace-1', id: source.id })
+    )
+    expect(screen.queryByRole('button', { name: 'Chemistry' })).not.toBeInTheDocument()
+  })
+
+  it('opens editor utilities from the right and returns to the gallery from the home icon', async () => {
+    const document = makeDocument('Chemistry')
+    useMindMapViewStore.setState({
+      current: document,
+      selectedNodeId: document.sheets[0]?.root.id ?? null,
+      activeSheetId: document.sheets[0]?.id ?? null,
+      editingNodeId: null
+    })
+
+    const { container } = render(<MindMapView />)
+
+    expect(container.querySelector('.mindmap-list')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Search this sheet' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sources' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Outline' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search this sheet' }))
+    expect(container.querySelector('.mindmap-utility-panel--search')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Outline' }))
+    expect(container.querySelector('.mindmap-utility-panel--outline')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to mind maps' }))
+    await waitFor(() => expect(useMindMapViewStore.getState().current).toBeNull())
+    expect(screen.getByPlaceholderText('Search mind maps')).toBeInTheDocument()
   })
 })

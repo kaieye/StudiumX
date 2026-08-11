@@ -34,10 +34,10 @@ import {
  * Renderer state for the mind-map view (docs/mindmap/design.md §6.6).
  *
  * Holds the workspace document list, the currently-open v2 document, selection,
- * editing and AI generation state. Every document mutation goes through the
- * shared `MindMapUndoRedoStack` (which funnels into the pure command reducer),
- * then a debounced revisioned save. No direct zustand mutation bypasses the
- * command/undo-redo path.
+ * editing and AI generation state. Mutations to the active editor document go
+ * through the shared `MindMapUndoRedoStack` (which funnels into the pure
+ * command reducer), then a debounced revisioned save. Gallery-only document
+ * actions instead read and CAS-update their target file directly.
  */
 
 type MindMapViewState = {
@@ -61,8 +61,14 @@ type MindMapViewState = {
 
   loadDocuments: () => Promise<void>
   openDocument: (id: string) => Promise<void>
+  /** Flush pending local writes and return to the document gallery. */
+  closeDocument: () => Promise<void>
   createDocument: (title: string) => Promise<void>
   deleteDocument: (id: string) => Promise<void>
+  /** Rename a gallery document without opening it in the editor. */
+  renameDocumentById: (id: string, title: string) => Promise<void>
+  /** Create a separate, persisted copy of a gallery document. */
+  duplicateDocument: (id: string, title: string) => Promise<void>
 
   dispatchCommand: (command: MindMapCommand, options?: MindMapExecuteOptions) => void
   undo: () => void
@@ -349,6 +355,26 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       }
     },
 
+    closeDocument: async () => {
+      if (!get().current) return
+
+      // Returning to the gallery must not discard the 400ms local save lane.
+      // Drain it before clearing editor state so file-backed mind-map state
+      // remains the source of truth even when the user leaves immediately.
+      clearPendingPersist()
+      if (dirty || persistInFlight) await runPersist()
+
+      undoStack = null
+      clipboard = null
+      set({
+        current: null,
+        selectedNodeId: null,
+        activeSheetId: null,
+        editingNodeId: null,
+        error: null
+      })
+    },
+
     createDocument: async (title) => {
       const workspace = workspaceId()
       if (!workspace) return
@@ -387,6 +413,91 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
             ? { current: null, selectedNodeId: null, activeSheetId: null, editingNodeId: null }
             : {})
         }))
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) })
+      }
+    },
+
+    renameDocumentById: async (id, title) => {
+      const workspace = workspaceId()
+      const nextTitle = title.trim()
+      if (!workspace || !nextTitle) return
+
+      // The editor title still needs an undoable command. Gallery actions only
+      // target closed documents, but keep this guard to preserve that invariant
+      // if the method is reused elsewhere.
+      if (get().current?.id === id) {
+        dispatchCommand({ type: 'document.rename', title: nextTitle })
+        return
+      }
+
+      try {
+        const document = await window.teachingSystem?.readMindMap({ workspaceId: workspace, id })
+        if (!document) return
+        const result = await window.teachingSystem?.updateMindMap({
+          workspaceId: workspace,
+          id,
+          expectedRevision: document.revision,
+          doc: { ...document, title: nextTitle }
+        })
+        if (!result) return
+        if (!result.ok) {
+          set({
+            error:
+              `Mind map rename conflict: expected revision ${result.expectedRevision}, ` +
+              `current is ${result.currentRevision}.`
+          })
+          return
+        }
+        set({ error: null })
+        await refreshDocuments()
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) })
+      }
+    },
+
+    duplicateDocument: async (id, title) => {
+      const workspace = workspaceId()
+      const copyTitle = title.trim()
+      if (!workspace || !copyTitle) return
+
+      try {
+        const source = await window.teachingSystem?.readMindMap({ workspaceId: workspace, id })
+        if (!source) return
+
+        // Create first so the copy receives a canonical document id and its
+        // initial revision from the main-process store. Then CAS-write the
+        // source content onto that fresh file, preserving every sheet, topic,
+        // element, theme, asset reference, and interop field.
+        const created = await window.teachingSystem?.createMindMap({
+          workspaceId: workspace,
+          title: copyTitle
+        })
+        if (!created) return
+        const result = await window.teachingSystem?.updateMindMap({
+          workspaceId: workspace,
+          id: created.id,
+          expectedRevision: created.revision,
+          doc: {
+            ...source,
+            id: created.id,
+            revision: created.revision,
+            title: copyTitle,
+            createdAt: created.createdAt,
+            updatedAt: created.updatedAt
+          }
+        })
+        if (!result) return
+        if (!result.ok) {
+          set({
+            error:
+              `Mind map copy conflict: expected revision ${result.expectedRevision}, ` +
+              `current is ${result.currentRevision}.`
+          })
+          return
+        }
+        set({ error: null })
+        await refreshDocuments()
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) })
       }

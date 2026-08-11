@@ -255,7 +255,7 @@
   --sidebar-divider-hide-duration: 80ms;
   --sidebar-divider-show-delay: 175ms;
   --sidebar-divider-show-duration: 100ms;
-  --sidebar-panel-expanded-width: calc(var(--sidebar-width) - var(--sidebar-rail-width, 60px));
+  --sidebar-panel-expanded-width: calc(var(--sidebar-width) - var(--sidebar-rail-width, 72px));
   display: grid;
   /* The resizer uses a zero-width grid track and overlaps the session/main
      boundary, leaving only its single vertical divider visible while keeping
@@ -269,7 +269,7 @@
 }body.is-sidebar-resizing .app-shell {
   transition: none;
 }.app-shell.is-sidebar-collapsed {
-  grid-template-columns: var(--sidebar-rail-width, 60px) 0 minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-rail-width, 72px) 0 minmax(0, 1fr);
 }
 
 /* Native/overlay chrome platforms need positioned children for window controls. */.app-shell.platform-darwin,

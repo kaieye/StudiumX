@@ -3575,8 +3575,10 @@
 }
 
 .mindmap-home__header {
+  display: flex;
+  justify-content: center;
   width: min(1120px, 100%);
-  margin: 0 auto 32px;
+  margin: 0 auto 28px;
 }
 
 .mindmap-home__header h1 {
@@ -3589,10 +3591,10 @@
 
 .mindmap-home__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 328px));
+  grid-template-columns: repeat(auto-fill, minmax(194px, 228px));
   justify-content: center;
-  gap: 42px 48px;
-  width: min(1120px, 100%);
+  gap: 28px 32px;
+  width: min(1032px, 100%);
   margin: 0 auto;
 }
 
@@ -3600,13 +3602,13 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
   padding: 0;
   color: var(--text);
   text-align: center;
   background: transparent;
   border: 0;
-  border-radius: 18px;
+  border-radius: 16px;
   cursor: pointer;
 }
 
@@ -3623,14 +3625,14 @@
   overflow: hidden;
   background: var(--surface-solid);
   border: 1px solid color-mix(in srgb, var(--line-muted) 70%, transparent);
-  border-radius: 20px;
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--text) 8%, transparent);
+  border-radius: 16px;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--text) 8%, transparent);
   transition: transform var(--mm-transition-med), box-shadow var(--mm-transition-med);
 }
 
 .mindmap-home-card:hover .mindmap-home-card__preview {
   transform: translateY(-3px);
-  box-shadow: 0 16px 34px color-mix(in srgb, var(--text) 14%, transparent);
+  box-shadow: 0 13px 28px color-mix(in srgb, var(--text) 14%, transparent);
 }
 
 .mindmap-home-card__preview--new {
@@ -3649,7 +3651,7 @@
   display: block;
   overflow: hidden;
   color: var(--text);
-  font-size: 19px;
+  font-size: 16px;
   font-weight: 500;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -3687,4 +3689,422 @@
   width: 30px;
   height: 30px;
   padding: 0;
+}
+
+/* ================================================================
+ * Mind-map gallery + contextual tool chrome
+ * ================================================================ */
+/* The landing surface intentionally contains only the search field and map
+ * cards. It does not inherit the editor's three-column workspace. */
+.mindmap-view--home {
+  display: flex;
+  min-height: 0;
+}
+
+.mindmap-view--home .mindmap-home {
+  width: 100%;
+}
+
+.mindmap-home__search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: min(460px, 100%);
+  height: 44px;
+  padding: 0 12px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line-muted) 78%, transparent);
+  border-radius: 999px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 58%, transparent),
+    0 2px 8px color-mix(in srgb, var(--text) 5%, transparent);
+  backdrop-filter: blur(14px) saturate(135%);
+  transition: border-color var(--mm-transition-fast), box-shadow var(--mm-transition-fast),
+    background var(--mm-transition-fast);
+}
+
+.mindmap-home__search:focus-within {
+  background: var(--surface-solid);
+  border-color: color-mix(in srgb, var(--text-muted) 42%, var(--line-muted));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 60%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--text) 7%, transparent),
+    0 4px 14px color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.mindmap-home__search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  background: transparent;
+  border: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  outline: 0;
+}
+
+.mindmap-home__search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.mindmap-home__search input::placeholder {
+  color: var(--text-muted);
+}
+
+.mindmap-home__search button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.mindmap-home__search button:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+}
+
+.mindmap-home-card--creating {
+  cursor: default;
+}
+
+.mindmap-home-card--renaming {
+  cursor: default;
+}
+
+.mindmap-home-card-menu {
+  min-width: 184px;
+}
+
+.mindmap-home-card__title-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 12px;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: center;
+  background: var(--surface-solid);
+  border: 1px solid var(--line-muted);
+  border-radius: 10px;
+  outline: 0;
+}
+
+.mindmap-home-card__title-input:focus {
+  border-color: color-mix(in srgb, var(--mm-focus) 55%, var(--line-muted));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mm-focus) 14%, transparent);
+}
+
+.mindmap-home-card__create-actions {
+  display: inline-flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.mindmap-home-card__create-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--text-muted);
+  background: var(--surface-solid);
+  border: 1px solid var(--line-muted);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color var(--mm-transition-fast), background var(--mm-transition-fast),
+    border-color var(--mm-transition-fast);
+}
+
+.mindmap-home-card__create-actions button[type='submit'] {
+  color: #fff;
+  background: var(--mm-focus);
+  border-color: var(--mm-focus);
+}
+
+.mindmap-home-card__create-actions button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.mindmap-home-card__create-actions button[type='submit']:hover {
+  color: #fff;
+  background: color-mix(in srgb, var(--mm-focus) 88%, #000);
+}
+
+/* A map is always edited without a persistent left rail. The right grid slot
+ * hosts either the inspector or the selected search/source/outline utility. */
+.mindmap-view--editor {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.mindmap-view--editor:has(.mindmap-ai-panel.is-collapsed) {
+  grid-template-columns: minmax(0, 1fr) 0;
+}
+
+.mindmap-stage__identity {
+  height: auto;
+  max-width: none;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+:root[data-resolved-theme='dark'] .mindmap-stage__identity {
+  border: 0;
+}
+
+.mindmap-stage__home {
+  width: 26px;
+  height: 26px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.mindmap-stage__home:hover {
+  color: var(--text);
+  background: transparent;
+}
+
+.mindmap-stage__home:focus-visible {
+  color: var(--mm-focus);
+  background: transparent;
+  border-color: transparent;
+  outline: 2px solid color-mix(in srgb, var(--mm-focus) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.mindmap-stage__top-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mindmap-stage__utility-actions,
+.mindmap-stage__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 42px;
+  padding: 0 6px;
+  background: var(--surface-solid);
+  border-radius: var(--mm-radius-pill);
+  box-shadow: var(--mm-shadow-float);
+}
+
+:root[data-resolved-theme='dark'] .mindmap-stage__utility-actions {
+  border: 1px solid var(--line-muted);
+}
+
+.mindmap-stage__header-actions {
+  position: static;
+  top: auto;
+  right: auto;
+  z-index: auto;
+}
+
+.mindmap-stage__utility-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color var(--mm-transition-fast), background var(--mm-transition-fast);
+}
+
+.mindmap-stage__utility-button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.mindmap-stage__utility-button.is-active {
+  color: var(--mm-focus);
+  background: color-mix(in srgb, var(--mm-focus) 14%, transparent);
+}
+
+.mindmap-stage__utility-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--mm-focus) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.mindmap-utility-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border-left: 1px solid var(--line-muted);
+}
+
+.mindmap-utility-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  min-height: 48px;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid var(--line-muted);
+}
+
+.mindmap-utility-panel__header strong {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.mindmap-utility-panel__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.mindmap-utility-panel__close:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.mindmap-utility-panel__close:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--mm-focus) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.mindmap-utility-panel__content {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mindmap-utility-panel__content > .mindmap-search,
+.mindmap-utility-panel__content > .mindmap-sources,
+.mindmap-utility-panel__content > .mindmap-outline {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 0;
+  background: transparent;
+}
+
+.mindmap-utility-panel .mindmap-search__head,
+.mindmap-utility-panel .mindmap-sources__head,
+.mindmap-utility-panel .mindmap-outline__head {
+  min-height: 28px;
+  padding: 8px 14px 4px;
+  border-bottom: 0;
+}
+
+.mindmap-utility-panel .mindmap-search__head,
+.mindmap-utility-panel .mindmap-outline__head {
+  justify-content: flex-end;
+}
+
+.mindmap-utility-panel .mindmap-search__head strong,
+.mindmap-utility-panel .mindmap-sources__head strong,
+.mindmap-utility-panel .mindmap-outline__head strong {
+  display: none;
+}
+
+.mindmap-utility-panel .mindmap-search__results,
+.mindmap-utility-panel .mindmap-sources__list,
+.mindmap-utility-panel .mindmap-outline__tree {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 860px) {
+  .mindmap-view--editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mindmap-view--editor:has(.mindmap-ai-panel.is-collapsed) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mindmap-view--editor .mindmap-utility-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(340px, calc(100vw - 24px));
+    box-shadow: -12px 0 30px color-mix(in srgb, var(--text) 16%, transparent);
+  }
+}
+
+@media (max-width: 620px) {
+  .mindmap-view--editor {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mindmap-stage__top-actions {
+    top: 12px;
+    right: 12px;
+    gap: 6px;
+  }
+
+  .mindmap-stage__utility-actions,
+  .mindmap-stage__header-actions {
+    height: 38px;
+    padding: 0 4px;
+  }
+
+  .mindmap-stage__utility-button,
+  .mindmap-stage__header-button {
+    width: 29px;
+    min-height: 29px;
+  }
+
+  .mindmap-home {
+    padding: 40px 20px;
+  }
+
+  .mindmap-home__header {
+    margin-bottom: 24px;
+  }
 }

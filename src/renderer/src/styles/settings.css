@@ -64,6 +64,26 @@
   box-shadow: var(--lg-shadow, var(--shadow-card));
 }
 
+/* The Settings window's close control is intentionally icon-only. Keep its
+   34px hit area while removing the button chrome used by dialog close actions. */
+.settings-view-close-button {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.settings-view-close-button:hover,
+.settings-view-close-button:active {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
 .settings-nav {
   display: grid;
   align-content: start;
@@ -2048,6 +2068,12 @@
   border-color: var(--line);
   background: var(--surface-solid);
   color: var(--text);
+}
+
+:root[data-resolved-theme="dark"] .settings-view-close-button {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 :root[data-resolved-theme="dark"] .settings-nav-item:hover,

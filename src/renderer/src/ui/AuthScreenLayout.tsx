@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { X } from 'lucide-react'
 
 /**
  * Shared authentication surface frame.
@@ -17,6 +18,10 @@ export interface AuthScreenLayoutProps {
   stage: ReactNode
   actions: ReactNode
   footer: ReactNode
+  /** Optional icon-only control for dismissing an overlay login panel. */
+  onClose?: () => void
+  /** Accessible name for the optional close control. */
+  closeLabel?: string
 }
 
 export function AuthScreenLayout({
@@ -26,12 +31,24 @@ export function AuthScreenLayout({
   error,
   stage,
   actions,
-  footer
+  footer,
+  onClose,
+  closeLabel = 'Close'
 }: AuthScreenLayoutProps) {
   return (
     <div className={`auth-screen${overlay ? ' auth-screen--overlay' : ''}`} role="dialog" aria-modal="true" aria-label={ariaLabel}>
       <div className="auth-screen-drag-region" aria-hidden="true" />
       <div className="auth-screen-card">
+        {onClose ? (
+          <button
+            type="button"
+            className="auth-screen-close"
+            onClick={onClose}
+            aria-label={closeLabel}
+          >
+            <X size={20} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        ) : null}
         <div className="auth-screen-brand">
           <h1 className="auth-screen-title">{title}</h1>
         </div>
