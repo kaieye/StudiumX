@@ -23,7 +23,7 @@ body,
   margin: 0;
   overflow: hidden;
 }body {
-  background: var(--surface-subtle);
+  background: var(--app-shell-chrome-bg);
   color: var(--text);
 }button,
 input,

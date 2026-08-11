@@ -67,10 +67,13 @@ export interface SidebarResizePolicy {
   keyboardStep: number
 }
 
+const SIDEBAR_WIDTH = 288
+
 const SIDEBAR_RESIZE_LIMITS = {
-  defaultWidth: 232,
-  minimumWidth: 176,
-  maximumWidth: 340,
+  // The icon rail stays at a stable touch-friendly width. The divider on the
+  // session-list/conversation seam resizes the complete left pane instead.
+  minimumWidth: 220,
+  maximumWidth: 420,
   keyboardStep: 12
 } as const
 
@@ -84,7 +87,7 @@ export function resolveSidebarResizePolicy(sidebarCollapsed: boolean): SidebarRe
 }
 
 export function defaultSidebarWidth(): number {
-  return SIDEBAR_RESIZE_LIMITS.defaultWidth
+  return SIDEBAR_WIDTH
 }
 
 export function clampSidebarWidth(width: number, policy: SidebarResizePolicy): number {

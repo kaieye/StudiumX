@@ -62,7 +62,7 @@
     }
   },
   "sidebarResizer": {
-    "aria": "调整侧边栏宽度"
+    "aria": "调整会话列表宽度"
   },
   "titlebar": {
     "group": "窗口控制",
@@ -71,8 +71,8 @@
     "close": "关闭窗口"
   },
   "main": {
-    "expandSidebar": "展开侧边栏",
-    "collapseSidebar": "折叠侧边栏",
+    "expandSidebar": "展开会话面板",
+    "collapseSidebar": "折叠会话面板",
     "dismissAlert": "关闭提示"
   },
   "overview": {

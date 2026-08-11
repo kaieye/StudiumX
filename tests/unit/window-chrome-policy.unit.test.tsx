@@ -43,29 +43,29 @@ describe('window chrome policy', () => {
     })
   })
 
-  it('keeps the established sidebar resize geometry and keyboard increments', () => {
+  it('resizes the session list pane while keeping the icon rail stable', () => {
     const expanded = resolveSidebarResizePolicy(false)
 
-    expect(defaultSidebarWidth()).toBe(232)
+    expect(defaultSidebarWidth()).toBe(288)
     expect(expanded).toEqual({
       enabled: true,
-      minimumWidth: 176,
-      maximumWidth: 340,
+      minimumWidth: 220,
+      maximumWidth: 420,
       keyboardStep: 12
     })
-    expect(clampSidebarWidth(150.6, expanded)).toBe(176)
-    expect(clampSidebarWidth(400.4, expanded)).toBe(340)
-    expect(sidebarWidthForKeyboardKey('ArrowLeft', 232, expanded)).toBe(220)
-    expect(sidebarWidthForKeyboardKey('ArrowRight', 232, expanded)).toBe(244)
-    expect(sidebarWidthForKeyboardKey('Enter', 232, expanded)).toBeNull()
+    expect(clampSidebarWidth(200.6, expanded)).toBe(220)
+    expect(clampSidebarWidth(480.4, expanded)).toBe(420)
+    expect(sidebarWidthForKeyboardKey('ArrowLeft', 288, expanded)).toBe(276)
+    expect(sidebarWidthForKeyboardKey('ArrowRight', 288, expanded)).toBe(300)
+    expect(sidebarWidthForKeyboardKey('Enter', 288, expanded)).toBeNull()
   })
 
-  it('makes a collapsed sidebar non-resizable without changing its stored width', () => {
+  it('makes a collapsed session list non-resizable without changing its stored width', () => {
     const collapsed = resolveSidebarResizePolicy(true)
 
     expect(collapsed.enabled).toBe(false)
-    expect(sidebarWidthForKeyboardKey('ArrowLeft', 232, collapsed)).toBeNull()
-    expect(clampSidebarWidth(232, collapsed)).toBe(232)
+    expect(sidebarWidthForKeyboardKey('ArrowLeft', 288, collapsed)).toBeNull()
+    expect(clampSidebarWidth(288, collapsed)).toBe(288)
   })
 
   it('composes explicit draggable and clickable chrome layers for each adapter', async () => {

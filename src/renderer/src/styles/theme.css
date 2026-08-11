@@ -2,25 +2,22 @@
    Dark theme runtime overrides
    ================================================================ */:root[data-resolved-theme="dark"] body,
 :root[data-resolved-theme="dark"] .app-frame {
-  background: #0f0f10;
+  background: var(--app-shell-chrome-bg);
   color: var(--text);
 }:root[data-resolved-theme="dark"] .lesson-course-card.is-selected .lesson-card-spine {
   color: #10131a;
 }:root[data-resolved-theme="dark"] .window-titlebar {
-  background:
-    linear-gradient(180deg, rgba(18, 18, 20, 0.96), rgba(15, 15, 16, 0.92)),
-    #0f0f10;
+  background: var(--app-shell-chrome-bg);
   color: var(--text);
 }:root[data-resolved-theme="dark"] .app-shell {
   background: var(--app-shell-sidebar-bg);
 }:root[data-resolved-theme="dark"] .main-area,
 :root[data-resolved-theme="dark"] .overview-dialog-shell {
   background: var(--app-shell-main-bg);
-}:root[data-resolved-theme="dark"] .sidebar,
-:root[data-resolved-theme="dark"] .sidebar-resizer {
-  background: var(--app-shell-sidebar-bg);
+}:root[data-resolved-theme="dark"] .sidebar {
+  background: var(--app-shell-chrome-bg);
 }:root[data-resolved-theme="dark"] .topbar {
-  background: rgba(17, 17, 18, 0.86);
+  background: var(--app-shell-chrome-bg);
 }:root[data-resolved-theme="dark"] .search-box,
 :root[data-resolved-theme="dark"] .search-box:focus-within,
 :root[data-resolved-theme="dark"] .ghost-button,
@@ -60,7 +57,7 @@
 :root[data-resolved-theme="dark"] .import-dialog-field input,
 :root[data-resolved-theme="dark"] .overview-dialog-message.is-assistant > .markdown-message {
   color: var(--text);
-}:root[data-resolved-theme="dark"] .nav-item,
+}:root[data-resolved-theme="dark"] .sidebar-rail-item,
 :root[data-resolved-theme="dark"] .workspace-item,
 :root[data-resolved-theme="dark"] .workspace-node-row,
 :root[data-resolved-theme="dark"] .workspace-conversation-row,
@@ -73,7 +70,8 @@
 :root[data-resolved-theme="dark"] .row-context-menu-item,
 :root[data-resolved-theme="dark"] .import-dialog-field span {
   color: var(--text-muted);
-}:root[data-resolved-theme="dark"] .nav-item:hover,
+}:root[data-resolved-theme="dark"] .sidebar-rail-item:hover,
+:root[data-resolved-theme="dark"] .sidebar-rail-item:focus-visible,
 :root[data-resolved-theme="dark"] .workspace-item:hover,
 :root[data-resolved-theme="dark"] .workspace-node-row:hover,
 :root[data-resolved-theme="dark"] .workspace-conversation-row:hover,
@@ -89,7 +87,7 @@
 :root[data-resolved-theme="dark"] .row-context-menu-item:focus-visible {
   color: var(--text);
   background: var(--surface-hover);
-}:root[data-resolved-theme="dark"] .nav-item.is-active,
+}:root[data-resolved-theme="dark"] .sidebar-rail-item.is-active,
 :root[data-resolved-theme="dark"] .workspace-item.is-selected {
   color: var(--text);
   background: rgba(138, 180, 255, 0.14);
@@ -467,10 +465,6 @@
 
 :root[data-resolved-theme="dark"] .inline-alert .alert-dismiss:hover {
   background: rgba(255, 255, 255, 0.08);
-}
-
-:root[data-resolved-theme="dark"] .app-frame {
-  background: #0f0f10;
 }
 
 :root[data-resolved-theme="dark"] .ghost-button,

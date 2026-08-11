@@ -16,9 +16,13 @@
   --surface-subtle: #f8fafc;
   --surface-hover: rgba(59, 110, 187, 0.065);
 
-  --app-shell-sidebar-bg: #F0F3F9;
-  --app-shell-main-bg: #ffffff;
-  --app-shell-divider: rgba(20, 47, 95, 0.12);
+  /* Desktop chrome is deliberately a single continuous material: the title
+     strip flows directly into the narrow navigation rail. The adjacent
+     workspace and conversation surfaces use the slightly warmer canvas. */
+  --app-shell-chrome-bg: #e8e8e8;
+  --app-shell-sidebar-bg: var(--app-shell-chrome-bg);
+  --app-shell-main-bg: #fafafa;
+  --app-shell-divider: #dedede;
   --app-shell-main-radius: 12px;
 
   /* ----- Borders ----- */
@@ -85,8 +89,9 @@
   --surface-subtle: #111113;
   --surface-hover: rgba(255, 255, 255, 0.075);
 
-  --app-shell-sidebar-bg: linear-gradient(180deg, rgba(21, 21, 23, 0.98), rgba(15, 15, 16, 0.98));
-  --app-shell-main-bg: #101010;
+  --app-shell-chrome-bg: #1f1f20;
+  --app-shell-sidebar-bg: var(--app-shell-chrome-bg);
+  --app-shell-main-bg: #171718;
   --app-shell-divider: rgba(245, 245, 245, 0.16);
 
   --line: rgba(245, 245, 245, 0.16);

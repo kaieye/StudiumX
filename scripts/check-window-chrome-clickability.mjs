@@ -234,7 +234,7 @@ assert.match(
 assert.match(
   css,
   /\.app-shell\.platform-win32 \.sidebar \{[\s\S]*margin-top: var\(--window-chrome-height\);[\s\S]*height: calc\(100% - var\(--window-chrome-height\)\);[\s\S]*padding-top: 0;/,
-  'Windows sidebar should start below the explicit sidebar-top drag strip instead of covering it'
+  'Windows sidebar should start flush below the explicit sidebar-top drag strip'
 )
 
 assertAppRegion('.app-shell.platform-win32 .sidebar', 'no-drag', 'Windows sidebar content should not cover the collapse button as a drag region')
@@ -245,7 +245,9 @@ assertAppRegion('.mac-sidebar-toggle-chrome', 'no-drag', 'macOS sidebar toggle c
 
 assertAppRegion('.mac-sidebar-toggle-chrome .mac-sidebar-toggle', 'no-drag', 'macOS sidebar toggle button must stay clickable beside the traffic lights')
 
-assertAppRegion('.nav-list', 'no-drag', 'Windows sidebar navigation buttons must stay clickable')
+assertAppRegion('.sidebar-icon-rail', 'no-drag', 'Windows sidebar navigation buttons must stay clickable')
+
+assertAppRegion('.sidebar-resizer', 'no-drag', 'The icon rail resize separator must stay draggable by the app, not the titlebar')
 
 assertAppRegion('.sidebar-content', 'no-drag', 'Windows sidebar content must stay clickable')
 

@@ -10,7 +10,9 @@
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: var(--surface-subtle);
+  /* Keep native transparent title-bar overlays visually connected to the
+     navigation rail until the renderer has painted its content. */
+  background: var(--app-shell-chrome-bg);
 }.app-frame.platform-win32 {
   --window-chrome-height: 32px;
   --window-control-overlay-width: 138px;
@@ -27,24 +29,14 @@
   flex: 0 0 var(--titlebar-height);
   align-items: center;
   justify-content: flex-end;
-  border-bottom: 1px solid var(--lg-line-soft);
-  background:
-    var(--lg-sheen),
-    var(--lg-sheen-edge),
-    var(--lg-glass-fill-strong);
+  border-bottom: 0;
+  background: var(--app-shell-chrome-bg);
   color: var(--text);
-  backdrop-filter: blur(var(--lg-blur-soft)) saturate(var(--lg-saturate));
-  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(var(--lg-saturate));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   user-select: none;
   app-region: drag;
   -webkit-app-region: drag;
-}
-
-:root[data-resolved-theme="dark"] .window-titlebar {
-  background:
-    var(--lg-sheen),
-    var(--lg-sheen-edge),
-    var(--lg-glass-fill-strong);
 }
 
 /* ----- Window control buttons (minimize / maximize / close) ----- */.window-controls {
@@ -91,6 +83,7 @@
   height: var(--window-chrome-height);
   align-items: stretch;
   justify-content: flex-start;
+  background: var(--app-shell-chrome-bg);
   color: var(--text);
   user-select: none;
   app-region: drag;
@@ -251,20 +244,25 @@
 /* ================================================================
    App Shell (sidebar + main grid)
    ================================================================ */.app-shell {
+  /* Match the reference sidebar: the outer surface contracts horizontally
+     while its full-width inner content is clipped by the moving edge. */
+  --session-panel-motion-duration: 280ms;
+  --session-panel-motion-easing: cubic-bezier(0.38, 0, 0.24, 1);
+  --sidebar-panel-expanded-width: calc(var(--sidebar-width) - var(--sidebar-rail-width, 60px));
   display: grid;
-  grid-template-columns: var(--sidebar-width) 6px minmax(0, 1fr);
+  /* The resizer uses a zero-width grid track and overlaps the session/main
+     boundary, leaving only its single vertical divider visible while keeping
+     an 8px drag target. */
+  grid-template-columns: var(--sidebar-width) 0 minmax(0, 1fr);
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: var(--app-shell-sidebar-bg);
-  transition: grid-template-columns 180ms ease;
+  background: var(--app-shell-chrome-bg);
+  transition: grid-template-columns var(--session-panel-motion-duration) var(--session-panel-motion-easing);
 }body.is-sidebar-resizing .app-shell {
   transition: none;
 }.app-shell.is-sidebar-collapsed {
-  grid-template-columns: 0 0 minmax(0, 1fr);
-}.app-shell.is-sidebar-collapsed .main-area {
-  border: 0;
-  border-radius: 0;
+  grid-template-columns: var(--sidebar-rail-width, 60px) 0 minmax(0, 1fr);
 }
 
 /* Native/overlay chrome platforms need positioned children for window controls. */.app-shell.platform-darwin,

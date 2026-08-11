@@ -15,12 +15,13 @@ async function readReachableCss(entryPath, seen = new Set()) {
   return [content, ...importedCss].join('\n')
 }
 
-const [appRoot, navigator, css, zh, en] = await Promise.all([
+const [appRoot, navigator, css, zh, en, desktopTopbar] = await Promise.all([
   readFile('src/renderer/src/App.tsx', 'utf8'),
   readFile('src/renderer/src/app-shell/teaching-workspace-navigator.tsx', 'utf8'),
   readReachableCss('src/renderer/src/styles.css'),
   readFile('src/renderer/src/i18n/locales/zh-CN.json', 'utf8'),
-  readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8')
+  readFile('src/renderer/src/i18n/locales/en-US.json', 'utf8'),
+  readFile('src/renderer/src/ui/DesktopTopbar.tsx', 'utf8')
 ])
 const app = `${appRoot}\n${navigator}`
 
@@ -122,8 +123,14 @@ assert.doesNotMatch(
 
 assert.match(
   css,
-  /\.sidebar \{[\s\S]*padding: 4px 4px 12px 10px;/,
-  'sidebar content should sit closer to the draggable divider'
+  /\.sidebar \{[\s\S]*flex-direction: row;[\s\S]*gap: 0;[\s\S]*padding: 0;[\s\S]*background: var\(--app-shell-chrome-bg\);/,
+  'sidebar should retain the same chrome material as the title strip around the session panel'
+)
+
+assert.match(
+  css,
+  /:root\[data-resolved-theme="dark"\] \.sidebar \{\s*background: var\(--app-shell-chrome-bg\);\s*\}/,
+  'dark sidebar surroundings should retain the shared title-strip chrome material'
 )
 
 assert.match(
@@ -139,27 +146,195 @@ assert.match(
 )
 
 assert.match(
+  appRoot,
+  /<nav className="sidebar-icon-rail" aria-label=\{t\('sidebar\.aria'\)\}>[\s\S]*className=\{`sidebar-rail-item \${view === item\.id \? 'is-active' : ''}\`\}[\s\S]*<Icon size=\{22\} aria-hidden="true" \/>/,
+  'new chat, resources, study room, and mind map navigation should move to the larger icon rail'
+)
+
+assert.match(
   css,
-  /\.nav-item \{[\s\S]*height: 32px;[\s\S]*gap: 8px;[\s\S]*padding: 0 8px;[\s\S]*border: 1px solid transparent;[\s\S]*border-radius: 8px;/,
-  'primary sidebar nav items should match the compact Zcode-like row geometry'
+  /\.sidebar-icon-rail \{[\s\S]*flex: 0 0 var\(--sidebar-rail-width, 60px\);[\s\S]*flex-direction: column;[\s\S]*align-items: center;[\s\S]*width: var\(--sidebar-rail-width, 60px\);[\s\S]*min-width: var\(--sidebar-rail-width, 60px\);[\s\S]*background: var\(--app-shell-sidebar-bg\);[\s\S]*app-region: no-drag;/,
+  'the left navigation rail should remain vertical, clickable, and fixed while the session pane resizes'
+)
+
+assert.match(
+  css,
+  /\.sidebar-rail-item \{[\s\S]*width: 44px;[\s\S]*height: 44px;[\s\S]*border-radius: 14px;/,
+  'rail navigation icons should be larger touch targets'
+)
+
+assert.match(
+  css,
+  /\.sidebar-panel \{[\s\S]*border: 0;[\s\S]*border-radius: var\(--app-shell-main-radius\) 0 0 var\(--app-shell-main-radius\);[\s\S]*background: var\(--app-shell-main-bg\);[\s\S]*box-shadow: none;/,
+  'the session panel should keep rounded rail-facing corners and a square conversation-facing edge'
+)
+
+assert.match(
+  css,
+  /\.app-shell\.is-sidebar-collapsed \{[\s\S]*grid-template-columns: var\(--sidebar-rail-width, 60px\) 0 minmax\(0, 1fr\);/,
+  'collapsing the session panel should retain the fixed icon-rail grid column'
+)
+
+assert.match(
+  appRoot,
+  /<div className="sidebar-panel">\s*<div className="sidebar-panel-motion-content">/,
+  'the session panel should retain a separately sized inner surface for clipping during collapse'
+)
+
+assert.match(
+  css,
+  /\.app-shell \{[\s\S]*--session-panel-motion-duration: 280ms;[\s\S]*--session-panel-motion-easing: cubic-bezier\(0\.38, 0, 0\.24, 1\);[\s\S]*--sidebar-panel-expanded-width: calc\(var\(--sidebar-width\) - var\(--sidebar-rail-width, 60px\)\);[\s\S]*transition: grid-template-columns var\(--session-panel-motion-duration\) var\(--session-panel-motion-easing\);/,
+  'the shell should use the reference width-collapse timing and retain the last expanded panel width'
+)
+
+assert.match(
+  css,
+  /\.sidebar\.is-collapsed \.sidebar-panel \{[\s\S]*pointer-events: none;/,
+  'collapsing the sidebar should disable the clipped session content without removing it from layout'
+)
+
+assert.doesNotMatch(
+  css,
+  /\.sidebar\.is-collapsed \.sidebar-panel \{[^}]*display:\s*none/,
+  'the session panel must remain mounted while its width contracts with the shell grid'
+)
+
+assert.match(
+  css,
+  /\.sidebar-panel \{[\s\S]*flex: 1 1 0;[\s\S]*padding: 0;[\s\S]*overflow: hidden;/,
+  'the outer session panel should be a zero-padding clipping surface driven by the shell grid'
+)
+
+assert.match(
+  css,
+  /\.sidebar-panel-motion-content \{[\s\S]*display: flex;[\s\S]*flex-direction: column;[\s\S]*width: var\(--sidebar-panel-expanded-width\);[\s\S]*min-width: var\(--sidebar-panel-expanded-width\);[\s\S]*height: 100%;[\s\S]*padding: 10px 12px 12px;/,
+  'the inner session content should preserve its expanded width and be cropped instead of reflowing'
+)
+
+assert.doesNotMatch(
+  css,
+  /\.sidebar\.is-collapsed \.sidebar-panel \{[^}]*opacity:/,
+  'the session panel should not fade out while it contracts horizontally'
+)
+
+assert.doesNotMatch(
+  css,
+  /\.sidebar-panel \{[^}]*transition:[^}]*opacity/,
+  'the session panel should not animate opacity during width collapse'
+)
+
+assert.doesNotMatch(
+  css,
+  /\.sidebar\.is-collapsed \.sidebar-panel \{[^}]*transform:/,
+  'the session panel itself must not translate over the fixed icon rail during collapse'
+)
+
+assert.match(
+  css,
+  /\.app-shell\.is-sidebar-collapsed \.sidebar-resizer \{[\s\S]*opacity: 0;[\s\S]*pointer-events: none;/,
+  'the movable session/conversation divider should fade out rather than disappear abruptly'
+)
+
+assert.doesNotMatch(
+  css,
+  /\.app-shell\.is-sidebar-collapsed \.sidebar-resizer \{[^}]*display:\s*none/,
+  'the divider must remain mounted long enough to animate with the collapsing panel'
+)
+
+assert.doesNotMatch(
+  css,
+  /\.sidebar\.is-collapsed \{[^}]*(?:width:\s*0|pointer-events:\s*none|visibility:\s*hidden)/,
+  'the collapsed state must not hide or disable the permanent icon rail'
+)
+
+assert.match(
+  appRoot,
+  /<Sidebar \/>\s*<SidebarResizeHandle policy=\{sidebarResizePolicy\} onResize=\{setSidebarWidth\} width=\{sidebarWidth\} \/>\s*<MainArea \/>/,
+  'the adjustable divider should live between the complete session pane and the conversation area'
+)
+
+assert.doesNotMatch(
+  appRoot,
+  /sidebarRailWidth|onRailResize|defaultSidebarRailWidth/,
+  'the icon rail should not be resized by the session/conversation divider'
+)
+
+assert.match(
+  css,
+  /\.sidebar-resizer \{[\s\S]*grid-column: 2;[\s\S]*width: 8px;[\s\S]*min-width: 8px;[\s\S]*height: 100%;[\s\S]*background: transparent;[\s\S]*transform: translateX\(-4px\);[\s\S]*cursor: col-resize;[\s\S]*app-region: no-drag;/,
+  'the outer session/conversation divider should overlay the seam as a keyboard-accessible 8px drag target'
+)
+
+assert.match(
+  css,
+  /\.sidebar-resizer::before \{[\s\S]*top: 0;[\s\S]*bottom: 0;[\s\S]*left: calc\(50% - 0\.5px\);[\s\S]*width: 1px;[\s\S]*background: var\(--app-shell-divider\);[\s\S]*opacity: 1;/,
+  'the adjustable seam should draw one visible vertical separator'
+)
+
+assert.match(
+  css,
+  /\.app-shell \{[\s\S]*grid-template-columns: var\(--sidebar-width\) 0 minmax\(0, 1fr\);/,
+  'the shell should keep the adjustable divider on a zero-width track so no grey gutter appears'
+)
+
+assert.match(
+  css,
+  /\.main-area \{[\s\S]*grid-column: 3;[\s\S]*border: 0;[\s\S]*border-radius: 0;/,
+  'the conversation canvas should keep a square edge beside the session panel'
+)
+
+assert.match(
+  css,
+  /\.app-shell\.is-sidebar-collapsed \.main-area \{[\s\S]*border-radius: var\(--app-shell-main-radius\) 0 0 var\(--app-shell-main-radius\);/,
+  'the collapsed conversation surface should inherit the icon-rail-facing rounded contour'
+)
+
+assert.match(
+  css,
+  /\.topbar \{[\s\S]*border-bottom-left-radius: 0;[\s\S]*background: var\(--app-shell-chrome-bg\);/,
+  'the title-area surface should not curve into the conversation seam'
+)
+
+assert.doesNotMatch(
+  css,
+  /\.app-shell\.is-sidebar-collapsed \.topbar \{[\s\S]*border-bottom-left-radius:/,
+  'the collapsed title strip must stay square so it does not leave a rounded notch above the conversation'
+)
+
+assert.match(
+  desktopTopbar,
+  /<span className="topbar-surface-corner" aria-hidden="true" \/>/,
+  'the desktop title strip should provide a dedicated collapsed-surface corner element'
+)
+
+assert.match(
+  css,
+  /\.topbar-surface-corner \{[\s\S]*display: none;[\s\S]*\}\.app-shell\.is-sidebar-collapsed \.topbar-surface-corner \{[\s\S]*position: absolute;[\s\S]*top: 100%;[\s\S]*left: 0;[\s\S]*width: var\(--app-shell-main-radius\);[\s\S]*height: var\(--app-shell-main-radius\);[\s\S]*background: radial-gradient\([\s\S]*circle at 100% 100%,[\s\S]*transparent var\(--app-shell-main-radius\),[\s\S]*var\(--app-shell-chrome-bg\) var\(--app-shell-main-radius\)[\s\S]*\);/,
+  'the collapsed title strip should reveal the conversation surface through a left-top rounded corner'
+)
+
+assert.match(
+  css,
+  /\.sidebar-rail-item\.is-active \{[\s\S]*background: rgba\(20, 47, 95, 0\.09\);/,
+  'the active icon rail item should retain the existing selected color'
 )
 
 assert.match(
   css,
   /\.app-shell\.platform-win32 \.sidebar \{[\s\S]*margin-top: var\(--window-chrome-height\);[\s\S]*padding-top: 0;/,
-  'Windows primary sidebar nav should sit slightly higher under the titlebar like Zcode'
+  'Windows session panel should start below the titlebar to create the rounded chrome-to-panel transition'
 )
 
 assert.match(
   css,
-  /\.nav-item\.is-active \{[\s\S]*border-color: rgba\(15, 23, 42, 0\.045\);[\s\S]*background: #ffffff;[\s\S]*0 1px 2px rgba\(15, 23, 42, 0\.1\),[\s\S]*0 2px 7px rgba\(15, 23, 42, 0\.06\);/,
-  'primary sidebar nav active state should use a light Zcode-like shadow'
+  /\.app-shell\.platform-darwin \.sidebar \{[\s\S]*height: calc\(100% - 52px\);[\s\S]*margin-top: 52px;[\s\S]*padding-top: 0;/,
+  'macOS session panel should start below the traffic-light strip to create the rounded chrome-to-panel transition'
 )
 
 assert.match(
   css,
-  /:root\[data-resolved-theme="dark"\] \.nav-item\.is-active \{[\s\S]*background: rgba\(255, 255, 255, 0\.08\);[\s\S]*0 1px 2px rgba\(0, 0, 0, 0\.26\),/,
-  'dark theme should keep the primary sidebar nav shadow subtle'
+  /\.app-shell\.platform-darwin \.sidebar-resizer \{[\s\S]*margin-top: 52px;[\s\S]*height: calc\(100% - 52px\);/,
+  'macOS should begin the adjustable divider below the titlebar rather than splitting the continuous top chrome'
 )
 
 assert.match(

@@ -16,6 +16,7 @@ export function DesktopTopbar({
 }) {
   return (
     <header className={`topbar${className ? ` ${className}` : ''}`}>
+      <span className="topbar-surface-corner" aria-hidden="true" />
       <div className={`crumb${leadingClassName ? ` ${leadingClassName}` : ''}`}>{leading}</div>
       {actions ? <div className={`topbar-actions${actionsClassName ? ` ${actionsClassName}` : ''}`}>{actions}</div> : null}
     </header>

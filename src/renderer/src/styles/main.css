@@ -7,11 +7,17 @@
   overflow-x: hidden;
   overflow-y: auto;
   padding: 0 0 40px;
-  border: 1px solid var(--app-shell-divider);
-  border-right: 0;
-  border-radius: var(--app-shell-main-radius) 0 0 var(--app-shell-main-radius);
+  /* The conversation surface meets the session panel on a square edge. The
+     draggable divider overlays that shared boundary without opening a gutter. */
+  border: 0;
+  border-radius: 0;
   background: var(--app-shell-main-bg);
   scroll-behavior: smooth;
+  transition: border-radius var(--session-panel-motion-duration) var(--session-panel-motion-easing);
+}.app-shell.is-sidebar-collapsed .main-area {
+  /* Once the session pane has contracted into the fixed rail, the conversation
+     surface inherits the rail-facing rounded contour. */
+  border-radius: var(--app-shell-main-radius) 0 0 var(--app-shell-main-radius);
 }.main-area[data-view='workbench'] {
   display: flex;
   flex-direction: column;
@@ -74,10 +80,38 @@
   min-height: 48px;
   padding: 0 20px;
   border-bottom: 0;
-  background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(18px);
+  border-bottom-left-radius: 0;
+  /* Match the native title strip and the icon rail rather than creating a
+     separate white glass band above the work area. */
+  background: var(--app-shell-chrome-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   app-region: drag;
   -webkit-app-region: drag;
+}.topbar-surface-corner {
+  display: none;
+}.app-shell.is-sidebar-collapsed .topbar-surface-corner {
+  /* Recreate the white content surface's left-top curve underneath the
+     continuous title strip without turning the strip itself into a notch. */
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
+  display: block;
+  width: var(--app-shell-main-radius);
+  height: var(--app-shell-main-radius);
+  /* The transparent quadrant is the actual white surface's top-left curve:
+     its circle is centred at this square's bottom-right, just like the
+     expanded sidebar panel's border-top-left-radius. */
+  background: radial-gradient(
+    circle at 100% 100%,
+    transparent 0,
+    transparent var(--app-shell-main-radius),
+    var(--app-shell-chrome-bg) var(--app-shell-main-radius)
+  );
+  pointer-events: none;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }.app-shell.platform-win32 .topbar {
   min-height: var(--window-chrome-height);
   padding-right: calc(20px + var(--window-control-overlay-width));
@@ -86,6 +120,8 @@
   height: 30px;
   padding: 0 12px;
   border-radius: 10px;
+}.app-shell.platform-darwin .topbar {
+  min-height: 52px;
 }.app-shell.platform-win32 .topbar::after {
   content: "";
   position: absolute;
@@ -115,7 +151,16 @@
   height: 52px;
   app-region: no-drag;
   -webkit-app-region: no-drag;
-}.app-shell.platform-win32 .main-area[data-reading-html='true'],
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main-area,
+  .topbar {
+    transition-duration: 1ms;
+  }
+}
+
+.app-shell.platform-win32 .main-area[data-reading-html='true'],
 .app-shell.platform-win32 .main-area[data-reading-markdown='true'] {
   padding-top: var(--window-chrome-height);
 }.app-shell.platform-win32 .reader-preview-back--alone {

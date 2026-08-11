@@ -62,7 +62,7 @@
     }
   },
   "sidebarResizer": {
-    "aria": "Resize sidebar"
+    "aria": "Resize session list"
   },
   "titlebar": {
     "group": "Window controls",
@@ -71,8 +71,8 @@
     "close": "Close window"
   },
   "main": {
-    "expandSidebar": "Expand sidebar",
-    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand session panel",
+    "collapseSidebar": "Collapse session panel",
     "dismissAlert": "Dismiss alert"
   },
   "overview": {

@@ -345,13 +345,16 @@ function Sidebar() {
 
   return (
     <DesktopSidebarFrame collapsed={sidebarCollapsed} ariaLabel={t('sidebar.aria')}>
-      <nav className="nav-list">
+      <nav className="sidebar-icon-rail" aria-label={t('sidebar.aria')}>
         {navItems.map((item) => {
           const Icon = item.icon
           return (
             <button
               key={item.id}
-              className={`nav-item ${view === item.id ? 'is-active' : ''}`}
+              aria-current={view === item.id ? 'page' : undefined}
+              aria-label={t(`nav.${item.id}`)}
+              className={`sidebar-rail-item ${view === item.id ? 'is-active' : ''}`}
+              title={t(`nav.${item.id}`)}
               type="button"
               onClick={() => {
                 if (item.id === 'overview') {
@@ -364,76 +367,79 @@ function Sidebar() {
                 setView(item.id)
               }}
             >
-              <Icon size={17} />
-              <span className="collapsible-label">{t(`nav.${item.id}`)}</span>
+              <Icon size={22} aria-hidden="true" />
             </button>
           )
         })}
       </nav>
 
-      <div className="sidebar-content">
-        <TeachingWorkspaceNavigator
-          workspaces={appState.workspaces}
-          activeWorkspace={active}
-          temporaryConversations={appState.temporaryConversations}
-          selectedLessonPath={view === 'lessons' && (lessonReaderOpen || selectedMarkdownDocument) ? selectedLessonPath : null}
-          selectedCourseRelativePath={selectedCourseRelativePath}
-          selectedCourseWorkspaceId={selectedCourseWorkspaceId}
-          view={view}
-          activeConversationId={activeConversationId}
-          pendingAgentConversation={pendingAgentConversation}
-          agentChatBusy={agentChatBusy}
-          showAllCourseFiles={settings.workspace.showAllCourseFiles}
-          defaultRoot={settings.workspace.defaultRoot}
-          loading={loading}
-          onSelectWorkspace={selectWorkspace}
-          onSetOverviewDialogMode={setOverviewDialogMode}
-          onOpenWorkspaceTeachingMode={openWorkspaceTeachingMode}
-          onSelectCourseFolder={selectCourseFolder}
-          onLoadLesson={loadLesson}
-          onLoadCourseHtmlFile={loadCourseHtmlFile}
-          onLoadWorkspaceMarkdownFile={loadWorkspaceMarkdownFile}
-          onLoadAgentConversation={loadAgentConversation}
-          onRestorePendingAgentConversation={restorePendingAgentConversation}
-          onOpenPath={openPath}
-          onImportWorkspace={importWorkspace}
-          onImportWorkspacePath={importWorkspacePath}
-          onSetWorkspaceItemMeta={setWorkspaceItemMeta}
-          onRenameAgentConversation={renameAgentConversation}
-          onRemoveWorkspaceItem={removeWorkspaceItem}
-          onRemoveWorkspace={removeWorkspace}
-        />
-      </div>
+      <div className="sidebar-panel">
+        <div className="sidebar-panel-motion-content">
+          <div className="sidebar-content">
+            <TeachingWorkspaceNavigator
+              workspaces={appState.workspaces}
+              activeWorkspace={active}
+              temporaryConversations={appState.temporaryConversations}
+              selectedLessonPath={view === 'lessons' && (lessonReaderOpen || selectedMarkdownDocument) ? selectedLessonPath : null}
+              selectedCourseRelativePath={selectedCourseRelativePath}
+              selectedCourseWorkspaceId={selectedCourseWorkspaceId}
+              view={view}
+              activeConversationId={activeConversationId}
+              pendingAgentConversation={pendingAgentConversation}
+              agentChatBusy={agentChatBusy}
+              showAllCourseFiles={settings.workspace.showAllCourseFiles}
+              defaultRoot={settings.workspace.defaultRoot}
+              loading={loading}
+              onSelectWorkspace={selectWorkspace}
+              onSetOverviewDialogMode={setOverviewDialogMode}
+              onOpenWorkspaceTeachingMode={openWorkspaceTeachingMode}
+              onSelectCourseFolder={selectCourseFolder}
+              onLoadLesson={loadLesson}
+              onLoadCourseHtmlFile={loadCourseHtmlFile}
+              onLoadWorkspaceMarkdownFile={loadWorkspaceMarkdownFile}
+              onLoadAgentConversation={loadAgentConversation}
+              onRestorePendingAgentConversation={restorePendingAgentConversation}
+              onOpenPath={openPath}
+              onImportWorkspace={importWorkspace}
+              onImportWorkspacePath={importWorkspacePath}
+              onSetWorkspaceItemMeta={setWorkspaceItemMeta}
+              onRenameAgentConversation={renameAgentConversation}
+              onRemoveWorkspaceItem={removeWorkspaceItem}
+              onRemoveWorkspace={removeWorkspace}
+            />
+          </div>
 
-      <div className="sidebar-footer">
-        <button
-          className="sidebar-user"
-          type="button"
-          title={t('sidebar.account')}
-          aria-label={t('sidebar.account')}
-          onClick={() => openSettings('account')}
-        >
-          <span className="sidebar-user-avatar" aria-hidden="true">
-            {syncState.user?.avatarUrl && !avatarLoadFailed ? (
-              <img src={syncState.user.avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setAvatarLoadFailed(true)} />
-            ) : (
-              avatarInitial
-            )}
-          </span>
-          <span className="sidebar-user-name collapsible-label">{displayName}</span>
-        </button>
-        <button className="icon-button" type="button" aria-label={t('sidebar.settings')} onClick={() => openSettings('model')} title={t('sidebar.settings')}>
-          <Settings size={16} />
-        </button>
-        <button
-          className="icon-button"
-          type="button"
-          aria-label={t('sidebar.checkForUpdates')}
-          title={t('sidebar.checkForUpdates')}
-          onClick={openUpdateDialog}
-        >
-          <RefreshCw size={16} />
-        </button>
+          <div className="sidebar-footer">
+            <button
+              className="sidebar-user"
+              type="button"
+              title={t('sidebar.account')}
+              aria-label={t('sidebar.account')}
+              onClick={() => openSettings('account')}
+            >
+              <span className="sidebar-user-avatar" aria-hidden="true">
+                {syncState.user?.avatarUrl && !avatarLoadFailed ? (
+                  <img src={syncState.user.avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setAvatarLoadFailed(true)} />
+                ) : (
+                  avatarInitial
+                )}
+              </span>
+              <span className="sidebar-user-name collapsible-label">{displayName}</span>
+            </button>
+            <button className="icon-button" type="button" aria-label={t('sidebar.settings')} onClick={() => openSettings('model')} title={t('sidebar.settings')}>
+              <Settings size={16} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label={t('sidebar.checkForUpdates')}
+              title={t('sidebar.checkForUpdates')}
+              onClick={openUpdateDialog}
+            >
+              <RefreshCw size={16} />
+            </button>
+          </div>
+        </div>
       </div>
     </DesktopSidebarFrame>
   )
