@@ -91,7 +91,7 @@ describe('mindMapNodesSchema', () => {
 type MindMapNodeLike = { id: string; title: string; children: MindMapNodeLike[] }
 
 describe('mindMapSheetSchema', () => {
-  it('defaults missing sheet structureClass to right', () => {
+  it('defaults missing sheet structureClass to balanced', () => {
     const result = mindMapSheetSchema.safeParse({
       id: 'sheet-1',
       title: 'Sheet 1',
@@ -99,7 +99,7 @@ describe('mindMapSheetSchema', () => {
     })
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.structureClass).toBe('org.xmind.ui.logic.right')
+      expect(result.data.structureClass).toBe('org.xmind.ui.logic.balanced')
     }
   })
 

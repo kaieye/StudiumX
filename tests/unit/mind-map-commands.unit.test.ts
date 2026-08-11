@@ -374,6 +374,87 @@ describe('applyMindMapCommand — sheets and theme', () => {
     expectOk(undone)
     expect(undone.document).toEqual(doc)
   })
+
+  it('updates per-sheet layout settings and restores optional values exactly', () => {
+    const doc = makeDocument()
+    const result = applyMindMapCommand(doc, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: {
+        structureClass: 'org.xmind.ui.logic.balanced',
+        direction: 'rtl',
+        compact: true,
+        spacing: 28,
+        lineStyle: 'elbow'
+      }
+    })
+    expectOk(result)
+    expect(result.document.sheets[0]!.layout).toEqual({
+      structureClass: 'org.xmind.ui.logic.balanced',
+      direction: 'rtl',
+      compact: true,
+      spacing: 28,
+      lineStyle: 'elbow'
+    })
+    expectInvariants(result.document)
+
+    const undone = applyMindMapCommand(result.document, result.inverse)
+    expectOk(undone)
+    expect(undone.document).toEqual(doc)
+  })
+
+  it('rejects invalid sheet layout spacing and connector style', () => {
+    const doc = makeDocument()
+    const invalidSpacing = applyMindMapCommand(doc, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { spacing: -1 }
+    })
+    expect(invalidSpacing.ok).toBe(false)
+    if (!invalidSpacing.ok) expect(invalidSpacing.error.code).toBe('INVALID_PATCH')
+
+    const invalidLineStyle = applyMindMapCommand(doc, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { lineStyle: 'dashed' as never }
+    })
+    expect(invalidLineStyle.ok).toBe(false)
+    if (!invalidLineStyle.ok) expect(invalidLineStyle.error.code).toBe('INVALID_PATCH')
+  })
+
+  it('applies, inverts, and validates the per-sheet branch line-width scale', () => {
+    const doc = makeDocument()
+    const result = applyMindMapCommand(doc, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { lineWidthScale: 1.5 }
+    })
+    expectOk(result)
+    expect(result.document.sheets[0]!.layout.lineWidthScale).toBe(1.5)
+
+    // Undo restores the default (no field).
+    const undone = applyMindMapCommand(result.document, result.inverse)
+    expectOk(undone)
+    expect(undone.document).toEqual(doc)
+
+    // Clearing via null removes the field.
+    const cleared = applyMindMapCommand(result.document, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { lineWidthScale: null }
+    })
+    expectOk(cleared)
+    expect(cleared.document.sheets[0]!.layout.lineWidthScale).toBeUndefined()
+
+    // Non-positive scales are rejected.
+    const invalid = applyMindMapCommand(doc, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { lineWidthScale: 0 }
+    })
+    expect(invalid.ok).toBe(false)
+    if (!invalid.ok) expect(invalid.error.code).toBe('INVALID_PATCH')
+  })
 })
 
 describe('transactions', () => {

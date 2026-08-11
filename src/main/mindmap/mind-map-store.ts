@@ -374,7 +374,7 @@ export function createMindMapStore(rootPath: string): MindMapStore {
             title: 'Sheet 1',
             root: { id: randomUUID(), title, children: [] },
             elements: [],
-            layout: { structureClass: 'org.xmind.ui.logic.right' }
+            layout: { structureClass: 'org.xmind.ui.logic.balanced' }
           }
         ],
         assets: []

@@ -8,6 +8,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 
 import {
   buildXmindZip,
+  buildXmindZipV2,
   exportXmindFile,
   parseXmindZip,
   parseXmindZipWithCompatibilityReport,
@@ -15,6 +16,7 @@ import {
   readXmindFileWithCompatibilityReport
 } from '../../src/main/mindmap/xmind-file'
 import type { MindMapDocument } from '../../src/shared/mindmap/mind-map-types'
+import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 
 const NOW = '2026-08-09T00:00:00.000Z'
 
@@ -442,5 +444,73 @@ describe('buildXmindZip / parseXmindZip', () => {
     )
     expect(parsed.sheets).toHaveLength(1)
     expect(parsed.sheets[0].root.title).toBe('Root')
+  })
+})
+
+describe('buildXmindZipV2 theme roundtrip', () => {
+  it('preserves theme background and branch colors in the exported content.json', () => {
+    const doc: MindMapDocumentV2 = {
+      schemaVersion: 2,
+      id: 'v2-doc',
+      revision: 1,
+      title: 'V2 Test',
+      createdAt: NOW,
+      updatedAt: NOW,
+      theme: {
+        id: 'snowbrush',
+        background: '#FFFFFF',
+        fontFamily: 'system-ui, sans-serif',
+        branchColors: ['#FF6B6B', '#97D3B6', '#6FD0F9'],
+        rainbowBranches: true
+      },
+      sheets: [
+        {
+          id: 'sheet-1',
+          title: 'Overview',
+          root: { id: 'root', title: 'Root', children: [] },
+          elements: [],
+          layout: { structureClass: 'org.xmind.ui.logic.right' }
+        }
+      ],
+      assets: []
+    }
+
+    const bytes = buildXmindZipV2(doc)
+    const unzipped = unzipSync(bytes)
+    const contentJson = strFromU8(unzipped['content.json'])
+    const content = JSON.parse(contentJson) as Array<Record<string, unknown>>
+    const sheet = content[0]
+    const theme = sheet.theme as Record<string, unknown>
+    expect(theme).toBeDefined()
+    expect((theme.map as Record<string, unknown>)['svg:fill']).toBe('#FFFFFF')
+    expect(theme.multiLineColors).toBeDefined()
+  })
+
+  it('exports without a theme block when theme has no visual attributes', () => {
+    const doc: MindMapDocumentV2 = {
+      schemaVersion: 2,
+      id: 'v2-doc-2',
+      revision: 1,
+      title: 'No Theme',
+      createdAt: NOW,
+      updatedAt: NOW,
+      theme: { id: 'default' },
+      sheets: [
+        {
+          id: 'sheet-1',
+          title: 'Overview',
+          root: { id: 'root', title: 'Root', children: [] },
+          elements: [],
+          layout: { structureClass: 'org.xmind.ui.logic.right' }
+        }
+      ],
+      assets: []
+    }
+
+    const bytes = buildXmindZipV2(doc)
+    const unzipped = unzipSync(bytes)
+    const contentJson = strFromU8(unzipped['content.json'])
+    const content = JSON.parse(contentJson) as Array<Record<string, unknown>>
+    expect(content[0].theme).toBeUndefined()
   })
 })

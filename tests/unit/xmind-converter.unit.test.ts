@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   documentToXmindContent,
+  documentV2ToXmindContent,
   xmindContentToDocument
 } from '../../src/shared/mindmap/xmind-converter'
 import type { MindMapDocument } from '../../src/shared/mindmap/mind-map-types'
@@ -324,7 +325,7 @@ describe('xmindContentToDocument', () => {
     expect(doc.sheets[0]?.root.children[0]).not.toHaveProperty('assetIds')
   })
 
-  it('defaults a missing structureClass to right', () => {
+  it('defaults a missing structureClass to balanced', () => {
     const content = [
       {
         class: 'sheet',
@@ -334,7 +335,7 @@ describe('xmindContentToDocument', () => {
       }
     ]
     const doc = xmindContentToDocument(content, { nowIso: NOW })
-    expect(doc.sheets[0].structureClass).toBe('org.xmind.ui.logic.right')
+    expect(doc.sheets[0].structureClass).toBe('org.xmind.ui.logic.balanced')
   })
 
   it('defaults a topic-level missing structureClass to undefined (inherits sheet)', () => {
@@ -383,3 +384,66 @@ function deepTopic(depth: number, maxDepth: number): Record<string, unknown> {
   }
   return topic
 }
+
+describe('documentV2ToXmindContent', () => {
+  it('maps theme background, branch colors, and font into the sheet theme block', () => {
+    const sheets = [
+      {
+        id: 'sheet-1',
+        title: 'Overview',
+        root: { id: 'root', title: 'Root', children: [] },
+        structureClass: 'org.xmind.ui.logic.right' as const
+      }
+    ]
+    const theme = {
+      id: 'default',
+      background: '#FFFFFF',
+      fontFamily: 'system-ui, sans-serif',
+      branchColors: ['#FF6B6B', '#97D3B6', '#6FD0F9'],
+      rainbowBranches: true
+    }
+    const content = documentV2ToXmindContent(sheets, theme)
+    const sheet = content[0] as Record<string, unknown>
+    const themeBlock = sheet.theme as Record<string, unknown>
+    expect(themeBlock).toBeDefined()
+    expect((themeBlock.map as Record<string, unknown>)['svg:fill']).toBe('#FFFFFF')
+    expect((themeBlock.defaults as Record<string, unknown>)['fo:font-family']).toBe('system-ui, sans-serif')
+    expect(themeBlock.multiLineColors).toEqual({ '0': '#FF6B6B', '1': '#97D3B6', '2': '#6FD0F9' })
+  })
+
+  it('omits theme block when no theme is provided', () => {
+    const sheets = [
+      {
+        id: 'sheet-1',
+        title: 'Overview',
+        root: { id: 'root', title: 'Root', children: [] },
+        structureClass: 'org.xmind.ui.logic.right' as const
+      }
+    ]
+    const content = documentV2ToXmindContent(sheets, undefined)
+    const sheet = content[0] as Record<string, unknown>
+    expect(sheet.theme).toBeUndefined()
+  })
+
+  it('drops branch colors when rainbowBranches is false', () => {
+    const sheets = [
+      {
+        id: 'sheet-1',
+        title: 'Overview',
+        root: { id: 'root', title: 'Root', children: [] },
+        structureClass: 'org.xmind.ui.logic.right' as const
+      }
+    ]
+    const theme = {
+      id: 'default',
+      branchColors: ['#FF6B6B', '#97D3B6'],
+      lineColor: '#8E8E93',
+      rainbowBranches: false
+    }
+    const content = documentV2ToXmindContent(sheets, theme)
+    const sheet = content[0] as Record<string, unknown>
+    const themeBlock = sheet.theme as Record<string, unknown>
+    expect(themeBlock.multiLineColors).toBeUndefined()
+    expect(themeBlock.lineColor).toBe('#8E8E93')
+  })
+})

@@ -12,16 +12,29 @@ export const MIND_MAP_DOCUMENT_SCHEMA_VERSION = 1
  * (`org.xmind.ui.logic.*`).
  */
 export type MindMapStructureClass =
-  | 'org.xmind.ui.logic.right' // 右侧逻辑图（XMind 默认）
+  | 'org.xmind.ui.logic.right' // 右侧逻辑图
   | 'org.xmind.ui.logic.balanced' // 两侧均衡
   | 'org.xmind.ui.logic.left' // 左侧逻辑图
   | 'org.xmind.ui.logic.map' // 思维导图（双向发散）
   | 'org.xmind.ui.logic.down' // 向下组织图
   | 'org.xmind.ui.logic.up' // 向上组织图
+  | 'org.xmind.ui.map' // 思维导图（Xmind 原生结构类）
+  | 'org.xmind.ui.map.clockwise' // 思维导图（顺时针）
+  | 'org.xmind.ui.map.anticlockwise' // 思维导图（逆时针）
+  | 'org.xmind.ui.org-chart.down' // 组织结构图（向下）
+  | 'org.xmind.ui.org-chart.up' // 组织结构图（向上）
+  | 'org.xmind.ui.tree.right' // 树形图（向右）
+  | 'org.xmind.ui.tree.left' // 树形图（向左）
+  | 'org.xmind.ui.brace.right' // 括号图（向右）
+  | 'org.xmind.ui.brace.left' // 括号图（向左）
+  | 'org.xmind.ui.timeline.horizontal' // 时间轴（水平）
+  | 'org.xmind.ui.timeline.vertical' // 时间轴（垂直）
+  | 'org.xmind.ui.fishbone.rightHeaded' // 鱼骨图（头向右）
+  | 'org.xmind.ui.fishbone.leftHeaded' // 鱼骨图（头向左）
 
 /** Structure class used when an XMind topic omits one (forward compatible). */
 export const DEFAULT_MIND_MAP_STRUCTURE_CLASS: MindMapStructureClass =
-  'org.xmind.ui.logic.right'
+  'org.xmind.ui.logic.balanced'
 
 export type MindMapNode = {
   id: string

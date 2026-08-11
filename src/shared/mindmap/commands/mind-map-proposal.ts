@@ -21,6 +21,7 @@ import { applyMindMapCommand } from './mind-map-reducer'
 import type {
   MindMapCommand,
   MindMapElementUpdatePatch,
+  MindMapSheetLayoutUpdatePatch,
   MindMapTopicUpdatePatch,
   MindMapCommandError,
   MindMapCommandResult
@@ -212,6 +213,16 @@ const mindMapLayoutProposalSchema = z
   })
   .strict()
 
+const mindMapSheetLayoutUpdatePatchProposalSchema: z.ZodType<MindMapSheetLayoutUpdatePatch> = z
+  .object({
+    structureClass: mindMapStructureClassSchema.optional(),
+    direction: z.enum(['ltr', 'rtl']).nullable().optional(),
+    compact: z.boolean().nullable().optional(),
+    spacing: finiteNumberSchema.nonnegative().nullable().optional(),
+    lineStyle: z.enum(['curve', 'elbow', 'straight']).nullable().optional()
+  })
+  .strict()
+
 const mindMapViewportProposalSchema = z
   .object({
     x: finiteNumberSchema,
@@ -345,6 +356,13 @@ const mindMapCommandProposalSchema: z.ZodType<MindMapCommand, z.ZodTypeDef, unkn
         type: z.literal('sheet.rename'),
         sheetId: nonEmptyIdSchema,
         title: z.string()
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal('sheet.update-layout'),
+        sheetId: nonEmptyIdSchema,
+        patch: mindMapSheetLayoutUpdatePatchProposalSchema
       })
       .strict(),
     z

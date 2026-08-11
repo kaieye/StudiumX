@@ -24,6 +24,7 @@ export type MindMapKeyboardHandlers = {
   paste: () => void
   duplicate: () => void
   moveFocus?: (direction: MindMapFocusDirection) => void
+  toggleInspector?: () => void
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -73,6 +74,15 @@ export function useMindMapKeyboard(
         if (mod) return
         event.preventDefault()
         if (event.shiftKey) handlers.outdent()
+        else handlers.insertChild()
+        return
+      }
+
+      // Insert key: insert child (Xmind-style shortcut)
+      if (key === 'Insert') {
+        if (mod) return
+        event.preventDefault()
+        if (event.shiftKey) handlers.insertSibling()
         else handlers.insertChild()
         return
       }
@@ -143,6 +153,15 @@ export function useMindMapKeyboard(
       if (mod && key.toLowerCase() === 'd') {
         event.preventDefault()
         handlers.duplicate()
+        return
+      }
+
+      // P2 §5.4: ⌘. / Ctrl+. toggles the right inspector (Xmind-style).
+      if (mod && key === '.') {
+        if (handlers.toggleInspector) {
+          event.preventDefault()
+          handlers.toggleInspector()
+        }
         return
       }
     }

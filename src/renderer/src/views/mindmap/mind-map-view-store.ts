@@ -50,6 +50,14 @@ type MindMapViewState = {
   streamText: string
   error: string | null
   aiPrompt: string
+  /** P2 §5.2: right-inspector visibility, persisted to localStorage. */
+  inspectorOpen: boolean
+  /** Toggle the right inspector panel (bound to header button + ⌘.). */
+  toggleInspector: () => void
+  /** P2 §5.2: active inspector tab, persisted to localStorage. */
+  inspectorTab: 'style' | 'canvas' | 'ai'
+  /** Switch the active inspector tab (persisted). */
+  setInspectorTab: (tab: 'style' | 'canvas' | 'ai') => void
 
   loadDocuments: () => Promise<void>
   openDocument: (id: string) => Promise<void>
@@ -287,6 +295,22 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     streamText: '',
     error: null,
     aiPrompt: '',
+    inspectorOpen: (() => {
+      try {
+        return localStorage.getItem('mindmap.inspectorOpen') !== 'false'
+      } catch {
+        return true
+      }
+    })(),
+    inspectorTab: (() => {
+      try {
+        const tab = localStorage.getItem('mindmap.inspectorTab')
+        if (tab === 'style' || tab === 'canvas' || tab === 'ai') return tab
+      } catch {
+        // localStorage may be unavailable
+      }
+      return 'style'
+    })(),
 
     loadDocuments: async () => {
       const workspace = workspaceId()
@@ -386,7 +410,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       const updated = get().current
       const created = updated?.sheets.find((sheet) => sheet.id === sheetId)
       if (created) {
-        set({ activeSheetId: sheetId, selectedNodeId: created.root.id })
+        set({ activeSheetId: sheetId, selectedNodeId: created.root.id, editingNodeId: created.root.id })
       }
     },
 
@@ -435,7 +459,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       if (!sheet) return
       const built = buildInsertChildCommand(sheet.id, parentId)
       dispatchCommand(built.command, { label: 'Insert child' })
-      set({ selectedNodeId: built.nodeId })
+      set({ selectedNodeId: built.nodeId, editingNodeId: built.nodeId })
     },
 
     addSibling: (nodeId) => {
@@ -444,7 +468,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       const built = buildInsertSiblingCommand(sheet, nodeId)
       if (built) {
         dispatchCommand(built.command, { label: 'Insert sibling' })
-        set({ selectedNodeId: built.nodeId })
+        set({ selectedNodeId: built.nodeId, editingNodeId: built.nodeId })
       }
     },
 
@@ -461,7 +485,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       const built = buildInsertAboveCommand(sheet, nodeId)
       if (built) {
         dispatchCommand(built.command, { label: 'Insert above' })
-        set({ selectedNodeId: built.nodeId })
+        set({ selectedNodeId: built.nodeId, editingNodeId: built.nodeId })
       }
     },
 
@@ -562,6 +586,25 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     setEditingNodeId: (editingNodeId) => set({ editingNodeId }),
 
     setAiPrompt: (aiPrompt) => set({ aiPrompt }),
+    toggleInspector: () => {
+      set((state) => {
+        const next = !state.inspectorOpen
+        try {
+          localStorage.setItem('mindmap.inspectorOpen', String(next))
+        } catch {
+          // localStorage may be unavailable; in-memory state still toggles.
+        }
+        return { inspectorOpen: next }
+      })
+    },
+    setInspectorTab: (inspectorTab) => {
+      try {
+        localStorage.setItem('mindmap.inspectorTab', inspectorTab)
+      } catch {
+        // localStorage may be unavailable; in-memory state still updates.
+      }
+      set({ inspectorTab })
+    },
 
     adoptCommittedDocument: (document, options = {}) => {
       const state = get()

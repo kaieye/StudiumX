@@ -17,8 +17,11 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 
 import {
   documentToXmindContent,
+  documentV2ToXmindContent,
   xmindContentToDocument
 } from '../../shared/mindmap/xmind-converter'
+import type { MindMapDocumentV2 } from '../../shared/mindmap/domain/types'
+import { convertSheetToV1 } from '../../shared/mindmap/v2-to-v1'
 import {
   buildXmindImportCompatibilityReport,
   type XmindCompatibilityReport
@@ -87,6 +90,29 @@ const FALLBACK_SLUG = 'mind-map'
  */
 export function buildXmindZip(doc: MindMapDocument): Uint8Array {
   const contentJson = JSON.stringify(documentToXmindContent(doc))
+  return zipSync({
+    [CONTENT_ENTRY]: strToU8(contentJson),
+    'metadata.json': strToU8(JSON.stringify(METADATA_JSON)),
+    'manifest.json': strToU8(JSON.stringify(MANIFEST_JSON))
+  })
+}
+
+/**
+ * Build a `.xmind` ZIP from a v2 document, preserving theme attributes
+ * (background, branch colors, font) in the sheet theme block (§7.5/§11).
+ */
+export function buildXmindZipV2(doc: MindMapDocumentV2): Uint8Array {
+  const v1Sheets = doc.sheets.map((sheet) => {
+    const v1Sheet = convertSheetToV1(sheet)
+    return {
+      id: v1Sheet.id,
+      title: v1Sheet.title,
+      root: v1Sheet.root,
+      structureClass: v1Sheet.structureClass,
+      relationships: v1Sheet.relationships
+    }
+  })
+  const contentJson = JSON.stringify(documentV2ToXmindContent(v1Sheets, doc.theme))
   return zipSync({
     [CONTENT_ENTRY]: strToU8(contentJson),
     'metadata.json': strToU8(JSON.stringify(METADATA_JSON)),
@@ -320,6 +346,21 @@ export async function exportXmindFile(
   await mkdir(destination, { recursive: true })
   const filePath = join(destination, `${slug}.xmind`)
   await writeFile(filePath, buildXmindZip(doc))
+  return { path: filePath }
+}
+
+/**
+ * Export a v2 document to .xmind, preserving theme attributes.
+ */
+export async function exportXmindFileV2(
+  doc: MindMapDocumentV2,
+  destinationDirectory: string
+): Promise<{ path: string }> {
+  const slug = slugify(doc.title) || FALLBACK_SLUG
+  const destination = resolve(destinationDirectory)
+  await mkdir(destination, { recursive: true })
+  const filePath = join(destination, `${slug}.xmind`)
+  await writeFile(filePath, buildXmindZipV2(doc))
   return { path: filePath }
 }
 

@@ -54,6 +54,8 @@ export function defaultMindMapCommandLabel(command: MindMapCommand): string {
       return 'Create sheet'
     case 'sheet.rename':
       return 'Rename sheet'
+    case 'sheet.update-layout':
+      return 'Update sheet layout'
     case 'sheet.reorder':
       return 'Reorder sheet'
     case 'sheet.remove':

@@ -13,6 +13,7 @@
  */
 import type {
   MindMapDocumentV2,
+  MindMapLayoutSettings,
   MindMapElement,
   MindMapElementStyle,
   MindMapLink,
@@ -28,13 +29,13 @@ import type {
 
 /** Partial topic update. `null` removes an optional field; `undefined` leaves it untouched. */
 export type MindMapTopicUpdatePatch = {
-  title?: string
+  title?: string | null
   note?: string | null
   collapsed?: boolean
-  labels?: string[]
-  markers?: MindMapMarker[]
-  links?: MindMapLink[]
-  sourceRefs?: MindMapSourceRef[]
+  labels?: string[] | null
+  markers?: MindMapMarker[] | null
+  links?: MindMapLink[] | null
+  sourceRefs?: MindMapSourceRef[] | null
   planning?: MindMapPlanningMetadata | null
   style?: MindMapTopicStyleOverride | null
   manualPosition?: MindMapPoint | null
@@ -44,6 +45,16 @@ export type MindMapTopicUpdatePatch = {
  * Partial element update. Only fields allowed for the element's `type` may be
  * present; `null` removes an optional field, `undefined` leaves it untouched.
  */
+/** Partial per-sheet layout update. Optional fields set to null restore inherited/default values. */
+export type MindMapSheetLayoutUpdatePatch = {
+  structureClass?: MindMapLayoutSettings['structureClass']
+  direction?: MindMapLayoutSettings['direction'] | null
+  compact?: boolean | null
+  spacing?: number | null
+  lineStyle?: MindMapLayoutSettings['lineStyle'] | null
+  lineWidthScale?: number | null
+}
+
 export type MindMapElementUpdatePatch = {
   label?: string | null
   from?: string
@@ -74,6 +85,7 @@ export type MindMapCommand =
   | { type: 'sheet.create'; sheetId?: string; title?: string; index?: number; sheet?: MindMapSheetV2 }
   | { type: 'document.rename'; title: string }
   | { type: 'sheet.rename'; sheetId: string; title: string }
+  | { type: 'sheet.update-layout'; sheetId: string; patch: MindMapSheetLayoutUpdatePatch }
   | { type: 'sheet.reorder'; sheetId: string; toIndex: number }
   | { type: 'sheet.remove'; sheetId: string }
   | { type: 'document.apply-theme'; theme: MindMapTheme }

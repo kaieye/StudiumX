@@ -107,6 +107,7 @@ export function MindMapSheetTabs({
                 tabIndex={isActive ? 0 : -1}
                 className={`mindmap-sheet-tab${isActive ? ' is-active' : ''}`}
                 onClick={() => onActivate(sheet.id)}
+                onDoubleClick={() => beginRename(sheet.id, sheet.title)}
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
                     event.preventDefault()

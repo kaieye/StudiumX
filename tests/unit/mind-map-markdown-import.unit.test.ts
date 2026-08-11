@@ -114,7 +114,7 @@ describe('mindMapMarkdownToDocument', () => {
       expect(repeated.document.sheets).toEqual(
         imported.document.sheets.map((sheet) => ({
           ...sheet,
-          layout: { structureClass: 'org.xmind.ui.logic.right' }
+          layout: { structureClass: 'org.xmind.ui.logic.balanced' }
         }))
       )
       expect(repeated.document.sheets.flatMap((sheet) => [

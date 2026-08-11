@@ -1,5 +1,40 @@
-/* Mind map view styles — dark-theme neutral via the app's design tokens. */
+/* ================================================================
+ * Design Tokens (P5.4)
+ * ================================================================ */
+:root {
+  --mm-focus: #438eff;
+  --mm-focus-ring: 0 0 0 2px #438eff;
+  --mm-radius-pill: 999px;   /* vana platform-radius-toolbar-bg: capsule on macOS */
+  --mm-radius-card: 8px;
+  --mm-shadow-float:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 6px 20px rgba(0, 0, 0, 0.07),
+    0 0 4px rgba(0, 0, 0, 0.05);   /* vana effect-light-l3 */
+  --mm-transition-fast: 120ms ease;
+  --mm-transition-med: 160ms ease;
+  /* v2 canvas tokens (plan §4.1) — font tiers follow Xmind M01 28:20:14pt. */
+  --mm-ink: #333333;
+  --mm-sub-fill: #f8f7f7;
+  --mm-font-root: 26px;
+  --mm-font-main: 16px;
+  --mm-font-sub: 13px;
+}
 
+
+:root[data-resolved-theme="dark"] {
+  --mm-shadow-float: 0 6px 20px rgba(0, 0, 0, 0.42), 0 0 4px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-resolved-theme="dark"] .mindmap-floating-toolbar,
+:root[data-resolved-theme="dark"] .mindmap-stage__identity,
+:root[data-resolved-theme="dark"] .mindmap-stage__header-actions,
+:root[data-resolved-theme="dark"] .mindmap-sheet-pill,
+:root[data-resolved-theme="dark"] .mindmap-status-bar,
+:root[data-resolved-theme="dark"] .mindmap-minimap {
+  border: 1px solid var(--line-muted);
+}
+
+/* Mind map view styles — dark-theme neutral via the app's design tokens. */
 .mindmap-view-shell {
   height: 100%;
   min-height: 0;
@@ -14,13 +49,8 @@
 }
 
 /* ---- left: document list ---- */
-
 .mindmap-list {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-right: 1px solid var(--line);
-  background: var(--surface);
+  overflow-y: auto;
 }
 
 .mindmap-list__head {
@@ -35,6 +65,34 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
+}
+
+.mindmap-list__head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mindmap-list__collapse {
+  color: var(--text-soft);
+}
+
+/* P1 §4.5: whole-list collapse. Collapsed state hides every child except the
+ * head bar (which keeps the expand toggle) and shrinks the column to a rail. */
+.mindmap-list.is-collapsed {
+  overflow: hidden;
+}
+
+.mindmap-view:has(.mindmap-list.is-collapsed) {
+  grid-template-columns: 48px 1fr 300px;
+}
+
+.mindmap-list.is-collapsed > *:not(.mindmap-list__head) {
+  display: none;
+}
+
+.mindmap-list.is-collapsed .mindmap-list__head strong {
+  display: none;
 }
 
 .mindmap-list__create {
@@ -94,7 +152,6 @@
   cursor: pointer;
 }
 
-.mindmap-list__item:hover,
 .mindmap-list__item:focus-visible {
   background: var(--surface-hover);
   outline: 2px solid var(--accent);
@@ -126,7 +183,6 @@
   opacity: 0;
 }
 
-.mindmap-list__item-row:hover .mindmap-list__item-delete,
 .mindmap-list__item-row:focus-within .mindmap-list__item-delete {
   opacity: 1;
 }
@@ -189,7 +245,6 @@
   outline: none;
 }
 
-.mindmap-outline__item:hover,
 .mindmap-outline__item:focus-visible {
   background: var(--surface-hover);
   color: var(--text);
@@ -200,7 +255,6 @@
   background: var(--accent-soft);
 }
 
-.mindmap-outline__toggle,
 .mindmap-outline__toggle-placeholder {
   display: inline-flex;
   align-items: center;
@@ -219,7 +273,6 @@
   cursor: pointer;
 }
 
-.mindmap-outline__toggle:hover,
 .mindmap-outline__toggle:focus-visible {
   color: var(--accent);
   background: var(--surface-hover);
@@ -236,7 +289,6 @@
 }
 
 /* ---- selected topic style ---- */
-
 .mindmap-topic-style {
   display: flex;
   flex: 0 1 auto;
@@ -246,74 +298,12 @@
   background: var(--surface-muted);
 }
 
-.mindmap-topic-style__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  min-width: 0;
-  padding: var(--space-sm) var(--space-md);
-  border-bottom: 1px solid var(--line);
-}
-
-.mindmap-topic-style__head strong {
-  flex: 0 0 auto;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.mindmap-topic-style__head span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mindmap-topic-style__body {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 6px 8px;
-  padding: var(--space-sm) var(--space-md);
-}
-
-.mindmap-topic-style__body label {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.mindmap-topic-style__body select {
-  min-width: 0;
-  padding: 5px 6px;
-  color: var(--text);
-  background: var(--surface-solid);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-}
-
-.mindmap-topic-style__body select:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.mindmap-topic-style__effective,
-.mindmap-topic-style__empty {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 10px;
-}
 
 .mindmap-topic-style__empty {
   padding: var(--space-sm) var(--space-md);
 }
 
 /* ---- document theme ---- */
-
 .mindmap-theme-panel {
   display: flex;
   flex: 0 1 auto;
@@ -323,69 +313,8 @@
   background: var(--surface-muted);
 }
 
-.mindmap-theme-panel__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  min-width: 0;
-  padding: var(--space-sm) var(--space-md);
-  border-bottom: 1px solid var(--line);
-}
-
-.mindmap-theme-panel__head strong {
-  flex: 0 0 auto;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.mindmap-theme-panel__head span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mindmap-theme-panel__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  min-width: 0;
-  padding: var(--space-sm) var(--space-md);
-}
-
-.mindmap-theme-panel__body code {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mindmap-theme-panel__actions {
-  display: flex;
-  gap: var(--space-xs);
-  flex-wrap: wrap;
-}
-
-.mindmap-theme-panel__actions .ghost-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  font-size: 10px;
-}
-
-.mindmap-theme-panel__status {
-  color: var(--text-muted);
-  font-size: 10px;
-}
 
 /* ---- current-sheet search ---- */
-
 .mindmap-search {
   display: flex;
   flex: 0 1 38%;
@@ -489,7 +418,6 @@
   cursor: pointer;
 }
 
-.mindmap-search__result:hover,
 .mindmap-search__result:focus-visible {
   color: var(--text);
   background: var(--surface-hover);
@@ -501,12 +429,9 @@
   background: var(--accent-soft);
 }
 
-.mindmap-search__result-title,
 .mindmap-search__result-fields {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .mindmap-search__result-title {
@@ -514,13 +439,7 @@
   font-weight: 500;
 }
 
-.mindmap-search__result-fields {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
 /* ---- current-sheet sources ---- */
-
 .mindmap-sources {
   display: flex;
   flex: 0 1 24%;
@@ -580,7 +499,6 @@
   cursor: pointer;
 }
 
-.mindmap-sources__refresh:hover:not(:disabled),
 .mindmap-sources__refresh:focus-visible {
   background: var(--surface-hover);
   outline: none;
@@ -620,7 +538,6 @@
   cursor: pointer;
 }
 
-.mindmap-sources__item:hover,
 .mindmap-sources__item:focus-visible {
   color: var(--text);
   background: var(--surface-hover);
@@ -632,16 +549,9 @@
   background: var(--accent-soft);
 }
 
-.mindmap-sources__item-title,
-.mindmap-sources__item-location,
 .mindmap-sources__item-meta {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .mindmap-sources__item-title {
@@ -651,21 +561,9 @@
   font-weight: 500;
 }
 
-.mindmap-sources__item-location,
-.mindmap-sources__item-meta {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.mindmap-sources__refresh-status,
-.mindmap-sources__refresh-error,
-.mindmap-sources__refresh-success,
 .mindmap-sources__refresh-result {
-  margin: var(--space-xs) var(--space-sm) 0;
-  padding: 6px 7px;
-  font-size: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: var(--surface);
 }
 
 .mindmap-sources__refresh-status {
@@ -688,11 +586,6 @@
   color: var(--red);
   border-color: color-mix(in srgb, var(--red) 32%, var(--line));
   background: color-mix(in srgb, var(--red) 7%, transparent);
-}
-
-.mindmap-sources__refresh-result {
-  color: var(--text-muted);
-  background: var(--surface);
 }
 
 .mindmap-sources__refresh-summary {
@@ -727,7 +620,6 @@
   cursor: pointer;
 }
 
-.mindmap-sources__apply:hover:not(:disabled),
 .mindmap-sources__apply:focus-visible {
   background: var(--surface-hover);
   outline: none;
@@ -777,13 +669,10 @@
   accent-color: var(--accent);
 }
 
-.mindmap-sources__refresh-entry-head strong,
-.mindmap-sources__refresh-location,
 .mindmap-sources__refresh-unchanged {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .mindmap-sources__refresh-entry-head strong {
@@ -794,13 +683,6 @@
 
 .mindmap-sources__refresh-entry-head > span {
   flex: 0 0 auto;
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.mindmap-sources__refresh-location,
-.mindmap-sources__refresh-unchanged {
-  display: block;
   color: var(--text-muted);
   font-size: 10px;
 }
@@ -836,68 +718,16 @@
 }
 
 /* ---- center: stage + toolbar ---- */
-
 .mindmap-stage {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  background: var(--surface-solid);
 }
 
-.mindmap-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-wrap: wrap;
-  padding: 6px var(--space-md);
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-}
-
-.mindmap-toolbar__group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.mindmap-toolbar__group--end {
-  margin-left: auto;
-}
-
-.mindmap-toolbar__divider {
-  flex: 0 0 1px;
-  width: 1px;
-  height: 18px;
-  margin: 0 6px;
-  background: var(--line-strong);
-}
-
-.mindmap-tool {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  color: var(--text-muted);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
-}
-
-.mindmap-tool:hover:not(:disabled),
-.mindmap-tool:focus-visible {
-  color: var(--accent);
-  background: var(--surface-hover);
-  outline: none;
-}
-
-.mindmap-tool:disabled {
-  cursor: default;
-  opacity: 0.38;
-}
 
 .mindmap-rename {
   display: flex;
@@ -994,10 +824,9 @@
   background: var(--amber-soft);
 }
 
-.mindmap-import-compatibility__header,
 .mindmap-import-compatibility__heading {
-  display: flex;
-  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
 }
 
 .mindmap-import-compatibility__header {
@@ -1005,12 +834,6 @@
   gap: var(--space-sm);
 }
 
-.mindmap-import-compatibility__heading {
-  gap: var(--space-xs);
-  min-width: 0;
-}
-
-.mindmap-import-compatibility__summary,
 .mindmap-import-compatibility__empty {
   margin: 0;
   color: var(--text-muted);
@@ -1046,7 +869,6 @@
   color: var(--accent);
 }
 
-.mindmap-import-compatibility__count.is-dropped,
 .mindmap-import-compatibility__count.is-warnings {
   color: var(--amber);
 }
@@ -1114,22 +936,25 @@
 }
 
 .mindmap-sheet-tabs {
-  display: flex;
-  gap: var(--space-xs);
-  padding: 6px var(--space-md);
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 39px;
+  gap: 5px;
+  padding: 5px 16px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--surface-solid);
+  border-bottom: 1px solid var(--line-muted);
 }
 
 .mindmap-sheet-tab {
+  flex: 0 0 auto;
+  min-height: 28px;
   padding: 4px 12px;
-  font-size: 12px;
   color: var(--text-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  font-size: 11px;
+  border-color: transparent;
+  border-radius: 8px;
 }
 
 .mindmap-sheet-tab:hover:not(.is-active) {
@@ -1138,10 +963,10 @@
 }
 
 .mindmap-sheet-tab.is-active {
-  color: var(--accent);
-  font-weight: 600;
-  background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+  background: var(--surface-muted);
+  border-color: var(--line);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .mindmap-empty {
@@ -1161,23 +986,46 @@
   color: var(--text-faint);
 }
 
-/* ---- canvas ---- */
+.mindmap-empty__action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 7px 12px;
+  color: var(--accent-contrast, #fff);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
 
+.mindmap-empty__action:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.mindmap-empty__action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- canvas ---- */
 .mindmap-canvas {
-  flex: 1;
+  /* Xmind maps sit on a flat, near-white canvas — no dot grid. */
+  position: relative;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 1px 1px, var(--line-muted) 1px, transparent 0),
-    var(--surface-subtle);
-  background-size: 22px 22px;
+  background: var(--surface-solid);
 }
 
 .mindmap-canvas--empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-faint);
+  min-height: 400px;
 }
 
 .mindmap-svg {
@@ -1190,9 +1038,8 @@
 
 .mindmap-edge {
   fill: none;
-  stroke: color-mix(in srgb, var(--accent) 30%, var(--line-strong));
-  stroke-width: 1.75;
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* Sheet-level relationships are intentionally distinct from tree edges. */
@@ -1210,24 +1057,25 @@
   font-size: 10px;
   pointer-events: none;
   paint-order: stroke;
-  stroke: var(--surface-subtle);
+  stroke: var(--surface-solid);
   stroke-width: 4px;
   stroke-linejoin: round;
 }
 
 .mindmap-callout-leader {
   fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.2;
-  opacity: 0.75;
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  opacity: 0.6;
   pointer-events: none;
 }
 
 .mindmap-callout {
   fill: var(--surface-solid);
-  stroke: var(--accent);
-  stroke-width: 1.2;
+  stroke: var(--text-muted);
+  stroke-width: 1;
   opacity: 0.96;
+  pointer-events: none;
 }
 
 .mindmap-callout-text {
@@ -1275,74 +1123,11 @@
   pointer-events: none;
 }
 
-.mindmap-node-rect {
-  fill: var(--surface-solid);
-  stroke: var(--line-strong);
-  stroke-width: 1.2;
-  filter: drop-shadow(0 1px 3px rgba(20, 47, 95, 0.12));
-  transition: stroke 120ms ease, fill 120ms ease, filter 120ms ease;
-}
-
-/* Depth-tiered node styling: root stands out, first-level branches are
-   tinted, deeper topics stay quiet. */
-.mindmap-node-group.is-root .mindmap-node-rect {
-  fill: var(--accent);
-  stroke: var(--accent);
-  filter: drop-shadow(0 3px 8px color-mix(in srgb, var(--accent) 38%, transparent));
-}
-
-.mindmap-node-group.is-root .mindmap-node-label {
-  fill: #ffffff;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.mindmap-node-group.is-branch .mindmap-node-rect {
-  fill: var(--accent-soft);
-  stroke: color-mix(in srgb, var(--accent) 42%, transparent);
-}
-
-.mindmap-node-group.is-selected .mindmap-node-rect {
-  stroke: var(--accent);
-  stroke-width: 2;
-  fill: var(--accent-soft);
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 45%, transparent));
-}
-
-.mindmap-node-group.is-root.is-selected .mindmap-node-rect {
-  fill: var(--accent);
-  stroke: var(--accent-hover);
-}
-
-.mindmap-node-group:hover .mindmap-node-rect {
-  stroke: var(--accent);
-}
 
 .mindmap-node-group:focus-visible {
-  outline: none;
+  outline: none !important;
 }
 
-.mindmap-node-group:focus-visible .mindmap-node-rect {
-  stroke: var(--accent);
-  stroke-width: 2;
-}
-
-/* The dark accent is a light blue — flip the root label to a dark ink so it
-   stays readable on the accent fill. */
-:root[data-resolved-theme="dark"] .mindmap-node-group.is-root .mindmap-node-label {
-  fill: #10131a;
-}
-
-:root[data-resolved-theme="dark"] .mindmap-node-rect {
-  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.4));
-}
-
-.mindmap-node-label {
-  font-size: 12px;
-  font-weight: 500;
-  fill: var(--text);
-  pointer-events: none;
-}
 
 .mindmap-node-foreign {
   overflow: visible;
@@ -1374,20 +1159,10 @@
   cursor: pointer;
 }
 
-.mindmap-collapse-badge-circle {
-  fill: var(--surface-solid);
-  stroke: var(--accent);
-  stroke-width: 1.3;
-}
-
-.mindmap-collapse-badge:hover .mindmap-collapse-badge-circle {
-  fill: var(--accent-soft);
-}
 
 .mindmap-collapse-badge-symbol {
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
-  fill: var(--accent);
   pointer-events: none;
 }
 
@@ -1403,14 +1178,6 @@
   fill: var(--accent-soft);
 }
 
-.mindmap-node-action--danger {
-  stroke: var(--red);
-}
-
-.mindmap-node-action--danger:hover {
-  fill: color-mix(in srgb, var(--red) 12%, var(--surface-solid));
-}
-
 .mindmap-node-action-label {
   font-size: 13px;
   font-weight: 700;
@@ -1418,29 +1185,33 @@
   pointer-events: none;
 }
 
-.mindmap-node-action-label--danger {
-  fill: var(--red);
-}
-
 /* ---- right: AI panel ---- */
-
 .mindmap-ai-panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  border-left: 1px solid var(--line);
+  min-width: 0;
+  min-height: 0;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
   background: var(--surface);
-  overflow-y: auto;
+}
+/* P2 §5.2: collapse the right inspector (header button + ⌘.). */
+.mindmap-view:has(.mindmap-ai-panel.is-collapsed) {
+  grid-template-columns: 240px 1fr 0;
 }
 
-.mindmap-ai-panel__head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  color: var(--text);
-  font-size: 13px;
+.mindmap-view:has(.mindmap-list.is-collapsed):has(.mindmap-ai-panel.is-collapsed) {
+  grid-template-columns: 48px 1fr 0;
 }
+
+.mindmap-ai-panel.is-collapsed {
+  width: 0;
+  border-left: 0;
+}
+
+.mindmap-ai-panel__collapse {
+  color: var(--text-soft);
+}
+
 
 .mindmap-ai-panel__form {
   display: flex;
@@ -1492,7 +1263,6 @@
   color: var(--text);
 }
 
-.mindmap-ai-panel__review-head > span,
 .mindmap-ai-panel__review-note {
   margin: 0;
   color: var(--text-muted);
@@ -1637,4 +1407,2157 @@
   margin: 0;
   color: var(--text-muted);
   word-break: break-word;
+}
+
+/* ================================================================
+ * Xmind-inspired enhancement styles
+ * ================================================================ */
+/* ---- Boundaries (coloured enclosures) ---- */
+.mindmap-boundary-group {
+  pointer-events: none;
+}
+
+.mindmap-boundary {
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.mindmap-boundary-label {
+  fill: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--surface-solid);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+/* ---- Note indicator ---- */
+.mindmap-note-indicator {
+  cursor: help;
+}
+
+.mindmap-note-indicator-badge {
+  fill: #F5A623;
+  stroke: #ffffff;
+  stroke-width: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.15));
+}
+
+.mindmap-note-indicator-symbol {
+  fill: #ffffff;
+  font-size: 9px;
+  font-weight: 700;
+  font-style: italic;
+  pointer-events: none;
+}
+
+/* ---- Node label tags ---- */
+.mindmap-node-labels {
+  pointer-events: none;
+}
+
+.mindmap-node-label-tag {
+  fill: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--surface-subtle);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+/* ---- Node shape variants ---- */
+.mindmap-node-shape--ellipse {
+  rx: auto;
+}
+
+.mindmap-node-shape--diamond {
+  fill-opacity: 1;
+}
+
+.mindmap-node-shape--underline {
+  stroke-width: 2;
+  fill: none;
+}
+
+.mindmap-node-shape--no-shape {
+  fill: transparent;
+  stroke: none;
+  filter: none;
+}
+
+/* ---- Drag-and-drop visual feedback ---- */
+.mindmap-node-group.is-dragging {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.mindmap-node-group.is-drop-target .mindmap-node-rect {
+  stroke: #438eff;
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+
+
+/* ---- Context menu ---- */
+.mindmap-context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 180px;
+  padding: 4px 0;
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.1);
+  animation: mindmap-context-menu-enter 100ms ease-out;
+}
+
+@keyframes mindmap-context-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.mindmap-context-menu__group {
+  display: flex;
+  flex-direction: column;
+}
+
+.mindmap-context-menu__divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--line-muted);
+}
+
+.mindmap-context-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.mindmap-context-menu__item:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.mindmap-context-menu__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mindmap-context-menu__item.is-danger {
+  color: var(--danger, #E74C3C);
+}
+
+.mindmap-context-menu__item.is-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, #E74C3C 12%, transparent);
+}
+
+/* ---- Zoom controls (floating) ---- */
+.mindmap-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  border: none;
+  border-radius: 10px;
+  background: var(--surface-solid);
+  box-shadow: var(--mm-shadow-float);
+}
+
+.mindmap-zoom-controls__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.mindmap-zoom-controls__btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.mindmap-zoom-controls__btn:active {
+  transform: scale(0.92);
+}
+
+.mindmap-zoom-controls__percentage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 28px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.mindmap-zoom-controls__percentage:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---- Notes panel ---- */
+.mindmap-notes-panel {
+  border-top: 1px solid var(--line);
+}
+
+.mindmap-notes-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--line-muted);
+}
+
+.mindmap-notes-panel__head strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mindmap-notes-panel__head span {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mindmap-notes-panel__input {
+  width: 100%;
+  min-height: 80px;
+  max-height: 200px;
+  padding: var(--space-sm) var(--space-md);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--surface);
+  border: none;
+  border-top: 1px solid var(--line-muted);
+  resize: vertical;
+  outline: none;
+}
+
+.mindmap-notes-panel__input:focus {
+  background: var(--surface-subtle);
+}
+
+.mindmap-notes-panel__input::placeholder {
+  color: var(--text-faint);
+}
+
+/* ---- Markers panel ---- */
+.mindmap-markers-panel {
+  border-top: 1px solid var(--line);
+}
+
+.mindmap-markers-panel__head {
+  display: flex;
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--line-muted);
+}
+
+.mindmap-markers-panel__head strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mindmap-markers-panel__body {
+  padding: var(--space-xs) var(--space-md) var(--space-sm);
+}
+
+.mindmap-markers-panel__group {
+  margin-bottom: var(--space-xs);
+}
+
+.mindmap-markers-panel__group-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+
+.mindmap-markers-panel__icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mindmap-markers-panel__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  background: none;
+  border: 1px solid var(--line-muted);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: background 80ms ease, border-color 80ms ease, transform 80ms ease;
+}
+
+.mindmap-markers-panel__icon:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  transform: scale(1.1);
+}
+
+.mindmap-markers-panel__icon.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* ---- Theme gallery ---- */
+.mindmap-theme-gallery {
+  border-top: 1px solid var(--line);
+}
+
+
+.mindmap-theme-gallery__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.mindmap-theme-gallery__grid::-webkit-scrollbar {
+  width: 5px;
+}
+
+.mindmap-theme-gallery__grid::-webkit-scrollbar-thumb {
+  background: var(--border-subtle, #ccc);
+  border-radius: 3px;
+}
+
+.mindmap-theme-gallery__preset {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.mindmap-theme-gallery__preset:hover {
+  border-color: var(--border-subtle, #ddd);
+}
+
+.mindmap-theme-gallery__preset.is-active {
+  border-color: #438eff;
+}
+
+
+.mindmap-theme-gallery__name {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ---- Enhanced topic style inspector ---- */
+
+
+/* Inline hint under the layout selector (“当前生效布局：向右”). */
+.mindmap-topic-style__effective {
+  display: block;
+  margin-top: -4px;
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.mindmap-topic-style__color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.mindmap-topic-style__swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1.5px solid var(--line-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: border-color 80ms ease, transform 80ms ease;
+}
+
+.mindmap-topic-style__swatch:hover {
+  transform: scale(1.15);
+}
+
+.mindmap-topic-style__swatch.is-active {
+  border-color: var(--accent);
+  border-width: 2px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.mindmap-topic-style__color-picker {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1.5px solid var(--line-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  background: none;
+}
+
+.mindmap-topic-style__color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.mindmap-topic-style__color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.mindmap-topic-style__clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 10px;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid var(--line-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 80ms ease, border-color 80ms ease;
+}
+
+.mindmap-topic-style__clear:hover {
+  color: var(--danger, #E74C3C);
+  border-color: var(--danger, #E74C3C);
+}
+
+.mindmap-list > * {
+  flex-shrink: 0;
+}
+
+.mindmap-canvas.is-dragging-node {
+  cursor: grabbing;
+}
+
+
+/* ---- Minimap ---- */
+.mindmap-minimap {
+  position: absolute;
+  bottom: 72px;
+  left: 16px;
+  z-index: 20;
+  width: 160px;
+  height: 120px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--surface-solid);
+  border: none;
+  border-radius: 10px;
+  box-shadow: var(--mm-shadow-float);
+}
+
+.mindmap-minimap:hover {
+  opacity: 0.9;
+}
+
+.mindmap-minimap svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.mindmap-minimap__viewport {
+  fill: color-mix(in srgb, var(--accent) 10%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.mindmap-minimap__node {
+  fill: var(--accent);
+  opacity: 0.6;
+}
+
+.mindmap-minimap__edge {
+  stroke: var(--line-strong);
+  stroke-width: 0.5;
+  fill: none;
+  opacity: 0.4;
+}
+
+/* ---- Smooth zoom transition ---- */
+.mindmap-svg > g {
+  transition: transform 80ms ease-out;
+}
+
+.mindmap-svg.is-dragging > g {
+  transition: none;
+}
+
+
+.mindmap-stage__header-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 29px;
+  padding: 0 9px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 550;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.mindmap-stage__identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
+.mindmap-stage__home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease,
+    transform 120ms ease;
+}
+
+.mindmap-stage__home:focus-visible {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+  outline: none;
+}
+
+.mindmap-stage__home:active {
+  transform: scale(0.96);
+}
+
+.mindmap-stage__titles {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 7px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.mindmap-stage__titles span {
+  max-width: min(24vw, 260px);
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
+
+.mindmap-stage__titles strong {
+  max-width: min(32vw, 360px);
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+}
+
+.mindmap-stage__header-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.mindmap-stage__save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 4px;
+  color: var(--text-soft);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.mindmap-stage__save-state::before {
+  width: 6px;
+  height: 6px;
+  content: '';
+  background: var(--green);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+.mindmap-stage__header-button:focus-visible {
+  color: var(--text);
+  background: var(--surface-hover);
+  border-color: var(--line);
+  outline: none;
+}
+
+.mindmap-stage__header-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+
+.mindmap-sheet-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+
+.mindmap-inspector-tabs {
+  border-bottom: 1px solid var(--line-muted);
+}
+
+.mindmap-inspector-tab {
+  position: relative;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: color 120ms ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mindmap-inspector-tab:focus-visible {
+  outline: 2px solid #438eff;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.mindmap-inspector-tab.is-active {
+  color: var(--text);
+}
+
+.mindmap-inspector-tab.is-active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.mindmap-inspector-tab-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-height: 0;
+  padding: 12px 12px 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mindmap-inspector-tab-content--ai {
+  gap: 12px;
+}
+
+.mindmap-inspector-tab-content > .mindmap-theme-gallery {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-solid);
+}
+
+.mindmap-inspector-tab-content > .mindmap-theme-panel:first-child {
+  border-top: 1px solid var(--line);
+}
+
+.mindmap-canvas-options {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 12px;
+  color: var(--text-muted);
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+
+.mindmap-canvas-options p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+/* The inspector's existing AI controls inherit the same card rhythm. */
+.mindmap-inspector-tab-content--ai .mindmap-ai-panel__error {
+  border-radius: var(--radius-md);
+}
+
+.mindmap-inspector-tab-content--ai .mindmap-ai-panel__review {
+  gap: 10px;
+}
+
+.mindmap-inspector-tab-content--ai .mindmap-ai-panel__input {
+  min-height: 92px;
+  padding: 9px 10px;
+  background: var(--surface-subtle);
+  border-color: var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.mindmap-inspector-tab-content--ai .mindmap-ai-panel__input:focus {
+  background: var(--surface-solid);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+/* ---- Selected-topic quick-add affordance ---- */
+.mindmap-node-action--add {
+  fill: #438eff;
+  stroke: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  cursor: pointer;
+}
+
+.mindmap-node-action--add:hover {
+  fill: #2974e0;
+}
+
+.mindmap-node-action-label--add {
+  fill: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+@media (max-width: 1180px) {
+  .mindmap-view {
+    grid-template-columns: 216px minmax(0, 1fr) 276px;
+  }
+
+  .mindmap-stage__header-button span,
+  .mindmap-stage__save-state {
+    display: none;
+  }
+
+  .mindmap-stage__header-button {
+    width: 30px;
+    padding: 0;
+  }
+
+
+}
+
+@media (max-width: 860px) {
+  .mindmap-view {
+    grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
+  }
+
+  .mindmap-ai-panel {
+    display: none;
+  }
+
+  .mindmap-stage__titles span {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .mindmap-view {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mindmap-list {
+    flex: 0 0 auto;
+    max-height: 190px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .mindmap-list__body {
+    max-height: 88px;
+  }
+
+  .mindmap-stage {
+    flex: 1 1 auto;
+    min-height: 420px;
+  }
+
+
+  .mindmap-sheet-tabs {
+    padding-inline: 10px;
+  }
+
+}
+
+/* Theme presets can carry their own canvas ink/connector colours. These
+   variables are scoped to the canvas so the rest of StudiumX keeps its app
+   contrast tokens. */
+.mindmap-canvas .mindmap-node-label {
+  fill: var(--mindmap-theme-text, var(--text));
+  font-family: var(--mindmap-theme-font, inherit);
+}
+
+.mindmap-canvas .mindmap-edge {
+  stroke: color-mix(in srgb, var(--mindmap-theme-line, var(--accent)) 30%, var(--line-strong));
+}
+
+.mindmap-canvas .mindmap-boundary {
+  stroke: var(--mindmap-theme-line, var(--accent));
+}
+
+
+.mindmap-canvas-options__section {
+  display: grid;
+  gap: 7px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line-muted);
+}
+
+.mindmap-canvas-options__label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mindmap-layout-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.mindmap-layout-groups::-webkit-scrollbar {
+  width: 5px;
+}
+
+.mindmap-layout-groups::-webkit-scrollbar-thumb {
+  background: var(--border-subtle, #ccc);
+  border-radius: 3px;
+}
+
+.mindmap-layout-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mindmap-layout-group__label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding-left: 2px;
+}
+
+.mindmap-layout-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.mindmap-layout-option {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 5px 6px;
+  color: var(--text-muted);
+  text-align: left;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.mindmap-layout-option.is-selected {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  outline: none;
+}
+
+.mindmap-layout-option__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.mindmap-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+}
+
+.mindmap-segmented button {
+  min-height: 27px;
+  padding: 3px 5px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.mindmap-segmented button.is-selected {
+  color: var(--text);
+  background: var(--surface-solid);
+  box-shadow: 0 1px 3px rgba(30, 48, 75, 0.12);
+  outline: none;
+}
+
+.mindmap-spacing-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.mindmap-spacing-option {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-height: 46px;
+  padding: 5px 3px;
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.mindmap-spacing-option.is-selected {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  outline: none;
+}
+
+.mindmap-spacing-option__dots {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 20px;
+  background:
+    radial-gradient(circle, currentColor 0 2px, transparent 2.5px) left center / 8px 8px no-repeat,
+    radial-gradient(circle, currentColor 0 2px, transparent 2.5px) right center / 8px 8px no-repeat;
+}
+
+.mindmap-spacing-option__dots::after {
+  position: absolute;
+  top: 50%;
+  left: 7px;
+  right: 7px;
+  height: var(--mindmap-spacing, 4px);
+  border-top: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  content: '';
+  transform: translateY(-50%);
+}
+
+
+/* P2 §5.1: Map operations action buttons (collapse all / expand all). */
+.mindmap-canvas-options__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.mindmap-canvas-options__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 4px 8px;
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.mindmap-canvas-options__action:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.mindmap-canvas-options__action:focus-visible {
+  outline: 2px solid #438eff;
+  outline-offset: 1px;
+}
+
+:root[data-resolved-theme="dark"] .mindmap-canvas {
+  background: var(--surface-subtle);
+}
+
+
+/* ================================================================
+ * P0.5 — Editor rendering defect fixes
+ * (coordinate system, orange border, action buttons, cleanup)
+ * ================================================================ */
+/* ---- Orange border fix: only blue #438eff focus ring allowed ---- */
+.mindmap-node-input:focus-visible {
+  outline: none !important;
+  box-shadow: 0 0 0 2px #438eff;
+  border-color: #438eff;
+}
+
+.mindmap-node-group:hover .mindmap-node-action--add {
+  opacity: 1;
+}
+
+/* Hide the old action buttons that were removed from the DOM */
+.mindmap-node-action-label:not(.mindmap-node-action-label--add) {
+  display: none;
+}
+
+/* ================================================================
+ * P1 - Workspace layout refactoring (chrome)
+ * Floating toolbar, sheet pill, status bar, export dropdown
+ * ================================================================ */
+/* ---- Floating toolbar ---- */
+.mindmap-floating-toolbar {
+  position: absolute;
+  /* Below the 48px stage header so it never covers the title row. */
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--surface-solid);
+  border-radius: var(--mm-radius-pill);
+  box-shadow: var(--mm-shadow-float);
+}
+
+.mindmap-floating-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.mindmap-floating-toolbar__btn:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.mindmap-floating-toolbar__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.mindmap-floating-toolbar__btn.is-active {
+  background: rgba(67, 142, 255, 0.12);
+  color: #438eff;
+}
+
+.mindmap-floating-toolbar__divider {
+  width: 1px;
+  height: 18px;
+  background: var(--line-muted);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* ---- Export dropdown ---- */
+.mindmap-export-dropdown {
+  position: relative;
+}
+
+.mindmap-export-dropdown__menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--surface-solid);
+  border: 1px solid var(--line-muted);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+}
+
+.mindmap-export-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.mindmap-export-dropdown__item:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.mindmap-export-dropdown__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mindmap-export-dropdown__divider {
+  height: 1px;
+  background: var(--line-muted);
+  margin: 4px 0;
+}
+
+/* ---- Sheet pill (bottom-left) ---- */
+.mindmap-sheet-pill {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 4px;
+  background: var(--surface-solid);
+  border-radius: var(--mm-radius-pill);
+  box-shadow: var(--mm-shadow-float);
+}
+
+.mindmap-sheet-pill__add {
+  border-radius: 50%;
+  transition: background 120ms ease;
+}
+
+.mindmap-sheet-pill__add:hover:not(:disabled) {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.mindmap-sheet-pill__add:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Override sheet tabs to fit in the pill */
+.mindmap-sheet-pill .mindmap-sheet-tabs {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* ---- Status bar (bottom-right) ---- */
+.mindmap-status-bar {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--surface-solid);
+  border-radius: var(--mm-radius-pill);
+  box-shadow: var(--mm-shadow-float);
+}
+
+.mindmap-status-bar__count {
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mindmap-status-bar__divider {
+  width: 1px;
+  height: 18px;
+  background: var(--line-muted);
+  margin: 0 2px;
+}
+
+.mindmap-status-bar__btn {
+  border-radius: 6px;
+  transition: background 120ms ease;
+}
+
+.mindmap-status-bar__btn:hover {
+  background: var(--surface-hover);
+}
+
+/* Override zoom controls to fit in the status bar */
+.mindmap-status-bar .mindmap-zoom-controls {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+}
+
+/* ---- Collapsible sidebar panels ---- */
+.mindmap-list__collapsible {
+  border-top: 1px solid var(--line-muted);
+}
+
+.mindmap-list__collapsible > summary {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.mindmap-list__collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mindmap-list__collapsible > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 9px;
+  transition: transform 160ms ease;
+}
+
+.mindmap-list__collapsible[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+
+.mindmap-inspector-tab:hover {
+  color: var(--text);
+}
+
+/* ================================================================
+ * P3 - Canvas detail polish (Xmind Snowbrush alignment)
+ * ================================================================ */
+/* ---- P3.2: Collapse badge as number pill (Xmind-style) ---- */
+.mindmap-collapse-badge-rect {
+  stroke-width: 1.3;
+  cursor: pointer;
+  transition: fill 120ms ease;
+}
+
+.mindmap-collapse-badge:hover .mindmap-collapse-badge-rect {
+  fill: color-mix(in srgb, currentColor 10%, var(--surface-solid)) !important;
+}
+
+/* ---- P3.4: Relationship arrow + label background ---- */
+.mindmap-relationship-label-bg {
+  fill: var(--surface-solid);
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.mindmap-theme-gallery__thumb {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* ---- Color scheme strip selector ---- */
+
+
+.mindmap-theme-gallery__scheme-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mindmap-theme-gallery__scheme {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 2px;
+  cursor: pointer;
+  background: transparent;
+  transition: border-color 120ms ease;
+}
+
+.mindmap-theme-gallery__scheme:hover {
+  border-color: var(--border-subtle, #ddd);
+}
+
+.mindmap-theme-gallery__scheme.is-active {
+  border-color: #438eff;
+}
+
+.mindmap-theme-gallery__scheme-strip {
+  display: flex;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.mindmap-theme-gallery__scheme-dot {
+  display: block;
+  width: 12px;
+  height: 20px;
+}
+
+
+/* ================================================================
+ * P5 - Micro-interactions + accessibility polish
+ * ================================================================ */
+
+
+/* ---- P5.4: Panel slide animation ---- */
+.mindmap-ai-panel {
+  transition: width 160ms ease, opacity 160ms ease, border-left-width 160ms ease;
+  overflow: hidden;
+}
+
+.mindmap-canvas--empty p {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* ---- P5.7: Export dropdown hover ---- */
+
+
+/* ---- Theme panel fields (P2 §5.1): background/font/rainbow controls ---- */
+
+
+/* ================================================================
+ * v2 S1 — Canvas visual refresh (docs/mindmap/xmind-ui-refactor-plan.md §3 G1–G8)
+ * Overrides earlier layers; S4 merges all layers into one sequence.
+ * ================================================================ */
+
+/* G5: selection is a crisp outer ring (no blur halo, no scale pop). */
+.mindmap-node-ring {
+  fill: none;
+  stroke: var(--mm-focus);
+  stroke-width: 1.5;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.mindmap-node-ring.is-selected {
+  stroke-width: 2;
+  opacity: 1;
+}
+
+/* G1/G2/G3: tiered typography — MUST stay in sync with charWidthsForDepth()
+ * in mind-map-layout.ts (26/16/13). */
+.mindmap-node-label {
+  font-size: var(--mm-font-sub);
+  font-weight: 500;
+}
+
+.mindmap-node-group.is-branch .mindmap-node-label {
+  /* M01 mainTopic renders white on the branch-colour chip. */
+  fill: #ffffff;
+  font-size: var(--mm-font-main);
+  font-weight: 500;
+}
+
+.mindmap-node-group.is-root .mindmap-node-label {
+  font-size: var(--mm-font-root);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.mindmap-node-label.is-placeholder {
+  opacity: 0.45;
+}
+
+/* Sub topics: quiet grey chip, no shadow (M01: border-line-width 0).
+ * stroke defaults to none; a per-topic stroke override (inline colour)
+ * renders at this width. */
+.mindmap-node-rect {
+  fill: var(--mm-sub-fill);
+  stroke-width: 2;
+  filter: none;
+}
+
+:root[data-resolved-theme="dark"] .mindmap-node-rect {
+  fill: color-mix(in srgb, var(--text) 8%, var(--surface-solid));
+  filter: none;
+}
+
+/* G6: root follows the theme line colour for its border; a theme that sets
+ * topicStyles.central paints fill/stroke inline and wins over this default. */
+.mindmap-node-group.is-root .mindmap-node-rect,
+.mindmap-node-group.is-root.is-selected .mindmap-node-rect,
+.mindmap-node-group.is-root:hover .mindmap-node-rect,
+:root[data-resolved-theme="dark"] .mindmap-node-group.is-root .mindmap-node-rect {
+  fill: var(--surface-solid);
+  stroke: var(--mindmap-theme-line, color-mix(in srgb, var(--text) 88%, transparent));
+  stroke-width: 2;
+  filter: none;
+}
+
+:root[data-resolved-theme="dark"] .mindmap-node-group.is-branch .mindmap-node-label {
+  fill: #ffffff;
+}
+
+/* Keyboard focus keeps the crisp ring language (no fill hijack). */
+.mindmap-node-group:focus-visible .mindmap-node-rect {
+  stroke: var(--mm-focus);
+  stroke-width: 2;
+  fill: var(--mm-sub-fill);
+  filter: none;
+}
+
+.mindmap-node-group.is-root:focus-visible .mindmap-node-rect {
+  fill: var(--surface-solid);
+}
+
+/* G7: collapse badge grows to 18px tall — bump its number accordingly. */
+.mindmap-collapse-badge-symbol {
+  font-size: 11px;
+}
+
+/* G8: minimap sits quieter — smaller, translucent, thin viewport frame. */
+.mindmap-minimap {
+  width: 148px;
+  height: 108px;
+  opacity: 0.92;
+}
+
+.mindmap-minimap__node {
+  opacity: 0.45;
+}
+
+.mindmap-minimap__viewport {
+  stroke-width: 1;
+}
+
+/* ================================================================
+ * v2 S2 — Floating workspace chrome (plan §3 G9–G14)
+ * The full-width stage header is gone: identity, toolbar and actions
+ * float over the canvas exactly like Xmind's editor chrome.
+ * ================================================================ */
+.mindmap-stage__identity {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  /* Yield to the centred toolbar on narrow stages, but never collapse the
+   * title entirely — 140px keeps a readable ellipsised name. */
+  max-width: max(140px, min(30vw, calc(50% - 165px), 380px));
+  height: 42px;
+  padding: 0 12px 0 6px;
+  background: var(--surface-solid);
+  border-radius: var(--mm-radius-pill);
+  box-shadow: var(--mm-shadow-float);
+}
+
+.mindmap-stage__home {
+  width: 30px;
+  height: 30px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+}
+
+.mindmap-stage__home:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* Save state collapses to Xmind's green dot; the label lives in its title. */
+.mindmap-stage__save-state {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin: 0;
+  background: var(--green, #34a853);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green, #34a853) 14%, transparent);
+}
+
+.mindmap-stage__save-state::before {
+  content: none;
+}
+
+.mindmap-stage__header-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 42px;
+  padding: 0 6px;
+  background: var(--surface-solid);
+  border-radius: var(--mm-radius-pill);
+  box-shadow: var(--mm-shadow-float);
+}
+
+.mindmap-stage__header-button {
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+}
+
+.mindmap-stage__header-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.mindmap-stage__header-button.is-active {
+  color: var(--mm-focus);
+  background: rgba(67, 142, 255, 0.12);
+}
+
+/* Toolbar joins the identity/actions row now that the header bar is gone. */
+.mindmap-floating-toolbar {
+  top: 16px;
+  height: 42px;
+  padding: 0 6px;
+}
+
+/* Transient surfaces become floating toasts under the toolbar. */
+.mindmap-rename,
+.mindmap-notice,
+.mindmap-export-feedback {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 26;
+  width: max-content;
+  max-width: min(76vw, 560px);
+  border: none;
+  border-radius: 10px;
+  box-shadow: var(--mm-shadow-float);
+}
+
+.mindmap-notice,
+.mindmap-export-feedback {
+  padding: 9px 14px;
+}
+
+.mindmap-rename {
+  padding: 8px 10px;
+  background: var(--surface-solid);
+}
+
+.mindmap-import-compatibility {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  width: min(76vw, 560px);
+  max-height: 46vh;
+  overflow-y: auto;
+  border: none;
+  border-radius: 10px;
+  box-shadow: var(--mm-shadow-float);
+}
+
+.mindmap-export-feedback.is-exporting {
+  background: var(--surface-solid);
+}
+
+/* G11: sheet pill stays minimal — tab text + add button. Management actions
+ * appear on hover/focus of the pill (double-click renames). */
+.mindmap-sheet-pill .mindmap-sheet-tab-action,
+.mindmap-sheet-pill .mindmap-sheet-tab-move {
+  display: none;
+}
+
+.mindmap-sheet-pill:hover .mindmap-sheet-tab-action,
+.mindmap-sheet-pill:hover .mindmap-sheet-tab-move,
+.mindmap-sheet-pill:focus-within .mindmap-sheet-tab-action,
+.mindmap-sheet-pill:focus-within .mindmap-sheet-tab-move {
+  display: inline-flex;
+}
+
+.mindmap-sheet-pill .mindmap-sheet-tab {
+  min-height: 30px;
+  font-size: 12px;
+  border: none;
+}
+
+.mindmap-sheet-pill .mindmap-sheet-tab.is-active {
+  background: var(--surface-muted);
+  border: none;
+  box-shadow: none;
+  font-weight: 600;
+}
+
+.mindmap-sheet-pill,
+.mindmap-status-bar {
+  height: 38px;
+  padding: 0 6px;
+}
+
+/* G13: quieter left rail — flat sections, lighter headers, tighter rows. */
+.mindmap-list {
+  background: transparent;
+}
+
+.mindmap-list__head {
+  border-bottom: none;
+  padding: 12px 14px 6px;
+}
+
+.mindmap-list__item {
+  padding: 6px 34px 6px 10px;
+}
+
+.mindmap-list__item:hover {
+  background: var(--surface-hover);
+}
+
+.mindmap-list__item-row:hover .mindmap-list__item-delete {
+  opacity: 1;
+}
+
+.mindmap-list__collapsible > summary {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-soft);
+}
+
+.mindmap-outline {
+  border-top: 1px solid var(--line-muted);
+  background: transparent;
+}
+
+.mindmap-outline__head {
+  border-bottom: none;
+  padding: 8px 14px 2px;
+}
+
+.mindmap-search,
+.mindmap-sources {
+  border-top: none;
+  background: transparent;
+}
+
+.mindmap-outline__item {
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.mindmap-outline__title {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.mindmap-outline__children {
+  border-left-color: color-mix(in srgb, var(--line-muted) 60%, transparent);
+}
+
+/* ================================================================
+ * v2 S3 — Inspector redesign (plan §3 G15–G20)
+ * Xmind-style control language: segmented top tabs, label-left rows,
+ * switches, round swatches, 2-column theme cards. Sections go flat.
+ * ================================================================ */
+.mindmap-inspector-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  height: 44px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-muted);
+}
+
+.mindmap-inspector-tab {
+  flex: 1 1 0;
+  justify-content: center;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+
+.mindmap-inspector-tab.is-active {
+  color: var(--text);
+  font-weight: 600;
+  background: var(--surface-muted);
+}
+
+.mindmap-inspector-tab.is-active::after {
+  content: none;
+}
+
+.mindmap-ai-panel__collapse {
+  flex: 0 0 auto;
+  margin-left: 4px;
+}
+
+.mindmap-inspector-tab-content {
+  gap: 0;
+  padding: 6px 20px 20px;
+}
+
+/* ---- flat sections ---- */
+.mm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0 14px;
+  border: none;
+  background: transparent;
+}
+
+.mm-section + .mm-section,
+.mm-section ~ .mm-section {
+  border-top: 1px solid var(--line-muted);
+}
+
+.mindmap-inspector-tab-content > .mindmap-theme-gallery {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.mindmap-inspector-tab-content > .mindmap-theme-panel:first-child {
+  border-top: none;
+}
+
+.mindmap-topic-style,
+.mindmap-theme-panel,
+.mindmap-canvas-options {
+  min-height: 0;
+  padding: 12px 0 14px;
+  color: var(--text);
+  border: none;
+  background: transparent;
+}
+
+.mm-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+}
+
+.mm-section__head strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mm-section__hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mm-section__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-soft);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mm-section__action:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.mm-section__action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.mm-subhead {
+  margin-top: 10px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ---- rows: label left, control right ---- */
+.mm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+}
+
+.mm-row__label {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.mm-row__label small {
+  display: block;
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.mm-row--switch {
+  cursor: pointer;
+}
+
+.mm-row--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.mm-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 168px;
+  height: 28px;
+  padding: 0 8px;
+  color: var(--text);
+  font-size: 12px;
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.mm-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.mm-color-well {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* ---- iOS-style switch (pure CSS) ---- */
+.mm-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+}
+
+.mm-switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.mm-switch__track {
+  position: absolute;
+  inset: 0;
+  background: var(--line-strong);
+  border-radius: 999px;
+  transition: background 140ms ease;
+  pointer-events: none;
+}
+
+.mm-switch__track::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  content: '';
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 140ms ease;
+}
+
+.mm-switch input:checked + .mm-switch__track {
+  background: var(--accent);
+}
+
+.mm-switch input:checked + .mm-switch__track::after {
+  transform: translateX(16px);
+}
+
+.mm-switch input:focus-visible + .mm-switch__track {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* ---- inline segmented (row-sized) ---- */
+.mindmap-segmented--inline {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-template-columns: none;
+  flex: 0 0 auto;
+}
+
+.mindmap-segmented--inline button {
+  min-width: 44px;
+  min-height: 22px;
+  font-size: 11px;
+}
+
+/* ---- round swatches (G18) ---- */
+.mindmap-topic-style__swatch,
+.mindmap-topic-style__color-picker,
+.mindmap-topic-style__clear {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+.mindmap-topic-style__color-picker::-webkit-color-swatch {
+  border-radius: 50%;
+}
+
+.mindmap-topic-style__swatch.is-active {
+  border-width: 2px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.mindmap-topic-style__color-swatches {
+  gap: 5px;
+}
+
+.mindmap-topic-style__empty {
+  margin: 0;
+  padding: 18px 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ---- theme cards: 2 columns, larger previews ---- */
+.mindmap-theme-gallery__grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 2px;
+  padding: 0;
+  max-height: 420px;
+}
+
+.mindmap-theme-gallery__preset {
+  gap: 5px;
+  padding: 5px 5px 6px;
+  border-radius: 10px;
+}
+
+.mindmap-theme-gallery__thumb {
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px var(--line-muted);
+}
+
+.mindmap-theme-gallery__name {
+  font-size: 11px;
+}
+
+/* ---- colour scheme strips ---- */
+.mindmap-theme-gallery__scheme-row {
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.mindmap-theme-gallery__scheme {
+  padding: 2px;
+  border-radius: 9px;
+}
+
+.mindmap-theme-gallery__scheme-strip {
+  border-radius: 6px;
+}
+
+.mindmap-theme-gallery__scheme-dot {
+  width: 18px;
+  height: 14px;
+}
+
+/* ---- notes / markers panels join the flat rhythm ---- */
+.mindmap-notes-panel,
+.mindmap-markers-panel {
+  border-top: 1px solid var(--line-muted);
+  padding: 12px 0 6px;
+}
+
+.mindmap-notes-panel__head,
+.mindmap-markers-panel__head {
+  padding: 0 0 6px;
+  border-bottom: none;
+}
+
+.mindmap-notes-panel__head strong,
+.mindmap-markers-panel__head strong {
+  font-size: 13px;
+}
+
+.mindmap-notes-panel__input {
+  padding: 8px 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.mindmap-notes-panel__input:focus {
+  background: var(--surface-solid);
+  border-color: var(--accent);
+}
+
+.mindmap-markers-panel__body {
+  padding: 0;
+}
+
+/* ---- canvas-options section labels drop the uppercase voice ---- */
+.mindmap-canvas-options__label {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.mindmap-canvas-options__section {
+  border-top: none;
+  padding-top: 6px;
+}
+
+/* ---- AI tab request details ---- */
+.mindmap-ai-panel__request-details summary {
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mindmap-ai-panel__request-details[open] summary {
+  margin-bottom: 6px;
+}
+
+.mindmap-inspector-tab-content--ai {
+  padding-top: 14px;
 }

@@ -22,6 +22,11 @@ export type MindMapViewportSize = {
 
 export const MIN_MIND_MAP_ZOOM = 0.25
 export const MAX_MIND_MAP_ZOOM = 3
+/**
+ * Xmind behaviour: fit only zooms out, never zooms in.  Small maps stay at
+ * 100% so the zoom percentage shown to the user is trustworthy.
+ */
+const FIT_MAX_ZOOM = 1
 
 function clampZoom(zoom: number): number {
   return Math.min(MAX_MIND_MAP_ZOOM, Math.max(MIN_MIND_MAP_ZOOM, zoom))
@@ -79,7 +84,7 @@ export function fitMindMapViewport(
   const contentHeight = Math.max(1, contentBottom - contentTop)
   const availableWidth = Math.max(1, viewportWidth - safePadding * 2)
   const availableHeight = Math.max(1, viewportHeight - safePadding * 2)
-  const zoom = clampZoom(Math.min(availableWidth / contentWidth, availableHeight / contentHeight))
+  const zoom = Math.min(FIT_MAX_ZOOM, clampZoom(Math.min(availableWidth / contentWidth, availableHeight / contentHeight)))
 
   return centerMindMapViewport(
     { left: contentLeft, top: contentTop, right: contentRight, bottom: contentBottom },

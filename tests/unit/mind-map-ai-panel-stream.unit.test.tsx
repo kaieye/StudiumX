@@ -230,7 +230,8 @@ describe('MindMapAiPanel streaming preview', () => {
 
   it('renders correlated provider deltas and ignores stale generation events', async () => {
     const user = userEvent.setup()
-    render(<MindMapAiPanel />)
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
 
     await user.click(screen.getByRole('button', { name: 'Generate' }))
     const generationId = (api.generateMindMap as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
@@ -251,7 +252,8 @@ describe('MindMapAiPanel streaming preview', () => {
 
   it('cancels the generation lease while retaining the received preview text', async () => {
     const user = userEvent.setup()
-    render(<MindMapAiPanel />)
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
 
     await user.click(screen.getByRole('button', { name: 'Generate' }))
     const generationId = (api.generateMindMap as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
@@ -283,7 +285,8 @@ describe('MindMapAiPanel streaming preview', () => {
       activeSheetId: 'sheet-1'
     })
 
-    render(<MindMapAiPanel />)
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
 
     await user.click(screen.getByRole('button', { name: 'Preview request' }))
     await user.click(screen.getByRole('button', { name: 'Generate proposal' }))
@@ -333,7 +336,8 @@ describe('MindMapAiPanel streaming preview', () => {
       activeSheetId: 'sheet-1'
     })
 
-    render(<MindMapAiPanel />)
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
 
     await user.click(screen.getByRole('button', { name: 'Preview request' }))
     await user.click(screen.getByRole('button', { name: 'Generate proposal' }))
@@ -366,7 +370,8 @@ describe('MindMapAiPanel streaming preview', () => {
       activeSheetId: 'sheet-1'
     })
 
-    render(<MindMapAiPanel />)
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
 
     await user.selectOptions(screen.getByLabelText('Request scope'), 'selected-file')
     expect(screen.getByText('Using selected file: reference/context.md')).toBeInTheDocument()
@@ -397,7 +402,8 @@ describe('MindMapAiPanel streaming preview', () => {
       activeSheetId: 'sheet-1'
     })
 
-    render(<MindMapAiPanel />)
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
 
     await user.selectOptions(screen.getByLabelText('Request scope'), 'notes')
     expect(

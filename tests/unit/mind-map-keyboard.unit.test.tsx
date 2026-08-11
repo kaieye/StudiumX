@@ -53,3 +53,28 @@ describe('useMindMapKeyboard focus movement', () => {
     expect(handlers.moveFocus).not.toHaveBeenCalled()
   })
 })
+
+describe('useMindMapKeyboard inspector toggle', () => {
+  it('toggles the inspector on Cmd/Ctrl+period', () => {
+    const handlers = makeHandlers()
+    handlers.toggleInspector = vi.fn()
+    render(<Harness handlers={handlers} />)
+
+    const event = new KeyboardEvent('keydown', { key: '.', metaKey: true, cancelable: true })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(handlers.toggleInspector).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing for period without the modifier', () => {
+    const handlers = makeHandlers()
+    handlers.toggleInspector = vi.fn()
+    render(<Harness handlers={handlers} />)
+
+    const event = new KeyboardEvent('keydown', { key: '.', cancelable: true })
+    window.dispatchEvent(event)
+
+    expect(handlers.toggleInspector).not.toHaveBeenCalled()
+  })
+})

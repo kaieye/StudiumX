@@ -18,6 +18,7 @@ import type {
   MindMapSheet,
   MindMapStructureClass
 } from './mind-map-types'
+import type { MindMapTheme } from './domain/types'
 
 const SHEET_CLASS = 'sheet'
 const TOPIC_CLASS = 'topic'
@@ -222,7 +223,20 @@ function asStructureClass(value: unknown): MindMapStructureClass | undefined {
       value === 'org.xmind.ui.logic.left' ||
       value === 'org.xmind.ui.logic.map' ||
       value === 'org.xmind.ui.logic.down' ||
-      value === 'org.xmind.ui.logic.up')
+      value === 'org.xmind.ui.logic.up' ||
+      value === 'org.xmind.ui.map' ||
+      value === 'org.xmind.ui.map.clockwise' ||
+      value === 'org.xmind.ui.map.anticlockwise' ||
+      value === 'org.xmind.ui.org-chart.down' ||
+      value === 'org.xmind.ui.org-chart.up' ||
+      value === 'org.xmind.ui.tree.right' ||
+      value === 'org.xmind.ui.tree.left' ||
+      value === 'org.xmind.ui.brace.right' ||
+      value === 'org.xmind.ui.brace.left' ||
+      value === 'org.xmind.ui.timeline.horizontal' ||
+      value === 'org.xmind.ui.timeline.vertical' ||
+      value === 'org.xmind.ui.fishbone.rightHeaded' ||
+      value === 'org.xmind.ui.fishbone.leftHeaded')
     ? value
     : undefined
 }
@@ -234,4 +248,75 @@ function cryptoRandomId(): string {
     return cryptoLike.randomUUID()
   }
   return `mindmap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/**
+ * Project a v2 theme into XMind's sheet-level `theme` / `style` fields so the
+ * new theme attributes (background, branch colors, font) survive a .xmind
+ * export roundtrip (§7.5/§11 risk table).
+ *
+ * XMind stores visual styling in two places:
+ * 1. Sheet-level `theme` object (map background, default font).
+ * 2. Topic-level `style` overrides (per-topic fill/stroke/font).
+ *
+ * We map the document-level `MindMapTheme` to the sheet `theme` block. Topic-
+ * level styles (from `topicStyles` and per-node overrides) are not projected
+ * here — they would require the full v2 topic tree, which the v1 converter
+ * does not have. The sheet theme block covers background, branch colors, and
+ * global font, which are the user-facing theme attributes.
+ */
+function themeToXmindSheetTheme(theme: MindMapTheme | undefined): Record<string, unknown> | undefined {
+  if (!theme) return undefined
+  const themeBlock: Record<string, unknown> = {}
+  if (theme.background) {
+    themeBlock.map = { 'svg:fill': theme.background }
+  }
+  if (theme.fontFamily) {
+    themeBlock.defaults = { 'fo:font-family': theme.fontFamily }
+  }
+  if (theme.branchColors && theme.branchColors.length > 0) {
+    themeBlock.multiLineColors = { ...theme.branchColors }
+  }
+  if (theme.lineColor) {
+    themeBlock.lineColor = theme.lineColor
+  }
+  // rainbowBranches: false means single-color branches (use lineColor).
+  if (theme.rainbowBranches === false && theme.lineColor) {
+    delete themeBlock.multiLineColors
+  }
+  if (Object.keys(themeBlock).length === 0) return undefined
+  return themeBlock
+}
+
+/**
+ * Export a v2 document (with theme + layout) to XMind content.json.
+ *
+ * This is the v2-aware export path that preserves theme attributes. It
+ * supersedes `documentToXmindContent` for v2 documents.
+ */
+export function documentV2ToXmindContent(
+  sheets: ReadonlyArray<{
+    id: string
+    title: string
+    root: MindMapNode
+    structureClass: MindMapStructureClass
+    relationships?: readonly MindMapRelationship[]
+  }>,
+  theme: MindMapTheme | undefined
+): Record<string, unknown>[] {
+  const sheetTheme = themeToXmindSheetTheme(theme)
+  return sheets.map((sheet) => ({
+    class: SHEET_CLASS,
+    id: sheet.id,
+    title: sheet.title,
+    structureClass: sheet.structureClass,
+    ...(sheetTheme !== undefined ? { theme: sheetTheme } : {}),
+    rootTopic: {
+      class: TOPIC_CLASS,
+      ...nodeToTopic(sheet.root)
+    },
+    ...(sheet.relationships !== undefined && sheet.relationships.length > 0
+      ? { relationships: sheet.relationships.map(relationshipToXmind) }
+      : {})
+  }))
 }

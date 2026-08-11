@@ -16,7 +16,16 @@
  * - `transaction` applies inner commands sequentially; if any inner command
  *   fails the whole transaction is rejected and the document stays unchanged.
  */
-import type { MindMapDocumentV2, MindMapElement, MindMapElementStyle, MindMapSheetV2, MindMapTopicStyleOverride, MindMapTopicV2 } from '../domain/types'
+import type {
+  MindMapDocumentV2,
+  MindMapElement,
+  MindMapElementStyle,
+  MindMapLayoutSettings,
+  MindMapSheetV2,
+  MindMapTopicStyleOverride,
+  MindMapTopicV2
+} from '../domain/types'
+import type { MindMapStructureClass } from '../mind-map-types'
 import {
   collectTopicIds,
   validateMindMapDocumentV2,
@@ -493,7 +502,7 @@ function applySheetCreate(document: MindMapDocumentV2, command: Extract<MindMapC
           title: title as string,
           root: { id: `${sheetId as string}-root`, title: title as string, children: [] },
           elements: [],
-          layout: { structureClass: 'org.xmind.ui.logic.right' }
+          layout: { structureClass: 'org.xmind.ui.logic.balanced' }
         }
 
   const insertIndex = clampIndex(command.index ?? document.sheets.length, document.sheets.length)
@@ -514,6 +523,96 @@ function applySheetRename(document: MindMapDocumentV2, command: Extract<MindMapC
   nextSheet.title = command.title
 
   const inverse: MindMapCommand = { type: 'sheet.rename', sheetId: command.sheetId, title: oldTitle }
+  return ok(next, inverse)
+}
+
+const VALID_STRUCTURE_CLASSES: ReadonlySet<MindMapStructureClass> = new Set([
+  'org.xmind.ui.logic.right',
+  'org.xmind.ui.logic.balanced',
+  'org.xmind.ui.logic.left',
+  'org.xmind.ui.logic.map',
+  'org.xmind.ui.logic.down',
+  'org.xmind.ui.logic.up'
+])
+
+const VALID_LINE_STYLES: ReadonlySet<NonNullable<MindMapLayoutSettings['lineStyle']>> = new Set([
+  'curve',
+  'elbow',
+  'straight'
+])
+
+function applySheetUpdateLayout(
+  document: MindMapDocumentV2,
+  command: Extract<MindMapCommand, { type: 'sheet.update-layout' }>
+): MindMapCommandResult {
+  const sheet = getSheet(document, command.sheetId)
+  if (sheet === undefined) {
+    return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
+  }
+
+  const patch = command.patch
+  if (patch.structureClass !== undefined && !VALID_STRUCTURE_CLASSES.has(patch.structureClass)) {
+    return error(command, 'INVALID_PATCH', `Unknown structure class "${String(patch.structureClass)}"`)
+  }
+  if (patch.spacing !== undefined && patch.spacing !== null) {
+    if (!Number.isFinite(patch.spacing) || patch.spacing < 0) {
+      return error(command, 'INVALID_PATCH', 'Layout spacing must be a finite non-negative number')
+    }
+  }
+  if (patch.lineStyle !== undefined && patch.lineStyle !== null && !VALID_LINE_STYLES.has(patch.lineStyle)) {
+    return error(command, 'INVALID_PATCH', `Unknown connector line style "${String(patch.lineStyle)}"`)
+  }
+  if (patch.lineWidthScale !== undefined && patch.lineWidthScale !== null) {
+    if (!Number.isFinite(patch.lineWidthScale) || patch.lineWidthScale <= 0 || patch.lineWidthScale > 4) {
+      return error(command, 'INVALID_PATCH', 'Layout line-width scale must be a finite number in (0, 4]')
+    }
+  }
+
+  const next = cloneDocument(document)
+  const nextSheet = getSheet(next, command.sheetId)
+  if (nextSheet === undefined) {
+    return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
+  }
+
+  const previous = nextSheet.layout
+  const inversePatch: Extract<MindMapCommand, { type: 'sheet.update-layout' }>['patch'] = {
+    structureClass: previous.structureClass,
+    direction: previous.direction ?? null,
+    compact: previous.compact ?? null,
+    spacing: previous.spacing ?? null,
+    lineStyle: previous.lineStyle ?? null,
+    lineWidthScale: previous.lineWidthScale ?? null
+  }
+
+  const nextLayout = { ...previous }
+  if (patch.structureClass !== undefined) nextLayout.structureClass = patch.structureClass
+  if (patch.direction !== undefined) {
+    if (patch.direction === null) delete nextLayout.direction
+    else nextLayout.direction = patch.direction
+  }
+  if (patch.compact !== undefined) {
+    if (patch.compact === null) delete nextLayout.compact
+    else nextLayout.compact = patch.compact
+  }
+  if (patch.spacing !== undefined) {
+    if (patch.spacing === null) delete nextLayout.spacing
+    else nextLayout.spacing = patch.spacing
+  }
+  if (patch.lineStyle !== undefined) {
+    if (patch.lineStyle === null) delete nextLayout.lineStyle
+    else nextLayout.lineStyle = patch.lineStyle
+  }
+  if (patch.lineWidthScale !== undefined) {
+    if (patch.lineWidthScale === null) delete nextLayout.lineWidthScale
+    else nextLayout.lineWidthScale = patch.lineWidthScale
+  }
+  nextSheet.layout = nextLayout
+
+  const inverse: MindMapCommand = {
+    type: 'sheet.update-layout',
+    sheetId: command.sheetId,
+    patch: inversePatch
+  }
   return ok(next, inverse)
 }
 
@@ -625,6 +724,8 @@ export function applyMindMapCommand(document: MindMapDocumentV2, command: MindMa
       return applySheetCreate(document, command)
     case 'sheet.rename':
       return applySheetRename(document, command)
+    case 'sheet.update-layout':
+      return applySheetUpdateLayout(document, command)
     case 'sheet.reorder':
       return applySheetReorder(document, command)
     case 'sheet.remove':

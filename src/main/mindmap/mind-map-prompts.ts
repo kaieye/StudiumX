@@ -149,7 +149,7 @@ export function buildMindMapProposalSystemPrompt(opts: {
 - 任何接受与否都由用户审核；你不能宣称已经应用变更。
 
 # 允许的 command.type
-topic.insert、topic.update、topic.move、topic.remove、element.create、element.update、element.remove、selection.set-style、sheet.create、document.rename、sheet.rename、sheet.reorder、sheet.remove、document.apply-theme、transaction。
+topic.insert、topic.update、topic.move、topic.remove、element.create、element.update、element.remove、selection.set-style、sheet.create、document.rename、sheet.rename、sheet.update-layout、sheet.reorder、sheet.remove、document.apply-theme、transaction。
 
 # 当前请求
 - 导图标题：${opts.title}

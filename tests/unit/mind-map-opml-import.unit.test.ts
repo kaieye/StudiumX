@@ -75,7 +75,7 @@ describe('mindMapOpmlToDocument', () => {
               ]
             },
             elements: [],
-            layout: { structureClass: 'org.xmind.ui.logic.right' }
+            layout: { structureClass: 'org.xmind.ui.logic.balanced' }
           }
         ]
       }

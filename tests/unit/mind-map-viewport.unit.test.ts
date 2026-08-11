@@ -45,12 +45,15 @@ describe('zoomMindMapViewport', () => {
 
 describe('fitMindMapViewport', () => {
   it('fits the full bounds within the viewport and centers the result', () => {
-    const bounds = { left: -160, top: 0, right: 320, bottom: 200 }
+    // Content is larger than viewport, so fit zooms out (< 1).
+    const bounds = { left: -200, top: -100, right: 1200, bottom: 800 }
     const viewport = fitMindMapViewport(bounds, { width: 800, height: 600 }, 48)
 
-    expect(viewport.zoom).toBeCloseTo(704 / 480)
-    expect(viewport.pan.x).toBeCloseTo((800 - (bounds.left + bounds.right) * viewport.zoom) / 2)
-    expect(viewport.pan.y).toBeCloseTo((600 - (bounds.top + bounds.bottom) * viewport.zoom) / 2)
+    const contentWidth = bounds.right - bounds.left
+    const contentHeight = bounds.bottom - bounds.top
+    const expectedZoom = Math.min(1, (800 - 96) / contentWidth, (600 - 96) / contentHeight)
+    expect(viewport.zoom).toBeCloseTo(expectedZoom)
+    expect(viewport.zoom).toBeLessThanOrEqual(1)
 
     const fitted = {
       left: viewport.pan.x + bounds.left * viewport.zoom,
@@ -76,15 +79,18 @@ describe('fitMindMapViewport', () => {
     expect(Number.isFinite(viewport.pan.y)).toBe(true)
   })
 
-  it('does not exceed the maximum zoom for a tiny content region', () => {
+  it('does not exceed zoom 1 for a tiny content region (Xmind: fit only zooms out)', () => {
     const viewport = fitMindMapViewport(
       { left: 20, top: 30, right: 20, bottom: 30 },
       { width: 800, height: 600 },
       48
     )
 
-    expect(viewport.zoom).toBe(MAX_MIND_MAP_ZOOM)
-    expect(viewport.pan).toEqual({ x: 340, y: 210 })
+    // Xmind behaviour: fit never zooms in. Small maps stay at 100%.
+    expect(viewport.zoom).toBe(1)
+    // Content centered at zoom 1: pan centers the content midpoint.
+    expect(viewport.pan.x).toBeCloseTo((800 - (20 + 20) * 1) / 2)
+    expect(viewport.pan.y).toBeCloseTo((600 - (30 + 30) * 1) / 2)
   })
 
   it('centers content without changing a valid requested zoom', () => {

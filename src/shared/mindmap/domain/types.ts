@@ -28,6 +28,16 @@ export type MindMapTheme = {
   lineColor?: string
   fontFamily?: string
   shape?: string
+  /** When false, all branches use theme.lineColor instead of rainbow colors. Defaults to true. */
+  rainbowBranches?: boolean
+  /** P4: Color scheme identifier (e.g. 'dawn', 'freshness'). Decoupled from theme. */
+  colorSchemeId?: string
+  /** P4: Layered default topic styles (Xmind core feature). Priority: node style > topicStyles[depth] > CSS default. */
+  topicStyles?: {
+    central?: MindMapTopicStyleOverride
+    main?: MindMapTopicStyleOverride
+    sub?: MindMapTopicStyleOverride
+  }
 }
 
 /** Default theme used when migrating a v1 document (no theme concept in v1). */
@@ -68,6 +78,14 @@ export type MindMapLayoutSettings = {
   compact?: boolean
   /** Base spacing between sibling subtrees. */
   spacing?: number
+  /** Connector line style: curve (default), elbow, or straight. */
+  lineStyle?: 'curve' | 'elbow' | 'straight'
+  /**
+   * Per-sheet branch line-width scale (P2 §5.1).
+   * 1 = default Snowbrush tapering widths; 0.75 = thin; 1.5 = thick.
+   * Multiplies the depth-based {@link edgeStrokeWidth}.
+   */
+  lineWidthScale?: number
 }
 
 /** Per-sheet viewport (camera) state. */

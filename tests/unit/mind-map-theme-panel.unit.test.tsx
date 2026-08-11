@@ -119,17 +119,23 @@ afterEach(() => {
 })
 
 describe('MindMapThemePanel', () => {
-  it('copies the current theme JSON to the local clipboard', async () => {
+  it('toggles rainbow branches through the undoable theme command', async () => {
     render(<MindMapThemePanel />)
 
+    const toggle = screen.getByRole('checkbox', { name: 'Rainbow branches' })
+    expect(toggle).toBeChecked()
+
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Copy theme' }))
+      fireEvent.click(toggle)
     })
 
-    const writeText = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>)
-    expect(writeText).toHaveBeenCalledWith(JSON.stringify(makeDocument().theme, null, 2))
-    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
-    expect(screen.getByText('Theme JSON copied to the clipboard.')).toBeInTheDocument()
+    expect(useMindMapViewStore.getState().current?.theme.rainbowBranches).toBe(false)
+
+    act(() => {
+      useMindMapViewStore.getState().undo()
+    })
+
+    expect(useMindMapViewStore.getState().current?.theme).toEqual(makeDocument().theme)
   })
 
   it('resets a custom theme through the undoable document theme command', () => {

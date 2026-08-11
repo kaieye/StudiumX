@@ -1,4 +1,4 @@
-import { Loader2, Sparkles, X } from 'lucide-react'
+import { Loader2, PanelRightClose, Sparkles, X } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -21,6 +21,12 @@ import type {
 } from '../../../../shared/teaching-types/mindmap'
 import { useAppStore } from '../../app-shell/appStore'
 import { useMindMapViewStore } from './mind-map-view-store'
+import { MindMapMarkersPanel } from './MindMapMarkersPanel'
+import { MindMapNotesPanel } from './MindMapNotesPanel'
+import { MindMapThemeGallery } from './MindMapThemeGallery'
+import { MindMapThemePanel } from './MindMapThemePanel'
+import { MindMapTopicStyleInspector } from './MindMapTopicStyleInspector'
+import { MindMapCanvasOptionsPanel } from './MindMapCanvasOptionsPanel'
 
 type MindMapReviewScope = Extract<
   MindMapProposalScope,
@@ -47,7 +53,14 @@ type MindMapProposalReview = MindMapProposalReviewPreview & {
  * clicking cancel aborts the provider request instead of only hiding loading
  * (docs/mindmap/m0-baseline.md §2.1 P0 fix).
  */
-export function MindMapAiPanel() {
+type MindMapAiPanelProps = {
+  /** P2 §5.2: whether the inspector is visible (controlled by the view store). */
+  open: boolean
+  /** Toggle the inspector visibility (header button + ⌘.). */
+  onToggle: () => void
+}
+
+export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
   const { t } = useTranslation()
   const aiPrompt = useMindMapViewStore((s) => s.aiPrompt)
   const setAiPrompt = useMindMapViewStore((s) => s.setAiPrompt)
@@ -396,12 +409,69 @@ export function MindMapAiPanel() {
     void runGeneration(aiPrompt)
   }
 
+  const inspectorTab = useMindMapViewStore((s) => s.inspectorTab)
+  const setInspectorTab = useMindMapViewStore((s) => s.setInspectorTab)
+
   return (
-    <aside className="mindmap-ai-panel" aria-label={t('mindmap.aiTitle')}>
-      <div className="mindmap-ai-panel__head">
-        <Sparkles size={16} aria-hidden="true" />
-        <strong>{t('mindmap.aiTitle')}</strong>
+    <aside className={`mindmap-ai-panel${open ? '' : ' is-collapsed'}`} aria-label={t('mindmap.inspector.title')}>
+      {/* G15: Xmind-style segmented tabs sit directly at the top — the old
+          icon+title+badge header row is gone. */}
+      <div className="mindmap-inspector-tabs" role="tablist" aria-label={t('mindmap.inspector.title')}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={inspectorTab === 'style'}
+          className={`mindmap-inspector-tab${inspectorTab === 'style' ? ' is-active' : ''}`}
+          onClick={() => setInspectorTab('style')}
+        >
+          {t('mindmap.inspector.style')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={inspectorTab === 'canvas'}
+          className={`mindmap-inspector-tab${inspectorTab === 'canvas' ? ' is-active' : ''}`}
+          onClick={() => setInspectorTab('canvas')}
+        >
+          {t('mindmap.inspector.canvas')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={inspectorTab === 'ai'}
+          className={`mindmap-inspector-tab${inspectorTab === 'ai' ? ' is-active' : ''}`}
+          onClick={() => setInspectorTab('ai')}
+        >
+          {t('mindmap.inspector.ai')}
+        </button>
+        <button
+          type="button"
+          className="mindmap-ai-panel__collapse icon-button"
+          onClick={onToggle}
+          title={t('mindmap.inspector.title')}
+          aria-label={t('mindmap.inspector.title')}
+        >
+          <PanelRightClose size={14} aria-hidden="true" />
+        </button>
       </div>
+      {inspectorTab === 'style' ? (
+        <div className="mindmap-inspector-tab-content">
+          <MindMapTopicStyleInspector />
+          <div id="mindmap-inspector-notes">
+            <MindMapNotesPanel />
+          </div>
+          <div id="mindmap-inspector-markers">
+            <MindMapMarkersPanel />
+          </div>
+        </div>
+      ) : inspectorTab === 'canvas' ? (
+        <div className="mindmap-inspector-tab-content">
+          <MindMapThemeGallery />
+          <MindMapThemePanel />
+          <MindMapCanvasOptionsPanel />
+        </div>
+      ) : (
+        <div className="mindmap-inspector-tab-content mindmap-inspector-tab-content--ai">
       <form className="mindmap-ai-panel__form" onSubmit={onSubmit}>
         <label className="mindmap-ai-panel__label" htmlFor="mindmap-ai-prompt">
           {t('mindmap.aiPromptLabel')}
@@ -503,9 +573,12 @@ export function MindMapAiPanel() {
             <p className="mindmap-ai-panel__review-note">
               {t('mindmap.aiPreviewReady')}
             </p>
-            <pre className="mindmap-ai-panel__request-json">
-              {JSON.stringify(reviewPreview.request, null, 2)}
-            </pre>
+            <details className="mindmap-ai-panel__request-details">
+              <summary>{t('mindmap.aiRequestDetails')}</summary>
+              <pre className="mindmap-ai-panel__request-json">
+                {JSON.stringify(reviewPreview.request, null, 2)}
+              </pre>
+            </details>
             {!reviewPreview.proposal ? (
               <>
                 <div className="mindmap-ai-panel__review-status" role="status" aria-live="polite">
@@ -563,9 +636,12 @@ export function MindMapAiPanel() {
                           </strong>
                           <code>{item.id}</code>
                         </div>
-                        <pre className="mindmap-ai-panel__request-json">
-                          {JSON.stringify(item.command, null, 2)}
-                        </pre>
+                        <details className="mindmap-ai-panel__request-details">
+                          <summary>{t('mindmap.aiRequestDetails')}</summary>
+                          <pre className="mindmap-ai-panel__request-json">
+                            {JSON.stringify(item.command, null, 2)}
+                          </pre>
+                        </details>
                         <div className="mindmap-ai-panel__actions">
                           <button
                             type="button"
@@ -664,6 +740,8 @@ export function MindMapAiPanel() {
           </button>
         </div>
       ) : null}
+        </div>
+      )}
     </aside>
   )
 }

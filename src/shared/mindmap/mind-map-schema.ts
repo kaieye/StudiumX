@@ -19,6 +19,20 @@ export const mindMapStructureClassSchema = z.enum([
   'org.xmind.ui.logic.map',
   'org.xmind.ui.logic.down',
   'org.xmind.ui.logic.up'
+,
+  'org.xmind.ui.map',
+  'org.xmind.ui.map.clockwise',
+  'org.xmind.ui.map.anticlockwise',
+  'org.xmind.ui.org-chart.down',
+  'org.xmind.ui.org-chart.up',
+  'org.xmind.ui.tree.right',
+  'org.xmind.ui.tree.left',
+  'org.xmind.ui.brace.right',
+  'org.xmind.ui.brace.left',
+  'org.xmind.ui.timeline.horizontal',
+  'org.xmind.ui.timeline.vertical',
+  'org.xmind.ui.fishbone.rightHeaded',
+  'org.xmind.ui.fishbone.leftHeaded'
 ])
 
 export const mindMapNodeSchema: z.ZodType<

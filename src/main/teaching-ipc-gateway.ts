@@ -109,7 +109,7 @@ import { exportMindMapSvgFile } from './mindmap/svg-file'
 import { exportMindMapPngFile } from './mindmap/png-file'
 import { parseMindMapProposalApplyPayload } from './mindmap/mind-map-proposal-ipc'
 import {
-  exportXmindFile,
+  exportXmindFileV2,
   readXmindFileWithCompatibilityReport
 } from './mindmap/xmind-file'
 import type { AgentChatStreamPayload, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AgentRealtimeEvent, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, MindMapStreamStep, TeachingSettingsV1 } from '../shared/teaching-types'
@@ -121,7 +121,6 @@ import { applyMindMapProposal as applyReviewedMindMapProposal } from '../shared/
 import { applyMindMapCommand } from '../shared/mindmap/commands/mind-map-reducer'
 import { buildMindMapSourceRefreshCommand } from '../shared/mindmap/commands/mind-map-source-refresh'
 import { buildMindMapProposalRequest } from '../shared/mindmap/commands/mind-map-proposal-request'
-import { convertV2ToV1 } from '../shared/mindmap/v2-to-v1'
 import { assessMindMapExportSnapshotReadiness } from '../shared/mindmap/export-readiness'
 import { getMindMapSvgExportDimensions } from '../shared/mindmap/svg-export'
 import {
@@ -1979,7 +1978,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             `Mind map XMind export refused: ${readiness.reasons.join(', ')}`
           )
         }
-        return exportXmindFile(convertV2ToV1(doc), p.destinationDirectory)
+        return exportXmindFileV2(doc, p.destinationDirectory)
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
