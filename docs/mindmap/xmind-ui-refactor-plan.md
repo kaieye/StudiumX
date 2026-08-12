@@ -4,6 +4,12 @@
 > 本方案是在其上的「视觉与信息架构收口」：让画布、工作区 chrome、右侧检查器
 > 三个表面达到 Xmind 当代版本的观感。
 >
+> **2026-08-12 补充审计：** 更深的右栏、Schema 与 Xmind 26.05 bundled source 对照发现，
+> 当前并非只有视觉收口问题；配色、彩虹分支、主题分层样式、分支线型/粗细存在
+> 持久化 Schema 漂移，且对象专用格式面板、多选混合态、继承与样式传播尚未闭环。
+> 后续实施以 [right-panel-xmind-improvement-checklist.md](right-panel-xmind-improvement-checklist.md)
+> 的 P0 正确性门禁和完整能力矩阵为准；本文继续作为画布/chrome 视觉方案参考。
+>
 > 依据：不基于截图目测。本机 `/Applications/Xmind.app/Contents/Resources/app.asar`
 > 已解包至 `/tmp/xmind-ex/app`，§2 的所有数值直接取自其主题 JSON、配色方案表
 > 与 vanakit 设计令牌；43 份主题 JSON 原件已入仓（`src/shared/mindmap/themes/xmind/`）。
