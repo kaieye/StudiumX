@@ -31,6 +31,8 @@ export const mindMapStructureClassSchema = z.enum([
   'org.xmind.ui.brace.left',
   'org.xmind.ui.timeline.horizontal',
   'org.xmind.ui.timeline.vertical',
+  'org.xmind.ui.spreadsheet',
+  'org.xmind.ui.spreadsheet.column',
   'org.xmind.ui.fishbone.rightHeaded',
   'org.xmind.ui.fishbone.leftHeaded'
 ])

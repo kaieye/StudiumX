@@ -1,12 +1,13 @@
-import { Check, Plus, Search, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Plus, Search, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapDocumentV2 } from '../../../../shared/mindmap/domain/types'
-import type { MindMapSummary } from '../../../../shared/mindmap/mind-map-types'
+import type { MindMapSummary, MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
 import {
   MindMapHomeCardMenu,
   type MindMapHomeCardMenuState
 } from './MindMapHomeCardMenu'
+import { MindMapCreateDialog } from './MindMapCreateDialog'
 import { branchColor } from './mind-map-branch-colors'
 import { computeMindMapLayout, type MindMapLayoutResult } from './mind-map-layout'
 
@@ -14,9 +15,13 @@ type MindMapHomeGalleryProps = {
   documents: readonly MindMapSummary[]
   workspaceId: string
   creating: boolean
+  createSubmitting: boolean
+  createError: string | null
   titleDraft: string
+  createStructureClass: MindMapStructureClass
   onCreate: () => void
   onTitleDraftChange: (title: string) => void
+  onCreateStructureClassChange: (structureClass: MindMapStructureClass) => void
   onCommitCreate: () => void | Promise<void>
   onCancelCreate: () => void
   onOpenDocument: (id: string) => void | Promise<void>
@@ -34,9 +39,13 @@ export function MindMapHomeGallery({
   documents,
   workspaceId,
   creating,
+  createSubmitting,
+  createError,
   titleDraft,
+  createStructureClass,
   onCreate,
   onTitleDraftChange,
+  onCreateStructureClassChange,
   onCommitCreate,
   onCancelCreate,
   onOpenDocument,
@@ -50,6 +59,8 @@ export function MindMapHomeGallery({
   const [cardMenu, setCardMenu] = useState<MindMapHomeCardMenuState>(null)
   const [renamingDocument, setRenamingDocument] = useState<MindMapSummary | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
+  const renamingDocumentIdRef = useRef<string | null>(null)
+  const committingRenameIdsRef = useRef(new Set<string>())
 
   const visibleDocuments = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -90,20 +101,37 @@ export function MindMapHomeGallery({
 
   const startRename = (summary: MindMapSummary): void => {
     setCardMenu(null)
+    renamingDocumentIdRef.current = summary.id
     setRenamingDocument(summary)
     setRenameDraft(summary.title || t('mindmap.newDocument'))
   }
 
-  const cancelRename = (): void => {
+  const cancelRename = (id?: string): void => {
+    if (id && renamingDocumentIdRef.current !== id) return
+    renamingDocumentIdRef.current = null
     setRenamingDocument(null)
     setRenameDraft('')
   }
 
   const commitRename = async (): Promise<void> => {
+    const target = renamingDocument
+    if (!target || committingRenameIdsRef.current.has(target.id)) return
+
     const title = renameDraft.trim()
-    if (!renamingDocument || !title) return
-    await onRenameDocument(renamingDocument.id, title)
-    cancelRename()
+    if (!title || title === (target.title || t('mindmap.newDocument'))) {
+      cancelRename(target.id)
+      return
+    }
+
+    committingRenameIdsRef.current.add(target.id)
+    try {
+      await onRenameDocument(target.id, title)
+    } finally {
+      committingRenameIdsRef.current.delete(target.id)
+      // A user can start editing another card while this file update completes.
+      // Do not close that newer edit when this older save settles.
+      cancelRename(target.id)
+    }
   }
 
   const copyDocument = (summary: MindMapSummary): void | Promise<void> => {
@@ -136,103 +164,73 @@ export function MindMapHomeGallery({
         </div>
       </div>
       <div className="mindmap-home__grid">
-        {creating ? (
-          <form
-            className="mindmap-home-card mindmap-home-card--new mindmap-home-card--creating"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void onCommitCreate()
-            }}
-          >
-            <span className="mindmap-home-card__preview mindmap-home-card__preview--new">
-              <Plus size={42} strokeWidth={1.25} aria-hidden="true" />
-            </span>
-            <input
-              autoFocus
-              className="mindmap-home-card__title-input"
-              value={titleDraft}
-              placeholder={t('mindmap.enterTitle')}
-              onChange={(event) => onTitleDraftChange(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') onCancelCreate()
-              }}
-              aria-label={t('mindmap.enterTitle')}
-            />
-            <span className="mindmap-home-card__create-actions">
-              <button type="submit" aria-label={t('mindmap.save')} title={t('mindmap.save')}>
-                <Check size={16} aria-hidden="true" />
-              </button>
-              <button type="button" onClick={onCancelCreate} aria-label={t('mindmap.cancel')} title={t('mindmap.cancel')}>
-                <X size={16} aria-hidden="true" />
-              </button>
-            </span>
-          </form>
-        ) : (
-          <button
-            type="button"
-            className="mindmap-home-card mindmap-home-card--new"
-            onClick={onCreate}
-            aria-label={t('mindmap.newDocument')}
-          >
-            <span className="mindmap-home-card__preview mindmap-home-card__preview--new">
-              <Plus size={42} strokeWidth={1.25} aria-hidden="true" />
-            </span>
-            <span className="mindmap-home-card__title">{t('mindmap.newDocument')}</span>
-          </button>
-        )}
+        <button
+          type="button"
+          className="mindmap-home-card mindmap-home-card--new"
+          onClick={onCreate}
+          aria-label={t('mindmap.newDocument')}
+        >
+          <span className="mindmap-home-card__preview mindmap-home-card__preview--new">
+            <Plus size={42} strokeWidth={1.25} aria-hidden="true" />
+          </span>
+          <span className="mindmap-home-card__title">{t('mindmap.newDocument')}</span>
+        </button>
 
         {visibleDocuments.map((summary) => {
           const title = summary.title || t('mindmap.newDocument')
           const isRenaming = renamingDocument?.id === summary.id
-          return isRenaming ? (
-            <form
+          return (
+            <article
+              className={`mindmap-home-card${isRenaming ? ' mindmap-home-card--renaming' : ''}`}
               key={summary.id}
-              className="mindmap-home-card mindmap-home-card--renaming"
-              onSubmit={(event) => {
-                event.preventDefault()
-                void commitRename()
-              }}
-            >
-              <span className="mindmap-home-card__preview">
-                <MindMapPreview document={previews[summary.id]} title={title} />
-              </span>
-              <input
-                autoFocus
-                className="mindmap-home-card__title-input"
-                value={renameDraft}
-                placeholder={t('mindmap.enterTitle')}
-                onChange={(event) => setRenameDraft(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') cancelRename()
-                }}
-                aria-label={t('mindmap.renameDocument')}
-              />
-              <span className="mindmap-home-card__create-actions">
-                <button type="submit" aria-label={t('mindmap.save')} title={t('mindmap.save')}>
-                  <Check size={16} aria-hidden="true" />
-                </button>
-                <button type="button" onClick={cancelRename} aria-label={t('mindmap.cancel')} title={t('mindmap.cancel')}>
-                  <X size={16} aria-hidden="true" />
-                </button>
-              </span>
-            </form>
-          ) : (
-            <button
-              type="button"
-              className="mindmap-home-card"
-              key={summary.id}
-              onClick={() => void onOpenDocument(summary.id)}
               onContextMenu={(event) => {
                 event.preventDefault()
                 setCardMenu({ summary, x: event.clientX, y: event.clientY })
               }}
-              aria-label={title}
             >
-              <span className="mindmap-home-card__preview">
-                <MindMapPreview document={previews[summary.id]} title={title} />
-              </span>
-              <span className="mindmap-home-card__title">{title}</span>
-            </button>
+              <button
+                type="button"
+                className="mindmap-home-card__preview-button"
+                onClick={() => void onOpenDocument(summary.id)}
+                aria-label={title}
+              >
+                <span className="mindmap-home-card__preview">
+                  <MindMapPreview document={previews[summary.id]} title={title} />
+                </span>
+              </button>
+              <div className="mindmap-home-card__title-slot">
+                {isRenaming ? (
+                  <input
+                    autoFocus
+                    className="mindmap-home-card__title-input"
+                    value={renameDraft}
+                    placeholder={t('mindmap.enterTitle')}
+                    onChange={(event) => setRenameDraft(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        cancelRename(summary.id)
+                      }
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        event.currentTarget.blur()
+                      }
+                    }}
+                    onBlur={() => void commitRename()}
+                    aria-label={t('mindmap.renameDocument')}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="mindmap-home-card__title mindmap-home-card__title-button"
+                    onClick={() => startRename(summary)}
+                    aria-label={`${t('mindmap.renameDocument')}: ${title}`}
+                  >
+                    {title}
+                  </button>
+                )}
+              </div>
+            </article>
           )
         })}
       </div>
@@ -242,6 +240,17 @@ export function MindMapHomeGallery({
         onRename={startRename}
         onRemove={(summary) => onDeleteDocument(summary.id)}
         onCopy={copyDocument}
+      />
+      <MindMapCreateDialog
+        open={creating}
+        submitting={createSubmitting}
+        error={createError}
+        title={titleDraft}
+        selectedStructureClass={createStructureClass}
+        onTitleChange={onTitleDraftChange}
+        onStructureClassChange={onCreateStructureClassChange}
+        onSubmit={onCommitCreate}
+        onCancel={onCancelCreate}
       />
     </section>
   )

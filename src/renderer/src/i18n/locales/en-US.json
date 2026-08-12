@@ -2004,17 +2004,20 @@
       "treeLeft": "Tree (Left)",
       "braceRight": "Brace (Right)",
       "braceLeft": "Brace (Left)",
-      "timelineHorizontal": "Timeline (H)",
-      "timelineVertical": "Timeline (V)",
-      "fishboneRight": "Fishbone (Right)",
-      "fishboneLeft": "Fishbone (Left)",
+        "timelineHorizontal": "Timeline (H)",
+        "timelineVertical": "Timeline (V)",
+        "matrixRow": "Matrix (Rows)",
+        "matrixColumn": "Matrix (Columns)",
+        "fishboneRight": "Fishbone (Right)",
+        "fishboneLeft": "Fishbone (Left)",
       "familyMap": "Mind Map",
       "familyLogic": "Logic Chart",
       "familyOrg": "Org Chart",
       "familyTree": "Tree Chart",
-      "familyBrace": "Brace Map",
-      "familyTimeline": "Timeline",
-      "familyFishbone": "Fishbone",
+        "familyBrace": "Brace Map",
+        "familyTimeline": "Timeline",
+        "familyMatrix": "Matrix",
+        "familyFishbone": "Fishbone",
         "curve": "Curve",
         "elbow": "Elbow",
         "straight": "Straight",
@@ -2029,6 +2032,51 @@
       }
     },
     "newDocument": "New mind map",
+    "createDialog": {
+      "title": "Create a mind map",
+      "description": "Name your map and choose a structure to start with.",
+      "nameLabel": "Mind map name",
+      "structureLabel": "Choose a structure",
+      "cancel": "Cancel",
+      "create": "Create mind map",
+      "creating": "Creating mind map…",
+      "createFailed": "Could not create the mind map. Please try again.",
+      "selected": "Selected",
+      "presets": {
+        "mindMap": {
+          "title": "Mind map",
+          "description": "Branch freely from a central topic."
+        },
+        "logic": {
+          "title": "Logic chart",
+          "description": "Organize topics from left to right."
+        },
+        "org": {
+          "title": "Organization chart",
+          "description": "Show a hierarchy from top to bottom."
+        },
+        "tree": {
+          "title": "Tree chart",
+          "description": "Expand a root topic toward the right."
+        },
+        "brace": {
+          "title": "Brace map",
+          "description": "Group related topics with a bracket layout."
+        },
+        "timeline": {
+          "title": "Timeline",
+          "description": "Arrange events along a horizontal sequence."
+        },
+        "fishbone": {
+          "title": "Fishbone chart",
+          "description": "Explore causes around a central result."
+        },
+        "matrix": {
+          "title": "Matrix chart",
+          "description": "Compare topics in a grid of rows and columns."
+        }
+      }
+    },
     "import": "Import",
     "importXmind": "Import XMind",
     "importFormats": "Import XMind, Markdown, or OPML",
@@ -2219,6 +2267,11 @@
     "collapseList": "Collapse list",
     "expandList": "Expand list",
     "newSheet": "New sheet",
+    "sheets": "Sheets",
+    "sheetActions": "Actions for {{title}}",
+    "renameSheet": "Rename sheet",
+    "duplicateSheet": "Duplicate sheet",
+    "removeSheet": "Remove sheet",
     "deleteDocument": "Delete mind map",
     "noWorkspace": "Select a workspace first",
     "save": "Save",

@@ -1,7 +1,12 @@
 import type {
   MindMapStructureClass
 } from '../../../../shared/mindmap/mind-map-types'
-import { getLayoutStrategy } from '../../../../shared/mindmap/structure-types'
+import {
+  getConnectorStyle,
+  getLayoutGeometry,
+  type LayoutGeometry,
+  type MindMapConnectorStyle
+} from '../../../../shared/mindmap/structure-types'
 import type {
   MindMapBoundary,
   MindMapCallout,
@@ -151,6 +156,10 @@ export type MindMapLayoutEdge = {
   to: string
   /** Branch index for edge colouring. */
   branchIndex: number
+  /** Connector attachment axis dictated by the structure layout. */
+  axis: 'horizontal' | 'vertical'
+  /** Family-specific connector language; omitted for the default curve. */
+  connectorStyle?: MindMapConnectorStyle
 }
 
 /** A sheet-level relationship connector projected into layout coordinates. */
@@ -258,7 +267,7 @@ function childDirections(
   depth: number,
   inheritedSide: 1 | -1
 ): number[] {
-  const strategy = getLayoutStrategy(structureClass)
+  const strategy = getLayoutGeometry(structureClass)
   if (strategy === 'horizontal-left') {
     return new Array<number>(childCount).fill(-1)
   }
@@ -272,44 +281,345 @@ function childDirections(
 }
 
 function isVerticalStructure(structureClass: MindMapStructureClass): boolean {
-  const strategy = getLayoutStrategy(structureClass)
+  const strategy = getLayoutGeometry(structureClass)
   return strategy === 'vertical-down' || strategy === 'vertical-up'
 }
 
-/** Horizontal extent used by the vertical (down/up) structures. */
-function subtreeWidth(
-  node: MindMapTopicV2,
-  sizes: Map<string, { width: number; height: number }>,
-  depth: number,
-  gapOverride: number | null
-): number {
-  const size = sizes.get(node.id)
-  const nodeWidth = size?.width ?? MIND_MAP_NODE_WIDTH
-  if (node.collapsed || node.children.length === 0) return nodeWidth
-  const siblingGap = gapOverride ?? verticalGapForDepth(depth)
-  let total = siblingGap
-  for (const child of node.children) {
-    total += subtreeWidth(child, sizes, depth + 1, gapOverride) + siblingGap
-  }
-  return Math.max(nodeWidth, total)
+function pushEdge(
+  edges: MindMapLayoutEdge[],
+  from: string,
+  to: string,
+  branchIndex: number,
+  structureClass: MindMapStructureClass
+): void {
+  const geometry = getLayoutGeometry(structureClass)
+  const connectorStyle = getConnectorStyle(structureClass)
+  const axis =
+    geometry === 'vertical-down' ||
+    geometry === 'vertical-up' ||
+    geometry === 'timeline-vertical' ||
+    geometry === 'matrix-rows' ||
+    geometry === 'matrix-columns'
+      ? 'vertical'
+      : 'horizontal'
+  edges.push({
+    from,
+    to,
+    branchIndex,
+    axis,
+    ...(connectorStyle === 'curve' ? {} : { connectorStyle })
+  })
 }
 
-/** Total vertical extent of a node and its (expanded) descendants. */
-function subtreeHeight(
-  node: MindMapTopicV2,
-  sizes: Map<string, { width: number; height: number }>,
-  depth: number,
-  gapOverride: number | null
-): number {
-  const size = sizes.get(node.id)
-  const nodeHeight = size?.height ?? MIND_MAP_NODE_HEIGHT
-  if (node.collapsed || node.children.length === 0) return nodeHeight
-  const siblingGap = gapOverride ?? verticalGapForDepth(depth)
-  let total = siblingGap
-  for (const child of node.children) {
-    total += subtreeHeight(child, sizes, depth + 1, gapOverride) + siblingGap
+type LayoutBounds = {
+  left: number
+  top: number
+  right: number
+  bottom: number
+  width: number
+  height: number
+}
+
+type MindMapLayoutChildPlan = {
+  index: number
+  plan: MindMapLayoutPlan
+  /** Offset from the parent's top-centre anchor. */
+  offsetX: number
+  offsetY: number
+}
+
+type MindMapLayoutPlan = {
+  node: MindMapTopicV2
+  structureClass: MindMapStructureClass
+  size: { width: number; height: number }
+  collapsed: boolean
+  /** Bounds relative to this topic's top-centre anchor. */
+  bounds: LayoutBounds
+  children: MindMapLayoutChildPlan[]
+}
+
+function boundsForSize(size: { width: number; height: number }): LayoutBounds {
+  return {
+    left: -size.width / 2,
+    top: 0,
+    right: size.width / 2,
+    bottom: size.height,
+    width: size.width,
+    height: size.height
   }
-  return Math.max(nodeHeight, total)
+}
+
+function translateBounds(bounds: LayoutBounds, offsetX: number, offsetY: number): LayoutBounds {
+  return {
+    left: bounds.left + offsetX,
+    top: bounds.top + offsetY,
+    right: bounds.right + offsetX,
+    bottom: bounds.bottom + offsetY,
+    width: bounds.width,
+    height: bounds.height
+  }
+}
+
+function unionBounds(first: LayoutBounds, second: LayoutBounds): LayoutBounds {
+  const left = Math.min(first.left, second.left)
+  const top = Math.min(first.top, second.top)
+  const right = Math.max(first.right, second.right)
+  const bottom = Math.max(first.bottom, second.bottom)
+  return { left, top, right, bottom, width: right - left, height: bottom - top }
+}
+
+function isSpecialGeometry(geometry: LayoutGeometry): boolean {
+  return (
+    geometry === 'timeline-horizontal' ||
+    geometry === 'timeline-vertical' ||
+    geometry === 'fishbone-right' ||
+    geometry === 'fishbone-left' ||
+    geometry === 'matrix-rows' ||
+    geometry === 'matrix-columns'
+  )
+}
+
+/**
+ * Build a layout plan before emitting coordinates.  A child plan carries its
+ * actual bounds, including any recursively selected structure, so parents can
+ * reserve real space instead of guessing from a generic tree estimate.
+ */
+function createLayoutPlan(
+  node: MindMapTopicV2,
+  depth: number,
+  inheritedStructureClass: MindMapStructureClass,
+  sizes: Map<string, { width: number; height: number }>,
+  gapOverride: number | null,
+  inheritedSide: 1 | -1 = 1
+): MindMapLayoutPlan {
+  const structureClass = node.style?.structureClass ?? inheritedStructureClass
+  const size = sizes.get(node.id) ?? { width: MIND_MAP_NODE_WIDTH, height: MIND_MAP_NODE_HEIGHT }
+  const collapsed = node.collapsed === true
+  const ownBounds = boundsForSize(size)
+
+  if (collapsed || node.children.length === 0) {
+    return { node, structureClass, size, collapsed, bounds: ownBounds, children: [] }
+  }
+
+  const geometry = getLayoutGeometry(structureClass)
+  if (isSpecialGeometry(geometry)) {
+    const special = assignSpecialChildren(
+      node,
+      depth,
+      structureClass,
+      size,
+      sizes,
+      gapOverride,
+      geometry
+    )
+    return {
+      node,
+      structureClass,
+      size,
+      collapsed,
+      bounds: special.bounds,
+      children: special.children
+    }
+  }
+
+  const hGap = horizontalGapForDepth(depth)
+  const vGap = gapOverride ?? verticalGapForDepth(depth)
+  const children: MindMapLayoutChildPlan[] = []
+  let bounds = ownBounds
+
+  const placeChild = (index: number, plan: MindMapLayoutPlan, offsetX: number, offsetY: number): void => {
+    children.push({ index, plan, offsetX, offsetY })
+    bounds = unionBounds(bounds, translateBounds(plan.bounds, offsetX, offsetY))
+  }
+
+  if (isVerticalStructure(structureClass)) {
+    const childPlans = node.children.map((child, index) => ({
+      index,
+      plan: createLayoutPlan(child, depth + 1, structureClass, sizes, gapOverride)
+    }))
+    const totalWidth = childPlans.reduce((sum, child) => sum + child.plan.bounds.width, 0) +
+      Math.max(0, childPlans.length - 1) * vGap
+    let cursorLeft = -totalWidth / 2
+    const isDown = geometry === 'vertical-down'
+
+    for (const child of childPlans) {
+      const offsetX = cursorLeft - child.plan.bounds.left
+      const offsetY = isDown
+        ? ownBounds.bottom + hGap - child.plan.bounds.top
+        : ownBounds.top - hGap - child.plan.bounds.bottom
+      placeChild(child.index, child.plan, offsetX, offsetY)
+      cursorLeft += child.plan.bounds.width + vGap
+    }
+
+    return { node, structureClass, size, collapsed, bounds, children }
+  }
+
+  const directions = childDirections(structureClass, node.children.length, depth, inheritedSide)
+  const childPlans = node.children.map((child, index) => ({
+    index,
+    direction: directions[index] === -1 ? -1 : 1 as 1 | -1,
+    plan: createLayoutPlan(
+      child,
+      depth + 1,
+      structureClass,
+      sizes,
+      gapOverride,
+      directions[index] === -1 ? -1 : 1
+    )
+  }))
+  const sides = directions.some((direction) => direction > 0) && directions.some((direction) => direction < 0)
+    ? ([1, -1] as const)
+    : [directions[0] === -1 ? -1 : 1]
+
+  for (const side of sides) {
+    const sideChildren = childPlans.filter((child) => child.direction === side)
+    const sideExtent = sideChildren.reduce((sum, child) => sum + child.plan.bounds.height, 0) +
+      Math.max(0, sideChildren.length - 1) * vGap
+    let cursorTop = (ownBounds.top + ownBounds.bottom) / 2 - sideExtent / 2
+
+    for (const child of sideChildren) {
+      const offsetX = side === 1
+        ? ownBounds.right + hGap - child.plan.bounds.left
+        : ownBounds.left - hGap - child.plan.bounds.right
+      const offsetY = cursorTop - child.plan.bounds.top
+      placeChild(child.index, child.plan, offsetX, offsetY)
+      cursorTop += child.plan.bounds.height + vGap
+    }
+  }
+
+  return { node, structureClass, size, collapsed, bounds, children }
+}
+
+/**
+ * Arrange the structures whose child placement is not a regular tree.  Each
+ * descendant is planned first, then packed by its true rectangular bounds.
+ * This keeps added topics from entering a sibling's visual space.
+ */
+function assignSpecialChildren(
+  node: MindMapTopicV2,
+  depth: number,
+  structureClass: MindMapStructureClass,
+  size: { width: number; height: number },
+  sizes: Map<string, { width: number; height: number }>,
+  gapOverride: number | null,
+  geometry: LayoutGeometry
+): Pick<MindMapLayoutPlan, 'bounds' | 'children'> {
+  const ownBounds = boundsForSize(size)
+  const hGap = horizontalGapForDepth(depth)
+  const vGap = gapOverride ?? verticalGapForDepth(depth)
+  const children: MindMapLayoutChildPlan[] = []
+  let bounds = ownBounds
+
+  const createChildPlans = (sideForIndex: (index: number) => 1 | -1) =>
+    node.children.map((child, index) => ({
+      index,
+      plan: createLayoutPlan(
+        child,
+        depth + 1,
+        structureClass,
+        sizes,
+        gapOverride,
+        sideForIndex(index)
+      )
+    }))
+  const placeChild = (index: number, plan: MindMapLayoutPlan, offsetX: number, offsetY: number): void => {
+    children.push({ index, plan, offsetX, offsetY })
+    bounds = unionBounds(bounds, translateBounds(plan.bounds, offsetX, offsetY))
+  }
+  const parentCenterY = (ownBounds.top + ownBounds.bottom) / 2
+
+  if (geometry === 'timeline-horizontal') {
+    const childPlans = createChildPlans((index) => (index % 2 === 0 ? -1 : 1))
+    let cursorLeft = ownBounds.right + hGap
+    for (const child of childPlans) {
+      const isAbove = child.index % 2 === 0
+      const offsetX = cursorLeft - child.plan.bounds.left
+      const offsetY = isAbove
+        ? parentCenterY - vGap - child.plan.bounds.bottom
+        : parentCenterY + vGap - child.plan.bounds.top
+      placeChild(child.index, child.plan, offsetX, offsetY)
+      cursorLeft += child.plan.bounds.width + hGap
+    }
+    return { bounds, children }
+  }
+
+  if (geometry === 'timeline-vertical') {
+    const childPlans = createChildPlans((index) => (index % 2 === 0 ? 1 : -1))
+    let cursorTop = ownBounds.bottom + hGap
+    for (const child of childPlans) {
+      const side: 1 | -1 = child.index % 2 === 0 ? 1 : -1
+      const offsetX = side === 1
+        ? ownBounds.right + hGap - child.plan.bounds.left
+        : ownBounds.left - hGap - child.plan.bounds.right
+      const offsetY = cursorTop - child.plan.bounds.top
+      placeChild(child.index, child.plan, offsetX, offsetY)
+      cursorTop += child.plan.bounds.height + vGap
+    }
+    return { bounds, children }
+  }
+
+  if (geometry === 'fishbone-right' || geometry === 'fishbone-left') {
+    const direction: 1 | -1 = geometry === 'fishbone-right' ? -1 : 1
+    const childPlans = createChildPlans(() => direction)
+    let cursorEdge = direction === 1 ? ownBounds.right + hGap : ownBounds.left - hGap
+    for (const child of childPlans) {
+      const isAbove = child.index % 2 === 0
+      const offsetX = direction === 1
+        ? cursorEdge - child.plan.bounds.left
+        : cursorEdge - child.plan.bounds.right
+      const offsetY = isAbove
+        ? parentCenterY - vGap - child.plan.bounds.bottom
+        : parentCenterY + vGap - child.plan.bounds.top
+      placeChild(child.index, child.plan, offsetX, offsetY)
+      cursorEdge += direction * (child.plan.bounds.width + hGap)
+    }
+    return { bounds, children }
+  }
+
+  const isColumnMajor = geometry === 'matrix-columns'
+  const childPlans = createChildPlans(() => 1)
+  const columnCount = Math.max(
+    1,
+    isColumnMajor ? Math.min(3, childPlans.length) : Math.ceil(Math.sqrt(childPlans.length))
+  )
+  const rowCount = Math.ceil(childPlans.length / columnCount)
+  const cellWidths = new Array<number>(columnCount).fill(0)
+  const cellHeights = new Array<number>(rowCount).fill(0)
+  for (const child of childPlans) {
+    const row = isColumnMajor ? child.index % rowCount : Math.floor(child.index / columnCount)
+    const column = isColumnMajor ? Math.floor(child.index / rowCount) : child.index % columnCount
+    cellWidths[column] = Math.max(cellWidths[column] ?? 0, child.plan.bounds.width)
+    cellHeights[row] = Math.max(cellHeights[row] ?? 0, child.plan.bounds.height)
+  }
+
+  const totalGridWidth = cellWidths.reduce((sum, width) => sum + width, 0) +
+    Math.max(0, columnCount - 1) * hGap
+  const columnLefts: number[] = []
+  let columnLeft = -totalGridWidth / 2
+  for (const cellWidth of cellWidths) {
+    columnLefts.push(columnLeft)
+    columnLeft += cellWidth + hGap
+  }
+  const rowTops: number[] = []
+  let rowTop = ownBounds.bottom + hGap
+  for (const cellHeight of cellHeights) {
+    rowTops.push(rowTop)
+    rowTop += cellHeight + vGap
+  }
+
+  for (const child of childPlans) {
+    const row = isColumnMajor ? child.index % rowCount : Math.floor(child.index / columnCount)
+    const column = isColumnMajor ? Math.floor(child.index / rowCount) : child.index % columnCount
+    const cellWidth = cellWidths[column] ?? child.plan.bounds.width
+    const cellHeight = cellHeights[row] ?? child.plan.bounds.height
+    const cellLeft = columnLefts[column] ?? 0
+    const cellTop = rowTops[row] ?? ownBounds.bottom + hGap
+    const offsetX = cellLeft + (cellWidth - child.plan.bounds.width) / 2 - child.plan.bounds.left
+    const offsetY = cellTop + (cellHeight - child.plan.bounds.height) / 2 - child.plan.bounds.top
+    placeChild(child.index, child.plan, offsetX, offsetY)
+  }
+
+  return { bounds, children }
 }
 
 /** Pre-compute auto-sized dimensions for every node in the tree. */
@@ -330,37 +640,26 @@ function precomputeSizes(
   }
 }
 
-function assignLayout(
-  node: MindMapTopicV2,
+function emitLayoutPlan(
+  plan: MindMapLayoutPlan,
   centerX: number,
   topY: number,
   depth: number,
   branchIndex: number,
-  inheritedStructureClass: MindMapStructureClass,
-  sizes: Map<string, { width: number; height: number }>,
-  gapOverride: number | null,
   nodes: MindMapLayoutNode[],
-  edges: MindMapLayoutEdge[],
-  /** Which side of the root this branch lives on (balanced layouts). */
-  inheritedSide: 1 | -1 = 1
+  edges: MindMapLayoutEdge[]
 ): void {
-  const structureClass = node.style?.structureClass ?? inheritedStructureClass
-  const isCollapsed = node.collapsed === true
-  const size = sizes.get(node.id) ?? { width: MIND_MAP_NODE_WIDTH, height: MIND_MAP_NODE_HEIGHT }
-  const width = size.width
-  const height = size.height
-  const hGap = horizontalGapForDepth(depth)
-  const vGap = gapOverride ?? verticalGapForDepth(depth)
+  const { node, size, collapsed, structureClass } = plan
 
   nodes.push({
     id: node.id,
     title: node.title,
-    x: centerX - width / 2,
+    x: centerX - size.width / 2,
     y: topY,
-    width,
-    height,
+    width: size.width,
+    height: size.height,
     depth,
-    collapsed: isCollapsed,
+    collapsed,
     ...(node.note ? { note: node.note, hasNote: true } : {}),
     ...(node.markers && node.markers.length > 0
       ? {
@@ -380,108 +679,24 @@ function assignLayout(
     ...(node.planning?.priority !== undefined ? { priority: node.planning.priority } : {})
   })
 
-  if (isCollapsed) {
-    const lastNode = nodes[nodes.length - 1]
-    if (lastNode) lastNode.hiddenDescendantCount = countDescendants(node)
-  }
-
-  if (isCollapsed || node.children.length === 0) return
-
-  if (isVerticalStructure(structureClass)) {
-    const childWidths = node.children.map((child) => subtreeWidth(child, sizes, depth + 1, gapOverride))
-    const totalWidth = childWidths.reduce((sum, childWidth) => sum + childWidth, 0) +
-      Math.max(0, node.children.length - 1) * vGap
-    let childLeft = centerX - totalWidth / 2
-    const isDown = getLayoutStrategy(structureClass) === 'vertical-down'
-    const childY = isDown
-      ? topY + height + hGap
-      : topY - hGap
-
-    for (let index = 0; index < node.children.length; index += 1) {
-      const child = node.children[index]
-      const childSize = sizes.get(child.id) ?? { width: MIND_MAP_NODE_WIDTH, height: MIND_MAP_NODE_HEIGHT }
-      const childWidth = childWidths[index] ?? childSize.width
-      const childCenterX = childLeft + childWidth / 2
-      const childTopY = isDown
-        ? childY
-        : childY - childSize.height
-      const childBranchIndex = depth === 0 ? index : branchIndex
-      edges.push({ from: node.id, to: child.id, branchIndex: childBranchIndex })
-      assignLayout(
-        child,
-        childCenterX,
-        childTopY,
-        depth + 1,
-        childBranchIndex,
-        structureClass,
-        sizes,
-        gapOverride,
-        nodes,
-        edges
-      )
-      childLeft += childWidth + vGap
-    }
+  if (collapsed) {
+    const layoutNode = nodes[nodes.length - 1]
+    if (layoutNode) layoutNode.hiddenDescendantCount = countDescendants(node)
     return
   }
 
-  const directions = childDirections(structureClass, node.children.length, depth, inheritedSide)
-  // Use the max child width so siblings align in a column (Xmind style).
-  let maxChildWidth = 0
-  for (const child of node.children) {
-    const childSize = sizes.get(child.id)
-    if (childSize && childSize.width > maxChildWidth) maxChildWidth = childSize.width
-  }
-  if (maxChildWidth === 0) maxChildWidth = MIND_MAP_NODE_WIDTH
-  const childStepX = width / 2 + hGap + maxChildWidth / 2
-
-  // Pre-compute each child's subtree height once (reused for centering and
-  // spacing) so we don't traverse subtrees twice.
-  const childHeights = node.children.map((child) =>
-    subtreeHeight(child, sizes, depth + 1, gapOverride)
-  )
-  // For two-sided structures (balanced / map) the children alternate
-  // right/left.  Center each side independently around the parent's vertical
-  // midline so the subtree spreads symmetrically on both sides at every
-  // depth, matching Xmind's balanced layout.  Without this, left and right
-  // children share one vertical stream and each side drifts off-center as
-  // more siblings are added.
-  const isTwoSided =
-    directions.some((d) => d > 0) && directions.some((d) => d < 0)
-  const sides = isTwoSided ? ([1, -1] as const) : [directions[0] ?? 1]
-  for (const side of sides) {
-    const sideIndices: number[] = []
-    for (let i = 0; i < node.children.length; i += 1) {
-      if (directions[i] === side) sideIndices.push(i)
-    }
-    if (sideIndices.length === 0) continue
-
-    // Center this side's children around the parent's vertical midline.
-    const sideExtent =
-      sideIndices.reduce((sum, i) => sum + childHeights[i]!, 0) +
-      Math.max(0, sideIndices.length - 1) * vGap
-    let cursor = topY + height / 2 - sideExtent / 2
-    for (const index of sideIndices) {
-      const child = node.children[index]!
-      const childHeight = childHeights[index]!
-      const childCenterX = centerX + directions[index] * childStepX
-      // Assign branch index: first-level children get their own index, descendants inherit.
-      const childBranchIndex = depth === 0 ? index : branchIndex
-      edges.push({ from: node.id, to: child.id, branchIndex: childBranchIndex })
-      assignLayout(
-        child,
-        childCenterX,
-        cursor,
-        depth + 1,
-        childBranchIndex,
-        structureClass,
-        sizes,
-        gapOverride,
-        nodes,
-        edges,
-        (directions[index] ?? 1) >= 0 ? 1 : -1
-      )
-      cursor += childHeight + vGap
-    }
+  for (const child of plan.children) {
+    const childBranchIndex = depth === 0 ? child.index : branchIndex
+    pushEdge(edges, node.id, child.plan.node.id, childBranchIndex, structureClass)
+    emitLayoutPlan(
+      child.plan,
+      centerX + child.offsetX,
+      topY + child.offsetY,
+      depth + 1,
+      childBranchIndex,
+      nodes,
+      edges
+    )
   }
 }
 
@@ -530,18 +745,14 @@ export function computeMindMapLayout(
       ...(label !== undefined ? { label } : {})
     }))
 
-  assignLayout(
+  const plan = createLayoutPlan(
     sheet.root,
-    0,
-    0,
-    0,
     0,
     sheet.layout.structureClass,
     sizes,
-    gapOverride,
-    nodes,
-    edges
+    gapOverride
   )
+  emitLayoutPlan(plan, 0, 0, 0, 0, nodes, edges)
 
   // Compute boundary rectangles from layout nodes.
   const boundaries = sheet.elements

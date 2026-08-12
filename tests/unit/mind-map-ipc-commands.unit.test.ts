@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   parseMindMapCancelGenerationPayload,
+  parseMindMapCreatePayload,
   parseMindMapExportPayload,
   parseMindMapGeneratePayload,
   parseMindMapProposalGeneratePayload,
@@ -13,6 +14,36 @@ import {
   parseMindMapSourceRefreshPayload,
   parseMindMapSourceRefreshApplyPayload
 } from '../../src/main/mindmap/mind-map-ipc-commands'
+
+describe('parseMindMapCreatePayload', () => {
+  const legacyPayload = { workspaceId: 'workspace-1', title: 'Chemistry' }
+
+  it('keeps the existing title-only creation envelope compatible', () => {
+    expect(parseMindMapCreatePayload(legacyPayload)).toEqual(legacyPayload)
+  })
+
+  it('accepts an XMind-compatible initial structure', () => {
+    expect(
+      parseMindMapCreatePayload({
+        ...legacyPayload,
+        structureClass: 'org.xmind.ui.spreadsheet'
+      })
+    ).toEqual({
+      ...legacyPayload,
+      structureClass: 'org.xmind.ui.spreadsheet'
+    })
+  })
+
+  it('rejects unsupported structures and renderer-supplied extras', () => {
+    expect(
+      parseMindMapCreatePayload({
+        ...legacyPayload,
+        structureClass: 'org.xmind.ui.not-a-layout'
+      })
+    ).toBeNull()
+    expect(parseMindMapCreatePayload({ ...legacyPayload, rootPath: '/outside' })).toBeNull()
+  })
+})
 
 describe('parseMindMapSourceRefreshPayload', () => {
   const valid = { workspaceId: 'workspace-1', id: 'map-1' }

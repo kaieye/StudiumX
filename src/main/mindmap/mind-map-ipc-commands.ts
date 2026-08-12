@@ -1,10 +1,11 @@
 /**
  * Strict envelope parsers for mind map teaching IPC (docs/mindmap/design.md §4.3).
  *
- * Each parser requires an exact key set, rejects extra keys, validates
- * `workspaceId` / `id` as non-empty strings, and returns `null` on any invalid
- * payload. The `doc` field of an update is validated against the v2 schema, and
- * `expectedRevision` must be a non-negative safe integer.
+ * Each parser requires an exact key set (with explicitly optional fields
+ * called out in the parser), rejects extra keys, validates `workspaceId` / `id`
+ * as non-empty strings, and returns `null` on any invalid payload. The `doc`
+ * field of an update is validated against the v2 schema, and `expectedRevision`
+ * must be a non-negative safe integer.
  *
  * Kept in a dedicated module so `teaching-ipc-commands.ts` and
  * `teaching-ipc-gateway.ts` do not grow further (module-size policy ADR-0075).
@@ -26,6 +27,7 @@ import {
   type MindMapSvgNode
 } from '../../shared/mindmap/svg-export'
 import { inspectMindMapPngExportArtifact } from '../../shared/mindmap/png-export'
+import { mindMapStructureClassSchema } from '../../shared/mindmap/mind-map-schema'
 import type {
   MindMapDocumentV2,
   MindMapSourceRef
@@ -70,6 +72,21 @@ function requireExactKeys(value: unknown, allowed: readonly string[]): Record<st
   return record
 }
 
+/** Allowed-key check for envelopes with explicitly optional fields. */
+function requireAllowedKeys(
+  value: unknown,
+  allowed: readonly string[],
+  required: readonly string[]
+): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record)
+  if (keys.some((key) => !allowed.includes(key)) || required.some((key) => !(key in record))) {
+    return null
+  }
+  return record
+}
+
 function requireNonNegativeSafeInteger(value: unknown): number | null {
   return typeof value === 'number'
     && Number.isSafeInteger(value)
@@ -87,12 +104,19 @@ export function parseMindMapListPayload(value: unknown): MindMapListPayload | nu
 }
 
 export function parseMindMapCreatePayload(value: unknown): MindMapCreatePayload | null {
-  const record = requireExactKeys(value, ['workspaceId', 'title'])
+  const record = requireAllowedKeys(
+    value,
+    ['workspaceId', 'title', 'structureClass'],
+    ['workspaceId', 'title']
+  )
   if (!record) return null
   const workspaceId = requireNonEmptyString(record.workspaceId)
   const title = requireNonEmptyString(record.title)
   if (!workspaceId || !title) return null
-  return { workspaceId, title }
+
+  if (record.structureClass === undefined) return { workspaceId, title }
+  const structureClass = mindMapStructureClassSchema.safeParse(record.structureClass)
+  return structureClass.success ? { workspaceId, title, structureClass: structureClass.data } : null
 }
 
 export function parseMindMapAccessPayload(value: unknown): MindMapAccessPayload | null {

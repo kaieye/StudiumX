@@ -2006,6 +2006,8 @@
       "braceLeft": "括号图（向左）",
       "timelineHorizontal": "时间轴（水平）",
       "timelineVertical": "时间轴（垂直）",
+      "matrixRow": "矩阵图（行）",
+      "matrixColumn": "矩阵图（列）",
       "fishboneRight": "鱼骨图（头向右）",
       "fishboneLeft": "鱼骨图（头向左）",
       "familyMap": "思维导图",
@@ -2014,6 +2016,7 @@
       "familyTree": "树形图",
       "familyBrace": "括号图",
       "familyTimeline": "时间轴",
+      "familyMatrix": "矩阵图",
       "familyFishbone": "鱼骨图",
         "curve": "曲线",
         "elbow": "折线",
@@ -2029,6 +2032,51 @@
       }
     },
     "newDocument": "新建导图",
+    "createDialog": {
+      "title": "新建思维导图",
+      "description": "为导图命名，并选择一个起始结构。",
+      "nameLabel": "导图名称",
+      "structureLabel": "选择结构",
+      "cancel": "取消",
+      "create": "创建导图",
+      "creating": "正在创建导图…",
+      "createFailed": "无法创建思维导图，请重试。",
+      "selected": "已选择",
+      "presets": {
+        "mindMap": {
+          "title": "思维导图",
+          "description": "从中心主题向各个方向自由展开。"
+        },
+        "logic": {
+          "title": "逻辑图",
+          "description": "从左到右梳理主题之间的逻辑。"
+        },
+        "org": {
+          "title": "组织结构图",
+          "description": "从上到下展示层级关系。"
+        },
+        "tree": {
+          "title": "树状图",
+          "description": "从根主题向右逐层展开。"
+        },
+        "brace": {
+          "title": "括号图",
+          "description": "使用括号式布局归纳相关主题。"
+        },
+        "timeline": {
+          "title": "时间轴",
+          "description": "沿水平顺序排列事件与阶段。"
+        },
+        "fishbone": {
+          "title": "鱼骨图",
+          "description": "围绕中心结果分析原因与因素。"
+        },
+        "matrix": {
+          "title": "矩阵图",
+          "description": "用行列网格比较多个主题。"
+        }
+      }
+    },
     "import": "导入",
     "importXmind": "导入 XMind",
     "importFormats": "导入 XMind、Markdown 或 OPML",
@@ -2219,6 +2267,11 @@
     "collapseList": "收起列表",
     "expandList": "展开列表",
     "newSheet": "新建画布",
+    "sheets": "画布",
+    "sheetActions": "“{{title}}”的操作",
+    "renameSheet": "重命名画布",
+    "duplicateSheet": "复制画布",
+    "removeSheet": "删除画布",
     "deleteDocument": "删除导图",
     "noWorkspace": "请先选择一个工作区",
     "save": "保存",

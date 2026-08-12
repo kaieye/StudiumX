@@ -348,7 +348,6 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   const [pan, setPan] = useState<Vec2>({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
   const [editValue, setEditValue] = useState('')
-  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const dragRef = useRef<{ startPointer: Vec2; startPan: Vec2; moved: boolean } | null>(null)
   const handledViewportActionIdRef = useRef<number | null>(null)
   // Node drag-and-drop reparenting state
@@ -449,15 +448,17 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
       return
     }
 
-    if (viewportAction.type === 'zoom-in') {
-      const nextZoom = Math.min(MAX_MIND_MAP_ZOOM, zoom * 1.2)
-      setZoom(nextZoom)
-      return
-    }
-
-    if (viewportAction.type === 'zoom-out') {
-      const nextZoom = Math.max(MIN_MIND_MAP_ZOOM, zoom / 1.2)
-      setZoom(nextZoom)
+    if (viewportAction.type === 'zoom-in' || viewportAction.type === 'zoom-out') {
+      // Toolbar zoom has no pointer location to preserve, so use the canvas
+      // centre as its anchor. Updating zoom alone scales the SVG around (0, 0)
+      // and visibly pulls the whole map toward the upper-left at low zoom.
+      const next = zoomMindMapViewport(
+        { pan, zoom },
+        { x: viewportSize.width / 2, y: viewportSize.height / 2 },
+        viewportAction.type === 'zoom-in' ? 1.2 : 1 / 1.2
+      )
+      setPan(next.pan)
+      setZoom(next.zoom)
       return
     }
 
@@ -476,7 +477,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     )
     setPan(next.pan)
     setZoom(next.zoom)
-  }, [bounds, viewportAction, viewportSize, zoom])
+  }, [bounds, pan, viewportAction, viewportSize, zoom])
 
   // Fit the content on mount and when the document changes.
   // Xmind opens a map with its content visible and centred; fit only ever
@@ -684,13 +685,16 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             const to = nodeById.get(edge.to)
             if (!from || !to) return null
             const color = branchColor(document.theme, edge.branchIndex)
-            const lineStyle = sheet?.layout?.lineStyle
+            // A user-selected line style is an explicit override. Otherwise
+            // use the connector language attached by the structure layout so
+            // a timeline/fishbone/matrix does not look like a generic map.
+            const lineStyle = sheet?.layout?.lineStyle ?? edge.connectorStyle
             const strokeWidth = edgeStrokeWidth(to.depth, sheet?.layout?.lineWidthScale)
             return (
               <path
                 key={edge.to}
                 className="mindmap-edge"
-                d={resolveEdgePath(from, to, lineStyle)}
+                d={resolveEdgePath(from, to, lineStyle, edge.axis)}
                 style={color ? { stroke: color, strokeWidth } : { strokeWidth }}
               />
             )
@@ -841,8 +845,6 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
 
           {layout.nodes.map((node) => {
             const isSelected = node.id === selectedNodeId
-            const isHovered = node.id === hoveredNodeId
-            const focused = isSelected || isHovered
             const isEditing = node.id === editingNodeId
             const depthClass = node.depth === 0 ? ' is-root' : node.depth === 1 ? ' is-branch' : ''
             // P4: Merge theme.topicStyles[central/main/sub] with node.style.
@@ -859,10 +861,16 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 data-depth={node.depth}
                 role="button"
                 tabIndex={isSelected ? 0 : -1}
+                style={{ outline: 'none' }}
                 aria-label={node.title || t('mindmap.untitledTopic')}
                 aria-pressed={isSelected}
                 onPointerDown={(event) => {
                   event.stopPropagation()
+                  // SVG groups can receive the browser's native focus halo on
+                  // pointer activation. The selected topic already has an
+                  // explicit outline on its own shape, so suppressing the
+                  // default focus transfer avoids a second outer rectangle.
+                  event.preventDefault()
                   dragRef.current = null
                   beginNodeAction(node.id)
                 }}
@@ -882,8 +890,6 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   }
                 }}
                 onDoubleClick={() => beginEdit(node.id, node.title)}
-                onPointerEnter={() => setHoveredNodeId(node.id)}
-                onPointerLeave={() => setHoveredNodeId((current) => (current === node.id ? null : current))}
               >
                 {(() => {
                   const shape = resolveShape(node.shape)
@@ -896,11 +902,20 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   // quiet grey fill from the stylesheet.
                   const fill = styleOverride?.fill
                     ?? (node.depth === 1 && bColor ? bColor : undefined)
-                  const stroke = styleOverride?.stroke
+                  // Selection/focus is rendered on the topic shape itself.
+                  // This deliberately takes precedence over the branch chip's
+                  // borderless default and any theme stroke so a selected topic
+                  // has exactly one visible highlight, not a second outer ring.
+                  const focusStroke = !isEditing && isSelected
+                    ? 'var(--mm-focus)'
+                    : undefined
+                  const stroke = focusStroke
+                    ?? styleOverride?.stroke
                     ?? (node.depth === 1 ? 'none' : undefined)
                   const styleProps: Record<string, string | number> = {}
                   if (fill) styleProps.fill = fill
                   if (stroke) styleProps.stroke = stroke
+                  if (focusStroke) styleProps.strokeWidth = isSelected ? 2 : 1.5
 
                   const Tag = elem.tag
                   return (
@@ -911,19 +926,6 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                     />
                   )
                 })()}
-                {/* G5: crisp Xmind-style focus ring — a separate outline rect
-                    3px outside the node instead of blurred drop-shadows. */}
-                {(isSelected || isHovered) && !isEditing ? (
-                  <rect
-                    className={`mindmap-node-ring${isSelected ? ' is-selected' : ''}`}
-                    x={node.x - 3}
-                    y={node.y - 3}
-                    width={node.width + 6}
-                    height={node.height + 6}
-                    rx={Math.min(15, node.height / 2 + 3)}
-                    aria-hidden="true"
-                  />
-                ) : null}
                 {node.hasNote ? (
                   <g className="mindmap-note-indicator" role="img" aria-label="Note">
                     <title>{node.note}</title>
@@ -1081,7 +1083,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   })()
                 ) : null}
 
-                {focused && !isEditing ? (
+                {isSelected && !isEditing ? (
                   <g className="mindmap-node-actions">
                     {isSelected && !node.collapsed ? (
                       <>

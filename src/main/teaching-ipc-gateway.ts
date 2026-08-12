@@ -1471,7 +1471,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => {
         const p = requireMindMapPayload(payload, 'createMindMap')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        return getMindMapStore(root).create(p.title)
+        return getMindMapStore(root).create(p.title, p.structureClass)
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),

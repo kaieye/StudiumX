@@ -29,6 +29,8 @@ export type MindMapStructureClass =
   | 'org.xmind.ui.brace.left' // 括号图（向左）
   | 'org.xmind.ui.timeline.horizontal' // 时间轴（水平）
   | 'org.xmind.ui.timeline.vertical' // 时间轴（垂直）
+  | 'org.xmind.ui.spreadsheet' // 矩阵图（行）
+  | 'org.xmind.ui.spreadsheet.column' // 矩阵图（列）
   | 'org.xmind.ui.fishbone.rightHeaded' // 鱼骨图（头向右）
   | 'org.xmind.ui.fishbone.leftHeaded' // 鱼骨图（头向左）
 

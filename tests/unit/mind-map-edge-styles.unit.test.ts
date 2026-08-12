@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { MindMapLayoutNode } from '../../src/renderer/src/views/mindmap/mind-map-layout'
 import {
+  braceEdgePath,
   curveEdgePath,
   edgeStrokeWidth,
   elbowEdgePath,
-  straightEdgePath
+  fishboneEdgePath,
+  matrixEdgePath,
+  resolveEdgePath,
+  straightEdgePath,
+  timelineEdgePath
 } from '../../src/renderer/src/views/mindmap/mind-map-edge-styles'
 
 const from: MindMapLayoutNode = {
@@ -34,9 +39,23 @@ const left: MindMapLayoutNode = {
 }
 
 describe('mind map edge styles', () => {
+  it('keeps far horizontal branches attached to the left/right node edges', () => {
+    const farAbove: MindMapLayoutNode = { ...right, id: 'far-above', y: -420 }
+
+    expect(curveEdgePath(from, farAbove, 'horizontal')).toMatch(/^M 180 68 C /)
+    expect(resolveEdgePath(from, farAbove, 'curve', 'horizontal')).toBe(
+      curveEdgePath(from, farAbove, 'horizontal')
+    )
+  })
+
   it('connects right-facing branches from parent right edge to child left edge', () => {
     expect(curveEdgePath(from, right)).toContain('M 180 68')
     expect(curveEdgePath(from, right)).toContain('280 138')
+    expect(straightEdgePath(from, right)).toBe('M 180 68 L 280 138')
+  })
+
+  it('fans horizontal branches out from the nearest point on the parent edge', () => {
+    expect(curveEdgePath(from, right)).toBe('M 180 68 C 216 68, 244 138, 280 138')
     expect(straightEdgePath(from, right)).toBe('M 180 68 L 280 138')
   })
 
@@ -106,5 +125,16 @@ describe('mind map edge stroke width', () => {
     expect(edgeStrokeWidth(1, Number.NaN)).toBe(4)
     expect(edgeStrokeWidth(1, 0)).toBe(4)
     expect(edgeStrokeWidth(1, -1)).toBe(4)
+  })
+})
+
+describe('structure connector languages', () => {
+  it('resolves family-specific connector styles without falling back to a curve', () => {
+    expect(resolveEdgePath(from, right, 'timeline')).toBe(timelineEdgePath(from, right))
+    expect(resolveEdgePath(from, right, 'fishbone')).toBe(fishboneEdgePath(from, right))
+    expect(resolveEdgePath(from, right, 'matrix')).toBe(matrixEdgePath(from, right))
+    expect(resolveEdgePath(from, right, 'brace')).toBe(braceEdgePath(from, right))
+    expect(resolveEdgePath(from, right, 'fishbone')).toBe(straightEdgePath(from, right))
+    expect(resolveEdgePath(from, right, 'timeline')).not.toBe(curveEdgePath(from, right))
   })
 })

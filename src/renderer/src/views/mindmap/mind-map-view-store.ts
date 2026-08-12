@@ -10,7 +10,7 @@ import type {
   MindMapDocumentV2,
   MindMapSheetV2
 } from '../../../../shared/mindmap/domain/types'
-import type { MindMapSummary } from '../../../../shared/mindmap/mind-map-types'
+import type { MindMapStructureClass, MindMapSummary } from '../../../../shared/mindmap/mind-map-types'
 import type { MindMapMarkdownExportSnapshot } from '../../../../shared/teaching-types/mindmap'
 import { useAppStore } from '../../app-shell/appStore'
 import {
@@ -63,7 +63,15 @@ type MindMapViewState = {
   openDocument: (id: string) => Promise<void>
   /** Flush pending local writes and return to the document gallery. */
   closeDocument: () => Promise<void>
-  createDocument: (title: string) => Promise<void>
+  /**
+   * Create and open a persisted document. Rejects when the request cannot be
+   * completed so the caller can keep its create surface open and show the
+   * actionable error instead of silently returning to the gallery.
+   */
+  createDocument: (
+    title: string,
+    structureClass?: MindMapStructureClass
+  ) => Promise<MindMapDocumentV2>
   deleteDocument: (id: string) => Promise<void>
   /** Rename a gallery document without opening it in the editor. */
   renameDocumentById: (id: string, title: string) => Promise<void>
@@ -375,27 +383,59 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       })
     },
 
-    createDocument: async (title) => {
+    createDocument: async (title, structureClass) => {
       const workspace = workspaceId()
-      if (!workspace) return
+      if (!workspace) {
+        const error = new Error('Mind map requires an active teaching workspace.')
+        set({ error: error.message })
+        throw error
+      }
+
+      const teachingSystem = window.teachingSystem
+      if (!teachingSystem?.createMindMap) {
+        const error = new Error('Mind map creation is unavailable. Restart the desktop app and try again.')
+        set({ error: error.message })
+        throw error
+      }
+
       try {
-        const current = await window.teachingSystem?.createMindMap({ workspaceId: workspace, title })
-        if (current) {
-          clearPendingPersist()
-          dirty = false
-          undoStack = new MindMapUndoRedoStack(current)
-          mutationEpoch += 1
-          set({
-            current,
-            selectedNodeId: current.sheets[0]?.root.id ?? null,
-            activeSheetId: current.sheets[0]?.id ?? null,
-            editingNodeId: null,
-            error: null
-          })
-          await refreshDocuments()
-        }
+        const current = await teachingSystem.createMindMap({
+          workspaceId: workspace,
+          title,
+          ...(structureClass ? { structureClass } : {})
+        })
+        if (!current) throw new Error('Mind map creation returned no document.')
+
+        clearPendingPersist()
+        dirty = false
+        undoStack = new MindMapUndoRedoStack(current)
+        mutationEpoch += 1
+        set((state) => ({
+          current,
+          selectedNodeId: current.sheets[0]?.root.id ?? null,
+          activeSheetId: current.sheets[0]?.id ?? null,
+          editingNodeId: null,
+          documents: [
+            {
+              id: current.id,
+              title: current.title,
+              updatedAt: current.updatedAt,
+              sheetCount: current.sheets.length
+            },
+            ...state.documents.filter((document) => document.id !== current.id)
+          ],
+          error: null
+        }))
+
+        // A list refresh is only for gallery freshness. The document is already
+        // durably created, so a transient list failure must not turn a successful
+        // creation into an apparent failure or eject the user from the editor.
+        void refreshDocuments().catch(() => undefined)
+        return current
       } catch (error) {
-        set({ error: error instanceof Error ? error.message : String(error) })
+        const failure = error instanceof Error ? error : new Error(String(error))
+        set({ error: failure.message })
+        throw failure
       }
     },
 

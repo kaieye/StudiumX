@@ -9,10 +9,10 @@
  * so the layout algorithm, UI selector, xmind converter and schema all share
  * a single source of truth.
  *
- * Layout positions for the new families (tree, brace, timeline, fishbone) are
- * approximated by mapping to one of the five base layout strategies that the
- * existing `mind-map-layout.ts` already computes. Connector rendering can be
- * enhanced later without changing the position model.
+ * The registry keeps the historical base strategy API for compatibility, while
+ * `getLayoutGeometry` exposes the family-specific geometry used by the v2
+ * renderer. This prevents a timeline, fishbone, or matrix sheet from silently
+ * rendering as an ordinary balanced mind map.
  */
 
 import type { MindMapStructureClass } from './mind-map-types'
@@ -25,19 +25,38 @@ export type StructureFamily =
   | 'tree'
   | 'brace'
   | 'timeline'
+  | 'matrix'
   | 'fishbone'
 
 /**
- * Base layout strategy - the position model used by `mind-map-layout.ts`.
- * New structure classes map to one of these five; they differ only in
- * connector style, not in node positioning.
+ * Legacy base layout strategy retained for persisted documents and older
+ * callers. `getLayoutGeometry` refines it for structure families whose node
+ * positioning is not a regular tree (timeline, fishbone and matrix).
  */
 export type LayoutStrategy =
   | 'horizontal-right' // children stack vertically to the right (logic.right, tree.right, brace.right)
   | 'horizontal-left' // mirror of horizontal-right
   | 'balanced' // children split left/right (logic.balanced, map, timeline.horizontal)
-  | 'vertical-down' // children stack horizontally below (logic.down, org-chart.down, timeline.vertical)
+  | 'vertical-down' // children stack horizontally below (logic.down, org-chart.down, timeline.vertical, matrix)
   | 'vertical-up' // mirror of vertical-down
+
+/** Family-specific geometry. The first five values are the legacy strategies. */
+export type LayoutGeometry =
+  | LayoutStrategy
+  | 'timeline-horizontal'
+  | 'timeline-vertical'
+  | 'fishbone-right'
+  | 'fishbone-left'
+  | 'matrix-rows'
+  | 'matrix-columns'
+
+export type MindMapConnectorStyle =
+  | 'curve'
+  | 'elbow'
+  | 'brace'
+  | 'timeline'
+  | 'fishbone'
+  | 'matrix'
 
 /** Metadata for a single structure-type preset. */
 export interface StructureTypePreset {
@@ -210,6 +229,24 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'vertical-down'
   },
 
+  // ---- Matrix (矩阵图) ----
+  {
+    id: 'org.xmind.ui.spreadsheet',
+    name: 'Matrix (Rows)',
+    family: 'matrix',
+    labelKey: 'matrixRow',
+    glyph: '▦',
+    layoutStrategy: 'vertical-down'
+  },
+  {
+    id: 'org.xmind.ui.spreadsheet.column',
+    name: 'Matrix (Columns)',
+    family: 'matrix',
+    labelKey: 'matrixColumn',
+    glyph: '▦',
+    layoutStrategy: 'vertical-down'
+  },
+
   // ---- Fishbone (鱼骨图) ----
   {
     id: 'org.xmind.ui.fishbone.rightHeaded',
@@ -251,6 +288,46 @@ export function getLayoutStrategy(
   return PRESET_BY_ID.get(id)?.layoutStrategy ?? 'balanced'
 }
 
+/** Resolve the actual family geometry without breaking the legacy strategy API. */
+export function getLayoutGeometry(id: MindMapStructureClass): LayoutGeometry {
+  switch (id) {
+    case 'org.xmind.ui.timeline.horizontal':
+      return 'timeline-horizontal'
+    case 'org.xmind.ui.timeline.vertical':
+      return 'timeline-vertical'
+    case 'org.xmind.ui.fishbone.rightHeaded':
+      return 'fishbone-right'
+    case 'org.xmind.ui.fishbone.leftHeaded':
+      return 'fishbone-left'
+    case 'org.xmind.ui.spreadsheet':
+      return 'matrix-rows'
+    case 'org.xmind.ui.spreadsheet.column':
+      return 'matrix-columns'
+    default:
+      return getLayoutStrategy(id)
+  }
+}
+
+/** The default connector language for each XMind structure family. */
+export function getConnectorStyle(id: MindMapStructureClass): MindMapConnectorStyle {
+  const preset = PRESET_BY_ID.get(id)
+  switch (preset?.family) {
+    case 'org':
+    case 'tree':
+      return 'elbow'
+    case 'brace':
+      return 'brace'
+    case 'timeline':
+      return 'timeline'
+    case 'matrix':
+      return 'matrix'
+    case 'fishbone':
+      return 'fishbone'
+    default:
+      return 'curve'
+  }
+}
+
 /** All structure families, in display order. */
 export const STRUCTURE_FAMILIES: readonly StructureFamily[] = [
   'map',
@@ -259,6 +336,7 @@ export const STRUCTURE_FAMILIES: readonly StructureFamily[] = [
   'tree',
   'brace',
   'timeline',
+  'matrix',
   'fishbone'
 ]
 
@@ -270,6 +348,7 @@ export const STRUCTURE_FAMILY_LABELS: Record<StructureFamily, string> = {
   tree: 'Tree Chart',
   brace: 'Brace Map',
   timeline: 'Timeline',
+  matrix: 'Matrix',
   fishbone: 'Fishbone'
 }
 
@@ -289,7 +368,7 @@ export function templateToStructureClass(
     tree: 'org.xmind.ui.tree.right',
     timeline: 'org.xmind.ui.timeline.horizontal',
     fishbone: 'org.xmind.ui.fishbone.rightHeaded',
-    matrix: 'org.xmind.ui.map'
+    matrix: 'org.xmind.ui.spreadsheet'
   }
   return map[template]
 }

@@ -1,3 +1,4 @@
+import type { MindMapConnectorStyle } from '../../../../shared/mindmap/structure-types'
 import type { MindMapLayoutNode } from './mind-map-layout'
 
 /**
@@ -23,7 +24,11 @@ type EdgeOrientation = {
   y2: number
 }
 
-function edgeOrientation(from: MindMapLayoutNode, to: MindMapLayoutNode): EdgeOrientation {
+function edgeOrientation(
+  from: MindMapLayoutNode,
+  to: MindMapLayoutNode,
+  forcedAxis?: EdgeOrientation['axis']
+): EdgeOrientation {
   const fromCenterX = from.x + from.width / 2
   const fromCenterY = from.y + from.height / 2
   const toCenterX = to.x + to.width / 2
@@ -34,7 +39,7 @@ function edgeOrientation(from: MindMapLayoutNode, to: MindMapLayoutNode): EdgeOr
   // A vertical structure can still spread children horizontally. Select the
   // dominant axis rather than relying on the sheet structure, which also keeps
   // this helper safe for callers rendering relationship-like geometry.
-  if (Math.abs(deltaY) > Math.abs(deltaX)) {
+  if (forcedAxis === 'vertical' || (forcedAxis === undefined && Math.abs(deltaY) > Math.abs(deltaX))) {
     const below = deltaY >= 0
     return {
       axis: 'vertical',
@@ -58,24 +63,35 @@ function edgeOrientation(from: MindMapLayoutNode, to: MindMapLayoutNode): EdgeOr
 }
 
 /** Smooth cubic bezier curve from parent to child (Xmind default). */
-export function curveEdgePath(from: MindMapLayoutNode, to: MindMapLayoutNode): string {
-  const edge = edgeOrientation(from, to)
+export function curveEdgePath(
+  from: MindMapLayoutNode,
+  to: MindMapLayoutNode,
+  axis?: EdgeOrientation['axis']
+): string {
+  const edge = edgeOrientation(from, to, axis)
   if (edge.axis === 'vertical') {
     const dy = Math.max(24, Math.abs(edge.y2 - edge.y1))
-    return `M ${edge.x1} ${edge.y1} C ${edge.x1} ${edge.y1 + edge.direction * dy * 0.4}, ${edge.x2} ${edge.y2 - edge.direction * dy * 0.2}, ${edge.x2} ${edge.y2}`
+    const control = Math.min(36, dy / 2)
+    return `M ${edge.x1} ${edge.y1} C ${edge.x1} ${edge.y1 + edge.direction * control}, ${edge.x2} ${edge.y2 - edge.direction * control}, ${edge.x2} ${edge.y2}`
   }
 
-  // Xmind "fold" look: leave the parent with a moderate horizontal run, then
-  // flatten early so the line arrives at the child almost level. Control
-  // points sit at 40% / 80% of the horizontal span (instead of a symmetric
-  // mid-point S-curve) which keeps long fan-out edges taut.
+  // Keep the bend inside a bounded middle band. Long sibling fans used to
+  // reserve 80% of their horizontal span for the second control point, which
+  // made each branch bow independently and read as a tangle. Equal, capped
+  // tangents preserve the Xmind-style fold while keeping adjacent branches
+  // visually parallel.
   const dx = Math.max(24, Math.abs(edge.x2 - edge.x1))
-  return `M ${edge.x1} ${edge.y1} C ${edge.x1 + edge.direction * dx * 0.4} ${edge.y1}, ${edge.x2 - edge.direction * dx * 0.2} ${edge.y2}, ${edge.x2} ${edge.y2}`
+  const control = Math.min(36, dx / 2)
+  return `M ${edge.x1} ${edge.y1} C ${edge.x1 + edge.direction * control} ${edge.y1}, ${edge.x2 - edge.direction * control} ${edge.y2}, ${edge.x2} ${edge.y2}`
 }
 
 /** Elbow (right-angle) path with rounded corners. */
-export function elbowEdgePath(from: MindMapLayoutNode, to: MindMapLayoutNode): string {
-  const edge = edgeOrientation(from, to)
+export function elbowEdgePath(
+  from: MindMapLayoutNode,
+  to: MindMapLayoutNode,
+  axis?: EdgeOrientation['axis']
+): string {
+  const edge = edgeOrientation(from, to, axis)
   const r = 8
 
   if (edge.axis === 'vertical') {
@@ -97,25 +113,68 @@ export function elbowEdgePath(from: MindMapLayoutNode, to: MindMapLayoutNode): s
 }
 
 /** Straight line from parent to child. */
-export function straightEdgePath(from: MindMapLayoutNode, to: MindMapLayoutNode): string {
-  const edge = edgeOrientation(from, to)
+export function straightEdgePath(
+  from: MindMapLayoutNode,
+  to: MindMapLayoutNode,
+  axis?: EdgeOrientation['axis']
+): string {
+  const edge = edgeOrientation(from, to, axis)
   return `M ${edge.x1} ${edge.y1} L ${edge.x2} ${edge.y2}`
 }
+
+/**
+ * Timeline connectors retain a straight, legible axis language. The vertical
+ * segment is intentionally joined with an elbow rather than a generic curve,
+ * so alternating events visibly attach to the chronological spine.
+ */
+export function timelineEdgePath(from: MindMapLayoutNode, to: MindMapLayoutNode): string {
+  return elbowEdgePath(from, to)
+}
+
+/**
+ * Fishbone connectors use a single diagonal rib. Unlike the ordinary tree
+ * curve this preserves the visual direction of the backbone and keeps upper
+ * and lower causes visibly symmetrical.
+ */
+export function fishboneEdgePath(from: MindMapLayoutNode, to: MindMapLayoutNode): string {
+  return straightEdgePath(from, to)
+}
+
+/** Matrix cells connect through an orthogonal grid-like path. */
+export function matrixEdgePath(from: MindMapLayoutNode, to: MindMapLayoutNode): string {
+  return elbowEdgePath(from, to)
+}
+
+/** Brace maps share a compact orthogonal connector language. */
+export function braceEdgePath(from: MindMapLayoutNode, to: MindMapLayoutNode): string {
+  return elbowEdgePath(from, to)
+}
+
+type ConnectorPathStyle = MindMapConnectorStyle | 'straight'
 
 /** Resolve the edge path based on the sheet's line style preference. */
 export function resolveEdgePath(
   from: MindMapLayoutNode,
   to: MindMapLayoutNode,
-  lineStyle?: string
+  lineStyle?: ConnectorPathStyle,
+  axis?: EdgeOrientation['axis']
 ): string {
   switch (lineStyle) {
     case 'elbow':
-      return elbowEdgePath(from, to)
+      return elbowEdgePath(from, to, axis)
     case 'straight':
-      return straightEdgePath(from, to)
+      return straightEdgePath(from, to, axis)
+    case 'brace':
+      return braceEdgePath(from, to)
+    case 'timeline':
+      return timelineEdgePath(from, to)
+    case 'fishbone':
+      return fishboneEdgePath(from, to)
+    case 'matrix':
+      return matrixEdgePath(from, to)
     case 'curve':
     default:
-      return curveEdgePath(from, to)
+      return curveEdgePath(from, to, axis)
   }
 }
 

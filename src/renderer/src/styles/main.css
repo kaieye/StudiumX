@@ -29,6 +29,13 @@
   flex-direction: column;
   overflow: hidden;
   padding-bottom: 0;
+}.main-area[data-view='mindmap'] {
+  /* The map owns a full-height editor surface; inheriting the normal page
+     padding leaves a visible strip below its canvas. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
 }.main-area[data-view='resources'][data-reading-html='true'] {
   display: flex;
   flex-direction: column;

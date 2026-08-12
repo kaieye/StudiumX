@@ -41,10 +41,12 @@ import { MindMapZoomControls } from './MindMapZoomControls'
 import { MindMapMinimap } from './MindMapMinimap'
 import { useMindMapContextMenu } from './mind-map-context-menu-hook'
 import type { MindMapSourceRef, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
+import type { MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
 import type { MindMapCommand } from '../../../../shared/mindmap/commands'
 import type { XmindCompatibilityReport } from '../../../../shared/mindmap/xmind-compatibility'
 import type { MindMapSourceRefreshApplyResult } from '../../../../shared/teaching-types/mindmap'
 import { useMindMapKeyboard } from './mind-map-keyboard'
+import { DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS } from './mind-map-create-presets'
 import type { MindMapFocusDirection } from './mind-map-keyboard-navigation'
 import { nextMindMapFocus } from './mind-map-keyboard-navigation'
 import { computeMindMapLayout } from './mind-map-layout'
@@ -86,7 +88,6 @@ export function MindMapView() {
   const renameSheet = useMindMapViewStore((s) => s.renameSheet)
   const duplicateSheet = useMindMapViewStore((s) => s.duplicateSheet)
   const removeSheet = useMindMapViewStore((s) => s.removeSheet)
-  const reorderSheet = useMindMapViewStore((s) => s.reorderSheet)
   const addChild = useMindMapViewStore((s) => s.addChild)
   const addSibling = useMindMapViewStore((s) => s.addSibling)
   const outdent = useMindMapViewStore((s) => s.outdent)
@@ -109,8 +110,13 @@ export function MindMapView() {
   const activeSheet = current?.sheets.find((sheet) => sheet.id === activeSheetId) ?? current?.sheets[0]
 
   const [creating, setCreating] = useState(false)
+  const [createSubmitting, setCreateSubmitting] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
+  const [createStructureClass, setCreateStructureClass] = useState<MindMapStructureClass>(
+    DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS
+  )
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [exportFeedback, setExportFeedback] = useState<MindMapExportFeedbackState | null>(null)
@@ -129,6 +135,7 @@ export function MindMapView() {
   } | null>(null)
   const { contextMenu, openContextMenu, closeContextMenu, canPaste, actions: contextMenuActions } = useMindMapContextMenu()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const createSubmittingRef = useRef(false)
 
   const triggerViewportAction = (
     action:
@@ -228,6 +235,16 @@ export function MindMapView() {
     void loadDocuments()
   }, [loadDocuments, activeWorkspace?.id])
 
+  // Keep this callback stable while the dialog is open so typing or changing
+  // a preset does not re-run the dialog's focus/escape effect.
+  const cancelCreate = useCallback((): void => {
+    if (createSubmittingRef.current) return
+    setCreating(false)
+    setTitleDraft('')
+    setCreateStructureClass(DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS)
+    setCreateError(null)
+  }, [])
+
   if (!activeWorkspace) {
     return (
       <div className="mindmap-view">
@@ -237,25 +254,40 @@ export function MindMapView() {
   }
 
   const handleCreate = (): void => {
-    // Opening the form and creating the document are two separate steps.  The
-    // create IPC contract requires a non-empty title, so calling
-    // `createDocument('')` here makes the request fail before the user ever
-    // gets a chance to enter one (and immediately closes the form).
     setNotice(null)
     setTitleDraft('')
+    setCreateStructureClass(DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS)
+    setCreateError(null)
     setCreating(true)
   }
 
   const commitCreate = async (): Promise<void> => {
+    if (createSubmittingRef.current) return
     const title = titleDraft.trim() || t('mindmap.newDocument')
-    setCreating(false)
-    await createDocument(title)
-    // XMind starts a new map in an editable root topic. Keep the same low
-    // friction flow while still creating a valid, persisted document first.
-    const created = useMindMapViewStore.getState().current
-    const root = created?.sheets[0]?.root
-    if (root) {
-      useMindMapViewStore.setState({ selectedNodeId: root.id, editingNodeId: root.id })
+    const structureClass = createStructureClass
+    createSubmittingRef.current = true
+    setCreateSubmitting(true)
+    setCreateError(null)
+    try {
+      const created = await createDocument(title, structureClass)
+      // XMind starts a new map in an editable root topic. Keep the same low
+      // friction flow while still creating a valid, persisted document first.
+      const root = created.sheets[0]?.root
+      if (root) {
+        useMindMapViewStore.setState({ selectedNodeId: root.id, editingNodeId: root.id })
+      }
+      setCreating(false)
+      setTitleDraft('')
+      setCreateStructureClass(DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS)
+    } catch (error) {
+      setCreateError(
+        error instanceof Error && error.message
+          ? error.message
+          : t('mindmap.createDialog.createFailed')
+      )
+    } finally {
+      createSubmittingRef.current = false
+      setCreateSubmitting(false)
     }
   }
 
@@ -644,14 +676,15 @@ export function MindMapView() {
           documents={documents}
           workspaceId={activeWorkspace.id}
           creating={creating}
+          createSubmitting={createSubmitting}
+          createError={createError}
           titleDraft={titleDraft}
+          createStructureClass={createStructureClass}
           onCreate={handleCreate}
           onTitleDraftChange={setTitleDraft}
+          onCreateStructureClassChange={setCreateStructureClass}
           onCommitCreate={commitCreate}
-          onCancelCreate={() => {
-            setCreating(false)
-            setTitleDraft('')
-          }}
+          onCancelCreate={cancelCreate}
           onOpenDocument={openDocument}
           onRenameDocument={renameDocumentById}
           onDeleteDocument={deleteDocument}
@@ -915,7 +948,7 @@ export function MindMapView() {
               onContextMenu={openContextMenu}
               onMoveNode={handleMoveNode}
             />
-            <div className="mindmap-sheet-pill">
+            <div className="mindmap-sheet-dock">
               <MindMapSheetTabs
                 document={current}
                 activeSheetId={activeSheetId}
@@ -923,11 +956,10 @@ export function MindMapView() {
                 onRename={renameSheet}
                 onDuplicate={duplicateSheet}
                 onRemove={removeSheet}
-                onReorder={reorderSheet}
               />
               <button
                 type="button"
-                className="mindmap-sheet-pill__add"
+                className="mindmap-sheet-dock__add"
                 disabled={!current}
                 onClick={newSheet}
                 title={t('mindmap.newSheet')}

@@ -235,6 +235,8 @@ function asStructureClass(value: unknown): MindMapStructureClass | undefined {
       value === 'org.xmind.ui.brace.left' ||
       value === 'org.xmind.ui.timeline.horizontal' ||
       value === 'org.xmind.ui.timeline.vertical' ||
+      value === 'org.xmind.ui.spreadsheet' ||
+      value === 'org.xmind.ui.spreadsheet.column' ||
       value === 'org.xmind.ui.fishbone.rightHeaded' ||
       value === 'org.xmind.ui.fishbone.leftHeaded')
     ? value

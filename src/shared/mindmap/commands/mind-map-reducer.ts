@@ -26,6 +26,7 @@ import type {
   MindMapTopicV2
 } from '../domain/types'
 import type { MindMapStructureClass } from '../mind-map-types'
+import { STRUCTURE_TYPE_PRESETS } from '../structure-types'
 import {
   collectTopicIds,
   validateMindMapDocumentV2,
@@ -526,14 +527,9 @@ function applySheetRename(document: MindMapDocumentV2, command: Extract<MindMapC
   return ok(next, inverse)
 }
 
-const VALID_STRUCTURE_CLASSES: ReadonlySet<MindMapStructureClass> = new Set([
-  'org.xmind.ui.logic.right',
-  'org.xmind.ui.logic.balanced',
-  'org.xmind.ui.logic.left',
-  'org.xmind.ui.logic.map',
-  'org.xmind.ui.logic.down',
-  'org.xmind.ui.logic.up'
-])
+const VALID_STRUCTURE_CLASSES: ReadonlySet<MindMapStructureClass> = new Set(
+  STRUCTURE_TYPE_PRESETS.map((preset) => preset.id)
+)
 
 const VALID_LINE_STYLES: ReadonlySet<NonNullable<MindMapLayoutSettings['lineStyle']>> = new Set([
   'curve',

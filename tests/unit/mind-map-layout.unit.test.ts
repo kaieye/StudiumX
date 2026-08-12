@@ -52,9 +52,9 @@ describe('computeMindMapLayout', () => {
 
     expect(nodes.map((n) => n.id).sort()).toEqual(['a', 'b', 'c', 'd'])
     expect(edges).toEqual([
-      { from: 'a', to: 'b', branchIndex: 0 },
-      { from: 'b', to: 'c', branchIndex: 0 },
-      { from: 'a', to: 'd', branchIndex: 1 }
+      { from: 'a', to: 'b', branchIndex: 0, axis: 'horizontal' },
+      { from: 'b', to: 'c', branchIndex: 0, axis: 'horizontal' },
+      { from: 'a', to: 'd', branchIndex: 1, axis: 'horizontal' }
     ])
   })
 
@@ -69,8 +69,8 @@ describe('computeMindMapLayout', () => {
     )
 
     expect(edges).toEqual([
-      { from: 'a', to: 'b', branchIndex: 0 },
-      { from: 'a', to: 'c', branchIndex: 1 }
+      { from: 'a', to: 'b', branchIndex: 0, axis: 'horizontal' },
+      { from: 'a', to: 'c', branchIndex: 1, axis: 'horizontal' }
     ])
     expect(relationships).toEqual([
       { id: 'rel-1', from: 'b', to: 'c', label: 'depends on' }
@@ -99,7 +99,7 @@ describe('computeMindMapLayout', () => {
       { id: 'marker-1', symbol: '★', label: 'Important' },
       { id: 'marker-2', symbol: '!', label: 'Review' }
     ])
-    expect(layout.edges).toEqual([{ from: 'a', to: 'b', branchIndex: 0 }])
+    expect(layout.edges).toEqual([{ from: 'a', to: 'b', branchIndex: 0, axis: 'horizontal' }])
     // Positions are deterministic for the same input. The child is centred on
     // the root midline: (56 root height − 42 branch height) / 2 = 7.
     expect(layout.nodes.map(({ id, y }) => ({ id, y }))).toEqual([
@@ -280,9 +280,9 @@ describe('computeMindMapLayout', () => {
     expect(children.map((child) => child.x)).toEqual([...children].sort((a, b) => a.x - b.x).map((child) => child.x))
     expect(new Set(children.map((child) => child.y)).size).toBe(1)
     expect(edges).toEqual([
-      { from: 'a', to: 'b', branchIndex: 0 },
-      { from: 'a', to: 'c', branchIndex: 1 },
-      { from: 'a', to: 'd', branchIndex: 2 }
+      { from: 'a', to: 'b', branchIndex: 0, axis: 'vertical', connectorStyle: 'elbow' },
+      { from: 'a', to: 'c', branchIndex: 1, axis: 'vertical', connectorStyle: 'elbow' },
+      { from: 'a', to: 'd', branchIndex: 2, axis: 'vertical', connectorStyle: 'elbow' }
     ])
   })
 
@@ -394,12 +394,43 @@ describe('computeMindMapLayout', () => {
   })
 
   it('keeps horizontal gap between parent edge and child edge constant', () => {
-    const root = node('a', 'A', [node('b', 'B')])
+    const root = node('a', 'A', [
+      node('b', 'B'),
+      node('c', 'A much longer sibling title')
+    ])
     const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.right'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     const a = byId.get('a')!
-    const b = byId.get('b')!
-    expect(b.x - (a.x + a.width)).toBe(horizontalGapForDepth(0))
+    for (const id of ['b', 'c']) {
+      const child = byId.get(id)!
+      expect(child.x - (a.x + a.width)).toBe(horizontalGapForDepth(0))
+    }
+  })
+
+  it('gives structure families their own layout geometry and connector kind', () => {
+    const root = node('a', 'A', [
+      node('b', 'B'),
+      node('c', 'C'),
+      node('d', 'D'),
+      node('e', 'E')
+    ])
+
+    const map = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.map'))
+    const timeline = computeMindMapLayout(sheet(root, 'org.xmind.ui.timeline.horizontal'))
+    const fishbone = computeMindMapLayout(sheet(root, 'org.xmind.ui.fishbone.rightHeaded'))
+    const matrix = computeMindMapLayout(sheet(root, 'org.xmind.ui.spreadsheet'))
+
+    const childPositions = (layout: typeof map) =>
+      layout.nodes
+        .filter((item) => item.depth === 1)
+        .map(({ x, y }) => `${x}:${y}`)
+
+    expect(childPositions(timeline)).not.toEqual(childPositions(map))
+    expect(childPositions(fishbone)).not.toEqual(childPositions(map))
+    expect(childPositions(matrix)).not.toEqual(childPositions(map))
+    expect(timeline.edges.every((edge) => edge.connectorStyle === 'timeline')).toBe(true)
+    expect(fishbone.edges.every((edge) => edge.connectorStyle === 'fishbone')).toBe(true)
+    expect(matrix.edges.every((edge) => edge.connectorStyle === 'matrix')).toBe(true)
   })
 
   it('uses depth-based horizontal gap (root->L1 wider than deeper)', () => {
@@ -464,5 +495,45 @@ describe('computeMindMapLayout', () => {
     const { nodes } = computeMindMapLayout(sheet(root))
     const collapsedNode = nodes.find((n) => n.id === 'b')!
     expect(collapsedNode.hiddenDescendantCount).toBe(4)
+  })
+
+  it('keeps every created topic rectangle collision-free across structure presets', () => {
+    let nextId = 0
+    const createTree = (depth: number): MindMapTopicV2 => {
+      const id = `created-${nextId++}`
+      return node(
+        id,
+        id,
+        depth === 0 ? [] : [createTree(depth - 1), createTree(depth - 1), createTree(depth - 1)]
+      )
+    }
+    const structureClasses: MindMapStructureClass[] = [
+      'org.xmind.ui.logic.map',
+      'org.xmind.ui.logic.right',
+      'org.xmind.ui.logic.left',
+      'org.xmind.ui.logic.down',
+      'org.xmind.ui.logic.up',
+      'org.xmind.ui.timeline.horizontal',
+      'org.xmind.ui.timeline.vertical',
+      'org.xmind.ui.fishbone.rightHeaded',
+      'org.xmind.ui.fishbone.leftHeaded',
+      'org.xmind.ui.spreadsheet',
+      'org.xmind.ui.spreadsheet.column'
+    ]
+
+    for (const structureClass of structureClasses) {
+      nextId = 0
+      const { nodes } = computeMindMapLayout(sheet(createTree(3), structureClass))
+      for (let first = 0; first < nodes.length; first += 1) {
+        for (let second = first + 1; second < nodes.length; second += 1) {
+          const left = nodes[first]!
+          const right = nodes[second]!
+          const overlaps =
+            Math.max(left.x, right.x) < Math.min(left.x + left.width, right.x + right.width) &&
+            Math.max(left.y, right.y) < Math.min(left.y + left.height, right.y + right.height)
+          expect(overlaps, `${structureClass}: ${left.id} overlaps ${right.id}`).toBe(false)
+        }
+      }
+    }
   })
 })

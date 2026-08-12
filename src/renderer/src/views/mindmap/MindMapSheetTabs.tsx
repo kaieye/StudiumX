@@ -1,8 +1,9 @@
-import { ChevronLeft, ChevronRight, Copy, Pencil, Trash2, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { MindMapDocumentV2 } from '../../../../shared/mindmap/domain/types'
+import { MindMapSheetMenu, type MindMapSheetMenuState } from './MindMapSheetMenu'
 
-/** Sheet lifecycle bar: switch / rename / copy / reorder / delete. */
+/** Compact sheet strip: switch with the keyboard, rename on click, manage by context menu. */
 type MindMapSheetTabsProps = {
   document: MindMapDocumentV2
   activeSheetId: string | null
@@ -10,7 +11,6 @@ type MindMapSheetTabsProps = {
   onRename: (sheetId: string, title: string) => void
   onDuplicate: (sheetId: string) => void
   onRemove: (sheetId: string) => void
-  onReorder: (sheetId: string, toIndex: number) => void
 }
 
 export function MindMapSheetTabs({
@@ -19,21 +19,39 @@ export function MindMapSheetTabs({
   onActivate,
   onRename,
   onDuplicate,
-  onRemove,
-  onReorder
+  onRemove
 }: MindMapSheetTabsProps) {
+  const { t } = useTranslation()
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [sheetMenu, setSheetMenu] = useState<MindMapSheetMenuState>(null)
+
+  useEffect(() => {
+    if (renamingId && !document.sheets.some((sheet) => sheet.id === renamingId)) {
+      setRenamingId(null)
+    }
+    if (sheetMenu && !document.sheets.some((sheet) => sheet.id === sheetMenu.sheetId)) {
+      setSheetMenu(null)
+    }
+  }, [document.sheets, renamingId, sheetMenu])
 
   const beginRename = (sheetId: string, title: string): void => {
+    setSheetMenu(null)
+    onActivate(sheetId)
     setRenamingId(sheetId)
     setDraft(title)
   }
 
-  const commitRename = (sheetId: string): void => {
+  const cancelRename = (): void => {
+    setRenamingId(null)
+    setDraft('')
+  }
+
+  const commitRename = (sheetId: string, previousTitle: string): void => {
     const title = draft.trim()
     setRenamingId(null)
-    if (title) onRename(sheetId, title)
+    setDraft('')
+    if (title && title !== previousTitle) onRename(sheetId, title)
   }
 
   const focusSheet = (index: number): void => {
@@ -44,145 +62,112 @@ export function MindMapSheetTabs({
   }
 
   return (
-    <div
-      className="mindmap-sheet-tabs"
-      role="tablist"
-      aria-label="Sheets"
-      aria-orientation="horizontal"
-    >
-      {document.sheets.map((sheet, index) => {
-        const isActive = sheet.id === activeSheetId
-        const canRemove = document.sheets.length > 1
-        return (
-          <div
-            key={sheet.id}
-            className={`mindmap-sheet-tab-wrap${isActive ? ' is-active' : ''}`}
-          >
-            {isActive && index > 0 ? (
-              <button
-                type="button"
-                className="icon-button mindmap-sheet-tab-move"
-                title="Move sheet left"
-                aria-label="Move sheet left"
-                onClick={() => onReorder(sheet.id, index - 1)}
-              >
-                <ChevronLeft size={13} />
-              </button>
-            ) : null}
-            {renamingId === sheet.id ? (
-              <form
-                className="mindmap-sheet-tab-rename"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  commitRename(sheet.id)
-                }}
-              >
-                <input
-                  autoFocus
-                  value={draft}
-                  onChange={(event) => setDraft(event.currentTarget.value)}
+    <>
+      <div
+        className="mindmap-sheet-tabs"
+        role="tablist"
+        aria-label={t('mindmap.sheets')}
+        aria-orientation="horizontal"
+      >
+        {document.sheets.map((sheet, index) => {
+          const isActive = sheet.id === activeSheetId
+          return (
+            <div
+              key={sheet.id}
+              className={`mindmap-sheet-tab-wrap${isActive ? ' is-active' : ''}`}
+            >
+              {renamingId === sheet.id ? (
+                <form
+                  className="mindmap-sheet-tab-rename"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    commitRename(sheet.id, sheet.title)
+                  }}
+                >
+                  <input
+                    autoFocus
+                    value={draft}
+                    onChange={(event) => setDraft(event.currentTarget.value)}
+                    onBlur={() => commitRename(sheet.id, sheet.title)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        cancelRename()
+                      }
+                    }}
+                    aria-label={t('mindmap.renameSheet', { title: sheet.title })}
+                  />
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  role="tab"
+                  id={sheetTabId(sheet.id)}
+                  aria-selected={isActive}
+                  aria-haspopup="menu"
+                  tabIndex={isActive ? 0 : -1}
+                  className={`mindmap-sheet-tab${isActive ? ' is-active' : ''}`}
+                  title={t('mindmap.renameSheet', { title: sheet.title })}
+                  onClick={() => beginRename(sheet.id, sheet.title)}
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    setSheetMenu({
+                      sheetId: sheet.id,
+                      title: sheet.title,
+                      x: event.clientX,
+                      y: event.clientY
+                    })
+                  }}
                   onKeyDown={(event) => {
-                    if (event.key === 'Escape') setRenamingId(null)
-                  }}
-                  onClick={(event) => event.stopPropagation()}
-                />
-                <button type="submit" className="icon-button" aria-label="Save sheet name">
-                  <Pencil size={12} />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label="Cancel sheet rename"
-                  onClick={() => setRenamingId(null)}
-                >
-                  <X size={12} />
-                </button>
-              </form>
-            ) : (
-              <button
-                type="button"
-                role="tab"
-                id={sheetTabId(sheet.id)}
-                aria-selected={isActive}
-                tabIndex={isActive ? 0 : -1}
-                className={`mindmap-sheet-tab${isActive ? ' is-active' : ''}`}
-                onClick={() => onActivate(sheet.id)}
-                onDoubleClick={() => beginRename(sheet.id, sheet.title)}
-                onKeyDown={(event) => {
-                  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-                    event.preventDefault()
-                    focusSheet((index + 1) % document.sheets.length)
-                  } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-                    event.preventDefault()
-                    focusSheet((index - 1 + document.sheets.length) % document.sheets.length)
-                  } else if (event.key === 'Home') {
-                    event.preventDefault()
-                    focusSheet(0)
-                  } else if (event.key === 'End') {
-                    event.preventDefault()
-                    focusSheet(document.sheets.length - 1)
-                  }
-                }}
-              >
-                {sheet.title}
-              </button>
-            )}
-            {isActive && renamingId !== sheet.id ? (
-              <>
-                <button
-                  type="button"
-                  className="icon-button mindmap-sheet-tab-action"
-                  title="Rename sheet"
-                  aria-label={`Rename sheet ${sheet.title}`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    beginRename(sheet.id, sheet.title)
+                    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                      event.preventDefault()
+                      focusSheet((index + 1) % document.sheets.length)
+                    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+                      event.preventDefault()
+                      focusSheet((index - 1 + document.sheets.length) % document.sheets.length)
+                    } else if (event.key === 'Home') {
+                      event.preventDefault()
+                      focusSheet(0)
+                    } else if (event.key === 'End') {
+                      event.preventDefault()
+                      focusSheet(document.sheets.length - 1)
+                    } else if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      beginRename(sheet.id, sheet.title)
+                    } else if (
+                      event.key === 'ContextMenu' ||
+                      (event.shiftKey && event.key === 'F10')
+                    ) {
+                      event.preventDefault()
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      setSheetMenu({
+                        sheetId: sheet.id,
+                        title: sheet.title,
+                        x: rect.left,
+                        y: rect.bottom
+                      })
+                    }
                   }}
                 >
-                  <Pencil size={12} />
+                  {sheet.title}
                 </button>
-                <button
-                  type="button"
-                  className="icon-button mindmap-sheet-tab-action"
-                  title="Duplicate sheet"
-                  aria-label={`Duplicate sheet ${sheet.title}`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onDuplicate(sheet.id)
-                  }}
-                >
-                  <Copy size={12} />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button mindmap-sheet-tab-action mindmap-sheet-tab-action--danger"
-                  title="Delete sheet"
-                  aria-label={`Delete sheet ${sheet.title}`}
-                  disabled={!canRemove}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    if (canRemove) onRemove(sheet.id)
-                  }}
-                >
-                  <Trash2 size={12} />
-                </button>
-              </>
-            ) : null}
-            {isActive && index < document.sheets.length - 1 ? (
-              <button
-                type="button"
-                className="icon-button mindmap-sheet-tab-move"
-                title="Move sheet right"
-                aria-label="Move sheet right"
-                onClick={() => onReorder(sheet.id, index + 1)}
-              >
-                <ChevronRight size={13} />
-              </button>
-            ) : null}
-          </div>
-        )
-      })}
-    </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <MindMapSheetMenu
+        state={sheetMenu}
+        canRemove={document.sheets.length > 1}
+        onClose={() => setSheetMenu(null)}
+        onRename={(sheetId) => {
+          const sheet = document.sheets.find((candidate) => candidate.id === sheetId)
+          if (sheet) beginRename(sheet.id, sheet.title)
+        }}
+        onDuplicate={onDuplicate}
+        onRemove={onRemove}
+      />
+    </>
   )
 }
 

@@ -22,7 +22,8 @@ import { mindMapDocumentV2Schema } from '../../shared/mindmap/domain/schema'
 import { DEFAULT_MIND_MAP_THEME } from '../../shared/mindmap/domain/types'
 import type { MindMapDocumentV2 } from '../../shared/mindmap/domain/types'
 import { migrateV1ToV2 } from '../../shared/mindmap/migrations'
-import type { MindMapSummary } from '../../shared/mindmap/mind-map-types'
+import { DEFAULT_MIND_MAP_STRUCTURE_CLASS } from '../../shared/mindmap/mind-map-types'
+import type { MindMapStructureClass, MindMapSummary } from '../../shared/mindmap/mind-map-types'
 
 export type { MindMapSummary } from '../../shared/mindmap/mind-map-types'
 
@@ -62,7 +63,7 @@ export type MindMapStore = {
   /** List all mind maps in the workspace (sorted by updatedAt desc). */
   list(): Promise<MindMapSummary[]>
   /** Create a new v2 document (one sheet, empty root) and persist it. */
-  create(title: string): Promise<MindMapDocumentV2>
+  create(title: string, structureClass?: MindMapStructureClass): Promise<MindMapDocumentV2>
   /** Read + migrate + validate one document, using the journal when present. */
   read(id: string): Promise<MindMapDocumentV2>
   /**
@@ -356,7 +357,7 @@ export function createMindMapStore(rootPath: string): MindMapStore {
       return summaries
     },
 
-    async create(title: string): Promise<MindMapDocumentV2> {
+    async create(title: string, structureClass?: MindMapStructureClass): Promise<MindMapDocumentV2> {
       await ensureDirectory(rootPath)
       const id = randomUUID()
       const now = new Date().toISOString()
@@ -374,7 +375,7 @@ export function createMindMapStore(rootPath: string): MindMapStore {
             title: 'Sheet 1',
             root: { id: randomUUID(), title, children: [] },
             elements: [],
-            layout: { structureClass: 'org.xmind.ui.logic.balanced' }
+            layout: { structureClass: structureClass ?? DEFAULT_MIND_MAP_STRUCTURE_CLASS }
           }
         ],
         assets: []

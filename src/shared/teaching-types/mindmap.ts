@@ -9,6 +9,7 @@ import type {
 import type { MindMapProposalScope } from '../mindmap/commands/mind-map-proposal'
 import type { MindMapSourceRef } from '../mindmap/domain/types'
 import type { MindMapDocumentV2 } from '../mindmap/domain/types'
+import type { MindMapStructureClass } from '../mindmap/mind-map-types'
 import type { MindMapSvgExportInput } from '../mindmap/svg-export'
 import type { XmindCompatibilityReport } from '../mindmap/xmind-compatibility'
 
@@ -28,6 +29,8 @@ export type MindMapListPayload = {
 export type MindMapCreatePayload = {
   workspaceId: string
   title: string
+  /** Optional initial XMind-compatible layout for the first sheet. */
+  structureClass?: MindMapStructureClass
 }
 
 export type MindMapAccessPayload = {

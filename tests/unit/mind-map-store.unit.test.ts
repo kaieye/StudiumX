@@ -77,6 +77,16 @@ describe('createMindMapStore', () => {
     expect(read).toEqual(created)
   })
 
+  it('persists the requested first-sheet structure during creation', async () => {
+    const root = await createRoot()
+    const store = createMindMapStore(root)
+
+    const created = await store.create('Matrix', 'org.xmind.ui.spreadsheet')
+
+    expect(created.sheets[0]?.layout.structureClass).toBe('org.xmind.ui.spreadsheet')
+    await expect(store.read(created.id)).resolves.toEqual(created)
+  })
+
   it('update stamps updatedAt and persists the change', async () => {
     const root = await createRoot()
     const store = createMindMapStore(root)

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   STRUCTURE_TYPE_PRESETS,
   STRUCTURE_FAMILIES,
+  getConnectorStyle,
+  getLayoutGeometry,
   getStructureTypePreset,
   getLayoutStrategy,
   templateToStructureClass
@@ -16,6 +18,7 @@ describe('Structure type presets (Xmind catalogue)', () => {
     expect(families.has('tree')).toBe(true)
     expect(families.has('brace')).toBe(true)
     expect(families.has('timeline')).toBe(true)
+    expect(families.has('matrix')).toBe(true)
     expect(families.has('fishbone')).toBe(true)
   })
 
@@ -46,6 +49,8 @@ describe('Structure type presets (Xmind catalogue)', () => {
       'org.xmind.ui.brace.left',
       'org.xmind.ui.timeline.horizontal',
       'org.xmind.ui.timeline.vertical',
+      'org.xmind.ui.spreadsheet',
+      'org.xmind.ui.spreadsheet.column',
       'org.xmind.ui.fishbone.rightHeaded',
       'org.xmind.ui.fishbone.leftHeaded'
     ]) {
@@ -77,6 +82,21 @@ describe('Structure type presets (Xmind catalogue)', () => {
     expect(getLayoutStrategy('org.xmind.ui.org-chart.up' as never)).toBe('vertical-up')
   })
 
+  it('maps matrix layouts to a vertical grid strategy', () => {
+    expect(getLayoutStrategy('org.xmind.ui.spreadsheet' as never)).toBe('vertical-down')
+    expect(getLayoutStrategy('org.xmind.ui.spreadsheet.column' as never)).toBe('vertical-down')
+  })
+
+  it('resolves distinct geometries and connector languages for non-tree families', () => {
+    expect(getLayoutGeometry('org.xmind.ui.timeline.horizontal' as never)).toBe('timeline-horizontal')
+    expect(getLayoutGeometry('org.xmind.ui.timeline.vertical' as never)).toBe('timeline-vertical')
+    expect(getLayoutGeometry('org.xmind.ui.fishbone.rightHeaded' as never)).toBe('fishbone-right')
+    expect(getLayoutGeometry('org.xmind.ui.spreadsheet' as never)).toBe('matrix-rows')
+    expect(getLayoutGeometry('org.xmind.ui.spreadsheet.column' as never)).toBe('matrix-columns')
+    expect(getConnectorStyle('org.xmind.ui.brace.right' as never)).toBe('brace')
+    expect(getConnectorStyle('org.xmind.ui.org-chart.down' as never)).toBe('elbow')
+  })
+
   it('maps map variants correctly', () => {
     expect(getLayoutStrategy('org.xmind.ui.map' as never)).toBe('balanced')
     expect(getLayoutStrategy('org.xmind.ui.map.clockwise' as never)).toBe('horizontal-right')
@@ -105,12 +125,14 @@ describe('Structure type presets (Xmind catalogue)', () => {
     expect(templateToStructureClass('org')).toBe('org.xmind.ui.org-chart.down')
     expect(templateToStructureClass('tree')).toBe('org.xmind.ui.tree.right')
     expect(templateToStructureClass('timeline')).toBe('org.xmind.ui.timeline.horizontal')
+    expect(templateToStructureClass('matrix')).toBe('org.xmind.ui.spreadsheet')
     expect(templateToStructureClass('fishbone')).toBe('org.xmind.ui.fishbone.rightHeaded')
     expect(templateToStructureClass('unknown')).toBeUndefined()
   })
 
   it('STRUCTURE_FAMILIES is ordered for display', () => {
     expect(STRUCTURE_FAMILIES[0]).toBe('map')
-    expect(STRUCTURE_FAMILIES).toHaveLength(7)
+    expect(STRUCTURE_FAMILIES).toHaveLength(8)
+    expect(STRUCTURE_FAMILIES).toContain('matrix')
   })
 })

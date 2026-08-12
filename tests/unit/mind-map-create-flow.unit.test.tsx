@@ -125,25 +125,76 @@ describe('MindMapView create flow', () => {
     expect(container.querySelector('.mindmap-stage')).not.toBeInTheDocument()
   })
 
-  it('opens the title form first and creates only after a title is submitted', async () => {
+  it('opens a floating create dialog and creates with the selected structure', async () => {
     render(<MindMapView />)
 
     const createButton = screen.getAllByRole('button', { name: 'New mind map' })[0]
     fireEvent.click(createButton)
 
-    expect(screen.getByPlaceholderText('Enter a title…')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Create a mind map' })).toBeInTheDocument()
+    expect(createButton).toHaveClass('mindmap-home-card--new')
+    expect(createButton).not.toHaveClass('mindmap-home-card--creating')
+    expect(screen.getByRole('radio', { name: /Mind map/i })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
     expect(window.teachingSystem?.createMindMap).not.toHaveBeenCalled()
 
-    fireEvent.change(screen.getByPlaceholderText('Enter a title…'), {
+    const matrixPreset = screen.getByRole('radio', { name: /Matrix chart/i })
+    matrixPreset.focus()
+    fireEvent.click(matrixPreset)
+    expect(matrixPreset).toHaveFocus()
+    expect(matrixPreset).toHaveAttribute('aria-checked', 'true')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Mind map name' }), {
       target: { value: 'Chemistry' }
     })
-    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Create mind map' }))
 
     await waitFor(() => expect(window.teachingSystem?.createMindMap).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
-      title: 'Chemistry'
+      title: 'Chemistry',
+      structureClass: 'org.xmind.ui.spreadsheet'
     }))
     expect(useMindMapViewStore.getState().current?.title).toBe('Chemistry')
+  })
+
+  it('keeps the create dialog open and reports an error when creation fails', async () => {
+    const createMindMap = vi.fn(async () => {
+      throw new Error('create failed')
+    })
+    Object.defineProperty(window, 'teachingSystem', {
+      configurable: true,
+      value: {
+        listMindMaps: vi.fn(async () => []),
+        createMindMap
+      } as Partial<TeachingSystemApi>
+    })
+
+    render(<MindMapView />)
+    fireEvent.click(screen.getAllByRole('button', { name: 'New mind map' })[0])
+    fireEvent.change(screen.getByRole('textbox', { name: 'Mind map name' }), {
+      target: { value: 'Chemistry' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create mind map' }))
+
+    await waitFor(() => expect(createMindMap).toHaveBeenCalled())
+    expect(screen.getByRole('dialog', { name: 'Create a mind map' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('create failed')
+    expect(useMindMapViewStore.getState().current).toBeNull()
+  })
+
+  it('closes the create dialog with Escape without creating a document', () => {
+    render(<MindMapView />)
+
+    const createButton = screen.getAllByRole('button', { name: 'New mind map' })[0]
+    fireEvent.click(createButton)
+    expect(screen.getByRole('dialog', { name: 'Create a mind map' })).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Create a mind map' })).not.toBeInTheDocument()
+    expect(createButton).toBeInTheDocument()
+    expect(window.teachingSystem?.createMindMap).not.toHaveBeenCalled()
   })
 
   it('shows rename, copy, and remove actions when a preview card is right-clicked', async () => {
@@ -185,18 +236,15 @@ describe('MindMapView create flow', () => {
 
     render(<MindMapView />)
 
-    const card = await screen.findByRole('button', { name: 'Chemistry' })
-    fireEvent.contextMenu(card, { clientX: 100, clientY: 120 })
+    await screen.findByRole('button', { name: 'Chemistry' })
 
-    expect(screen.getByRole('menu', { name: 'Mind map actions' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'Copy mind map' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'Remove mind map' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rename: Chemistry' }))
+    expect(useMindMapViewStore.getState().current).toBeNull()
     const renameInput = screen.getByRole('textbox', { name: 'Rename' })
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
     fireEvent.change(renameInput, { target: { value: 'Organic chemistry' } })
-    fireEvent.submit(renameInput.closest('form')!)
+    fireEvent.blur(renameInput)
     await waitFor(() =>
       expect(updateMindMap).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -207,6 +255,19 @@ describe('MindMapView create flow', () => {
         })
       )
     )
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: 'Rename' })).not.toBeInTheDocument()
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Chemistry' }), {
+      clientX: 100,
+      clientY: 120
+    })
+
+    expect(screen.getByRole('menu', { name: 'Mind map actions' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Copy mind map' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Remove mind map' })).toBeInTheDocument()
 
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Chemistry' }), {
       clientX: 100,

@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import i18n from '../../src/renderer/src/i18n'
 import { MindMapSheetTabs } from '../../src/renderer/src/views/mindmap/MindMapSheetTabs'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 
@@ -42,17 +43,16 @@ function makeDocument(): MindMapDocumentV2 {
   }
 }
 
-function renderTabs(activeSheetId = 'sheet-1') {
+function renderTabs(activeSheetId = 'sheet-1', document = makeDocument()) {
   const callbacks = {
     onActivate: vi.fn(),
     onRename: vi.fn(),
     onDuplicate: vi.fn(),
-    onRemove: vi.fn(),
-    onReorder: vi.fn()
+    onRemove: vi.fn()
   }
   render(
     <MindMapSheetTabs
-      document={makeDocument()}
+      document={document}
       activeSheetId={activeSheetId}
       {...callbacks}
     />
@@ -60,7 +60,11 @@ function renderTabs(activeSheetId = 'sheet-1') {
   return callbacks
 }
 
-describe('MindMapSheetTabs keyboard accessibility', () => {
+beforeEach(async () => {
+  await i18n.changeLanguage('en-US')
+})
+
+describe('MindMapSheetTabs', () => {
   it('exposes a horizontal tablist with one roving tab stop', () => {
     renderTabs()
 
@@ -76,37 +80,96 @@ describe('MindMapSheetTabs keyboard accessibility', () => {
     ])
   })
 
-  it('activates and focuses adjacent sheets with arrow keys, including wraparound', async () => {
-    const user = userEvent.setup()
+  it('activates and focuses adjacent sheets with arrow keys, including wraparound', () => {
     const callbacks = renderTabs()
     const tabs = screen.getAllByRole('tab')
 
-    await user.click(tabs[0]!)
-    await user.keyboard('{ArrowRight}')
+    tabs[0]!.focus()
+    fireEvent.keyDown(tabs[0]!, { key: 'ArrowRight' })
     expect(callbacks.onActivate).toHaveBeenLastCalledWith('sheet-2')
     expect(document.activeElement).toBe(tabs[1])
 
-    await user.keyboard('{ArrowLeft}')
+    fireEvent.keyDown(tabs[1]!, { key: 'ArrowLeft' })
     expect(callbacks.onActivate).toHaveBeenLastCalledWith('sheet-1')
     expect(document.activeElement).toBe(tabs[0])
 
-    await user.keyboard('{ArrowLeft}')
+    fireEvent.keyDown(tabs[0]!, { key: 'ArrowLeft' })
     expect(callbacks.onActivate).toHaveBeenLastCalledWith('sheet-3')
     expect(document.activeElement).toBe(tabs[2])
   })
 
-  it('jumps to the first and last sheets with Home and End', async () => {
-    const user = userEvent.setup()
+  it('jumps to the first and last sheets with Home and End', () => {
     const callbacks = renderTabs('sheet-2')
     const tabs = screen.getAllByRole('tab')
 
-    await user.click(tabs[1]!)
-    await user.keyboard('{Home}')
+    tabs[1]!.focus()
+    fireEvent.keyDown(tabs[1]!, { key: 'Home' })
     expect(callbacks.onActivate).toHaveBeenLastCalledWith('sheet-1')
     expect(document.activeElement).toBe(tabs[0])
 
-    await user.keyboard('{End}')
+    fireEvent.keyDown(tabs[0]!, { key: 'End' })
     expect(callbacks.onActivate).toHaveBeenLastCalledWith('sheet-3')
     expect(document.activeElement).toBe(tabs[2])
+  })
+
+  it('starts inline renaming when a sheet title is clicked, without save or action buttons', async () => {
+    const user = userEvent.setup()
+    const callbacks = renderTabs()
+
+    await user.click(screen.getByRole('tab', { name: 'Overview' }))
+
+    expect(callbacks.onActivate).toHaveBeenLastCalledWith('sheet-1')
+    const input = screen.getByRole('textbox', { name: 'Rename sheet' })
+    expect(input).toHaveValue('Overview')
+    expect(screen.queryByRole('button', { name: /Duplicate sheet/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Remove sheet/ })).not.toBeInTheDocument()
+
+    await user.clear(input)
+    await user.type(input, 'Course overview')
+    await user.keyboard('{Enter}')
+
+    expect(callbacks.onRename).toHaveBeenCalledWith('sheet-1', 'Course overview')
+    expect(screen.queryByRole('textbox', { name: 'Rename sheet' })).not.toBeInTheDocument()
+  })
+
+  it('opens rename, duplicate, and remove actions from the title context menu', () => {
+    const callbacks = renderTabs()
+    const plan = screen.getByRole('tab', { name: 'Plan' })
+
+    fireEvent.contextMenu(plan, { clientX: 100, clientY: 120 })
+
+    expect(screen.getByRole('menu', { name: 'Actions for Plan' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Rename sheet' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Duplicate sheet' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Remove sheet' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate sheet' }))
+    expect(callbacks.onDuplicate).toHaveBeenCalledWith('sheet-2')
+
+    fireEvent.contextMenu(plan, { clientX: 100, clientY: 120 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename sheet' }))
+    expect(callbacks.onActivate).toHaveBeenLastCalledWith('sheet-2')
+    expect(screen.getByRole('textbox', { name: 'Rename sheet' })).toHaveValue('Plan')
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Rename sheet' }), { key: 'Escape' })
+    expect(screen.queryByRole('textbox', { name: 'Rename sheet' })).not.toBeInTheDocument()
+
+    const review = screen.getByRole('tab', { name: 'Review' })
+    fireEvent.contextMenu(review, { clientX: 100, clientY: 120 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove sheet' }))
+    expect(callbacks.onRemove).toHaveBeenCalledWith('sheet-3')
+  })
+
+  it('disables removal in the context menu when the document has only one sheet', () => {
+    const document = makeDocument()
+    document.sheets = [document.sheets[0]!]
+    renderTabs('sheet-1', document)
+
+    fireEvent.contextMenu(screen.getByRole('tab', { name: 'Overview' }), {
+      clientX: 100,
+      clientY: 120
+    })
+
+    expect(screen.getByRole('menuitem', { name: 'Remove sheet' })).toBeDisabled()
   })
 })
