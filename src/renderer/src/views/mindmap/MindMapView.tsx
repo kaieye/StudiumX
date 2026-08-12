@@ -38,7 +38,6 @@ import { MindMapSheetTabs } from './MindMapSheetTabs'
 import { MindMapUtilityPanel, type MindMapUtilityPanelKind } from './MindMapUtilityPanel'
 import { MindMapContextMenu } from './MindMapContextMenu'
 import { MindMapZoomControls } from './MindMapZoomControls'
-import { MindMapMinimap } from './MindMapMinimap'
 import { useMindMapContextMenu } from './mind-map-context-menu-hook'
 import type { MindMapSourceRef, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
 import type { MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
@@ -127,35 +126,16 @@ export function MindMapView() {
   const [viewportAction, setViewportAction] = useState<MindMapCanvasViewportAction | null>(null)
   const viewportActionIdRef = useRef(0)
   const [zoomLevel, setZoomLevel] = useState(1)
-  const [viewportRect, setViewportRect] = useState<{
-    x: number
-    y: number
-    width: number
-    height: number
-  } | null>(null)
   const { contextMenu, openContextMenu, closeContextMenu, canPaste, actions: contextMenuActions } = useMindMapContextMenu()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const createSubmittingRef = useRef(false)
 
   const triggerViewportAction = (
-    action:
-      | Exclude<MindMapCanvasViewportAction, { type: 'navigate' }>['type']
-      | { type: 'navigate'; x: number; y: number }
+    action: Exclude<MindMapCanvasViewportAction, { type: 'navigate' }>['type']
   ): void => {
     viewportActionIdRef.current += 1
-    setViewportAction(
-      typeof action === 'string'
-        ? { id: viewportActionIdRef.current, type: action }
-        : { id: viewportActionIdRef.current, ...action }
-    )
+    setViewportAction({ id: viewportActionIdRef.current, type: action })
   }
-
-  const handleViewportChange = useCallback(
-    (next: { x: number; y: number; width: number; height: number }) => {
-      setViewportRect(next)
-    },
-    []
-  )
 
   const openMindMapSourceRef = async (sourceRef: MindMapSourceRef): Promise<void> => {
     const result = await openMindMapSource(sourceRef, activeWorkspace?.id)
@@ -944,7 +924,6 @@ export function MindMapView() {
               onActiveSheetChange={() => undefined}
               viewportAction={viewportAction}
               onZoomChange={setZoomLevel}
-              onViewportChange={handleViewportChange}
               onContextMenu={openContextMenu}
               onMoveNode={handleMoveNode}
             />
@@ -990,12 +969,6 @@ export function MindMapView() {
                 <Maximize2 size={14} />
               </button>
             </div>
-            <MindMapMinimap
-              document={current}
-              activeSheetId={activeSheetId}
-              viewport={viewportRect}
-              onNavigate={(x, y) => triggerViewportAction({ type: 'navigate', x, y })}
-            />
             <MindMapContextMenu
               state={contextMenu}
               actions={contextMenuActions}

@@ -2028,8 +2028,12 @@
         "mapOperations": "导图操作",
         "collapseAll": "全部折叠",
         "expandAll": "全部展开",
-        "balancedMap": "平衡导图"
-      }
+      "balancedMap": "平衡导图"
+      },
+      "selectedTopic": "当前主题",
+      "noTopicSelected": "请选择要检查的主题",
+      "notesShortcut": "备注",
+      "markersShortcut": "标记"
     },
     "newDocument": "新建导图",
     "createDialog": {
@@ -2322,7 +2326,8 @@
       "branchSection": "分支",
       "styleSection": "样式",
       "textSection": "文本",
-      "layoutSection": "布局"
+      "layoutSection": "布局",
+      "reset": "重置主题样式"
     },
     "themePanel": {
       "title": "文档主题",

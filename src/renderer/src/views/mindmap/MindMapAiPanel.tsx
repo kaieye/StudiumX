@@ -1,4 +1,4 @@
-import { Loader2, PanelRightClose, Sparkles, X } from 'lucide-react'
+import { FileText, Flag, Loader2, PanelRightClose, Sparkles, X } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -14,7 +14,7 @@ import type {
   MindMapProposalScope,
   MindMapProviderProposal
 } from '../../../../shared/mindmap/commands/mind-map-proposal'
-import type { MindMapDocumentV2 } from '../../../../shared/mindmap/domain/types'
+import type { MindMapDocumentV2, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
 import type {
   MindMapProposalGenerateResult,
   MindMapStreamStatus
@@ -411,6 +411,11 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
 
   const inspectorTab = useMindMapViewStore((s) => s.inspectorTab)
   const setInspectorTab = useMindMapViewStore((s) => s.setInspectorTab)
+  const selectedTopic = (() => {
+    const sheet = current?.sheets.find((candidate) => candidate.id === activeSheetId) ?? current?.sheets[0]
+    if (!sheet || !selectedNodeId) return null
+    return findTopic(sheet.root, selectedNodeId)
+  })()
 
   return (
     <aside className={`mindmap-ai-panel${open ? '' : ' is-collapsed'}`} aria-label={t('mindmap.inspector.title')}>
@@ -453,6 +458,24 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
         >
           <PanelRightClose size={14} aria-hidden="true" />
         </button>
+      </div>
+      <div className="mindmap-inspector-context" aria-live="polite">
+        <div className="mindmap-inspector-context__title">
+          <span className="mindmap-inspector-context__eyebrow">{t('mindmap.inspector.selectedTopic')}</span>
+          <strong title={selectedTopic?.title || t('mindmap.untitledTopic')}>
+            {selectedTopic?.title || t('mindmap.inspector.noTopicSelected')}
+          </strong>
+        </div>
+        {selectedTopic ? (
+          <div className="mindmap-inspector-context__actions">
+            <button type="button" onClick={() => { setInspectorTab('style'); requestAnimationFrame(() => document.getElementById('mindmap-inspector-notes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
+              <FileText size={13} aria-hidden="true" /> {t('mindmap.inspector.notesShortcut')}
+            </button>
+            <button type="button" onClick={() => { setInspectorTab('style'); requestAnimationFrame(() => document.getElementById('mindmap-inspector-markers')?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
+              <Flag size={13} aria-hidden="true" /> {t('mindmap.inspector.markersShortcut')}
+            </button>
+          </div>
+        ) : null}
       </div>
       {inspectorTab === 'style' ? (
         <div className="mindmap-inspector-tab-content">
@@ -744,4 +767,13 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
       )}
     </aside>
   )
+}
+
+function findTopic(node: MindMapTopicV2, id: string): MindMapTopicV2 | null {
+  if (node.id === id) return node
+  for (const child of node.children) {
+    const found = findTopic(child, id)
+    if (found) return found
+  }
+  return null
 }

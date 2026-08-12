@@ -2029,7 +2029,11 @@
         "collapseAll": "Collapse all",
         "expandAll": "Expand all",
         "balancedMap": "Balanced map"
-      }
+      },
+      "selectedTopic": "Selected topic",
+      "noTopicSelected": "Select a topic to inspect",
+      "notesShortcut": "Notes",
+      "markersShortcut": "Markers"
     },
     "newDocument": "New mind map",
     "createDialog": {
@@ -2322,7 +2326,8 @@
       "branchSection": "Branch",
       "styleSection": "Style",
       "textSection": "Text",
-      "layoutSection": "Layout"
+      "layoutSection": "Layout",
+      "reset": "Reset topic style"
     },
     "themePanel": {
       "title": "Document theme",

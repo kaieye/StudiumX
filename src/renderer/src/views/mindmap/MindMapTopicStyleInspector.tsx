@@ -1,3 +1,4 @@
+import { RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
 import type { MindMapLayoutSettings, MindMapTopicStyleOverride, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
@@ -185,9 +186,22 @@ export function MindMapTopicStyleInspector() {
       <div className="mm-section__head">
         <strong id="mindmap-topic-style-title">{t('mindmap.topicStyle.title')}</strong>
         {selectedTopic ? (
-          <span className="mm-section__hint" title={selectedTopic.title || t('mindmap.untitledTopic')}>
-            {selectedTopic.title || t('mindmap.untitledTopic')}
-          </span>
+          <div className="mindmap-topic-style__heading-actions">
+            <span className="mm-section__hint" title={selectedTopic.title || t('mindmap.untitledTopic')}>
+              {selectedTopic.title || t('mindmap.untitledTopic')}
+            </span>
+            {selectedTopic.style ? (
+              <button
+                type="button"
+                className="mindmap-topic-style__reset"
+                onClick={() => updateNode(selectedTopic.id, { style: null })}
+                title={t('mindmap.topicStyle.reset')}
+                aria-label={t('mindmap.topicStyle.reset')}
+              >
+                <RotateCcw size={13} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
