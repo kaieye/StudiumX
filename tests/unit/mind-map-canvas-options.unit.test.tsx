@@ -103,41 +103,25 @@ describe('MindMapCanvasOptionsPanel', () => {
   it('offers five line-width levels and keeps each change undoable', () => {
     render(<MindMapCanvasOptionsPanel />)
 
-    const group = screen.getByRole('group', { name: 'Branch line width' })
-    const buttons = within(group).getAllByRole('button')
-    expect(buttons).toHaveLength(5)
-    expect(within(group).getByRole('button', { name: 'Default' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+    const select = screen.getByRole('combobox', { name: 'Branch line width' })
+    expect(within(select).getAllByRole('option')).toHaveLength(5)
+    expect(select).toHaveValue('1')
 
-    fireEvent.click(within(group).getByRole('button', { name: 'Extra thin' }))
+    fireEvent.change(select, { target: { value: '0.5' } })
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineWidthScale).toBe(0.5)
-    expect(within(group).getByRole('button', { name: 'Extra thin' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+    expect(select).toHaveValue('0.5')
 
-    fireEvent.click(within(group).getByRole('button', { name: 'Extra bold' }))
+    fireEvent.change(select, { target: { value: '2' } })
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineWidthScale).toBe(2)
-    expect(within(group).getByRole('button', { name: 'Extra bold' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+    expect(select).toHaveValue('2')
 
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineWidthScale).toBe(0.5)
-    expect(within(group).getByRole('button', { name: 'Extra thin' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+    expect(select).toHaveValue('0.5')
 
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineWidthScale).toBeUndefined()
-    expect(within(group).getByRole('button', { name: 'Default' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+    expect(select).toHaveValue('1')
   })
 
   it('enables balanced mode only for compatible logic structures', () => {
@@ -198,38 +182,34 @@ describe('MindMapCanvasOptionsPanel', () => {
   it('separates the structure default from explicit connector overrides', () => {
     render(<MindMapCanvasOptionsPanel />)
 
-    const group = screen.getByRole('group', { name: 'Connectors' })
-    const buttons = within(group).getAllByRole('button')
-    expect(buttons.map((button) => button.textContent)).toEqual([
+    const select = screen.getByRole('combobox', { name: 'Connectors' })
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual([
       'Structure default', 'Curve', 'Straight', 'Elbow', 'Rounded Elbow', 'Bight', 'Fold', 'Rounded Fold'
     ])
-    expect(within(group).getByRole('button', { name: 'Structure default' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getAllByText('Structure default')).toHaveLength(2)
-    expect(screen.getByText('Curve', { selector: 'small' })).toBeInTheDocument()
+    expect(select).toHaveValue('')
 
-    fireEvent.click(within(group).getByRole('button', { name: 'Rounded Fold' }))
+    fireEvent.change(select, { target: { value: 'rounded-fold' } })
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('rounded-fold')
-    expect(within(group).getByRole('button', { name: 'Rounded Fold' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('Sheet override', { selector: 'span' })).toBeInTheDocument()
+    expect(select).toHaveValue('rounded-fold')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Use structure default' }))
+    fireEvent.change(select, { target: { value: '' } })
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBeUndefined()
-    expect(within(group).getByRole('button', { name: 'Structure default' })).toHaveAttribute('aria-pressed', 'true')
+    expect(select).toHaveValue('')
 
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('rounded-fold')
-    expect(within(group).getByRole('button', { name: 'Rounded Fold' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('Sheet override', { selector: 'span' })).toBeInTheDocument()
+    expect(select).toHaveValue('rounded-fold')
 
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBeUndefined()
-    expect(within(group).getByRole('button', { name: 'Structure default' })).toHaveAttribute('aria-pressed', 'true')
+    expect(select).toHaveValue('')
   })
 
   it('preserves an explicit connector override when the structure changes', () => {
     render(<MindMapCanvasOptionsPanel />)
 
-    fireEvent.click(within(screen.getByRole('group', { name: 'Connectors' })).getByRole('button', { name: 'Curve' }))
+    const connector = screen.getByRole('combobox', { name: 'Connectors' })
+    fireEvent.change(connector, { target: { value: 'curve' } })
     fireEvent.click(screen.getByRole('button', { name: 'Structure: Right' }))
     fireEvent.click(within(screen.getByRole('listbox', { name: 'Structure' })).getByRole('option', { name: 'Timeline (H)' }))
 
@@ -237,34 +217,31 @@ describe('MindMapCanvasOptionsPanel', () => {
       structureClass: 'org.xmind.ui.timeline.horizontal',
       lineStyle: 'curve'
     })
-    expect(within(screen.getByRole('group', { name: 'Connectors' })).getByRole('button', { name: 'Curve' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('Sheet override')).toBeInTheDocument()
+    expect(connector).toHaveValue('curve')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Use structure default' }))
+    fireEvent.change(connector, { target: { value: '' } })
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBeUndefined()
-    expect(screen.getByText('Timeline', { selector: 'small' })).toBeInTheDocument()
   })
 
   it('offers the branch line pattern selector and keeps each change undoable', () => {
     render(<MindMapCanvasOptionsPanel />)
 
-    const group = screen.getByRole('group', { name: 'Branch line pattern' })
-    const buttons = within(group).getAllByRole('button')
-    expect(buttons).toHaveLength(4)
-    expect(within(group).getByRole('button', { name: 'Solid' })).toHaveAttribute('aria-pressed', 'true')
+    const select = screen.getByRole('combobox', { name: 'Branch line pattern' })
+    expect(within(select).getAllByRole('option')).toHaveLength(4)
+    expect(select).toHaveValue('solid')
 
-    fireEvent.click(within(group).getByRole('button', { name: 'Dash' }))
+    fireEvent.change(select, { target: { value: 'dash' } })
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.linePattern).toBe('dash')
-    expect(within(group).getByRole('button', { name: 'Dash' })).toHaveAttribute('aria-pressed', 'true')
+    expect(select).toHaveValue('dash')
 
-    fireEvent.click(within(group).getByRole('button', { name: 'Hand-drawn dash' }))
+    fireEvent.change(select, { target: { value: 'hand-drawn-dash' } })
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.linePattern).toBe('hand-drawn-dash')
 
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.linePattern).toBe('dash')
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.linePattern).toBeUndefined()
-    expect(within(group).getByRole('button', { name: 'Solid' })).toHaveAttribute('aria-pressed', 'true')
+    expect(select).toHaveValue('solid')
   })
 
   it('toggles the tapered line switch through the command path', () => {
@@ -288,8 +265,7 @@ describe('MindMapCanvasOptionsPanel', () => {
   it('persists the selected line width through revisioned CAS', async () => {
     render(<MindMapCanvasOptionsPanel />)
 
-    const group = screen.getByRole('group', { name: 'Branch line width' })
-    fireEvent.click(within(group).getByRole('button', { name: 'Thick' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Branch line width' }), { target: { value: '1.5' } })
 
     await act(async () => {
       vi.advanceTimersByTime(500)

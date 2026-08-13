@@ -1,16 +1,11 @@
-import { AlertTriangle, RotateCcw, X } from 'lucide-react'
+import { RotateCcw, X } from 'lucide-react'
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   DEFAULT_MIND_MAP_THEME,
   type MindMapTheme
 } from '../../../../shared/mindmap/domain/types'
-import { COLOR_SCHEMES, getColorScheme } from '../../../../shared/mindmap/themes/color-schemes'
 import { isManagedMindMapFontFamily } from './mind-map-font-provenance'
-import {
-  findMindMapThemeReadabilityIssues,
-  formatMindMapContrastRatio
-} from './mind-map-theme-readability'
 import { useMindMapViewStore } from './mind-map-view-store'
 
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i
@@ -27,17 +22,6 @@ function interpolateRecentColorLabel(label: string, color: string): string {
   return label.replace('{color}', color)
 }
 const DEFAULT_LINE_COLOR = '#8E8E93'
-const LIGHT_THEME_ENVIRONMENT = {
-  surfaceColor: '#FFFFFF',
-  textColor: '#24324A',
-  subtopicFillColor: '#F8F7F7'
-} as const
-const DARK_THEME_ENVIRONMENT = {
-  surfaceColor: '#18181B',
-  textColor: '#F2F2F3',
-  subtopicFillColor: '#29292C'
-} as const
-
 function expandHexDigits(digits: string): string {
   return digits.length === 3
     ? digits.split('').map((part) => `${part}${part}`).join('')
@@ -143,7 +127,6 @@ export function MindMapThemePanel() {
 
   const isDefaultTheme = themesEqual(current.theme, DEFAULT_MIND_MAP_THEME)
   const rainbowBranches = current.theme.rainbowBranches !== false
-  const branchColors = current.theme.branchColors ?? getColorScheme(current.theme.colorSchemeId).colors
   const documentFont = current.theme.fontFamily ?? ''
   const hasUnlistedDocumentFont = Boolean(
     documentFont && !FONT_OPTIONS.some((option) => option.value === documentFont)
@@ -151,13 +134,6 @@ export function MindMapThemePanel() {
   const documentFontMayFallback = Boolean(
     documentFont && !isManagedMindMapFontFamily(documentFont)
   )
-  const isDarkAppearance = document.documentElement.dataset.resolvedTheme === 'dark'
-  const readabilityIssues = findMindMapThemeReadabilityIssues(
-    current.theme,
-    isDarkAppearance ? DARK_THEME_ENVIRONMENT : LIGHT_THEME_ENVIRONMENT
-  )
-  const readabilityLayers = [...new Set(readabilityIssues.map((issue) => issue.layer))]
-
   const applyThemeField = (patch: Partial<MindMapTheme>, label = 'Update mind map theme'): void => {
     dispatchCommand(
       { type: 'document.apply-theme', theme: { ...current.theme, ...patch } },
@@ -395,38 +371,7 @@ export function MindMapThemePanel() {
         </span>
       </label>
 
-      {rainbowBranches ? (
-        <div className="mm-row mm-row--stack">
-          <label className="mm-row__label" htmlFor="mindmap-theme-branch-palette">
-            {t('mindmap.themePanel.branchPalette')}
-          </label>
-          <div className="mindmap-theme-palette-row">
-            <span className="mindmap-theme-palette-row__preview" aria-hidden="true">
-              {branchColors.map((color, index) => (
-                <span key={`${color}-${index}`} style={{ background: color }} />
-              ))}
-            </span>
-            <select
-              id="mindmap-theme-branch-palette"
-              className="mm-select"
-              value={COLOR_SCHEMES.some((scheme) => scheme.id === current.theme.colorSchemeId) ? current.theme.colorSchemeId : ''}
-              onChange={(event) => {
-                const scheme = COLOR_SCHEMES.find((candidate) => candidate.id === event.currentTarget.value)
-                if (scheme) {
-                  applyThemeField({ colorSchemeId: scheme.id, branchColors: [...scheme.colors] })
-                }
-              }}
-            >
-              <option value="" disabled>{t('mindmap.themePanel.customPalette')}</option>
-              {COLOR_SCHEMES.map((scheme) => (
-                <option key={scheme.id} value={scheme.id}>
-                  {t(`mindmap.colorScheme.${scheme.nameKey}`, scheme.id)}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      ) : (
+      {!rainbowBranches ? (
         <div className="mm-row">
           <label className="mm-row__label" htmlFor="mindmap-theme-line-color">
             {t('mindmap.themePanel.lineColor')}
@@ -450,29 +395,6 @@ export function MindMapThemePanel() {
             />
           </div>
         </div>
-      )}
-
-      {readabilityIssues.length > 0 ? (
-        <aside
-          className="mindmap-theme-readability-warning"
-          role="status"
-          aria-label={t('mindmap.themePanel.readabilityWarningLabel')}
-        >
-          <AlertTriangle size={14} aria-hidden="true" />
-          <span>
-            <strong>{t('mindmap.themePanel.readabilityWarningTitle')}</strong>
-            <small>
-              {t('mindmap.themePanel.readabilityWarningBody', {
-                layers: readabilityLayers
-                  .map((layer) => t(`mindmap.themePanel.readabilityLayers.${layer}`))
-                  .join(', '),
-                ratio: formatMindMapContrastRatio(
-                  Math.min(...readabilityIssues.map((issue) => issue.contrastRatio))
-                )
-              })}
-            </small>
-          </span>
-        </aside>
       ) : null}
 
     </section>

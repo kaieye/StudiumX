@@ -10,9 +10,15 @@ describe('MindMapTopicShapePicker', () => {
 
   it('keeps the catalogue collapsed, groups it when opened, and selects a filtered shape', () => {
     const onChange = vi.fn()
-    render(<MindMapTopicShapePicker value={{ state: 'inherited' }} onChange={onChange} />)
+    render(
+      <MindMapTopicShapePicker
+        value={{ state: 'inherited' }}
+        displayValue={{ state: 'concrete', value: 'rounded-rect' }}
+        onChange={onChange}
+      />
+    )
 
-    const trigger = screen.getByRole('button', { name: 'Shape Inherit' })
+    const trigger = screen.getByRole('button', { name: 'Shape Rounded Rect' })
     expect(screen.queryByRole('dialog', { name: 'Choose shape' })).not.toBeInTheDocument()
 
     fireEvent.click(trigger)

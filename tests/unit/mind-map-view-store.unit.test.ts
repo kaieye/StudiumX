@@ -236,14 +236,16 @@ describe('mind-map view store inspector tab', () => {
     expect(localStorage.getItem('mindmap.inspectorTab')).toBe('ai')
   })
 
-  it('reveals Format and persists it when the canvas selection changes', async () => {
+  it('reveals the inspector and persists the tab matching the selection', async () => {
     await useMindMapViewStore.getState().openDocument('mind-map-1')
 
-    useMindMapViewStore.setState({ inspectorOpen: false, inspectorTab: 'content' })
+    // Module-specific (topic) selection opens the Content tab where its style
+    // and content now live.
+    useMindMapViewStore.setState({ inspectorOpen: false, inspectorTab: 'format' })
     useMindMapViewStore.getState().selectTopic('shared-topic')
     expect(useMindMapViewStore.getState()).toMatchObject({
       inspectorOpen: true,
-      inspectorTab: 'format',
+      inspectorTab: 'content',
       selection: { kind: 'topic', topicIds: ['shared-topic'] }
     })
 
@@ -251,10 +253,11 @@ describe('mind-map view store inspector tab', () => {
     useMindMapViewStore.getState().selectElement('relationship-1', 'relationship')
     expect(useMindMapViewStore.getState()).toMatchObject({
       inspectorOpen: true,
-      inspectorTab: 'format',
+      inspectorTab: 'content',
       selection: { kind: 'element', elementId: 'relationship-1', elementType: 'relationship' }
     })
 
+    // Canvas-wide selection opens the Format tab with the whole-canvas controls.
     useMindMapViewStore.setState({ inspectorOpen: false, inspectorTab: 'content' })
     useMindMapViewStore.getState().selectCanvas()
     expect(useMindMapViewStore.getState()).toMatchObject({

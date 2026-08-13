@@ -40,6 +40,7 @@ const SHAPE_CATEGORIES: readonly ShapeCategory[] = [
 
 type MindMapTopicShapePickerProps = {
   value: InspectorValue<string>
+  displayValue?: InspectorValue<string>
   onChange: (value: string | undefined) => void
 }
 
@@ -47,7 +48,11 @@ type MindMapTopicShapePickerProps = {
  * A compact, searchable shape picker. It owns only transient UI state; callers
  * retain the canonical command/reducer/persistence mutation lane.
  */
-export function MindMapTopicShapePicker({ value, onChange }: MindMapTopicShapePickerProps) {
+export function MindMapTopicShapePicker({
+  value,
+  displayValue,
+  onChange
+}: MindMapTopicShapePickerProps) {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -55,15 +60,15 @@ export function MindMapTopicShapePicker({ value, onChange }: MindMapTopicShapePi
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
 
-  const selectedShape = value.state === 'concrete' ? value.value : value.state === 'none' ? 'none' : undefined
+  const display = displayValue ?? value
+  const hasLocalOverride = value.state !== 'inherited' && value.state !== 'default'
+  const selectedShape = display.state === 'concrete' ? display.value : display.state === 'none' ? 'none' : undefined
   const selectedOption = MIND_MAP_TOPIC_SHAPE_OPTIONS.find((option) => option.value === selectedShape)
-  const valueLabel = value.state === 'mixed'
+  const valueLabel = display.state === 'mixed'
     ? t('mindmap.topicStyle.mixed')
-    : value.state === 'inherited'
-      ? t('mindmap.topicStyle.inherit')
-      : selectedOption
-        ? t(`mindmap.topicStyle.${selectedOption.labelKey}`)
-        : t('mindmap.topicStyle.shapeImported', { shape: selectedShape ?? '' })
+    : selectedOption
+      ? t(`mindmap.topicStyle.${selectedOption.labelKey}`)
+      : t('mindmap.topicStyle.shapeImported', { shape: selectedShape ?? '' })
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const matchingOptions = MIND_MAP_TOPIC_SHAPE_OPTIONS.filter((option) => {
     if (!normalizedQuery) return true
@@ -87,7 +92,11 @@ export function MindMapTopicShapePicker({ value, onChange }: MindMapTopicShapePi
   }
 
   const selectShape = (next: string | undefined): void => {
-    if (next !== selectedShape) onChange(next)
+    if (next === undefined) {
+      if (hasLocalOverride) onChange(undefined)
+    } else if (display.state === 'mixed' || next !== selectedShape) {
+      onChange(next)
+    }
     closeAndRestoreFocus()
   }
 
@@ -151,20 +160,19 @@ export function MindMapTopicShapePicker({ value, onChange }: MindMapTopicShapePi
             </p>
           ) : (
             <div className="mindmap-topic-shape-picker__options" role="listbox" aria-label={t('mindmap.topicStyle.shapeOptions')}>
-              <div className="mindmap-topic-shape-picker__category">
-                <span className="mindmap-topic-shape-picker__category-label">
-                  {t('mindmap.topicStyle.shapeInherit')}
-                </span>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={value.state === 'inherited'}
-                  className={value.state === 'inherited' ? 'is-active' : ''}
-                  onClick={() => selectShape(undefined)}
-                >
-                  {t('mindmap.topicStyle.inherit')}
-                </button>
-              </div>
+              {hasLocalOverride ? (
+                <div className="mindmap-topic-shape-picker__category">
+                  <span className="mindmap-topic-shape-picker__category-label">
+                    {t('mindmap.topicStyle.clearField')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => selectShape(undefined)}
+                  >
+                    {t('mindmap.topicStyle.clearField')}
+                  </button>
+                </div>
+              ) : null}
               {SHAPE_CATEGORIES.map((category) => {
                 const categoryOptions = matchingOptions.filter((option) => option.category === category)
                 if (categoryOptions.length === 0) return null
@@ -174,7 +182,7 @@ export function MindMapTopicShapePicker({ value, onChange }: MindMapTopicShapePi
                       {t(`mindmap.topicStyle.shapeCategories.${category}`)}
                     </span>
                     {categoryOptions.map((option) => {
-                      const selected = option.value === selectedShape
+                      const selected = display.state !== 'mixed' && option.value === selectedShape
                       return (
                         <button
                           key={option.value}

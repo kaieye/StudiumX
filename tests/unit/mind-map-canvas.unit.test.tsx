@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MindMapCanvas } from '../../src/renderer/src/views/mindmap/MindMapCanvas'
+import { computeMindMapLayout } from '../../src/renderer/src/views/mindmap/mind-map-layout'
+import { fitMindMapViewport } from '../../src/renderer/src/views/mindmap/mind-map-viewport'
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 
@@ -352,6 +354,57 @@ describe('MindMapCanvas accessibility', () => {
     expect(zoomedViewport.y + zoomedViewport.height / 2).toBeCloseTo(
       initialViewport.y + initialViewport.height / 2
     )
+  })
+
+  it('centers a newly opened map after the canvas reports its actual size', () => {
+    const originalResizeObserver = globalThis.ResizeObserver
+    let observer: { callback: ResizeObserverCallback } | null = null
+
+    class ControlledResizeObserver {
+      callback: ResizeObserverCallback
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+        observer = this
+      }
+
+      disconnect = vi.fn()
+      observe = vi.fn()
+      unobserve = vi.fn()
+    }
+
+    vi.stubGlobal('ResizeObserver', ControlledResizeObserver)
+    const document = makeDocument()
+    const { container, unmount } = renderCanvas(document)
+
+    try {
+      if (!observer) throw new Error('expected canvas resize observer')
+
+      act(() => {
+        observer!.callback(
+          [{ contentRect: { width: 1200, height: 900 } } as ResizeObserverEntry],
+          observer as unknown as ResizeObserver
+        )
+      })
+
+      const nodes = computeMindMapLayout(document.sheets[0]!).nodes
+      const bounds = nodes.reduce(
+        (current, node) => ({
+          left: Math.min(current.left, node.x),
+          top: Math.min(current.top, node.y),
+          right: Math.max(current.right, node.x + node.width),
+          bottom: Math.max(current.bottom, node.y + node.height)
+        }),
+        { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity }
+      )
+      const expected = fitMindMapViewport(bounds, { width: 1200, height: 900 })
+      const transform = container.querySelector('.mindmap-svg > g')?.getAttribute('transform')
+
+      expect(transform).toBe(`translate(${expected.pan.x} ${expected.pan.y}) scale(${expected.zoom})`)
+    } finally {
+      unmount()
+      vi.stubGlobal('ResizeObserver', originalResizeObserver)
+    }
   })
 
   it.each(['quote', 'callout', 'bracket', 'arrow-right', 'arrow-left', 'heart', 'cloud', 'star', 'parallelogram', 'hexagon'] as const)(

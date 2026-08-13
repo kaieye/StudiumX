@@ -7,8 +7,6 @@ import {
   STRUCTURE_FAMILY_LABELS,
   STRUCTURE_TYPE_PRESETS,
   getStructureTypePreset,
-  getConnectorStyle,
-  type MindMapConnectorStyle,
   type StructureFamily
 } from '../../../../shared/mindmap/structure-types'
 import { useMindMapViewStore } from './mind-map-view-store'
@@ -48,7 +46,6 @@ type CanvasOptionsText = {
   curve: string
   elbow: string
   straight: string
-  wholeSheetScope: string
   branchLineWidth: string
   lineWidthExtraThin: string
   lineWidthThin: string
@@ -101,8 +98,6 @@ export function MindMapCanvasOptionsPanel() {
   const activeStructure = getStructureTypePreset(layout.structureClass) ?? STRUCTURE_TYPE_PRESETS[0]!
   const balanceCapability = getCanvasInspectorFieldCapability('autoBalance', layout.structureClass)
   const balanceSupported = !balanceCapability.disabled
-  const structureConnector = getConnectorStyle(layout.structureClass)
-  const connectorLabel = (style: MindMapConnectorStyle): string => text[style] ?? style
   const dispatchLayoutPatch = (patch: MindMapSheetLayoutUpdatePatch): void => {
     dispatchCommand(
       { type: 'sheet.update-layout', sheetId: sheet.id, patch },
@@ -309,95 +304,65 @@ export function MindMapCanvasOptionsPanel() {
 
       <div className="mindmap-canvas-options__section">
         <div className="mm-row">
-          <span className="mm-row__label">
+          <label className="mm-row__label" htmlFor="mindmap-connector-style">
             {text.connector}
-            <small>{text.wholeSheetScope}</small>
-          </span>
-          <div className="mindmap-segmented mindmap-segmented--inline" role="group" aria-label={text.connector}>
-            <button
-              type="button"
-              className={lineStyleValue.state === 'inherited' ? 'is-selected' : ''}
-              aria-pressed={lineStyleValue.state === 'inherited'}
-              onClick={() => dispatchLayoutPatch({ lineStyle: null })}
-            >
-              {text.connectorDefault}
-            </button>
-            {(['curve', 'straight', 'elbow', 'rounded-elbow', 'bight', 'fold', 'rounded-fold'] as const).map((lineStyle) => {
-              const selected = lineStyleValue.state === 'concrete' && lineStyleValue.value === lineStyle
-              return (
-                <button
-                  type="button"
-                  key={lineStyle}
-                  className={selected ? 'is-selected' : ''}
-                  aria-pressed={selected}
-                  onClick={() => dispatchLayoutPatch({ lineStyle })}
-                >
-                  {text[lineStyle]}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-        <div className="mm-row mm-row--connector-meta">
-          <span className="mm-row__label">
-            {lineStyleValue.state === 'inherited' ? text.connectorDefault : text.connectorOverride}
-            <small>{connectorLabel(lineStyleValue.state === 'concrete' ? lineStyleValue.value : structureConnector)}</small>
-          </span>
-          <button
-            type="button"
-            className="mm-inline-reset"
-            onClick={() => dispatchLayoutPatch({ lineStyle: null })}
-            disabled={lineStyleValue.state === 'inherited'}
-            aria-label={text.resetConnector}
+          </label>
+          <select
+            id="mindmap-connector-style"
+            className="mm-select"
+            aria-label={text.connector}
+            value={lineStyleValue.state === 'concrete' ? lineStyleValue.value : ''}
+            onChange={(event) => {
+              const value = event.currentTarget.value
+              dispatchLayoutPatch({
+                lineStyle: value === '' ? null : (value as 'curve' | 'straight' | 'elbow' | 'rounded-elbow' | 'bight' | 'fold' | 'rounded-fold')
+              })
+            }}
           >
-            {text.resetConnector}
-          </button>
+            <option value="">{text.connectorDefault}</option>
+            {(['curve', 'straight', 'elbow', 'rounded-elbow', 'bight', 'fold', 'rounded-fold'] as const).map((lineStyle) => (
+              <option key={lineStyle} value={lineStyle}>{text[lineStyle]}</option>
+            ))}
+          </select>
         </div>
         <div className="mm-row">
-          <span className="mm-row__label">
+          <label className="mm-row__label" htmlFor="mindmap-branch-line-width">
             {text.branchLineWidth}
-            <small>{text.wholeSheetScope}</small>
-          </span>
+          </label>
           {resetFieldButton('lineWidthScale', lineWidthScaleValue)}
-          <div className="mindmap-segmented mindmap-segmented--inline" role="group" aria-label={text.branchLineWidth}>
-            {LINE_WIDTH_OPTIONS.map((option) => {
-              const selected = Math.abs((lineWidthScaleValue.state === 'concrete' ? lineWidthScaleValue.value : 1) - option.value) < 0.001
-              return (
-                <button
-                  type="button"
-                  key={option.value}
-                  className={selected ? 'is-selected' : ''}
-                  aria-pressed={selected}
-                  onClick={() => dispatchLayoutPatch({ lineWidthScale: option.value })}
-                >
-                  {text[option.labelKey]}
-                </button>
-              )
-            })}
-          </div>
+          <select
+            id="mindmap-branch-line-width"
+            className="mm-select"
+            aria-label={text.branchLineWidth}
+            value={lineWidthScaleValue.state === 'concrete' ? lineWidthScaleValue.value : 1}
+            onChange={(event) => dispatchLayoutPatch({ lineWidthScale: Number(event.currentTarget.value) })}
+          >
+            {LINE_WIDTH_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{text[option.labelKey]}</option>
+            ))}
+          </select>
         </div>
         <div className="mm-row">
-          <span className="mm-row__label">
+          <label className="mm-row__label" htmlFor="mindmap-branch-line-pattern">
             {text.branchLinePattern}
-            <small>{text.wholeSheetScope}</small>
-          </span>
+          </label>
           {resetFieldButton('linePattern', linePatternValue)}
-          <div className="mindmap-segmented mindmap-segmented--inline" role="group" aria-label={text.branchLinePattern}>
-            {(['solid', 'dash', 'hand-drawn-solid', 'hand-drawn-dash'] as const).map((pattern) => {
-              const selected = (linePatternValue.state === 'concrete' ? linePatternValue.value : 'solid') === pattern
-              return (
-                <button
-                  type="button"
-                  key={pattern}
-                  className={selected ? 'is-selected' : ''}
-                  aria-pressed={selected}
-                  onClick={() => dispatchLayoutPatch({ linePattern: pattern })}
-                >
-                  {text[`pattern${pattern.split('-').map((part) => part[0]!.toUpperCase() + part.slice(1)).join('')}`]}
-                </button>
-              )
-            })}
-          </div>
+          <select
+            id="mindmap-branch-line-pattern"
+            className="mm-select"
+            aria-label={text.branchLinePattern}
+            value={linePatternValue.state === 'concrete' ? linePatternValue.value : 'solid'}
+            onChange={(event) => {
+              const value = event.currentTarget.value as 'solid' | 'dash' | 'hand-drawn-solid' | 'hand-drawn-dash'
+              dispatchLayoutPatch({ linePattern: value })
+            }}
+          >
+            {(['solid', 'dash', 'hand-drawn-solid', 'hand-drawn-dash'] as const).map((pattern) => (
+              <option key={pattern} value={pattern}>
+                {text[`pattern${pattern.split('-').map((part) => part[0]!.toUpperCase() + part.slice(1)).join('')}`]}
+              </option>
+            ))}
+          </select>
         </div>
         <label className="mm-row mm-row--switch">
           <span className="mm-row__label">

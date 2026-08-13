@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, type CSSProperties } from 'react'
 import { Bold, Italic, RotateCcw, Strikethrough, Underline } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
@@ -27,6 +27,9 @@ import {
 } from './mind-map-topic-style'
 import { resolveSelectedTopicFontProvenance } from './mind-map-font-provenance'
 import { MindMapTopicShapePicker } from './MindMapTopicShapePicker'
+import { MindMapTopicColorPicker, MindMapTopicStyleMenu } from './MindMapTopicStyleMenu'
+import { DEFAULT_TOPIC_FONT_FAMILY, resolveTopicDisplayStyle } from './mind-map-topic-display-style'
+import { branchColor } from './mind-map-branch-colors'
 import type { MindMapQuickStylePreset } from '../../../../shared/mindmap/quick-styles'
 
 type MindMapTopicStyleLayoutOption = {
@@ -37,6 +40,12 @@ type MindMapTopicStyleLayoutOption = {
 const MIXED_VALUE = '__mixed__'
 const WIDTH_MIN = 72
 const WIDTH_MAX = 720
+
+const TOPIC_STYLE_DEFAULTS = {
+  fill: '#F8F7F7',
+  stroke: '#8E8E93',
+  textColor: '#24324A'
+} as const
 
 const FONT_SOURCE_LABEL_KEYS = {
   local: 'fontSourceLocal',
@@ -122,6 +131,7 @@ const TEXT_ALIGN_OPTIONS = [
 }[]
 
 const FONT_OPTIONS = [
+  { value: DEFAULT_TOPIC_FONT_FAMILY, key: 'fontAppDefault' },
   { value: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", key: 'fontSystem' },
   { value: 'Arial, Helvetica, sans-serif', key: 'fontSans' },
   { value: '"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif', key: 'fontCjkSans' },
@@ -144,8 +154,8 @@ export function MindMapTopicStyleInspector() {
     current?.sheets.find((sheet) => sheet.id === activeSheetId) ?? current?.sheets[0] ?? null
   const selectedTopicEntries = activeSheet && selection.kind === 'topic'
     ? selection.topicIds
-        .map((id) => findMindMapTopic(activeSheet.root, id))
-        .filter((entry): entry is { topic: MindMapTopicV2; depth: number } => entry !== null)
+        .map((id) => findMindMapTopic(activeSheet.root, id, activeSheet.layout.structureClass))
+        .filter((entry): entry is { topic: MindMapTopicV2; depth: number; branchIndex: number; structureClass: MindMapStructureClass } => entry !== null)
     : []
   const selectedTopics = selectedTopicEntries.map((entry) => entry.topic)
   const hasSelection = selectedTopics.length > 0
@@ -187,10 +197,6 @@ export function MindMapTopicStyleInspector() {
       else style[field] = value
       return style
     }, options)
-  }
-
-  const clearStyleField = (field: keyof MindMapTopicStyleOverride): void => {
-    updateStyleField(field, undefined)
   }
 
   const resetStyles = (): void => {
@@ -298,14 +304,24 @@ export function MindMapTopicStyleInspector() {
 
   const fieldValue = <K extends keyof MindMapTopicStyleOverride>(field: K) =>
     resolveTopicStyleField(selectedTopics, field)
+  const effectiveFieldValue = <T,>(
+    resolve: (style: ReturnType<typeof resolveTopicDisplayStyle>) => T
+  ): InspectorValue<T> => resolveInspectorValue(
+    selectedTopicEntries.map(({ topic, depth, branchIndex, structureClass }) =>
+      resolve(resolveTopicDisplayStyle(topic.style, current!.theme, depth, {
+        branchColor: branchColor(current!.theme, branchIndex),
+        structureClass,
+        darkAppearance: document.documentElement.dataset.resolvedTheme === 'dark'
+      }))
+    ),
+    { absentState: 'inherited' }
+  )
   const selectValue = <T extends string | number>(value: InspectorValue<T>): string => {
     if (value.state === 'mixed') return MIXED_VALUE
     if (value.state === 'concrete') return String(value.value)
     if (value.state === 'none') return 'none'
     return ''
   }
-  const concreteValue = <T,>(value: InspectorValue<T>): T | undefined =>
-    value.state === 'concrete' ? value.value : undefined
   const effectiveEmphasisValue = <T,>(
     resolve: (style: MindMapTopicStyleOverride | undefined) => T
   ): InspectorValue<T> => resolveInspectorValue(
@@ -315,76 +331,36 @@ export function MindMapTopicStyleInspector() {
     { absentState: 'inherited' }
   )
 
-  const colorSwatchRow = (
-    field: 'fill' | 'stroke' | 'textColor',
-    presets: readonly string[],
-    fallback: string
-  ) => {
-    const resolved = fieldValue(field)
-    const concrete = concreteValue(resolved)
-    const hasOverride = selectedTopics.some((topic) => topic.style?.[field] !== undefined)
-    return (
-      <div className="mindmap-topic-style__color-swatches">
-        {presets.map((color) => (
-          <button
-            key={color}
-            type="button"
-            className={`mindmap-topic-style__swatch${concrete === color ? ' is-active' : ''}`}
-            style={{ background: color }}
-            title={color}
-            aria-label={color}
-            aria-pressed={concrete === color}
-            onClick={() => updateStyleField(field, concrete === color ? undefined : color)}
-          />
-        ))}
-        {concrete && !presets.includes(concrete) ? (
-          <button
-            type="button"
-            className="mindmap-topic-style__swatch is-active"
-            style={{ background: concrete }}
-            title={concrete}
-            aria-label={concrete}
-            aria-pressed="true"
-          />
-        ) : null}
-        <input
-          type="color"
-          className="mindmap-topic-style__color-picker"
-          value={concrete ?? fallback}
-          onChange={(event) => updateStyleField(field, event.currentTarget.value)}
-          title={resolved.state === 'mixed'
-            ? `${t('mindmap.topicStyle.customColor')} — ${t('mindmap.topicStyle.mixed')}`
-            : t('mindmap.topicStyle.customColor')}
-        />
-        {hasOverride ? (
-          <button
-            type="button"
-            className="mindmap-topic-style__clear"
-            aria-label={t('mindmap.topicStyle.clearField')}
-            onClick={() => clearStyleField(field)}
-          >
-            ✕
-          </button>
-        ) : null}
-      </div>
-    )
-  }
-
   const shape = fieldValue('shape')
+  const effectiveShape = effectiveFieldValue((style) => style.shape)
   const fillPattern = fieldValue('fillPattern')
+  const effectiveFillPattern = effectiveFieldValue((style) => style.fillPattern)
+  const fillColor = fieldValue('fill')
+  const effectiveFillColor = effectiveFieldValue((style) => style.fill)
+  const strokeColor = fieldValue('stroke')
+  const effectiveStrokeColor = effectiveFieldValue((style) => style.stroke)
+  const textColor = fieldValue('textColor')
+  const effectiveTextColor = effectiveFieldValue((style) => style.textColor)
   const fontFamily = fieldValue('fontFamily')
+  const effectiveFontFamily = effectiveFieldValue((style) => style.fontFamily)
   const resolvedFont = resolveSelectedTopicFontProvenance(
     selectedTopicEntries.map(({ topic, depth }) => ({ nodeStyle: topic.style, depth })),
     current!.theme
   )
   const hasUnlistedLocalFont = fontFamily.state === 'concrete'
     && !FONT_OPTIONS.some((option) => option.value === fontFamily.value)
-  const fontSize = fieldValue('fontSize')
-  const fontWeight = fieldValue('fontWeight')
+  const effectiveFontSize = effectiveFieldValue((style) => style.fontSize)
+  const effectiveFontWeight = effectiveFieldValue((style) => style.fontWeight)
   const borderStyle = fieldValue('borderStyle')
+  const effectiveBorderStyle = effectiveFieldValue((style) => style.borderStyle)
   const borderWidth = fieldValue('borderWidth')
-  const effectiveBorderStyles = selectedTopicEntries.map(({ topic, depth }) =>
-    resolveEffectiveTopicStyle(topic.style, current!.theme, depth)?.borderStyle ?? 'solid'
+  const effectiveBorderWidth = effectiveFieldValue((style) => style.borderWidth)
+  const effectiveBorderStyles = selectedTopicEntries.map(({ topic, depth, branchIndex, structureClass }) =>
+    resolveTopicDisplayStyle(topic.style, current!.theme, depth, {
+      branchColor: branchColor(current!.theme, branchIndex),
+      structureClass,
+      darkAppearance: document.documentElement.dataset.resolvedTheme === 'dark'
+    }).borderStyle
   )
   const borderEnabled = effectiveBorderStyles.some((value) => value !== 'none')
   const borderStrokeCapability = getTopicStyleFieldCapability('stroke', { borderEnabled })
@@ -427,17 +403,19 @@ export function MindMapTopicStyleInspector() {
       return style
     })
   }
-  const structureClass = fieldValue('structureClass')
-  const widthMode = fieldValue('widthMode')
+  const effectiveStructureClassValue = effectiveFieldValue((style) => style.structureClass)
+  const effectiveWidthMode = effectiveFieldValue((style) => style.widthMode)
   const width = fieldValue('width')
-  const widthModeValue = widthMode.state === 'concrete' ? widthMode.value : widthMode.state === 'mixed' ? MIXED_VALUE : (widthMode.state === 'inherited' || widthMode.state === 'default' ? '' : '')
-  const fixedWidthActive = widthMode.state === 'concrete' && widthMode.value === 'fixed'
-  const widthInputValue = width.state === 'concrete' ? width.value : ''
-  const effectiveStructureClass = structureClass.state === 'concrete'
-    ? structureClass.value
-    : structureClass.state === 'inherited'
-      ? activeSheet?.layout.structureClass
-      : null
+  const widthModeValue = selectValue(effectiveWidthMode)
+  const fixedWidthActive = effectiveWidthMode.state === 'concrete' && effectiveWidthMode.value === 'fixed'
+  const widthInputValue = width.state === 'concrete'
+    ? width.value
+    : effectiveWidthMode.state === 'concrete' && effectiveWidthMode.value === 'fixed'
+      ? 160
+      : ''
+  const effectiveStructureClass = effectiveStructureClassValue.state === 'concrete'
+    ? effectiveStructureClassValue.value
+    : null
   const hasAnyStyle = selectedTopics.some((topic) => topic.style && Object.keys(topic.style).length > 0)
   const heading = selectedTopics.length === 1
     ? selectedTopics[0].title || t('mindmap.untitledTopic')
@@ -491,6 +469,7 @@ export function MindMapTopicStyleInspector() {
       </div>
       <MindMapTopicShapePicker
         value={shape}
+        displayValue={effectiveShape}
         onChange={(nextShape) => updateStyleField('shape', nextShape)}
       />
       <div className="mm-row">
@@ -505,7 +484,7 @@ export function MindMapTopicStyleInspector() {
             const next = event.currentTarget.value
             if (next === MIXED_VALUE) return
             if (next === 'fixed') {
-              const currentWidth = width.state === 'concrete' ? width.value : 160
+              const currentWidth = typeof widthInputValue === 'number' ? widthInputValue : 160
               dispatchStyleMutation((style) => {
                 style.widthMode = 'fixed'
                 style.width = Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, currentWidth))
@@ -526,8 +505,7 @@ export function MindMapTopicStyleInspector() {
             }
           }}
         >
-          {widthMode.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
-          <option value="">{t('mindmap.topicStyle.inherit')}</option>
+          {effectiveWidthMode.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
           <option value="auto">{t('mindmap.topicStyle.widthAuto')}</option>
           <option value="fixed">{t('mindmap.topicStyle.widthFixed')}</option>
         </select>
@@ -558,101 +536,126 @@ export function MindMapTopicStyleInspector() {
           </div>
         </div>
       ) : null}
-      <div className="mm-row">
-        <label className="mm-row__label" htmlFor="mindmap-topic-style-fill-pattern">
-          {t('mindmap.topicStyle.fillPattern')}
-        </label>
-        <select
-          id="mindmap-topic-style-fill-pattern"
-          className="mm-select"
-          value={selectValue(fillPattern)}
-          onChange={(event) => {
-            if (event.currentTarget.value !== MIXED_VALUE) {
-              updateStyleField(
-                'fillPattern',
-                event.currentTarget.value
-                  ? event.currentTarget.value as NonNullable<MindMapTopicStyleOverride['fillPattern']>
-                  : undefined
-              )
-            }
-          }}
-        >
-          {fillPattern.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
-          <option value="">{t('mindmap.topicStyle.inherit')}</option>
-          {FILL_PATTERN_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {t(`mindmap.topicStyle.${option.labelKey}`)}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="mm-row mm-row--stack">
-        <span className="mm-row__label">{t('mindmap.topicStyle.fillColor')}</span>
-        {colorSwatchRow('fill', FILL_COLOR_PRESETS, '#4A90D9')}
-      </div>
-      <div className="mm-row">
-        <label className="mm-row__label" htmlFor="mindmap-topic-style-border-style">
-          {t('mindmap.topicStyle.borderStyle')}
-        </label>
-        <select
-          id="mindmap-topic-style-border-style"
-          className="mm-select"
-          value={selectValue(borderStyle)}
-          onChange={(event) => {
-            if (event.currentTarget.value !== MIXED_VALUE) {
-              updateStyleField(
-                'borderStyle',
-                event.currentTarget.value
-                  ? event.currentTarget.value as NonNullable<MindMapTopicStyleOverride['borderStyle']>
-                  : undefined
-              )
-            }
-          }}
-        >
-          {borderStyle.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
-          <option value="">{t('mindmap.topicStyle.inherit')}</option>
-          {BORDER_STYLE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {t(`mindmap.topicStyle.${option.labelKey}`)}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="mm-row mm-row--stack">
-        <span className="mm-row__label">{t('mindmap.topicStyle.strokeColor')}</span>
-        <fieldset
-          className="mindmap-topic-style__border-field"
+      <MindMapTopicStyleMenu
+        id="mindmap-topic-style-fill-pattern"
+        label={t('mindmap.topicStyle.fillPattern')}
+        value={fillPattern}
+        displayValue={effectiveFillPattern}
+        options={FILL_PATTERN_OPTIONS.map((option) => ({
+          value: option.value,
+          label: t(`mindmap.topicStyle.${option.labelKey}`)
+        }))}
+        onChange={(nextPattern) => updateStyleField('fillPattern', nextPattern)}
+        className="mindmap-topic-style-menu--pattern"
+        optionsClassName="mindmap-topic-style-menu__options--patterns"
+        optionClassName="mindmap-topic-style-menu__option--pattern"
+        renderPreview={(selected, state) => (
+          <span
+            className={`mindmap-topic-style-menu__pattern-preview mindmap-topic-style-menu__pattern-preview--${state.state === 'mixed' ? 'mixed' : selected ?? 'inherit'}`}
+          />
+        )}
+        renderOption={(option) => (
+          <>
+            <span
+              className={`mindmap-topic-style-menu__pattern-preview mindmap-topic-style-menu__pattern-preview--${option.value}`}
+              aria-hidden="true"
+            />
+            <span>{option.label}</span>
+          </>
+        )}
+      />
+      <MindMapTopicColorPicker
+        id="mindmap-topic-style-fill-color"
+        label={t('mindmap.topicStyle.fillColor')}
+        value={fillColor}
+        displayValue={effectiveFillColor}
+        presets={FILL_COLOR_PRESETS}
+        fallback={TOPIC_STYLE_DEFAULTS.fill}
+        onChange={(nextColor) => updateStyleField('fill', nextColor)}
+      />
+      <MindMapTopicStyleMenu
+        id="mindmap-topic-style-border-style"
+        label={t('mindmap.topicStyle.borderStyle')}
+        value={borderStyle}
+        displayValue={effectiveBorderStyle}
+        options={BORDER_STYLE_OPTIONS.map((option) => ({
+          value: option.value,
+          label: t(`mindmap.topicStyle.${option.labelKey}`)
+        }))}
+        onChange={(nextBorderStyle) => updateStyleField('borderStyle', nextBorderStyle)}
+        className="mindmap-topic-style-menu--border"
+        optionsClassName="mindmap-topic-style-menu__options--border"
+        optionClassName="mindmap-topic-style-menu__option--border"
+        renderPreview={(selected, state) => (
+          <span
+            className={`mindmap-topic-style-menu__border-preview mindmap-topic-style-menu__border-preview--${state.state === 'mixed' ? 'mixed' : selected ?? 'inherit'}`}
+          />
+        )}
+        renderOption={(option) => (
+          <>
+            <span
+              className={`mindmap-topic-style-menu__border-preview mindmap-topic-style-menu__border-preview--${option.value}`}
+              aria-hidden="true"
+            />
+            <span>{option.label}</span>
+          </>
+        )}
+      />
+      <fieldset
+        className="mindmap-topic-style__border-field"
+        disabled={borderStrokeCapability.disabled}
+        aria-describedby={borderStrokeCapability.disabled ? 'mindmap-topic-border-disabled' : undefined}
+      >
+        <MindMapTopicColorPicker
+          id="mindmap-topic-style-border-color"
+          label={t('mindmap.topicStyle.strokeColor')}
+          value={strokeColor}
+          displayValue={effectiveStrokeColor}
+          presets={FILL_COLOR_PRESETS}
+          fallback={TOPIC_STYLE_DEFAULTS.stroke}
           disabled={borderStrokeCapability.disabled}
-          aria-describedby={borderStrokeCapability.disabled ? 'mindmap-topic-border-disabled' : undefined}
-        >
-          {colorSwatchRow('stroke', FILL_COLOR_PRESETS, '#4A90D9')}
-        </fieldset>
-      </div>
-      <div className="mm-row">
-        <span className="mm-row__label">{t('mindmap.topicStyle.borderWidth')}</span>
-        <fieldset
-          className="mindmap-segmented mindmap-segmented--inline mindmap-topic-style__border-field"
-          role="group"
-          aria-label={t('mindmap.topicStyle.borderWidth')}
+          onChange={(nextColor) => updateStyleField('stroke', nextColor)}
+        />
+      </fieldset>
+      <fieldset
+        className="mindmap-topic-style__border-field"
+        disabled={borderWidthCapability.disabled}
+        aria-describedby={borderWidthCapability.disabled ? 'mindmap-topic-border-disabled' : undefined}
+      >
+        <MindMapTopicStyleMenu
+          id="mindmap-topic-style-border-width"
+          label={t('mindmap.topicStyle.borderWidth')}
+          value={borderWidth}
+          displayValue={effectiveBorderWidth}
+          options={[
+            ...BORDER_WIDTH_OPTIONS,
+            ...(borderWidth.state === 'concrete' && !BORDER_WIDTH_OPTIONS.some(
+              (width) => Math.abs(width - borderWidth.value) < 0.001
+            ) ? [borderWidth.value] : [])
+          ].map((width) => ({ value: width, label: String(width) }))}
           disabled={borderWidthCapability.disabled}
-          aria-describedby={borderWidthCapability.disabled ? 'mindmap-topic-border-disabled' : undefined}
-        >
-          {BORDER_WIDTH_OPTIONS.map((width) => {
-            const selected = borderWidth.state === 'concrete' && Math.abs(borderWidth.value - width) < 0.001
-            return (
-              <button
-                type="button"
-                key={width}
-                className={selected ? 'is-selected' : ''}
-                aria-pressed={selected}
-                onClick={() => updateStyleField('borderWidth', selected ? undefined : width)}
-              >
-                {width}
-              </button>
-            )
-          })}
-        </fieldset>
-      </div>
+          onChange={(nextWidth) => updateStyleField('borderWidth', nextWidth)}
+          className="mindmap-topic-style-menu--border-width"
+          optionsClassName="mindmap-topic-style-menu__options--border-width"
+          optionClassName="mindmap-topic-style-menu__option--border-width"
+          renderPreview={(selected, state) => (
+            <span
+              className="mindmap-topic-style-menu__width-preview"
+              style={{ '--mindmap-topic-style-width': `${state.state === 'mixed' ? 2 : selected ?? 1}px` } as CSSProperties}
+            />
+          )}
+          renderOption={(option) => (
+            <>
+              <span
+                className="mindmap-topic-style-menu__width-preview"
+                style={{ '--mindmap-topic-style-width': `${option.value}px` } as CSSProperties}
+                aria-hidden="true"
+              />
+              <span>{option.label}</span>
+            </>
+          )}
+        />
+      </fieldset>
       {borderStrokeCapability.disabled || borderWidthCapability.disabled ? (
         <span id="mindmap-topic-border-disabled" className="mindmap-topic-style__effective">
           {t('mindmap.topicStyle.borderDisabled')}
@@ -667,16 +670,18 @@ export function MindMapTopicStyleInspector() {
         <select
           id="mindmap-topic-style-fontfamily"
           className="mm-select"
-          value={selectValue(fontFamily)}
+          value={selectValue(effectiveFontFamily)}
           onChange={(event) => {
             if (event.currentTarget.value !== MIXED_VALUE) {
               updateStyleField('fontFamily', event.currentTarget.value || undefined)
             }
           }}
         >
-          {fontFamily.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
-          <option value="">{t('mindmap.topicStyle.inherit')}</option>
-          {hasUnlistedLocalFont ? (
+          {effectiveFontFamily.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
+          {effectiveFontFamily.state === 'concrete' && !FONT_OPTIONS.some((option) => option.value === effectiveFontFamily.value) ? (
+            <option value={effectiveFontFamily.value}>{t('mindmap.topicStyle.importedFont', { font: effectiveFontFamily.value })}</option>
+          ) : null}
+          {hasUnlistedLocalFont && effectiveFontFamily.state !== 'concrete' ? (
             <option value={fontFamily.value}>{t('mindmap.topicStyle.importedFont', { font: fontFamily.value })}</option>
           ) : null}
           {FONT_OPTIONS.map((option) => (
@@ -730,10 +735,10 @@ export function MindMapTopicStyleInspector() {
             min="0.1"
             max="512"
             step="any"
-            value={fontSize.state === 'concrete' ? fontSize.value : ''}
-            placeholder={fontSize.state === 'mixed'
+            value={effectiveFontSize.state === 'concrete' ? effectiveFontSize.value : ''}
+            placeholder={effectiveFontSize.state === 'mixed'
               ? t('mindmap.topicStyle.mixed')
-              : t('mindmap.topicStyle.inherit')}
+              : undefined}
             aria-describedby="mindmap-topic-style-fontsize-unit"
             onFocus={() => {
               fontSizeEditSession.current += 1
@@ -766,17 +771,16 @@ export function MindMapTopicStyleInspector() {
         <select
           id="mindmap-topic-style-fontweight"
           className="mm-select"
-          value={fontWeight.state === 'concrete'
-            ? normalizeTopicFontWeight(fontWeight.value) ?? ''
-            : selectValue(fontWeight)}
+          value={effectiveFontWeight.state === 'concrete'
+            ? normalizeTopicFontWeight(effectiveFontWeight.value) ?? ''
+            : selectValue(effectiveFontWeight)}
           onChange={(event) => {
             if (event.currentTarget.value !== MIXED_VALUE) {
               updateStyleField('fontWeight', event.currentTarget.value || undefined)
             }
           }}
         >
-          {fontWeight.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
-          <option value="">{t('mindmap.topicStyle.inherit')}</option>
+          {effectiveFontWeight.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
           <option value="300">{t('mindmap.topicStyle.fontWeightLight')}</option>
           <option value="400">{t('mindmap.topicStyle.fontWeightRegular')}</option>
           <option value="500">{t('mindmap.topicStyle.fontWeightMedium')}</option>
@@ -892,7 +896,6 @@ export function MindMapTopicStyleInspector() {
           {effectiveTextTransform.state === 'mixed' ? (
             <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option>
           ) : null}
-          <option value="">{t('mindmap.topicStyle.inherit')}</option>
           {TEXT_TRANSFORM_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
               {t(`mindmap.topicStyle.${option.labelKey}`)}
@@ -931,7 +934,6 @@ export function MindMapTopicStyleInspector() {
           {effectiveTextAlign.state === 'mixed' ? (
             <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option>
           ) : null}
-          <option value="">{t('mindmap.topicStyle.inherit')}</option>
           {TEXT_ALIGN_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
               {t(`mindmap.topicStyle.${option.labelKey}`)}
@@ -939,10 +941,15 @@ export function MindMapTopicStyleInspector() {
           ))}
         </select>
       </div>
-      <div className="mm-row mm-row--stack">
-        <span className="mm-row__label">{t('mindmap.topicStyle.textColor')}</span>
-        {colorSwatchRow('textColor', TEXT_COLOR_PRESETS, '#333333')}
-      </div>
+      <MindMapTopicColorPicker
+        id="mindmap-topic-style-text-color"
+        label={t('mindmap.topicStyle.textColor')}
+        value={textColor}
+        displayValue={effectiveTextColor}
+        presets={TEXT_COLOR_PRESETS}
+        fallback={TOPIC_STYLE_DEFAULTS.textColor}
+        onChange={(nextColor) => updateStyleField('textColor', nextColor)}
+      />
 
       <div className="mm-subhead">{t('mindmap.topicStyle.layoutSection')}</div>
       <div className="mm-row">
@@ -952,7 +959,7 @@ export function MindMapTopicStyleInspector() {
         <select
           id="mindmap-topic-style-layout"
           className="mm-select"
-          value={selectValue(structureClass)}
+          value={selectValue(effectiveStructureClassValue)}
           onChange={(event) => {
             if (event.currentTarget.value !== MIXED_VALUE) {
               updateStyleField(
@@ -964,8 +971,7 @@ export function MindMapTopicStyleInspector() {
             }
           }}
         >
-          {structureClass.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
-          <option value="">{t('mindmap.topicStyle.inheritLayout')}</option>
+          {effectiveStructureClassValue.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
           {MIND_MAP_TOPIC_STYLE_LAYOUT_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
               {t(`mindmap.topicStyle.layouts.${option.labelKey}`)}
@@ -973,7 +979,7 @@ export function MindMapTopicStyleInspector() {
           ))}
         </select>
       </div>
-      {structureClass.state === 'mixed' ? (
+      {effectiveStructureClassValue.state === 'mixed' ? (
         <span className="mindmap-topic-style__effective">{t('mindmap.topicStyle.effectiveMixed')}</span>
       ) : effectiveStructureClass ? (
         <span className="mindmap-topic-style__effective">
@@ -996,7 +1002,7 @@ export function MindMapTopicStyleInspector() {
               value={numbering?.pattern ?? ''}
               onChange={(event) => changeNumberingPattern(event.currentTarget.value)}
             >
-              <option value="">{t('mindmap.numbering.inherit')}</option>
+              <option value="">{t('mindmap.numbering.patternNone')}</option>
               {NUMBERING_PATTERN_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {t(`mindmap.numbering.${option.labelKey}`)}
@@ -1105,11 +1111,20 @@ function topicStyleLayoutLabel(
 function findMindMapTopic(
   node: MindMapTopicV2,
   id: string,
-  depth = 0
-): { topic: MindMapTopicV2; depth: number } | null {
-  if (node.id === id) return { topic: node, depth }
-  for (const child of node.children) {
-    const found = findMindMapTopic(child, id, depth + 1)
+  inheritedStructureClass: MindMapStructureClass,
+  depth = 0,
+  branchIndex = 0
+): { topic: MindMapTopicV2; depth: number; branchIndex: number; structureClass: MindMapStructureClass } | null {
+  const structureClass = node.style?.structureClass ?? inheritedStructureClass
+  if (node.id === id) return { topic: node, depth, branchIndex, structureClass }
+  for (const [index, child] of node.children.entries()) {
+    const found = findMindMapTopic(
+      child,
+      id,
+      structureClass,
+      depth + 1,
+      depth === 0 ? index : branchIndex
+    )
     if (found) return found
   }
   return null

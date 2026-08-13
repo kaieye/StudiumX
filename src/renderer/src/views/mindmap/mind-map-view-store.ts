@@ -200,14 +200,16 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
   let mutationEpoch = 0
   let dirty = false
 
-  const revealFormatInspector = (): Pick<MindMapViewState, 'inspectorOpen' | 'inspectorTab'> => {
+  const revealInspector = (
+    tab: 'format' | 'content'
+  ): Pick<MindMapViewState, 'inspectorOpen' | 'inspectorTab'> => {
     try {
       localStorage.setItem('mindmap.inspectorOpen', 'true')
-      localStorage.setItem('mindmap.inspectorTab', 'format')
+      localStorage.setItem('mindmap.inspectorTab', tab)
     } catch {
       // localStorage may be unavailable; in-memory state still updates.
     }
-    return { inspectorOpen: true, inspectorTab: 'format' }
+    return { inspectorOpen: true, inspectorTab: tab }
   }
 
   const clearPendingPersist = (): void => {
@@ -632,7 +634,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
             selection: { kind: 'topic' as const, topicIds: [id] },
             selectedNodeId: id,
             editingNodeId: null,
-            ...revealFormatInspector()
+            ...revealInspector('content')
           }
         }
 
@@ -650,7 +652,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
           selection: { kind: 'topic', topicIds },
           selectedNodeId,
           editingNodeId: null,
-          ...revealFormatInspector()
+          ...revealInspector('content')
         }
       })
     },
@@ -660,7 +662,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         selection: { kind: 'element', elementId: id, elementType: type },
         selectedNodeId: null,
         editingNodeId: null,
-        ...revealFormatInspector()
+        ...revealInspector('content')
       })
     },
 
@@ -669,7 +671,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         selection: { kind: 'canvas' },
         selectedNodeId: null,
         editingNodeId: null,
-        ...revealFormatInspector()
+        ...revealInspector('format')
       })
     },
 

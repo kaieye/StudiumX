@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { MindMapDocumentV2, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
+import type { MindMapDocumentV2, MindMapMarker, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
+import { MARKER_DEFS } from './mind-map-marker-icons'
 import {
   computeMindMapLayout,
   type MindMapLayoutCallout,
@@ -69,6 +70,8 @@ const CALLOUT_HEIGHT = 52
 const CALLOUT_GAP = 28
 const MARKER_BADGE_SIZE = 18
 const MARKER_BADGE_GAP = 3
+/** Size of the SVG icons drawn by `mind-map-marker-icons` (their default). */
+const MARKER_ICON_SIZE = 14
 const SUMMARY_GAP = 24
 const SUMMARY_LABEL_GAP = 12
 const SUMMARY_LABEL_WIDTH = 160
@@ -155,6 +158,21 @@ function markerBadgePosition(
     x: node.x + node.width - MARKER_BADGE_SIZE / 2 - index * (MARKER_BADGE_SIZE + MARKER_BADGE_GAP),
     y: node.y + MARKER_BADGE_SIZE / 2 + 2
   }
+}
+
+const MARKER_ICON_BY_ID = new Map(MARKER_DEFS.map((def) => [def.id, def]))
+
+/**
+ * Resolve a topic marker to its concrete SVG icon.
+ *
+ * Markers picked from the markers panel store the marker id (e.g. `priority-3`,
+ * `task-done`) in both `id` and `symbol`; legacy/imported markers may carry a
+ * raw glyph (e.g. `★`) instead. Return the icon for known markers, or `null`
+ * so the caller can fall back to the generic badge+text rendering.
+ */
+function markerIconFor(marker: MindMapMarker): ReactElement | null {
+  const def = MARKER_ICON_BY_ID.get(marker.id) ?? MARKER_ICON_BY_ID.get(marker.symbol)
+  return def ? def.render() : null
 }
 
 type MindMapSummaryBracket = {
@@ -277,14 +295,27 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   // old behaviour where a single-node map was stretched to fill the viewport.
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [containerSize, setContainerSize] = useState<{ cw: number; ch: number }>({ cw: 800, ch: 600 })
+  const [hasMeasuredContainer, setHasMeasuredContainer] = useState(false)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current
     if (!el) return
+
+    const updateContainerSize = (width: number, height: number): void => {
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
+      const next = { cw: Math.max(1, width), ch: Math.max(1, height) }
+      setContainerSize((current) =>
+        current.cw === next.cw && current.ch === next.ch ? current : next
+      )
+      setHasMeasuredContainer(true)
+    }
+
+    const rect = el.getBoundingClientRect()
+    updateContainerSize(rect.width, rect.height)
+
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        const cr = entry.contentRect
-        setContainerSize({ cw: Math.max(1, cr.width), ch: Math.max(1, cr.height) })
+        updateContainerSize(entry.contentRect.width, entry.contentRect.height)
       }
     })
     ro.observe(el)
@@ -430,14 +461,14 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   // shrinks (zoom caps at 100%), so a fresh single-node map still opens at 1:1.
   const documentId = document.id
   const centeredDocRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!sheet || centeredDocRef.current === documentId) return
+  useLayoutEffect(() => {
+    if (!hasMeasuredContainer || !sheet || centeredDocRef.current === documentId) return
     if (layout.nodes.length === 0) return
     centeredDocRef.current = documentId
     const next = fitMindMapViewport(bounds, viewportSize)
     setPan(next.pan)
     setZoom(next.zoom)
-  }, [documentId, sheet, layout.nodes, bounds, viewportSize])
+  }, [documentId, hasMeasuredContainer, sheet, layout.nodes, bounds, viewportSize])
 
   useEffect(() => {
     if (!onViewportChange || zoom <= 0) return
@@ -1186,6 +1217,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 {node.markers?.map((marker, index) => {
                   const position = markerBadgePosition(node, index)
                   const markerLabel = marker.label || marker.symbol
+                  const markerIcon = markerIconFor(marker)
                   return (
                     <g
                       key={marker.id}
@@ -1194,21 +1226,31 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                       aria-label={markerLabel}
                     >
                       <title>{markerLabel}</title>
-                      <circle
-                        className="mindmap-node-marker-badge"
-                        cx={position.x}
-                        cy={position.y}
-                        r={MARKER_BADGE_SIZE / 2}
-                      />
-                      <text
-                        className="mindmap-node-marker-symbol"
-                        x={position.x}
-                        y={position.y}
-                        textAnchor="middle"
-                        dominantBaseline="central"
-                      >
-                        {marker.symbol}
-                      </text>
+                      {markerIcon ? (
+                        <g
+                          transform={`translate(${position.x - MARKER_ICON_SIZE / 2}, ${position.y - MARKER_ICON_SIZE / 2})`}
+                        >
+                          {markerIcon}
+                        </g>
+                      ) : (
+                        <>
+                          <circle
+                            className="mindmap-node-marker-badge"
+                            cx={position.x}
+                            cy={position.y}
+                            r={MARKER_BADGE_SIZE / 2}
+                          />
+                          <text
+                            className="mindmap-node-marker-symbol"
+                            x={position.x}
+                            y={position.y}
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                          >
+                            {marker.symbol}
+                          </text>
+                        </>
+                      )}
                     </g>
                   )
                 })}

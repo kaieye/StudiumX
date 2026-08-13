@@ -130,13 +130,35 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+function chooseTopicStyleMenuOption(menuLabel: string, optionLabel: string): void {
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${menuLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} `) }))
+  const dialog = screen.getByRole('dialog', { name: menuLabel })
+  fireEvent.click(within(dialog).getByRole('option', { name: optionLabel }))
+}
+
 describe('MindMapTopicStyleInspector', () => {
-  it('shows inherited sheet layout for the selected topic', () => {
+  it('shows the effective sheet layout for the selected topic', () => {
     render(<MindMapTopicStyleInspector />)
 
     expect(screen.getByText('Topic style')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Topic layout' })).toHaveValue('')
+    expect(screen.getByRole('combobox', { name: 'Topic layout' })).toHaveValue('org.xmind.ui.logic.right')
     expect(screen.getByText('Effective layout: Right')).toBeInTheDocument()
+  })
+
+  it('shows concrete defaults instead of source labels when a topic has no local setting', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.sheets[0]!.root.style = undefined
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+    render(<MindMapTopicStyleInspector />)
+
+    expect(screen.getByRole('button', { name: 'Shape Rounded Rect' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Fill Pattern Solid' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Fill Color #FFFFFF' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Border Style Solid' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Node width' })).toHaveValue('auto')
+    expect(screen.getByRole('combobox', { name: 'Font Weight' })).toHaveValue('600')
+    expect(screen.getByRole('spinbutton', { name: 'Font Size' })).toHaveValue(26)
   })
 
   it('sets a fixed width atomically, reflows the layout, and resets to auto', () => {
@@ -189,7 +211,7 @@ describe('MindMapTopicStyleInspector', () => {
       stroke: '#111111',
       fontWeight: '600'
     })
-    expect(select).toHaveValue('')
+    expect(select).toHaveValue('org.xmind.ui.logic.right')
 
     act(() => {
       useMindMapViewStore.getState().undo()
@@ -214,13 +236,9 @@ describe('MindMapTopicStyleInspector', () => {
     expect(screen.getByRole('combobox', { name: 'Font Weight' })).toHaveValue('__mixed__')
     expect(screen.getByRole('combobox', { name: 'Topic layout' })).toHaveValue('__mixed__')
     expect(screen.getAllByRole('option', { name: 'Mixed' }).length).toBeGreaterThanOrEqual(2)
-    expect(screen.getAllByRole('button', { name: '#4A90D9' })).toEqual(
-      expect.arrayContaining([expect.objectContaining({})])
-    )
-    expect(screen.getAllByRole('button', { name: '#4A90D9' })).toHaveLength(3)
-    for (const swatch of screen.getAllByRole('button', { name: '#4A90D9' })) {
-      expect(swatch).toHaveAttribute('aria-pressed', 'false')
-    }
+    expect(screen.getByRole('button', { name: 'Fill Color Mixed' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'Border Color Mixed' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('dialog', { name: 'Fill Color' })).not.toBeInTheDocument()
   })
 
   it('updates one field across selected topics as one undo unit and preserves unrelated fields', async () => {
@@ -230,9 +248,7 @@ describe('MindMapTopicStyleInspector', () => {
     })
     render(<MindMapTopicStyleInspector />)
 
-    const fillRow = screen.getByText('Fill Color').closest('.mm-row')
-    if (!fillRow) throw new Error('expected fill row')
-    fireEvent.click(fillRow.querySelector<HTMLButtonElement>('[aria-label="#4A90D9"]')!)
+    chooseTopicStyleMenuOption('Fill Color', '#4A90D9')
 
     let root = useMindMapViewStore.getState().current?.sheets[0]?.root
     let child = root?.children[0]
@@ -300,10 +316,8 @@ describe('MindMapTopicStyleInspector', () => {
   it('updates border pattern and width with undo, redo, and revisioned persistence', async () => {
     render(<MindMapTopicStyleInspector />)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Border Style' }), {
-      target: { value: 'dash' }
-    })
-    fireEvent.click(within(screen.getByRole('group', { name: 'Border Width' })).getByRole('button', { name: '5' }))
+    chooseTopicStyleMenuOption('Border Style', 'Dash')
+    chooseTopicStyleMenuOption('Border Width', '5')
 
     let style = useMindMapViewStore.getState().current?.sheets[0]?.root.style
     expect(style).toEqual({
@@ -346,26 +360,33 @@ describe('MindMapTopicStyleInspector', () => {
     useMindMapViewStore.setState({ current: structuredClone(current) })
     render(<MindMapTopicStyleInspector />)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Border Style' }), {
-      target: { value: 'none' }
-    })
+    chooseTopicStyleMenuOption('Border Style', 'None')
 
-    const borderColorRow = screen.getByText('Border Color').closest('.mm-row')
-    if (!borderColorRow) throw new Error('expected border color row')
-    const borderColorField = borderColorRow.querySelector('fieldset')
-    if (!borderColorField) throw new Error('expected border color fieldset')
-    expect(borderColorField).toBeDisabled()
-    expect(within(borderColorField).getByRole('button', { name: '#4A90D9' })).toBeDisabled()
-    expect(screen.getByRole('group', { name: 'Border Width' })).toBeDisabled()
-    for (const button of within(screen.getByRole('group', { name: 'Border Width' })).getAllByRole('button')) {
-      expect(button).toBeDisabled()
-    }
+    expect(screen.getByRole('button', { name: /^Border Color / })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^Border Width / })).toBeDisabled()
     expect(screen.getByText('Border color and width are unavailable while border style is None.')).toBeInTheDocument()
     expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style).toMatchObject({
       stroke: '#111111',
       borderStyle: 'none',
       borderWidth: 3
     })
+  })
+
+  it('keeps a valid imported border width visible instead of treating it as inheritance', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.sheets[0]!.root.style = {
+      ...current.sheets[0]!.root.style,
+      borderWidth: 0.75
+    }
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+    render(<MindMapTopicStyleInspector />)
+
+    const trigger = screen.getByRole('button', { name: 'Border Width 0.75' })
+    fireEvent.click(trigger)
+    expect(within(screen.getByRole('dialog', { name: 'Border Width' })).getByRole('option', { name: '0.75' }))
+      .toHaveAttribute('aria-selected', 'true')
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style?.borderWidth).toBe(0.75)
   })
 
   it('restores retained border color and width after switching None back to Solid', () => {
@@ -379,13 +400,9 @@ describe('MindMapTopicStyleInspector', () => {
     useMindMapViewStore.setState({ current: structuredClone(current) })
     render(<MindMapTopicStyleInspector />)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Border Style' }), {
-      target: { value: 'solid' }
-    })
+    chooseTopicStyleMenuOption('Border Style', 'Solid')
 
-    expect(screen.getByRole('group', { name: 'Border Width' })).not.toBeDisabled()
-    expect(within(screen.getByRole('group', { name: 'Border Width' })).getByRole('button', { name: '3' }))
-      .toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Border Width 3' })).not.toBeDisabled()
     expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style).toMatchObject({
       stroke: '#111111',
       borderStyle: 'solid',
@@ -413,9 +430,8 @@ describe('MindMapTopicStyleInspector', () => {
     })
     render(<MindMapTopicStyleInspector />)
 
-    const select = screen.getByRole('combobox', { name: 'Border Style' })
-    expect(select).toHaveValue('__mixed__')
-    fireEvent.change(select, { target: { value: 'hand-drawn-dash' } })
+    expect(screen.getByRole('button', { name: 'Border Style Mixed' })).toHaveAttribute('aria-expanded', 'false')
+    chooseTopicStyleMenuOption('Border Style', 'Hand-drawn Dash')
 
     const root = useMindMapViewStore.getState().current?.sheets[0]?.root
     expect(root?.style).toMatchObject({
@@ -430,7 +446,7 @@ describe('MindMapTopicStyleInspector', () => {
     })
   })
 
-  it('keeps inherited None visible as inheritance while gating dependent fields', () => {
+  it('shows the effective None border style while gating dependent fields', () => {
     const current = useMindMapViewStore.getState().current
     if (!current) throw new Error('expected current document')
     current.theme = {
@@ -443,13 +459,12 @@ describe('MindMapTopicStyleInspector', () => {
     useMindMapViewStore.setState({ current: structuredClone(current) })
     render(<MindMapTopicStyleInspector />)
 
-    const select = screen.getByRole('combobox', { name: 'Border Style' })
-    expect(select).toHaveValue('')
-    expect(screen.getByRole('group', { name: 'Border Width' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Border Style None' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: /^Border Width / })).toBeDisabled()
 
-    fireEvent.change(select, { target: { value: 'solid' } })
+    chooseTopicStyleMenuOption('Border Style', 'Solid')
     expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style?.borderStyle).toBe('solid')
-    expect(screen.getByRole('group', { name: 'Border Width' })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /^Border Width / })).not.toBeDisabled()
   })
 
   it('toggles bold and italic independently as persisted topic style fields', async () => {
@@ -828,9 +843,8 @@ describe('MindMapTopicStyleInspector', () => {
     })
     render(<MindMapTopicStyleInspector />)
 
-    const fillRow = screen.getByText('Fill Color').closest('.mm-row')
-    if (!fillRow) throw new Error('expected fill row')
-    fireEvent.click(fillRow.querySelector<HTMLButtonElement>('.mindmap-topic-style__clear')!)
+    fireEvent.click(screen.getByRole('button', { name: /^Fill Color / }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Fill Color' })).getByRole('button', { name: 'Clear field override' }))
 
     const root = useMindMapViewStore.getState().current?.sheets[0]?.root
     const child = root?.children[0]
@@ -871,7 +885,7 @@ describe('MindMapTopicStyleInspector', () => {
   it('selects a new topic shape and persists it as a revisioned undoable change', async () => {
     render(<MindMapTopicStyleInspector />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Shape Inherit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Shape Rounded Rect' }))
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Choose shape' })).getByRole('option', { name: 'Heart' }))
 
     const root = useMindMapViewStore.getState().current?.sheets[0]?.root
@@ -895,9 +909,7 @@ describe('MindMapTopicStyleInspector', () => {
   it('selects a fill pattern and persists it as a revisioned undoable change', async () => {
     render(<MindMapTopicStyleInspector />)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Fill Pattern' }), {
-      target: { value: 'hand-drawn' }
-    })
+    chooseTopicStyleMenuOption('Fill Pattern', 'Hand-drawn')
     expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style?.fillPattern).toBe('hand-drawn')
 
     act(() => useMindMapViewStore.getState().undo())

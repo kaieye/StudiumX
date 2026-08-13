@@ -156,42 +156,19 @@ describe('MindMapThemePanel', () => {
 
     expect(useMindMapViewStore.getState().current?.theme).toEqual(makeDocument().theme)
   })
-  it('shows a non-blocking readability warning for unsafe resolved topic colors without dispatching a change', () => {
-    const dispatch = vi.spyOn(useMindMapViewStore.getState(), 'dispatchCommand')
-    render(<MindMapThemePanel />)
-
-    expect(screen.getByRole('status', { name: 'Color readability warning' })).toHaveTextContent(
-      'Some topic text may be hard to read'
-    )
-    expect(screen.getByRole('checkbox', { name: 'Rainbow branches' })).toBeEnabled()
-    expect(dispatch).not.toHaveBeenCalled()
-  })
-
-  it('does not show a readability warning when all resolved topic text pairs are high contrast', () => {
-    const current = useMindMapViewStore.getState().current
-    if (!current) throw new Error('expected current document')
-    current.theme = {
-      ...current.theme,
-      textColor: '#FFFFFF',
-      rainbowBranches: false,
-      lineColor: '#24324A',
-      topicStyles: {
-        central: { fill: '#24324A', textColor: '#FFFFFF' },
-        main: { fill: '#24324A', textColor: '#FFFFFF' },
-        sub: { fill: '#24324A', textColor: '#FFFFFF' }
-      }
-    }
-    useMindMapViewStore.setState({ current: structuredClone(current) })
-
+  it('does not render a readability warning for low-contrast theme colors', () => {
     render(<MindMapThemePanel />)
 
     expect(screen.queryByRole('status', { name: 'Color readability warning' })).not.toBeInTheDocument()
   })
 
-  it('preserves palette and single-line color while switching branch modes', () => {
+  it('shows the single-line color editor only when rainbow branches is off', () => {
     render(<MindMapThemePanel />)
 
     const toggle = screen.getByRole('checkbox', { name: 'Rainbow branches' })
+    // Rainbow mode (default) no longer duplicates the color scheme picker.
+    expect(screen.queryByLabelText('Branch palette')).not.toBeInTheDocument()
+
     fireEvent.click(toggle)
 
     const lineHex = screen.getByRole('textbox', { name: 'Branch line HEX' })
@@ -204,14 +181,11 @@ describe('MindMapThemePanel', () => {
     })
 
     fireEvent.click(toggle)
-    fireEvent.change(screen.getByLabelText('Branch palette'), { target: { value: 'fire' } })
-    fireEvent.click(toggle)
-
-    const theme = useMindMapViewStore.getState().current?.theme
-    expect(theme?.rainbowBranches).toBe(false)
-    expect(theme?.lineColor).toBe('#123456')
-    expect(theme?.colorSchemeId).toBe('fire')
-    expect(theme?.branchColors).toHaveLength(6)
+    expect(useMindMapViewStore.getState().current?.theme).toMatchObject({
+      rainbowBranches: true,
+      lineColor: '#123456'
+    })
+    expect(screen.queryByLabelText('Branch palette')).not.toBeInTheDocument()
   })
 
   it('keeps an imported document font visible and warns only that it may fall back', () => {
@@ -253,7 +227,6 @@ describe('MindMapThemePanel', () => {
     fireEvent.keyDown(backgroundHex, { key: 'Enter' })
 
     expect(useMindMapViewStore.getState().current?.theme.background).toBe('#10182780')
-    expect(screen.getByRole('status', { name: 'Color readability warning' })).toBeInTheDocument()
   })
 
   it('alpha slider converts the background to 8-digit hex with the new alpha', () => {

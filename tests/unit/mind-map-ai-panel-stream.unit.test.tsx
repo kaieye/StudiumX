@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../src/renderer/src/i18n'
@@ -100,46 +100,6 @@ function proposalResult(): MindMapProposalGenerateResult {
   }
 }
 
-function selectedFileProposalResult(): MindMapProposalGenerateResult {
-  const result = proposalResult()
-  return {
-    ...result,
-    request: {
-      ...result.request,
-      scope: 'selected-file',
-      selectedFile: {
-        id: 'selected-file:canonical',
-        workspacePath: 'reference/context.md',
-        contentHash: 'canonical-hash'
-      }
-    },
-    proposal: {
-      ...result.proposal,
-      scope: 'selected-file'
-    }
-  }
-}
-
-function notesProposalResult(): MindMapProposalGenerateResult {
-  const result = proposalResult()
-  return {
-    ...result,
-    request: {
-      ...result.request,
-      scope: 'notes',
-      notes: {
-        id: 'notes:canonical',
-        workspacePath: 'NOTES.md',
-        contentHash: 'canonical-hash'
-      }
-    },
-    proposal: {
-      ...result.proposal,
-      scope: 'notes'
-    }
-  }
-}
-
 function appliedProposalResult(): MindMapProposalApplyResult {
   const document = generatedDocument()
   return {
@@ -228,7 +188,7 @@ describe('MindMapAiPanel streaming preview', () => {
     vi.restoreAllMocks()
   })
 
-  it('switches Format content by selection and keeps notes and markers in Content', async () => {
+  it('keeps canvas-wide options in Format and merges module style into Content', async () => {
     const user = userEvent.setup()
     const current = generatedDocument()
     current.sheets[0]!.elements = [
@@ -251,26 +211,31 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(screen.queryByRole('tab', { name: 'Canvas' })).not.toBeInTheDocument()
     expect(screen.getByText('Canvas options')).toBeInTheDocument()
 
+    // Selecting a topic reveals the Content tab, where its style now lives
+    // alongside notes and markers.
     act(() => useMindMapViewStore.getState().selectTopic('root'))
+    expect(screen.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('Topic style')).toBeInTheDocument()
     expect(screen.queryByText('Canvas options')).not.toBeInTheDocument()
-    expect(container.querySelector('#mindmap-inspector-notes')).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('tab', { name: 'Content' }))
     expect(container.querySelector('#mindmap-inspector-notes')).toBeInTheDocument()
     expect(container.querySelector('#mindmap-inspector-markers')).toBeInTheDocument()
+
+    // The Format tab keeps only the canvas-wide controls for any selection.
+    await user.click(screen.getByRole('tab', { name: 'Format' }))
+    expect(screen.getByText('Canvas options')).toBeInTheDocument()
     expect(screen.queryByText('Topic style')).not.toBeInTheDocument()
 
+    // Selecting an element also lands on Content with its style inspector.
     act(() => useMindMapViewStore.getState().selectElement('relationship-1', 'relationship'))
-    expect(screen.getByRole('tab', { name: 'Format' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    expect(screen.getAllByText('Relationship')).toHaveLength(2)
+    expect(screen.getByText('Relationship')).toBeInTheDocument()
     expect(screen.getByText('Element style')).toBeInTheDocument()
   })
 
   it('renders correlated provider deltas and ignores stale generation events', async () => {
     const user = userEvent.setup()
-    render(<MindMapAiPanel open onToggle={() => {}} />)
+    const { container } = render(<MindMapAiPanel open onToggle={() => {}} />)
     await user.click(screen.getByRole('tab', { name: /AI$/ }))
 
     await user.click(screen.getByRole('button', { name: 'Generate' }))
@@ -284,10 +249,87 @@ describe('MindMapAiPanel streaming preview', () => {
       chunkHandler?.({ generationId, delta: '[]}' })
     })
 
+    expect(within(screen.getByRole('log')).getByText('Build a study map')).toBeInTheDocument()
     expect(screen.getByText('{"sheets":[]}')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveAttribute('data-stream-step', 'streaming')
+    expect(container.querySelector('[data-stream-step="streaming"]')).toBeInTheDocument()
+    expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'off')
 
     act(() => resolveGeneration?.(generatedDocument()))
+  })
+
+  it('uses a conversation thread with a bottom composer and supports Enter to send', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+
+    const conversation = container.querySelector('.mindmap-ai-panel__conversation')
+    const thread = container.querySelector('.mindmap-ai-panel__thread')
+    const composer = container.querySelector('.mindmap-ai-panel__composer')
+    expect(conversation).toContainElement(thread)
+    expect(conversation).toContainElement(composer)
+    expect(thread?.compareDocumentPosition(composer!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+
+    const prompt = screen.getByLabelText('Topic or prompt')
+    await user.clear(prompt)
+    await user.type(prompt, 'Map the Krebs cycle{enter}')
+
+    expect(api.generateMindMap).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: 'workspace-1',
+      prompt: 'Map the Krebs cycle'
+    }))
+    expect(within(screen.getByRole('log')).getByText('Map the Krebs cycle')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+  })
+
+  it('retries the prompt from the failed conversation turn', async () => {
+    const user = userEvent.setup()
+    api.generateMindMap = vi.fn()
+      .mockRejectedValueOnce(new Error('Provider unavailable'))
+      .mockImplementationOnce(() => new Promise<MindMapDocumentV2>(() => undefined))
+
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(api.generateMindMap).toHaveBeenLastCalledWith(expect.objectContaining({
+      prompt: 'Build a study map'
+    }))
+    expect(screen.getByLabelText('Topic or prompt')).toHaveValue('')
+  })
+
+  it('keeps a shared generation error visible after the panel remounts', async () => {
+    useMindMapViewStore.setState({ error: 'Provider unavailable' })
+    const { unmount } = render(<MindMapAiPanel open onToggle={() => {}} />)
+    await userEvent.click(screen.getByRole('tab', { name: /AI$/ }))
+    unmount()
+
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await userEvent.click(screen.getByRole('tab', { name: /AI$/ }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Provider unavailable')
+  })
+
+  it('keeps the draft prompt when there is no active workspace', async () => {
+    const user = userEvent.setup()
+    useAppStore.setState({
+      appState: {
+        ...originalAppState.appState,
+        activeWorkspace: null
+      }
+    })
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+
+    const prompt = screen.getByLabelText('Topic or prompt')
+    await user.clear(prompt)
+    await user.type(prompt, 'Keep this prompt')
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+
+    expect(prompt).toHaveValue('Keep this prompt')
+    expect(api.generateMindMap).not.toHaveBeenCalled()
   })
 
   it('cancels the generation lease while retaining the received preview text', async () => {
@@ -306,10 +348,11 @@ describe('MindMapAiPanel streaming preview', () => {
       generationId
     })
     expect(useMindMapViewStore.getState().generating).toBe(false)
+    expect(useMindMapViewStore.getState().aiPrompt).toBe('Build a study map')
     expect(screen.getByText('partial JSON')).toBeInTheDocument()
   })
 
-  it('generates a read-only proposal, submits only explicit decisions, and adopts the host result', async () => {
+  it('edits the current canvas directly and adopts the host result without review', async () => {
     const user = userEvent.setup()
     const current = generatedDocument()
     const proposal = proposalResult()
@@ -328,10 +371,9 @@ describe('MindMapAiPanel streaming preview', () => {
     render(<MindMapAiPanel open onToggle={() => {}} />)
     await user.click(screen.getByRole('tab', { name: /AI$/ }))
 
-    await user.click(screen.getByRole('button', { name: 'Preview request' }))
-    await user.click(screen.getByRole('button', { name: 'Generate proposal' }))
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
 
-    expect(generateMindMapProposal).toHaveBeenCalledWith({
+    expect(generateMindMapProposal).toHaveBeenCalledWith(expect.objectContaining({
       workspaceId: 'workspace-1',
       id: 'generated',
       scope: 'sheet',
@@ -339,26 +381,20 @@ describe('MindMapAiPanel streaming preview', () => {
       selectedTopicIds: [],
       sourceRefs: [],
       prompt: 'Build a study map'
-    })
-    expect(screen.getByText('Proposal item 1')).toBeInTheDocument()
-    expect(screen.getByText('Proposal item 2')).toBeInTheDocument()
-
-    const acceptButtons = screen.getAllByRole('button', { name: 'Accept item' })
-    await user.click(acceptButtons[0]!)
-    await user.click(screen.getByRole('button', { name: 'Apply reviewed changes' }))
-
+    }))
     expect(applyMindMapProposal).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       id: 'generated',
       expectedRevision: 1,
       proposal: proposal.proposal,
-      decisions: { 'rename-document': 'accept' }
+      decisions: { 'rename-document': 'accept', 'rename-sheet': 'accept' }
     })
     await waitFor(() => expect(useMindMapViewStore.getState().current).toEqual(applied.document))
-    expect(screen.getByText(/Applied 1 item/)).toBeInTheDocument()
+    expect(screen.queryByText('Proposal item 1')).not.toBeInTheDocument()
+    expect(screen.queryByText('Request scope')).not.toBeInTheDocument()
   })
 
-  it('reports a stale proposal without adopting a newer host document', async () => {
+  it('reports a stale auto-applied proposal without adopting a newer host document', async () => {
     const user = userEvent.setup()
     const current = generatedDocument()
     const proposal = proposalResult()
@@ -379,88 +415,11 @@ describe('MindMapAiPanel streaming preview', () => {
     render(<MindMapAiPanel open onToggle={() => {}} />)
     await user.click(screen.getByRole('tab', { name: /AI$/ }))
 
-    await user.click(screen.getByRole('button', { name: 'Preview request' }))
-    await user.click(screen.getByRole('button', { name: 'Generate proposal' }))
-    await user.click(screen.getAllByRole('button', { name: 'Accept item' })[0]!)
-    await user.click(screen.getByRole('button', { name: 'Apply reviewed changes' }))
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
 
     expect(applyMindMapProposal).toHaveBeenCalledTimes(1)
     expect(useMindMapViewStore.getState().current).toBe(current)
     expect(screen.getByText(/expected revision 1/)).toBeInTheDocument()
-  })
-
-  it('previews and submits the explicitly selected workspace file scope', async () => {
-    const user = userEvent.setup()
-    const current = generatedDocument()
-    const proposal = selectedFileProposalResult()
-    const generateMindMapProposal = vi.fn(async () => proposal)
-    api.generateMindMapProposal = generateMindMapProposal
-    useAppStore.setState({
-      selectedMarkdownDocument: {
-        title: 'Reference context',
-        relativePath: 'reference/context.md',
-        absolutePath: '/workspace/reference/context.md',
-        content: '# Context',
-        updatedAt: null
-      }
-    })
-    useMindMapViewStore.setState({
-      current,
-      selectedNodeId: null,
-      activeSheetId: 'sheet-1'
-    })
-
-    render(<MindMapAiPanel open onToggle={() => {}} />)
-    await user.click(screen.getByRole('tab', { name: /AI$/ }))
-
-    await user.selectOptions(screen.getByLabelText('Request scope'), 'selected-file')
-    expect(screen.getByText('Using selected file: reference/context.md')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Preview request' }))
-    await user.click(screen.getByRole('button', { name: 'Generate proposal' }))
-
-    expect(generateMindMapProposal).toHaveBeenCalledWith({
-      workspaceId: 'workspace-1',
-      id: 'generated',
-      scope: 'selected-file',
-      sheetId: 'sheet-1',
-      selectedTopicIds: [],
-      sourceRefs: [],
-      selectedFile: { workspacePath: 'reference/context.md' },
-      prompt: 'Build a study map'
-    })
-  })
-
-  it('previews and submits the canonical workspace Notes scope', async () => {
-    const user = userEvent.setup()
-    const current = generatedDocument()
-    const proposal = notesProposalResult()
-    const generateMindMapProposal = vi.fn(async () => proposal)
-    api.generateMindMapProposal = generateMindMapProposal
-    useMindMapViewStore.setState({
-      current,
-      selectedNodeId: null,
-      activeSheetId: 'sheet-1'
-    })
-
-    render(<MindMapAiPanel open onToggle={() => {}} />)
-    await user.click(screen.getByRole('tab', { name: /AI$/ }))
-
-    await user.selectOptions(screen.getByLabelText('Request scope'), 'notes')
-    expect(
-      screen.getByText('Using the canonical workspace NOTES.md as read-only context')
-    ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Preview request' }))
-    await user.click(screen.getByRole('button', { name: 'Generate proposal' }))
-
-    expect(generateMindMapProposal).toHaveBeenCalledWith({
-      workspaceId: 'workspace-1',
-      id: 'generated',
-      scope: 'notes',
-      sheetId: 'sheet-1',
-      selectedTopicIds: [],
-      sourceRefs: [],
-      prompt: 'Build a study map'
-    })
   })
 
 })

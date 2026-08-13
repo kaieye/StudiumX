@@ -655,7 +655,8 @@ export function MindMapView() {
     void closeDocument()
   }
 
-  // Markers and notes live in the inspector's content tab, separate from visual format.
+  // Markers and notes live with the selected topic's style in the inspector's
+  // content tab; the format tab holds whole-canvas controls only.
   const openInspectorSection = (section: 'markers' | 'notes'): void => {
     setUtilityPanel(null)
     if (!inspectorOpen) toggleInspector()
