@@ -54,7 +54,8 @@ function mapTopic(topic: MindMapNode): MindMapTopicV2 {
     ...(topic.assetIds !== undefined ? { assetIds: [...topic.assetIds] } : {}),
     ...(topic.structureClass !== undefined
       ? { style: { structureClass: topic.structureClass } }
-      : {})
+      : {}),
+    ...(topic.numbering !== undefined ? { numbering: { ...topic.numbering } } : {})
   }
 }
 

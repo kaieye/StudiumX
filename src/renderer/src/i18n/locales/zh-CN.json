@@ -2047,6 +2047,7 @@
         "connectorDefault": "结构默认",
         "connectorOverride": "画布覆盖",
         "resetConnector": "使用结构默认",
+        "resetField": "使用结构默认",
         "brace": "括号",
         "timeline": "时间轴",
         "fishbone": "鱼骨",
@@ -2487,7 +2488,12 @@
         "slate": "冷灰",
         "warm": "暖纸",
         "mint": "薄荷"
-      }
+      },
+      "alpha": "不透明度",
+      "alphaLabel": "背景不透明度",
+      "recentColors": "最近颜色",
+      "recentColor": "最近颜色 {color}",
+      "clearRecent": "清除最近颜色"
     },
     "untitledTopic": "未命名主题",
     "collapseTopic": "折叠 {{title}}",
@@ -2724,7 +2730,30 @@
       "vintage": "复古",
       "fire": "壁炉",
       "deepSea": "海洋",
-      "greenTea": "绿茶"
+      "greenTea": "绿茶",
+      "recent": "最近",
+      "favorites": "收藏",
+      "newScheme": "新建配色方案",
+      "customBadge": "自定义",
+      "favorite": "收藏 {{name}}",
+      "unfavorite": "取消收藏 {{name}}",
+      "editAria": "编辑 {{name}}",
+      "applyRecent": "应用 {{name}}",
+      "editorTitle": "编辑配色方案",
+      "newTitle": "新建配色方案",
+      "editTitle": "编辑配色方案",
+      "nameLabel": "名称",
+      "namePlaceholder": "输入方案名称",
+      "paletteLabel": "调色板",
+      "previewLabel": "预览",
+      "colorWell": "颜色 {{number}}",
+      "hexLabel": "颜色 {{number}} 十六进制",
+      "save": "保存",
+      "cancel": "取消",
+      "deleteScheme": "删除方案",
+      "readabilityHint": "部分颜色与白色文本对比度低于 4.5（最低约 {{ratio}}），仅供参考。",
+      "readabilityOk": "当前调色板与白色文本对比度良好。",
+      "duplicateAria": "复制 {{name}}"
     },
     "colorSchemeTitle": "配色方案",
     "rainbowBranches": "彩虹分支",
@@ -2802,7 +2831,29 @@
         "waves": "波浪",
         "tension": "张力",
         "bracket": "括号"
-      }
+      },
+      "stateInherited": "继承",
+      "mixed": "混合"
+    },
+    "numbering": {
+      "title": "编号",
+      "pattern": "编号格式",
+      "patternNone": "无",
+      "patternArabic": "1. 2. 3.",
+      "patternUppercase": "A. B. C.",
+      "patternLowercase": "a. b. c.",
+      "patternRoman": "I. II. III.",
+      "tiered": "分级编号",
+      "tieredHint": "编号包含完整层级，如 2.1.3。",
+      "restart": "从此主题重新编号",
+      "restartHint": "子主题从该主题开始重新编号。",
+      "restartAt": "起始数字",
+      "inherit": "继承",
+      "appliedToChildren": "编号应用于该主题的子主题。",
+      "mixed": "混合",
+      "applyToSiblings": "将编号应用到同级主题",
+      "on": "开",
+      "off": "关"
     }
   }
 }

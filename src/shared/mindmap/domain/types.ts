@@ -188,6 +188,30 @@ export type MindMapTopicV2 = {
   style?: MindMapTopicStyleOverride
   /** Manual (free) position override for the topic. */
   manualPosition?: MindMapPoint
+  /**
+   * Topic numbering (XMind "Numbering"). Applies to this topic's children.
+   * The topic itself is numbered by its parent's/ancestor's rule, not its own.
+   */
+  numbering?: MindMapTopicNumbering
+}
+
+/** Number pattern for a topic's children, mirroring XMind numbering tokens. */
+export type MindMapNumberingPattern = 'none' | 'arabic' | 'uppercase' | 'lowercase' | 'roman'
+
+/**
+ * Topic numbering metadata (XMind "Numbering").
+ *
+ * A topic with `pattern` set enables numbering for its children; `none`
+ * cancels inherited numbering for descendants. `tiered` prepends ancestor
+ * numbers (2.1.3.); `restartAt` restarts children at a custom index.
+ */
+export type MindMapTopicNumbering = {
+  /** Number pattern applied to this topic's children. `none` cancels inherited numbering. */
+  pattern?: MindMapNumberingPattern
+  /** When true, child numbers include the full ancestor chain (2.1.3.). */
+  tiered?: boolean
+  /** Restart numbering for this topic's children at this index (default 1). */
+  restartAt?: number
 }
 
 /** Shared fields for every element in a sheet's `elements` collection. */

@@ -318,6 +318,125 @@ describe('applyMindMapCommand — elements', () => {
   })
 })
 
+describe('applyMindMapCommand — topic numbering', () => {
+  it('applies a numbering patch and the inverse clears it', () => {
+    const doc = makeDocument()
+    const result = applyMindMapCommand(doc, {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { numbering: { pattern: 'arabic', tiered: true, restartAt: 3 } }
+    })
+    expectOk(result)
+    expect(result.document.sheets[0]!.root.children[0]!.numbering).toEqual({
+      pattern: 'arabic',
+      tiered: true,
+      restartAt: 3
+    })
+    expectInvariants(result.document)
+
+    const undone = applyMindMapCommand(result.document, result.inverse)
+    expectOk(undone)
+    expect(undone.document.sheets[0]!.root.children[0]!.numbering).toBeUndefined()
+    expect(undone.document).toEqual(doc)
+  })
+
+  it('updates an existing numbering and undo restores the previous value', () => {
+    const doc = makeDocument()
+    const first = applyMindMapCommand(doc, {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { numbering: { pattern: 'arabic' } }
+    })
+    expectOk(first)
+
+    const second = applyMindMapCommand(first.document, {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { numbering: { pattern: 'roman', tiered: true } }
+    })
+    expectOk(second)
+    expect(second.document.sheets[0]!.root.children[0]!.numbering).toEqual({
+      pattern: 'roman',
+      tiered: true
+    })
+
+    const undone = applyMindMapCommand(second.document, second.inverse)
+    expectOk(undone)
+    expect(undone.document.sheets[0]!.root.children[0]!.numbering).toEqual({
+      pattern: 'arabic'
+    })
+  })
+
+  it('clears numbering with a null patch', () => {
+    const doc = makeDocument()
+    const set = applyMindMapCommand(doc, {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { numbering: { pattern: 'uppercase' } }
+    })
+    expectOk(set)
+    const cleared = applyMindMapCommand(set.document, {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { numbering: null }
+    })
+    expectOk(cleared)
+    expect(cleared.document.sheets[0]!.root.children[0]!.numbering).toBeUndefined()
+    expect(cleared.inverse).toEqual({
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { numbering: { pattern: 'uppercase' } }
+    })
+  })
+
+  it('rejects an invalid numbering pattern with INVALID_NUMBERING', () => {
+    const result = applyMindMapCommand(makeDocument(), {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { numbering: { pattern: 'hexadecimal' as never } }
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('INVALID_NUMBERING')
+  })
+
+  it('rejects out-of-range or non-integer restartAt values', () => {
+    const doc = makeDocument()
+    const cases = [
+      { pattern: 'arabic', restartAt: 0 },
+      { pattern: 'arabic', restartAt: 10000 },
+      { pattern: 'arabic', restartAt: 2.5 },
+      { pattern: 'arabic', restartAt: Number.NaN }
+    ]
+    for (const numbering of cases) {
+      const result = applyMindMapCommand(doc, {
+        type: 'topic.update',
+        sheetId: 'sheet-1',
+        topicId: 'a',
+        patch: { numbering }
+      })
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.error.code).toBe('INVALID_NUMBERING')
+    }
+  })
+
+  it('accepts a valid restartAt at the schema bounds', () => {
+    const result = applyMindMapCommand(makeDocument(), {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { numbering: { pattern: 'arabic', restartAt: 9999 } }
+    })
+    expectOk(result)
+  })
+})
+
 describe('applyMindMapCommand — selection style', () => {
   it('sets style on multiple selected topics and undo restores each', () => {
     const doc = makeDocument()

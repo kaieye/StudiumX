@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
@@ -13,8 +14,14 @@ import {
   getElementInspectorFieldCapability,
   type MindMapElementInspectorField
 } from './mind-map-inspector-capabilities'
+import {
+  resolveElementStyleField,
+  type InspectorValue
+} from './mind-map-inspector-values'
 
 export { ELEMENT_STYLE_CAPABILITIES } from './mind-map-inspector-capabilities'
+
+const MIXED_VALUE = '__mixed__'
 
 const FONT_OPTIONS = [
   { value: '', key: 'inherit' },
@@ -51,9 +58,47 @@ export const MIND_MAP_ELEMENT_OUTLINE_SHAPES: readonly MindMapElementOutlineShap
   'scallops', 'waves', 'tension', 'bracket'
 ] as const
 
+// Fallback values shown while a field is inherited (unspecified) so controls
+// stay usable without inventing a persisted override.
+const FALLBACK = {
+  stroke: '#438EFF',
+  fill: '#FFFFFF',
+  textColor: '#333333',
+  strokeWidth: 1.5,
+  fontSize: 11
+} as const
+
+// Inline styles keep the ✕ reset affordance on the same row as its control;
+// the style inspector has no dedicated CSS for element clear buttons.
+const ROW_STYLE: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6
+}
+const CLEAR_BUTTON_STYLE: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 20,
+  height: 20,
+  padding: 0,
+  fontSize: 11,
+  lineHeight: 1,
+  color: 'var(--text-faint)',
+  background: 'none',
+  border: '1px solid var(--line-muted)',
+  borderRadius: 4,
+  cursor: 'pointer',
+  flexShrink: 0
+}
+
 function elementDisplayText(element: MindMapElement): string {
   if (element.type === 'callout') return element.text
   return element.label ?? ''
+}
+
+function concreteValue<T>(value: InspectorValue<T>): T | undefined {
+  return value.state === 'concrete' ? value.value : undefined
 }
 
 /** Contextual style inspector for non-topic map elements. */
@@ -63,11 +108,23 @@ export function MindMapElementStyleInspector() {
   const activeSheetId = useMindMapViewStore((state) => state.activeSheetId)
   const selection = useMindMapViewStore((state) => state.selection)
   const dispatchCommand = useMindMapViewStore((state) => state.dispatchCommand)
+  const dashedRef = useRef<HTMLInputElement>(null)
 
   const activeSheet = current?.sheets.find((sheet) => sheet.id === activeSheetId) ?? current?.sheets[0]
   const element = selection.kind === 'element'
     ? activeSheet?.elements.find((candidate) => candidate.id === selection.elementId)
     : undefined
+  const style = element?.style ?? {}
+  // Resolved once here (before the early return) so the dashed checkbox can
+  // render indeterminate via an effect without violating hook order.
+  const dashedValue = resolveElementStyleField(style, 'dashed')
+
+  // The "Dashed line" checkbox only reflects an explicit (concrete) value;
+  // inherited/mixed render indeterminate so it reads as "not specified",
+  // while toggling always writes an explicit value.
+  useEffect(() => {
+    if (dashedRef.current) dashedRef.current.indeterminate = dashedValue.state !== 'concrete'
+  }, [dashedValue.state])
 
   if (!activeSheet || !element) return null
 
@@ -83,7 +140,6 @@ export function MindMapElementStyleInspector() {
   const capabilityNoteId = 'mindmap-element-style-capability-note'
   const describeField = (field: MindMapElementInspectorField): string | undefined =>
     fieldCapability(field).disabled ? capabilityNoteId : undefined
-  const style = element.style ?? {}
   const updateStyle = (patch: Partial<MindMapElementStyle>): void => {
     const next = { ...style, ...patch }
     for (const key of Object.keys(next) as (keyof MindMapElementStyle)[]) {
@@ -105,25 +161,69 @@ export function MindMapElementStyleInspector() {
     }, { label: 'Update element text' })
   }
 
+  const fieldValue = <K extends keyof MindMapElementStyle>(field: K) =>
+    resolveElementStyleField(style, field)
+  const selectValue = <T extends string | number>(value: InspectorValue<T>): string => {
+    if (value.state === 'mixed') return MIXED_VALUE
+    if (value.state === 'concrete') return String(value.value)
+    return ''
+  }
+  const inheritedLabel = t('mindmap.elementStyle.stateInherited')
+  const mixedLabel = t('mindmap.elementStyle.mixed')
+
+  // Accessible naming: mixed fields append " — Mixed" so the control still has
+  // a valid label that communicates the mixed state (mirrors the topic
+  // inspector's toggles); inherited/concrete keep the plain label.
+  const labelFor = (labelKey: string, value: InspectorValue<unknown>): string => {
+    const label = t(labelKey)
+    return value.state === 'mixed' ? `${label} — ${mixedLabel}` : label
+  }
+
+  /** Reset one field to inherit; only meaningful while the field is concrete. */
+  const clearField = (field: keyof MindMapElementStyle): void => {
+    updateStyle({ [field]: undefined })
+  }
+  const clearButton = (field: keyof MindMapElementStyle, value: InspectorValue<unknown>, labelKey: string) => {
+    if (value.state !== 'concrete') return null
+    return (
+      <button
+        type="button"
+        className="mindmap-element-style__clear"
+        style={CLEAR_BUTTON_STYLE}
+        aria-label={`${t(labelKey)} — ${inheritedLabel}`}
+        title={t('mindmap.topicStyle.clearField')}
+        disabled={fieldCapability(field).disabled}
+        onClick={() => clearField(field)}
+      >
+        ✕
+      </button>
+    )
+  }
+
   const renderEnumSelect = (
     field: 'lineShape' | 'beginArrow' | 'endArrow' | 'linePattern' | 'outlineShape',
     options: readonly string[],
     labelKey: string,
     optionPrefix: string
   ) => {
-    const value = style[field]
+    const value = fieldValue(field)
     return (
       <label className="mindmap-element-style__field">
         <span>{t(labelKey)}</span>
         <select
-          value={value ?? ''}
+          value={selectValue(value)}
           disabled={fieldCapability(field).disabled}
+          aria-label={labelFor(labelKey, value)}
           aria-describedby={describeField(field)}
           onChange={(event) => {
             const next = event.currentTarget.value
+            if (next === MIXED_VALUE) return
             updateStyle({ [field]: next ? next as never : undefined })
           }}
         >
+          {value.state === 'mixed' ? (
+            <option value={MIXED_VALUE} disabled>{mixedLabel}</option>
+          ) : null}
           <option value="">{t('mindmap.elementStyle.inherit')}</option>
           {options.map((option) => (
             <option key={option} value={option}>
@@ -165,61 +265,61 @@ export function MindMapElementStyleInspector() {
       </label>
 
       <div className="mindmap-element-style__grid">
-        <label className="mindmap-element-style__field">
-          <span>{t('mindmap.elementStyle.stroke')}</span>
-          <input
-            type="color"
-            value={style.stroke ?? '#438EFF'}
-            disabled={fieldCapability('stroke').disabled}
-            aria-describedby={describeField('stroke')}
-            onChange={(event) => updateStyle({ stroke: event.currentTarget.value })}
-          />
-        </label>
-        <label className="mindmap-element-style__field">
-          <span>{t('mindmap.elementStyle.fill')}</span>
-          <input
-            type="color"
-            value={style.fill ?? '#FFFFFF'}
-            disabled={fieldCapability('fill').disabled}
-            aria-describedby={describeField('fill')}
-            onChange={(event) => updateStyle({ fill: event.currentTarget.value })}
-          />
-        </label>
-        <label className="mindmap-element-style__field">
-          <span>{t('mindmap.elementStyle.textColor')}</span>
-          <input
-            type="color"
-            value={style.textColor ?? '#333333'}
-            disabled={fieldCapability('textColor').disabled}
-            aria-describedby={describeField('textColor')}
-            onChange={(event) => updateStyle({ textColor: event.currentTarget.value })}
-          />
-        </label>
+        {(['stroke', 'fill', 'textColor'] as const).map((field) => {
+          const value = fieldValue(field)
+          return (
+            <label key={field} className="mindmap-element-style__field">
+              <span>{t(`mindmap.elementStyle.${field}`)}</span>
+              <span style={ROW_STYLE}>
+                <input
+                  type="color"
+                  value={concreteValue(value) ?? FALLBACK[field]}
+                  style={{ flex: '1 1 0', minWidth: 0 }}
+                  disabled={fieldCapability(field).disabled}
+                  aria-label={labelFor(`mindmap.elementStyle.${field}`, value)}
+                  aria-describedby={describeField(field)}
+                  onChange={(event) => updateStyle({ [field]: event.currentTarget.value })}
+                />
+                {clearButton(field, value, `mindmap.elementStyle.${field}`)}
+              </span>
+            </label>
+          )
+        })}
       </div>
 
       <label className="mindmap-element-style__field">
         <span>{t('mindmap.elementStyle.strokeWidth')}</span>
-        <input
-          type="range"
-          min="0"
-          max="8"
-          step="0.5"
-          value={style.strokeWidth ?? 1.5}
-          disabled={fieldCapability('strokeWidth').disabled}
-          aria-describedby={describeField('strokeWidth')}
-          onChange={(event) => updateStyle({ strokeWidth: Number(event.currentTarget.value) })}
-        />
+        <span style={ROW_STYLE}>
+          <input
+            type="range"
+            min="0"
+            max="8"
+            step="0.5"
+            value={concreteValue(fieldValue('strokeWidth')) ?? FALLBACK.strokeWidth}
+            style={{ flex: '1 1 0', minWidth: 0 }}
+            disabled={fieldCapability('strokeWidth').disabled}
+            aria-label={labelFor('mindmap.elementStyle.strokeWidth', fieldValue('strokeWidth'))}
+            aria-describedby={describeField('strokeWidth')}
+            onChange={(event) => updateStyle({ strokeWidth: Number(event.currentTarget.value) })}
+          />
+          {clearButton('strokeWidth', fieldValue('strokeWidth'), 'mindmap.elementStyle.strokeWidth')}
+        </span>
       </label>
 
       <label className="mindmap-element-style__toggle">
         <span>{t('mindmap.elementStyle.dashed')}</span>
-        <input
-          type="checkbox"
-          checked={style.dashed ?? false}
-          disabled={fieldCapability('dashed').disabled}
-          aria-describedby={describeField('dashed')}
-          onChange={(event) => updateStyle({ dashed: event.currentTarget.checked })}
-        />
+        <span style={ROW_STYLE}>
+          <input
+            ref={dashedRef}
+            type="checkbox"
+            checked={dashedValue.state === 'concrete' && dashedValue.value === true}
+            disabled={fieldCapability('dashed').disabled}
+            aria-label={labelFor('mindmap.elementStyle.dashed', dashedValue)}
+            aria-describedby={describeField('dashed')}
+            onChange={(event) => updateStyle({ dashed: event.currentTarget.checked })}
+          />
+          {clearButton('dashed', dashedValue, 'mindmap.elementStyle.dashed')}
+        </span>
       </label>
 
       {renderEnumSelect('lineShape', MIND_MAP_ELEMENT_LINE_SHAPES, 'mindmap.elementStyle.lineShape', 'mindmap.elementStyle.lineShapes')}
@@ -233,26 +333,39 @@ export function MindMapElementStyleInspector() {
       <label className="mindmap-element-style__field">
         <span>{t('mindmap.elementStyle.fontFamily')}</span>
         <select
-          value={style.fontFamily ?? ''}
+          value={selectValue(fieldValue('fontFamily'))}
           disabled={fieldCapability('fontFamily').disabled}
+          aria-label={labelFor('mindmap.elementStyle.fontFamily', fieldValue('fontFamily'))}
           aria-describedby={describeField('fontFamily')}
-          onChange={(event) => updateStyle({ fontFamily: event.currentTarget.value || undefined })}
+          onChange={(event) => {
+            const next = event.currentTarget.value
+            if (next === MIXED_VALUE) return
+            updateStyle({ fontFamily: next || undefined })
+          }}
         >
+          {fieldValue('fontFamily').state === 'mixed' ? (
+            <option value={MIXED_VALUE} disabled>{mixedLabel}</option>
+          ) : null}
           {FONT_OPTIONS.map((option) => <option key={option.key} value={option.value}>{t(`mindmap.topicStyle.${option.key}`)}</option>)}
         </select>
       </label>
 
       <label className="mindmap-element-style__field">
         <span>{t('mindmap.elementStyle.fontSize')}</span>
-        <input
-          type="number"
-          min="8"
-          max="72"
-          value={style.fontSize ?? 11}
-          disabled={fieldCapability('fontSize').disabled}
-          aria-describedby={describeField('fontSize')}
-          onChange={(event) => updateStyle({ fontSize: Number(event.currentTarget.value) })}
-        />
+        <span style={ROW_STYLE}>
+          <input
+            type="number"
+            min="8"
+            max="72"
+            value={concreteValue(fieldValue('fontSize')) ?? FALLBACK.fontSize}
+            style={{ flex: '1 1 0', minWidth: 0 }}
+            disabled={fieldCapability('fontSize').disabled}
+            aria-label={labelFor('mindmap.elementStyle.fontSize', fieldValue('fontSize'))}
+            aria-describedby={describeField('fontSize')}
+            onChange={(event) => updateStyle({ fontSize: Number(event.currentTarget.value) })}
+          />
+          {clearButton('fontSize', fieldValue('fontSize'), 'mindmap.elementStyle.fontSize')}
+        </span>
       </label>
 
       {disabledReason ? (

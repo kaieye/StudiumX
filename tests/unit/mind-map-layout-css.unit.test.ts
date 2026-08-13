@@ -38,6 +38,22 @@ describe('mind map page layout contract', () => {
     expect(declarations).toMatch(/min-height:\s*0/)
   })
 
+  it('keeps long inspector content vertically scrollable within the right panel', () => {
+    const panel = readMindMapRuleDeclarations('.mindmap-ai-panel')
+    const content = readMindMapRuleDeclarations('.mindmap-inspector-tab-content')
+
+    // The panel must be a constrained flex column: otherwise the content
+    // section expands to its natural height and is clipped by the panel.
+    expect(panel).toMatch(/display:\s*flex/)
+    expect(panel).toMatch(/flex-direction:\s*column/)
+    expect(panel).toMatch(/min-height:\s*0/)
+    expect(panel).toMatch(/overflow:\s*hidden/)
+    expect(content).toMatch(/flex:\s*1\s+1\s+auto/)
+    expect(content).toMatch(/min-height:\s*0/)
+    expect(content).toMatch(/overflow-y:\s*auto/)
+    expect(content).toMatch(/overscroll-behavior:\s*contain/)
+  })
+
   it('marks the active sheet without a competing blue underline', () => {
     const declarations = readMindMapRuleDeclarations('.mindmap-sheet-tab.is-active')
 

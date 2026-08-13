@@ -24,6 +24,21 @@ import type {
   MindMapTopicV2
 } from './domain/types'
 
+/**
+ * Numbering metadata carried on a v2 topic. Declared structurally here so
+ * the XMind interop layer can round-trip numbering without depending on the
+ * canonical `MindMapTopicV2` field, which the canvas/inspector feature lands
+ * separately (see AGENTS.md coordination for the sibling numbering work).
+ * Once `MindMapTopicV2.numbering` exists, `TopicWithNumbering` is a no-op.
+ */
+export type MindMapTopicNumbering = {
+  pattern?: 'none' | 'arabic' | 'uppercase' | 'lowercase' | 'roman'
+  tiered?: boolean
+  restartAt?: number
+}
+
+export type TopicWithNumbering = MindMapTopicV2 & { numbering?: MindMapTopicNumbering }
+
 const SHEET_CLASS = 'sheet'
 const TOPIC_CLASS = 'topic'
 const RELATIONSHIP_CLASS = 'relationship'
@@ -41,38 +56,133 @@ export type XmindImportOptions = {
 }
 
 /**
- * Map one XMind topic (with its `children.attached`) to a native node.
- * `structureClass` defaults forward-compatibly to `right` when absent.
+ * XMind numbering tokens accepted on import.
+ *
+ * Modern XMind stores numbering as a topic-level extension
+ * (`org.xmind.ui.numbering` with a pattern like `numeral-arabic`) and the
+ * style-property tokens (`org.xmind.numbering.*`) also appear in XMind's own
+ * UI serialization. StudiumX emits the style-property form on export; on
+ * import BOTH forms are accepted so a real XMind file and a StudiumX
+ * .xmind round trip restore numbering. Unknown tokens are ignored; real
+ * XMind files may store numbering differently across versions, so this
+ * import is best effort and never crashes on an unrecognized value.
  */
-function topicToNode(raw: unknown, opts: XmindImportOptions): MindMapNode {
+const XMIND_NUMBERING_TOKENS: Record<string, 'none' | 'arabic' | 'uppercase' | 'lowercase' | 'roman'> = {
+  'org.xmind.numbering.none': 'none',
+  'org.xmind.numbering.arabic': 'arabic',
+  'org.xmind.numbering.uppercase': 'uppercase',
+  'org.xmind.numbering.lowercase': 'lowercase',
+  'org.xmind.numbering.roman': 'roman'
+}
+
+/** XMind topic-extension numbering pattern names → native pattern. */
+const XMIND_EXTENSION_NUMBERING_PATTERNS: Record<string, 'none' | 'arabic' | 'uppercase' | 'lowercase' | 'roman'> = {
+  'numeral-arabic': 'arabic',
+  'alphabet-uppercase': 'uppercase',
+  'alphabet-lowercase': 'lowercase',
+  roman: 'roman',
+  none: 'none'
+}
+
+/**
+ * Read numbering from an XMind topic's style properties (`xmind:numbering`,
+ * `xmind:numbering-tiered`, `xmind:numbering-restart-at`) and/or its
+ * `org.xmind.ui.numbering` extension. Best-effort and tolerant: unknown or
+ * malformed values are ignored, never thrown.
+ */
+function numberingFromXmindTopic(topic: Record<string, unknown>): MindMapTopicNumbering | undefined {
+  let pattern: MindMapTopicNumbering['pattern']
+  let tiered: boolean | undefined
+  let restartAt: number | undefined
+
+  const style =
+    typeof topic.style === 'object' && topic.style !== null && !Array.isArray(topic.style)
+      ? (topic.style as Record<string, unknown>)
+      : undefined
+  const properties =
+    style && typeof style.properties === 'object' && style.properties !== null
+      ? (style.properties as Record<string, unknown>)
+      : undefined
+  if (properties) {
+    if (typeof properties['xmind:numbering'] === 'string') {
+      const token = properties['xmind:numbering'] as string
+      const mapped = token.startsWith('org.xmind.numbering.')
+        ? XMIND_NUMBERING_TOKENS[token]
+        : undefined
+      if (mapped !== undefined) pattern = mapped
+    }
+    if (properties['xmind:numbering-tiered'] === 'true') tiered = true
+    if (typeof properties['xmind:numbering-restart-at'] === 'string') {
+      const parsed = Number.parseInt(properties['xmind:numbering-restart-at'] as string, 10)
+      if (Number.isFinite(parsed) && parsed >= 0) restartAt = parsed
+    }
+  }
+
+  const extension =
+    typeof topic['org.xmind.ui.numbering'] === 'object' &&
+    topic['org.xmind.ui.numbering'] !== null &&
+    !Array.isArray(topic['org.xmind.ui.numbering'])
+      ? (topic['org.xmind.ui.numbering'] as Record<string, unknown>)
+      : undefined
+  if (extension) {
+    if (typeof extension.pattern === 'string') {
+      const mapped = XMIND_EXTENSION_NUMBERING_PATTERNS[extension.pattern as string]
+      if (mapped !== undefined) pattern = mapped
+    }
+    if (typeof extension.tiered === 'boolean') tiered = extension.tiered
+    if (typeof extension.numberOfDigits === 'number' && Number.isFinite(extension.numberOfDigits)) {
+      restartAt = extension.numberOfDigits >= 0 ? extension.numberOfDigits : undefined
+    }
+  }
+
+  if (pattern === undefined) return undefined
+  return {
+    pattern,
+    ...(tiered !== undefined ? { tiered } : {}),
+    ...(restartAt !== undefined ? { restartAt } : {})
+  }
+}
+
+/** Build the v1 interop node for one XMind topic, including numbering. */
+function topicNodeFromXmind(
+  raw: unknown,
+  opts: XmindImportOptions
+): MindMapNode & { numbering?: MindMapTopicNumbering } {
   const topic =
     typeof raw === 'object' && raw !== null
       ? (raw as Record<string, unknown>)
       : {}
+  const numbering = numberingFromXmindTopic(topic)
   const rawChildren =
     typeof topic.children === 'object' && topic.children !== null
       ? (topic.children as Record<string, unknown>).attached
       : undefined
   const attached = Array.isArray(rawChildren)
-    ? rawChildren.map((child) => topicToNode(child, opts))
+    ? rawChildren.map((child) => topicNodeFromXmind(child, opts))
     : []
-  const imagePath = imageSourcePath(topic.image)
-  const assetId = imagePath !== undefined ? opts.assetIdForPath?.(imagePath) : undefined
-  return {
+  const node: MindMapNode & { numbering?: MindMapTopicNumbering } = {
     id: isNonEmptyString(topic.id) ? topic.id : '',
     title: typeof topic.title === 'string' ? topic.title : '',
-    ...(typeof topic.note === 'string' && topic.note.length > 0
-      ? { note: topic.note }
-      : {}),
-    ...(typeof topic.collapsed === 'boolean'
-      ? { collapsed: topic.collapsed }
-      : {}),
-    ...(asStructureClass(topic.structureClass) !== undefined
-      ? { structureClass: asStructureClass(topic.structureClass) }
-      : {}),
-    ...(isNonEmptyString(assetId) ? { assetIds: [assetId] } : {}),
-    children: attached
+    children: attached,
+    ...(numbering !== undefined ? { numbering } : {})
   }
+
+  const imagePath = imageSourcePath(topic.image)
+  const assetId = imagePath !== undefined ? opts.assetIdForPath?.(imagePath) : undefined
+  if (typeof topic.note === 'string' && topic.note.length > 0) node.note = topic.note
+  if (typeof topic.collapsed === 'boolean') node.collapsed = topic.collapsed
+  const structureClass = asStructureClass(topic.structureClass)
+  if (structureClass !== undefined) node.structureClass = structureClass
+  if (isNonEmptyString(assetId)) node.assetIds = [assetId]
+  return node
+}
+
+/**
+ * Map one XMind topic (with its `children.attached`) to a native node.
+ * `structureClass` defaults forward-compatibly to `right` when absent.
+ */
+function topicToNode(raw: unknown, opts: XmindImportOptions): MindMapNode {
+  return topicNodeFromXmind(raw, opts)
 }
 
 /** Map one XMind relationship to the v1 interop shape used by the file codec. */
@@ -296,14 +406,65 @@ function topicStyleLayerForDepth(
       : theme?.topicStyles?.sub
 }
 
-type XmindV2ExportTopic = MindMapNode | MindMapTopicV2
+type XmindV2ExportTopic = MindMapNode | TopicWithNumbering
 
-function isV2ExportTopic(topic: XmindV2ExportTopic): topic is MindMapTopicV2 {
+function isV2ExportTopic(topic: XmindV2ExportTopic): topic is TopicWithNumbering {
   return 'style' in topic
 }
 
 function localTopicStyle(topic: XmindV2ExportTopic): MindMapTopicStyleOverride | undefined {
   return isV2ExportTopic(topic) ? topic.style : undefined
+}
+
+const XMIND_NUMBERING_PATTERN_TOKEN: Record<
+  NonNullable<MindMapTopicNumbering['pattern']>,
+  string
+> = {
+  none: 'org.xmind.numbering.none',
+  arabic: 'org.xmind.numbering.arabic',
+  uppercase: 'org.xmind.numbering.uppercase',
+  lowercase: 'org.xmind.numbering.lowercase',
+  roman: 'org.xmind.numbering.roman'
+}
+
+/**
+ * Project the native numbering override onto XMind topic style properties.
+ *
+ * XMind has no single canonical numbering property shared across versions;
+ * both a topic-level `org.xmind.ui.numbering` extension and style tokens
+ * (`org.xmind.numbering.*`) exist in the wild. This converter emits the
+ * style-property form (`xmind:numbering` and friends) because it is
+ * consistent with how the other topic style fields (`fo:...`, border, …)
+ * are exported as style properties, and it is the pragmatic form for a
+ * StudiumX → XMind round trip. Best effort: real XMind files store
+ * numbering differently across versions, so no complete parity is claimed.
+ */
+function numberingToXmindStyleProperties(
+  numbering: MindMapTopicNumbering | undefined
+): Record<string, string> | undefined {
+  if (!numbering || !numbering.pattern) return undefined
+  const properties: Record<string, string> = {
+    'xmind:numbering': XMIND_NUMBERING_PATTERN_TOKEN[numbering.pattern]
+  }
+  if (numbering.tiered === true) properties['xmind:numbering-tiered'] = 'true'
+  if (numbering.restartAt !== undefined) {
+    properties['xmind:numbering-restart-at'] = String(numbering.restartAt)
+  }
+  return properties
+}
+
+/**
+ * Map a native topic (v2 with numbering, or a v1 interop node that carries
+ * the numbering bag) into the XMind numbering style properties. Numbering
+ * rides along the same style bag as the other topic overrides; even when
+ * the topic has no other style it is still emitted so an ordered-list
+ * export round-trips.
+ */
+function topicNumberingToXmind(
+  topic: XmindV2ExportTopic
+): Record<string, string> | undefined {
+  if (!topic.numbering) return undefined
+  return numberingToXmindStyleProperties(topic.numbering)
 }
 
 function effectiveTopicStyleForExport(
@@ -369,6 +530,17 @@ function topicV2ToXmind(
   const styleProperties = topicStyleToXmindProperties(
     effectiveTopicStyleForExport(topic, theme, depth)
   )
+  const numberingProperties = topicNumberingToXmind(topic)
+  const styleBlock =
+    styleProperties !== undefined || numberingProperties !== undefined
+      ? {
+          id: `studiumx-topic-${topic.id}`,
+          properties: {
+            ...(styleProperties ?? {}),
+            ...(numberingProperties ?? {})
+          }
+        }
+      : undefined
 
   return {
     class: TOPIC_CLASS,
@@ -383,9 +555,7 @@ function topicV2ToXmind(
       : topic.structureClass !== undefined
         ? { structureClass: topic.structureClass }
         : {}),
-    ...(styleProperties !== undefined
-      ? { style: { id: `studiumx-topic-${topic.id}`, properties: styleProperties } }
-      : {}),
+    ...(styleBlock !== undefined ? { style: styleBlock } : {}),
     ...(attached.length > 0 ? { children: { attached } } : {})
   }
 }
@@ -409,15 +579,18 @@ export function documentV2ToXmindContent(
   theme: MindMapTheme | undefined
 ): Record<string, unknown>[] {
   const sheetTheme = themeToXmindSheetTheme(theme)
-  return sheets.map((sheet) => ({
-    class: SHEET_CLASS,
-    id: sheet.id,
-    title: sheet.title,
-    structureClass: sheet.structureClass,
-    ...(sheetTheme !== undefined ? { theme: sheetTheme } : {}),
-    rootTopic: topicV2ToXmind(sheet.root, theme, 0),
-    ...(sheet.relationships !== undefined && sheet.relationships.length > 0
-      ? { relationships: sheet.relationships.map(relationshipToXmind) }
-      : {})
-  }))
+  return sheets.map((sheet) => {
+    const exportedRoot = topicV2ToXmind(sheet.root, theme, 0)
+    return {
+      class: SHEET_CLASS,
+      id: sheet.id,
+      title: sheet.title,
+      structureClass: sheet.structureClass,
+      ...(sheetTheme !== undefined ? { theme: sheetTheme } : {}),
+      rootTopic: exportedRoot,
+      ...(sheet.relationships !== undefined && sheet.relationships.length > 0
+        ? { relationships: sheet.relationships.map(relationshipToXmind) }
+        : {})
+    }
+  })
 }

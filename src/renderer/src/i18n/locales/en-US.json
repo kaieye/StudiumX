@@ -2047,6 +2047,7 @@
         "connectorDefault": "Structure default",
         "connectorOverride": "Sheet override",
         "resetConnector": "Use structure default",
+        "resetField": "Use structure default",
         "brace": "Brace",
         "timeline": "Timeline",
         "fishbone": "Fishbone",
@@ -2487,7 +2488,12 @@
         "slate": "Cool gray",
         "warm": "Warm paper",
         "mint": "Mint"
-      }
+      },
+      "alpha": "Opacity",
+      "alphaLabel": "Background opacity",
+      "recentColors": "Recent colors",
+      "recentColor": "Recent color {color}",
+      "clearRecent": "Clear recent colors"
     },
     "untitledTopic": "Untitled topic",
     "collapseTopic": "Collapse {{title}}",
@@ -2724,7 +2730,30 @@
       "vintage": "Vintage",
       "fire": "Fireplace",
       "deepSea": "Ocean",
-      "greenTea": "Green Tea"
+      "greenTea": "Green Tea",
+      "recent": "Recent",
+      "favorites": "Favorites",
+      "newScheme": "New scheme",
+      "customBadge": "Custom",
+      "favorite": "Favorite {{name}}",
+      "unfavorite": "Unfavorite {{name}}",
+      "editAria": "Edit {{name}}",
+      "applyRecent": "Apply {{name}}",
+      "editorTitle": "Color scheme editor",
+      "newTitle": "New color scheme",
+      "editTitle": "Edit color scheme",
+      "nameLabel": "Name",
+      "namePlaceholder": "Enter a scheme name",
+      "paletteLabel": "Palette",
+      "previewLabel": "Preview",
+      "colorWell": "Color {{number}}",
+      "hexLabel": "Color {{number}} HEX",
+      "save": "Save",
+      "cancel": "Cancel",
+      "deleteScheme": "Delete scheme",
+      "readabilityHint": "Some colors have contrast below 4.5 with white text (lowest about {{ratio}}); for reference.",
+      "readabilityOk": "This palette keeps good contrast with white text.",
+      "duplicateAria": "Duplicate {{name}}"
     },
     "colorSchemeTitle": "Color Scheme",
     "rainbowBranches": "Rainbow Branches",
@@ -2802,7 +2831,29 @@
         "waves": "Waves",
         "tension": "Tension",
         "bracket": "Bracket"
-      }
+      },
+      "stateInherited": "Inherited",
+      "mixed": "Mixed"
+    },
+    "numbering": {
+      "title": "Numbering",
+      "pattern": "Number format",
+      "patternNone": "None",
+      "patternArabic": "1. 2. 3.",
+      "patternUppercase": "A. B. C.",
+      "patternLowercase": "a. b. c.",
+      "patternRoman": "I. II. III.",
+      "tiered": "Tiered numbers",
+      "tieredHint": "Numbers include the full hierarchy, e.g. 2.1.3.",
+      "restart": "Restart numbering here",
+      "restartHint": "Children start numbering again from this topic.",
+      "restartAt": "Restart at",
+      "inherit": "Inherit",
+      "appliedToChildren": "Numbering applies to this topic's children.",
+      "mixed": "Mixed",
+      "applyToSiblings": "Apply numbering to siblings",
+      "on": "On",
+      "off": "Off"
     }
   }
 }

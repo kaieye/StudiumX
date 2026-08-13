@@ -27,7 +27,8 @@ import type {
   MindMapElement,
   MindMapSheetV2,
   MindMapTopicStyleOverride,
-  MindMapTopicV2
+  MindMapTopicV2,
+  MindMapTopicNumbering
 } from '../../../../shared/mindmap/domain/types'
 
 export type MindMapNodeRef = {
@@ -249,6 +250,38 @@ export function buildPropagateTopicStyleCommand(
       sheetId: sheet.id,
       topicId: topic.id,
       patch: { style: sourceStyle === null ? null : structuredClone(sourceStyle) }
+    }))
+  }
+}
+
+/**
+ * Copy one topic's complete numbering override to all of its siblings as one
+ * undoable transaction (H-10). A topic with no local numbering propagates a
+ * `null` patch so siblings clear their override too.
+ */
+export function buildPropagateTopicNumberingCommand(
+  sheet: MindMapSheetV2,
+  topicId: string
+): MindMapCommand | null {
+  const source = findTopicInSheet(sheet, topicId)
+  if (source === undefined || source.parent === null) return null
+
+  const siblings = source.parent.children.filter((topic) => topic.id !== topicId)
+  if (siblings.length === 0) return null
+
+  const sourceNumbering: MindMapTopicNumbering | null =
+    source.node.numbering === undefined
+      ? null
+      : structuredClone(source.node.numbering)
+  return {
+    type: 'transaction',
+    commands: siblings.map((topic) => ({
+      type: 'topic.update',
+      sheetId: sheet.id,
+      topicId: topic.id,
+      patch: {
+        numbering: sourceNumbering === null ? null : structuredClone(sourceNumbering)
+      }
     }))
   }
 }

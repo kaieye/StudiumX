@@ -49,6 +49,13 @@ export const mindMapNodeSchema: z.ZodType<
     collapsed: z.boolean().optional(),
     structureClass: mindMapStructureClassSchema.optional(),
     assetIds: z.array(z.string().min(1)).optional(),
+    numbering: z
+      .object({
+        pattern: z.enum(['none', 'arabic', 'uppercase', 'lowercase', 'roman']).optional(),
+        tiered: z.boolean().optional(),
+        restartAt: z.number().int().nonnegative().optional()
+      })
+      .optional(),
     children: z.array(z.lazy(() => mindMapNodeSchema)).default([])
   })
 )

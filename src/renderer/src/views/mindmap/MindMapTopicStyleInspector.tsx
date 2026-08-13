@@ -2,13 +2,14 @@ import { useRef } from 'react'
 import { Bold, Italic, RotateCcw, Strikethrough, Underline } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
-import type { MindMapTopicStyleOverride, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
+import type { MindMapTopicStyleOverride, MindMapTopicNumbering, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
 import type { MindMapCommand } from '../../../../shared/mindmap/commands/mind-map-command-types'
 import type { MindMapExecuteOptions } from '../../../../shared/mindmap/commands/mind-map-undo-redo'
 import { resolveInspectorValue, resolveTopicStyleField, type InspectorValue } from './mind-map-inspector-values'
 import { getTopicStyleFieldCapability } from './mind-map-inspector-capabilities'
 import {
   buildPropagateTopicStyleCommand,
+  buildPropagateTopicNumberingCommand,
   findTopicInSheet,
   type MindMapTopicStylePropagationScope
 } from './mind-map-commands'
@@ -44,6 +45,20 @@ const FONT_SOURCE_LABEL_KEYS = {
   'app-fallback': 'fontSourceAppFallback',
   mixed: 'fontSourceMixed'
 } as const
+
+const NUMBERING_PATTERN_OPTIONS = [
+  { value: 'none', labelKey: 'patternNone' },
+  { value: 'arabic', labelKey: 'patternArabic' },
+  { value: 'uppercase', labelKey: 'patternUppercase' },
+  { value: 'lowercase', labelKey: 'patternLowercase' },
+  { value: 'roman', labelKey: 'patternRoman' }
+] as const satisfies readonly {
+  value: NonNullable<MindMapTopicNumbering['pattern']>
+  labelKey: string
+}[]
+
+const NUMBERING_RESTART_MIN = 1
+const NUMBERING_RESTART_MAX = 9999
 
 const MIND_MAP_TOPIC_STYLE_LAYOUT_OPTIONS: readonly MindMapTopicStyleLayoutOption[] = [
   { value: 'org.xmind.ui.logic.right', labelKey: 'right' },
@@ -198,6 +213,76 @@ export function MindMapTopicStyleInspector() {
         ? 'Apply topic style to siblings'
         : 'Apply topic style to descendants'
     })
+  }
+
+  // Numbering is single-selection only; the topic's own config applies to its
+  // children. `undefined` means "inherit" (no local override).
+  const numbering = selectedTopics.length === 1 ? selectedTopics[0].numbering : undefined
+  const numberingPattern = numbering?.pattern
+  const hasConcreteNumberingPattern =
+    numberingPattern !== undefined && numberingPattern !== 'none'
+  const numberingTieredActive = numbering?.tiered === true
+  const numberingRestartActive = numbering?.restartAt !== undefined
+
+  const updateNumbering = (next: MindMapTopicNumbering | null): void => {
+    if (!activeSheet || selectedTopics.length !== 1) return
+    dispatchCommand(
+      {
+        type: 'topic.update',
+        sheetId: activeSheet.id,
+        topicId: selectedTopics[0].id,
+        patch: { numbering: next }
+      },
+      { label: 'Update topic numbering' }
+    )
+  }
+
+  const changeNumberingPattern = (value: string): void => {
+    if (value === '') {
+      updateNumbering(null)
+      return
+    }
+    if (value === 'none') {
+      updateNumbering({ pattern: 'none' })
+      return
+    }
+    const pattern = value as NonNullable<MindMapTopicNumbering['pattern']>
+    updateNumbering({ ...(numbering ?? {}), pattern })
+  }
+
+  const toggleNumberingTiered = (): void => {
+    if (!hasConcreteNumberingPattern) return
+    updateNumbering({
+      ...(numbering ?? {}),
+      pattern: numberingPattern,
+      tiered: !numberingTieredActive
+    })
+  }
+
+  const toggleNumberingRestart = (): void => {
+    if (!hasConcreteNumberingPattern) return
+    if (numberingRestartActive) {
+      const { restartAt: _ignored, ...rest } = numbering ?? {}
+      void _ignored
+      updateNumbering({ ...rest, pattern: numberingPattern })
+    } else {
+      updateNumbering({ ...(numbering ?? {}), pattern: numberingPattern, restartAt: 1 })
+    }
+  }
+
+  const changeNumberingRestartAt = (value: number): void => {
+    if (!hasConcreteNumberingPattern) return
+    if (!Number.isFinite(value) || value < NUMBERING_RESTART_MIN || value > NUMBERING_RESTART_MAX) {
+      return
+    }
+    updateNumbering({ ...(numbering ?? {}), pattern: numberingPattern, restartAt: Math.trunc(value) })
+  }
+
+  const applyNumberingToSiblings = (): void => {
+    if (!activeSheet || !selectedTopicRef) return
+    const command = buildPropagateTopicNumberingCommand(activeSheet, selectedTopicRef.node.id)
+    if (!command) return
+    dispatchCommand(command, { label: 'Apply numbering to siblings' })
   }
 
   if (!hasSelection) {
@@ -900,6 +985,87 @@ export function MindMapTopicStyleInspector() {
 
       {selectedTopics.length === 1 ? (
         <>
+          <div className="mm-subhead">{t('mindmap.numbering.title')}</div>
+          <div className="mm-row">
+            <label className="mm-row__label" htmlFor="mindmap-topic-numbering-pattern">
+              {t('mindmap.numbering.pattern')}
+            </label>
+            <select
+              id="mindmap-topic-numbering-pattern"
+              className="mm-select"
+              value={numbering?.pattern ?? ''}
+              onChange={(event) => changeNumberingPattern(event.currentTarget.value)}
+            >
+              <option value="">{t('mindmap.numbering.inherit')}</option>
+              {NUMBERING_PATTERN_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(`mindmap.numbering.${option.labelKey}`)}
+                </option>
+              ))}
+            </select>
+          </div>
+          {hasConcreteNumberingPattern ? (
+            <>
+              <div className="mm-row">
+                <span className="mm-row__label">{t('mindmap.numbering.tiered')}</span>
+                <button
+                  type="button"
+                  className={`mindmap-topic-style__text-toggle${numberingTieredActive ? ' is-active' : ''}`}
+                  aria-pressed={numberingTieredActive}
+                  aria-label={t('mindmap.numbering.tiered')}
+                  onClick={toggleNumberingTiered}
+                >
+                  {numberingTieredActive ? t('mindmap.numbering.on') : t('mindmap.numbering.off')}
+                </button>
+                <span className="mindmap-topic-style__effective">{t('mindmap.numbering.tieredHint')}</span>
+              </div>
+              <div className="mm-row">
+                <span className="mm-row__label">{t('mindmap.numbering.restart')}</span>
+                <button
+                  type="button"
+                  className={`mindmap-topic-style__text-toggle${numberingRestartActive ? ' is-active' : ''}`}
+                  aria-pressed={numberingRestartActive}
+                  aria-label={t('mindmap.numbering.restart')}
+                  onClick={toggleNumberingRestart}
+                >
+                  {numberingRestartActive ? t('mindmap.numbering.on') : t('mindmap.numbering.off')}
+                </button>
+                <span className="mindmap-topic-style__effective">{t('mindmap.numbering.restartHint')}</span>
+              </div>
+              {numberingRestartActive ? (
+                <div className="mm-row">
+                  <label className="mm-row__label" htmlFor="mindmap-topic-numbering-restart-at">
+                    {t('mindmap.numbering.restartAt')}
+                  </label>
+                  <div className="mindmap-topic-style__number-field">
+                    <input
+                      id="mindmap-topic-numbering-restart-at"
+                      className="mm-number-input"
+                      type="number"
+                      min={NUMBERING_RESTART_MIN}
+                      max={NUMBERING_RESTART_MAX}
+                      step="1"
+                      value={numbering?.restartAt ?? 1}
+                      onChange={(event) => changeNumberingRestartAt(Number(event.currentTarget.value))}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+          <span className="mindmap-topic-style__effective">
+            {t('mindmap.numbering.appliedToChildren')}
+          </span>
+          <div className="mindmap-topic-style__propagation-actions">
+            <button
+              type="button"
+              disabled={siblingCount === 0}
+              onClick={applyNumberingToSiblings}
+            >
+              {t('mindmap.numbering.applyToSiblings')}
+            </button>
+          </div>
+
           <div className="mm-subhead">{t('mindmap.topicStyle.propagationSection')}</div>
           <div className="mindmap-topic-style__propagation-actions">
             <button

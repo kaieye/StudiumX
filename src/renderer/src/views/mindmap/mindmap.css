@@ -1236,8 +1236,10 @@
 
 /* ---- right: AI panel ---- */
 .mindmap-ai-panel {
+  display: flex;
   min-width: 0;
   min-height: 0;
+  flex-direction: column;
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -3180,6 +3182,14 @@
   opacity: 0.45;
 }
 
+/* XMind numbering prefix (2.1.3) — lighter weight so the title stays the
+ * visual focus. Presentational only; never part of the accessible name. */
+.mindmap-node-number {
+  font-weight: 500;
+  opacity: 0.65;
+  letter-spacing: 0.02em;
+}
+
 /* Sub topics: quiet grey chip, no shadow (M01: border-line-width 0).
  * stroke defaults to none; a per-topic stroke override (inline colour)
  * renders at this width. */
@@ -4968,11 +4978,11 @@
 
 .mindmap-theme-picker__scheme-option {
   display: grid;
-  grid-template-columns: 64px 1fr 16px;
+  grid-template-columns: 64px 1fr auto;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px;
+  padding: 5px 6px;
   color: var(--text-muted);
   text-align: left;
   background: transparent;
@@ -4989,6 +4999,315 @@
   color: var(--text);
   background: var(--accent-soft);
   border-color: var(--accent);
+}
+
+.mindmap-theme-picker__scheme-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mindmap-theme-picker__custom-badge {
+  margin-left: 5px;
+  padding: 1px 4px;
+  color: var(--text-faint);
+  font-size: 9px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  vertical-align: 1px;
+}
+
+.mindmap-theme-picker__check {
+  color: var(--accent);
+}
+
+.mindmap-theme-picker__option-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mindmap-theme-picker__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--text-faint);
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.mindmap-theme-picker__icon-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.mindmap-theme-picker__icon-btn.is-favorite {
+  color: var(--accent);
+}
+
+.mindmap-theme-picker__section {
+  margin: 0 0 6px;
+}
+
+.mindmap-theme-picker__section-label {
+  display: block;
+  margin: 0 0 4px;
+  color: var(--text-faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mindmap-theme-picker__recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.mindmap-theme-picker__recent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 6px 2px 2px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  background: var(--surface-hover);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.mindmap-theme-picker__recent-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.mindmap-theme-picker__recent-chip .mindmap-theme-picker__palette {
+  width: 36px;
+  height: 14px;
+}
+
+.mindmap-theme-picker__recent-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mindmap-theme-picker__footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.mindmap-theme-picker__new {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  color: var(--accent);
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.mindmap-theme-picker__new:hover {
+  background: var(--accent-soft);
+}
+
+/* Custom color-scheme editor modal. */
+.mindmap-color-scheme-editor__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, #000 35%, transparent);
+}
+
+.mindmap-color-scheme-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(340px, calc(100vw - 32px));
+  max-height: 90vh;
+  padding: 14px;
+  overflow-y: auto;
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+}
+
+.mindmap-color-scheme-editor__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mindmap-color-scheme-editor__head strong {
+  font-size: 13px;
+}
+
+.mindmap-color-scheme-editor__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mindmap-color-scheme-editor__close:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.mindmap-color-scheme-editor__name {
+  width: 100%;
+  padding: 6px 8px;
+  color: var(--text);
+  font-size: 12px;
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.mindmap-color-scheme-editor__name:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.mindmap-color-scheme-editor__wells {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.mindmap-color-scheme-editor__wells legend {
+  margin-bottom: 4px;
+}
+
+.mindmap-color-scheme-editor__well {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.mindmap-color-scheme-editor__hex {
+  width: 100%;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 11.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.mindmap-color-scheme-editor__hex:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.mindmap-color-scheme-editor__preview {
+  display: flex;
+  width: 100%;
+  height: 26px;
+  overflow: hidden;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.mindmap-color-scheme-editor__preview > span {
+  flex: 1;
+}
+
+.mindmap-color-scheme-editor__hint {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.mindmap-color-scheme-editor__hint.is-warning {
+  color: var(--danger, #d33);
+}
+
+.mindmap-color-scheme-editor__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mindmap-color-scheme-editor__delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  color: var(--danger, #d33);
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--danger, #d33) 40%, transparent);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.mindmap-color-scheme-editor__delete:hover {
+  background: color-mix(in srgb, var(--danger, #d33) 12%, transparent);
+}
+
+.mindmap-color-scheme-editor__action-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mindmap-color-scheme-editor__cancel {
+  padding: 5px 11px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.mindmap-color-scheme-editor__save {
+  padding: 5px 14px;
+  color: var(--surface-solid);
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--accent);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
 }
 
 .mindmap-theme-picker__hint {
@@ -5292,6 +5611,59 @@
 .mindmap-theme-presets button.is-selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.mindmap-theme-alpha-row {
+  gap: 10px;
+}
+
+.mindmap-theme-alpha-row input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 90px;
+  accent-color: var(--accent, #438eff);
+  cursor: pointer;
+}
+
+.mindmap-theme-alpha-row input[type='range']:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.mindmap-theme-alpha-row__control {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mindmap-theme-alpha-row__value {
+  flex: 0 0 auto;
+  min-width: 36px;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  text-align: right;
+}
+
+.mindmap-theme-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+}
+
+.mindmap-theme-recent-row__controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mindmap-theme-recent-row .mindmap-theme-presets {
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .mindmap-theme-palette-row {

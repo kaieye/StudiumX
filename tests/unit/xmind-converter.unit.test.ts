@@ -587,4 +587,167 @@ describe('documentV2ToXmindContent', () => {
     expect(themeBlock.multiLineColors).toBeUndefined()
     expect(themeBlock.lineColor).toBe('#8E8E93')
   })
+
+  it('exports numbering pattern, tiered, and restart-at as xmind style properties', () => {
+    const sheets = [
+      {
+        id: 'sheet-1',
+        title: 'Numbered',
+        root: {
+          id: 'root',
+          title: 'Root',
+          children: [
+            {
+              id: 'a',
+              title: 'A',
+              numbering: { pattern: 'arabic', tiered: true, restartAt: 3 },
+              children: []
+            }
+          ]
+        },
+        structureClass: 'org.xmind.ui.logic.right' as const
+      }
+    ]
+
+    const content = documentV2ToXmindContent(sheets, undefined)
+    const exportedRoot = (content[0] as Record<string, unknown>).rootTopic as Record<
+      string,
+      unknown
+    >
+    const child = ((exportedRoot.children as { attached: Record<string, unknown>[] }).attached)[0]!
+    expect((child.style as Record<string, unknown>).properties).toEqual({
+      'xmind:numbering': 'org.xmind.numbering.arabic',
+      'xmind:numbering-tiered': 'true',
+      'xmind:numbering-restart-at': '3'
+    })
+  })
+
+  it('merges numbering with ordinary topic style properties in one style bag', () => {
+    const sheets = [
+      {
+        id: 'sheet-1',
+        title: 'Numbered styled',
+        root: {
+          id: 'root',
+          title: 'Root',
+          style: { stroke: '#112233' },
+          numbering: { pattern: 'roman' },
+          children: []
+        },
+        structureClass: 'org.xmind.ui.logic.right' as const
+      }
+    ]
+
+    const content = documentV2ToXmindContent(sheets, undefined)
+    const root = (content[0] as Record<string, unknown>).rootTopic as Record<string, unknown>
+    expect((root.style as Record<string, unknown>).properties).toEqual({
+      'border-line-color': '#112233',
+      'xmind:numbering': 'org.xmind.numbering.roman'
+    })
+  })
+
+  it('round-trips numbering through export style properties and the v1 import path', () => {
+    const sheets = [
+      {
+        id: 'sheet-1',
+        title: 'Numbered',
+        root: {
+          id: 'root',
+          title: 'Root',
+          children: [
+            {
+              id: 'a',
+              title: 'A',
+              numbering: { pattern: 'arabic', tiered: true, restartAt: 3 },
+              children: []
+            }
+          ]
+        },
+        structureClass: 'org.xmind.ui.logic.right' as const
+      }
+    ]
+
+    const content = documentV2ToXmindContent(sheets, undefined)
+    const imported = xmindContentToDocument(JSON.parse(JSON.stringify(content)))
+    const importedChild = imported.sheets[0]!.root.children[0]!
+    expect(importedChild.numbering).toEqual({
+      pattern: 'arabic',
+      tiered: true,
+      restartAt: 3
+    })
+  })
+
+  it('imports the org.xmind.ui.numbering extension pattern form', () => {
+    const content = [
+      {
+        class: 'sheet',
+        id: 'sheet-ext',
+        title: 'Extension numbering',
+        rootTopic: {
+          class: 'topic',
+          id: 'root-ext',
+          title: 'Root',
+          'org.xmind.ui.numbering': { pattern: 'alphabet-uppercase' },
+          children: { attached: [] }
+        }
+      }
+    ]
+    const doc = xmindContentToDocument(content)
+    expect(doc.sheets[0]!.root.numbering).toEqual({ pattern: 'uppercase' })
+  })
+
+  it('imports roman pattern and the numberOfDigits extension as restartAt', () => {
+    const content = [
+      {
+        class: 'sheet',
+        id: 'sheet-roman',
+        title: 'Roman',
+        rootTopic: {
+          class: 'topic',
+          id: 'root-roman',
+          title: 'Root',
+          'org.xmind.ui.numbering': { pattern: 'roman', numberOfDigits: 2 },
+          children: {
+            attached: [
+              {
+                class: 'topic',
+                id: 'child-roman',
+                title: 'Child',
+                style: {
+                  id: 'roman-style',
+                  properties: { 'xmind:numbering': 'org.xmind.numbering.roman' }
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+    const doc = xmindContentToDocument(content)
+    expect(doc.sheets[0]!.root.numbering).toEqual({ pattern: 'roman', restartAt: 2 })
+    expect(doc.sheets[0]!.root.children[0]!.numbering).toEqual({ pattern: 'roman' })
+  })
+
+  it('tolerates unknown numbering tokens and imports the topic without numbering', () => {
+    const content = [
+      {
+        class: 'sheet',
+        id: 'sheet-unknown',
+        title: 'Unknown numbering',
+        rootTopic: {
+          class: 'topic',
+          id: 'root-unknown',
+          title: 'Root',
+          style: {
+            id: 'unknown-style',
+            properties: { 'xmind:numbering': 'org.xmind.numbering.magic' }
+          },
+          'org.xmind.ui.numbering': { pattern: 'numeral-supercalifragilistic' },
+          children: { attached: [] }
+        }
+      }
+    ]
+    const doc = xmindContentToDocument(content)
+    expect(doc.sheets[0]!.root.numbering).toBeUndefined()
+  })
 })

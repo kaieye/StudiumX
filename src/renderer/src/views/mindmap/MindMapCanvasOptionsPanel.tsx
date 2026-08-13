@@ -13,6 +13,11 @@ import {
 } from '../../../../shared/mindmap/structure-types'
 import { useMindMapViewStore } from './mind-map-view-store'
 import { getCanvasInspectorFieldCapability } from './mind-map-inspector-capabilities'
+import {
+  resolveLayoutField,
+  type InspectorValue,
+  type MindMapLayoutField
+} from './mind-map-inspector-values'
 
 const SPACING_OPTIONS = [8, 16, 24, 32] as const
 
@@ -55,6 +60,7 @@ type CanvasOptionsText = {
   expandAll: string
   balancedMap: string
   balancedMapUnavailable: string
+  resetField: string
   [key: string]: string
 }
 
@@ -103,6 +109,33 @@ export function MindMapCanvasOptionsPanel() {
       { label: t('mindmap.inspector.canvasControls.updateLabel') }
     )
   }
+
+  /** Resolve a layout field through the five-state adapter (inherited vs concrete). */
+  const layoutField = <K extends MindMapLayoutField>(field: K) =>
+    resolveLayoutField(sheet.layout, field)
+
+  /** Per-field reset to the structure/theme default; only shown while the field is concrete. */
+  const resetFieldButton = (field: MindMapLayoutField, value: InspectorValue<unknown>) => {
+    if (value.state !== 'concrete') return null
+    return (
+      <button
+        type="button"
+        className="mm-inline-reset"
+        onClick={() => dispatchLayoutPatch({ [field]: null } as MindMapSheetLayoutUpdatePatch)}
+        aria-label={text.resetField}
+      >
+        {text.resetField}
+      </button>
+    )
+  }
+
+  // Resolved once so TS can narrow each field to inherited vs concrete.
+  const spacingValue = layoutField('spacing')
+  const compactValue = layoutField('compact')
+  const lineStyleValue = layoutField('lineStyle')
+  const lineWidthScaleValue = layoutField('lineWidthScale')
+  const linePatternValue = layoutField('linePattern')
+  const taperedValue = layoutField('tapered')
 
   const reset = (): void => {
     const familyDefault = STRUCTURE_TYPE_PRESETS.find(
@@ -231,10 +264,17 @@ export function MindMapCanvasOptionsPanel() {
       </div>
 
       <div className="mindmap-canvas-options__section">
-        <div className="mindmap-canvas-options__label">{text.spacing}</div>
+        <div className="mindmap-canvas-options__label">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            {text.spacing}
+            {resetFieldButton('spacing', spacingValue)}
+          </span>
+        </div>
         <div className="mindmap-spacing-options" role="group" aria-label={text.spacing}>
           {SPACING_OPTIONS.map((spacing) => {
-            const selected = Math.round(layout.spacing ?? 16) === spacing
+            const selected = spacingValue.state === 'concrete'
+              ? spacingValue.value === spacing
+              : spacing === 16
             const label = spacing <= 8 ? text.spacingCompact : spacing >= 24 ? text.spacingSpacious : text.spacingComfortable
             return (
               <button
@@ -255,10 +295,11 @@ export function MindMapCanvasOptionsPanel() {
             {text.compact}
             <small>{text.compactDescription}</small>
           </span>
+          {resetFieldButton('compact', compactValue)}
           <span className="mm-switch">
             <input
               type="checkbox"
-              checked={layout.compact === true}
+              checked={compactValue.state === 'concrete' && compactValue.value === true}
               onChange={(event) => dispatchLayoutPatch({ compact: event.currentTarget.checked })}
             />
             <span className="mm-switch__track" aria-hidden="true" />
@@ -275,14 +316,14 @@ export function MindMapCanvasOptionsPanel() {
           <div className="mindmap-segmented mindmap-segmented--inline" role="group" aria-label={text.connector}>
             <button
               type="button"
-              className={layout.lineStyle === undefined ? 'is-selected' : ''}
-              aria-pressed={layout.lineStyle === undefined}
+              className={lineStyleValue.state === 'inherited' ? 'is-selected' : ''}
+              aria-pressed={lineStyleValue.state === 'inherited'}
               onClick={() => dispatchLayoutPatch({ lineStyle: null })}
             >
               {text.connectorDefault}
             </button>
             {(['curve', 'straight', 'elbow', 'rounded-elbow', 'bight', 'fold', 'rounded-fold'] as const).map((lineStyle) => {
-              const selected = layout.lineStyle === lineStyle
+              const selected = lineStyleValue.state === 'concrete' && lineStyleValue.value === lineStyle
               return (
                 <button
                   type="button"
@@ -299,14 +340,14 @@ export function MindMapCanvasOptionsPanel() {
         </div>
         <div className="mm-row mm-row--connector-meta">
           <span className="mm-row__label">
-            {layout.lineStyle === undefined ? text.connectorDefault : text.connectorOverride}
-            <small>{connectorLabel(layout.lineStyle ?? structureConnector)}</small>
+            {lineStyleValue.state === 'inherited' ? text.connectorDefault : text.connectorOverride}
+            <small>{connectorLabel(lineStyleValue.state === 'concrete' ? lineStyleValue.value : structureConnector)}</small>
           </span>
           <button
             type="button"
             className="mm-inline-reset"
             onClick={() => dispatchLayoutPatch({ lineStyle: null })}
-            disabled={layout.lineStyle === undefined}
+            disabled={lineStyleValue.state === 'inherited'}
             aria-label={text.resetConnector}
           >
             {text.resetConnector}
@@ -317,9 +358,10 @@ export function MindMapCanvasOptionsPanel() {
             {text.branchLineWidth}
             <small>{text.wholeSheetScope}</small>
           </span>
+          {resetFieldButton('lineWidthScale', lineWidthScaleValue)}
           <div className="mindmap-segmented mindmap-segmented--inline" role="group" aria-label={text.branchLineWidth}>
             {LINE_WIDTH_OPTIONS.map((option) => {
-              const selected = Math.abs((layout.lineWidthScale ?? 1) - option.value) < 0.001
+              const selected = Math.abs((lineWidthScaleValue.state === 'concrete' ? lineWidthScaleValue.value : 1) - option.value) < 0.001
               return (
                 <button
                   type="button"
@@ -339,9 +381,10 @@ export function MindMapCanvasOptionsPanel() {
             {text.branchLinePattern}
             <small>{text.wholeSheetScope}</small>
           </span>
+          {resetFieldButton('linePattern', linePatternValue)}
           <div className="mindmap-segmented mindmap-segmented--inline" role="group" aria-label={text.branchLinePattern}>
             {(['solid', 'dash', 'hand-drawn-solid', 'hand-drawn-dash'] as const).map((pattern) => {
-              const selected = (layout.linePattern ?? 'solid') === pattern
+              const selected = (linePatternValue.state === 'concrete' ? linePatternValue.value : 'solid') === pattern
               return (
                 <button
                   type="button"
@@ -361,10 +404,11 @@ export function MindMapCanvasOptionsPanel() {
             {text.taperedLine}
             <small>{text.taperedLineDescription}</small>
           </span>
+          {resetFieldButton('tapered', taperedValue)}
           <span className="mm-switch">
             <input
               type="checkbox"
-              checked={layout.tapered === true}
+              checked={taperedValue.state === 'concrete' && taperedValue.value === true}
               onChange={(event) => dispatchLayoutPatch({ tapered: event.currentTarget.checked })}
             />
             <span className="mm-switch__track" aria-hidden="true" />

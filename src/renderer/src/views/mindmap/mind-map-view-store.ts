@@ -33,6 +33,19 @@ import {
 } from './mind-map-commands'
 import type { MindMapQuickStylePreset } from '../../../../shared/mindmap/quick-styles'
 import {
+  addUserColorScheme,
+  deleteUserColorScheme,
+  duplicateUserColorScheme,
+  loadColorSchemeCatalog,
+  persistColorSchemeCatalog,
+  recordRecentColorScheme,
+  renameUserColorScheme,
+  setUserColorSchemeColors,
+  toggleColorSchemeFavorite,
+  type ColorSchemeCatalogState,
+  type UserColorScheme
+} from './mind-map-color-scheme-catalog'
+import {
   buildPasteTopicStyleCommand,
   captureTopicStyleClipboard,
   type MindMapTopicStyleClipboard
@@ -70,6 +83,20 @@ type MindMapViewState = {
   inspectorOpen: boolean
   /** Toggle the right inspector panel (bound to header button + ⌘.). */
   toggleInspector: () => void
+
+  /**
+   * User color-scheme catalogue (custom schemes + favorites + recent).
+   * Pure user preference state persisted to localStorage; never teaching
+   * authority and never auto-applied.
+   */
+  colorSchemes: ColorSchemeCatalogState
+  createColorScheme: (name: string, colors: readonly string[]) => UserColorScheme
+  renameColorScheme: (id: string, name: string) => void
+  updateColorSchemeColors: (id: string, colors: readonly string[]) => UserColorScheme | null
+  duplicateColorScheme: (id: string) => UserColorScheme | null
+  deleteColorScheme: (id: string) => void
+  toggleColorSchemeFavorite: (id: string) => void
+  recordRecentColorScheme: (id: string) => void
   /** P2 §5.2: active inspector tab, persisted to localStorage. */
   inspectorTab: 'format' | 'content' | 'ai'
   /** Switch the active inspector tab (persisted). */
@@ -291,6 +318,12 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     if (documents) set({ documents })
   }
 
+  /** Update the user colour-scheme catalogue and persist it to localStorage. */
+  const setColorSchemes = (next: ColorSchemeCatalogState): void => {
+    set({ colorSchemes: next })
+    persistColorSchemeCatalog(next)
+  }
+
   const dispatchCommand = (
     command: MindMapCommand,
     options?: MindMapExecuteOptions
@@ -364,6 +397,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       }
       return 'format'
     })(),
+    colorSchemes: loadColorSchemeCatalog(),
 
     loadDocuments: async () => {
       const workspace = workspaceId()
@@ -889,6 +923,41 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         // localStorage may be unavailable; in-memory state still updates.
       }
       set({ inspectorTab })
+    },
+
+    createColorScheme: (name, colors) => {
+      const { state, scheme } = addUserColorScheme(get().colorSchemes, name, colors)
+      setColorSchemes(state)
+      return scheme
+    },
+
+    renameColorScheme: (id, name) => {
+      setColorSchemes(renameUserColorScheme(get().colorSchemes, id, name))
+    },
+
+    updateColorSchemeColors: (id, colors) => {
+      const { state, scheme } = setUserColorSchemeColors(get().colorSchemes, id, colors)
+      setColorSchemes(state)
+      return scheme
+    },
+
+    duplicateColorScheme: (id) => {
+      const { state, scheme } = duplicateUserColorScheme(get().colorSchemes, id)
+      if (!scheme) return null
+      setColorSchemes(state)
+      return scheme
+    },
+
+    deleteColorScheme: (id) => {
+      setColorSchemes(deleteUserColorScheme(get().colorSchemes, id))
+    },
+
+    toggleColorSchemeFavorite: (id) => {
+      setColorSchemes(toggleColorSchemeFavorite(get().colorSchemes, id))
+    },
+
+    recordRecentColorScheme: (id) => {
+      setColorSchemes(recordRecentColorScheme(get().colorSchemes, id))
     },
 
     adoptCommittedDocument: (document, options = {}) => {

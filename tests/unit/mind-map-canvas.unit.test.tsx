@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MindMapCanvas } from '../../src/renderer/src/views/mindmap/MindMapCanvas'
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
@@ -153,6 +153,55 @@ describe('MindMapCanvas accessibility', () => {
     expect(rootLabel?.style.textDecoration).toBe('line-through underline')
     expect(rootLabel?.style.textTransform).toBe('uppercase')
     expect(rootLabel?.textContent).toBe('Root')
+  })
+
+  it('renders the XMind numbering prefix for a numbered child', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.numbering = { pattern: 'arabic' }
+    document.sheets[0]!.root.children = [
+      { id: 'child', title: 'Child', children: [] },
+      { id: 'sibling', title: 'Sibling', children: [] }
+    ]
+    const { container } = renderCanvas(document)
+
+    const childLabel = [...container.querySelectorAll<SVGTextElement>('.mindmap-node-label')]
+      .find((label) => label.textContent?.includes('Child'))
+    const childNumber = childLabel?.querySelector('.mindmap-node-number')
+    expect(childNumber?.textContent?.trim()).toBe('1')
+    expect(childLabel?.textContent).toContain('Child')
+
+    const siblingLabel = [...container.querySelectorAll<SVGTextElement>('.mindmap-node-label')]
+      .find((label) => label.textContent?.includes('Sibling'))
+    expect(siblingLabel?.querySelector('.mindmap-node-number')?.textContent?.trim()).toBe('2')
+
+    // The root is above any rule so it has no prefix.
+    const rootLabel = [...container.querySelectorAll<SVGTextElement>('.mindmap-node-label')]
+      .find((label) => label.textContent?.trim() === 'Root')
+    expect(rootLabel?.querySelector('.mindmap-node-number')).toBeNull()
+  })
+
+  it('keeps the number prefix out of the accessible name and the edit field', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.numbering = { pattern: 'arabic' }
+    useMindMapViewStore.setState({
+      selection: { kind: 'topic', topicIds: ['child'] },
+      selectedNodeId: 'child',
+      editingNodeId: null
+    })
+    const { container } = renderCanvas(document)
+
+    const childGroup = [...container.querySelectorAll<SVGGElement>('[role="button"]')]
+      .find((g) => g.getAttribute('aria-label') === 'Child')
+    expect(childGroup).toBeTruthy()
+    expect(childGroup?.getAttribute('aria-label')).toBe('Child')
+
+    // While editing, the static label (and its number) is hidden; only the
+    // raw title is shown in the edit input.
+    act(() => {
+      useMindMapViewStore.setState({ editingNodeId: 'child' })
+    })
+    expect(screen.getByDisplayValue('Child')).toBeTruthy()
+    expect(container.querySelector('.mindmap-node-number')).toBeNull()
   })
 
   it('uses structural text alignment defaults and honors a local alignment override', () => {

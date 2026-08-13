@@ -26,6 +26,7 @@ import type {
   MindMapElementStyle,
   MindMapLayoutSettings,
   MindMapSheetV2,
+  MindMapTopicNumbering,
   MindMapTopicStyleOverride,
   MindMapTopicV2
 } from '../domain/types'
@@ -56,7 +57,8 @@ const TOPIC_PATCH_FIELDS: ReadonlyArray<keyof MindMapTopicUpdatePatch> = [
   'sourceRefs',
   'planning',
   'style',
-  'manualPosition'
+  'manualPosition',
+  'numbering'
 ]
 
 const ELEMENT_ALLOWED_FIELDS: Readonly<Record<string, ReadonlySet<string>>> = {
@@ -150,6 +152,35 @@ function mutateTopicWithPatch(node: MindMapTopicV2, patch: MindMapTopicUpdatePat
     applyOptionField(record, key, patch[key], inverseRecord)
   }
   return inverseRecord as MindMapTopicUpdatePatch
+}
+
+const TOPIC_NUMBERING_PATTERN_VALUES = new Set<NonNullable<MindMapTopicNumbering['pattern']>>([
+  'none',
+  'arabic',
+  'uppercase',
+  'lowercase',
+  'roman'
+])
+
+function validateTopicNumbering(numbering: MindMapTopicNumbering | undefined): string[] {
+  if (numbering === undefined) return []
+  const errors: string[] = []
+  if (
+    numbering.pattern !== undefined &&
+    !TOPIC_NUMBERING_PATTERN_VALUES.has(numbering.pattern)
+  ) {
+    errors.push(`pattern must be one of: ${[...TOPIC_NUMBERING_PATTERN_VALUES].join(', ')}`)
+  }
+  if (
+    numbering.restartAt !== undefined &&
+    (!Number.isFinite(numbering.restartAt) ||
+      !Number.isInteger(numbering.restartAt) ||
+      numbering.restartAt < 1 ||
+      numbering.restartAt > 9999)
+  ) {
+    errors.push('restartAt must be a finite integer between 1 and 9999')
+  }
+  return errors
 }
 
 function validateTopicStyle(style: MindMapTopicStyleOverride | undefined): string[] {
@@ -311,6 +342,11 @@ function applyTopicUpdate(document: MindMapDocumentV2, command: Extract<MindMapC
 
   const styleErrors = validateTopicStyle(command.patch.style ?? undefined)
   if (styleErrors.length > 0) return error(command, 'INVALID_STYLE', styleErrors.join('; '))
+
+  const numberingErrors = validateTopicNumbering(command.patch.numbering ?? undefined)
+  if (numberingErrors.length > 0) {
+    return error(command, 'INVALID_NUMBERING', numberingErrors.join('; '))
+  }
 
   const next = cloneDocument(document)
   const nextSheet = getSheet(next, command.sheetId)

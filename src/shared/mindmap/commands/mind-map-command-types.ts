@@ -23,6 +23,7 @@ import type {
   MindMapSheetV2,
   MindMapSourceRef,
   MindMapTheme,
+  MindMapTopicNumbering,
   MindMapTopicStyleOverride,
   MindMapTopicV2
 } from '../domain/types'
@@ -39,6 +40,8 @@ export type MindMapTopicUpdatePatch = {
   planning?: MindMapPlanningMetadata | null
   style?: MindMapTopicStyleOverride | null
   manualPosition?: MindMapPoint | null
+  /** Topic numbering override; `null` clears it, `undefined` leaves it untouched. */
+  numbering?: MindMapTopicNumbering | null
 }
 
 /**
@@ -106,6 +109,7 @@ export type MindMapCommandErrorCode =
   | 'INVALID_INDEX'
   | 'INVALID_PATCH'
   | 'INVALID_STYLE'
+  | 'INVALID_NUMBERING'
   | 'INVALID_TRANSACTION'
 
 export type MindMapCommandError = {

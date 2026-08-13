@@ -364,6 +364,12 @@ export const mindMapElementSchema = z.discriminatedUnion('type', [
   mindMapFreeTopicSchema
 ])
 
+export const mindMapTopicNumberingSchema = z.object({
+  pattern: z.enum(['none', 'arabic', 'uppercase', 'lowercase', 'roman']).optional(),
+  tiered: z.boolean().optional(),
+  restartAt: z.number().finite().int().min(1).max(9999).optional()
+})
+
 export const mindMapTopicV2Schema: z.ZodType<
   MindMapTopicV2,
   z.ZodTypeDef,
@@ -382,7 +388,8 @@ export const mindMapTopicV2Schema: z.ZodType<
       assetIds: z.array(z.string().min(1)).optional(),
       planning: mindMapPlanningMetadataSchema.optional(),
       style: mindMapTopicStyleOverrideSchema.optional(),
-      manualPosition: mindMapPointSchema.optional()
+      manualPosition: mindMapPointSchema.optional(),
+      numbering: mindMapTopicNumberingSchema.optional()
     })
   )
 

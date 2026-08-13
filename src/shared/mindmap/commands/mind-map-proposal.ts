@@ -93,6 +93,16 @@ const mindMapPointProposalSchema = z
   .object({ x: finiteNumberSchema, y: finiteNumberSchema })
   .strict()
 
+const mindMapTopicNumberingProposalSchema = z
+  .object({
+    pattern: z
+      .enum(['none', 'arabic', 'uppercase', 'lowercase', 'roman'])
+      .optional(),
+    tiered: z.boolean().optional(),
+    restartAt: finiteNumberSchema.int().min(1).max(9999).optional()
+  })
+  .strict()
+
 export const mindMapTopicStyleProposalSchema = z
   .object({
     fill: mindMapColorProposalSchema.optional(),
@@ -249,7 +259,8 @@ const mindMapTopicProposalSchema: z.ZodType<MindMapTopicV2, z.ZodTypeDef, unknow
       sourceRefs: z.array(mindMapSourceRefProposalSchema).optional(),
       planning: mindMapPlanningProposalSchema.optional(),
       style: mindMapTopicStyleProposalSchema.optional(),
-      manualPosition: mindMapPointProposalSchema.optional()
+      manualPosition: mindMapPointProposalSchema.optional(),
+      numbering: mindMapTopicNumberingProposalSchema.optional()
     })
     .strict()
 )
@@ -363,7 +374,8 @@ const mindMapTopicUpdatePatchProposalSchema: z.ZodType<MindMapTopicUpdatePatch> 
     sourceRefs: z.array(mindMapSourceRefProposalSchema).optional(),
     planning: mindMapPlanningProposalSchema.nullable().optional(),
     style: mindMapTopicStyleProposalSchema.nullable().optional(),
-    manualPosition: mindMapPointProposalSchema.nullable().optional()
+    manualPosition: mindMapPointProposalSchema.nullable().optional(),
+    numbering: mindMapTopicNumberingProposalSchema.nullable().optional()
   })
   .strict()
 

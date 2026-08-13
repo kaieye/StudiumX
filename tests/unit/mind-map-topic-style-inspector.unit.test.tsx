@@ -972,4 +972,44 @@ describe('MindMapTopicStyleInspector', () => {
     expect(root?.children[1]?.style).toEqual(root?.children[0]?.style)
     expect(root?.children[0]?.children[0]?.style).toEqual({ fill: '#ABCDEF' })
   })
+
+  it('configures topic numbering and applies it to siblings in one undoable transaction', () => {
+    useMindMapViewStore.setState({
+      selection: { kind: 'topic', topicIds: ['child'] },
+      selectedNodeId: 'child'
+    })
+    render(<MindMapTopicStyleInspector />)
+
+    // Number format starts as inherit (no local override).
+    const pattern = screen.getByRole('combobox', { name: 'Number format' })
+    expect(pattern).toHaveValue('')
+    fireEvent.change(pattern, { target: { value: 'arabic' } })
+
+    let child = useMindMapViewStore.getState().current?.sheets[0]?.root.children[0]
+    expect(child?.numbering).toEqual({ pattern: 'arabic' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tiered numbers' }))
+    child = useMindMapViewStore.getState().current?.sheets[0]?.root.children[0]
+    expect(child?.numbering).toEqual({ pattern: 'arabic', tiered: true })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart numbering here' }))
+    child = useMindMapViewStore.getState().current?.sheets[0]?.root.children[0]
+    expect(child?.numbering).toEqual({ pattern: 'arabic', tiered: true, restartAt: 1 })
+
+    const restartAt = screen.getByRole('spinbutton', { name: 'Restart at' })
+    fireEvent.change(restartAt, { target: { value: '3' } })
+    child = useMindMapViewStore.getState().current?.sheets[0]?.root.children[0]
+    expect(child?.numbering).toEqual({ pattern: 'arabic', tiered: true, restartAt: 3 })
+
+    // Apply to the single sibling as one undoable transaction.
+    fireEvent.click(screen.getByRole('button', { name: 'Apply numbering to siblings' }))
+    let root = useMindMapViewStore.getState().current?.sheets[0]?.root
+    expect(root?.children[1]?.numbering).toEqual({ pattern: 'arabic', tiered: true, restartAt: 3 })
+
+    act(() => {
+      useMindMapViewStore.getState().undo()
+    })
+    root = useMindMapViewStore.getState().current?.sheets[0]?.root
+    expect(root?.children[1]?.numbering).toBeUndefined()
+  })
 })

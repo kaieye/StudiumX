@@ -49,6 +49,16 @@ export type MindMapNode = {
   structureClass?: MindMapStructureClass
   /** Stable workspace asset ids attached to this topic (interop-only in v1). */
   assetIds?: string[]
+  /**
+   * Topic numbering metadata carried across the XMind import boundary and
+   * migrated into the v2 topic. Interop-only in v1: the native canvas
+   * numbering feature lives on the v2 model.
+   */
+  numbering?: {
+    pattern?: 'none' | 'arabic' | 'uppercase' | 'lowercase' | 'roman'
+    tiered?: boolean
+    restartAt?: number
+  }
   /** 附加（attached）子分支。 */
   children: MindMapNode[]
 }

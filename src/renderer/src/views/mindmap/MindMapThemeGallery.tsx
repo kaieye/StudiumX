@@ -1,4 +1,4 @@
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, Copy, Pencil, Plus, Star } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapTheme } from '../../../../shared/mindmap/domain/types'
@@ -7,6 +7,10 @@ import {
   getBuiltInThemeFidelityReport
 } from '../../../../shared/mindmap/themes/built-in-themes'
 import { COLOR_SCHEMES } from '../../../../shared/mindmap/themes/color-schemes'
+import {
+  type UserColorScheme
+} from './mind-map-color-scheme-catalog'
+import { MindMapColorSchemeEditor } from './MindMapColorSchemeEditor'
 import { useMindMapViewStore } from './mind-map-view-store'
 
 /** Render a compact map preview using the real colours from a style preset. */
@@ -38,6 +42,16 @@ function renderThemeThumb(theme: MindMapTheme): ReactNode {
       })}
       <text x="22" y="35" textAnchor="middle" fill={centerText} fontSize="7" fontWeight="600">A</text>
     </svg>
+  )
+}
+
+function renderColorStrip(colors: readonly string[]): ReactNode {
+  return (
+    <span className="mindmap-theme-picker__palette" aria-hidden="true">
+      {colors.map((color, index) => (
+        <span key={`${color}-${index}`} style={{ background: color }} />
+      ))}
+    </span>
   )
 }
 
@@ -118,27 +132,70 @@ function CompactPicker({ id, label, valueLabel, preview, children, open, onOpenC
   )
 }
 
+type SchemeEntry = {
+  id: string
+  name: string
+  colors: readonly string[]
+  custom: boolean
+}
+
+type EditorTarget = { mode: 'create' } | { mode: 'edit'; id: string } | null
+
 export function MindMapThemeGallery() {
   const { t } = useTranslation()
   const current = useMindMapViewStore((state) => state.current)
   const dispatchCommand = useMindMapViewStore((state) => state.dispatchCommand)
+  const colorSchemes = useMindMapViewStore((state) => state.colorSchemes)
+  const createColorScheme = useMindMapViewStore((state) => state.createColorScheme)
+  const renameColorScheme = useMindMapViewStore((state) => state.renameColorScheme)
+  const updateColorSchemeColors = useMindMapViewStore((state) => state.updateColorSchemeColors)
+  const duplicateColorScheme = useMindMapViewStore((state) => state.duplicateColorScheme)
+  const deleteColorScheme = useMindMapViewStore((state) => state.deleteColorScheme)
+  const toggleColorSchemeFavorite = useMindMapViewStore((state) => state.toggleColorSchemeFavorite)
+  const recordRecentColorScheme = useMindMapViewStore((state) => state.recordRecentColorScheme)
   const [openPicker, setOpenPicker] = useState<'scheme' | 'preset' | null>(null)
+  const [editor, setEditor] = useState<EditorTarget>(null)
 
   if (!current) return null
 
-  const activeScheme = COLOR_SCHEMES.find((scheme) => scheme.id === current.theme.colorSchemeId) ?? COLOR_SCHEMES[0]!
+  const builtInEntries: SchemeEntry[] = COLOR_SCHEMES.map((scheme) => ({
+    id: scheme.id,
+    name: t(`mindmap.colorScheme.${scheme.nameKey}`, scheme.id),
+    colors: scheme.colors,
+    custom: false
+  }))
+  const customEntries: SchemeEntry[] = colorSchemes.schemes.map((scheme) => ({
+    id: scheme.id,
+    name: scheme.name,
+    colors: scheme.colors,
+    custom: true
+  }))
+  const allEntries: SchemeEntry[] = [...builtInEntries, ...customEntries]
+  const entryById = new Map(allEntries.map((entry) => [entry.id, entry]))
+
+  const activeSchemeId = current.theme.colorSchemeId ?? COLOR_SCHEMES[0]!.id
+  const activeEntry = entryById.get(activeSchemeId) ?? builtInEntries[0]!
   const activePreset = BUILT_IN_THEMES.find((theme) => theme.id === current.theme.id)
   const activePresetName = activePreset
     ? t(`mindmap.themeGallery.${activePreset.id}`, activePreset.name ?? activePreset.id)
     : t('mindmap.themeGallery.custom')
   const rainbowBranches = current.theme.rainbowBranches !== false
   const branchPreviewColors = rainbowBranches
-    ? current.theme.branchColors ?? activeScheme.colors
+    ? current.theme.branchColors ?? activeEntry.colors
     : [current.theme.lineColor ?? '#8E8E93']
   const activeSchemeLabel = [
-    t(`mindmap.colorScheme.${activeScheme.nameKey}`, activeScheme.id),
+    activeEntry.name,
     t(rainbowBranches ? 'mindmap.themeGallery.rainbowPalette' : 'mindmap.themeGallery.singleColor')
   ].join(' · ')
+
+  const isFavorite = (id: string): boolean => colorSchemes.favorites.includes(id)
+  const favoritesSet = new Set(colorSchemes.favorites)
+  const sortedEntries = [...allEntries].sort((left, right) => {
+    return Number(favoritesSet.has(right.id)) - Number(favoritesSet.has(left.id))
+  })
+  const recentEntries = colorSchemes.recent
+    .map((id) => entryById.get(id))
+    .filter((entry): entry is SchemeEntry => entry !== undefined)
 
   const applyTheme = (theme: MindMapTheme): void => {
     // Style presets and colour schemes are independent: applying a preset keeps the palette.
@@ -160,11 +217,42 @@ export function MindMapThemeGallery() {
     dispatchCommand(
       {
         type: 'document.apply-theme',
-        theme: { ...current.theme, branchColors: [...colors], colorSchemeId: schemeId }
+        theme: {
+          ...current.theme,
+          branchColors: [...colors],
+          colorSchemeId: schemeId,
+          rainbowBranches: true
+        }
       },
       { label: t('mindmap.themeGallery.applyColorScheme') }
     )
+    recordRecentColorScheme(schemeId)
     setOpenPicker(null)
+  }
+
+  const editingScheme: UserColorScheme | null =
+    editor?.mode === 'edit'
+      ? colorSchemes.schemes.find((scheme) => scheme.id === editor.id) ?? null
+      : null
+
+  const handleEditorSave = (name: string, colors: readonly string[]): void => {
+    if (editor?.mode === 'edit') {
+      renameColorScheme(editor.id, name)
+      updateColorSchemeColors(editor.id, colors)
+    } else {
+      createColorScheme(name, colors)
+    }
+    setEditor(null)
+  }
+
+  const handleEditorDelete = (id: string): void => {
+    deleteColorScheme(id)
+    setEditor(null)
+  }
+
+  const openEditorFor = (target: Exclude<EditorTarget, null>): void => {
+    setOpenPicker(null)
+    setEditor(target)
   }
 
   return (
@@ -183,33 +271,124 @@ export function MindMapThemeGallery() {
             data-branch-mode={rainbowBranches ? 'rainbow' : 'single'}
             aria-hidden="true"
           >
-            {branchPreviewColors.map((color) => <span key={color} style={{ background: color }} />)}
+            {branchPreviewColors.map((color, index) => (
+              <span key={`${color}-${index}`} style={{ background: color }} />
+            ))}
           </span>
         )}
         open={openPicker === 'scheme'}
         onOpenChange={(open) => setOpenPicker(open ? 'scheme' : null)}
       >
+        {recentEntries.length > 0 ? (
+          <div className="mindmap-theme-picker__section">
+            <span className="mindmap-theme-picker__section-label">
+              {t('mindmap.colorScheme.recent')}
+            </span>
+            <div className="mindmap-theme-picker__recent" role="group" aria-label={t('mindmap.colorScheme.recent')}>
+              {recentEntries.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  className="mindmap-theme-picker__recent-chip"
+                  aria-label={t('mindmap.colorScheme.applyRecent', { name: entry.name })}
+                  onClick={() => applyColorScheme(entry.id, entry.colors)}
+                >
+                  {renderColorStrip(entry.colors)}
+                  <span>{entry.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="mindmap-theme-picker__scheme-grid">
-          {COLOR_SCHEMES.map((scheme) => {
-            const selected = activeScheme.id === scheme.id
-            const name = t(`mindmap.colorScheme.${scheme.nameKey}`, scheme.id)
+          {sortedEntries.map((entry) => {
+            const selected = activeSchemeId === entry.id
+            const favorite = isFavorite(entry.id)
+            const customBadge = entry.custom ? t('mindmap.colorScheme.customBadge') : null
             return (
-              <button
-                key={scheme.id}
-                type="button"
+              <div
+                key={entry.id}
                 role="option"
                 aria-selected={selected}
+                tabIndex={0}
                 className={`mindmap-theme-picker__scheme-option${selected ? ' is-active' : ''}`}
-                onClick={() => applyColorScheme(scheme.id, scheme.colors)}
+                onClick={() => applyColorScheme(entry.id, entry.colors)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    applyColorScheme(entry.id, entry.colors)
+                  }
+                }}
               >
-                <span className="mindmap-theme-picker__palette" aria-hidden="true">
-                  {scheme.colors.map((color) => <span key={color} style={{ background: color }} />)}
+                {renderColorStrip(entry.colors)}
+                <span className="mindmap-theme-picker__scheme-name">
+                  {entry.name}
+                  {customBadge ? (
+                    <small className="mindmap-theme-picker__custom-badge">{customBadge}</small>
+                  ) : null}
                 </span>
-                <span>{name}</span>
-                {selected ? <Check size={13} aria-hidden="true" /> : null}
-              </button>
+                <span className="mindmap-theme-picker__option-actions">
+                  {selected ? (
+                    <Check size={13} aria-hidden="true" className="mindmap-theme-picker__check" />
+                  ) : null}
+                  <button
+                    type="button"
+                    className={`mindmap-theme-picker__icon-btn${favorite ? ' is-favorite' : ''}`}
+                    aria-label={
+                      favorite
+                        ? t('mindmap.colorScheme.unfavorite', { name: entry.name })
+                        : t('mindmap.colorScheme.favorite', { name: entry.name })
+                    }
+                    aria-pressed={favorite}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      toggleColorSchemeFavorite(entry.id)
+                    }}
+                  >
+                    <Star size={12} aria-hidden="true" />
+                  </button>
+                  {entry.custom ? (
+                    <button
+                      type="button"
+                      className="mindmap-theme-picker__icon-btn"
+                      aria-label={t('mindmap.colorScheme.duplicateAria', { name: entry.name })}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        duplicateColorScheme(entry.id)
+                      }}
+                    >
+                      <Copy size={11} aria-hidden="true" />
+                    </button>
+                  ) : null}
+                  {entry.custom ? (
+                    <button
+                      type="button"
+                      className="mindmap-theme-picker__icon-btn"
+                      aria-label={t('mindmap.colorScheme.editAria', { name: entry.name })}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openEditorFor({ mode: 'edit', id: entry.id })
+                      }}
+                    >
+                      <Pencil size={11} aria-hidden="true" />
+                    </button>
+                  ) : null}
+                </span>
+              </div>
             )
           })}
+        </div>
+
+        <div className="mindmap-theme-picker__footer">
+          <button
+            type="button"
+            className="mindmap-theme-picker__new"
+            onClick={() => openEditorFor({ mode: 'create' })}
+          >
+            <Plus size={13} aria-hidden="true" />
+            {t('mindmap.colorScheme.newScheme')}
+          </button>
         </div>
       </CompactPicker>
 
@@ -256,6 +435,15 @@ export function MindMapThemeGallery() {
           })}
         </div>
       </CompactPicker>
+
+      {editor ? (
+        <MindMapColorSchemeEditor
+          scheme={editingScheme}
+          onCancel={() => setEditor(null)}
+          onSave={handleEditorSave}
+          onDelete={editor.mode === 'edit' ? handleEditorDelete : undefined}
+        />
+      ) : null}
     </section>
   )
 }

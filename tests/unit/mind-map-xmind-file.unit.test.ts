@@ -15,6 +15,7 @@ import {
   readXmindFile,
   readXmindFileWithCompatibilityReport
 } from '../../src/main/mindmap/xmind-file'
+import { migrateV1ToV2 } from '../../src/shared/mindmap/migrations'
 import type { MindMapDocument } from '../../src/shared/mindmap/mind-map-types'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 
@@ -550,5 +551,68 @@ describe('buildXmindZipV2 theme roundtrip', () => {
     const contentJson = strFromU8(unzipped['content.json'])
     const content = JSON.parse(contentJson) as Array<Record<string, unknown>>
     expect(content[0].theme).toBeUndefined()
+  })
+
+  it('round-trips topic numbering through the .xmind ZIP and the v1→v2 migration', () => {
+    const doc: MindMapDocumentV2 = {
+      schemaVersion: 2,
+      id: 'v2-numbering',
+      revision: 1,
+      title: 'Numbered',
+      createdAt: NOW,
+      updatedAt: NOW,
+      theme: { id: 'default' },
+      sheets: [
+        {
+          id: 'sheet-1',
+          title: 'Overview',
+          root: {
+            id: 'root',
+            title: 'Root',
+            numbering: { pattern: 'arabic', tiered: true, restartAt: 3 },
+            children: [
+              {
+                id: 'child',
+                title: 'Child',
+                numbering: { pattern: 'roman' },
+                children: []
+              }
+            ]
+          },
+          elements: [],
+          layout: { structureClass: 'org.xmind.ui.logic.right' }
+        }
+      ],
+      assets: []
+    }
+
+    const bytes = buildXmindZipV2(doc)
+    const content = JSON.parse(strFromU8(unzipSync(bytes)['content.json'])) as Array<
+      Record<string, unknown>
+    >
+    const root = content[0]!.rootTopic as Record<string, unknown>
+    expect((root.style as Record<string, unknown>).properties).toEqual({
+      'xmind:numbering': 'org.xmind.numbering.arabic',
+      'xmind:numbering-tiered': 'true',
+      'xmind:numbering-restart-at': '3'
+    })
+    const child = ((root.children as { attached: Record<string, unknown>[] }).attached)[0]!
+    expect((child.style as Record<string, unknown>).properties).toEqual({
+      'xmind:numbering': 'org.xmind.numbering.roman'
+    })
+
+    // Import the ZIP back through the file boundary, then run the v1→v2
+    // migration exactly like the IPC import path does.
+    const imported = parseXmindZip(bytes)
+    const migrated = migrateV1ToV2(imported)
+    expect(migrated.ok).toBe(true)
+    if (!migrated.ok) return
+    const migratedRoot = migrated.value.sheets[0]!.root
+    expect(migratedRoot.numbering).toEqual({
+      pattern: 'arabic',
+      tiered: true,
+      restartAt: 3
+    })
+    expect(migratedRoot.children[0]!.numbering).toEqual({ pattern: 'roman' })
   })
 })

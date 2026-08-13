@@ -28,6 +28,7 @@ import {
   zoomMindMapViewport
 } from './mind-map-viewport'
 import { useMindMapViewStore } from './mind-map-view-store'
+import { computeAllTopicNumbers } from './mind-map-numbering'
 
 /**
  * Custom SVG mind-map canvas (docs/mindmap/design.md §6.3).
@@ -233,6 +234,14 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     for (const node of layout.nodes) map.set(node.id, node)
     return map
   }, [layout.nodes])
+
+  // XMind numbering prefixes (2.1.3). Purely derived from the sheet tree and
+  // recomputed when the tree changes; only the static label shows the number,
+  // the inline editor and accessible name keep the raw title.
+  const topicNumbers = useMemo(
+    () => (sheet ? computeAllTopicNumbers(sheet.root) : new Map<string, string>()),
+    [sheet]
+  )
 
   const calloutRects = useMemo(() => {
     const topicCalloutIndexes = new Map<string, number>()
@@ -1167,6 +1176,9 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                         ...(styleOverride?.textTransform ? { textTransform: styleOverride.textTransform } : {})
                       }}
                     >
+                    {topicNumbers.get(node.id) ? (
+                      <tspan className="mindmap-node-number">{topicNumbers.get(node.id)}  </tspan>
+                    ) : null}
                     {node.title || t('mindmap.untitledTopic')}
                   </text>
                 )}

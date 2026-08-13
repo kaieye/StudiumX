@@ -57,6 +57,73 @@ describe('mind-map AI proposal command adapter', () => {
     expect(parsed.ok).toBe(true)
   })
 
+  it('accepts a numbering patch through strict proposal parsing', () => {
+    const parsed = parseMindMapProposalJson(JSON.stringify({
+      schemaVersion: 1,
+      proposalId: 'numbering-proposal',
+      scope: 'sheet',
+      items: [{
+        id: 'set-numbering',
+        command: {
+          type: 'topic.update',
+          sheetId: 'sheet-1',
+          topicId: 'a',
+          patch: { numbering: { pattern: 'arabic', tiered: true, restartAt: 3 } }
+        }
+      }]
+    }))
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) {
+      expect(parsed.proposal.items[0].command).toEqual({
+        type: 'topic.update',
+        sheetId: 'sheet-1',
+        topicId: 'a',
+        patch: { numbering: { pattern: 'arabic', tiered: true, restartAt: 3 } }
+      })
+    }
+  })
+
+  it('accepts a full topic insert carrying a numbering override', () => {
+    const parsed = parseMindMapProposalJson(JSON.stringify({
+      schemaVersion: 1,
+      proposalId: 'insert-numbered',
+      scope: 'sheet',
+      items: [{
+        id: 'insert',
+        command: {
+          type: 'topic.insert',
+          sheetId: 'sheet-1',
+          parentId: 'root-1',
+          node: {
+            id: 'new',
+            title: 'New',
+            numbering: { pattern: 'uppercase' },
+            children: []
+          }
+        }
+      }]
+    }))
+    expect(parsed.ok).toBe(true)
+  })
+
+  it('rejects an invalid numbering payload at the provider boundary', () => {
+    const parsed = parseMindMapProposalJson(JSON.stringify({
+      schemaVersion: 1,
+      proposalId: 'bad-numbering',
+      scope: 'sheet',
+      items: [{
+        id: 'set-numbering',
+        command: {
+          type: 'topic.update',
+          sheetId: 'sheet-1',
+          topicId: 'a',
+          patch: { numbering: { pattern: 'hexadecimal', restartAt: 0 } }
+        }
+      }]
+    }))
+    expect(parsed.ok).toBe(false)
+  })
+
   it('keeps proposal order and applies only explicitly accepted items', () => {
     const items: MindMapProposalItem[] = [
       {
