@@ -56,11 +56,19 @@ function renderCanvas(elements: MindMapDocumentV2['sheets'][number]['elements'])
 
 describe('MindMapCanvas summary rendering', () => {
   beforeEach(() => {
-    useMindMapViewStore.setState({ selectedNodeId: 'root', editingNodeId: null })
+    useMindMapViewStore.setState({
+      selection: { kind: 'topic', topicIds: ['root'] },
+      selectedNodeId: 'root',
+      editingNodeId: null
+    })
   })
 
   afterEach(() => {
-    useMindMapViewStore.setState({ selectedNodeId: null, editingNodeId: null })
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      editingNodeId: null
+    })
   })
 
   it('renders a labelled brace summary between visible topics', () => {
@@ -77,7 +85,7 @@ describe('MindMapCanvas summary rendering', () => {
     expect(container.querySelectorAll('.mindmap-summary-group')).toHaveLength(1)
     expect(container.querySelectorAll('.mindmap-summary-brace')).toHaveLength(1)
     expect(container.querySelector('.mindmap-summary-label')).toHaveTextContent('Core ideas')
-    expect(screen.getByRole('img', { name: 'Core ideas' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Core ideas' })).toBeInTheDocument()
   })
 
   it('skips summaries whose endpoints are missing or hidden by collapse', () => {
@@ -94,7 +102,7 @@ describe('MindMapCanvas summary rendering', () => {
   it('uses endpoint titles as accessible name when a summary has no label', () => {
     renderCanvas([{ id: 'summary-untitled', type: 'summary', from: 'child-a', to: 'child-c' }])
 
-    expect(screen.getByRole('img', { name: 'First topic → Last topic' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'First topic → Last topic' })).toBeInTheDocument()
     expect(document.querySelector('.mindmap-summary-label')).not.toBeInTheDocument()
   })
 
@@ -103,4 +111,18 @@ describe('MindMapCanvas summary rendering', () => {
 
     expect(container.querySelector('.mindmap-summary-group')).not.toBeInTheDocument()
   })
+  it('consumes every applicable persisted summary style field', () => {
+    const { container } = renderCanvas([{
+      id: 'styled-summary', type: 'summary', from: 'child-a', to: 'child-c', label: 'Styled',
+      style: { stroke: '#123456', strokeWidth: 3, textColor: '#334455',
+        fontFamily: 'Georgia, serif', fontSize: 17, dashed: true }
+    }])
+    expect(container.querySelector('.mindmap-summary-brace')).toHaveStyle({
+      stroke: '#123456', strokeWidth: '3', strokeDasharray: '5 4'
+    })
+    expect(container.querySelector('.mindmap-summary-label')).toHaveStyle({
+      fill: '#334455', fontFamily: 'Georgia, serif', fontSize: '17px'
+    })
+  })
+
 })

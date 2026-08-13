@@ -5,33 +5,20 @@ import { useTranslation } from 'react-i18next'
 import type { MindMapDocumentV2, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
 import {
   computeMindMapLayout,
-  MIND_MAP_HORIZONTAL_GAP,
   type MindMapLayoutCallout,
   type MindMapLayoutNode,
   type MindMapLayoutRelationship,
   type MindMapLayoutSummary
 } from './mind-map-layout'
 import { branchColor } from './mind-map-branch-colors'
-import type { MindMapTopicStyleOverride } from '../../../../shared/mindmap/domain/types'
-
-/**
- * Resolve the effective topic style for a node by merging layers:
- * node.style (highest) > theme.topicStyles[central/main/sub] > undefined (CSS default).
- * Returns the merged override or undefined.
- */
-function resolveTopicStyle(
-  nodeStyle: MindMapTopicStyleOverride | undefined,
-  themeTopicStyles: { central?: MindMapTopicStyleOverride; main?: MindMapTopicStyleOverride; sub?: MindMapTopicStyleOverride } | undefined,
-  depth: number
-): MindMapTopicStyleOverride | undefined {
-  if (!themeTopicStyles) return nodeStyle
-  const layer = depth === 0 ? themeTopicStyles.central : depth === 1 ? themeTopicStyles.main : themeTopicStyles.sub
-  if (!layer && !nodeStyle) return undefined
-  if (!layer) return nodeStyle
-  if (!nodeStyle) return layer
-  return { ...layer, ...nodeStyle }
-}
-import { resolveEdgePath, edgeStrokeWidth } from './mind-map-edge-styles'
+import { defaultTopicTextAlign, resolveEffectiveTopicStyle } from './mind-map-topic-style'
+import { resolveEdgePath, edgeStrokeWidth, lineDashPattern, taperedEdgePath } from './mind-map-edge-styles'
+import {
+  elementLineDashArray,
+  elementOutlinePath,
+  relationshipArrowMarkerPath,
+  relationshipElementPath
+} from './mind-map-element-styles'
 import { resolveShape, shapeElement } from './mind-map-node-shapes'
 import {
   centerMindMapViewport,
@@ -84,21 +71,19 @@ const MARKER_BADGE_GAP = 3
 const SUMMARY_GAP = 24
 const SUMMARY_LABEL_GAP = 12
 const SUMMARY_LABEL_WIDTH = 160
+const TOPIC_LABEL_HORIZONTAL_PADDING = 10
 
-/**
- * Relationship connectors may point in either direction, unlike tree edges
- * which always leave a parent on the same side. Pick the nearest horizontal
- * edge of each topic so left-facing and balanced sheets remain legible.
- */
-function relationshipPath(from: MindMapLayoutNode, to: MindMapLayoutNode): string {
-  const toRight = to.x >= from.x
-  const x1 = toRight ? from.x + from.width : from.x
-  const y1 = from.y + from.height / 2
-  const x2 = toRight ? to.x : to.x + to.width
-  const y2 = to.y + to.height / 2
-  const direction = toRight ? 1 : -1
-  const dx = Math.max(MIND_MAP_HORIZONTAL_GAP / 2, Math.abs(x2 - x1) / 2)
-  return `M ${x1} ${y1} C ${x1 + direction * dx} ${y1}, ${x2 - direction * dx} ${y2}, ${x2} ${y2}`
+function topicLabelGeometry(
+  node: MindMapLayoutNode,
+  textAlign: NonNullable<NonNullable<MindMapTopicV2['style']>['textAlign']>
+): { x: number; textAnchor: 'start' | 'middle' | 'end' } {
+  if (textAlign === 'left') {
+    return { x: node.x + TOPIC_LABEL_HORIZONTAL_PADDING, textAnchor: 'start' }
+  }
+  if (textAlign === 'right') {
+    return { x: node.x + node.width - TOPIC_LABEL_HORIZONTAL_PADDING, textAnchor: 'end' }
+  }
+  return { x: node.x + node.width / 2, textAnchor: 'middle' }
 }
 
 function relationshipLabelPosition(
@@ -161,58 +146,6 @@ function calloutLeaderPath(rect: MindMapCalloutRect): string {
   return `M ${topicX} ${topicY} L ${calloutX} ${calloutY}`
 }
 
-/**
- * P3 §6.3: Xmind-style callout bubble — a rounded rect with a small triangle
- * tail pointing toward the connected topic. The tail is drawn as part of the
- * path so the fill covers the seam.
- */
-function calloutBubblePath(rect: MindMapCalloutRect): string {
-  const { x, y, width, height } = rect
-  const r = 10
-  // Tail base width and how far it extends down
-  const tailHalf = 5
-  const tailDepth = 8
-  // Tail horizontal center: aim toward the topic center, clamped to the bubble.
-  const topicCenterX = rect.topic.x + rect.topic.width / 2
-  const tailCenterX = Math.max(x + r + tailHalf, Math.min(x + width - r - tailHalf, topicCenterX))
-  // If the topic is roughly below the bubble, draw the tail at the bottom.
-  const topicCenterY = rect.topic.y + rect.topic.height / 2
-  const tailAtBottom = topicCenterY > y + height / 2
-  if (tailAtBottom) {
-    return [
-      `M ${x + r} ${y}`,
-      `L ${x + width - r} ${y}`,
-      `Q ${x + width} ${y} ${x + width} ${y + r}`,
-      `L ${x + width} ${y + height - r}`,
-      `Q ${x + width} ${y + height} ${x + width - r} ${y + height}`,
-      `L ${tailCenterX + tailHalf} ${y + height}`,
-      `L ${tailCenterX} ${y + height + tailDepth}`,
-      `L ${tailCenterX - tailHalf} ${y + height}`,
-      `L ${x + r} ${y + height}`,
-      `Q ${x} ${y + height} ${x} ${y + height - r}`,
-      `L ${x} ${y + r}`,
-      `Q ${x} ${y} ${x + r} ${y}`,
-      'Z'
-    ].join(' ')
-  }
-  // Tail at the top
-  return [
-    `M ${x + r} ${y}`,
-    `L ${tailCenterX - tailHalf} ${y}`,
-    `L ${tailCenterX} ${y - tailDepth}`,
-    `L ${tailCenterX + tailHalf} ${y}`,
-    `L ${x + width - r} ${y}`,
-    `Q ${x + width} ${y} ${x + width} ${y + r}`,
-    `L ${x + width} ${y + height - r}`,
-    `Q ${x + width} ${y + height} ${x + width - r} ${y + height}`,
-    `L ${x + r} ${y + height}`,
-    `Q ${x} ${y + height} ${x} ${y + height - r}`,
-    `L ${x} ${y + r}`,
-    `Q ${x} ${y} ${x + r} ${y}`,
-    'Z'
-  ].join(' ')
-}
-
 function markerBadgePosition(
   node: MindMapLayoutNode,
   index: number
@@ -270,7 +203,11 @@ function summaryPath(bracket: MindMapSummaryBracket): string {
 
 export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZoomChange, onViewportChange, onContextMenu, onMoveNode }: CanvasProps) {
   const { t } = useTranslation()
+  const selection = useMindMapViewStore((s) => s.selection)
   const selectedNodeId = useMindMapViewStore((s) => s.selectedNodeId)
+  const selectTopic = useMindMapViewStore((s) => s.selectTopic)
+  const selectElement = useMindMapViewStore((s) => s.selectElement)
+  const selectCanvas = useMindMapViewStore((s) => s.selectCanvas)
   const editingNodeId = useMindMapViewStore((s) => s.editingNodeId)
   const setEditingNodeId = useMindMapViewStore((s) => s.setEditingNodeId)
   const updateNode = useMindMapViewStore((s) => s.updateNode)
@@ -529,7 +466,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   const endPointerDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
     // Treat a click on the background as a selection clear.
     if (dragRef.current && !dragRef.current.moved && event.target === event.currentTarget) {
-      useMindMapViewStore.setState({ selectedNodeId: null })
+      selectCanvas()
     }
     dragRef.current = null
   }
@@ -561,10 +498,10 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   }
 
   const beginNodeAction = useCallback(
-    (nodeId: string) => {
-      useMindMapViewStore.setState({ selectedNodeId: nodeId })
+    (nodeId: string, additive: boolean) => {
+      selectTopic(nodeId, additive)
     },
-    []
+    [selectTopic]
   )
 
   // --- Node drag-and-drop reparenting ---
@@ -666,19 +603,48 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
       >
         <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
           <defs>
-            <marker
-              id="mindmap-rel-arrow"
-              viewBox="0 0 10 10"
-              refX="8"
-              refY="5"
-              markerWidth="7"
-              markerHeight="7"
-              orient="auto-start-reverse"
-              fill="var(--mindmap-theme-line, var(--accent))"
-              opacity="0.78"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" />
-            </marker>
+            <filter id="mindmap-topic-hand-drawn" x="-8%" y="-12%" width="116%" height="124%">
+              <feTurbulence
+                type="fractalNoise"
+                baseFrequency="0.018 0.12"
+                numOctaves="1"
+                seed="17"
+                result="topic-noise"
+              />
+              <feDisplacementMap in="SourceGraphic" in2="topic-noise" scale="0.8" />
+            </filter>
+            <pattern id="mindmap-pattern-diagonal" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="6" stroke="currentColor" strokeWidth="1" opacity="0.32" />
+            </pattern>
+            <pattern id="mindmap-pattern-horizontal" width="6" height="6" patternUnits="userSpaceOnUse">
+              <line x1="0" y1="0" x2="6" y2="0" stroke="currentColor" strokeWidth="1" opacity="0.32" />
+            </pattern>
+            <pattern id="mindmap-pattern-hand-drawn" width="8" height="8" patternUnits="userSpaceOnUse">
+              <path d="M 0 0 L 8 8 M 8 0 L 0 8" stroke="currentColor" strokeWidth="1.2" opacity="0.3" strokeLinecap="round" />
+            </pattern>
+            {([
+              'none', 'dot', 'triangle', 'spearhead', 'square', 'diamond',
+              'herringbone', 'double-arrow', 'anti-triangle', 'attached', 'hook'
+            ] as const).map((arrow) => {
+              const markerPath = relationshipArrowMarkerPath(arrow)
+              if (!markerPath) return null
+              return (
+                <marker
+                  key={arrow}
+                  id={`mindmap-rel-arrow-${arrow}`}
+                  viewBox="0 0 10 10"
+                  refX={arrow === 'dot' ? 6 : arrow === 'herringbone' || arrow === 'attached' ? 6 : 8}
+                  refY="5"
+                  markerWidth="7"
+                  markerHeight="7"
+                  orient="auto-start-reverse"
+                  fill="context-stroke"
+                  opacity="0.78"
+                >
+                  <path d={markerPath} />
+                </marker>
+              )
+            })}
           </defs>
           {layout.edges.map((edge) => {
             const from = nodeById.get(edge.from)
@@ -690,12 +656,29 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             // a timeline/fishbone/matrix does not look like a generic map.
             const lineStyle = sheet?.layout?.lineStyle ?? edge.connectorStyle
             const strokeWidth = edgeStrokeWidth(to.depth, sheet?.layout?.lineWidthScale)
+            const pattern = sheet?.layout?.linePattern
+            const dash = lineDashPattern(pattern)
+            const tapered = sheet?.layout?.tapered === true
+            const edgeStyle: CSSProperties = color
+              ? { stroke: color, strokeWidth, ...(dash ? { strokeDasharray: dash } : {}) }
+              : { strokeWidth, ...(dash ? { strokeDasharray: dash } : {}) }
+            if (tapered) {
+              const childWidth = Math.max(1, strokeWidth * 0.45)
+              return (
+                <path
+                  key={edge.to}
+                  className="mindmap-edge mindmap-edge--tapered"
+                  d={taperedEdgePath(from, to, strokeWidth, childWidth, edge.axis)}
+                  style={color ? { fill: color } : {}}
+                />
+              )
+            }
             return (
               <path
                 key={edge.to}
                 className="mindmap-edge"
                 d={resolveEdgePath(from, to, lineStyle, edge.axis)}
-                style={color ? { stroke: color, strokeWidth } : { strokeWidth }}
+                style={edgeStyle}
               />
             )
           })}
@@ -709,13 +692,38 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             return (
               <g
                 key={relationship.id}
-                className="mindmap-relationship-group"
+                className={`mindmap-relationship-group${selection.kind === 'element' && selection.elementId === relationship.id ? ' is-selected' : ''}`}
+                role="button"
+                tabIndex={selection.kind === 'element' && selection.elementId === relationship.id ? 0 : -1}
+                aria-pressed={selection.kind === 'element' && selection.elementId === relationship.id}
                 aria-label={relationship.label || endpointLabel}
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  event.preventDefault()
+                  dragRef.current = null
+                  selectElement(relationship.id, 'relationship')
+                }}
               >
                 <path
                   className="mindmap-relationship"
-                  d={relationshipPath(from, to)}
-                  markerEnd="url(#mindmap-rel-arrow)"
+                  d={relationshipElementPath(from, to, relationship.style?.lineShape)}
+                  markerStart={relationship.style?.beginArrow && relationship.style.beginArrow !== 'none'
+                    ? `url(#mindmap-rel-arrow-${relationship.style.beginArrow})`
+                    : undefined}
+                  markerEnd={relationship.style?.endArrow && relationship.style.endArrow !== 'none'
+                    ? `url(#mindmap-rel-arrow-${relationship.style.endArrow})`
+                    : undefined}
+                  style={{
+                    ...(relationship.style?.stroke ? { stroke: relationship.style.stroke } : {}),
+                    ...(relationship.style?.strokeWidth !== undefined ? { strokeWidth: relationship.style.strokeWidth } : {}),
+                    ...(relationship.style?.linePattern !== undefined
+                      ? { strokeDasharray: elementLineDashArray(relationship.style.linePattern) ?? 'none' }
+                      : relationship.style?.dashed === false
+                        ? { strokeDasharray: 'none' }
+                        : relationship.style?.dashed
+                          ? { strokeDasharray: '6 4' }
+                          : {})
+                  }}
                   aria-hidden="true"
                 >
                   <title>{relationship.label || endpointLabel}</title>
@@ -729,6 +737,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                       width={relationship.label.length * 6.4 + 12}
                       height={16}
                       rx={4}
+                      style={relationship.style?.fill ? { fill: relationship.style.fill } : undefined}
                       aria-hidden="true"
                     />
                     <text
@@ -737,6 +746,11 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                       y={labelPosition.y}
                       textAnchor="middle"
                       dominantBaseline="central"
+                      style={{
+                        ...(relationship.style?.textColor ? { fill: relationship.style.textColor } : {}),
+                        ...(relationship.style?.fontFamily ? { fontFamily: relationship.style.fontFamily } : {}),
+                        ...(relationship.style?.fontSize ? { fontSize: `${relationship.style.fontSize}px` } : {})
+                      }}
                     >
                       {relationship.label}
                     </text>
@@ -749,18 +763,54 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
           {calloutRects.map((rect) => (
             <g
               key={rect.callout.id}
-              className="mindmap-callout-group"
-              role="note"
+              className={`mindmap-callout-group${selection.kind === 'element' && selection.elementId === rect.callout.id ? ' is-selected' : ''}`}
+              role="button"
+              tabIndex={selection.kind === 'element' && selection.elementId === rect.callout.id ? 0 : -1}
+              aria-pressed={selection.kind === 'element' && selection.elementId === rect.callout.id}
+              onPointerDown={(event) => {
+                event.stopPropagation()
+                event.preventDefault()
+                dragRef.current = null
+                selectElement(rect.callout.id, 'callout')
+              }}
               aria-label={rect.callout.text}
             >
               <path
                 className="mindmap-callout-leader"
                 d={calloutLeaderPath(rect)}
+                style={{
+                  ...(rect.callout.style?.stroke ? { stroke: rect.callout.style.stroke } : {}),
+                  ...(rect.callout.style?.strokeWidth !== undefined ? { strokeWidth: rect.callout.style.strokeWidth } : {}),
+                  ...(rect.callout.style?.linePattern !== undefined
+                    ? { strokeDasharray: elementLineDashArray(rect.callout.style.linePattern) ?? 'none' }
+                    : rect.callout.style?.dashed === false
+                      ? { strokeDasharray: 'none' }
+                      : rect.callout.style?.dashed
+                        ? { strokeDasharray: '5 4' }
+                        : {})
+                }}
                 aria-hidden="true"
               />
               <path
                 className="mindmap-callout"
-                d={calloutBubblePath(rect)}
+                d={elementOutlinePath({
+                  x: rect.x,
+                  y: rect.y,
+                  width: rect.width,
+                  height: rect.height
+                }, rect.callout.style?.outlineShape)}
+                style={{
+                  ...(rect.callout.style?.fill ? { fill: rect.callout.style.fill } : {}),
+                  ...(rect.callout.style?.stroke ? { stroke: rect.callout.style.stroke } : {}),
+                  ...(rect.callout.style?.strokeWidth !== undefined ? { strokeWidth: rect.callout.style.strokeWidth } : {}),
+                  ...(rect.callout.style?.linePattern !== undefined
+                    ? { strokeDasharray: elementLineDashArray(rect.callout.style.linePattern) ?? 'none' }
+                    : rect.callout.style?.dashed === false
+                      ? { strokeDasharray: 'none' }
+                      : rect.callout.style?.dashed
+                        ? { strokeDasharray: '5 4' }
+                        : {})
+                }}
               />
               <text
                 className="mindmap-callout-text"
@@ -768,6 +818,11 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 y={rect.y + rect.height / 2}
                 textAnchor="middle"
                 dominantBaseline="central"
+                style={{
+                  ...(rect.callout.style?.textColor ? { fill: rect.callout.style.textColor } : {}),
+                  ...(rect.callout.style?.fontFamily ? { fontFamily: rect.callout.style.fontFamily } : {}),
+                  ...(rect.callout.style?.fontSize ? { fontSize: `${rect.callout.style.fontSize}px` } : {})
+                }}
               >
                 {rect.callout.text || ' '}
               </text>
@@ -785,14 +840,32 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             return (
               <g
                 key={bracket.summary.id}
-                className="mindmap-summary-group"
-                role="img"
+                className={`mindmap-summary-group${selection.kind === 'element' && selection.elementId === bracket.summary.id ? ' is-selected' : ''}`}
+                role="button"
+                tabIndex={selection.kind === 'element' && selection.elementId === bracket.summary.id ? 0 : -1}
+                aria-pressed={selection.kind === 'element' && selection.elementId === bracket.summary.id}
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  event.preventDefault()
+                  dragRef.current = null
+                  selectElement(bracket.summary.id, 'summary')
+                }}
                 aria-label={label}
               >
                 <path
                   className="mindmap-summary-brace"
                   d={summaryPath(bracket)}
-                  style={summaryColor ? { stroke: summaryColor } : undefined}
+                  style={{
+                    stroke: bracket.summary.style?.stroke ?? summaryColor ?? undefined,
+                    ...(bracket.summary.style?.strokeWidth !== undefined ? { strokeWidth: bracket.summary.style.strokeWidth } : {}),
+                    ...(bracket.summary.style?.linePattern !== undefined
+                      ? { strokeDasharray: elementLineDashArray(bracket.summary.style.linePattern) ?? 'none' }
+                      : bracket.summary.style?.dashed === false
+                        ? { strokeDasharray: 'none' }
+                        : bracket.summary.style?.dashed
+                          ? { strokeDasharray: '5 4' }
+                          : {})
+                  }}
                   aria-hidden="true"
                 >
                   <title>{label}</title>
@@ -803,6 +876,11 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                     x={bracket.labelX}
                     y={bracket.labelY}
                     dominantBaseline="central"
+                    style={{
+                      ...(bracket.summary.style?.textColor ? { fill: bracket.summary.style.textColor } : {}),
+                      ...(bracket.summary.style?.fontFamily ? { fontFamily: bracket.summary.style.fontFamily } : {}),
+                      ...(bracket.summary.style?.fontSize ? { fontSize: `${bracket.summary.style.fontSize}px` } : {})
+                    }}
                   >
                     {bracket.summary.label}
                   </text>
@@ -814,53 +892,85 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
           {layout.boundaries.map((boundary) => {
             const bColor = boundary.style?.stroke ?? branchColor(document.theme, 0) ?? '#8E8E93'
             return (
-            <g key={boundary.id} className="mindmap-boundary-group">
-              <rect
-                className="mindmap-boundary"
-                x={boundary.x}
-                y={boundary.y}
-                width={boundary.width}
-                height={boundary.height}
-                rx={10}
-                style={{
-                  stroke: bColor,
-                  strokeWidth: boundary.style?.strokeWidth ?? 1.5,
-                  strokeDasharray: '5 4',
-                  fill: bColor,
-                  fillOpacity: 0.06
+              <g
+                key={boundary.id}
+                className={`mindmap-boundary-group${selection.kind === 'element' && selection.elementId === boundary.id ? ' is-selected' : ''}`}
+                role="button"
+                tabIndex={selection.kind === 'element' && selection.elementId === boundary.id ? 0 : -1}
+                aria-pressed={selection.kind === 'element' && selection.elementId === boundary.id}
+                aria-label={boundary.label || t('mindmap.elementStyle.types.boundary')}
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  event.preventDefault()
+                  dragRef.current = null
+                  selectElement(boundary.id, 'boundary')
                 }}
-              />
-              {boundary.label ? (
-                <text
-                  className="mindmap-boundary-label"
-                  x={boundary.x + 10}
-                  y={boundary.y + 16}
-                >
-                  {boundary.label}
-                </text>
-              ) : null}
-            </g>
+              >
+                <path
+                  className="mindmap-boundary"
+                  d={elementOutlinePath({
+                    x: boundary.x,
+                    y: boundary.y,
+                    width: boundary.width,
+                    height: boundary.height
+                  }, boundary.style?.outlineShape)}
+                  style={{
+                    stroke: bColor,
+                    strokeWidth: boundary.style?.strokeWidth ?? 1.5,
+                    strokeDasharray: boundary.style?.linePattern !== undefined
+                      ? elementLineDashArray(boundary.style.linePattern) ?? 'none'
+                      : boundary.style?.dashed === true ? '5 4' : 'none',
+                    fill: boundary.style?.fill ?? bColor,
+                    fillOpacity: boundary.style?.fill ? 1 : 0.06
+                  }}
+                />
+                {boundary.label ? (
+                  <text
+                    className="mindmap-boundary-label"
+                    x={boundary.x + 10}
+                    y={boundary.y + 16}
+                    style={{
+                      ...(boundary.style?.textColor ? { fill: boundary.style.textColor } : {}),
+                      ...(boundary.style?.fontFamily
+                        ? { fontFamily: boundary.style.fontFamily }
+                        : {}),
+                      ...(boundary.style?.fontSize
+                        ? { fontSize: `${boundary.style.fontSize}px` }
+                        : {})
+                    }}
+                  >
+                    {boundary.label}
+                  </text>
+                ) : null}
+              </g>
             )
           })}
 
           {layout.nodes.map((node) => {
-            const isSelected = node.id === selectedNodeId
+            const isSelected = selection.kind === 'topic' && selection.topicIds.includes(node.id)
+            const isPrimarySelection = node.id === selectedNodeId
             const isEditing = node.id === editingNodeId
             const depthClass = node.depth === 0 ? ' is-root' : node.depth === 1 ? ' is-branch' : ''
             // P4: Merge theme.topicStyles[central/main/sub] with node.style.
             // Priority: node.style > theme.topicStyles[layer] > CSS default.
-            const styleOverride = resolveTopicStyle(
+            const styleOverride = resolveEffectiveTopicStyle(
               node.style,
-              document.theme.topicStyles,
+              document.theme,
               node.depth
             )
+            const textAlign = styleOverride?.textAlign
+              ?? defaultTopicTextAlign(
+                styleOverride?.structureClass ?? sheet.layout.structureClass,
+                node.depth
+              )
+            const labelGeometry = topicLabelGeometry(node, textAlign)
             return (
               <g
                 key={node.id}
                 className={`mindmap-node-group${isSelected ? ' is-selected' : ''}${depthClass}${nodeDragState?.draggingId === node.id ? ' is-dragging' : ''}${nodeDragState?.dropTargetId === node.id ? ' is-drop-target' : ''}`}
                 data-depth={node.depth}
                 role="button"
-                tabIndex={isSelected ? 0 : -1}
+                tabIndex={isPrimarySelection ? 0 : -1}
                 style={{ outline: 'none' }}
                 aria-label={node.title || t('mindmap.untitledTopic')}
                 aria-pressed={isSelected}
@@ -872,7 +982,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   // default focus transfer avoids a second outer rectangle.
                   event.preventDefault()
                   dragRef.current = null
-                  beginNodeAction(node.id)
+                  beginNodeAction(node.id, event.metaKey || event.ctrlKey)
                 }}
                 onContextMenu={(event) => {
                   if (onContextMenu) {
@@ -885,7 +995,13 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   const isControl = target.closest?.(
                     '.mindmap-node-action, .mindmap-collapse-badge, .mindmap-node-input'
                   )
-                  if (event.button === 0 && !editingNodeId && !isControl) {
+                  if (
+                    event.button === 0 &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !editingNodeId &&
+                    !isControl
+                  ) {
                     startNodeDrag(node.id, event)
                   }
                 }}
@@ -909,21 +1025,56 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   const focusStroke = !isEditing && isSelected
                     ? 'var(--mm-focus)'
                     : undefined
+                  const borderStyle = styleOverride?.borderStyle
                   const stroke = focusStroke
-                    ?? styleOverride?.stroke
+                    ?? (borderStyle === 'none' ? 'none' : styleOverride?.stroke)
+                    ?? (borderStyle ? 'var(--mindmap-theme-line, #8E8E93)' : undefined)
                     ?? (node.depth === 1 ? 'none' : undefined)
                   const styleProps: Record<string, string | number> = {}
                   if (fill) styleProps.fill = fill
                   if (stroke) styleProps.stroke = stroke
-                  if (focusStroke) styleProps.strokeWidth = isSelected ? 2 : 1.5
+                  if (focusStroke) {
+                    styleProps.strokeWidth = isSelected ? 2 : 1.5
+                    styleProps.strokeDasharray = 'none'
+                    styleProps.filter = 'none'
+                  } else {
+                    if (styleOverride?.borderWidth !== undefined) {
+                      styleProps.strokeWidth = styleOverride.borderWidth
+                    }
+                    if (borderStyle === 'dash' || borderStyle === 'hand-drawn-dash') {
+                      styleProps.strokeDasharray = '6 4'
+                    } else if (borderStyle === 'solid' || borderStyle === 'hand-drawn-solid') {
+                      styleProps.strokeDasharray = 'none'
+                    }
+                    if (borderStyle === 'hand-drawn-solid' || borderStyle === 'hand-drawn-dash') {
+                      styleProps.filter = 'url(#mindmap-topic-hand-drawn)'
+                    }
+                  }
 
                   const Tag = elem.tag
+                  const patternId =
+                    styleOverride?.fillPattern === 'diagonal'
+                      ? 'mindmap-pattern-diagonal'
+                      : styleOverride?.fillPattern === 'horizontal'
+                        ? 'mindmap-pattern-horizontal'
+                        : styleOverride?.fillPattern === 'hand-drawn'
+                          ? 'mindmap-pattern-hand-drawn'
+                          : undefined
                   return (
-                    <Tag
-                      className={`mindmap-node-rect mindmap-node-shape--${shape}`}
-                      {...elem.attrs}
-                      style={Object.keys(styleProps).length > 0 ? styleProps : undefined}
-                    />
+                    <>
+                      <Tag
+                        className={`mindmap-node-rect mindmap-node-shape--${shape}`}
+                        {...elem.attrs}
+                        style={Object.keys(styleProps).length > 0 ? styleProps : undefined}
+                      />
+                      {patternId ? (
+                        <Tag
+                          className="mindmap-node-rect mindmap-node-pattern"
+                          {...elem.attrs}
+                          style={{ fill: `url(#${patternId})`, stroke: 'none', pointerEvents: 'none' }}
+                        />
+                      ) : null}
+                    </>
                   )
                 })()}
                 {node.hasNote ? (
@@ -977,7 +1128,11 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                           ...(styleOverride?.textColor ? { color: styleOverride.textColor } : {}),
                           ...(styleOverride?.fontFamily ? { fontFamily: styleOverride.fontFamily } : {}),
                           ...(styleOverride?.fontSize ? { fontSize: `${styleOverride.fontSize}px` } : {}),
-                          ...(styleOverride?.fontWeight ? { fontWeight: styleOverride.fontWeight } : {})
+                          ...(styleOverride?.fontWeight ? { fontWeight: styleOverride.fontWeight } : {}),
+                          ...(styleOverride?.fontStyle ? { fontStyle: styleOverride.fontStyle } : {}),
+                          ...(styleOverride?.textDecoration ? { textDecoration: styleOverride.textDecoration } : {}),
+                          ...(styleOverride?.textTransform ? { textTransform: styleOverride.textTransform } : {}),
+                          textAlign
                         }}
                         onFocus={(event) => event.target.select()}
                         onChange={(event) => setEditValue(event.currentTarget.value)}
@@ -998,15 +1153,18 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 ) : (
                     <text
                       className={`mindmap-node-label${node.title ? '' : ' is-placeholder'}`}
-                      x={node.x + node.width / 2}
+                      x={labelGeometry.x}
                       y={node.y + node.height / 2}
-                      textAnchor="middle"
+                      textAnchor={labelGeometry.textAnchor}
                       dominantBaseline="central"
                       style={{
                         ...(styleOverride?.textColor ? { fill: styleOverride.textColor } : {}),
                         ...(styleOverride?.fontFamily ? { fontFamily: styleOverride.fontFamily } : {}),
                         ...(styleOverride?.fontSize ? { fontSize: `${styleOverride.fontSize}px` } : {}),
-                        ...(styleOverride?.fontWeight ? { fontWeight: styleOverride.fontWeight } : {})
+                        ...(styleOverride?.fontWeight ? { fontWeight: styleOverride.fontWeight } : {}),
+                        ...(styleOverride?.fontStyle ? { fontStyle: styleOverride.fontStyle } : {}),
+                        ...(styleOverride?.textDecoration ? { textDecoration: styleOverride.textDecoration } : {}),
+                        ...(styleOverride?.textTransform ? { textTransform: styleOverride.textTransform } : {})
                       }}
                     >
                     {node.title || t('mindmap.untitledTopic')}

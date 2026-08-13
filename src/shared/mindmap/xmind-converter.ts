@@ -18,7 +18,11 @@ import type {
   MindMapSheet,
   MindMapStructureClass
 } from './mind-map-types'
-import type { MindMapTheme } from './domain/types'
+import type {
+  MindMapTheme,
+  MindMapTopicStyleOverride,
+  MindMapTopicV2
+} from './domain/types'
 
 const SHEET_CLASS = 'sheet'
 const TOPIC_CLASS = 'topic'
@@ -253,19 +257,9 @@ function cryptoRandomId(): string {
 }
 
 /**
- * Project a v2 theme into XMind's sheet-level `theme` / `style` fields so the
- * new theme attributes (background, branch colors, font) survive a .xmind
- * export roundtrip (§7.5/§11 risk table).
- *
- * XMind stores visual styling in two places:
- * 1. Sheet-level `theme` object (map background, default font).
- * 2. Topic-level `style` overrides (per-topic fill/stroke/font).
- *
- * We map the document-level `MindMapTheme` to the sheet `theme` block. Topic-
- * level styles (from `topicStyles` and per-node overrides) are not projected
- * here — they would require the full v2 topic tree, which the v1 converter
- * does not have. The sheet theme block covers background, branch colors, and
- * global font, which are the user-facing theme attributes.
+ * Project a v2 theme into XMind's sheet-level `theme` fields so background,
+ * branch colors, and font survive a .xmind export roundtrip (§7.5/§11).
+ * Topic-level style properties are emitted separately by `topicV2ToXmind`.
  */
 function themeToXmindSheetTheme(theme: MindMapTheme | undefined): Record<string, unknown> | undefined {
   if (!theme) return undefined
@@ -290,20 +284,128 @@ function themeToXmindSheetTheme(theme: MindMapTheme | undefined): Record<string,
   return themeBlock
 }
 
+/** Return the topic-style theme layer inherited at one tree depth. */
+function topicStyleLayerForDepth(
+  theme: MindMapTheme | undefined,
+  depth: number
+): MindMapTopicStyleOverride | undefined {
+  return depth === 0
+    ? theme?.topicStyles?.central
+    : depth === 1
+      ? theme?.topicStyles?.main
+      : theme?.topicStyles?.sub
+}
+
+type XmindV2ExportTopic = MindMapNode | MindMapTopicV2
+
+function isV2ExportTopic(topic: XmindV2ExportTopic): topic is MindMapTopicV2 {
+  return 'style' in topic
+}
+
+function localTopicStyle(topic: XmindV2ExportTopic): MindMapTopicStyleOverride | undefined {
+  return isV2ExportTopic(topic) ? topic.style : undefined
+}
+
+function effectiveTopicStyleForExport(
+  topic: XmindV2ExportTopic,
+  theme: MindMapTheme | undefined,
+  depth: number
+): MindMapTopicStyleOverride | undefined {
+  const merged = {
+    ...(topicStyleLayerForDepth(theme, depth) ?? {}),
+    ...(localTopicStyle(topic) ?? {})
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined
+}
+
 /**
- * Export a v2 document (with theme + layout) to XMind content.json.
+ * Map the supported native topic-style fields to XMind topic style properties.
  *
- * This is the v2-aware export path that preserves theme attributes. It
- * supersedes `documentToXmindContent` for v2 documents.
+ * XMind has no verified hand-drawn-border property distinct from its ordinary
+ * `solid` / `dash` values. We therefore export hand-drawn variants as an
+ * explicit visual approximation rather than claiming lossless parity.
+ */
+function topicStyleToXmindProperties(
+  style: MindMapTopicStyleOverride | undefined
+): Record<string, string> | undefined {
+  if (!style) return undefined
+
+  const properties: Record<string, string> = {}
+  if (style.borderStyle === 'none') {
+    properties['border-line-color'] = 'none'
+    properties['border-line-width'] = '0'
+  } else {
+    if (style.stroke !== undefined) properties['border-line-color'] = style.stroke
+    if (style.borderWidth !== undefined) {
+      properties['border-line-width'] = String(style.borderWidth)
+    }
+    if (style.borderStyle !== undefined) {
+      properties['border-line-pattern'] =
+        style.borderStyle === 'dash' || style.borderStyle === 'hand-drawn-dash'
+          ? 'dash'
+          : 'solid'
+    }
+  }
+  if (style.textDecoration !== undefined) {
+    properties['fo:text-decoration'] = style.textDecoration
+  }
+  if (style.textTransform !== undefined) {
+    // XMind's stored token for its visual “None” choice is `manual`.
+    properties['fo:text-transform'] = style.textTransform === 'none'
+      ? 'manual'
+      : style.textTransform
+  }
+  if (style.textAlign !== undefined) properties['fo:text-align'] = style.textAlign
+
+  return Object.keys(properties).length > 0 ? properties : undefined
+}
+
+function topicV2ToXmind(
+  topic: XmindV2ExportTopic,
+  theme: MindMapTheme | undefined,
+  depth: number
+): Record<string, unknown> {
+  const attached = topic.children.map((child) => topicV2ToXmind(child, theme, depth + 1))
+  const styleProperties = topicStyleToXmindProperties(
+    effectiveTopicStyleForExport(topic, theme, depth)
+  )
+
+  return {
+    class: TOPIC_CLASS,
+    id: topic.id,
+    title: topic.title,
+    ...(topic.note !== undefined ? { note: topic.note } : {}),
+    ...(topic.collapsed !== undefined ? { collapsed: topic.collapsed } : {}),
+    ...(isV2ExportTopic(topic)
+      ? topic.style?.structureClass !== undefined
+        ? { structureClass: topic.style.structureClass }
+        : {}
+      : topic.structureClass !== undefined
+        ? { structureClass: topic.structureClass }
+        : {}),
+    ...(styleProperties !== undefined
+      ? { style: { id: `studiumx-topic-${topic.id}`, properties: styleProperties } }
+      : {}),
+    ...(attached.length > 0 ? { children: { attached } } : {})
+  }
+}
+
+export type XmindV2ExportSheet = {
+  id: string
+  title: string
+  /** Accepts the legacy MindMapNode shape as well as the native v2 topic tree. */
+  root: XmindV2ExportTopic
+  structureClass: MindMapStructureClass
+  relationships?: readonly MindMapRelationship[]
+}
+
+/**
+ * Export v2 sheets to XMind content.json while retaining their native topic
+ * trees. Keeping this separate from `documentToXmindContent` preserves the v1
+ * compatibility API and avoids adding v2-only style fields to `MindMapNode`.
  */
 export function documentV2ToXmindContent(
-  sheets: ReadonlyArray<{
-    id: string
-    title: string
-    root: MindMapNode
-    structureClass: MindMapStructureClass
-    relationships?: readonly MindMapRelationship[]
-  }>,
+  sheets: ReadonlyArray<XmindV2ExportSheet>,
   theme: MindMapTheme | undefined
 ): Record<string, unknown>[] {
   const sheetTheme = themeToXmindSheetTheme(theme)
@@ -313,10 +415,7 @@ export function documentV2ToXmindContent(
     title: sheet.title,
     structureClass: sheet.structureClass,
     ...(sheetTheme !== undefined ? { theme: sheetTheme } : {}),
-    rootTopic: {
-      class: TOPIC_CLASS,
-      ...nodeToTopic(sheet.root)
-    },
+    rootTopic: topicV2ToXmind(sheet.root, theme, 0),
     ...(sheet.relationships !== undefined && sheet.relationships.length > 0
       ? { relationships: sheet.relationships.map(relationshipToXmind) }
       : {})

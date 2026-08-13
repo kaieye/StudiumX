@@ -23,6 +23,9 @@ export type MindMapKeyboardHandlers = {
   cut: () => void
   paste: () => void
   duplicate: () => void
+  copyStyle: () => void
+  pasteStyle: () => void
+  resetStyle: () => void
   moveFocus?: (direction: MindMapFocusDirection) => void
   toggleInspector?: () => void
 }
@@ -129,6 +132,24 @@ export function useMindMapKeyboard(
       if (mod && key.toLowerCase() === 'y') {
         event.preventDefault()
         handlers.redo()
+        return
+      }
+
+      if (mod && event.altKey && key.toLowerCase() === 'c') {
+        event.preventDefault()
+        handlers.copyStyle()
+        return
+      }
+
+      if (mod && event.altKey && key.toLowerCase() === 'v') {
+        event.preventDefault()
+        handlers.pasteStyle()
+        return
+      }
+
+      if (mod && event.altKey && key === '0') {
+        event.preventDefault()
+        handlers.resetStyle()
         return
       }
 

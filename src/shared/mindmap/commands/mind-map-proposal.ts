@@ -57,21 +57,84 @@ const nonEmptyIdSchema = z.string().refine((value) => value.trim().length > 0, {
 })
 const nonNegativeIntegerSchema = z.number().int().nonnegative()
 const finiteNumberSchema = z.number().finite()
+const mindMapColorProposalSchema = z.string().regex(
+  /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i,
+  'must be a CSS hex color'
+)
+const mindMapFontFamilyProposalSchema = z.string().trim().min(1).max(512)
+const mindMapFontWeightProposalSchema = z.enum([
+  'normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900'
+])
+const mindMapTopicShapeProposalSchema = z.enum([
+  'roundedRect',
+  'rounded-rect',
+  'rect',
+  'ellipse',
+  'diamond',
+  'underline',
+  'fishbone',
+  'none',
+  'quote',
+  'callout',
+  'bracket',
+  'arrow-right',
+  'arrow-left',
+  'heart',
+  'cloud',
+  'star',
+  'parallelogram',
+  'hexagon'
+])
+const mindMapFillPatternProposalSchema = z.enum(['solid', 'hand-drawn', 'diagonal', 'horizontal'])
+const mindMapTopicWidthModeProposalSchema = z.enum(['auto', 'fixed'])
+const mindMapTopicWidthProposalSchema = finiteNumberSchema.min(72).max(720)
 
 const mindMapPointProposalSchema = z
   .object({ x: finiteNumberSchema, y: finiteNumberSchema })
   .strict()
 
-const mindMapThemeProposalSchema = z
+export const mindMapTopicStyleProposalSchema = z
+  .object({
+    fill: mindMapColorProposalSchema.optional(),
+    stroke: mindMapColorProposalSchema.optional(),
+    borderStyle: z.enum(['none', 'solid', 'dash', 'hand-drawn-solid', 'hand-drawn-dash']).optional(),
+    borderWidth: finiteNumberSchema.positive().max(32).optional(),
+    textColor: mindMapColorProposalSchema.optional(),
+    fontFamily: mindMapFontFamilyProposalSchema.optional(),
+    fontSize: finiteNumberSchema.positive().max(512).optional(),
+    fontWeight: mindMapFontWeightProposalSchema.optional(),
+    fontStyle: z.enum(['normal', 'italic']).optional(),
+    textDecoration: z.enum(['none', 'underline', 'line-through', 'line-through underline']).optional(),
+    textTransform: z.enum(['none', 'uppercase', 'lowercase', 'capitalize']).optional(),
+    textAlign: z.enum(['left', 'center', 'right']).optional(),
+    shape: mindMapTopicShapeProposalSchema.optional(),
+    fillPattern: mindMapFillPatternProposalSchema.optional(),
+    widthMode: mindMapTopicWidthModeProposalSchema.optional(),
+    width: mindMapTopicWidthProposalSchema.optional(),
+    structureClass: mindMapStructureClassSchema.optional()
+  })
+  .strict()
+
+export const mindMapThemeProposalSchema = z
   .object({
     id: nonEmptyIdSchema,
     name: z.string().optional(),
-    background: z.string().optional(),
-    branchColors: z.array(z.string()).optional(),
-    textColor: z.string().optional(),
-    lineColor: z.string().optional(),
-    fontFamily: z.string().optional(),
-    shape: z.string().optional()
+    background: z.union([mindMapColorProposalSchema, z.literal('transparent')]).optional(),
+    branchColors: z.array(mindMapColorProposalSchema).min(1).max(64).optional(),
+    textColor: mindMapColorProposalSchema.optional(),
+    lineColor: mindMapColorProposalSchema.optional(),
+    fontFamily: mindMapFontFamilyProposalSchema.optional(),
+    shape: mindMapTopicShapeProposalSchema.optional(),
+    rainbowBranches: z.boolean().optional(),
+    colorSchemeId: z.string().trim().min(1).max(128).optional(),
+    topicStyles: z
+      .object({
+        central: mindMapTopicStyleProposalSchema.optional(),
+        main: mindMapTopicStyleProposalSchema.optional(),
+        sub: mindMapTopicStyleProposalSchema.optional()
+      })
+      .strict()
+      .optional()
   })
   .strict()
 
@@ -112,20 +175,50 @@ const mindMapSourceRefProposalSchema = z
   })
   .strict()
 
-const mindMapTopicStyleProposalSchema = z
-  .object({
-    fill: z.string().optional(),
-    stroke: z.string().optional(),
-    textColor: z.string().optional(),
-    fontFamily: z.string().optional(),
-    fontSize: finiteNumberSchema.positive().optional(),
-    fontWeight: z.string().optional(),
-    shape: z.string().optional(),
-    structureClass: mindMapStructureClassSchema.optional()
-  })
-  .strict()
+const mindMapElementArrowShapeProposalSchema = z.enum([
+  'none',
+  'dot',
+  'triangle',
+  'spearhead',
+  'square',
+  'diamond',
+  'herringbone',
+  'double-arrow',
+  'anti-triangle',
+  'attached',
+  'hook'
+])
 
-const mindMapElementStyleProposalSchema = z
+const mindMapElementLineShapeProposalSchema = z.enum([
+  'curved',
+  'straight',
+  'angled',
+  'zigzag',
+  'flexible-curved',
+  'flexible-angled',
+  'flexible-zigzag'
+])
+
+export const mindMapElementLinePatternProposalSchema = z.enum([
+  'solid',
+  'dash',
+  'dot',
+  'dash-dot',
+  'dash-dot-dot'
+])
+
+const mindMapElementOutlineShapeProposalSchema = z.enum([
+  'rectangle',
+  'rounded-rectangle',
+  'ellipse',
+  'polygon',
+  'scallops',
+  'waves',
+  'tension',
+  'bracket'
+])
+
+export const mindMapElementStyleProposalSchema = z
   .object({
     stroke: z.string().optional(),
     strokeWidth: finiteNumberSchema.nonnegative().optional(),
@@ -133,7 +226,12 @@ const mindMapElementStyleProposalSchema = z
     textColor: z.string().optional(),
     fontFamily: z.string().optional(),
     fontSize: finiteNumberSchema.positive().optional(),
-    dashed: z.boolean().optional()
+    dashed: z.boolean().optional(),
+    lineShape: mindMapElementLineShapeProposalSchema.optional(),
+    beginArrow: mindMapElementArrowShapeProposalSchema.optional(),
+    endArrow: mindMapElementArrowShapeProposalSchema.optional(),
+    linePattern: mindMapElementLinePatternProposalSchema.optional(),
+    outlineShape: mindMapElementOutlineShapeProposalSchema.optional()
   })
   .strict()
 
@@ -204,12 +302,18 @@ const mindMapElementProposalSchema: z.ZodType<MindMapElement> = z.discriminatedU
     .strict()
 ])
 
-const mindMapLayoutProposalSchema = z
+export const mindMapLayoutProposalSchema = z
   .object({
     structureClass: mindMapStructureClassSchema,
     direction: z.enum(['ltr', 'rtl']).optional(),
     compact: z.boolean().optional(),
-    spacing: finiteNumberSchema.nonnegative().optional()
+    spacing: finiteNumberSchema.nonnegative().optional(),
+    lineStyle: z.enum(['curve', 'straight', 'elbow', 'rounded-elbow', 'bight', 'fold', 'rounded-fold']).optional(),
+    lineWidthScale: finiteNumberSchema.positive().max(4).optional(),
+    linePattern: z
+      .enum(['solid', 'dash', 'hand-drawn-solid', 'hand-drawn-dash'])
+      .optional(),
+    tapered: z.boolean().optional()
   })
   .strict()
 
@@ -219,7 +323,13 @@ const mindMapSheetLayoutUpdatePatchProposalSchema: z.ZodType<MindMapSheetLayoutU
     direction: z.enum(['ltr', 'rtl']).nullable().optional(),
     compact: z.boolean().nullable().optional(),
     spacing: finiteNumberSchema.nonnegative().nullable().optional(),
-    lineStyle: z.enum(['curve', 'elbow', 'straight']).nullable().optional()
+    lineStyle: z.enum(['curve', 'straight', 'elbow', 'rounded-elbow', 'bight', 'fold', 'rounded-fold']).nullable().optional(),
+    lineWidthScale: finiteNumberSchema.positive().max(4).nullable().optional(),
+    linePattern: z
+      .enum(['solid', 'dash', 'hand-drawn-solid', 'hand-drawn-dash'])
+      .nullable()
+      .optional(),
+    tapered: z.boolean().nullable().optional()
   })
   .strict()
 

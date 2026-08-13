@@ -156,4 +156,93 @@ describe('MindMapThemePanel', () => {
 
     expect(useMindMapViewStore.getState().current?.theme).toEqual(makeDocument().theme)
   })
+  it('shows a non-blocking readability warning for unsafe resolved topic colors without dispatching a change', () => {
+    const dispatch = vi.spyOn(useMindMapViewStore.getState(), 'dispatchCommand')
+    render(<MindMapThemePanel />)
+
+    expect(screen.getByRole('status', { name: 'Color readability warning' })).toHaveTextContent(
+      'Some topic text may be hard to read'
+    )
+    expect(screen.getByRole('checkbox', { name: 'Rainbow branches' })).toBeEnabled()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('does not show a readability warning when all resolved topic text pairs are high contrast', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.theme = {
+      ...current.theme,
+      textColor: '#FFFFFF',
+      rainbowBranches: false,
+      lineColor: '#24324A',
+      topicStyles: {
+        central: { fill: '#24324A', textColor: '#FFFFFF' },
+        main: { fill: '#24324A', textColor: '#FFFFFF' },
+        sub: { fill: '#24324A', textColor: '#FFFFFF' }
+      }
+    }
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+
+    render(<MindMapThemePanel />)
+
+    expect(screen.queryByRole('status', { name: 'Color readability warning' })).not.toBeInTheDocument()
+  })
+
+  it('preserves palette and single-line color while switching branch modes', () => {
+    render(<MindMapThemePanel />)
+
+    const toggle = screen.getByRole('checkbox', { name: 'Rainbow branches' })
+    fireEvent.click(toggle)
+
+    const lineHex = screen.getByRole('textbox', { name: 'Branch line HEX' })
+    fireEvent.change(lineHex, { target: { value: '#123456' } })
+    fireEvent.keyDown(lineHex, { key: 'Enter' })
+
+    expect(useMindMapViewStore.getState().current?.theme).toMatchObject({
+      rainbowBranches: false,
+      lineColor: '#123456'
+    })
+
+    fireEvent.click(toggle)
+    fireEvent.change(screen.getByLabelText('Branch palette'), { target: { value: 'fire' } })
+    fireEvent.click(toggle)
+
+    const theme = useMindMapViewStore.getState().current?.theme
+    expect(theme?.rainbowBranches).toBe(false)
+    expect(theme?.lineColor).toBe('#123456')
+    expect(theme?.colorSchemeId).toBe('fire')
+    expect(theme?.branchColors).toHaveLength(6)
+  })
+
+  it('keeps an imported document font visible and warns only that it may fall back', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.theme.fontFamily = 'Imported XMind Font, sans-serif'
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+
+    render(<MindMapThemePanel />)
+
+    expect(screen.getByRole('combobox', { name: 'Font family' })).toHaveValue(
+      'Imported XMind Font, sans-serif'
+    )
+    expect(screen.getByText('Requested imported or custom font may fall back in this app.')).toBeInTheDocument()
+  })
+
+  it('supports HEX, transparent and CJK-safe document appearance controls', () => {
+    render(<MindMapThemePanel />)
+
+    const backgroundHex = screen.getByRole('textbox', { name: 'Background HEX' })
+    fireEvent.change(backgroundHex, { target: { value: '#f0fdf4' } })
+    fireEvent.keyDown(backgroundHex, { key: 'Enter' })
+    expect(useMindMapViewStore.getState().current?.theme.background).toBe('#F0FDF4')
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Transparent' })[0]!)
+    expect(useMindMapViewStore.getState().current?.theme.background).toBe('transparent')
+
+    fireEvent.change(screen.getByLabelText('Font family'), {
+      target: { value: '"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif' }
+    })
+    expect(useMindMapViewStore.getState().current?.theme.fontFamily).toContain('Noto Sans CJK SC')
+  })
+
 })

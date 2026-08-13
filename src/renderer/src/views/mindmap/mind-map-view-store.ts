@@ -8,12 +8,14 @@ import type {
 import { MindMapUndoRedoStack } from '../../../../shared/mindmap/commands/mind-map-undo-redo'
 import type {
   MindMapDocumentV2,
+  MindMapElementType,
   MindMapSheetV2
 } from '../../../../shared/mindmap/domain/types'
 import type { MindMapStructureClass, MindMapSummary } from '../../../../shared/mindmap/mind-map-types'
 import type { MindMapMarkdownExportSnapshot } from '../../../../shared/teaching-types/mindmap'
 import { useAppStore } from '../../app-shell/appStore'
 import {
+  buildApplyQuickStyleCommand,
   buildCollapseAllCommand,
   buildCopyPayload,
   buildCopySheetCommand,
@@ -29,6 +31,12 @@ import {
   buildToggleCollapseCommand,
   findTopicInSheet
 } from './mind-map-commands'
+import type { MindMapQuickStylePreset } from '../../../../shared/mindmap/quick-styles'
+import {
+  buildPasteTopicStyleCommand,
+  captureTopicStyleClipboard,
+  type MindMapTopicStyleClipboard
+} from './mind-map-topic-style-clipboard'
 
 /**
  * Renderer state for the mind-map view (docs/mindmap/design.md §6.6).
@@ -40,9 +48,17 @@ import {
  * actions instead read and CAS-update their target file directly.
  */
 
+export type MindMapSelection =
+  | { kind: 'topic'; topicIds: string[] }
+  | { kind: 'element'; elementId: string; elementType: MindMapElementType }
+  | { kind: 'canvas' }
+
 type MindMapViewState = {
   documents: MindMapSummary[]
   current: MindMapDocumentV2 | null
+  /** Canonical editor selection across topics, non-topic elements, and the canvas. */
+  selection: MindMapSelection
+  /** Compatibility projection for existing topic-only commands and panels. */
   selectedNodeId: string | null
   activeSheetId: string | null
   editingNodeId: string | null
@@ -55,9 +71,9 @@ type MindMapViewState = {
   /** Toggle the right inspector panel (bound to header button + ⌘.). */
   toggleInspector: () => void
   /** P2 §5.2: active inspector tab, persisted to localStorage. */
-  inspectorTab: 'style' | 'canvas' | 'ai'
+  inspectorTab: 'format' | 'content' | 'ai'
   /** Switch the active inspector tab (persisted). */
-  setInspectorTab: (tab: 'style' | 'canvas' | 'ai') => void
+  setInspectorTab: (tab: 'format' | 'content' | 'ai') => void
 
   loadDocuments: () => Promise<void>
   openDocument: (id: string) => Promise<void>
@@ -79,6 +95,9 @@ type MindMapViewState = {
   duplicateDocument: (id: string, title: string) => Promise<void>
 
   dispatchCommand: (command: MindMapCommand, options?: MindMapExecuteOptions) => void
+  selectTopic: (id: string, additive?: boolean) => void
+  selectElement: (id: string, type: MindMapElementType) => void
+  selectCanvas: () => void
   undo: () => void
   redo: () => void
 
@@ -103,6 +122,13 @@ type MindMapViewState = {
   cutNode: (nodeId: string) => void
   pasteNode: (parentId: string) => void
   duplicateNode: (nodeId: string) => void
+  /** Ephemeral local clipboard; never persisted into the mind-map document. */
+  copiedTopicStyle: MindMapTopicStyleClipboard | null
+  copyTopicStyle: (nodeId: string) => void
+  pasteTopicStyle: (topicIds: readonly string[]) => void
+  resetTopicStyle: (topicIds: readonly string[]) => void
+  /** Apply a visual-only quick style through the canonical command path. */
+  applyQuickStyle: (topicIds: readonly string[], preset: MindMapQuickStylePreset) => void
 
   setEditingNodeId: (id: string | null) => void
   setAiPrompt: (prompt: string) => void
@@ -146,6 +172,16 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
   let persistInFlight: Promise<boolean> | null = null
   let mutationEpoch = 0
   let dirty = false
+
+  const revealFormatInspector = (): Pick<MindMapViewState, 'inspectorOpen' | 'inspectorTab'> => {
+    try {
+      localStorage.setItem('mindmap.inspectorOpen', 'true')
+      localStorage.setItem('mindmap.inspectorTab', 'format')
+    } catch {
+      // localStorage may be unavailable; in-memory state still updates.
+    }
+    return { inspectorOpen: true, inspectorTab: 'format' }
+  }
 
   const clearPendingPersist = (): void => {
     if (persistTimer) {
@@ -302,9 +338,11 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
   return {
     documents: [],
     current: null,
+    selection: { kind: 'canvas' },
     selectedNodeId: null,
     activeSheetId: null,
     editingNodeId: null,
+    copiedTopicStyle: null,
     generating: false,
     streamText: '',
     error: null,
@@ -319,11 +357,12 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     inspectorTab: (() => {
       try {
         const tab = localStorage.getItem('mindmap.inspectorTab')
-        if (tab === 'style' || tab === 'canvas' || tab === 'ai') return tab
+        if (tab === 'format' || tab === 'content' || tab === 'ai') return tab
+        if (tab === 'style' || tab === 'canvas') return 'format'
       } catch {
         // localStorage may be unavailable
       }
-      return 'style'
+      return 'format'
     })(),
 
     loadDocuments: async () => {
@@ -352,6 +391,9 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
           mutationEpoch += 1
           set({
             current,
+            selection: current.sheets[0]?.root.id
+              ? { kind: 'topic', topicIds: [current.sheets[0].root.id] }
+              : { kind: 'canvas' },
             selectedNodeId: current.sheets[0]?.root.id ?? null,
             activeSheetId: current.sheets[0]?.id ?? null,
             editingNodeId: null,
@@ -376,6 +418,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       clipboard = null
       set({
         current: null,
+        selection: { kind: 'canvas' },
         selectedNodeId: null,
         activeSheetId: null,
         editingNodeId: null,
@@ -412,6 +455,9 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         mutationEpoch += 1
         set((state) => ({
           current,
+          selection: current.sheets[0]?.root.id
+            ? { kind: 'topic', topicIds: [current.sheets[0].root.id] }
+            : { kind: 'canvas' },
           selectedNodeId: current.sheets[0]?.root.id ?? null,
           activeSheetId: current.sheets[0]?.id ?? null,
           editingNodeId: null,
@@ -450,7 +496,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         set((state) => ({
           documents: state.documents.filter((doc) => doc.id !== id),
           ...(state.current?.id === id
-            ? { current: null, selectedNodeId: null, activeSheetId: null, editingNodeId: null }
+            ? { current: null, selection: { kind: 'canvas' }, selectedNodeId: null, activeSheetId: null, editingNodeId: null }
             : {})
         }))
       } catch (error) {
@@ -545,6 +591,54 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
 
     dispatchCommand,
 
+    selectTopic: (id, additive = false) => {
+      set((state) => {
+        if (!additive || state.selection.kind !== 'topic') {
+          return {
+            selection: { kind: 'topic' as const, topicIds: [id] },
+            selectedNodeId: id,
+            editingNodeId: null,
+            ...revealFormatInspector()
+          }
+        }
+
+        const existing = state.selection.topicIds
+        const isSelected = existing.includes(id)
+        const topicIds = isSelected && existing.length > 1
+          ? existing.filter((topicId) => topicId !== id)
+          : isSelected
+            ? existing
+            : [...existing, id]
+        const selectedNodeId = isSelected
+          ? (state.selectedNodeId === id ? topicIds.at(-1) ?? id : state.selectedNodeId)
+          : id
+        return {
+          selection: { kind: 'topic', topicIds },
+          selectedNodeId,
+          editingNodeId: null,
+          ...revealFormatInspector()
+        }
+      })
+    },
+
+    selectElement: (id, type) => {
+      set({
+        selection: { kind: 'element', elementId: id, elementType: type },
+        selectedNodeId: null,
+        editingNodeId: null,
+        ...revealFormatInspector()
+      })
+    },
+
+    selectCanvas: () => {
+      set({
+        selection: { kind: 'canvas' },
+        selectedNodeId: null,
+        editingNodeId: null,
+        ...revealFormatInspector()
+      })
+    },
+
     undo,
     redo,
 
@@ -561,7 +655,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       const updated = get().current
       const created = updated?.sheets.find((sheet) => sheet.id === sheetId)
       if (created) {
-        set({ activeSheetId: sheetId, selectedNodeId: created.root.id, editingNodeId: created.root.id })
+        set({ activeSheetId: sheetId, selection: { kind: 'topic', topicIds: [created.root.id] }, selectedNodeId: created.root.id, editingNodeId: created.root.id })
       }
     },
 
@@ -578,7 +672,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         set({ activeSheetId: built.newSheetId })
         const updated = get().current
         const created = updated?.sheets.find((sheet) => sheet.id === built.newSheetId)
-        if (created) set({ selectedNodeId: created.root.id })
+        if (created) set({ selection: { kind: 'topic', topicIds: [created.root.id] }, selectedNodeId: created.root.id })
       }
     },
 
@@ -598,7 +692,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         const next = updated.sheets[Math.min(index, updated.sheets.length - 1)] ?? updated.sheets[0]
         nextId = next?.id ?? null
       }
-      set({ activeSheetId: nextId, selectedNodeId: null })
+      set({ activeSheetId: nextId, selection: { kind: 'canvas' }, selectedNodeId: null })
     },
 
     reorderSheet: (sheetId, toIndex) => {
@@ -610,7 +704,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       if (!sheet) return
       const built = buildInsertChildCommand(sheet.id, parentId)
       dispatchCommand(built.command, { label: 'Insert child' })
-      set({ selectedNodeId: built.nodeId, editingNodeId: built.nodeId })
+      set({ selection: { kind: 'topic', topicIds: [built.nodeId] }, selectedNodeId: built.nodeId, editingNodeId: built.nodeId })
     },
 
     addSibling: (nodeId) => {
@@ -619,7 +713,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       const built = buildInsertSiblingCommand(sheet, nodeId)
       if (built) {
         dispatchCommand(built.command, { label: 'Insert sibling' })
-        set({ selectedNodeId: built.nodeId, editingNodeId: built.nodeId })
+        set({ selection: { kind: 'topic', topicIds: [built.nodeId] }, selectedNodeId: built.nodeId, editingNodeId: built.nodeId })
       }
     },
 
@@ -636,7 +730,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       const built = buildInsertAboveCommand(sheet, nodeId)
       if (built) {
         dispatchCommand(built.command, { label: 'Insert above' })
-        set({ selectedNodeId: built.nodeId, editingNodeId: built.nodeId })
+        set({ selection: { kind: 'topic', topicIds: [built.nodeId] }, selectedNodeId: built.nodeId, editingNodeId: built.nodeId })
       }
     },
 
@@ -646,7 +740,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       const command = buildRemoveCommand(sheet, nodeId)
       if (command) {
         dispatchCommand(command, { label: 'Delete topic' })
-        set({ selectedNodeId: null })
+        set({ selection: { kind: 'canvas' }, selectedNodeId: null })
       }
     },
 
@@ -700,7 +794,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         const command = buildRemoveCommand(sheet, nodeId)
         if (command) {
           dispatchCommand(command, { label: 'Cut topic' })
-          set({ selectedNodeId: null })
+          set({ selection: { kind: 'canvas' }, selectedNodeId: null })
         }
       }
     },
@@ -720,7 +814,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         parentId
       )
       dispatchCommand(built.command, { label: 'Paste topic' })
-      if (built.pastedRootId) set({ selectedNodeId: built.pastedRootId })
+      if (built.pastedRootId) set({ selection: { kind: 'topic', topicIds: [built.pastedRootId] }, selectedNodeId: built.pastedRootId })
     },
 
     duplicateNode: (nodeId) => {
@@ -730,7 +824,47 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       const built = buildDuplicateCommand(current, sheet.id, nodeId)
       if (built) {
         dispatchCommand(built.command, { label: 'Duplicate topic' })
-        set({ selectedNodeId: built.pastedRootId })
+        set({ selection: { kind: 'topic', topicIds: [built.pastedRootId] }, selectedNodeId: built.pastedRootId })
+      }
+    },
+
+    copyTopicStyle: (nodeId) => {
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      const topic = sheet ? findTopicInSheet(sheet, nodeId)?.node : undefined
+      if (!topic) return
+      set({ copiedTopicStyle: captureTopicStyleClipboard(topic.style) })
+    },
+
+    pasteTopicStyle: (topicIds) => {
+      const clipboard = get().copiedTopicStyle
+      const firstTopicId = topicIds[0]
+      const sheet = firstTopicId ? activeSheetContainingTopic(get(), firstTopicId) : undefined
+      if (!clipboard || !sheet) return
+      const command = buildPasteTopicStyleCommand(sheet, topicIds, clipboard)
+      if (command) dispatchCommand(command, { label: 'Paste topic style' })
+    },
+
+    resetTopicStyle: (topicIds) => {
+      const firstTopicId = topicIds[0]
+      const sheet = firstTopicId ? activeSheetContainingTopic(get(), firstTopicId) : undefined
+      if (!sheet) return
+      const command = buildPasteTopicStyleCommand(
+        sheet,
+        topicIds,
+        { kind: 'topic-style', style: null }
+      )
+      if (command) dispatchCommand(command, { label: 'Reset topic style' })
+    },
+
+    applyQuickStyle: (topicIds, preset) => {
+      const firstTopicId = topicIds[0]
+      const sheet = firstTopicId ? activeSheetContainingTopic(get(), firstTopicId) : undefined
+      if (!sheet) return
+      const command = buildApplyQuickStyleCommand(sheet, topicIds, preset)
+      if (command) {
+        dispatchCommand(command, {
+          label: preset === 'default' ? 'Reset quick style' : 'Apply quick style'
+        })
       }
     },
 
@@ -781,13 +915,23 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
           ? state.activeSheetId
           : document.sheets[0]?.id ?? null
       const activeSheet = document.sheets.find((sheet) => sheet.id === activeSheetId)
+      const previousSelection = state.selection
+      const selectedElement =
+        previousSelection.kind === 'element' && activeSheet?.elements.some((element) => element.id === previousSelection.elementId)
+          ? previousSelection
+          : null
       const selectedNodeId =
-        state.selectedNodeId && activeSheet && findTopicInSheet(activeSheet, state.selectedNodeId)
+        !selectedElement && state.selectedNodeId && activeSheet && findTopicInSheet(activeSheet, state.selectedNodeId)
           ? state.selectedNodeId
-          : activeSheet?.root.id ?? null
+          : selectedElement
+            ? null
+            : activeSheet?.root.id ?? null
+      const selection: MindMapSelection = selectedElement
+        ?? (selectedNodeId ? { kind: 'topic', topicIds: [selectedNodeId] } : { kind: 'canvas' })
 
       set({
         current: document,
+        selection,
         selectedNodeId,
         activeSheetId,
         editingNodeId: null,
@@ -815,6 +959,9 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
           mutationEpoch += 1
           set({
             current,
+            selection: current.sheets[0]?.root.id
+              ? { kind: 'topic', topicIds: [current.sheets[0].root.id] }
+              : { kind: 'canvas' },
             selectedNodeId: current.sheets[0]?.root.id ?? null,
             activeSheetId: current.sheets[0]?.id ?? null,
             editingNodeId: null,

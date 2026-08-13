@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import type { MindMapLayoutNode } from '../../src/renderer/src/views/mindmap/mind-map-layout'
 import {
+  bightEdgePath,
   braceEdgePath,
   curveEdgePath,
   edgeStrokeWidth,
   elbowEdgePath,
   fishboneEdgePath,
+  foldEdgePath,
   matrixEdgePath,
   resolveEdgePath,
+  roundedElbowEdgePath,
+  roundedFoldEdgePath,
   straightEdgePath,
   timelineEdgePath
 } from '../../src/renderer/src/views/mindmap/mind-map-edge-styles'
@@ -104,6 +108,45 @@ describe('vertical mind map edge styles', () => {
     expect(curveEdgePath(from, above)).toContain('160 -44')
     expect(elbowEdgePath(from, above).startsWith('M 140 50 L 140 ')).toBe(true)
     expect(elbowEdgePath(from, above).endsWith('L 160 -44')).toBe(true)
+  })
+})
+
+describe('extended connector shapes', () => {
+  it('produces a distinct rounded elbow sharing elbow endpoints', () => {
+    const path = roundedElbowEdgePath(from, right)
+    expect(path.startsWith('M 180 68 L ')).toBe(true)
+    expect(path.endsWith('L 280 138')).toBe(true)
+    expect(path).not.toBe(elbowEdgePath(from, right))
+    expect(path).toContain('Q ')
+  })
+
+  it('renders a bight with an inward V-notch pocket on the middle segment', () => {
+    const path = bightEdgePath(from, right)
+    expect(path.startsWith('M 180 68 L ')).toBe(true)
+    expect(path.endsWith('L 280 138')).toBe(true)
+    // The notch detours off the horizontal mid line (midY=103, notch 10).
+    expect(path).toContain('L 220 103 L 230 93 L 240 103')
+  })
+
+  it('renders a two-step fold with a horizontal shelf', () => {
+    const path = foldEdgePath(from, right)
+    expect(path.startsWith('M 180 68 L ')).toBe(true)
+    expect(path.endsWith('L 280 138')).toBe(true)
+    expect(path).toContain('L 214 68 L 214 103 L 246 103 L 246 138')
+  })
+
+  it('renders a rounded fold with softened corners', () => {
+    const path = roundedFoldEdgePath(from, right)
+    expect(path.startsWith('M 180 68 L ')).toBe(true)
+    expect(path.endsWith('L 280 138')).toBe(true)
+    expect(path).toContain('Q ')
+  })
+
+  it('resolves every extended connector style to its own generator', () => {
+    expect(resolveEdgePath(from, right, 'rounded-elbow')).toBe(roundedElbowEdgePath(from, right))
+    expect(resolveEdgePath(from, right, 'bight')).toBe(bightEdgePath(from, right))
+    expect(resolveEdgePath(from, right, 'fold')).toBe(foldEdgePath(from, right))
+    expect(resolveEdgePath(from, right, 'rounded-fold')).toBe(roundedFoldEdgePath(from, right))
   })
 })
 

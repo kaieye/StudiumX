@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { mindMapDocumentV2Schema } from '../../src/shared/mindmap/domain/schema'
+import {
+  mindMapDocumentV2Schema,
+  mindMapElementStyleSchema,
+  mindMapLayoutSettingsSchema,
+  mindMapTopicStyleOverrideSchema,
+  mindMapThemeSchema
+} from '../../src/shared/mindmap/domain/schema'
 import {
   collectTopicIds,
   validateMindMapDocumentV2,
@@ -16,13 +22,89 @@ import {
 import type {
   MindMapDocumentV2,
   MindMapElement,
+  MindMapElementStyle,
+  MindMapLayoutSettings,
   MindMapSheetV2,
+  MindMapTheme,
+  MindMapTopicStyleOverride,
   MindMapTopicV2
 } from '../../src/shared/mindmap/domain/types'
 import { migrateV1ToV2 } from '../../src/shared/mindmap/migrations/v1-to-v2'
 import type { MindMapDocument } from '../../src/shared/mindmap/mind-map-types'
+import {
+  mindMapElementStyleProposalSchema,
+  mindMapLayoutProposalSchema,
+  mindMapThemeProposalSchema,
+  mindMapTopicStyleProposalSchema
+} from '../../src/shared/mindmap/commands/mind-map-proposal'
 
 const NOW = '2026-08-09T00:00:00.000Z'
+
+function exhaustiveKeys<T>() {
+  return <Keys extends readonly (keyof T)[]>(
+    ...keys: Keys & ([keyof T] extends [Keys[number]] ? unknown : ['Missing keys', Exclude<keyof T, Keys[number]>])
+  ): Keys => keys
+}
+
+const mindMapThemeFields = exhaustiveKeys<MindMapTheme>()(
+  'id',
+  'name',
+  'background',
+  'branchColors',
+  'textColor',
+  'lineColor',
+  'fontFamily',
+  'shape',
+  'rainbowBranches',
+  'colorSchemeId',
+  'topicStyles'
+)
+
+const mindMapLayoutFields = exhaustiveKeys<MindMapLayoutSettings>()(
+  'structureClass',
+  'direction',
+  'compact',
+  'spacing',
+  'lineStyle',
+  'lineWidthScale',
+  'linePattern',
+  'tapered'
+)
+
+const mindMapTopicStyleFields = exhaustiveKeys<MindMapTopicStyleOverride>()(
+  'fill',
+  'stroke',
+  'borderStyle',
+  'borderWidth',
+  'textColor',
+  'fontFamily',
+  'fontSize',
+  'fontWeight',
+  'fontStyle',
+  'textDecoration',
+  'textTransform',
+  'textAlign',
+  'shape',
+  'fillPattern',
+  'widthMode',
+  'width',
+  'structureClass'
+)
+
+const mindMapElementStyleFields = exhaustiveKeys<MindMapElementStyle>()(
+  'stroke',
+  'strokeWidth',
+  'fill',
+  'textColor',
+  'fontFamily',
+  'fontSize',
+  'dashed',
+  'lineShape',
+  'beginArrow',
+  'endArrow',
+  'linePattern',
+  'outlineShape'
+)
 
 function topic(
   id: string,
@@ -113,10 +195,31 @@ function validDocumentV1(): MindMapDocument {
   }
 }
 
+describe('mind-map persisted style field drift detector', () => {
+  it('keeps every persisted theme, layout, topic-style, and element-style field in the runtime schema', () => {
+    expect(Object.keys(mindMapThemeSchema.shape).sort()).toEqual([...mindMapThemeFields].sort())
+    expect(Object.keys(mindMapLayoutSettingsSchema.shape).sort()).toEqual([...mindMapLayoutFields].sort())
+    expect(Object.keys(mindMapTopicStyleOverrideSchema.shape).sort()).toEqual([...mindMapTopicStyleFields].sort())
+    expect(Object.keys(mindMapElementStyleSchema.shape).sort()).toEqual([...mindMapElementStyleFields].sort())
+  })
+
+  it('keeps provider proposal style fields aligned with their persisted counterparts', () => {
+    expect(Object.keys(mindMapThemeProposalSchema.shape).sort()).toEqual([...mindMapThemeFields].sort())
+    expect(Object.keys(mindMapLayoutProposalSchema.shape).sort()).toEqual([...mindMapLayoutFields].sort())
+    expect(Object.keys(mindMapTopicStyleProposalSchema.shape).sort()).toEqual([...mindMapTopicStyleFields].sort())
+    expect(Object.keys(mindMapElementStyleProposalSchema.shape).sort()).toEqual([...mindMapElementStyleFields].sort())
+  })
+})
+
 describe('mind map v2 schemas', () => {
   it('accepts a valid v2 document', () => {
     const result = mindMapDocumentV2Schema.safeParse(validDocumentV2())
     expect(result.success).toBe(true)
+  })
+
+  it('validates the fixed width mode contract', () => {
+    expect(mindMapTopicStyleOverrideSchema.safeParse({ widthMode: 'fixed', width: 240 }).success).toBe(true)
+    expect(mindMapTopicStyleOverrideSchema.safeParse({ widthMode: 'fixed', width: 721 }).success).toBe(false)
   })
 
   it('accepts a valid v2 document without assets/interop/viewport', () => {
@@ -170,6 +273,155 @@ describe('mind map v2 schemas', () => {
     const result = mindMapDocumentV2Schema.safeParse(doc)
     expect(result.success).toBe(false)
   })
+  it('validates persisted topic font style and decoration as controlled enums', () => {
+    const doc = validDocumentV2()
+    doc.sheets[0].root.style = {
+      fontWeight: '700',
+      fontStyle: 'italic',
+      textDecoration: 'line-through underline',
+      textTransform: 'uppercase',
+      textAlign: 'right'
+    }
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(true)
+
+    doc.sheets[0].root.style = { fontStyle: 'oblique' as 'italic' }
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(false)
+
+    doc.sheets[0].root.style = { textDecoration: 'blink' as 'underline' }
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(false)
+
+    doc.sheets[0].root.style = { textTransform: 'sentence-case' as 'uppercase' }
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(false)
+
+    doc.sheets[0].root.style = { textAlign: 'justify' as 'left' }
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(false)
+  })
+
+  it('validates persisted topic border style and width as controlled values', () => {
+    const doc = validDocumentV2()
+    doc.sheets[0].root.style = {
+      stroke: '#123456',
+      borderStyle: 'hand-drawn-dash',
+      borderWidth: 5
+    }
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(true)
+
+    for (const style of [
+      { borderStyle: 'dot' },
+      { borderWidth: 0 },
+      { borderWidth: 33 },
+      { borderWidth: Number.NaN }
+    ]) {
+      doc.sheets[0].root.style = style as MindMapTopicStyleOverride
+      expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(false)
+    }
+  })
+
+  it('validates topic shape and fill pattern as controlled values', () => {
+    const doc = validDocumentV2()
+    for (const shape of [
+      'rounded-rect', 'rect', 'ellipse', 'diamond', 'underline', 'none',
+      'quote', 'callout', 'bracket', 'arrow-right', 'arrow-left',
+      'heart', 'cloud', 'star', 'parallelogram', 'hexagon'
+    ]) {
+      doc.sheets[0].root.style = { shape }
+      expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(true)
+    }
+    for (const fillPattern of ['solid', 'hand-drawn', 'diagonal', 'horizontal']) {
+      doc.sheets[0].root.style = { fillPattern }
+      expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(true)
+    }
+
+    doc.sheets[0].root.style = { shape: 'triangle' }
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(false)
+    doc.sheets[0].root.style = { fillPattern: 'dots' as 'solid' }
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(false)
+  })
+
+  it('validates persisted element style line/arrow/pattern/outline enums as controlled values', () => {
+    const doc = validDocumentV2()
+    for (const lineShape of [
+      'curved', 'straight', 'angled', 'zigzag',
+      'flexible-curved', 'flexible-angled', 'flexible-zigzag'
+    ]) {
+      doc.sheets[0].elements = [
+        element({
+          id: 'shaped', type: 'relationship', from: 'r1', to: 'a1',
+          style: { lineShape } as MindMapElementStyle
+        })
+      ]
+      expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(true)
+    }
+    for (const arrowShape of [
+      'none', 'dot', 'triangle', 'spearhead', 'square', 'diamond',
+      'herringbone', 'double-arrow', 'anti-triangle', 'attached', 'hook'
+    ]) {
+      doc.sheets[0].elements = [
+        element({
+          id: 'arrowed', type: 'relationship', from: 'r1', to: 'a1',
+          style: { beginArrow: arrowShape, endArrow: arrowShape } as MindMapElementStyle
+        })
+      ]
+      expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(true)
+    }
+    for (const linePattern of ['solid', 'dash', 'dot', 'dash-dot', 'dash-dot-dot']) {
+      doc.sheets[0].elements = [
+        element({
+          id: 'patterned', type: 'boundary', topicId: 'a1',
+          style: { linePattern } as MindMapElementStyle
+        })
+      ]
+      expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(true)
+    }
+    for (const outlineShape of [
+      'rectangle', 'rounded-rectangle', 'ellipse', 'polygon',
+      'scallops', 'waves', 'tension', 'bracket'
+    ]) {
+      doc.sheets[0].elements = [
+        element({
+          id: 'outlined', type: 'callout', topicId: 'a1', text: 'note',
+          style: { outlineShape } as MindMapElementStyle
+        })
+      ]
+      expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(true)
+    }
+
+    for (const style of [
+      { lineShape: 'squiggle' },
+      { beginArrow: 'arrow' },
+      { endArrow: 'circle' },
+      { linePattern: 'dashed-triple' },
+      { outlineShape: 'star' }
+    ]) {
+      doc.sheets[0].elements = [
+        element({ id: 'bad-enum', type: 'relationship', from: 'r1', to: 'a1', style: style as MindMapElementStyle })
+      ]
+      expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(false)
+    }
+  })
+
+  it('validates persisted element style colors, fonts and numeric bounds', () => {
+    const doc = validDocumentV2()
+    doc.sheets[0].elements = [
+      element({
+        id: 'styled', type: 'relationship', from: 'root-1', to: 'main-1',
+        style: { stroke: '#123456', fill: '#abcdef', textColor: '#334455',
+          strokeWidth: 8, fontFamily: 'system-ui, sans-serif', fontSize: 24, dashed: true }
+      })
+    ]
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(true)
+
+    for (const style of [
+      { stroke: 'red' }, { fill: '#zzzzzz' }, { textColor: 'rgb(1, 2, 3)' },
+      { strokeWidth: 65 }, { fontFamily: '' }, { fontSize: 513 }
+    ]) {
+      doc.sheets[0].elements = [
+        element({ id: 'invalid', type: 'relationship', from: 'root-1', to: 'main-1', style })
+      ]
+      expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(false)
+    }
+  })
+
 })
 
 describe('mind map v2 invariants', () => {

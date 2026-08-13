@@ -19,6 +19,10 @@
 import type {
   MindMapDocumentV2,
   MindMapElement,
+  MindMapElementArrowShape,
+  MindMapElementLinePattern,
+  MindMapElementLineShape,
+  MindMapElementOutlineShape,
   MindMapElementStyle,
   MindMapLayoutSettings,
   MindMapSheetV2,
@@ -154,8 +158,39 @@ function validateTopicStyle(style: MindMapTopicStyleOverride | undefined): strin
   if (style.fontSize !== undefined && (!Number.isFinite(style.fontSize) || style.fontSize <= 0)) {
     errors.push('fontSize must be a positive number')
   }
+  if (style.borderWidth !== undefined && (!Number.isFinite(style.borderWidth) || style.borderWidth <= 0 || style.borderWidth > 32)) {
+    errors.push('borderWidth must be greater than 0 and at most 32')
+  }
+  if (style.widthMode === 'fixed' && style.width === undefined) {
+    errors.push('width is required when widthMode is fixed')
+  }
+  if (style.widthMode !== 'fixed' && style.width !== undefined) {
+    errors.push('width is only allowed when widthMode is fixed')
+  }
+  if (style.width !== undefined && (!Number.isFinite(style.width) || style.width < 72 || style.width > 720)) {
+    errors.push('width must be between 72 and 720')
+  }
   return errors
 }
+
+const ELEMENT_ARROW_SHAPE_VALUES = new Set<MindMapElementArrowShape>([
+  'none', 'dot', 'triangle', 'spearhead', 'square', 'diamond',
+  'herringbone', 'double-arrow', 'anti-triangle', 'attached', 'hook'
+])
+
+const ELEMENT_LINE_SHAPE_VALUES = new Set<MindMapElementLineShape>([
+  'curved', 'straight', 'angled', 'zigzag',
+  'flexible-curved', 'flexible-angled', 'flexible-zigzag'
+])
+
+const ELEMENT_LINE_PATTERN_VALUES = new Set<MindMapElementLinePattern>([
+  'solid', 'dash', 'dot', 'dash-dot', 'dash-dot-dot'
+])
+
+const ELEMENT_OUTLINE_SHAPE_VALUES = new Set<MindMapElementOutlineShape>([
+  'rectangle', 'rounded-rectangle', 'ellipse', 'polygon',
+  'scallops', 'waves', 'tension', 'bracket'
+])
 
 function validateElementStyle(style: MindMapElementStyle | undefined): string[] {
   if (style === undefined) return []
@@ -165,6 +200,21 @@ function validateElementStyle(style: MindMapElementStyle | undefined): string[] 
   }
   if (style.fontSize !== undefined && (!Number.isFinite(style.fontSize) || style.fontSize <= 0)) {
     errors.push('fontSize must be a positive number')
+  }
+  if (style.beginArrow !== undefined && !ELEMENT_ARROW_SHAPE_VALUES.has(style.beginArrow)) {
+    errors.push(`beginArrow must be one of: ${[...ELEMENT_ARROW_SHAPE_VALUES].join(', ')}`)
+  }
+  if (style.endArrow !== undefined && !ELEMENT_ARROW_SHAPE_VALUES.has(style.endArrow)) {
+    errors.push(`endArrow must be one of: ${[...ELEMENT_ARROW_SHAPE_VALUES].join(', ')}`)
+  }
+  if (style.lineShape !== undefined && !ELEMENT_LINE_SHAPE_VALUES.has(style.lineShape)) {
+    errors.push(`lineShape must be one of: ${[...ELEMENT_LINE_SHAPE_VALUES].join(', ')}`)
+  }
+  if (style.linePattern !== undefined && !ELEMENT_LINE_PATTERN_VALUES.has(style.linePattern)) {
+    errors.push(`linePattern must be one of: ${[...ELEMENT_LINE_PATTERN_VALUES].join(', ')}`)
+  }
+  if (style.outlineShape !== undefined && !ELEMENT_OUTLINE_SHAPE_VALUES.has(style.outlineShape)) {
+    errors.push(`outlineShape must be one of: ${[...ELEMENT_OUTLINE_SHAPE_VALUES].join(', ')}`)
   }
   return errors
 }
@@ -533,8 +583,19 @@ const VALID_STRUCTURE_CLASSES: ReadonlySet<MindMapStructureClass> = new Set(
 
 const VALID_LINE_STYLES: ReadonlySet<NonNullable<MindMapLayoutSettings['lineStyle']>> = new Set([
   'curve',
+  'straight',
   'elbow',
-  'straight'
+  'rounded-elbow',
+  'bight',
+  'fold',
+  'rounded-fold'
+])
+
+const VALID_LINE_PATTERNS: ReadonlySet<NonNullable<MindMapLayoutSettings['linePattern']>> = new Set([
+  'solid',
+  'dash',
+  'hand-drawn-solid',
+  'hand-drawn-dash'
 ])
 
 function applySheetUpdateLayout(
@@ -563,6 +624,9 @@ function applySheetUpdateLayout(
       return error(command, 'INVALID_PATCH', 'Layout line-width scale must be a finite number in (0, 4]')
     }
   }
+  if (patch.linePattern !== undefined && patch.linePattern !== null && !VALID_LINE_PATTERNS.has(patch.linePattern)) {
+    return error(command, 'INVALID_PATCH', `Unknown branch line pattern "${String(patch.linePattern)}"`)
+  }
 
   const next = cloneDocument(document)
   const nextSheet = getSheet(next, command.sheetId)
@@ -577,7 +641,9 @@ function applySheetUpdateLayout(
     compact: previous.compact ?? null,
     spacing: previous.spacing ?? null,
     lineStyle: previous.lineStyle ?? null,
-    lineWidthScale: previous.lineWidthScale ?? null
+    lineWidthScale: previous.lineWidthScale ?? null,
+    linePattern: previous.linePattern ?? null,
+    tapered: previous.tapered ?? null
   }
 
   const nextLayout = { ...previous }
@@ -601,6 +667,14 @@ function applySheetUpdateLayout(
   if (patch.lineWidthScale !== undefined) {
     if (patch.lineWidthScale === null) delete nextLayout.lineWidthScale
     else nextLayout.lineWidthScale = patch.lineWidthScale
+  }
+  if (patch.linePattern !== undefined) {
+    if (patch.linePattern === null) delete nextLayout.linePattern
+    else nextLayout.linePattern = patch.linePattern
+  }
+  if (patch.tapered !== undefined) {
+    if (patch.tapered === null) delete nextLayout.tapered
+    else nextLayout.tapered = patch.tapered
   }
   nextSheet.layout = nextLayout
 

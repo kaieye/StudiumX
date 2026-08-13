@@ -114,6 +114,30 @@ describe('applyMindMapCommand — topic commands', () => {
     expectInvariants(undone.document)
   })
 
+  it('validates fixed topic width and restores width mode through the inverse', () => {
+    const doc = makeDocument()
+    const result = applyMindMapCommand(doc, {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { style: { widthMode: 'fixed', width: 240 } }
+    })
+    expectOk(result)
+    expect(result.document.sheets[0]!.root.children[0]!.style).toEqual({ widthMode: 'fixed', width: 240 })
+
+    const undone = applyMindMapCommand(result.document, result.inverse)
+    expectOk(undone)
+    expect(undone.document.sheets[0]!.root.children[0]!.style).toBeUndefined()
+
+    const invalid = applyMindMapCommand(doc, {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { style: { widthMode: 'fixed' } }
+    })
+    expect(invalid.ok).toBe(false)
+  })
+
   it('moves a topic to a new parent and back', () => {
     const doc = makeDocument()
     const command: MindMapCommand = {
@@ -401,6 +425,49 @@ describe('applyMindMapCommand — sheets and theme', () => {
     const undone = applyMindMapCommand(result.document, result.inverse)
     expectOk(undone)
     expect(undone.document).toEqual(doc)
+  })
+
+  it('keeps an explicit connector override independent from structure defaults', () => {
+    const doc = makeDocument()
+    const overridden = applyMindMapCommand(doc, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { lineStyle: 'curve' }
+    })
+    expectOk(overridden)
+
+    const changedStructure = applyMindMapCommand(overridden.document, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { structureClass: 'org.xmind.ui.timeline.horizontal' }
+    })
+    expectOk(changedStructure)
+    expect(changedStructure.document.sheets[0]!.layout).toMatchObject({
+      structureClass: 'org.xmind.ui.timeline.horizontal',
+      lineStyle: 'curve'
+    })
+
+    const reset = applyMindMapCommand(changedStructure.document, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { lineStyle: null }
+    })
+    expectOk(reset)
+    expect(reset.document.sheets[0]!.layout.lineStyle).toBeUndefined()
+    expect(reset.inverse).toEqual({
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: {
+        structureClass: 'org.xmind.ui.timeline.horizontal',
+        direction: null,
+        compact: null,
+        spacing: null,
+        lineStyle: 'curve',
+        lineWidthScale: null,
+        linePattern: null,
+        tapered: null
+      }
+    })
   })
 
   it('rejects invalid sheet layout spacing and connector style', () => {

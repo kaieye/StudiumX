@@ -93,12 +93,12 @@
 
 **必须改进：**
 
-- [ ] 补齐 `mindMapThemeSchema`、`mindMapLayoutSettingsSchema`。
-- [ ] 同步补齐 `mindMapThemeProposalSchema`、`mindMapLayoutProposalSchema`、`mindMapSheetLayoutUpdatePatchProposalSchema`。
-- [ ] 对新增枚举、数值范围和颜色值建立明确校验，不用无限制 `string` 代替稳定合同。
-- [ ] 增加 renderer → IPC parser → store → read 的真实 round-trip 测试。
-- [ ] fixture 必须覆盖所有右栏样式字段，确保保存、关闭、重开后等价。
-- [ ] 若只增加向后兼容 optional 字段，可评估保持 schemaVersion 2；若按本文建议拆分视觉模型，则应新增 ADR 和迁移版本。
+- [x] 补齐 `mindMapThemeSchema`、`mindMapLayoutSettingsSchema`。
+- [x] 同步补齐 `mindMapThemeProposalSchema`、`mindMapLayoutProposalSchema`、`mindMapSheetLayoutUpdatePatchProposalSchema`。
+- [x] 对新增枚举、数值范围和颜色值建立明确校验，不用无限制 `string` 代替稳定合同。
+- [x] 增加 renderer payload → IPC parser → store → read 的真实 round-trip 测试。
+- [x] fixture 覆盖本批地图级 theme/layout 与 element style 字段；更广的后续格式字段仍须随实现追加重开测试。
+- [x] 本批只增加向后兼容 optional 字段，保持 schemaVersion 2；后续若拆分视觉模型仍须新增 ADR 和迁移版本。
 
 **证据：**
 
@@ -124,9 +124,9 @@ Math.round(layout.lineWidthScale ?? 1) === option.value
 
 **必须改进：**
 
-- [ ] 使用精确受控枚举或 epsilon 比较，不做整数 round。
-- [ ] 将 display token 与真实 stroke width 解耦，例如 `extra-thin/thin/medium/bold/extra-bold`。
-- [ ] 为每个档位增加 UI 选中态与 renderer strokeWidth 测试。
+- [x] 使用精确受控枚举或 epsilon 比较，不做整数 round。
+- [x] 将五档 display token 映射为独立 scale 值（0.5/0.75/1/1.5/2），renderer 继续由 `edgeStrokeWidth` 解析真实宽度。
+- [x] 增加五档 UI 数量/选中态/undo/CAS persistence 测试；`edgeStrokeWidth` 已覆盖 scale 到真实宽度的映射。
 
 **证据：** `src/renderer/src/views/mindmap/MindMapCanvasOptionsPanel.tsx:171`
 
@@ -142,9 +142,9 @@ Math.round(layout.lineWidthScale ?? 1) === option.value
 
 **必须改进：**
 
-- [ ] 在模型支持节点级 lineClass/linePattern 前，把当前控件移动到导图/画布级区域并明确标注「全局分支连接线」。
+- [x] 在模型支持节点级 lineClass/linePattern 前，把当前控件移动到画布格式区，并标注作用域为当前 Sheet。
 - [ ] 后续节点级分支格式应使用独立字段和独立命令，不能复用 sheet `lineStyle`。
-- [ ] UI 必须展示作用域：当前主题、同级、子树、当前画布或整个文档。
+- [x] 本批地图级控件已标注当前 Sheet/整个文档；未来同级/子树传播控件仍须补对应作用域。
 
 **证据：** `src/renderer/src/views/mindmap/MindMapTopicStyleInspector.tsx:312`
 
@@ -154,10 +154,10 @@ Math.round(layout.lineWidthScale ?? 1) === option.value
 
 **必须改进：**
 
-- [ ] 明确字体层级：节点 override > 显式全局字体 > 层级主题默认 > app fallback，或提供「覆盖主题字体」开关。
-- [ ] 导图级全局字体变更应影响所有未做节点级显式覆盖的主题。
-- [ ] 增加中日韩字体 fallback，不要只提供 Serif/Monospace 粗粒度类别。
-- [ ] 增加 built-in theme 下切换全局字体的渲染测试。
+- [x] 明确并实现字体层级：节点 override > 显式全局字体 > 层级主题默认 > app fallback。
+- [x] 导图级全局字体变更影响所有未做节点级显式覆盖的主题。
+- [x] 增加 CJK Sans/CJK Serif fallback 字体选项。
+- [x] 增加 preset 层字体、全局字体与节点局部字体优先级渲染测试。
 
 **证据：**
 
@@ -172,10 +172,10 @@ Math.round(layout.lineWidthScale ?? 1) === option.value
 
 **必须改进：**
 
-- [ ] 彩虹分支打开：显示颜色组预览与选择器。
-- [ ] 彩虹分支关闭：显示统一分支线颜色选择器。
-- [ ] 切换模式时保留上次 palette 和 single color，不破坏用户设置。
-- [ ] 配色变化与开关变化采用一个原子 command/transaction，避免半更新。
+- [x] 彩虹分支打开：显示颜色组预览与选择器。
+- [x] 彩虹分支关闭：显示统一分支线颜色选择器。
+- [x] 切换模式时保留上次 palette 和 single color，不破坏用户设置。
+- [x] 每次配色或开关变化均通过单个 `document.apply-theme` command 提交完整 theme。
 
 **证据：**
 
@@ -193,10 +193,10 @@ Math.round(layout.lineWidthScale ?? 1) === option.value
 
 **必须改进：**
 
-- [ ] 将「主题 JSON 数量」与「主题保真等级」分开报告。
-- [ ] 为每个主题生成 preserved/approximated/dropped 属性报告。
-- [ ] 没有实现的属性不能只在缩略图中近似后静默丢失。
-- [ ] 在 UI 上将这批预设定位为「骨架/风格预设」或内部兼容资源，不再作为主入口的大画廊。
+- [x] 将「主题 JSON 数量」与「主题保真等级」分开报告。
+- [x] 为每个主题生成 preserved/approximated/dropped 属性报告。
+- [x] 没有实现的属性不会只在缩略图中近似后静默丢失：报告按稳定、无值的属性路径记录 dropped/approximated 原因。
+- [x] UI 将其定位为带近似提示的紧凑「风格预设」popover，不再常驻展示 43 卡片墙。
 
 **证据：**
 
@@ -216,10 +216,10 @@ Math.round(layout.lineWidthScale ?? 1) === option.value
 
 **必须改进：**
 
-- [ ] 建立统一 selection union：topic / relationship / boundary / summary / callout / free-topic / asset。
-- [ ] 每种元素提供能力清单与独立 inspector，不适用字段明确隐藏或禁用。
-- [ ] 所有已持久化 style 字段必须有 renderer 消费测试；不消费的字段应删除、延后或标记 unsupported，不能形成假合同。
-- [ ] element update 继续走现有 command、undo/redo 和 revisioned persistence，不另开直接写 store 的旁路。
+- [x] 建立 topic / element / canvas selection union；relationship/boundary/summary/callout 已接入，free-topic/asset 的完整画布路径仍待实现。
+- [x] relationship/boundary/summary/callout 共用按 element type capability 裁剪的动态 inspector；更高级的对象专属字段仍在 Phase 3。
+- [x] 当前有限 `MindMapElementStyle` 字段均有适用 renderer 消费测试；free-topic 明确显示 limited 状态。
+- [x] element update 继续走 `element.update`、undo/redo 与 revisioned debounced persistence。
 
 **证据：**
 
@@ -235,10 +235,10 @@ Math.round(layout.lineWidthScale ?? 1) === option.value
 
 **必须改进：**
 
-- [ ] 建立格式值状态：`default`、`inherited`、`none`、`concrete`、`mixed`。
-- [ ] 多选值不一致时显示 mixed，不得显示第一个节点的值。
-- [ ] `none` 必须与 inherited 区分，例如「无边框」不是「继承父级边框」。
-- [ ] 每个字段独立计算 capability 和 disabled，不能整面板一刀切。
+- [x] 建立 UI 格式值 adapter：`default`、`inherited`、`none`、`concrete`、`mixed`；当前先接入普通 topic 样式字段。
+- [x] 普通 topic 多选值不一致时显示 mixed，不再显示 primary/第一个节点的值。
+- [x] adapter 已将显式 `shape: none` 与 inherited 区分；边框等后续 typed `none` 字段仍待 domain 扩充。
+- [x] 当前 topic/canvas/element inspector 的每个已呈现字段均经独立 capability registry 计算；不支持字段保留禁用控件和可访问原因，不能整面板一刀切。五态值 adapter 扩展到 element/canvas 仍属后续工作。
 
 ---
 
@@ -431,10 +431,10 @@ Xmind 格式适配层对每个字段统一处理：
 | ID | 优先级 | 当前 | 改进项 | 验收标准 |
 | --- | --- | --- | --- | --- |
 | A-01 | P1 | ⚠️ | 将「主题画廊」主入口改为「配色方案」 | 右栏不再常驻 43 卡片；点击当前色条打开小浮层 |
-| A-02 | P1 | 🟡 | 新增独立「骨架」入口 | 结构/骨架与配色可独立切换，互不覆盖 |
+| A-02 | P1 | ✅ | 新增独立「骨架」入口 | 结构/骨架以当前值触发的分组 popover 独立于配色方案，切换结构不覆盖 theme/palette |
 | A-03 | P1 | ❌ | 新增「自定义风格」入口 | 进入独立管理器，不在侧栏平铺全部属性 |
-| A-04 | P1 | ⚠️ | 合并「样式/画布」为上下文式「格式」 | 点击画布、主题、元素时自动切换正确面板 |
-| A-05 | P1 | ⚠️ | 将笔记/标记从纯样式属性中分离 | 格式区只放视觉与布局；内容属性有独立分组或 Tab |
+| A-04 | P1 | ✅ | 合并「样式/画布」为上下文式「格式」 | 点击画布、主题、元素时自动切换正确面板 |
+| A-05 | P1 | ✅ | 将笔记/标记从纯样式属性中分离 | 格式区只放视觉与布局；内容属性有独立分组或 Tab |
 | A-06 | P1 | ✅ | 保留 AI Tab | AI 不绕过 command/revision；不与格式状态混用 |
 | A-07 | P2 | ❌ | 每个控件显示作用域 | 明确当前主题/同级/子树/当前 Sheet/全文档 |
 | A-08 | P2 | ❌ | 统一「重设」语义 | 可区分重设当前字段、当前区、当前对象和当前画布 |
@@ -443,15 +443,15 @@ Xmind 格式适配层对每个字段统一处理：
 
 | ID | 优先级 | 当前 | 改进项 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| B-01 | P0 | ⚠️ | 修复配色字段持久化 | 保存和重开后 `colorSchemeId/branchColors/rainbowBranches` 不丢失 |
-| B-02 | P1 | ⚠️ | 配色方案改为小浮层列表 | 右栏只显示当前配色预览，浮层可滚动 |
-| B-03 | P1 | ✅ | 保留 palette 色条预览 | 缩略预览能区分单色、多色和彩虹方案 |
+| B-01 | P0 | ✅ | 修复配色字段持久化 | 保存和重开后 `colorSchemeId/branchColors/rainbowBranches` 不丢失 |
+| B-02 | P1 | ✅ | 配色方案改为小浮层列表 | 右栏只显示当前配色预览，浮层可滚动 |
+| B-03 | P1 | ✅ | 保留 palette 色条预览 | 缩略预览能区分统一单色与当前分支 palette，并能辨认不同配色方案 |
 | B-04 | P2 | ❌ | 配色分类 | 至少推荐/经典/自定义；后续可增加智能配色 |
 | B-05 | P2 | ❌ | 收藏与最近使用 | 收藏状态为用户状态，不成为教学 authority |
 | B-06 | P2 | ❌ | 自定义配色完整生命周期 | 新建、编辑、复制、重命名、删除均可撤销或确认 |
-| B-07 | P1 | ⚠️ | 升级背景颜色选择器 | 支持 HEX、透明度、预置色、最近颜色、清除/透明 |
-| B-08 | P1 | ⚠️ | 明确背景作用域 | 决定是当前 Sheet 还是全文档，并在数据模型/UI 中一致表达 |
-| B-09 | P2 | ❌ | 配色可读性检查 | 对低对比文字/节点组合给出非阻断预警 |
+| B-07 | P1 | 🟡 | 升级背景颜色选择器 | 支持 HEX、透明度、预置色、最近颜色、清除/透明 |
+| B-08 | P1 | ✅ | 明确背景作用域 | 决定是当前 Sheet 还是全文档，并在数据模型/UI 中一致表达 |
+| B-09 | P2 | ✅ | 配色可读性检查 | 对低对比文字/节点组合给出非阻断预警 |
 | B-10 | P3 | ❌ | AI 智能配色 proposal | 只生成可审查 proposal，不静默改图；应用仍走 command |
 | B-11 | P4 | ❌ | 配色导入/导出 | 只处理静态颜色数据，不执行外部代码 |
 | B-12 | P4 | ❌ | 背景图片/墙纸（StudiumX 增强） | 明确这是自有增强，不宣称 Xmind 26.05 parity；资源走 asset/path 安全边界 |
@@ -460,11 +460,11 @@ Xmind 格式适配层对每个字段统一处理：
 
 | ID | 优先级 | 当前 | 改进项 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| C-01 | P0 | ⚠️ | 修正全局字体优先级 | 内置主题下切换全局字体会影响所有未局部覆盖节点 |
+| C-01 | P0 | ✅ | 修正全局字体优先级 | 内置主题下切换全局字体会影响所有未局部覆盖节点 |
 | C-02 | P1 | ⚠️ | 提供真实字体列表 | 显示系统已安装/内置安全字体，支持搜索和最近使用 |
-| C-03 | P1 | ❌ | 增加 CJK fallback 字体 | 中日韩与西文混排可独立选择 fallback |
-| C-04 | P2 | ❌ | 字体缺失降级提示 | 导入 XMind 字体缺失时明确 fallback，不静默替换 |
-| C-05 | P2 | ❌ | 全局字体与局部 override 指示 | 节点面板显示 inherited/global/local 状态 |
+| C-03 | P1 | ✅ | 增加 CJK fallback 字体 | 中日韩与西文混排可独立选择 fallback |
+| C-04 | P2 | 🟡 | 字体缺失降级提示 | 对导入/自定义且不在受管字体列表中的请求字体保留原字体栈并显示「可能回退」提示；不伪称已可靠探测 OS 字体安装状态。 |
+| C-05 | P2 | ✅ | 全局字体与局部 override 指示 | 节点面板显示 app fallback / theme layer / document global / local override / mixed 来源，且与 canvas 相同优先级。 |
 | C-06 | P2 | ❌ | 字体预览 | 下拉项使用自身字体预览，虚拟化长列表 |
 | C-07 | P3 | ❌ | 字体嵌入策略 | 导出 SVG/PNG/XMind 时记录字体降级与兼容性结果 |
 
@@ -472,47 +472,47 @@ Xmind 格式适配层对每个字段统一处理：
 
 | ID | 优先级 | 当前 | 改进项 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| D-01 | P0 | ⚠️ | 修复线宽选中态 | 细/默认/粗均正确高亮，自动保存后不回退 |
-| D-02 | P1 | ⚠️ | 扩为 5 档线宽 | 至少映射 1/2/3/5/8 或等价视觉 token |
-| D-03 | P1 | ❌ | 增加锥形线 | 每档可选择普通/锥形，组合更新为原子 transaction |
-| D-04 | P1 | ⚠️ | 将全局连接线类型移到地图面板 | 不再伪装成节点级属性 |
+| D-01 | P0 | ✅ | 修复线宽选中态 | 细/默认/粗均正确高亮，自动保存后不回退 |
+| D-02 | P1 | ✅ | 扩为 5 档线宽 | 至少映射 1/2/3/5/8 或等价视觉 token |
+| D-03 | P1 | ✅ | 增加锥形线 | 每档可选择普通/锥形，组合更新为原子 transaction |
+| D-04 | P1 | ✅ | 将全局连接线类型移到地图面板 | 不再伪装成节点级属性 |
 | D-05 | P1 | ⚠️ | 扩充连接线形状 | curve、straight、elbow、rounded elbow、bight、fold、rounded fold |
-| D-06 | P1 | ❌ | 增加分支线型 | solid、dash、hand-drawn solid、hand-drawn dash |
-| D-07 | P1 | ⚠️ | 彩虹分支 palette popover | 开关旁显示当前颜色组；支持切换颜色组 |
-| D-08 | P1 | ❌ | 统一分支线颜色 | 关闭彩虹分支时可选择 lineColor |
-| D-09 | P2 | ❌ | 结构默认与用户 override 分离 | 切换结构不会意外覆盖用户显式线型，或提供明确重设 |
+| D-06 | P1 | ✅ | 增加分支线型 | solid、dash、hand-drawn solid、hand-drawn dash |
+| D-07 | P1 | ✅ | 彩虹分支 palette popover | 开关旁显示当前颜色组；支持切换颜色组 |
+| D-08 | P1 | ✅ | 统一分支线颜色 | 关闭彩虹分支时可选择 lineColor |
+| D-09 | P2 | ✅ | 结构默认与用户 override 分离 | 切换结构不会意外覆盖用户显式线型，或提供明确重设 |
 | D-10 | P2 | ❌ | 导图级连接线类型快捷项 | 可作为 StudiumX 易用性增强；标明 Xmind 主要通过层级样式传播实现 |
 
 ### E. 结构与布局
 
 | ID | 优先级 | 当前 | 改进项 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| E-01 | P1 | ⚠️ | 结构选择改为预览 popover | 右栏只显示当前结构；浮层按 family 分类 |
+| E-01 | P1 | ✅ | 结构选择改为预览 popover | 右栏只显示当前结构；浮层按 family 分类，支持初始焦点、方向键环绕、Escape/选择后回焦与外部关闭 |
 | E-02 | P1 | ✅ | 保留 map/logic/org/tree/brace/timeline/fishbone/matrix | 每类有真实几何和 connector，不回退成普通树 |
 | E-03 | P2 | ❌ | 次级/三级结构参数 | `minorStructureClass/subMinorStructureClass` 或等价 typed model |
-| E-04 | P1 | ✅ | 自动平衡 | 与具体 structure capability 联动，不适用时禁用 |
-| E-05 | P1 | ✅ | 紧凑布局 | 明确 compact 对 spacing/geometry 的影响，避免重复控制 |
+| E-04 | P1 | ✅ | 自动平衡 | 仅对 Logic Chart structure capability 启用；其他结构禁用并显示原因 |
+| E-05 | P1 | ✅ | 紧凑布局 | compact 以独立倍率压缩默认或显式 sibling spacing，保留原 spacing 选择并有几何测试 |
 | E-06 | P2 | ❌ | 统一同级主题宽度 | 布局度量和渲染共同支持 |
 | E-07 | P2 | ❌ | 分支自由布局 | 手动位置和自动布局规则有明确优先级，可重设 |
 | E-08 | P3 | ❌ | 自由主题灵活定位 | 补齐 free-topic 渲染、选择、拖拽、格式化 |
 | E-09 | P3 | ❌ | 主题层叠 | 关闭时执行可撤销的重排，不只改布尔值 |
 | E-10 | P3 | 🟡 | Matrix/Grid 专属参数 | 列数、合并方式、单元格边框进入 typed layout settings |
-| E-11 | P2 | ⚠️ | 布局重设与骨架默认关联 | 不再永远硬重设为 `logic.right` |
+| E-11 | P2 | ✅ | 布局重设与骨架默认关联 | 重设保留当前 structure family，并回到该 family 的首选 preset，而非永远强制 `logic.right` |
 | E-12 | P2 | ⚠️ | 折叠/展开全部移出格式区 | 放到画布操作或导航区，避免把命令和样式混在一起 |
 
 ### F. 普通主题：节点外观
 
 | ID | 优先级 | 当前 | 改进项 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| F-01 | P1 | 🟡 | 扩充主题形状 | 基础形状首屏 + 更多形状 popover；未知 XMind 形状有近似报告 |
-| F-02 | P2 | ❌ | 填充 pattern | solid、hand-drawn、diagonal、horizontal 等 typed 枚举 |
-| F-03 | P1 | ✅ | 填充颜色 | 支持颜色井、透明、最近颜色、混合值 |
-| F-04 | P1 | ⚠️ | 边框颜色 | 与边框线型/粗细联动；none 时禁用 |
-| F-05 | P1 | ❌ | 边框线型 | none、solid、dash、hand-drawn solid/dash |
-| F-06 | P1 | ❌ | 边框粗细 | 至少五档；renderer 与 XMind 互通有映射 |
-| F-07 | P2 | ❌ | 节点宽度 | 固定宽度、自动适应文字、重设宽度 |
-| F-08 | P2 | ❌ | 快速样式 | 默认、重要、非常重要、划除；作为样式 preset 而非任务事实 |
-| F-09 | P2 | ❌ | 更多形状搜索/分类 | 不在主侧栏一次铺出几十项 |
+| F-01 | P1 | ✅ | 扩充主题形状 | 基础形状首屏 + 更多形状 popover；未知 XMind 形状有近似报告 |
+| F-02 | P2 | ✅ | 填充 pattern | solid、hand-drawn、diagonal、horizontal 等 typed 枚举 |
+| F-03 | P1 | 🟡 | 填充颜色 | 已有预置色、原生颜色井、清除继承和 mixed；透明与最近颜色尚未完成 |
+| F-04 | P1 | ✅ | 边框颜色 | 颜色 override 与 typed 线型/粗细共同持久化和渲染；effective `none` 时禁用颜色/粗细但保留原 override，重新启用可恢复 |
+| F-05 | P1 | ✅ | 边框线型 | `none/solid/dash/hand-drawn-solid/hand-drawn-dash` 已贯通 schema、proposal、inspector、renderer、undo/persistence；XMind 点线族导入近似为 dash，手绘为本地表现 |
+| F-06 | P1 | ✅ | 边框粗细 | 已有 0.5/1/2/3/5 五档、mixed/inherit、renderer、XMind theme import 与 V2 `.xmind` export；有效 stroke/width/none/dash 均映射为 topic style，hand-drawn 仅近似为 XMind solid/dash |
+| F-07 | P2 | ✅ | 节点宽度 | topic-local 支持自动适应文字、固定宽度、重设为自动；布局度量、换行高度、画布命中/编辑框共用同一真实尺寸。XMind 节点宽度导入导出仍未宣称完成 |
+| F-08 | P2 | ✅ | 快速样式 | 默认、重要、非常重要、划除；作为视觉样式 preset，不修改任务事实 |
+| F-09 | P2 | ✅ | 更多形状搜索/分类 | 不在主侧栏一次铺出几十项 |
 | F-10 | P2 | ⚠️ | 节点局部结构 override 完整化 | 不只提供 6 个 logic 选项，按当前结构提供有效 options |
 
 ### G. 普通主题：文本格式
@@ -520,14 +520,14 @@ Xmind 格式适配层对每个字段统一处理：
 | ID | 优先级 | 当前 | 改进项 | 验收标准 |
 | --- | --- | --- | --- | --- |
 | G-01 | P1 | ✅ | 字体家族 | 支持继承、全局、具体字体、mixed |
-| G-02 | P1 | ✅ | 字号 | 允许常用档位和合法数值输入，保留 undo merge |
-| G-03 | P1 | ✅ | 字重 | 统一 token，不在 UI 中硬编码英文名称 |
-| G-04 | P1 | ❌ | 粗体/斜体 | 可独立组合，不用仅靠 fontWeight 下拉替代 |
-| G-05 | P1 | ✅ | 文字颜色 | 支持透明/最近颜色/mixed |
-| G-06 | P2 | ❌ | 下划线/删除线 | 可独立重设和继承 |
-| G-07 | P2 | ❌ | 大小写转换 | none/uppercase/lowercase/capitalize；不改原始标题文本 |
-| G-08 | P2 | ❌ | 文本对齐 | left/center/right，并按结构方向提供合理默认 |
-| G-09 | P2 | ❌ | 多选混合态 | 字体、字号、颜色等不一致时显示 mixed |
+| G-02 | P1 | ✅ | 字号 | 支持常用 datalist 建议、任意 0–512 范围内合法正数、继承和 mixed；同一次 focus 编辑会话以稳定 mergeKey 合并为一次 undo |
+| G-03 | P1 | ✅ | 字重 | 使用稳定 fontWeight token，选项名称由 i18n 提供，不硬编码英文 |
+| G-04 | P1 | ✅ | 粗体/斜体 | 独立 Bold/Italic toggle，可组合、继承、显示 mixed，并贯通 schema/proposal/store/renderer |
+| G-05 | P1 | 🟡 | 文字颜色 | 已有预置色、原生颜色井、清除继承和 mixed；透明与最近颜色尚未完成 |
+| G-06 | P2 | ✅ | 下划线/删除线 | 独立可组合 toggle，支持 inherit/explicit none/mixed、undo、revisioned persistence 和画布渲染；`fo:text-decoration` 以 XMind canonical `none/underline/line-through/line-through underline` 导入导出 |
+| G-07 | P2 | ✅ | 大小写转换 | inherit/none/uppercase/lowercase/capitalize 已进入 typed schema/proposal/store/renderer；只改变视觉 `textTransform`，不改原始标题，支持 mixed、undo、revisioned persistence 与 XMind `fo:text-transform` 导入导出 |
+| G-08 | P2 | ✅ | 文本对齐 | left/center/right 支持 inherit/mixed、undo/persistence 与 SVG/edit-input 渲染；左右单向结构默认朝分支方向对齐，中心/双向/垂直结构居中，并以 `fo:text-align` 导入导出 |
+| G-09 | P2 | ✅ | 多选混合态 | 字体、字号、颜色等不一致时显示 mixed |
 | G-10 | P3 | ❌ | 行高/内边距 | 仅在真实需要且有导出映射时增加，避免无边界 CSS 参数 |
 
 ### H. 主题分支与编号
@@ -557,19 +557,19 @@ Xmind 格式适配层对每个字段统一处理：
 | I-06 | P3 | 🟡 | Image/asset inspector | 宽高、锁比例、边框、阴影、不透明度；安全读取 asset 元数据 |
 | I-07 | P3 | ❌ | Grid cell inspector | 背景、对齐、边框，只有 grid 结构时可用 |
 | I-08 | P4 | ❌ | Zone/区域 inspector | 若 StudiumX 引入 zone，需先定义正式 domain model，不以 boundary 冒充 |
-| I-09 | P2 | ❌ | 对象格式 capability registry | 每种对象声明支持字段，避免面板写入 renderer 不消费的属性 |
+| I-09 | P2 | 🟡 | 对象格式 capability registry | 每种对象声明支持字段，避免面板写入 renderer 不消费的属性 |
 
 ### J. 多选、继承、传播和样式复用
 
 | ID | 优先级 | 当前 | 改进项 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| J-01 | P1 | 🟡 | 将 selection 接入右栏 | 支持多个 topic 和单个 element；稳定 id，不保存为教学事实 |
-| J-02 | P1 | ❌ | mixed state | 不同值显示 mixed；修改后只覆盖所选字段 |
-| J-03 | P1 | ❌ | inherited/default/none 分离 | 序列化和 UI 均不复用一个空字符串 |
-| J-04 | P2 | ❌ | 更新到当前层级 | command transaction，可撤销一次完成 |
-| J-05 | P2 | ❌ | 更新到所有子主题 | 对大子树有进度/取消边界，不形成低位默认 quota |
-| J-06 | P2 | ⚠️ | 重设样式 | 恢复继承，而不是复制主题当前具体值到节点 |
-| J-07 | P2 | ❌ | 复制/粘贴样式 | 菜单和快捷键提供；粘贴只覆盖兼容字段 |
+| J-01 | P1 | ✅ | 将 selection 接入右栏 | 支持多个 topic 和单个 element；稳定 id，不保存为教学事实 |
+| J-02 | P1 | ✅ | mixed state | 不同值显示 mixed；修改后只覆盖所选字段 |
+| J-03 | P1 | 🟡 | inherited/default/none 分离 | topic inspector adapter 已分离五态；其他 inspector 与未来 typed none 字段尚未全量接入 |
+| J-04 | P2 | ✅ | 更新到当前层级 | 单选 topic 可将完整局部样式通过一个 command transaction 应用到同级，并一次撤销 |
+| J-05 | P2 | 🟡 | 更新到所有子主题 | 已有单 transaction 全子树传播、undo 与 persistence；大子树进度/取消边界尚未完成 |
+| J-06 | P2 | ✅ | 重设样式 | inspector、topic 菜单与 XMind 对齐的 `Cmd/Ctrl+Alt+0` 均删除所选 topic 的 local style snapshot，恢复主题/结构继承；多选为一次 transaction/undo |
+| J-07 | P2 | ✅ | 复制/粘贴样式 | topic 菜单与 XMind 对齐的 `Cmd/Ctrl+Alt+C/V` 快捷键已提供；payload 只保存 schema-compatible local topic style，多选粘贴为一次 transaction/undo，并进入 revisioned persistence |
 | J-08 | P2 | ❌ | 样式刷/重复应用 | 可选增强，复用复制样式 payload，不新建第二套格式模型 |
 | J-09 | P2 | ❌ | capability disabled | 每字段独立禁用，并说明原因 |
 | J-10 | P3 | ❌ | 多类型选择策略 | 只显示交集属性；禁止把 topic 字段写入 relationship |
@@ -590,18 +590,18 @@ Xmind 格式适配层对每个字段统一处理：
 
 | ID | 优先级 | 当前 | 改进项 | 验收标准 |
 | --- | --- | --- | --- | --- |
-| L-01 | P0 | ⚠️ | Schema/类型/command/proposal 同源 | 增加字段时四处不会再次漂移，最好由共享 schema/types 派生 |
-| L-02 | P0 | ⚠️ | 真实 IPC round-trip 测试 | 不允许 mock 直接回显 payload 掩盖 parser strip |
-| L-03 | P1 | ⚠️ | UI + store 重开测试 | 每个地图级控件保存、关闭、重开保持一致 |
+| L-01 | P0 | 🟡 | Schema/类型/command/proposal 同源 | 增加字段时四处不会再次漂移，最好由共享 schema/types 派生 |
+| L-02 | P0 | ✅ | IPC parser + repository round-trip 测试 | 不允许 mock 直接回显 payload 掩盖 parser strip；完整 Electron transport/handler integration 可另行补充 |
+| L-03 | P1 | 🟡 | UI + store 重开测试 | 每个地图级控件保存、关闭、重开保持一致 |
 | L-04 | P2 | ⚠️ | XMind 导入属性报告 | 每个 style 字段标记 preserved/approximated/dropped |
-| L-05 | P2 | ⚠️ | XMind 导出 round-trip | topicStyles、节点 override、line pattern/width 等逐步保真 |
+| L-05 | P2 | 🟡 | XMind 导出 round-trip | V2 `.xmind` 已导出有效 topic border 与 textDecoration；手绘边框近似为 solid/dash。完整 topicStyles、node override 与 import round-trip 仍未完成 |
 | L-06 | P2 | ❌ | 未知字体/形状降级 | 有稳定 fallback 和兼容报告，不静默变形 |
 | L-07 | P1 | ⚠️ | Undo/redo 原子性 | 线宽+锥形、彩虹开关+palette 等组合只产生一个用户级 undo entry |
-| L-08 | P1 | ❌ | 键盘与无障碍 | popover 焦点管理、方向键、Escape、ARIA label、mixed state 可读 |
+| L-08 | P1 | 🟡 | 键盘与无障碍 | 配色/预设 popover 已覆盖打开焦点、方向键环绕、Escape/选择后回焦；mixed ARIA 可读，其他 inspector 仍需系统审计 |
 | L-09 | P2 | ❌ | 性能 | 大配色/字体/形状列表虚拟化；改样式不重复全树昂贵布局 |
 | L-10 | P2 | ⚠️ | 导出一致性 | PNG/SVG/XMind 使用与画布相同 resolved style，不维护三套算法 |
 | L-11 | P2 | ❌ | 视觉回归 fixture | 中心/一级/子级、不同结构、元素、多选、暗色 UI 全覆盖 |
-| L-12 | P1 | ❌ | 防回归 change detector | 检查 `MindMapTheme/MindMapLayoutSettings` 字段是否都被 schema 接受 |
+| L-12 | P1 | ✅ | 防回归 change detector | 编译期 exhaustive key list + runtime key equality 覆盖 persisted/proposal 的 `MindMapTheme/MindMapLayoutSettings/MindMapTopicStyleOverride/MindMapElementStyle`；schema/type 真正派生同源仍由 L-01 跟踪 |
 
 ---
 
@@ -763,7 +763,7 @@ type InspectorValue<T> =
 - [ ] 关闭文档并重新打开，设置完全一致。
 - [ ] 切换骨架不会意外重置配色和节点局部样式。
 - [ ] 关闭彩虹分支后可选择统一线色；重新开启后恢复上次 palette。
-- [ ] 多选不同样式节点时显示 mixed；修改一个字段不会覆盖其他字段。
+- [x] 多选不同样式节点时显示 mixed；修改一个字段不会覆盖其他字段。
 - [ ] 选择 relationship/boundary/summary/callout 时自动显示正确面板。
 - [ ] 样式传播、复制/粘贴、重设都可一次撤销和重做。
 
@@ -796,6 +796,35 @@ type InspectorValue<T> =
 
 ---
 
+## 9.1 2026-08-12 当前实现证据（持续更新）
+
+> 本节只记录已经落地并有测试的增量，不代表 Phase 2–4 或完整 XMind parity 已完成。表格中的 🟡 仍表示只有部分验收标准闭环。
+
+- **P0 持久化合同：** `src/shared/mindmap/domain/schema.ts` 与 `src/shared/mindmap/commands/mind-map-proposal.ts` 已接受并校验 `rainbowBranches`、`colorSchemeId`、`topicStyles`、`fontStyle`、`borderStyle`、`borderWidth`、`lineStyle`、`lineWidthScale` 及有限 element style；新增真实 `parseMindMapUpdatePayload → MindMapStore.update → read` 测试，覆盖 topic 与 relationship/boundary/summary/callout style。`mind-map-domain` 另以 exhaustive keys + schema keys equality 检测 theme/layout/topic-style/element-style 与 proposal schema 字段漂移。
+- **上下文式右栏：** `MindMapAiPanel.tsx` 已将旧 Style/Canvas 合并为 `Format`，另设 `Content` 与 `AI`；选择 topic、element 或 canvas 会自动打开并持久化 `Format`，显示对应格式面板，notes/markers 只在 topic Content 中出现。旧持久化值 `style/canvas` 会兼容映射到 `format`。
+- **紧凑配色/预设入口：** `MindMapThemeGallery.tsx` 使用两个可滚动 popover 分离 Color Scheme 与 Style Preset，预设区明确提示视觉近似，不再常驻铺开 43 卡片；触发器能区分彩虹 palette 与关闭彩虹后的单色 lineColor，并覆盖打开焦点、方向键环绕、Escape/选择后回焦。每张预设卡同时显示 P/A/D（preserved/approximated/dropped）计数，并在可访问名称中完整说明。
+- **内置主题保真报告：** `themes/theme-fidelity.ts` 对 43 份原始 XMind theme JSON 分别生成 value-free 的 `preserved/approximated/dropped/warnings` 属性报告；`built-in-themes.ts` 导出完整报告集合及按 preset id 查询函数。已映射属性、point→px/合并 dash 等近似、connection/arrow/object theme 及未知属性的 dropped 都不再静默。此报告不意味着 `.xmind` export 已获得完整主题 round-trip。
+- **地图级外观：** `MindMapThemePanel.tsx` 支持背景 HEX、透明/清除、预置色、CJK-safe 字体、彩虹 palette 预览/切换以及关闭彩虹后的统一 `lineColor`；背景与字体明确标为整个文档作用域。背景透明度和最近颜色尚未完成。
+- **字体来源与保守回退提示（C-04/C-05）：** `mind-map-font-provenance.ts` 使用与 canvas 相同的 `local > document > theme layer > app fallback` 优先级，topic inspector 显示 local/document/theme-layer/app-fallback/mixed 来源；导入或自定义的非受管字体栈会原样保留在 topic/document 字体控件中，并提示「可能回退」，而不是虚假声称已检测到系统未安装。该提示不等同于 OS 级字体探测，也尚未涵盖导出字体嵌入/逐项报告。
+- **骨架入口：** `MindMapCanvasOptionsPanel.tsx` 现在只常驻显示当前 structure；点击后在按 family 分组的 popover 中选择全部真实结构，支持键盘环绕、Escape/选择后回焦与外部关闭。布局重设回到当前 family 的首选 preset，不再强制 Logic Right。
+- **Sheet 级连接线：** `MindMapCanvasOptionsPanel.tsx` 承载 connector 与五档 line width，并标注当前 Sheet；`mind-map-canvas-options.unit.test.tsx` 覆盖五档 UI、选中态、undo 和 revisioned CAS persistence，`mind-map-edge-styles.unit.test.ts` 覆盖 scale 到 renderer stroke width。
+- **结构默认与连接线 override（D-09）：** 连接线控件新增 `Structure default` 状态，使用 `getConnectorStyle(structureClass)` 展示当前结构族的有效连接语言；显式 `sheet.layout.lineStyle` 显示为 `Sheet override`，可通过 `Use structure default` 清除 override。结构切换继续只更新 `structureClass`，因此不会覆盖显式线型；reducer inverse 保留前后两种状态，UI/command 测试覆盖切换、重设与 undo。
+- **节点宽度（F-07）：** `MindMapTopicStyleOverride` 新增可选 `widthMode: auto | fixed` 与 `width`（72–720px）；`topic.update` / proposal schema / reducer 校验、inverse 与 debounced persistence 均沿用既有命令路径。布局 `precomputeSizes()` 在 fixed 模式使用真实固定宽度，并重新计算换行高度；Canvas 的矩形、foreignObject、命中区域和 connector attachment 继续消费同一 `MindMapLayoutNode.width/height`。topic inspector 支持继承、自动适应文字、固定宽度、mixed 与重设；XMind 宽度互通尚未实现，不能宣称 round-trip parity。
+- **对象选择与格式：** `mind-map-view-store.ts` 已有 topic/element/canvas selection union；relationship、boundary、summary、callout 可从画布选中并进入 `MindMapElementStyleInspector.tsx`，更新继续通过 `element.update`、undo/redo 与自动保存。`mind-map-inspector-capabilities.ts` 为 topic border、canvas auto-balance 和每个 element field 提供独立 field-level capability/disabled reason；如 Summary fill、free-topic 全部当前字段都会以禁用控件和关联说明呈现。高级对象专属字段、free-topic 与 asset 路径仍未完成。
+- **元素渲染合同：** relationship、boundary、summary、callout 的当前适用 `stroke/strokeWidth/fill/textColor/fontFamily/fontSize/dashed` 均有 renderer 测试；未指定 dashed 的 boundary 保持 solid。
+- **Topic 多选格式：** 新增 `mind-map-inspector-values.ts` 五态 adapter；Ctrl/Cmd 点击可 additive toggle topic selection，primary topic compatibility projection 跟随最后点击；普通 topic 的 shape/fill/stroke/font/layout mixed state 与逐字段写入已通过单个 `transaction` command 保持一次 undo、其他字段不被覆盖，并继续走 debounced revisioned persistence。该 adapter 尚未全量接入 element/canvas inspector。
+- **样式传播与复用：** 单选 topic inspector 已提供“同级主题”和“所有子主题”入口；`buildPropagateTopicStyleCommand()` 复制源 topic 的完整局部 style snapshot，以单个 transaction 更新目标并保持一次 undo/redo 与 debounced revisioned persistence。topic context menu 与 `Cmd/Ctrl+Alt+C/V` 已提供复制/粘贴样式；renderer-local clipboard 仅保存经 topic-style schema 过滤的 local style snapshot，不复制标题/子树/教学事实，空 snapshot 可恢复继承，多选粘贴保持一次 undo/redo。重设样式可从 inspector、菜单或 `Cmd/Ctrl+Alt+0` 删除全部 local style override，恢复主题/结构继承，并以单 transaction 支持多选 undo。大子树进度/取消与样式刷仍未完成。
+- **Topic 文本格式：** `fontStyle: normal/italic`、`textDecoration: none/underline/line-through/line-through underline`、视觉 `textTransform: none/uppercase/lowercase/capitalize` 与 `textAlign: left/center/right` 已进入 domain schema、AI proposal、XMind theme import、IPC/store fixture 与画布渲染；Bold/Italic 与 Underline/Strikethrough 均可独立组合，大小写只改变显示而不重写 canonical title，multi-topic mixed state 可读。文本对齐会实际改变 SVG label 的 `x/text-anchor` 与 edit input 的 CSS 对齐；左右单向结构按分支方向提供默认值，其余结构居中，topic-local structure override 参与 fallback。字号改为带常用建议的数值输入，接受 schema 范围内任意正数，并将同一次 focus 编辑会话合并为一个 undo entry；`fo:text-decoration`、`fo:text-transform` 与 `fo:text-align` 按已验证 XMind tokens 导入导出，其中 XMind `manual` 映射本地 `none`。
+- **Topic 边框格式：** `stroke + borderStyle + borderWidth` 已形成 typed model → persisted/proposal schema → IPC/store → topic inspector → canvas renderer 闭环；支持 `none/solid/dash/hand-drawn-solid/hand-drawn-dash`、五档粗细、mixed/inherit、一次 undo/redo 与 revisioned persistence。XMind M02 等主题的边框颜色/宽度可导入，dot/dash-dot 等线型近似为 dash；V2 `.xmind` export 会保留有效 border color/width/none/dash。手绘边框仅近似为 XMind solid/dash，不宣称完整双向 parity。
+- **分支线型与锥形线（D-03/D-06）：** `MindMapLayoutSettings` 新增 `linePattern: solid|dash|hand-drawn-solid|hand-drawn-dash` 与 `tapered: boolean`，已贯通 domain schema、proposal/patch、reducer（校验/应用/逆操作）与 change-detector exhaustive key；`MindMapCanvasOptionsPanel` 提供四档线型选择与锥形开关（含重设），renderer 以 `lineDashPattern()` + `taperedEdgePath()` 消费并叠加 SVG pattern defs；`mind-map-canvas-options.unit.test.tsx` 覆盖选项、undo 与 revisioned persistence。
+- **快速样式（F-08）：** `quick-styles.ts` 定义 `default`、`important`、`very-important`、`strikethrough` 四个视觉 preset；Topic Style Inspector 与右键菜单均可调用。应用路径使用 `topic.update` command，主题多选合并为一个 transaction，并沿用 reducer inverse、undo/redo 与 revisioned persistence；`default` 清除本地快速样式而保留可复用的其他语义无关字段，重要/非常重要也只覆盖其视觉 token。划除遵循 canonical decoration 语义并保留既有下划线。UI 与 command 测试确认 planning/task metadata、标题、笔记等教学数据不变，并验证快速样式仅改变视觉格式。
+- **Topic 形状扩充与填充纹理（F-01/F-02）：** `MindMapTopicStyleOverride` 新增 `fillPattern: solid|hand-drawn|diagonal|horizontal`，shape 受控集合扩至 `quote/callout/bracket/arrow-right/arrow-left/heart/cloud/star/parallelogram/hexagon`（+ 原 6 基础形状），已同步 domain schema、proposal schema、change-detector 与 `mind-map-node-shapes.ts` 几何；`MindMapTopicStyleInspector` 提供 16 形状下拉与填充纹理下拉，canvas 以 `mindmap-node-shape--<shape>` class 渲染并叠加 `url(#mindmap-pattern-*)` 填充纹理；`mind-map-domain`、inspector 与 canvas 测试覆盖形状 round-trip、受控枚举校验与纹理渲染。
+- **主题可读性预警（B-09）：** `mind-map-theme-readability.ts` 以 WCAG normal-text `4.5:1` 作为仅提示阈值，按 canvas 实际的 central/main/sub theme-derived 层级回退色计算；main branch label 的无显式颜色回退与 CSS 一致为白色。计算支持 `#RGB/#RGBA/#RRGGBB/#RRGGBBAA` 与 alpha compositing，并保守向下格式化失败比率，避免将 `4.499` 显示成通过阈值。`MindMapThemePanel` 只在配色控制后渲染 `role="status"` 的 advisory，不派发 command、不写入持久化、不禁用控件，也不改变规划、任务、标题、笔记、标签或其他教学事实；它检查的是当前主题可导出的基线组合，不把节点局部覆盖或 `no-shape` 等特殊渲染误称为完整逐节点认证。
+- **更多主题形状搜索/分类（F-09）：** `MindMapTopicShapePicker` 将既有的受控 shape 集合收进按基础、标注、箭头、装饰和流程图分组的可搜索 popover，右栏默认只保留当前值触发器，不会一次性铺开长列表。搜索同时匹配本地化名称与稳定 shape token；无结果、mixed、inherit 与当前选择均有可访问名称。picker 只管理临时开关/搜索状态；选择仍调用既有 `topic.update` command，因而保持 reducer inverse、undo/redo 和 revisioned persistence。测试覆盖默认折叠、分类、筛选、选择、Escape/焦点返回以及原 shape 的保存和撤销链路。
+- **验证：** `pnpm typecheck` 通过；`mind-map-font-provenance.unit.test.ts` 与 topic/theme font UI 的 focused tests 已覆盖来源、mixed 和保守回退提示。B-09 focused tests（theme readability、theme panel、canvas）通过（3 files / 39 tests）；F-09 focused tests（shape picker、topic style inspector）通过（2 files / 37 tests）；完整 `pnpm run check:mindmap` 已通过（60 files / 517 tests），`git diff --check` 也已通过。
+
+仍未完成的高优先级内容包括将五态 adapter 扩展到 element/canvas inspector、topic 文本高级字段/编号、对象高级字段、free-topic/asset inspector、自定义配色/风格生命周期，以及 `.xmind` export 的完整主题/节点级样式保真。
+
 ## 10. 主要源码证据索引
 
 ### StudiumX
@@ -804,7 +833,9 @@ type InspectorValue<T> =
 - 当前配色/主题画廊：`src/renderer/src/views/mindmap/MindMapThemeGallery.tsx:59`
 - 背景、全局字体、彩虹开关：`src/renderer/src/views/mindmap/MindMapThemePanel.tsx:16`
 - 布局、间距、线宽：`src/renderer/src/views/mindmap/MindMapCanvasOptionsPanel.tsx:47`
-- 节点样式与错误作用域的 lineStyle：`src/renderer/src/views/mindmap/MindMapTopicStyleInspector.tsx:63`
+- 节点样式与多选 mixed 写入：`src/renderer/src/views/mindmap/MindMapTopicStyleInspector.tsx`
+- Inspector 五态 adapter：`src/renderer/src/views/mindmap/mind-map-inspector-values.ts`
+- 样式传播 command builder：`src/renderer/src/views/mindmap/mind-map-commands.ts`
 - Theme/Layout 类型：`src/shared/mindmap/domain/types.ts:21`
 - V2 Schema 漂移：`src/shared/mindmap/domain/schema.ts:109`
 - Proposal Schema 漂移：`src/shared/mindmap/commands/mind-map-proposal.ts:65`
@@ -812,6 +843,10 @@ type InspectorValue<T> =
 - 自动保存采用主进程返回文档：`src/renderer/src/views/mindmap/mind-map-view-store.ts:157`
 - 元素模型与有限 style：`src/shared/mindmap/domain/types.ts:172`
 - Xmind 主题转换限制：`src/shared/mindmap/themes/from-xmind-theme.ts:58`
+- 内置 XMind theme 保真审计：`src/shared/mindmap/themes/theme-fidelity.ts`
+- Built-in theme 报告集合/查询：`src/shared/mindmap/themes/built-in-themes.ts`
+- Inspector field capability registry：`src/renderer/src/views/mindmap/mind-map-inspector-capabilities.ts`
+- Topic font provenance / conservative fallback status：`src/renderer/src/views/mindmap/mind-map-font-provenance.ts`
 - `.xmind` 导出主题限制：`src/shared/mindmap/xmind-converter.ts:255`
 
 ### Xmind 26.05 参考包
@@ -826,4 +861,3 @@ type InspectorValue<T> =
 - 结构预览资源：`../ref_project/Xmind/app/static/assets/images/structures/normal/map.svg`
 - 主题形状目录：`../ref_project/Xmind/app/static/shapes/__deprecated_topic-shapes.json:1`
 - 分支连接类型目录：`../ref_project/Xmind/app/static/shapes/__deprecated_branch-connections.json:1`
-

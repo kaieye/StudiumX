@@ -53,6 +53,8 @@ export type MindMapSheetLayoutUpdatePatch = {
   spacing?: number | null
   lineStyle?: MindMapLayoutSettings['lineStyle'] | null
   lineWidthScale?: number | null
+  linePattern?: MindMapLayoutSettings['linePattern'] | null
+  tapered?: boolean | null
 }
 
 export type MindMapElementUpdatePatch = {

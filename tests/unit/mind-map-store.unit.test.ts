@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { parseMindMapUpdatePayload } from '../../src/main/mindmap/mind-map-ipc-commands'
 import { createMindMapStore } from '../../src/main/mindmap/mind-map-store'
 import { mindMapDocumentV2Schema } from '../../src/shared/mindmap/domain/schema'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
@@ -121,6 +122,187 @@ describe('createMindMapStore', () => {
     expect(read.title).toBe('After')
     expect(read.sheets).toHaveLength(2)
     expect(read.updatedAt).toBe(updated.updatedAt)
+  })
+
+  it('round-trips every persisted right-panel theme and layout field', async () => {
+    const root = await createRoot()
+    const store = createMindMapStore(root)
+    const created = await store.create('Styled map')
+    const styled: MindMapDocumentV2 = {
+      ...created,
+      theme: {
+        id: 'snowbrush',
+        name: 'Snowbrush',
+        background: '#FFFFFF',
+        branchColors: ['#FF6B6B', '#97D3B6'],
+        textColor: '#111111',
+        lineColor: '#8E8E93',
+        fontFamily: 'Inter, "Noto Sans CJK SC", sans-serif',
+        shape: 'roundedRect',
+        rainbowBranches: false,
+        colorSchemeId: 'dawn',
+        topicStyles: {
+          central: {
+            fill: '#F6212D',
+            stroke: '#E32C2D',
+            borderStyle: 'hand-drawn-dash',
+            borderWidth: 5,
+            textColor: '#FFFFFF',
+            fontFamily: 'Inter, sans-serif',
+            fontSize: 37,
+            fontWeight: '700',
+            fontStyle: 'italic',
+            textDecoration: 'line-through underline',
+            textTransform: 'capitalize',
+            textAlign: 'right',
+            shape: 'roundedRect',
+            structureClass: 'org.xmind.ui.logic.balanced'
+          },
+          main: { fill: '#FAD8DF', fontWeight: '500' },
+          sub: { fill: '#F8F7F7', shape: 'underline' }
+        }
+      },
+      sheets: created.sheets.map((sheet) => ({
+        ...sheet,
+        layout: {
+          ...sheet.layout,
+          direction: 'ltr',
+          compact: true,
+          spacing: 24,
+          lineStyle: 'straight',
+          lineWidthScale: 1.5
+        }
+      }))
+    }
+
+    const persisted = expectUpdateOk(await store.update(created.id, styled, created.revision))
+    const reopened = await store.read(created.id)
+
+    expect(reopened.theme).toEqual(styled.theme)
+    expect(reopened.sheets[0]?.layout).toEqual(styled.sheets[0]?.layout)
+    expect(reopened).toEqual(persisted)
+  })
+
+  it('preserves right-panel fields through IPC parsing, store update, and reopen', async () => {
+    const root = await createRoot()
+    const store = createMindMapStore(root)
+    const created = await store.create('IPC styled map')
+    const sheetId = created.sheets[0]!.id
+    const rootId = created.sheets[0]!.root.id
+    const childId = 'styled-child'
+    const doc: MindMapDocumentV2 = {
+      ...created,
+      theme: {
+        id: 'custom-style',
+        background: 'transparent',
+        branchColors: ['#112233', '#445566'],
+        textColor: '#101010',
+        lineColor: '#778899',
+        fontFamily: 'Noto Sans CJK SC, sans-serif',
+        shape: 'roundedRect',
+        rainbowBranches: false,
+        colorSchemeId: 'dawn',
+        topicStyles: {
+          central: {
+            fill: '#AABBCC',
+            stroke: '#223344',
+            borderStyle: 'solid',
+            borderWidth: 3,
+            textColor: '#FFFFFF',
+            fontFamily: 'Inter, sans-serif',
+            fontSize: 32,
+            fontWeight: '700',
+            fontStyle: 'italic',
+            textDecoration: 'underline',
+            shape: 'roundedRect',
+            structureClass: 'org.xmind.ui.logic.right'
+          },
+          main: { fill: '#DDEEFF', fontStyle: 'normal' },
+          sub: { textColor: '#334455', shape: 'underline' }
+        }
+      },
+      sheets: [{
+        ...created.sheets[0]!,
+        root: {
+          ...created.sheets[0]!.root,
+          style: {
+            fontWeight: '700',
+            fontStyle: 'italic',
+            textDecoration: 'line-through underline',
+            fill: '#ABCDEF',
+            stroke: '#123456',
+            borderStyle: 'hand-drawn-dash',
+            borderWidth: 5
+          },
+          children: [{ id: childId, title: 'Child', children: [] }]
+        },
+        elements: [
+          {
+            id: 'relationship-1',
+            type: 'relationship',
+            from: rootId,
+            to: childId,
+            label: 'Related',
+            style: { stroke: '#111111', strokeWidth: 2, textColor: '#222222', fontFamily: 'Inter', fontSize: 13, dashed: true }
+          },
+          {
+            id: 'boundary-1',
+            type: 'boundary',
+            topicId: rootId,
+            children: [childId],
+            label: 'Boundary',
+            style: { stroke: '#333333', strokeWidth: 3, fill: '#EEEEEE', textColor: '#444444', fontFamily: 'Serif', fontSize: 14, dashed: false }
+          },
+          {
+            id: 'summary-1',
+            type: 'summary',
+            from: childId,
+            to: childId,
+            label: 'Summary',
+            style: { stroke: '#555555', strokeWidth: 4, fill: '#F0F0F0', textColor: '#666666', fontFamily: 'Monospace', fontSize: 15, dashed: true }
+          },
+          {
+            id: 'callout-1',
+            type: 'callout',
+            topicId: childId,
+            text: 'Callout',
+            position: { x: 120, y: 80 },
+            style: { stroke: '#777777', strokeWidth: 1.5, fill: '#FAFAFA', textColor: '#888888', fontFamily: 'Inter', fontSize: 16, dashed: false }
+          }
+        ],
+        layout: {
+          structureClass: 'org.xmind.ui.logic.right',
+          direction: 'rtl',
+          compact: true,
+          spacing: 36,
+          lineStyle: 'elbow',
+          lineWidthScale: 2
+        }
+      }]
+    }
+
+    const parsed = parseMindMapUpdatePayload({
+      workspaceId: 'workspace-1',
+      id: created.id,
+      expectedRevision: created.revision,
+      doc
+    })
+    expect(parsed).not.toBeNull()
+    if (!parsed) throw new Error('Expected the IPC payload to parse')
+
+    const persisted = expectUpdateOk(
+      await store.update(parsed.id, parsed.doc, parsed.expectedRevision)
+    )
+    const reopened = await store.read(created.id)
+
+    expect(reopened).toEqual(persisted)
+    expect(reopened.theme).toEqual(parsed.doc.theme)
+    expect(reopened.sheets[0]).toMatchObject({
+      id: sheetId,
+      root: parsed.doc.sheets[0]!.root,
+      elements: parsed.doc.sheets[0]!.elements,
+      layout: parsed.doc.sheets[0]!.layout
+    })
   })
 
   it('does not overwrite a confirmed update after a stale revision conflict', async () => {

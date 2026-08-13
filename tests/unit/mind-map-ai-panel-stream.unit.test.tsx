@@ -228,6 +228,46 @@ describe('MindMapAiPanel streaming preview', () => {
     vi.restoreAllMocks()
   })
 
+  it('switches Format content by selection and keeps notes and markers in Content', async () => {
+    const user = userEvent.setup()
+    const current = generatedDocument()
+    current.sheets[0]!.elements = [
+      { id: 'relationship-1', type: 'relationship', from: 'root', to: 'root', label: 'Depends on' }
+    ]
+    useMindMapViewStore.setState({
+      current,
+      activeSheetId: 'sheet-1',
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      inspectorTab: 'format'
+    })
+
+    const { container } = render(<MindMapAiPanel open onToggle={() => {}} />)
+
+    expect(screen.getByRole('tab', { name: 'Format' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Content' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'AI' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Style' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Canvas' })).not.toBeInTheDocument()
+    expect(screen.getByText('Canvas options')).toBeInTheDocument()
+
+    act(() => useMindMapViewStore.getState().selectTopic('root'))
+    expect(screen.getByText('Topic style')).toBeInTheDocument()
+    expect(screen.queryByText('Canvas options')).not.toBeInTheDocument()
+    expect(container.querySelector('#mindmap-inspector-notes')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: 'Content' }))
+    expect(container.querySelector('#mindmap-inspector-notes')).toBeInTheDocument()
+    expect(container.querySelector('#mindmap-inspector-markers')).toBeInTheDocument()
+    expect(screen.queryByText('Topic style')).not.toBeInTheDocument()
+
+    act(() => useMindMapViewStore.getState().selectElement('relationship-1', 'relationship'))
+    expect(screen.getByRole('tab', { name: 'Format' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Relationship')).toHaveLength(2)
+    expect(screen.getByText('Element style')).toBeInTheDocument()
+  })
+
   it('renders correlated provider deltas and ignores stale generation events', async () => {
     const user = userEvent.setup()
     render(<MindMapAiPanel open onToggle={() => {}} />)

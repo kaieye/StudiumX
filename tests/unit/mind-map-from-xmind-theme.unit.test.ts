@@ -40,6 +40,58 @@ describe('fromXmindTheme converter', () => {
     expect(theme.topicStyles?.sub?.fontWeight).toBe('500')
   })
 
+  it('preserves supported XMind font-style values', () => {
+    const theme = fromXmindTheme(M02 as never, 'classic')
+    expect(theme.topicStyles?.central?.fontStyle).toBe('normal')
+    expect(theme.topicStyles?.main?.fontStyle).toBe('normal')
+  })
+
+  it('maps XMind text-decoration tokens to the controlled composite value', () => {
+    const theme = fromXmindTheme({
+      name: 'decorations',
+      content: {
+        id: 'decorations',
+        centralTopic: {
+          type: 'topic',
+          properties: { 'fo:text-decoration': ' underline line-through ' }
+        },
+        mainTopic: {
+          type: 'topic',
+          properties: { 'fo:text-decoration': 'none' }
+        }
+      }
+    }, 'decorations')
+
+    expect(theme.topicStyles?.central?.textDecoration).toBe('line-through underline')
+    expect(theme.topicStyles?.main?.textDecoration).toBe('none')
+  })
+
+  it('maps XMind text-transform and text-align tokens without changing topic text', () => {
+    const theme = fromXmindTheme({
+      name: 'letter-case',
+      content: {
+        id: 'letter-case',
+        centralTopic: {
+          type: 'topic',
+          properties: { 'fo:text-transform': 'manual' }
+        },
+        mainTopic: {
+          type: 'topic',
+          properties: { 'fo:text-transform': 'uppercase', 'fo:text-align': 'right' }
+        },
+        subTopic: {
+          type: 'topic',
+          properties: { 'fo:text-transform': 'capitalize' }
+        }
+      }
+    }, 'letter-case')
+
+    expect(theme.topicStyles?.central?.textTransform).toBe('none')
+    expect(theme.topicStyles?.main?.textTransform).toBe('uppercase')
+    expect(theme.topicStyles?.main?.textAlign).toBe('right')
+    expect(theme.topicStyles?.sub?.textTransform).toBe('capitalize')
+  })
+
   it('extracts svg:fill into topicStyles', () => {
     const theme = fromXmindTheme(M01 as never, 'snowbrush')
     // M01 centralTopic svg:fill = #F6212D
@@ -64,8 +116,54 @@ describe('fromXmindTheme converter', () => {
     const theme = fromXmindTheme(M02 as never, 'classic')
     // M02 central has svg:fill #0288D1
     expect(theme.topicStyles?.central?.fill).toBe('#0288D1')
+    expect(theme.topicStyles?.central?.borderStyle).toBe('none')
+    expect(theme.topicStyles?.main?.stroke).toBe('#333333')
+    expect(theme.topicStyles?.main?.borderStyle).toBe('solid')
+    expect(theme.topicStyles?.main?.borderWidth).toBe(2)
     // M02 sub has shape underline
     expect(theme.topicStyles?.sub?.shape).toBe('underline')
+  })
+
+  it('approximates XMind dotted and dashed topic borders with the native dash token', () => {
+    const theme = fromXmindTheme({
+      name: 'border-patterns',
+      content: {
+        id: 'border-patterns',
+        centralTopic: {
+          type: 'topic',
+          properties: {
+            'border-line-color': '#123456',
+            'border-line-width': '3px',
+            'border-line-pattern': 'dash-dot'
+          }
+        }
+      }
+    }, 'border-patterns')
+
+    expect(theme.topicStyles?.central).toMatchObject({
+      stroke: '#123456',
+      borderStyle: 'dash',
+      borderWidth: 3
+    })
+  })
+
+  it('does not project XMind border widths outside the persisted topic-style contract', () => {
+    const theme = fromXmindTheme({
+      name: 'oversized-border',
+      content: {
+        id: 'oversized-border',
+        centralTopic: {
+          type: 'topic',
+          properties: {
+            'border-line-color': '#123456',
+            'border-line-width': '64'
+          }
+        }
+      }
+    }, 'oversized-border')
+
+    expect(theme.topicStyles?.central?.borderStyle).toBe('solid')
+    expect(theme.topicStyles?.central?.borderWidth).toBeUndefined()
   })
 
   it('handles themes with svg:fill "none" (no fill extracted)', () => {

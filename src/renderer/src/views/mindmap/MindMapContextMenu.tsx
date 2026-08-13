@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { MindMapQuickStylePreset } from '../../../../shared/mindmap/quick-styles'
 
 /**
  * Right-click context menu for mind-map nodes (Xmind-style).
@@ -26,6 +27,10 @@ export type MindMapContextMenuActions = {
   cut: (nodeId: string) => void
   paste: (parentId: string) => void
   duplicate: (nodeId: string) => void
+  copyStyle: (nodeId: string) => void
+  pasteStyle: (nodeId: string) => void
+  resetStyle: (nodeId: string) => void
+  applyQuickStyle: (nodeId: string, preset: MindMapQuickStylePreset) => void
   insertAbove: (nodeId: string) => void
   outdent: (nodeId: string) => void
 }
@@ -34,6 +39,7 @@ type MindMapContextMenuProps = {
   state: MindMapContextMenuState
   actions: MindMapContextMenuActions
   canPaste: boolean
+  canPasteStyle: boolean
   isCollapsed: boolean
   isRoot: boolean
   onClose: () => void
@@ -43,6 +49,7 @@ export function MindMapContextMenu({
   state,
   actions,
   canPaste,
+  canPasteStyle,
   isCollapsed,
   isRoot,
   onClose
@@ -114,6 +121,21 @@ export function MindMapContextMenu({
         {menuItem(t('mindmap.addSibling'), () => actions.addSibling(nodeId), { disabled: isRoot })}
         {menuItem(t('mindmap.insertAbove'), () => actions.insertAbove(nodeId), { disabled: isRoot })}
         {menuItem(t('mindmap.outdent'), () => actions.outdent(nodeId), { disabled: isRoot })}
+      </div>
+      <div className="mindmap-context-menu__divider" />
+      <div className="mindmap-context-menu__group">
+        {menuItem(t('mindmap.copyStyle'), () => actions.copyStyle(nodeId))}
+        {menuItem(t('mindmap.pasteStyle'), () => actions.pasteStyle(nodeId), { disabled: !canPasteStyle })}
+        {menuItem(t('mindmap.resetStyle'), () => actions.resetStyle(nodeId))}
+      </div>
+      <div className="mindmap-context-menu__divider" />
+      <div className="mindmap-context-menu__group">
+        {(['default', 'important', 'very-important', 'strikethrough'] as const).map((preset) =>
+          menuItem(
+            t(`mindmap.topicStyle.quickStyles.${preset}`),
+            () => actions.applyQuickStyle(nodeId, preset)
+          )
+        )}
       </div>
       <div className="mindmap-context-menu__divider" />
       <div className="mindmap-context-menu__group">

@@ -102,17 +102,17 @@ export function buildXmindZip(doc: MindMapDocument): Uint8Array {
  * (background, branch colors, font) in the sheet theme block (§7.5/§11).
  */
 export function buildXmindZipV2(doc: MindMapDocumentV2): Uint8Array {
-  const v1Sheets = doc.sheets.map((sheet) => {
-    const v1Sheet = convertSheetToV1(sheet)
+  const exportSheets = doc.sheets.map((sheet) => {
+    const relationships = convertSheetToV1(sheet).relationships
     return {
-      id: v1Sheet.id,
-      title: v1Sheet.title,
-      root: v1Sheet.root,
-      structureClass: v1Sheet.structureClass,
-      relationships: v1Sheet.relationships
+      id: sheet.id,
+      title: sheet.title,
+      root: sheet.root,
+      structureClass: sheet.layout.structureClass,
+      relationships
     }
   })
-  const contentJson = JSON.stringify(documentV2ToXmindContent(v1Sheets, doc.theme))
+  const contentJson = JSON.stringify(documentV2ToXmindContent(exportSheets, doc.theme))
   return zipSync({
     [CONTENT_ENTRY]: strToU8(contentJson),
     'metadata.json': strToU8(JSON.stringify(METADATA_JSON)),

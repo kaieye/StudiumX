@@ -486,6 +486,44 @@ describe('buildXmindZipV2 theme roundtrip', () => {
     expect(theme.multiLineColors).toBeDefined()
   })
 
+  it('preserves native v2 topic border styles in the exported content.json', () => {
+    const doc: MindMapDocumentV2 = {
+      schemaVersion: 2,
+      id: 'v2-borders',
+      revision: 1,
+      title: 'Borders',
+      createdAt: NOW,
+      updatedAt: NOW,
+      theme: { id: 'default' },
+      sheets: [
+        {
+          id: 'sheet-1',
+          title: 'Overview',
+          root: {
+            id: 'root',
+            title: 'Root',
+            style: { stroke: '#123456', borderStyle: 'dash', borderWidth: 5 },
+            children: []
+          },
+          elements: [],
+          layout: { structureClass: 'org.xmind.ui.logic.right' }
+        }
+      ],
+      assets: []
+    }
+
+    const bytes = buildXmindZipV2(doc)
+    const content = JSON.parse(strFromU8(unzipSync(bytes)['content.json'])) as Array<
+      Record<string, unknown>
+    >
+    const root = content[0]!.rootTopic as Record<string, unknown>
+    expect((root.style as Record<string, unknown>).properties).toEqual({
+      'border-line-color': '#123456',
+      'border-line-width': '5',
+      'border-line-pattern': 'dash'
+    })
+  })
+
   it('exports without a theme block when theme has no visual attributes', () => {
     const doc: MindMapDocumentV2 = {
       schemaVersion: 2,

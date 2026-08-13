@@ -345,6 +345,27 @@ describe('computeMindMapLayout', () => {
     expect(shortNode.width).toBeGreaterThanOrEqual(72) // minimum width
   })
 
+  it('uses a fixed topic width and reflows its title height within that width', () => {
+    const root = node('a', 'This is a title that should wrap when the topic is fixed narrow', [node('b', 'B')])
+    root.style = { widthMode: 'fixed', width: 120 }
+    const layout = computeMindMapLayout(sheet(root))
+    const rendered = layout.nodes.find((n) => n.id === 'a')!
+
+    expect(rendered.width).toBe(120)
+    expect(rendered.height).toBeGreaterThan(56)
+  })
+
+  it('falls back to automatic sizing when a width override is reset', () => {
+    const root = node('a', 'A much longer title')
+    root.style = { widthMode: 'fixed', width: 240 }
+    const fixed = computeMindMapLayout(sheet(root)).nodes.find((n) => n.id === 'a')!
+    root.style = { widthMode: 'auto' }
+    const auto = computeMindMapLayout(sheet(root)).nodes.find((n) => n.id === 'a')!
+
+    expect(fixed.width).toBe(240)
+    expect(auto.width).not.toBe(240)
+  })
+
   it('measures untitled topics as the placeholder when emptyTitleFallback is set', () => {
     const root = node('a', 'A', [node('b', '')])
     const bare = computeMindMapLayout(sheet(root))
@@ -472,6 +493,31 @@ describe('computeMindMapLayout', () => {
     const e = deepById.get('e')!
     // Deeper siblings (parent at depth 1) have gap 10
     expect(e.y - (d.y + d.height)).toBe(verticalGapForDepth(1))
+  })
+
+  it('compacts default and explicit sibling spacing without replacing the spacing choice', () => {
+    const root = node('a', 'A', [node('b', 'B'), node('c', 'C')])
+    const normalSheet = sheet(root)
+    const compactSheet = sheet(root)
+    compactSheet.layout.compact = true
+    const explicitSheet = sheet(root)
+    explicitSheet.layout.spacing = 32
+    const explicitCompactSheet = sheet(root)
+    explicitCompactSheet.layout.spacing = 32
+    explicitCompactSheet.layout.compact = true
+
+    const siblingGap = (candidate: MindMapSheetV2): number => {
+      const byId = new Map(computeMindMapLayout(candidate).nodes.map((entry) => [entry.id, entry]))
+      const first = byId.get('b')!
+      const second = byId.get('c')!
+      return second.y - (first.y + first.height)
+    }
+
+    expect(siblingGap(normalSheet)).toBe(verticalGapForDepth(0))
+    expect(siblingGap(compactSheet)).toBeCloseTo(verticalGapForDepth(0) * 0.6)
+    expect(siblingGap(explicitSheet)).toBe(32)
+    expect(siblingGap(explicitCompactSheet)).toBeCloseTo(32 * 0.6)
+    expect(explicitCompactSheet.layout.spacing).toBe(32)
   })
 
   it('counts hidden descendants for collapsed node badge', () => {

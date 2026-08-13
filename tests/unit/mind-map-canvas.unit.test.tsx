@@ -32,10 +32,10 @@ function makeDocument(): MindMapDocumentV2 {
   }
 }
 
-function renderCanvas() {
+function renderCanvas(document = makeDocument()) {
   return render(
     <MindMapCanvas
-      document={makeDocument()}
+      document={document}
       activeSheetIndex={0}
       onActiveSheetChange={() => undefined}
     />
@@ -44,11 +44,19 @@ function renderCanvas() {
 
 describe('MindMapCanvas accessibility', () => {
   beforeEach(() => {
-    useMindMapViewStore.setState({ selectedNodeId: 'root', editingNodeId: null })
+    useMindMapViewStore.setState({
+      selection: { kind: 'topic', topicIds: ['root'] },
+      selectedNodeId: 'root',
+      editingNodeId: null
+    })
   })
 
   afterEach(() => {
-    useMindMapViewStore.setState({ selectedNodeId: null, editingNodeId: null })
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      editingNodeId: null
+    })
   })
 
   it('exposes each rendered topic as an accessible, roving button', () => {
@@ -77,6 +85,30 @@ describe('MindMapCanvas accessibility', () => {
     expect(child).toHaveAttribute('tabindex', '0')
   })
 
+  it('uses Ctrl/Cmd pointer activation to toggle topics in a multi-selection', () => {
+    renderCanvas()
+
+    const root = screen.getByRole('button', { name: 'Root' })
+    const child = screen.getByRole('button', { name: 'Child' })
+    fireEvent.pointerDown(child, { ctrlKey: true })
+
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'topic',
+      topicIds: ['root', 'child']
+    })
+    expect(root).toHaveAttribute('aria-pressed', 'true')
+    expect(child).toHaveAttribute('aria-pressed', 'true')
+    expect(child).toHaveAttribute('tabindex', '0')
+
+    fireEvent.pointerDown(child, { metaKey: true })
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'topic',
+      topicIds: ['root']
+    })
+    expect(root).toHaveAttribute('aria-pressed', 'true')
+    expect(child).toHaveAttribute('aria-pressed', 'false')
+  })
+
   it('renders one selection decoration on the topic instead of a second outer ring', () => {
     const { container } = renderCanvas()
 
@@ -96,6 +128,146 @@ describe('MindMapCanvas accessibility', () => {
 
     expect(root.querySelector('.mindmap-node-rect')).toHaveStyle({ stroke: 'var(--mm-focus)' })
     expect(child.querySelector('.mindmap-node-rect')).not.toHaveStyle({ stroke: 'var(--mm-focus)' })
+  })
+
+  it('renders persisted bold, italic, underline, and strikethrough topic styles together', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.style = {
+      fontWeight: '700',
+      fontStyle: 'italic',
+      textDecoration: 'line-through underline',
+      textTransform: 'uppercase'
+    }
+    const { container } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+      />
+    )
+
+    const rootLabel = [...container.querySelectorAll<SVGTextElement>('.mindmap-node-label')]
+      .find((label) => label.textContent === 'Root')
+    expect(rootLabel?.style.fontWeight).toBe('700')
+    expect(rootLabel?.style.fontStyle).toBe('italic')
+    expect(rootLabel?.style.textDecoration).toBe('line-through underline')
+    expect(rootLabel?.style.textTransform).toBe('uppercase')
+    expect(rootLabel?.textContent).toBe('Root')
+  })
+
+  it('uses structural text alignment defaults and honors a local alignment override', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.children[0]!.style = { textAlign: 'right' }
+    const { container } = renderCanvas(document)
+
+    const rootLabel = [...container.querySelectorAll<SVGTextElement>('.mindmap-node-label')]
+      .find((label) => label.textContent === 'Root')
+    const childLabel = [...container.querySelectorAll<SVGTextElement>('.mindmap-node-label')]
+      .find((label) => label.textContent === 'Child')
+
+    expect(rootLabel).toHaveAttribute('text-anchor', 'middle')
+    expect(childLabel).toHaveAttribute('text-anchor', 'end')
+  })
+
+  it('aligns one-sided branch labels toward the branch direction by default', () => {
+    const rightDocument = makeDocument()
+    const right = renderCanvas(rightDocument)
+    const rightChild = [...right.container.querySelectorAll<SVGTextElement>('.mindmap-node-label')]
+      .find((label) => label.textContent === 'Child')
+    expect(rightChild).toHaveAttribute('text-anchor', 'start')
+    right.unmount()
+
+    const leftDocument = makeDocument()
+    leftDocument.sheets[0]!.layout.structureClass = 'org.xmind.ui.logic.left'
+    const left = renderCanvas(leftDocument)
+    const leftChild = [...left.container.querySelectorAll<SVGTextElement>('.mindmap-node-label')]
+      .find((label) => label.textContent === 'Child')
+    expect(leftChild).toHaveAttribute('text-anchor', 'end')
+  })
+
+  it('applies effective topic alignment to the editing input without changing its title', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.children[0]!.style = { textAlign: 'right' }
+    useMindMapViewStore.setState({
+      selection: { kind: 'topic', topicIds: ['child'] },
+      selectedNodeId: 'child',
+      editingNodeId: 'child'
+    })
+
+    renderCanvas(document)
+
+    const input = screen.getByDisplayValue('Child')
+    expect(input).toHaveStyle({ textAlign: 'right' })
+    expect(document.sheets[0]!.root.children[0]!.title).toBe('Child')
+  })
+
+  it.each([
+    ['solid', { stroke: '#123456', borderStyle: 'solid' as const, borderWidth: 3 }, {
+      stroke: 'rgb(18, 52, 86)', strokeWidth: '3', strokeDasharray: 'none', filter: ''
+    }],
+    ['dash', { stroke: '#123456', borderStyle: 'dash' as const, borderWidth: 2 }, {
+      stroke: 'rgb(18, 52, 86)', strokeWidth: '2', strokeDasharray: '6 4', filter: ''
+    }],
+    ['none', { stroke: '#123456', borderStyle: 'none' as const, borderWidth: 3 }, {
+      stroke: 'none', strokeWidth: '3', strokeDasharray: '', filter: ''
+    }],
+    ['hand drawn', { stroke: '#123456', borderStyle: 'hand-drawn-solid' as const, borderWidth: 5 }, {
+      stroke: 'rgb(18, 52, 86)', strokeWidth: '5', strokeDasharray: 'none', filter: 'url("#mindmap-topic-hand-drawn")'
+    }]
+  ])('renders persisted %s topic borders when the topic is not selected', (_label, style, expected) => {
+    const document = makeDocument()
+    document.sheets[0]!.root.style = style
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      editingNodeId: null
+    })
+
+    const { container } = renderCanvas(document)
+    const root = [...container.querySelectorAll<SVGGElement>('.mindmap-node-group')]
+      .find((node) => node.textContent?.includes('Root'))
+    const shape = root?.querySelector<SVGElement>('.mindmap-node-rect')
+    expect(shape?.style.stroke).toBe(expected.stroke)
+    expect(shape?.style.strokeWidth).toBe(expected.strokeWidth)
+    expect(shape?.style.strokeDasharray).toBe(expected.strokeDasharray)
+    expect(shape?.style.filter).toBe(expected.filter)
+  })
+
+  it('lets the selection highlight override a dashed hand-drawn topic border', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.style = {
+      stroke: '#123456',
+      borderStyle: 'hand-drawn-dash',
+      borderWidth: 5
+    }
+
+    const { container } = renderCanvas(document)
+    const selectedShape = container.querySelector<SVGElement>('.mindmap-node-group.is-selected .mindmap-node-rect')
+    expect(selectedShape?.style.stroke).toBe('var(--mm-focus)')
+    expect(selectedShape?.style.strokeWidth).toBe('2')
+    expect(selectedShape?.style.strokeDasharray).toBe('none')
+    expect(selectedShape?.style.filter).toBe('none')
+  })
+
+  it('lets an explicit border override the shape-none fallback stroke attribute', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.style = {
+      shape: 'none',
+      stroke: '#123456',
+      borderStyle: 'solid',
+      borderWidth: 3
+    }
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      editingNodeId: null
+    })
+
+    const { container } = renderCanvas(document)
+    const shape = [...container.querySelectorAll<SVGElement>('.mindmap-node-rect')]
+      .find((element) => element.parentElement?.textContent?.includes('Root'))
+    expect(shape?.getAttribute('stroke')).toBe('none')
+    expect(shape?.style.stroke).toBe('rgb(18, 52, 86)')
   })
 
   it('keeps the viewport center fixed when toolbar zoom reaches 25%', () => {
@@ -131,5 +303,42 @@ describe('MindMapCanvas accessibility', () => {
     expect(zoomedViewport.y + zoomedViewport.height / 2).toBeCloseTo(
       initialViewport.y + initialViewport.height / 2
     )
+  })
+
+  it.each(['quote', 'callout', 'bracket', 'arrow-right', 'arrow-left', 'heart', 'cloud', 'star', 'parallelogram', 'hexagon'] as const)(
+    'renders the %s topic shape with a dedicated class',
+    (shape) => {
+      const document = makeDocument()
+      document.sheets[0]!.root.style = { shape }
+      useMindMapViewStore.setState({
+        selection: { kind: 'canvas' },
+        selectedNodeId: null,
+        editingNodeId: null
+      })
+
+      const { container } = renderCanvas(document)
+      const element = [...container.querySelectorAll<SVGElement>('.mindmap-node-rect')]
+        .find((node) => node.parentElement?.textContent?.includes('Root'))
+      expect(element).not.toBeNull()
+      expect(element!.classList.contains(`mindmap-node-shape--${shape}`)).toBe(true)
+    }
+  )
+
+  it('renders a fill pattern overlay referencing the matching SVG pattern', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.style = { shape: 'hexagon', fillPattern: 'diagonal' }
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      editingNodeId: null
+    })
+
+    const { container } = renderCanvas(document)
+    const root = [...container.querySelectorAll<SVGElement>('.mindmap-node-rect')]
+      .find((node) => node.parentElement?.textContent?.includes('Root'))
+    expect(root).not.toBeNull()
+    const pattern = root!.parentElement!.querySelector<SVGElement>('.mindmap-node-pattern')
+    expect(pattern).not.toBeNull()
+    expect(pattern!.style.fill).toContain('mindmap-pattern-diagonal')
   })
 })

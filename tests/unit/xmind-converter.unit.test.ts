@@ -411,6 +411,147 @@ describe('documentV2ToXmindContent', () => {
     expect(themeBlock.multiLineColors).toEqual({ '0': '#FF6B6B', '1': '#97D3B6', '2': '#6FD0F9' })
   })
 
+  it('exports effective topic border color, width, and dash pattern at every depth', () => {
+    const sheets = [
+      {
+        id: 'sheet-1',
+        title: 'Borders',
+        root: {
+          id: 'root',
+          title: 'Root',
+          style: { stroke: '#112233', borderWidth: 3, borderStyle: 'solid' as const },
+          children: [
+            {
+              id: 'child',
+              title: 'Child',
+              style: { stroke: '#445566', borderStyle: 'dash' as const },
+              children: [
+                { id: 'leaf', title: 'Leaf', children: [] }
+              ]
+            }
+          ]
+        },
+        structureClass: 'org.xmind.ui.logic.right' as const
+      }
+    ]
+    const theme = {
+      id: 'default',
+      topicStyles: { main: { borderWidth: 2 }, sub: { borderStyle: 'none' as const } }
+    }
+
+    const content = documentV2ToXmindContent(sheets, theme)
+    const root = (content[0] as Record<string, unknown>).rootTopic as Record<string, unknown>
+    const rootStyle = root.style as Record<string, unknown>
+    expect(rootStyle.properties).toEqual({
+      'border-line-color': '#112233',
+      'border-line-width': '3',
+      'border-line-pattern': 'solid'
+    })
+
+    const child = ((root.children as { attached: Record<string, unknown>[] }).attached)[0]!
+    expect((child.style as Record<string, unknown>).properties).toEqual({
+      'border-line-color': '#445566',
+      'border-line-width': '2',
+      'border-line-pattern': 'dash'
+    })
+
+    const leaf = ((child.children as { attached: Record<string, unknown>[] }).attached)[0]!
+    expect((leaf.style as Record<string, unknown>).properties).toEqual({
+      'border-line-color': 'none',
+      'border-line-width': '0'
+    })
+  })
+
+  it('approximates hand-drawn borders with XMind solid and dash patterns', () => {
+    const sheets = [
+      {
+        id: 'sheet-1',
+        title: 'Hand drawn',
+        root: {
+          id: 'root',
+          title: 'Root',
+          style: { borderStyle: 'hand-drawn-solid' as const },
+          children: [
+            {
+              id: 'child',
+              title: 'Child',
+              style: { borderStyle: 'hand-drawn-dash' as const },
+              children: []
+            }
+          ]
+        },
+        structureClass: 'org.xmind.ui.logic.right' as const
+      }
+    ]
+
+    const content = documentV2ToXmindContent(sheets, undefined)
+    const root = (content[0] as Record<string, unknown>).rootTopic as Record<string, unknown>
+    expect((root.style as Record<string, unknown>).properties).toEqual({
+      'border-line-pattern': 'solid'
+    })
+    const child = ((root.children as { attached: Record<string, unknown>[] }).attached)[0]!
+    expect((child.style as Record<string, unknown>).properties).toEqual({
+      'border-line-pattern': 'dash'
+    })
+  })
+
+  it('exports independent effective text decorations with XMind canonical tokens', () => {
+    const sheets = [{
+      id: 'sheet-1',
+      title: 'Decorations',
+      root: {
+        id: 'root',
+        title: 'Root',
+        style: { textDecoration: 'line-through underline' as const },
+        children: [{ id: 'child', title: 'Child', children: [] }]
+      },
+      structureClass: 'org.xmind.ui.logic.right' as const
+    }]
+
+    const content = documentV2ToXmindContent(sheets, {
+      id: 'default',
+      topicStyles: { main: { textDecoration: 'underline' } }
+    })
+    const root = (content[0] as Record<string, unknown>).rootTopic as Record<string, unknown>
+    expect((root.style as Record<string, unknown>).properties).toEqual({
+      'fo:text-decoration': 'line-through underline'
+    })
+    const child = ((root.children as { attached: Record<string, unknown>[] }).attached)[0]!
+    expect((child.style as Record<string, unknown>).properties).toEqual({
+      'fo:text-decoration': 'underline'
+    })
+  })
+
+  it('exports visual text transforms using XMind tokens without rewriting titles', () => {
+    const sheets = [{
+      id: 'sheet-1',
+      title: 'Letter case',
+      root: {
+        id: 'root',
+        title: 'Original Root',
+        style: { textTransform: 'none' as const, textAlign: 'right' as const },
+        children: [{ id: 'child', title: 'Original Child', children: [] }]
+      },
+      structureClass: 'org.xmind.ui.logic.right' as const
+    }]
+
+    const content = documentV2ToXmindContent(sheets, {
+      id: 'default',
+      topicStyles: { main: { textTransform: 'uppercase' } }
+    })
+    const root = (content[0] as Record<string, unknown>).rootTopic as Record<string, unknown>
+    expect(root.title).toBe('Original Root')
+    expect((root.style as Record<string, unknown>).properties).toEqual({
+      'fo:text-transform': 'manual',
+      'fo:text-align': 'right'
+    })
+    const child = ((root.children as { attached: Record<string, unknown>[] }).attached)[0]!
+    expect(child.title).toBe('Original Child')
+    expect((child.style as Record<string, unknown>).properties).toEqual({
+      'fo:text-transform': 'uppercase'
+    })
+  })
+
   it('omits theme block when no theme is provided', () => {
     const sheets = [
       {

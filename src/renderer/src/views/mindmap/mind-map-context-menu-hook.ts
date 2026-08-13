@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import type { MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
 import type { MindMapContextMenuState } from './MindMapContextMenu'
 import { useMindMapViewStore } from './mind-map-view-store'
+import type { MindMapQuickStylePreset } from '../../../../shared/mindmap/quick-styles'
 
 /**
  * Hook that wires the Xmind-style right-click context menu into MindMapView.
@@ -22,6 +23,11 @@ export function useMindMapContextMenu() {
   const cutNode = useMindMapViewStore((s) => s.cutNode)
   const pasteNode = useMindMapViewStore((s) => s.pasteNode)
   const duplicateNode = useMindMapViewStore((s) => s.duplicateNode)
+  const copiedTopicStyle = useMindMapViewStore((s) => s.copiedTopicStyle)
+  const copyTopicStyle = useMindMapViewStore((s) => s.copyTopicStyle)
+  const pasteTopicStyle = useMindMapViewStore((s) => s.pasteTopicStyle)
+  const resetTopicStyle = useMindMapViewStore((s) => s.resetTopicStyle)
+  const applyQuickStyle = useMindMapViewStore((s) => s.applyQuickStyle)
   const setEditingNodeId = useMindMapViewStore((s) => s.setEditingNodeId)
 
   const [contextMenu, setContextMenu] = useState<MindMapContextMenuState>({
@@ -70,6 +76,7 @@ export function useMindMapContextMenu() {
     openContextMenu,
     closeContextMenu,
     canPaste: hasClipboard,
+    canPasteStyle: copiedTopicStyle !== null,
     actions: {
       addChild,
       addSibling,
@@ -80,6 +87,28 @@ export function useMindMapContextMenu() {
       cut: wrappedCut,
       paste: pasteNode,
       duplicate: duplicateNode,
+      copyStyle: copyTopicStyle,
+      pasteStyle: (nodeId: string) => {
+        const selection = useMindMapViewStore.getState().selection
+        const topicIds = selection.kind === 'topic' && selection.topicIds.includes(nodeId)
+          ? selection.topicIds
+          : [nodeId]
+        pasteTopicStyle(topicIds)
+      },
+      resetStyle: (nodeId: string) => {
+        const selection = useMindMapViewStore.getState().selection
+        const topicIds = selection.kind === 'topic' && selection.topicIds.includes(nodeId)
+          ? selection.topicIds
+          : [nodeId]
+        resetTopicStyle(topicIds)
+      },
+      applyQuickStyle: (nodeId: string, preset: MindMapQuickStylePreset) => {
+        const selection = useMindMapViewStore.getState().selection
+        const topicIds = selection.kind === 'topic' && selection.topicIds.includes(nodeId)
+          ? selection.topicIds
+          : [nodeId]
+        applyQuickStyle(topicIds, preset)
+      },
       insertAbove,
       outdent
     }

@@ -6,7 +6,7 @@ import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 
 const NOW = '2026-08-09T00:00:00.000Z'
 
-function makeDocument(withRelationship = true): MindMapDocumentV2 {
+function makeDocument(withRelationship = true, styled = false): MindMapDocumentV2 {
   return {
     schemaVersion: 2,
     id: 'mind-map-relationship',
@@ -28,7 +28,24 @@ function makeDocument(withRelationship = true): MindMapDocumentV2 {
           ]
         },
         elements: withRelationship
-          ? [{ id: 'rel-1', type: 'relationship', from: 'child-a', to: 'child-b', label: 'depends on' }]
+          ? [{
+              id: 'rel-1',
+              type: 'relationship',
+              from: 'child-a',
+              to: 'child-b',
+              label: 'depends on',
+              ...(styled ? {
+                style: {
+                  stroke: '#123456',
+                  strokeWidth: 3,
+                  fill: '#FEDCBA',
+                  textColor: '#334455',
+                  fontFamily: 'Georgia, serif',
+                  fontSize: 17,
+                  dashed: true
+                }
+              } : {})
+            }]
           : [],
         layout: { structureClass: 'org.xmind.ui.logic.right' }
       }
@@ -49,11 +66,19 @@ function renderCanvas(withRelationship = true) {
 
 describe('MindMapCanvas relationship rendering', () => {
   beforeEach(() => {
-    useMindMapViewStore.setState({ selectedNodeId: 'root', editingNodeId: null })
+    useMindMapViewStore.setState({
+      selection: { kind: 'topic', topicIds: ['root'] },
+      selectedNodeId: 'root',
+      editingNodeId: null
+    })
   })
 
   afterEach(() => {
-    useMindMapViewStore.setState({ selectedNodeId: null, editingNodeId: null })
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      editingNodeId: null
+    })
   })
 
   it('renders a labelled relationship connector without replacing tree edges', () => {
@@ -71,4 +96,21 @@ describe('MindMapCanvas relationship rendering', () => {
     expect(container.querySelector('.mindmap-relationship')).not.toBeInTheDocument()
     expect(screen.queryByText('depends on')).not.toBeInTheDocument()
   })
+  it('consumes every persisted relationship style field', () => {
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocument(true, true)}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+      />
+    )
+    expect(container.querySelector('.mindmap-relationship')).toHaveStyle({
+      stroke: '#123456', strokeWidth: '3', strokeDasharray: '6 4'
+    })
+    expect(container.querySelector('.mindmap-relationship-label-bg')).toHaveStyle({ fill: '#FEDCBA' })
+    expect(container.querySelector('.mindmap-relationship-label')).toHaveStyle({
+      fill: '#334455', fontFamily: 'Georgia, serif', fontSize: '17px'
+    })
+  })
+
 })

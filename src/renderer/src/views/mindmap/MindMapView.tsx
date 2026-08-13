@@ -97,9 +97,14 @@ export function MindMapView() {
   const cutNode = useMindMapViewStore((s) => s.cutNode)
   const pasteNode = useMindMapViewStore((s) => s.pasteNode)
   const duplicateNode = useMindMapViewStore((s) => s.duplicateNode)
+  const selection = useMindMapViewStore((s) => s.selection)
+  const copyTopicStyle = useMindMapViewStore((s) => s.copyTopicStyle)
+  const pasteTopicStyle = useMindMapViewStore((s) => s.pasteTopicStyle)
+  const resetTopicStyle = useMindMapViewStore((s) => s.resetTopicStyle)
   const undo = useMindMapViewStore((s) => s.undo)
   const redo = useMindMapViewStore((s) => s.redo)
   const setEditingNodeId = useMindMapViewStore((s) => s.setEditingNodeId)
+  const selectTopic = useMindMapViewStore((s) => s.selectTopic)
   const flushForExport = useMindMapViewStore((s) => s.flushForExport)
   const dispatchCommand = useMindMapViewStore((s) => s.dispatchCommand)
   const inspectorOpen = useMindMapViewStore((s) => s.inspectorOpen)
@@ -126,7 +131,14 @@ export function MindMapView() {
   const [viewportAction, setViewportAction] = useState<MindMapCanvasViewportAction | null>(null)
   const viewportActionIdRef = useRef(0)
   const [zoomLevel, setZoomLevel] = useState(1)
-  const { contextMenu, openContextMenu, closeContextMenu, canPaste, actions: contextMenuActions } = useMindMapContextMenu()
+  const {
+    contextMenu,
+    openContextMenu,
+    closeContextMenu,
+    canPaste,
+    canPasteStyle,
+    actions: contextMenuActions
+  } = useMindMapContextMenu()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const createSubmittingRef = useRef(false)
 
@@ -199,11 +211,20 @@ export function MindMapView() {
       duplicate: () => {
         if (selectedNodeId !== null) duplicateNode(selectedNodeId)
       },
+      copyStyle: () => {
+        if (selectedNodeId !== null) copyTopicStyle(selectedNodeId)
+      },
+      pasteStyle: () => {
+        if (selection.kind === 'topic') pasteTopicStyle(selection.topicIds)
+      },
+      resetStyle: () => {
+        if (selection.kind === 'topic') resetTopicStyle(selection.topicIds)
+      },
       moveFocus: (direction: MindMapFocusDirection) => {
         const sheet = current?.sheets.find((candidate) => candidate.id === activeSheetId) ?? current?.sheets[0]
         if (!sheet) return
         const nextNodeId = nextMindMapFocus(computeMindMapLayout(sheet).nodes, selectedNodeId, direction)
-        if (nextNodeId !== null) useMindMapViewStore.setState({ selectedNodeId: nextNodeId })
+        if (nextNodeId !== null) selectTopic(nextNodeId)
       },
       toggleInspector
     }
@@ -254,7 +275,8 @@ export function MindMapView() {
       // friction flow while still creating a valid, persisted document first.
       const root = created.sheets[0]?.root
       if (root) {
-        useMindMapViewStore.setState({ selectedNodeId: root.id, editingNodeId: root.id })
+        selectTopic(root.id)
+        setEditingNodeId(root.id)
       }
       setCreating(false)
       setTitleDraft('')
@@ -537,11 +559,8 @@ export function MindMapView() {
     if (!sheet) return
     // A selection belongs to a sheet. Reset it to the new root so the outline,
     // canvas and keyboard commands never keep pointing at the previous sheet.
-    useMindMapViewStore.setState({
-      activeSheetId: sheetId,
-      selectedNodeId: sheet.root.id,
-      editingNodeId: null
-    })
+    useMindMapViewStore.setState({ activeSheetId: sheetId })
+    selectTopic(sheet.root.id)
   }
 
   const selectAndRevealMindMapNode = (nodeId: string): void => {
@@ -563,7 +582,7 @@ export function MindMapView() {
         { label: 'Reveal mind map search result' }
       )
     }
-    useMindMapViewStore.setState({ selectedNodeId: nodeId })
+    selectTopic(nodeId)
   }
 
   const replaceMindMapText = (nodeId: string, query: string, replacement: string): void => {
@@ -636,12 +655,11 @@ export function MindMapView() {
     void closeDocument()
   }
 
-  // G10: markers/notes live inside the inspector's style tab — the toolbar
-  // buttons open that tab and bring the section into view.
+  // Markers and notes live in the inspector's content tab, separate from visual format.
   const openInspectorSection = (section: 'markers' | 'notes'): void => {
     setUtilityPanel(null)
     if (!inspectorOpen) toggleInspector()
-    setInspectorTab('style')
+    setInspectorTab('content')
     requestAnimationFrame(() => {
       document
         .getElementById(`mindmap-inspector-${section}`)
@@ -973,6 +991,7 @@ export function MindMapView() {
               state={contextMenu}
               actions={contextMenuActions}
               canPaste={canPaste}
+              canPasteStyle={canPasteStyle}
               isCollapsed={contextMenu.isCollapsed ?? false}
               isRoot={contextMenu.isRoot ?? false}
               onClose={closeContextMenu}

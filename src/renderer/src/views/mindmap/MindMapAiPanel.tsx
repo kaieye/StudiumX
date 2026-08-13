@@ -27,6 +27,7 @@ import { MindMapThemeGallery } from './MindMapThemeGallery'
 import { MindMapThemePanel } from './MindMapThemePanel'
 import { MindMapTopicStyleInspector } from './MindMapTopicStyleInspector'
 import { MindMapCanvasOptionsPanel } from './MindMapCanvasOptionsPanel'
+import { MindMapElementStyleInspector } from './MindMapElementStyleInspector'
 
 type MindMapReviewScope = Extract<
   MindMapProposalScope,
@@ -68,6 +69,7 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
   const streamText = useMindMapViewStore((s) => s.streamText)
   const error = useMindMapViewStore((s) => s.error)
   const current = useMindMapViewStore((s) => s.current)
+  const selection = useMindMapViewStore((s) => s.selection)
   const selectedNodeId = useMindMapViewStore((s) => s.selectedNodeId)
   const activeSheetId = useMindMapViewStore((s) => s.activeSheetId)
   const appState = useAppStore((state) => state.appState)
@@ -141,9 +143,12 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
       // A provider may settle just after the user clicked cancel. Never adopt
       // a late result from a generation whose local cancellation lease ended.
       if (generated && generationRef.current?.generationId === generationId) {
+        const rootId = generated.sheets[0]?.root.id ?? null
         useMindMapViewStore.setState({
           current: generated as typeof current,
-          selectedNodeId: generated.sheets[0]?.root.id ?? null,
+          selection: rootId ? { kind: 'topic', topicIds: [rootId] } : { kind: 'canvas' },
+          selectedNodeId: rootId,
+          activeSheetId: generated.sheets[0]?.id ?? null,
           streamText: '',
           aiPrompt: ''
         })
@@ -419,26 +424,24 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
 
   return (
     <aside className={`mindmap-ai-panel${open ? '' : ' is-collapsed'}`} aria-label={t('mindmap.inspector.title')}>
-      {/* G15: Xmind-style segmented tabs sit directly at the top — the old
-          icon+title+badge header row is gone. */}
       <div className="mindmap-inspector-tabs" role="tablist" aria-label={t('mindmap.inspector.title')}>
         <button
           type="button"
           role="tab"
-          aria-selected={inspectorTab === 'style'}
-          className={`mindmap-inspector-tab${inspectorTab === 'style' ? ' is-active' : ''}`}
-          onClick={() => setInspectorTab('style')}
+          aria-selected={inspectorTab === 'format'}
+          className={`mindmap-inspector-tab${inspectorTab === 'format' ? ' is-active' : ''}`}
+          onClick={() => setInspectorTab('format')}
         >
-          {t('mindmap.inspector.style')}
+          {t('mindmap.inspector.format')}
         </button>
         <button
           type="button"
           role="tab"
-          aria-selected={inspectorTab === 'canvas'}
-          className={`mindmap-inspector-tab${inspectorTab === 'canvas' ? ' is-active' : ''}`}
-          onClick={() => setInspectorTab('canvas')}
+          aria-selected={inspectorTab === 'content'}
+          className={`mindmap-inspector-tab${inspectorTab === 'content' ? ' is-active' : ''}`}
+          onClick={() => setInspectorTab('content')}
         >
-          {t('mindmap.inspector.canvas')}
+          {t('mindmap.inspector.content')}
         </button>
         <button
           type="button"
@@ -461,37 +464,62 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
       </div>
       <div className="mindmap-inspector-context" aria-live="polite">
         <div className="mindmap-inspector-context__title">
-          <span className="mindmap-inspector-context__eyebrow">{t('mindmap.inspector.selectedTopic')}</span>
-          <strong title={selectedTopic?.title || t('mindmap.untitledTopic')}>
-            {selectedTopic?.title || t('mindmap.inspector.noTopicSelected')}
+          <span className="mindmap-inspector-context__eyebrow">
+            {selection.kind === 'element'
+              ? t('mindmap.inspector.selectedElement')
+              : selection.kind === 'canvas'
+                ? t('mindmap.inspector.selectedCanvas')
+                : t('mindmap.inspector.selectedTopic')}
+          </span>
+          <strong title={selectedTopic?.title || undefined}>
+            {selection.kind === 'element'
+              ? t(`mindmap.elementStyle.types.${selection.elementType}`)
+              : selection.kind === 'canvas'
+                ? t('mindmap.inspector.canvasSelection')
+                : selectedTopic?.title || t('mindmap.inspector.noTopicSelected')}
           </strong>
         </div>
-        {selectedTopic ? (
+        {selection.kind === 'topic' && selectedTopic ? (
           <div className="mindmap-inspector-context__actions">
-            <button type="button" onClick={() => { setInspectorTab('style'); requestAnimationFrame(() => document.getElementById('mindmap-inspector-notes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
+            <button type="button" onClick={() => setInspectorTab('content')}>
               <FileText size={13} aria-hidden="true" /> {t('mindmap.inspector.notesShortcut')}
             </button>
-            <button type="button" onClick={() => { setInspectorTab('style'); requestAnimationFrame(() => document.getElementById('mindmap-inspector-markers')?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
+            <button type="button" onClick={() => setInspectorTab('content')}>
               <Flag size={13} aria-hidden="true" /> {t('mindmap.inspector.markersShortcut')}
             </button>
           </div>
         ) : null}
       </div>
-      {inspectorTab === 'style' ? (
+      {inspectorTab === 'format' ? (
         <div className="mindmap-inspector-tab-content">
-          <MindMapTopicStyleInspector />
-          <div id="mindmap-inspector-notes">
-            <MindMapNotesPanel />
-          </div>
-          <div id="mindmap-inspector-markers">
-            <MindMapMarkersPanel />
-          </div>
+          {selection.kind === 'element' ? (
+            <MindMapElementStyleInspector />
+          ) : selection.kind === 'topic' ? (
+            <MindMapTopicStyleInspector />
+          ) : (
+            <>
+              <MindMapThemeGallery />
+              <MindMapThemePanel />
+              <MindMapCanvasOptionsPanel />
+            </>
+          )}
         </div>
-      ) : inspectorTab === 'canvas' ? (
-        <div className="mindmap-inspector-tab-content">
-          <MindMapThemeGallery />
-          <MindMapThemePanel />
-          <MindMapCanvasOptionsPanel />
+      ) : inspectorTab === 'content' ? (
+        <div className="mindmap-inspector-tab-content mindmap-inspector-tab-content--content">
+          {selection.kind === 'topic' ? (
+            <>
+              <div id="mindmap-inspector-notes">
+                <MindMapNotesPanel />
+              </div>
+              <div id="mindmap-inspector-markers">
+                <MindMapMarkersPanel />
+              </div>
+            </>
+          ) : (
+            <div className="mindmap-inspector-empty" role="status">
+              {t('mindmap.inspector.contentTopicOnly')}
+            </div>
+          )}
         </div>
       ) : (
         <div className="mindmap-inspector-tab-content mindmap-inspector-tab-content--ai">

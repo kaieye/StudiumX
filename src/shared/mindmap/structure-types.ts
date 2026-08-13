@@ -52,7 +52,12 @@ export type LayoutGeometry =
 
 export type MindMapConnectorStyle =
   | 'curve'
+  | 'straight'
   | 'elbow'
+  | 'rounded-elbow'
+  | 'bight'
+  | 'fold'
+  | 'rounded-fold'
   | 'brace'
   | 'timeline'
   | 'fishbone'

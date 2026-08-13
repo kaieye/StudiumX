@@ -83,7 +83,8 @@ beforeEach(() => {
     value: {
       readMindMap: vi.fn(async () => document),
       listMindMaps: vi.fn(async () => []),
-      updateMindMap: vi.fn(async (payload) => ({ ok: true as const, document: payload.doc }))
+      updateMindMap: vi.fn(async (payload) => ({ ok: true as const, document: payload.doc })),
+      flushMindMap: vi.fn(async () => undefined)
     } as Partial<TeachingSystemApi>
   })
 })
@@ -104,13 +105,45 @@ afterEach(() => {
 describe('mind-map view store sheet scoping', () => {
   it('mutates the active sheet when topic ids are duplicated across sheets', async () => {
     await useMindMapViewStore.getState().openDocument('mind-map-1')
-    useMindMapViewStore.setState({ activeSheetId: 'sheet-2', selectedNodeId: 'shared-topic' })
+    useMindMapViewStore.setState({ activeSheetId: 'sheet-2' })
+    useMindMapViewStore.getState().selectTopic('shared-topic')
 
     useMindMapViewStore.getState().updateNode('shared-topic', { title: 'Updated active title' })
 
     const current = useMindMapViewStore.getState().current
     expect(current?.sheets[0]?.root.title).toBe('First title')
     expect(current?.sheets[1]?.root.title).toBe('Updated active title')
+  })
+
+  it('adds and removes topics with additive selection while tracking the primary topic', async () => {
+    const document = documentWithDuplicateTopicIds()
+    document.sheets[1]!.root.children = [
+      { id: 'child-topic', title: 'Child', children: [] }
+    ]
+    vi.mocked(window.teachingSystem!.readMindMap).mockResolvedValue(document)
+    await useMindMapViewStore.getState().openDocument('mind-map-1')
+    useMindMapViewStore.setState({ activeSheetId: 'sheet-2' })
+
+    useMindMapViewStore.getState().selectTopic('shared-topic')
+    useMindMapViewStore.getState().selectTopic('child-topic', true)
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'topic',
+      topicIds: ['shared-topic', 'child-topic']
+    })
+    expect(useMindMapViewStore.getState().selectedNodeId).toBe('child-topic')
+
+    useMindMapViewStore.getState().selectTopic('child-topic', true)
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'topic',
+      topicIds: ['shared-topic']
+    })
+    expect(useMindMapViewStore.getState().selectedNodeId).toBe('shared-topic')
+
+    useMindMapViewStore.getState().selectTopic('shared-topic', true)
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'topic',
+      topicIds: ['shared-topic']
+    })
   })
 })
 
@@ -133,6 +166,58 @@ describe('mind-map view store inspector', () => {
   })
 })
 
+describe('mind-map view store topic style clipboard', () => {
+  it('pastes a detached style snapshot to a multi-selection with one undo and persists it', async () => {
+    const document = documentWithDuplicateTopicIds()
+    document.sheets[1]!.root.style = { fill: '#112233', textAlign: 'right' }
+    document.sheets[1]!.root.children = [
+      { id: 'child-a', title: 'A', style: { stroke: '#445566' }, children: [] },
+      { id: 'child-b', title: 'B', style: { textColor: '#778899' }, children: [] }
+    ]
+    vi.mocked(window.teachingSystem!.readMindMap).mockResolvedValue(document)
+    await useMindMapViewStore.getState().openDocument('mind-map-1')
+    useMindMapViewStore.setState({ activeSheetId: 'sheet-2' })
+
+    useMindMapViewStore.getState().copyTopicStyle('shared-topic')
+    useMindMapViewStore.getState().updateNode('shared-topic', { style: { fill: '#FFFFFF' } })
+    useMindMapViewStore.getState().pasteTopicStyle(['child-a', 'child-b'])
+
+    let children = useMindMapViewStore.getState().current?.sheets[1]?.root.children
+    expect(children?.[0]?.style).toEqual({ fill: '#112233', textAlign: 'right' })
+    expect(children?.[1]?.style).toEqual({ fill: '#112233', textAlign: 'right' })
+
+    useMindMapViewStore.getState().undo()
+    children = useMindMapViewStore.getState().current?.sheets[1]?.root.children
+    expect(children?.[0]?.style).toEqual({ stroke: '#445566' })
+    expect(children?.[1]?.style).toEqual({ textColor: '#778899' })
+
+    useMindMapViewStore.getState().redo()
+    await useMindMapViewStore.getState().flushForExport()
+    expect(window.teachingSystem?.updateMindMap).toHaveBeenCalled()
+  })
+
+  it('resets selected local styles to inheritance as one undoable transaction', async () => {
+    const document = documentWithDuplicateTopicIds()
+    document.sheets[1]!.root.children = [
+      { id: 'child-a', title: 'A', style: { fill: '#112233' }, children: [] },
+      { id: 'child-b', title: 'B', style: { textAlign: 'right' }, children: [] }
+    ]
+    vi.mocked(window.teachingSystem!.readMindMap).mockResolvedValue(document)
+    await useMindMapViewStore.getState().openDocument('mind-map-1')
+    useMindMapViewStore.setState({ activeSheetId: 'sheet-2' })
+
+    useMindMapViewStore.getState().resetTopicStyle(['child-a', 'child-b'])
+    let children = useMindMapViewStore.getState().current?.sheets[1]?.root.children
+    expect(children?.[0]?.style).toBeUndefined()
+    expect(children?.[1]?.style).toBeUndefined()
+
+    useMindMapViewStore.getState().undo()
+    children = useMindMapViewStore.getState().current?.sheets[1]?.root.children
+    expect(children?.[0]?.style).toEqual({ fill: '#112233' })
+    expect(children?.[1]?.style).toEqual({ textAlign: 'right' })
+  })
+})
+
 describe('mind-map view store inspector tab', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -140,22 +225,52 @@ describe('mind-map view store inspector tab', () => {
 
   it('persists inspectorTab to localStorage', async () => {
     await useMindMapViewStore.getState().openDocument('mind-map-1')
-    expect(useMindMapViewStore.getState().inspectorTab).toBe('style')
+    expect(useMindMapViewStore.getState().inspectorTab).toBe('format')
 
-    useMindMapViewStore.getState().setInspectorTab('canvas')
-    expect(useMindMapViewStore.getState().inspectorTab).toBe('canvas')
-    expect(localStorage.getItem('mindmap.inspectorTab')).toBe('canvas')
+    useMindMapViewStore.getState().setInspectorTab('content')
+    expect(useMindMapViewStore.getState().inspectorTab).toBe('content')
+    expect(localStorage.getItem('mindmap.inspectorTab')).toBe('content')
 
     useMindMapViewStore.getState().setInspectorTab('ai')
     expect(useMindMapViewStore.getState().inspectorTab).toBe('ai')
     expect(localStorage.getItem('mindmap.inspectorTab')).toBe('ai')
   })
 
+  it('reveals Format and persists it when the canvas selection changes', async () => {
+    await useMindMapViewStore.getState().openDocument('mind-map-1')
+
+    useMindMapViewStore.setState({ inspectorOpen: false, inspectorTab: 'content' })
+    useMindMapViewStore.getState().selectTopic('shared-topic')
+    expect(useMindMapViewStore.getState()).toMatchObject({
+      inspectorOpen: true,
+      inspectorTab: 'format',
+      selection: { kind: 'topic', topicIds: ['shared-topic'] }
+    })
+
+    useMindMapViewStore.setState({ inspectorOpen: false, inspectorTab: 'ai' })
+    useMindMapViewStore.getState().selectElement('relationship-1', 'relationship')
+    expect(useMindMapViewStore.getState()).toMatchObject({
+      inspectorOpen: true,
+      inspectorTab: 'format',
+      selection: { kind: 'element', elementId: 'relationship-1', elementType: 'relationship' }
+    })
+
+    useMindMapViewStore.setState({ inspectorOpen: false, inspectorTab: 'content' })
+    useMindMapViewStore.getState().selectCanvas()
+    expect(useMindMapViewStore.getState()).toMatchObject({
+      inspectorOpen: true,
+      inspectorTab: 'format',
+      selection: { kind: 'canvas' }
+    })
+    expect(localStorage.getItem('mindmap.inspectorOpen')).toBe('true')
+    expect(localStorage.getItem('mindmap.inspectorTab')).toBe('format')
+  })
+
   it('restores inspectorTab from localStorage on init', async () => {
     localStorage.setItem('mindmap.inspectorTab', 'canvas')
     // Simulate re-init by calling the store getter directly
     const state = useMindMapViewStore.getState()
-    expect(state.inspectorTab).toBe('style') // current state already set
+    expect(state.inspectorTab).toBe('format') // current state already set
 
     // Verify the localStorage read logic would pick up 'canvas'
     localStorage.setItem('mindmap.inspectorTab', 'ai')

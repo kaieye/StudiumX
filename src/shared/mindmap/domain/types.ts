@@ -79,13 +79,17 @@ export type MindMapLayoutSettings = {
   /** Base spacing between sibling subtrees. */
   spacing?: number
   /** Connector line style: curve (default), elbow, or straight. */
-  lineStyle?: 'curve' | 'elbow' | 'straight'
+  lineStyle?: 'curve' | 'straight' | 'elbow' | 'rounded-elbow' | 'bight' | 'fold' | 'rounded-fold'
   /**
    * Per-sheet branch line-width scale (P2 §5.1).
-   * 1 = default Snowbrush tapering widths; 0.75 = thin; 1.5 = thick.
+   * 1 = default width; the five UI tokens map to 0.5, 0.75, 1, 1.5 and 2.
    * Multiplies the depth-based {@link edgeStrokeWidth}.
    */
   lineWidthScale?: number
+  /** Branch line pattern: solid (default), dash, or hand-drawn variants. */
+  linePattern?: 'solid' | 'dash' | 'hand-drawn-solid' | 'hand-drawn-dash'
+  /** When true, branch lines taper from the parent width toward the child. */
+  tapered?: boolean
 }
 
 /** Per-sheet viewport (camera) state. */
@@ -138,11 +142,28 @@ export type MindMapSourceRef = {
 export type MindMapTopicStyleOverride = {
   fill?: string
   stroke?: string
+  /** Topic outline pattern. `none` hides the outline while retaining color/width overrides. */
+  borderStyle?: 'none' | 'solid' | 'dash' | 'hand-drawn-solid' | 'hand-drawn-dash'
+  /** Topic outline width in SVG/CSS pixels. */
+  borderWidth?: number
   textColor?: string
   fontFamily?: string
   fontSize?: number
   fontWeight?: string
+  fontStyle?: 'normal' | 'italic'
+  /** Independent underline/strikethrough flags serialized as a stable CSS/XMind token. */
+  textDecoration?: 'none' | 'underline' | 'line-through' | 'line-through underline'
+  /** Visual casing only; it never changes the canonical topic title text. */
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize'
+  /** Horizontal label alignment within the topic shape. */
+  textAlign?: 'left' | 'center' | 'right'
   shape?: string
+  /** Topic fill pattern: solid fill, hand-drawn, diagonal or horizontal hatching. */
+  fillPattern?: 'solid' | 'hand-drawn' | 'diagonal' | 'horizontal'
+  /** Node width sizing mode. Omitted means the default automatic sizing. */
+  widthMode?: 'auto' | 'fixed'
+  /** Fixed node width in SVG/CSS pixels, used only when widthMode is fixed. */
+  width?: number
   /**
    * v1 compat: XMind structure-class override carried over from the v1 node
    * model so migration does not silently drop per-node layout overrides.
@@ -230,6 +251,49 @@ export type MindMapElement =
   | MindMapCallout
   | MindMapFreeTopic
 
+/** Relationship endpoint arrow token (XMind `org.xmind.arrowShape.*`). */
+export type MindMapElementArrowShape =
+  | 'none'
+  | 'dot'
+  | 'triangle'
+  | 'spearhead'
+  | 'square'
+  | 'diamond'
+  | 'herringbone'
+  | 'double-arrow'
+  | 'anti-triangle'
+  | 'attached'
+  | 'hook'
+
+/** Relationship connector shape token (XMind `org.xmind.relationshipShape.*`). */
+export type MindMapElementLineShape =
+  | 'curved'
+  | 'straight'
+  | 'angled'
+  | 'zigzag'
+  | 'flexible-curved'
+  | 'flexible-angled'
+  | 'flexible-zigzag'
+
+/** Element stroke pattern token (XMind line-pattern `solid/dash/dot/dash-dot/dash-dot-dot`). */
+export type MindMapElementLinePattern =
+  | 'solid'
+  | 'dash'
+  | 'dot'
+  | 'dash-dot'
+  | 'dash-dot-dot'
+
+/** Outline shape token for boundary/summary/callout containers. */
+export type MindMapElementOutlineShape =
+  | 'rectangle'
+  | 'rounded-rectangle'
+  | 'ellipse'
+  | 'polygon'
+  | 'scallops'
+  | 'waves'
+  | 'tension'
+  | 'bracket'
+
 /** Style override for elements. */
 export type MindMapElementStyle = {
   stroke?: string
@@ -239,6 +303,15 @@ export type MindMapElementStyle = {
   fontFamily?: string
   fontSize?: number
   dashed?: boolean
+  /** Relationship connector curve; omitted means the theme/default curve. */
+  lineShape?: MindMapElementLineShape
+  /** Relationship endpoint arrows. */
+  beginArrow?: MindMapElementArrowShape
+  endArrow?: MindMapElementArrowShape
+  /** Stroke dash token for relationship/boundary/summary/callout lines. */
+  linePattern?: MindMapElementLinePattern
+  /** Boundary/summary/callout outline shape; omitted means the element default. */
+  outlineShape?: MindMapElementOutlineShape
 }
 
 /** A sheet: topic tree + flat element collection + layout/camera. */

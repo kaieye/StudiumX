@@ -82,8 +82,16 @@ function lineHeightForDepth(depth: number): number {
   return 18
 }
 
-const NODE_MIN_WIDTH = 72
-const NODE_MAX_WIDTH = 360
+/** Minimum width accepted by both automatic and fixed topic sizing. */
+export const MIND_MAP_NODE_MIN_WIDTH = 72
+/** Automatic sizing remains compact; fixed sizing can grow further. */
+export const MIND_MAP_AUTO_NODE_MAX_WIDTH = 360
+/** Maximum persisted fixed topic width. */
+export const MIND_MAP_NODE_MAX_WIDTH = 720
+
+export function clampMindMapNodeWidth(width: number): number {
+  return Math.min(MIND_MAP_NODE_MAX_WIDTH, Math.max(MIND_MAP_NODE_MIN_WIDTH, width))
+}
 
 function isCJK(char: string): boolean {
   const code = char.charCodeAt(0)
@@ -95,14 +103,14 @@ function isCJK(char: string): boolean {
 }
 
 function measureNodeWidth(title: string, depth: number): number {
-  if (!title) return NODE_MIN_WIDTH
+  if (!title) return MIND_MAP_NODE_MIN_WIDTH
   const { cjk, ascii } = charWidthsForDepth(depth)
   let textWidth = 0
   for (const char of title) {
     textWidth += isCJK(char) ? cjk : ascii
   }
   const paddingX = paddingForDepth(depth)
-  return Math.min(NODE_MAX_WIDTH, Math.max(NODE_MIN_WIDTH, textWidth + paddingX))
+  return Math.min(MIND_MAP_AUTO_NODE_MAX_WIDTH, Math.max(MIND_MAP_NODE_MIN_WIDTH, textWidth + paddingX))
 }
 
 function measureNodeHeight(title: string, width: number, depth: number): number {
@@ -168,6 +176,7 @@ export type MindMapLayoutRelationship = {
   from: string
   to: string
   label?: string
+  style?: MindMapElementStyle
 }
 
 /** A topic annotation projected into layout coordinates. */
@@ -176,6 +185,7 @@ export type MindMapLayoutCallout = {
   topicId: string
   text: string
   position?: { x: number; y: number }
+  style?: MindMapElementStyle
 }
 
 /** A sheet-level brace summary projected into layout coordinates. */
@@ -184,6 +194,7 @@ export type MindMapLayoutSummary = {
   from: string
   to: string
   label?: string
+  style?: MindMapElementStyle
 }
 
 /** A boundary enclosing a topic subtree, projected into layout coordinates. */
@@ -232,14 +243,12 @@ export function verticalGapForDepth(depth: number): number {
   return depth === 0 ? 24 : 10
 }
 
-/**
- * Resolve the sheet's sibling spacing override, or `null` when the sheet has
- * no explicit `spacing` configured (meaning depth-based defaults apply).
- */
-function effectiveVerticalGap(sheet: MindMapSheetV2): number | null {
+/** Resolve the sibling gap for one depth, including the compact multiplier. */
+function effectiveVerticalGap(sheet: MindMapSheetV2, depth: number): number {
   const configured = sheet.layout.spacing
-  if (configured === undefined || !Number.isFinite(configured)) return null
-  const base = Math.max(4, configured)
+  const base = configured === undefined || !Number.isFinite(configured)
+    ? verticalGapForDepth(depth)
+    : Math.max(4, configured)
   return sheet.layout.compact === true ? Math.max(4, base * 0.6) : base
 }
 
@@ -389,7 +398,7 @@ function createLayoutPlan(
   depth: number,
   inheritedStructureClass: MindMapStructureClass,
   sizes: Map<string, { width: number; height: number }>,
-  gapOverride: number | null,
+  verticalGap: (depth: number) => number,
   inheritedSide: 1 | -1 = 1
 ): MindMapLayoutPlan {
   const structureClass = node.style?.structureClass ?? inheritedStructureClass
@@ -409,7 +418,7 @@ function createLayoutPlan(
       structureClass,
       size,
       sizes,
-      gapOverride,
+      verticalGap,
       geometry
     )
     return {
@@ -423,7 +432,7 @@ function createLayoutPlan(
   }
 
   const hGap = horizontalGapForDepth(depth)
-  const vGap = gapOverride ?? verticalGapForDepth(depth)
+  const vGap = verticalGap(depth)
   const children: MindMapLayoutChildPlan[] = []
   let bounds = ownBounds
 
@@ -435,7 +444,7 @@ function createLayoutPlan(
   if (isVerticalStructure(structureClass)) {
     const childPlans = node.children.map((child, index) => ({
       index,
-      plan: createLayoutPlan(child, depth + 1, structureClass, sizes, gapOverride)
+      plan: createLayoutPlan(child, depth + 1, structureClass, sizes, verticalGap)
     }))
     const totalWidth = childPlans.reduce((sum, child) => sum + child.plan.bounds.width, 0) +
       Math.max(0, childPlans.length - 1) * vGap
@@ -463,7 +472,7 @@ function createLayoutPlan(
       depth + 1,
       structureClass,
       sizes,
-      gapOverride,
+      verticalGap,
       directions[index] === -1 ? -1 : 1
     )
   }))
@@ -501,12 +510,12 @@ function assignSpecialChildren(
   structureClass: MindMapStructureClass,
   size: { width: number; height: number },
   sizes: Map<string, { width: number; height: number }>,
-  gapOverride: number | null,
+  verticalGap: (depth: number) => number,
   geometry: LayoutGeometry
 ): Pick<MindMapLayoutPlan, 'bounds' | 'children'> {
   const ownBounds = boundsForSize(size)
   const hGap = horizontalGapForDepth(depth)
-  const vGap = gapOverride ?? verticalGapForDepth(depth)
+  const vGap = verticalGap(depth)
   const children: MindMapLayoutChildPlan[] = []
   let bounds = ownBounds
 
@@ -518,7 +527,7 @@ function assignSpecialChildren(
         depth + 1,
         structureClass,
         sizes,
-        gapOverride,
+        verticalGap,
         sideForIndex(index)
       )
     }))
@@ -632,7 +641,9 @@ function precomputeSizes(
   // Untitled topics are rendered with a placeholder label (G3), so they are
   // measured as that placeholder rather than collapsing to the bare minimum.
   const measuredTitle = node.title || emptyTitleFallback || ''
-  const width = measureNodeWidth(measuredTitle, depth)
+  const width = node.style?.widthMode === 'fixed' && node.style.width !== undefined
+    ? clampMindMapNodeWidth(node.style.width)
+    : measureNodeWidth(measuredTitle, depth)
   const height = measureNodeHeight(measuredTitle, width, depth)
   sizes.set(node.id, { width, height })
   for (const child of node.children) {
@@ -718,31 +729,34 @@ export function computeMindMapLayout(
   const edges: MindMapLayoutEdge[] = []
   const sizes = new Map<string, { width: number; height: number }>()
   precomputeSizes(sheet.root, sizes, 0, options?.emptyTitleFallback)
-  const gapOverride = effectiveVerticalGap(sheet)
+  const verticalGap = (depth: number): number => effectiveVerticalGap(sheet, depth)
 
   const relationships = sheet.elements
     .filter((element) => element.type === 'relationship')
-    .map(({ id, from, to, label }) => ({
+    .map(({ id, from, to, label, style }) => ({
       id,
       from,
       to,
-      ...(label !== undefined ? { label } : {})
+      ...(label !== undefined ? { label } : {}),
+      ...(style !== undefined ? { style: { ...style } } : {})
     }))
   const callouts = sheet.elements
     .filter((element): element is MindMapCallout => element.type === 'callout')
-    .map(({ id, topicId, text, position }) => ({
+    .map(({ id, topicId, text, position, style }) => ({
       id,
       topicId,
       text,
-      ...(position !== undefined ? { position: { ...position } } : {})
+      ...(position !== undefined ? { position: { ...position } } : {}),
+      ...(style !== undefined ? { style: { ...style } } : {})
     }))
   const summaries = sheet.elements
     .filter((element): element is MindMapSummary => element.type === 'summary')
-    .map(({ id, from, to, label }) => ({
+    .map(({ id, from, to, label, style }) => ({
       id,
       from,
       to,
-      ...(label !== undefined ? { label } : {})
+      ...(label !== undefined ? { label } : {}),
+      ...(style !== undefined ? { style: { ...style } } : {})
     }))
 
   const plan = createLayoutPlan(
@@ -750,7 +764,7 @@ export function computeMindMapLayout(
     0,
     sheet.layout.structureClass,
     sizes,
-    gapOverride
+    verticalGap
   )
   emitLayoutPlan(plan, 0, 0, 0, 0, nodes, edges)
 

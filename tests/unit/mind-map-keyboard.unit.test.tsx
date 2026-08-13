@@ -17,6 +17,9 @@ function makeHandlers(): MindMapKeyboardHandlers & { moveFocus: ReturnType<typeo
     cut: vi.fn(),
     paste: vi.fn(),
     duplicate: vi.fn(),
+    copyStyle: vi.fn(),
+    pasteStyle: vi.fn(),
+    resetStyle: vi.fn(),
     moveFocus: vi.fn()
   }
 }
@@ -76,5 +79,43 @@ describe('useMindMapKeyboard inspector toggle', () => {
     window.dispatchEvent(event)
 
     expect(handlers.toggleInspector).not.toHaveBeenCalled()
+  })
+})
+
+describe('useMindMapKeyboard topic style clipboard', () => {
+  it.each([
+    ['c', 'copyStyle'],
+    ['v', 'pasteStyle']
+  ] as const)('routes Cmd/Ctrl+Alt+%s to %s without invoking the content clipboard', (key, action) => {
+    const handlers = makeHandlers()
+    render(<Harness handlers={handlers} />)
+
+    const event = new KeyboardEvent('keydown', {
+      key,
+      ctrlKey: true,
+      altKey: true,
+      cancelable: true
+    })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(handlers[action]).toHaveBeenCalledTimes(1)
+    expect(key === 'c' ? handlers.copy : handlers.paste).not.toHaveBeenCalled()
+  })
+
+  it('routes Cmd/Ctrl+Alt+0 to reset style', () => {
+    const handlers = makeHandlers()
+    render(<Harness handlers={handlers} />)
+
+    const event = new KeyboardEvent('keydown', {
+      key: '0',
+      metaKey: true,
+      altKey: true,
+      cancelable: true
+    })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(handlers.resetStyle).toHaveBeenCalledTimes(1)
   })
 })

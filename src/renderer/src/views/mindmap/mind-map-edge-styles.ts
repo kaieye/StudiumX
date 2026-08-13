@@ -91,8 +91,25 @@ export function elbowEdgePath(
   to: MindMapLayoutNode,
   axis?: EdgeOrientation['axis']
 ): string {
+  return elbowEdgePathWithRadius(from, to, axis, 8)
+}
+
+/** Elbow variant with a larger corner radius, producing a softer right-angle. */
+export function roundedElbowEdgePath(
+  from: MindMapLayoutNode,
+  to: MindMapLayoutNode,
+  axis?: EdgeOrientation['axis']
+): string {
+  return elbowEdgePathWithRadius(from, to, axis, 16)
+}
+
+function elbowEdgePathWithRadius(
+  from: MindMapLayoutNode,
+  to: MindMapLayoutNode,
+  axis: EdgeOrientation['axis'] | undefined,
+  r: number
+): string {
   const edge = edgeOrientation(from, to, axis)
-  const r = 8
 
   if (edge.axis === 'vertical') {
     if (edge.x1 === edge.x2) return `M ${edge.x1} ${edge.y1} L ${edge.x2} ${edge.y2}`
@@ -110,6 +127,85 @@ export function elbowEdgePath(
   const radius = Math.min(r, Math.abs(edge.x2 - edge.x1) / 2, Math.abs(dy) / 2)
   if (radius <= 0) return `M ${edge.x1} ${edge.y1} L ${edge.x2} ${edge.y2}`
   return `M ${edge.x1} ${edge.y1} L ${midX - direction * radius} ${edge.y1} Q ${midX} ${edge.y1}, ${midX} ${edge.y1 + turn * radius} L ${midX} ${edge.y2 - turn * radius} Q ${midX} ${edge.y2}, ${midX + direction * radius} ${edge.y2} L ${edge.x2} ${edge.y2}`
+}
+
+/**
+ * Bight connector: an elbow whose middle segment carries a small inward
+ * V-notch ("pocket"), a distinct Xmind-influenced branch language.
+ */
+export function bightEdgePath(
+  from: MindMapLayoutNode,
+  to: MindMapLayoutNode,
+  axis?: EdgeOrientation['axis']
+): string {
+  const edge = edgeOrientation(from, to, axis)
+  const n = 10
+
+  if (edge.axis === 'vertical') {
+    const midX = edge.x1 + (edge.x2 - edge.x1) / 2
+    const midY = edge.y1 + (edge.y2 - edge.y1) / 2
+    const notch = Math.min(n, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
+    return `M ${edge.x1} ${edge.y1} L ${midX} ${edge.y1} L ${midX} ${midY - notch} L ${midX - notch} ${midY} L ${midX} ${midY + notch} L ${midX} ${edge.y2} L ${edge.x2} ${edge.y2}`
+  }
+
+  const midX = edge.x1 + (edge.x2 - edge.x1) / 2
+  const midY = edge.y1 + (edge.y2 - edge.y1) / 2
+  const notch = Math.min(n, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
+  return `M ${edge.x1} ${edge.y1} L ${edge.x1} ${midY} L ${midX - notch} ${midY} L ${midX} ${midY - notch} L ${midX + notch} ${midY} L ${edge.x2} ${midY} L ${edge.x2} ${edge.y2}`
+}
+
+/**
+ * Fold connector: an elbow with an extra outward shelf segment, producing a
+ * two-step orthogonal fold along the dominant axis.
+ */
+export function foldEdgePath(
+  from: MindMapLayoutNode,
+  to: MindMapLayoutNode,
+  axis?: EdgeOrientation['axis']
+): string {
+  const edge = edgeOrientation(from, to, axis)
+  const s = 16
+
+  if (edge.axis === 'vertical') {
+    const midX = edge.x1 + (edge.x2 - edge.x1) / 2
+    const midY = edge.y1 + (edge.y2 - edge.y1) / 2
+    const shelf = Math.min(s, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
+    return `M ${edge.x1} ${edge.y1} L ${edge.x1} ${midY - shelf} L ${midX} ${midY - shelf} L ${midX} ${midY + shelf} L ${edge.x2} ${midY + shelf} L ${edge.x2} ${edge.y2}`
+  }
+
+  const midX = edge.x1 + (edge.x2 - edge.x1) / 2
+  const midY = edge.y1 + (edge.y2 - edge.y1) / 2
+  const shelf = Math.min(s, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
+  return `M ${edge.x1} ${edge.y1} L ${midX - shelf} ${edge.y1} L ${midX - shelf} ${midY} L ${midX + shelf} ${midY} L ${midX + shelf} ${edge.y2} L ${edge.x2} ${edge.y2}`
+}
+
+/**
+ * Rounded fold connector: a fold path with softened corners so the two-step
+ * shelf reads as continuous rather than sharply stepped.
+ */
+export function roundedFoldEdgePath(
+  from: MindMapLayoutNode,
+  to: MindMapLayoutNode,
+  axis?: EdgeOrientation['axis']
+): string {
+  const edge = edgeOrientation(from, to, axis)
+  const s = 16
+  const r = 6
+
+  if (edge.axis === 'vertical') {
+    const midX = edge.x1 + (edge.x2 - edge.x1) / 2
+    const midY = edge.y1 + (edge.y2 - edge.y1) / 2
+    const shelf = Math.min(s, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
+    const rad = Math.min(r, shelf / 2)
+    return `M ${edge.x1} ${edge.y1} L ${edge.x1} ${midY - shelf + rad} Q ${edge.x1} ${midY - shelf}, ${edge.x1 + rad} ${midY - shelf} L ${midX - rad} ${midY - shelf} Q ${midX} ${midY - shelf}, ${midX} ${midY - shelf + rad} L ${midX} ${midY + shelf - rad} Q ${midX} ${midY + shelf}, ${midX - rad} ${midY + shelf} L ${edge.x2 - rad} ${midY + shelf} Q ${edge.x2} ${midY + shelf}, ${edge.x2} ${midY + shelf - rad} L ${edge.x2} ${edge.y2}`
+  }
+
+  const midX = edge.x1 + (edge.x2 - edge.x1) / 2
+  const midY = edge.y1 + (edge.y2 - edge.y1) / 2
+  const shelf = Math.min(s, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
+  const rad = Math.min(r, shelf / 2)
+  const dir = edge.direction
+  return `M ${edge.x1} ${edge.y1} L ${midX - dir * (shelf - rad)} ${edge.y1} Q ${midX - dir * shelf} ${edge.y1}, ${midX - dir * shelf} ${edge.y1 + rad} L ${midX - dir * shelf} ${midY - rad} Q ${midX - dir * shelf} ${midY}, ${midX - dir * (shelf - rad)} ${midY} L ${midX + dir * (shelf - rad)} ${midY} Q ${midX + dir * shelf} ${midY}, ${midX + dir * shelf} ${midY + rad} L ${midX + dir * shelf} ${edge.y2 - rad} Q ${midX + dir * shelf} ${edge.y2}, ${midX + dir * (shelf - rad)} ${edge.y2} L ${edge.x2} ${edge.y2}`
 }
 
 /** Straight line from parent to child. */
@@ -150,6 +246,39 @@ export function braceEdgePath(from: MindMapLayoutNode, to: MindMapLayoutNode): s
   return elbowEdgePath(from, to)
 }
 
+
+/** Dash pattern for branch line patterns. `solid` and hand-drawn-solid render continuous. */
+export function lineDashPattern(pattern?: string): string | undefined {
+  switch (pattern) {
+    case 'dash':
+    case 'hand-drawn-dash':
+      return '6 4'
+    default:
+      return undefined
+  }
+}
+
+/**
+ * Tapered (Xmind "线条渐细") edge rendered as a closed polygon whose width
+ * shrinks from the parent anchor toward the child anchor. Produces a true
+ * width taper that a uniform `stroke-width` cannot express.
+ */
+export function taperedEdgePath(
+  from: MindMapLayoutNode,
+  to: MindMapLayoutNode,
+  startWidth: number,
+  endWidth: number,
+  axis?: EdgeOrientation['axis']
+): string {
+  const edge = edgeOrientation(from, to, axis)
+  const w1 = Math.max(0.5, startWidth)
+  const w2 = Math.max(0.5, endWidth)
+  if (edge.axis === 'vertical') {
+    return `M ${edge.x1 - w1 / 2} ${edge.y1} L ${edge.x1 + w1 / 2} ${edge.y1} L ${edge.x2 + w2 / 2} ${edge.y2} L ${edge.x2 - w2 / 2} ${edge.y2} Z`
+  }
+  return `M ${edge.x1} ${edge.y1 - w1 / 2} L ${edge.x1} ${edge.y1 + w1 / 2} L ${edge.x2} ${edge.y2 + w2 / 2} L ${edge.x2} ${edge.y2 - w2 / 2} Z`
+}
+
 type ConnectorPathStyle = MindMapConnectorStyle | 'straight'
 
 /** Resolve the edge path based on the sheet's line style preference. */
@@ -162,6 +291,14 @@ export function resolveEdgePath(
   switch (lineStyle) {
     case 'elbow':
       return elbowEdgePath(from, to, axis)
+    case 'rounded-elbow':
+      return roundedElbowEdgePath(from, to, axis)
+    case 'bight':
+      return bightEdgePath(from, to, axis)
+    case 'fold':
+      return foldEdgePath(from, to, axis)
+    case 'rounded-fold':
+      return roundedFoldEdgePath(from, to, axis)
     case 'straight':
       return straightEdgePath(from, to, axis)
     case 'brace':

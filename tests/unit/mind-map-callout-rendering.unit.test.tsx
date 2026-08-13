@@ -54,11 +54,19 @@ function renderCanvas(elements: MindMapDocumentV2['sheets'][number]['elements'])
 
 describe('MindMapCanvas callout rendering', () => {
   beforeEach(() => {
-    useMindMapViewStore.setState({ selectedNodeId: 'root', editingNodeId: null })
+    useMindMapViewStore.setState({
+      selection: { kind: 'topic', topicIds: ['root'] },
+      selectedNodeId: 'root',
+      editingNodeId: null
+    })
   })
 
   afterEach(() => {
-    useMindMapViewStore.setState({ selectedNodeId: null, editingNodeId: null })
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      editingNodeId: null
+    })
   })
 
   it('renders a callout with a leader anchored to its visible topic', () => {
@@ -75,7 +83,7 @@ describe('MindMapCanvas callout rendering', () => {
     expect(container.querySelectorAll('.mindmap-callout')).toHaveLength(1)
     expect(container.querySelectorAll('.mindmap-callout-leader')).toHaveLength(1)
     expect(container.querySelector('.mindmap-callout-text')).toHaveTextContent('Review this definition')
-    expect(screen.getByRole('note', { name: 'Review this definition' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Review this definition' })).toBeInTheDocument()
   })
 
   it('skips callouts whose topic is missing or hidden by collapse', () => {
@@ -89,9 +97,56 @@ describe('MindMapCanvas callout rendering', () => {
     expect(screen.queryByText('Hidden topic')).not.toBeInTheDocument()
   })
 
+  it('lets the document global font override preset layer fonts while preserving a local topic override', () => {
+    const document = makeDocument([])
+    document.theme = {
+      id: 'preset',
+      fontFamily: 'Global Font',
+      topicStyles: {
+        central: { fontFamily: 'Preset Root Font' },
+        main: { fontFamily: 'Preset Main Font' }
+      }
+    }
+    document.sheets[0]!.root.children[0]!.style = { fontFamily: 'Local Topic Font' }
+
+    const { container } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+      />
+    )
+
+    const labels = [...container.querySelectorAll<SVGTextElement>('.mindmap-node-label')]
+    const rootLabel = labels.find((label) => label.textContent === 'Root')
+    const localLabel = labels.find((label) => label.textContent === 'Visible topic')
+    const inheritedLabel = labels.find((label) => label.textContent === 'Collapsed topic')
+
+    expect(rootLabel?.style.fontFamily).toBe('\"Global Font\"')
+    expect(localLabel?.style.fontFamily).toBe('\"Local Topic Font\"')
+    expect(inheritedLabel?.style.fontFamily).toBe('\"Global Font\"')
+  })
+
   it('does not render a callout layer when no callout elements are present', () => {
     const { container } = renderCanvas([])
 
     expect(container.querySelector('.mindmap-callout-group')).not.toBeInTheDocument()
   })
+  it('consumes every persisted callout style field', () => {
+    const { container } = renderCanvas([{
+      id: 'styled-callout', type: 'callout', topicId: 'visible', text: 'Styled',
+      style: { stroke: '#123456', strokeWidth: 3, fill: '#FEDCBA', textColor: '#334455',
+        fontFamily: 'Georgia, serif', fontSize: 17, dashed: true }
+    }])
+    expect(container.querySelector('.mindmap-callout-leader')).toHaveStyle({
+      stroke: '#123456', strokeWidth: '3', strokeDasharray: '5 4'
+    })
+    expect(container.querySelector('.mindmap-callout')).toHaveStyle({
+      stroke: '#123456', strokeWidth: '3', fill: '#FEDCBA', strokeDasharray: '5 4'
+    })
+    expect(container.querySelector('.mindmap-callout-text')).toHaveStyle({
+      fill: '#334455', fontFamily: 'Georgia, serif', fontSize: '17px'
+    })
+  })
+
 })

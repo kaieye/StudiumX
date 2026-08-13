@@ -14,6 +14,8 @@
 
 import type { MindMapTheme } from '../domain/types'
 import { fromXmindTheme } from './from-xmind-theme'
+import { buildXmindThemeFidelityReport } from './theme-fidelity'
+import type { XmindCompatibilityReport } from '../xmind-compatibility'
 import { DAWN_COLORS } from './color-schemes'
 
 import themeIndex from './xmind/themes.json'
@@ -93,15 +95,52 @@ for (const [path, mod] of Object.entries(themeModules)) {
  * ("snowbrush", "classic", "business", "light", "fresh", "party") and
  * existing documents continue to match.
  */
-export const BUILT_IN_THEMES: readonly MindMapTheme[] = indexEntries.flatMap(
-  (entry): MindMapTheme[] => {
+export type BuiltInThemeFidelityReport = {
+  /** StudiumX preset id, e.g. `snowbrush`. */
+  themeId: string
+  /** XMind catalogue id, e.g. `M01`. */
+  sourceThemeId: string
+  /** Human-readable XMind catalogue name. */
+  sourceThemeName: string
+  /** Value-free per-property conversion outcomes for this one source theme. */
+  report: XmindCompatibilityReport
+}
+
+type BuiltInThemeRecord = {
+  theme: MindMapTheme
+  fidelity: BuiltInThemeFidelityReport
+}
+
+const builtInThemeRecords: readonly BuiltInThemeRecord[] = indexEntries.flatMap(
+  (entry): BuiltInThemeRecord[] => {
     const json = themeByXmindId.get(entry.id)
     if (!json) return []
-    return [convert(json, slugify(entry.name), entry.name)]
+    const themeId = slugify(entry.name)
+    return [{
+      theme: convert(json, themeId, entry.name),
+      fidelity: {
+        themeId,
+        sourceThemeId: entry.id,
+        sourceThemeName: entry.name,
+        report: buildXmindThemeFidelityReport(json)
+      }
+    }]
   }
 )
 
+/** Every XMind-derived preset's explicit preserved/approximated/dropped audit. */
+export const BUILT_IN_THEME_FIDELITY_REPORTS: readonly BuiltInThemeFidelityReport[] =
+  builtInThemeRecords.map((record) => record.fidelity)
+
+export const BUILT_IN_THEMES: readonly MindMapTheme[] =
+  builtInThemeRecords.map((record) => record.theme)
+
 /** Look up a built-in theme by id. */
 export function getBuiltInTheme(id: string): MindMapTheme | undefined {
-  return BUILT_IN_THEMES.find((t) => t.id === id)
+  return builtInThemeRecords.find((record) => record.theme.id === id)?.theme
+}
+
+/** Look up the explicit XMind fidelity report for one built-in theme. */
+export function getBuiltInThemeFidelityReport(id: string): BuiltInThemeFidelityReport | undefined {
+  return builtInThemeRecords.find((record) => record.theme.id === id)?.fidelity
 }

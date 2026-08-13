@@ -12,8 +12,100 @@ import {
   parseMindMapOpmlExportPayload,
   parseMindMapSvgExportPayload,
   parseMindMapSourceRefreshPayload,
-  parseMindMapSourceRefreshApplyPayload
+  parseMindMapSourceRefreshApplyPayload,
+  parseMindMapUpdatePayload
 } from '../../src/main/mindmap/mind-map-ipc-commands'
+
+describe('parseMindMapUpdatePayload', () => {
+  it('preserves every shipped right-panel theme and layout field across the IPC parser', () => {
+    const doc = {
+      schemaVersion: 2 as const,
+      id: 'map-1',
+      revision: 7,
+      title: 'Styled map',
+      createdAt: '2026-08-12T00:00:00.000Z',
+      updatedAt: '2026-08-12T00:00:00.000Z',
+      theme: {
+        id: 'preset-1',
+        background: '#112233',
+        branchColors: ['#ff0000', '#00ff00'],
+        textColor: '#fefefe',
+        lineColor: '#445566',
+        fontFamily: 'Inter, sans-serif',
+        shape: 'rounded-rect',
+        rainbowBranches: false,
+        colorSchemeId: 'classic',
+        topicStyles: {
+          central: {
+            fill: '#123456',
+            stroke: '#223344',
+            borderStyle: 'hand-drawn-dash' as const,
+            borderWidth: 5,
+            fontFamily: 'Noto Sans CJK SC',
+            fontWeight: '600',
+            fontStyle: 'italic' as const,
+            textDecoration: 'line-through underline' as const,
+            textTransform: 'uppercase' as const,
+            textAlign: 'right' as const
+          },
+          main: { stroke: '#abcdef', borderStyle: 'solid' as const, borderWidth: 3, fontSize: 18, shape: 'underline' },
+          sub: { textColor: '#654321', structureClass: 'org.xmind.ui.logic.right' }
+        }
+      },
+      sheets: [{
+        id: 'sheet-1',
+        title: 'Overview',
+        root: { id: 'root', title: 'Root', children: [] },
+        elements: [],
+        layout: {
+          structureClass: 'org.xmind.ui.logic.right',
+          direction: 'ltr' as const,
+          compact: true,
+          spacing: 24,
+          lineStyle: 'elbow' as const,
+          lineWidthScale: 1.5
+        }
+      }],
+      assets: []
+    }
+
+    const parsed = parseMindMapUpdatePayload({
+      workspaceId: 'workspace-1',
+      id: doc.id,
+      expectedRevision: doc.revision,
+      doc
+    })
+
+    expect(parsed?.doc).toEqual(doc)
+  })
+
+  it('rejects invalid stable style tokens instead of silently widening the contract', () => {
+    const payload = {
+      workspaceId: 'workspace-1',
+      id: 'map-1',
+      expectedRevision: 0,
+      doc: {
+        schemaVersion: 2,
+        id: 'map-1',
+        revision: 0,
+        title: 'Invalid',
+        createdAt: '2026-08-12T00:00:00.000Z',
+        updatedAt: '2026-08-12T00:00:00.000Z',
+        theme: { id: 'default', background: 'red' },
+        sheets: [{
+          id: 'sheet-1',
+          title: 'Overview',
+          root: { id: 'root', title: 'Root', children: [] },
+          elements: [],
+          layout: { structureClass: 'org.xmind.ui.logic.right', lineWidthScale: 0 }
+        }],
+        assets: []
+      }
+    }
+
+    expect(parseMindMapUpdatePayload(payload)).toBeNull()
+  })
+})
 
 describe('parseMindMapCreatePayload', () => {
   const legacyPayload = { workspaceId: 'workspace-1', title: 'Chemistry' }

@@ -39,6 +39,24 @@ function makeDocument(): MindMapDocumentV2 {
 }
 
 describe('mind-map AI proposal command adapter', () => {
+  it('accepts the fixed topic width style fields at the provider boundary', () => {
+    const parsed = parseMindMapProposalJson(JSON.stringify({
+      schemaVersion: 1,
+      proposalId: 'width-proposal',
+      scope: 'sheet',
+      items: [{
+        id: 'set-width',
+        command: {
+          type: 'topic.update',
+          sheetId: 'sheet-1',
+          topicId: 'a',
+          patch: { style: { widthMode: 'fixed', width: 240 } }
+        }
+      }]
+    }))
+    expect(parsed.ok).toBe(true)
+  })
+
   it('keeps proposal order and applies only explicitly accepted items', () => {
     const items: MindMapProposalItem[] = [
       {
@@ -205,6 +223,84 @@ describe('mind-map provider proposal parser', () => {
     const result = parseMindMapProposalJson(JSON.stringify(value))
 
     expect(result).toEqual({ ok: true, proposal: value })
+  })
+
+  it('accepts the complete persisted theme and sheet-layout style contract', () => {
+    const proposal = {
+      ...validProposal(),
+      items: [
+        {
+          id: 'apply-theme',
+          command: {
+            type: 'document.apply-theme',
+            theme: {
+              id: 'snowbrush',
+              background: '#FFFFFF',
+              branchColors: ['#FF6B6B', '#97D3B6'],
+              textColor: '#111111',
+              lineColor: '#8E8E93',
+              fontFamily: 'Inter, sans-serif',
+              shape: 'roundedRect',
+              rainbowBranches: false,
+              colorSchemeId: 'dawn',
+              topicStyles: {
+                central: {
+                  fill: '#F6212D',
+                  stroke: '#334455',
+                  borderStyle: 'dash',
+                  borderWidth: 3,
+                  fontWeight: '700',
+                  fontStyle: 'italic',
+                  textDecoration: 'line-through underline',
+                  textTransform: 'uppercase',
+                  textAlign: 'right'
+                },
+                main: { fill: '#FAD8DF', fontFamily: 'Noto Sans CJK SC, sans-serif' },
+                sub: { fill: '#F8F7F7', shape: 'underline' }
+              }
+            }
+          }
+        },
+        {
+          id: 'update-layout',
+          command: {
+            type: 'sheet.update-layout',
+            sheetId: 'sheet-1',
+            patch: { lineStyle: 'elbow', lineWidthScale: 0.75 }
+          }
+        }
+      ]
+    }
+
+    expect(parseMindMapProposalJson(JSON.stringify(proposal))).toEqual({
+      ok: true,
+      proposal
+    })
+  })
+
+  it.each([
+    ['unsupported border style', { borderStyle: 'dot' }],
+    ['zero border width', { borderWidth: 0 }],
+    ['oversized border width', { borderWidth: 33 }],
+    ['unsupported text decoration', { textDecoration: 'blink' }],
+    ['unsupported text transform', { textTransform: 'sentence-case' }],
+    ['unsupported text alignment', { textAlign: 'justify' }]
+  ])('rejects %s in proposed topic styles', (_label, central) => {
+    const proposal = {
+      ...validProposal(),
+      items: [{
+        id: 'apply-theme',
+        command: {
+          type: 'document.apply-theme',
+          theme: {
+            id: 'invalid-border',
+            topicStyles: { central }
+          }
+        }
+      }]
+    }
+
+    expect(parseMindMapProposalJson(JSON.stringify(proposal)).ok).toBe(false)
   })
 
   it('accepts provider JSON wrapped in json or bare markdown fences', () => {

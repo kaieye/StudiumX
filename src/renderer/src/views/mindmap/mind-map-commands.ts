@@ -18,10 +18,15 @@ import type {
 import { buildPasteCommand } from '../../../../shared/mindmap/commands'
 import { collectTopicIds } from '../../../../shared/mindmap/domain/invariants'
 import { copySheet } from '../../../../shared/mindmap/domain/sheet-operations'
+import {
+  applyMindMapQuickStyle,
+  type MindMapQuickStylePreset
+} from '../../../../shared/mindmap/quick-styles'
 import type {
   MindMapDocumentV2,
   MindMapElement,
   MindMapSheetV2,
+  MindMapTopicStyleOverride,
   MindMapTopicV2
 } from '../../../../shared/mindmap/domain/types'
 
@@ -74,6 +79,31 @@ function findTopicInChildren(
 
 export function newTopicNode(title = ''): MindMapTopicV2 {
   return { id: crypto.randomUUID(), title, children: [] }
+}
+
+/**
+ * Apply a visual quick style to one or more topics as one undoable command.
+ * The builder deliberately reads each target's existing local style so a
+ * quick emphasis does not erase unrelated overrides (except `default`, which
+ * is the explicit reset preset).
+ */
+export function buildApplyQuickStyleCommand(
+  sheet: MindMapSheetV2,
+  topicIds: readonly string[],
+  preset: MindMapQuickStylePreset
+): MindMapCommand | null {
+  const targets = [...new Set(topicIds)]
+    .map((topicId) => findTopicInSheet(sheet, topicId)?.node)
+    .filter((topic): topic is MindMapTopicV2 => topic !== undefined)
+  if (targets.length === 0) return null
+
+  const commands: MindMapCommand[] = targets.map((topic) => ({
+    type: 'topic.update',
+    sheetId: sheet.id,
+    topicId: topic.id,
+    patch: { style: applyMindMapQuickStyle(topic.style, preset) }
+  }))
+  return commands.length === 1 ? commands[0] : { type: 'transaction', commands }
 }
 
 /** Tab: insert a child under `parentId`. */
@@ -188,6 +218,39 @@ export function buildUpdateTitleCommand(
 /** Batch collapse/expand over every topic in a sheet. */
 function collectTopics(node: MindMapTopicV2): MindMapTopicV2[] {
   return [node, ...node.children.flatMap(collectTopics)]
+}
+
+export type MindMapTopicStylePropagationScope = 'siblings' | 'descendants'
+
+/**
+ * Apply one topic's complete local style override to a structural scope.
+ * A transaction keeps the propagation atomic for undo/redo and persistence.
+ */
+export function buildPropagateTopicStyleCommand(
+  sheet: MindMapSheetV2,
+  topicId: string,
+  scope: MindMapTopicStylePropagationScope
+): MindMapCommand | null {
+  const source = findTopicInSheet(sheet, topicId)
+  if (source === undefined) return null
+
+  const targets = scope === 'siblings'
+    ? source.parent?.children.filter((topic) => topic.id !== topicId) ?? []
+    : collectTopics(source.node).slice(1)
+  if (targets.length === 0) return null
+
+  const sourceStyle: MindMapTopicStyleOverride | null = source.node.style === undefined
+    ? null
+    : structuredClone(source.node.style)
+  return {
+    type: 'transaction',
+    commands: targets.map((topic) => ({
+      type: 'topic.update',
+      sheetId: sheet.id,
+      topicId: topic.id,
+      patch: { style: sourceStyle === null ? null : structuredClone(sourceStyle) }
+    }))
+  }
 }
 
 export function buildCollapseAllCommand(
