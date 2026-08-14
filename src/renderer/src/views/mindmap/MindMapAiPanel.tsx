@@ -1,5 +1,5 @@
 import { Loader2, PanelRightClose, SendHorizontal, Sparkles, Square } from 'lucide-react'
-import type { FormEvent, KeyboardEvent } from 'react'
+import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapProposalDecision } from '../../../../shared/mindmap/commands/mind-map-proposal'
@@ -44,9 +44,21 @@ type MindMapAiPanelProps = {
   open: boolean
   /** Toggle the inspector visibility (header button + ⌘.). */
   onToggle: () => void
+  /** Title of the currently open mind-map document. */
+  documentTitle: string
+  /** Rename the currently open mind-map document. */
+  onRenameDocument: (title: string) => void
+  /** Import/export control rendered beside the panel collapse button. */
+  importExportControl?: ReactNode
 }
 
-export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
+export function MindMapAiPanel({
+  open,
+  onToggle,
+  documentTitle,
+  onRenameDocument,
+  importExportControl
+}: MindMapAiPanelProps) {
   const { t } = useTranslation()
   const aiPrompt = useMindMapViewStore((s) => s.aiPrompt)
   const setAiPrompt = useMindMapViewStore((s) => s.setAiPrompt)
@@ -57,6 +69,8 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
 
   const [streamStep, setStreamStep] = useState<MindMapStreamStatus['step']>('calling')
   const [generationMessages, setGenerationMessages] = useState<MindMapAiGenerationMessage[]>([])
+  const [editingDocumentTitle, setEditingDocumentTitle] = useState(false)
+  const [documentTitleDraft, setDocumentTitleDraft] = useState(documentTitle)
 
   const generationRef = useRef<{
     workspaceId: string
@@ -65,6 +79,10 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
   } | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const threadShouldStickRef = useRef(true)
+
+  useEffect(() => {
+    if (!editingDocumentTitle) setDocumentTitleDraft(documentTitle)
+  }, [documentTitle, editingDocumentTitle])
 
   useEffect(() => {
     const api = window.teachingSystem
@@ -308,8 +326,65 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
             ? t('mindmap.aiError')
             : t('mindmap.aiApplied')
 
+  const beginDocumentTitleEdit = (): void => {
+    setDocumentTitleDraft(documentTitle)
+    setEditingDocumentTitle(true)
+  }
+
+  const cancelDocumentTitleEdit = (): void => {
+    setDocumentTitleDraft(documentTitle)
+    setEditingDocumentTitle(false)
+  }
+
+  const commitDocumentTitleEdit = (): void => {
+    const nextTitle = documentTitleDraft.trim()
+    if (nextTitle && nextTitle !== documentTitle) onRenameDocument(nextTitle)
+    cancelDocumentTitleEdit()
+  }
+
   return (
     <aside className={`mindmap-ai-panel${open ? '' : ' is-collapsed'}`} aria-label={t('mindmap.inspector.title')}>
+      <div className="mindmap-inspector-header">
+        {editingDocumentTitle ? (
+          <input
+            autoFocus
+            className="mindmap-inspector-title-input"
+            value={documentTitleDraft}
+            onChange={(event) => setDocumentTitleDraft(event.currentTarget.value)}
+            onBlur={commitDocumentTitleEdit}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                cancelDocumentTitleEdit()
+              } else if (event.key === 'Enter') {
+                event.preventDefault()
+                commitDocumentTitleEdit()
+              }
+            }}
+            aria-label={t('mindmap.renameDocument')}
+          />
+        ) : (
+          <button
+            type="button"
+            className="mindmap-inspector-title"
+            onClick={beginDocumentTitleEdit}
+            title={t('mindmap.renameDocument')}
+            aria-label={t('mindmap.renameDocument')}
+          >
+            {documentTitle}
+          </button>
+        )}
+        {importExportControl}
+        <button
+          type="button"
+          className="mindmap-ai-panel__collapse icon-button"
+          onClick={onToggle}
+          title={t('mindmap.inspector.title')}
+          aria-label={t('mindmap.inspector.title')}
+        >
+          <PanelRightClose size={14} aria-hidden="true" />
+        </button>
+      </div>
       <div className="mindmap-inspector-tabs" role="tablist" aria-label={t('mindmap.inspector.title')}>
         <button
           type="button"
@@ -337,15 +412,6 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
           onClick={() => setInspectorTab('ai')}
         >
           {t('mindmap.inspector.ai')}
-        </button>
-        <button
-          type="button"
-          className="mindmap-ai-panel__collapse icon-button"
-          onClick={onToggle}
-          title={t('mindmap.inspector.title')}
-          aria-label={t('mindmap.inspector.title')}
-        >
-          <PanelRightClose size={14} aria-hidden="true" />
         </button>
       </div>
       {inspectorTab === 'format' ? (

@@ -1,11 +1,6 @@
 import { Check, ChevronDown, Copy, Pencil, Plus, Star } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { MindMapTheme } from '../../../../shared/mindmap/domain/types'
-import {
-  BUILT_IN_THEMES,
-  getBuiltInThemeFidelityReport
-} from '../../../../shared/mindmap/themes/built-in-themes'
 import {
   COLOR_SCHEMES,
   getColorSchemeCategory,
@@ -16,38 +11,6 @@ import {
 } from './mind-map-color-scheme-catalog'
 import { MindMapColorSchemeEditor } from './MindMapColorSchemeEditor'
 import { useMindMapViewStore } from './mind-map-view-store'
-
-/** Render a compact map preview using the real colours from a style preset. */
-function renderThemeThumb(theme: MindMapTheme): ReactNode {
-  const bg = theme.background && theme.background !== 'transparent' ? theme.background : '#FFFFFF'
-  const centerFill = theme.topicStyles?.central?.fill ?? '#333333'
-  const centerText = theme.topicStyles?.central?.textColor ?? '#FFFFFF'
-  const subFill = theme.topicStyles?.sub?.fill ?? '#F8F7F7'
-  const colors = theme.branchColors ?? COLOR_SCHEMES[0]!.colors
-
-  return (
-    <svg width="96" height="64" viewBox="0 0 96 64" className="mindmap-theme-gallery__thumb" aria-hidden="true">
-      <rect x="0" y="0" width="96" height="64" fill={bg} rx="6" />
-      <rect x="8" y="24" width="28" height="16" rx="4" fill={centerFill} />
-      {colors.slice(0, 4).map((color, index) => {
-        const x = 46
-        const y = 6 + index * 14
-        return (
-          <g key={color}>
-            <path
-              d={`M 36 32 C 42 32, 42 ${y + 6}, ${x} ${y + 6}`}
-              fill="none"
-              stroke={color}
-              strokeWidth={index === 0 ? 2.5 : 1.5}
-            />
-            <rect x={x} y={y} width="42" height="12" rx="3" fill={subFill} stroke={color} strokeWidth="0.8" />
-          </g>
-        )
-      })}
-      <text x="22" y="35" textAnchor="middle" fill={centerText} fontSize="7" fontWeight="600">A</text>
-    </svg>
-  )
-}
 
 function renderColorStrip(colors: readonly string[]): ReactNode {
   return (
@@ -165,7 +128,7 @@ export function MindMapThemeGallery() {
   const deleteColorScheme = useMindMapViewStore((state) => state.deleteColorScheme)
   const toggleColorSchemeFavorite = useMindMapViewStore((state) => state.toggleColorSchemeFavorite)
   const recordRecentColorScheme = useMindMapViewStore((state) => state.recordRecentColorScheme)
-  const [openPicker, setOpenPicker] = useState<'scheme' | 'preset' | null>(null)
+  const [openPicker, setOpenPicker] = useState<'scheme' | null>(null)
   const [editor, setEditor] = useState<EditorTarget>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -188,10 +151,6 @@ export function MindMapThemeGallery() {
 
   const activeSchemeId = current.theme.colorSchemeId ?? COLOR_SCHEMES[0]!.id
   const activeEntry = entryById.get(activeSchemeId) ?? builtInEntries[0]!
-  const activePreset = BUILT_IN_THEMES.find((theme) => theme.id === current.theme.id)
-  const activePresetName = activePreset
-    ? t(`mindmap.themeGallery.${activePreset.id}`, activePreset.name ?? activePreset.id)
-    : t('mindmap.themeGallery.custom')
   const rainbowBranches = current.theme.rainbowBranches !== false
   const branchPreviewColors = rainbowBranches
     ? current.theme.branchColors ?? activeEntry.colors
@@ -206,22 +165,6 @@ export function MindMapThemeGallery() {
   const recentEntries = colorSchemes.recent
     .map((id) => entryById.get(id))
     .filter((entry): entry is SchemeEntry => entry !== undefined)
-
-  const applyTheme = (theme: MindMapTheme): void => {
-    // Style presets and colour schemes are independent: applying a preset keeps the palette.
-    dispatchCommand(
-      {
-        type: 'document.apply-theme',
-        theme: {
-          ...theme,
-          branchColors: current.theme.branchColors ?? theme.branchColors,
-          colorSchemeId: current.theme.colorSchemeId ?? theme.colorSchemeId
-        }
-      },
-      { label: t('mindmap.themeGallery.applyPreset') }
-    )
-    setOpenPicker(null)
-  }
 
   const applyColorScheme = (schemeId: string, colors: readonly string[]): void => {
     dispatchCommand(
@@ -378,9 +321,6 @@ export function MindMapThemeGallery() {
 
   return (
     <section className="mindmap-theme-gallery mm-section" aria-labelledby="mindmap-theme-gallery-title">
-      <div className="mm-section__head">
-        <strong id="mindmap-theme-gallery-title">{t('mindmap.themeGallery.mapAppearance')}</strong>
-      </div>
 
       <CompactPicker
         id="mindmap-color-scheme"
@@ -478,51 +418,6 @@ export function MindMapThemeGallery() {
             <Plus size={13} aria-hidden="true" />
             {t('mindmap.colorScheme.newScheme')}
           </button>
-        </div>
-      </CompactPicker>
-
-      <CompactPicker
-        id="mindmap-style-preset"
-        label={t('mindmap.themeGallery.stylePreset')}
-        valueLabel={activePresetName}
-        preview={<span className="mindmap-theme-picker__mini-map">{renderThemeThumb(activePreset ?? current.theme)}</span>}
-        open={openPicker === 'preset'}
-        onOpenChange={(open) => setOpenPicker(open ? 'preset' : null)}
-      >
-        <p className="mindmap-theme-picker__hint">{t('mindmap.themeGallery.approximationHint')}</p>
-        <div className="mindmap-theme-gallery__grid">
-          {BUILT_IN_THEMES.map((theme) => {
-            const selected = current.theme.id === theme.id
-            const name = t(`mindmap.themeGallery.${theme.id}`, theme.name ?? theme.id)
-            const fidelity = getBuiltInThemeFidelityReport(theme.id)?.report
-            const preserved = fidelity?.preserved.reduce((total, finding) => total + finding.count, 0) ?? 0
-            const approximated = fidelity?.approximated.reduce((total, finding) => total + finding.count, 0) ?? 0
-            const dropped = fidelity?.dropped.reduce((total, finding) => total + finding.count, 0) ?? 0
-            const fidelityLabel = t('mindmap.themeGallery.fidelityAria', {
-              preserved,
-              approximated,
-              dropped
-            })
-            return (
-              <button
-                key={theme.id}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                aria-description={selected ? t('mindmap.topicStyle.selected') : undefined}
-                className={`mindmap-theme-gallery__preset${selected ? ' is-active' : ''}`}
-                onClick={() => applyTheme(theme)}
-                title={`${name} — ${fidelityLabel}`}
-                aria-label={`${name}. ${fidelityLabel}`}
-              >
-                {renderThemeThumb(theme)}
-                <span className="mindmap-theme-gallery__name">{name}</span>
-                <span className="mindmap-theme-gallery__fidelity" aria-hidden="true">
-                  {t('mindmap.themeGallery.fidelitySummary', { preserved, approximated, dropped })}
-                </span>
-              </button>
-            )
-          })}
         </div>
       </CompactPicker>
 

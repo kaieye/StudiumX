@@ -15,7 +15,6 @@ vi.mock('../../src/renderer/src/views/mindmap/MindMapImportCompatibilityReport',
 vi.mock('../../src/renderer/src/views/mindmap/MindMapOutline', () => ({ MindMapOutline: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapSearchPanel', () => ({ MindMapSearchPanel: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapSheetTabs', () => ({ MindMapSheetTabs: () => null }))
-vi.mock('../../src/renderer/src/views/mindmap/MindMapSourcePanel', () => ({ MindMapSourcePanel: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapThemePanel', () => ({ MindMapThemePanel: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapTopicStyleInspector', () => ({ MindMapTopicStyleInspector: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/mind-map-keyboard', () => ({ useMindMapKeyboard: () => undefined }))
@@ -317,7 +316,6 @@ describe('MindMapView create flow', () => {
 
     expect(container.querySelector('.mindmap-list')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Search this sheet' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Sources' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Outline' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Search this sheet' }))

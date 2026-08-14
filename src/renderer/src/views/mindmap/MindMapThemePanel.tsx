@@ -17,28 +17,64 @@ import {
   filterFontCatalogue,
   FontCatalogueEntry,
   fontEntryLabel,
-  loadRecentFonts,
   MindMapFontPickerProps,
-  RECENT_FONTS_KEY,
-  recordRecentFont,
   SAFE_FONTS
 } from './mind-map-font-list'
 import { useMindMapViewStore } from './mind-map-view-store'
 
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 const DEFAULT_BACKGROUND = '#FFFFFF'
+const DEFAULT_LINE_COLOR = '#8E8E93'
 const RECENT_BACKGROUND_COLORS_KEY = 'mindmap.recentBackgroundColors'
 const MAX_RECENT_BACKGROUND_COLORS = 8
+const BACKGROUND_COLOR_PRESETS = [
+  '#FFFFFF',
+  '#F3F4F6',
+  '#D1D5DB',
+  '#9CA3AF',
+  '#6B7280',
+  '#4B5563',
+  '#374151',
+  '#1F2937',
+  '#111827',
+  '#FDE047',
+  '#FCA5A5',
+  '#86EFAC',
+  '#5EEAD4',
+  '#7DD3FC',
+  '#60A5FA',
+  '#818CF8',
+  '#C084FC',
+  '#F0ABFC',
+  '#FBBF24',
+  '#F87171',
+  '#4ADE80',
+  '#2DD4BF',
+  '#38BDF8',
+  '#0EA5E9',
+  '#6366F1',
+  '#A855F7',
+  '#E879F9',
+  '#F59E0B',
+  '#F97316',
+  '#22C55E',
+  '#14B8A6',
+  '#06B6D4',
+  '#0284C7',
+  '#4F46E5',
+  '#9333EA',
+  '#DB2777',
+  '#EA580C',
+  '#DC2626',
+  '#16A34A',
+  '#0F766E',
+  '#0E7490',
+  '#0369A1',
+  '#3730A3',
+  '#6B21A8',
+  '#9D174D'
+] as const
 
-/**
- * The locale catalogs declare the recent-color label with a single-brace
- * placeholder (`Recent color {color}`), while i18next only interpolates
- * `{{...}}` by default. Resolve the value regardless of catalog shape.
- */
-function interpolateRecentColorLabel(label: string, color: string): string {
-  return label.replace('{color}', color)
-}
-const DEFAULT_LINE_COLOR = '#8E8E93'
 function expandHexDigits(digits: string): string {
   return digits.length === 3
     ? digits.split('').map((part) => `${part}${part}`).join('')
@@ -70,37 +106,42 @@ function backgroundWithAlpha(background: string, percent: number): string | null
   return `#${digits}${alpha.toString(16).padStart(2, '0').toUpperCase()}`
 }
 
+function normalizeRecentBackgroundColor(value: string): string | null {
+  if (!HEX_COLOR_PATTERN.test(value)) return null
+  return hexColorWellValue(value).toUpperCase()
+}
+
 function loadRecentBackgroundColors(): string[] {
   try {
-    const raw = localStorage.getItem(RECENT_BACKGROUND_COLORS_KEY)
+    const raw = window.localStorage.getItem(RECENT_BACKGROUND_COLORS_KEY)
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     const colors = parsed
-      .filter((value): value is string => typeof value === 'string' && HEX_COLOR_PATTERN.test(value))
-      .map((color) => color.toUpperCase())
+      .map((value) => typeof value === 'string' ? normalizeRecentBackgroundColor(value) : null)
+      .filter((value): value is string => value !== null)
     return [...new Set(colors)].slice(0, MAX_RECENT_BACKGROUND_COLORS)
   } catch {
-    // localStorage may be unavailable or hold malformed data; start empty.
     return []
   }
 }
 
-function persistRecentBackgroundColors(colors: readonly string[]): void {
-  try {
-    localStorage.setItem(RECENT_BACKGROUND_COLORS_KEY, JSON.stringify(colors))
-  } catch {
-    // localStorage may be unavailable; the in-memory list still works.
-  }
+function recordRecentBackgroundColor(colors: readonly string[], value: string): string[] {
+  const normalized = normalizeRecentBackgroundColor(value)
+  if (!normalized) return [...colors]
+  return [
+    normalized,
+    ...colors.filter((color) => color !== normalized)
+  ].slice(0, MAX_RECENT_BACKGROUND_COLORS)
 }
 
-const BACKGROUND_PRESETS = [
-  { id: 'transparent', value: 'transparent' },
-  { id: 'white', value: '#FFFFFF' },
-  { id: 'slate', value: '#F8FAFC' },
-  { id: 'warm', value: '#FFF7ED' },
-  { id: 'mint', value: '#F0FDF4' }
-] as const
+function persistRecentBackgroundColors(colors: readonly string[]): void {
+  try {
+    window.localStorage.setItem(RECENT_BACKGROUND_COLORS_KEY, JSON.stringify(colors))
+  } catch {
+    // localStorage may be unavailable; keep the in-memory list usable.
+  }
+}
 
 /**
  * Document-theme controls. Every mutation uses one `document.apply-theme`
@@ -112,12 +153,7 @@ export function MindMapThemePanel() {
   const dispatchCommand = useMindMapViewStore((state) => state.dispatchCommand)
   const background = current?.theme.background ?? DEFAULT_BACKGROUND
   const lineColor = current?.theme.lineColor ?? DEFAULT_LINE_COLOR
-  const [backgroundDraft, setBackgroundDraft] = useState(background)
   const [lineColorDraft, setLineColorDraft] = useState(lineColor)
-  const [recentColors, setRecentColors] = useState<string[]>(loadRecentBackgroundColors)
-
-  useEffect(() => setBackgroundDraft(background), [background])
-  useEffect(() => setLineColorDraft(lineColor), [lineColor])
 
   if (!current) return null
 
@@ -150,57 +186,25 @@ export function MindMapThemePanel() {
     )
   }
 
-  const recordRecentBackground = (value: string): void => {
-    if (!HEX_COLOR_PATTERN.test(value)) return
-    const normalized = value.toUpperCase()
-    const next = [
-      normalized,
-      ...recentColors.filter((color) => color.toUpperCase() !== normalized)
-    ].slice(0, MAX_RECENT_BACKGROUND_COLORS)
-    setRecentColors(next)
-    persistRecentBackgroundColors(next)
-  }
-
-  const applyBackground = (value: string): void => {
-    applyThemeField({ background: value })
-    recordRecentBackground(value)
-  }
-
-  const clearRecentBackgroundColors = (): void => {
-    setRecentColors([])
-    try {
-      localStorage.removeItem(RECENT_BACKGROUND_COLORS_KEY)
-    } catch {
-      // localStorage may be unavailable; the in-memory list is already cleared.
-    }
-  }
-
-  const commitHexDraft = (field: 'background' | 'lineColor'): void => {
-    const draft = field === 'background' ? backgroundDraft : lineColorDraft
-    if (HEX_COLOR_PATTERN.test(draft)) {
-      const value = draft.toUpperCase()
-      if (field === 'background') applyBackground(value)
-      else applyThemeField({ [field]: value })
+  const commitLineColorDraft = (): void => {
+    if (HEX_COLOR_PATTERN.test(lineColorDraft)) {
+      applyThemeField({ lineColor: lineColorDraft.toUpperCase() })
       return
     }
-    if (field === 'background') setBackgroundDraft(background)
-    else setLineColorDraft(lineColor)
+    setLineColorDraft(lineColor)
   }
 
-  const commitOnEnter = (event: KeyboardEvent<HTMLInputElement>, field: 'background' | 'lineColor'): void => {
+  const commitOnEnter = (event: KeyboardEvent<HTMLInputElement>): void => {
     if (event.key !== 'Enter') return
     event.preventDefault()
-    commitHexDraft(field)
+    commitLineColorDraft()
     event.currentTarget.blur()
   }
 
   return (
     <section className="mindmap-theme-panel mm-section" aria-labelledby="mindmap-theme-panel-title">
       <div className="mm-section__head">
-        <div>
-          <strong id="mindmap-theme-panel-title">{t('mindmap.themePanel.title')}</strong>
-          <span className="mm-section__hint">{t('mindmap.themePanel.documentScope')}</span>
-        </div>
+        <strong id="mindmap-theme-panel-title">{t('mindmap.themePanel.title')}</strong>
         <button
           type="button"
           className="mm-section__action"
@@ -213,124 +217,12 @@ export function MindMapThemePanel() {
         </button>
       </div>
 
-      <div className="mm-row mm-row--stack">
+      <div className="mm-row">
         <span className="mm-row__label">{t('mindmap.themePanel.backgroundColor')}</span>
-        <div className="mindmap-theme-color-editor">
-          <input
-            id="mindmap-theme-background"
-            type="color"
-            className="mm-color-well"
-            aria-label={t('mindmap.themePanel.backgroundColor')}
-            value={hexColorWellValue(background)}
-            onChange={(event) => applyBackground(event.currentTarget.value.toUpperCase())}
-          />
-          <input
-            className="mindmap-theme-color-editor__hex"
-            aria-label={t('mindmap.themePanel.backgroundHex')}
-            value={backgroundDraft}
-            onChange={(event) => setBackgroundDraft(event.currentTarget.value)}
-            onBlur={() => commitHexDraft('background')}
-            onKeyDown={(event) => commitOnEnter(event, 'background')}
-            spellCheck={false}
-          />
-          <button
-            type="button"
-            className={`mindmap-theme-color-editor__clear${background === 'transparent' ? ' is-selected' : ''}`}
-            aria-pressed={background === 'transparent'}
-            onClick={() => applyThemeField({ background: 'transparent' })}
-          >
-            <X size={12} aria-hidden="true" />
-            {t('mindmap.themePanel.transparent')}
-          </button>
-        </div>
-        <div className="mm-row mindmap-theme-alpha-row">
-          <label className="mm-row__label" htmlFor="mindmap-theme-background-alpha">
-            {t('mindmap.themePanel.alpha')}
-          </label>
-          <span className="mindmap-theme-alpha-row__control">
-            <input
-              id="mindmap-theme-background-alpha"
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              disabled={background === 'transparent'}
-              aria-label={t('mindmap.themePanel.alphaLabel')}
-              aria-description={background === 'transparent'
-                ? t('mindmap.themePanel.alphaUnavailable')
-                : undefined}
-              title={t('mindmap.themePanel.alphaLabel')}
-              value={backgroundAlphaPercent(background)}
-              onChange={(event) => {
-                const next = backgroundWithAlpha(background, Number(event.currentTarget.value))
-                if (next) applyThemeField({ background: next })
-              }}
-            />
-            <output
-              className="mindmap-theme-alpha-row__value"
-              htmlFor="mindmap-theme-background-alpha"
-            >
-              {backgroundAlphaPercent(background)}%
-            </output>
-          </span>
-        </div>
-        <div className="mindmap-theme-presets" role="group" aria-label={t('mindmap.themePanel.backgroundPresets')}>
-          {BACKGROUND_PRESETS.map((preset) => {
-            const selected = background.toUpperCase() === preset.value.toUpperCase()
-            return (
-              <button
-                key={preset.id}
-                type="button"
-                className={selected ? 'is-selected' : ''}
-                aria-label={t(`mindmap.themePanel.backgroundPresetNames.${preset.id}`)}
-                aria-pressed={selected}
-                onClick={() => applyBackground(preset.value)}
-                style={preset.value === 'transparent' ? undefined : { background: preset.value }}
-              >
-                {preset.value === 'transparent' ? <X size={11} aria-hidden="true" /> : null}
-              </button>
-            )
-          })}
-        </div>
-        {recentColors.length > 0 ? (
-          <div className="mindmap-theme-recent-row">
-            <span className="mm-row__label">{t('mindmap.themePanel.recentColors')}</span>
-            <div className="mindmap-theme-recent-row__controls">
-              <div
-                className="mindmap-theme-presets"
-                role="group"
-                aria-label={t('mindmap.themePanel.recentColors')}
-              >
-                {recentColors.map((color) => {
-                  const selected = background.toUpperCase() === color
-                  return (
-                    <button
-                      key={color}
-                      type="button"
-                      className={selected ? 'is-selected' : ''}
-                      aria-label={interpolateRecentColorLabel(
-                        t('mindmap.themePanel.recentColor', { color }),
-                        color
-                      )}
-                      aria-pressed={selected}
-                      onClick={() => applyBackground(color)}
-                      style={{ background: color }}
-                    />
-                  )
-                })}
-              </div>
-              <button
-                type="button"
-                className="mindmap-theme-color-editor__clear"
-                title={t('mindmap.themePanel.clearRecent')}
-                aria-label={t('mindmap.themePanel.clearRecent')}
-                onClick={clearRecentBackgroundColors}
-              >
-                <X size={11} aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-        ) : null}
+        <MindMapBackgroundPicker
+          background={background}
+          onChange={(value) => applyThemeField({ background: value })}
+        />
       </div>
 
       <div className="mm-row">
@@ -344,7 +236,6 @@ export function MindMapThemePanel() {
           searchPlaceholder="Search fonts…"
           searchLabel="Search fonts"
           noResultsLabel="No fonts found."
-          recentLabel="Recent"
           allLabel="All fonts"
         />
         {documentFontMayFallback ? (
@@ -388,8 +279,8 @@ export function MindMapThemePanel() {
               aria-label={t('mindmap.themePanel.lineColorHex')}
               value={lineColorDraft}
               onChange={(event) => setLineColorDraft(event.currentTarget.value)}
-              onBlur={() => commitHexDraft('lineColor')}
-              onKeyDown={(event) => commitOnEnter(event, 'lineColor')}
+              onBlur={commitLineColorDraft}
+              onKeyDown={commitOnEnter}
               spellCheck={false}
             />
           </div>
@@ -402,6 +293,227 @@ export function MindMapThemePanel() {
 
 function themesEqual(left: MindMapTheme, right: MindMapTheme): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
+}
+
+/**
+ * Compact background-color control: a rounded rectangular swatch opens a
+ * preset palette, native color well and opacity slider. The swatch always
+ * reflects the current background (including alpha).
+ */
+function MindMapBackgroundPicker({
+  background,
+  onChange
+}: {
+  background: string
+  onChange: (value: string) => void
+}) {
+  const { t } = useTranslation()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const [recentColors, setRecentColors] = useState<string[]>(loadRecentBackgroundColors)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
+  const label = t('mindmap.themePanel.backgroundColor')
+  const swatchStyle: CSSProperties = background === 'transparent'
+    ? {
+        backgroundImage: 'linear-gradient(135deg, transparent 45%, #dc2626 46%, #dc2626 54%, transparent 55%)',
+        backgroundColor: '#ffffff'
+      }
+    : { background: background }
+  const selectedPreset = background === 'transparent' || backgroundAlphaPercent(background) !== 100
+    ? null
+    : hexColorWellValue(background).toUpperCase()
+  const alphaPercent = backgroundAlphaPercent(background)
+  const alphaUnavailable = background === 'transparent'
+
+  const commitBackground = (value: string): void => {
+    onChange(value)
+    setRecentColors((previous) => {
+      const next = recordRecentBackgroundColor(previous, value)
+      if (next.length === previous.length && next.every((color, index) => color === previous[index])) {
+        return previous
+      }
+      persistRecentBackgroundColors(next)
+      return next
+    })
+  }
+
+  const applyAlpha = (percent: number): void => {
+    const next = backgroundWithAlpha(background, Math.max(0, Math.min(100, percent)))
+    if (next) commitBackground(next)
+  }
+
+  const clearRecentColors = (): void => {
+    setRecentColors([])
+    try {
+      window.localStorage.removeItem(RECENT_BACKGROUND_COLORS_KEY)
+    } catch {
+      // The visible list is already cleared when localStorage is unavailable.
+    }
+  }
+
+  return (
+    <div ref={rootRef} className="mindmap-theme-bg-picker">
+      <button
+        ref={triggerRef}
+        type="button"
+        className="mindmap-theme-bg-picker__swatch"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label={t('mindmap.themePanel.backgroundColor')}
+        title={t('mindmap.themePanel.backgroundColor')}
+        style={swatchStyle}
+        onClick={() => setOpen((previous) => !previous)}
+      />
+      {open ? (
+        <div
+          className="mindmap-theme-bg-picker__popover"
+          role="dialog"
+          aria-label={label}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              setOpen(false)
+              triggerRef.current?.focus()
+            }
+          }}
+        >
+          <div
+            className="mindmap-theme-bg-picker__presets"
+            role="group"
+            aria-label={t('mindmap.themePanel.presetColors')}
+          >
+            {BACKGROUND_COLOR_PRESETS.map((color) => {
+              const selected = selectedPreset === color
+              return (
+                <button
+                  key={color}
+                  type="button"
+                  className={selected ? 'is-selected' : undefined}
+                  aria-label={`${t('mindmap.themePanel.presetColor')} ${color}`}
+                  aria-pressed={selected}
+                  title={color}
+                  style={{ backgroundColor: color }}
+                  onClick={() => commitBackground(color)}
+                />
+              )
+            })}
+          </div>
+          <div className="mindmap-theme-bg-picker__controls">
+            <div className="mindmap-theme-bg-picker__row">
+              <label className="mm-row__label" htmlFor="mindmap-theme-background-native">
+                {t('mindmap.themePanel.backgroundColor')}
+              </label>
+              <input
+                id="mindmap-theme-background-native"
+                type="color"
+                aria-label={t('mindmap.themePanel.backgroundColor')}
+                value={hexColorWellValue(background)}
+                onChange={(event) => commitBackground(event.currentTarget.value.toUpperCase())}
+              />
+            </div>
+            <div className="mindmap-theme-bg-picker__alpha">
+              <label className="mindmap-theme-bg-picker__alpha-label" htmlFor="mindmap-theme-background-alpha">
+                {t('mindmap.themePanel.alpha')}
+              </label>
+              <span className="mindmap-theme-alpha-row__control">
+                <input
+                  id="mindmap-theme-background-alpha"
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  disabled={alphaUnavailable}
+                  aria-label={t('mindmap.themePanel.alphaLabel')}
+                  aria-description={alphaUnavailable
+                    ? t('mindmap.themePanel.alphaUnavailable')
+                    : undefined}
+                  title={t('mindmap.themePanel.alphaLabel')}
+                  value={alphaPercent}
+                  style={{
+                    background: `linear-gradient(to right, var(--accent, #438eff) 0 ${alphaPercent}%, color-mix(in srgb, var(--text) 14%, transparent) ${alphaPercent}% 100%)`
+                  }}
+                  onChange={(event) => applyAlpha(Number(event.currentTarget.value))}
+                />
+                <label
+                  className="mindmap-theme-alpha-row__value"
+                  aria-label={t('mindmap.themePanel.alphaInputLabel')}
+                >
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    disabled={alphaUnavailable}
+                    aria-label={t('mindmap.themePanel.alphaInputLabel')}
+                    value={alphaPercent}
+                    onChange={(event) => {
+                      if (!Number.isNaN(event.currentTarget.valueAsNumber)) {
+                        applyAlpha(event.currentTarget.valueAsNumber)
+                      }
+                    }}
+                  />
+                  <span aria-hidden="true">%</span>
+                </label>
+              </span>
+            </div>
+          </div>
+          <div className="mindmap-theme-bg-picker__recent">
+            <div className="mindmap-theme-bg-picker__recent-head">
+              <span>{t('mindmap.themePanel.recentColors')}</span>
+              {recentColors.length > 0 ? (
+                <button
+                  type="button"
+                  className="mindmap-theme-bg-picker__recent-clear"
+                  aria-label={t('mindmap.themePanel.clearRecent')}
+                  title={t('mindmap.themePanel.clearRecent')}
+                  onClick={clearRecentColors}
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
+            {recentColors.length > 0 ? (
+              <div
+                className="mindmap-theme-bg-picker__recent-colors"
+                role="group"
+                aria-label={t('mindmap.themePanel.recentColors')}
+              >
+                {recentColors.map((color) => {
+                  const selected = selectedPreset === color
+                  return (
+                    <button
+                      key={color}
+                      type="button"
+                      className={selected ? 'is-selected' : undefined}
+                      aria-label={`${t('mindmap.themePanel.recentColorLabel')} ${color}`}
+                      aria-pressed={selected}
+                      title={color}
+                      style={{ backgroundColor: color }}
+                      onClick={() => commitBackground(color)}
+                    />
+                  )
+                })}
+              </div>
+            ) : (
+              <span className="mindmap-theme-bg-picker__recent-empty">
+                {t('mindmap.themePanel.noRecentColors')}
+              </span>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 const FONT_PICKER_OPTIONS_STYLE: CSSProperties = {
@@ -434,7 +546,6 @@ export function MindMapFontPicker({
   searchPlaceholder = 'Search fonts…',
   searchLabel = 'Search fonts',
   noResultsLabel = 'No fonts found.',
-  recentLabel = 'Recent',
   allLabel = 'All fonts'
 }: MindMapFontPickerProps) {
   const { t } = useTranslation()
@@ -444,7 +555,6 @@ export function MindMapFontPicker({
   const optionsRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [recent, setRecent] = useState<string[]>(() => loadRecentFonts(window.localStorage))
 
   const labelOf = (entry: FontCatalogueEntry): string => fontEntryLabel(entry, t)
   const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -466,31 +576,18 @@ export function MindMapFontPicker({
   }
 
   const commit = (stack: string | undefined): void => {
-    if (stack) {
-      const next = recordRecentFont(recent, stack)
-      setRecent(next)
-      try {
-        window.localStorage.setItem(RECENT_FONTS_KEY, JSON.stringify(next))
-      } catch {
-        // localStorage may be unavailable; the in-memory list still works.
-      }
-    }
     onSelect(stack)
     closeAndRestoreFocus()
   }
 
-  const recentStacks = recent.filter((stack) => stack.length > 0)
-  const recentEntries = recentStacks
-    .map((stack) => matching.find((entry) => entry.stack === stack))
-    .filter((entry): entry is FontCatalogueEntry => entry !== undefined)
-  const allEntries = matching.filter((entry) => !recentStacks.includes(entry.stack))
+  const allEntries = matching
 
   const systemShown = Boolean(
     systemLabel &&
     (normalizedQuery === '' || systemLabel.toLocaleLowerCase().includes(normalizedQuery))
   )
   const systemSelected = systemShown && (value === undefined || value === '')
-  const hasResults = systemShown || recentEntries.length > 0 || allEntries.length > 0
+  const hasResults = systemShown || allEntries.length > 0
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Escape') {
@@ -605,37 +702,7 @@ export function MindMapFontPicker({
                   </button>
                 </div>
               ) : null}
-              {systemShown ? (
-                <div
-                  className="mindmap-topic-shape-picker__category"
-                  style={FONT_GROUP_CATEGORY_STYLE}
-                >
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={systemSelected}
-                    aria-description={systemSelected ? t('mindmap.topicStyle.selected') : undefined}
-                    className={systemSelected ? 'is-active' : ''}
-                    onClick={() => commit('')}
-                  >
-                    {systemLabel}
-                  </button>
-                </div>
-              ) : null}
-              {recentEntries.length > 0 ? (
-                <div className="mindmap-font-picker__group">
-                  <span className="mindmap-topic-shape-picker__category-label">
-                    {recentLabel}
-                  </span>
-                  <div
-                    className="mindmap-topic-shape-picker__category"
-                    style={FONT_GROUP_CATEGORY_STYLE}
-                  >
-                    {recentEntries.map(renderOption)}
-                  </div>
-                </div>
-              ) : null}
-              {allEntries.length > 0 ? (
+              {systemShown || allEntries.length > 0 ? (
                 <div className="mindmap-font-picker__group">
                   <span className="mindmap-topic-shape-picker__category-label">
                     {allLabel}
@@ -644,6 +711,18 @@ export function MindMapFontPicker({
                     className="mindmap-topic-shape-picker__category"
                     style={FONT_GROUP_CATEGORY_STYLE}
                   >
+                    {systemShown ? (
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={systemSelected}
+                        aria-description={systemSelected ? t('mindmap.topicStyle.selected') : undefined}
+                        className={systemSelected ? 'is-active' : ''}
+                        onClick={() => commit('')}
+                      >
+                        {systemLabel}
+                      </button>
+                    ) : null}
                     {allEntries.map(renderOption)}
                   </div>
                 </div>

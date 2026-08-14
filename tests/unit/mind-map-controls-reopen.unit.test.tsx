@@ -170,9 +170,10 @@ describe('mind-map controls survive save -> reopen (L-03)', () => {
   it('retains the background color (theme.background) after reopen', async () => {
     renderPanels()
 
-    const backgroundHex = screen.getByRole('textbox', { name: 'Background HEX' })
-    fireEvent.change(backgroundHex, { target: { value: '#f0fdf4' } })
-    fireEvent.keyDown(backgroundHex, { key: 'Enter' })
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    fireEvent.change(within(screen.getByRole('dialog')).getByLabelText('Background color'), {
+      target: { value: '#f0fdf4' }
+    })
     expect(useMindMapViewStore.getState().current?.theme.background).toBe('#F0FDF4')
 
     // Save -> reopen.
@@ -267,10 +268,8 @@ describe('mind-map controls survive save -> reopen (L-03)', () => {
     renderPanels()
 
     fireEvent.click(screen.getByRole('checkbox', { name: /Compact branches/ }))
-    const spacingGroup = screen.getByRole('group', { name: 'Branch spacing' })
-    // Two spacing levels share the 'Spacious' label (24 and 32); pick the first (24).
-    const spacious = within(spacingGroup).getAllByRole('button', { name: 'Spacious' })[0]!
-    fireEvent.click(spacious)
+    const spacingInput = screen.getByRole('spinbutton', { name: 'Branch spacing' })
+    fireEvent.change(spacingInput, { target: { value: '24' } })
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout).toMatchObject({
       compact: true,
       spacing: 24

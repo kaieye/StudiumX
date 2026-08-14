@@ -14,7 +14,6 @@ vi.mock('../../src/renderer/src/views/mindmap/MindMapImportCompatibilityReport',
 vi.mock('../../src/renderer/src/views/mindmap/MindMapOutline', () => ({ MindMapOutline: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapSearchPanel', () => ({ MindMapSearchPanel: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapSheetTabs', () => ({ MindMapSheetTabs: () => null }))
-vi.mock('../../src/renderer/src/views/mindmap/MindMapSourcePanel', () => ({ MindMapSourcePanel: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapThemePanel', () => ({ MindMapThemePanel: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapTopicStyleInspector', () => ({ MindMapTopicStyleInspector: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/mind-map-keyboard', () => ({ useMindMapKeyboard: () => undefined }))
@@ -132,6 +131,13 @@ afterEach(() => {
 })
 
 describe('MindMapView collapse/expand-all toolbar actions', () => {
+  it('does not render rename or inspector controls in the canvas action capsule', () => {
+    render(<MindMapView />)
+
+    expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Mind map inspector' })).not.toBeInTheDocument()
+  })
+
   it('renders collapse-all/expand-all controls in the canvas toolbar', () => {
     render(<MindMapView />)
 

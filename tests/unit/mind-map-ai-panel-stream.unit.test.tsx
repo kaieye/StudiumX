@@ -188,6 +188,27 @@ describe('MindMapAiPanel streaming preview', () => {
     vi.restoreAllMocks()
   })
 
+  it('keeps import/export and panel toggle controls mounted when collapsed', () => {
+    const { container } = render(
+      <MindMapAiPanel
+        open={false}
+        onToggle={() => {}}
+        documentTitle="Collapsed map"
+        onRenameDocument={() => {}}
+        importExportControl={<button type="button">Import and export</button>}
+      />
+    )
+
+    expect(container.querySelector('.mindmap-ai-panel')).toHaveClass('is-collapsed')
+    const importExportButton = screen.getByRole('button', { name: 'Import and export' })
+    const panelToggleButton = screen.getByRole('button', { name: 'Mind map inspector' })
+    expect(importExportButton).toBeInTheDocument()
+    expect(panelToggleButton).toBeInTheDocument()
+    expect(
+      importExportButton.compareDocumentPosition(panelToggleButton) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
   it('keeps canvas-wide options in Canvas and merges module style into Node', async () => {
     const user = userEvent.setup()
     const current = generatedDocument()

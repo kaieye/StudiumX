@@ -34,6 +34,12 @@ import {
 } from './mind-map-viewport'
 import { useMindMapViewStore } from './mind-map-view-store'
 import { computeAllTopicNumbers } from './mind-map-numbering'
+import {
+  MIND_MAP_NODE_ACTION_OFFSET,
+  MIND_MAP_NODE_ACTION_RADIUS,
+  resolveMindMapNodeActionDirections,
+  resolveMindMapNodeActionPosition
+} from './mind-map-node-actions'
 
 /**
  * Custom SVG mind-map canvas (docs/mindmap/design.md §6.3).
@@ -85,7 +91,6 @@ const TOPIC_LABEL_HORIZONTAL_PADDING = 10
 // the same gesture at the pointer-down seam that always receives both presses.
 const NODE_DOUBLE_POINTER_INTERVAL_MS = 450
 const NODE_DOUBLE_POINTER_DISTANCE_PX = 8
-
 function topicLabelGeometry(
   node: MindMapLayoutNode,
   textAlign: NonNullable<NonNullable<MindMapTopicV2['style']>['textAlign']>
@@ -1013,6 +1018,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
           })}
 
           {layout.nodes.map((node) => {
+            const rootNode = layout.nodes[0] ?? node
             const isSelected = selection.kind === 'topic' && selection.topicIds.includes(node.id)
             const isPrimarySelection = node.id === selectedNodeId
             const isEditing = node.id === editingNodeId
@@ -1092,7 +1098,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 onPointerDownCapture={(event) => {
                   const target = event.target as Element
                   const isControl = target.closest?.(
-                    '.mindmap-node-action, .mindmap-collapse-badge, .mindmap-node-input'
+                    '.mindmap-node-action, .mindmap-node-action-group, .mindmap-collapse-badge, .mindmap-node-input'
                   )
                   if (
                     event.button === 0 &&
@@ -1349,33 +1355,56 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   })()
                 ) : null}
 
-                {isSelected && !isEditing ? (
+                {!node.collapsed && !isEditing ? (
                   <g className="mindmap-node-actions">
-                    {isSelected && !node.collapsed ? (
-                      <>
-                        <circle
-                          className="mindmap-node-action mindmap-node-action--add"
-                          cx={node.x + node.width + 14}
-                          cy={node.y + node.height / 2}
-                          r={10}
+                    {resolveMindMapNodeActionDirections(
+                      node,
+                      sheet.layout.structureClass,
+                      rootNode
+                    ).map((direction) => {
+                      const position = resolveMindMapNodeActionPosition(node, direction)
+                      return (
+                        <g
+                          key={direction}
+                          className={`mindmap-node-action-group mindmap-node-action-group--${direction}`}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={t('mindmap.addChild')}
+                          onPointerDown={(event) => {
+                            event.stopPropagation()
+                            event.preventDefault()
+                          }}
                           onClick={(event) => {
+                            event.stopPropagation()
+                            addChild(node.id)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' && event.key !== ' ') return
+                            event.preventDefault()
                             event.stopPropagation()
                             addChild(node.id)
                           }}
                         >
                           <title>{t('mindmap.addChild')}</title>
-                        </circle>
-                        <text
-                          className="mindmap-node-action-label mindmap-node-action-label--add"
-                          x={node.x + node.width + 14}
-                          y={node.y + node.height / 2}
-                          textAnchor="middle"
-                          dominantBaseline="central"
-                        >
-                          +
-                        </text>
-                      </>
-                    ) : null}
+                          <circle
+                            className="mindmap-node-action-hitarea"
+                            cx={position.x}
+                            cy={position.y}
+                            r={MIND_MAP_NODE_ACTION_OFFSET}
+                          />
+                          <circle
+                            className="mindmap-node-action mindmap-node-action--add"
+                            cx={position.x}
+                            cy={position.y}
+                            r={MIND_MAP_NODE_ACTION_RADIUS}
+                          />
+                          <path
+                            className="mindmap-node-action-plus"
+                            d={`M ${position.x - 4.5} ${position.y} H ${position.x + 4.5} M ${position.x} ${position.y - 4.5} V ${position.y + 4.5}`}
+                          />
+                        </g>
+                      )
+                    })}
                   </g>
                 ) : null}
               </g>

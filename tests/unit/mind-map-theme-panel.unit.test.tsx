@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../src/renderer/src/i18n'
 import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
@@ -74,6 +74,7 @@ function makeDocument(): MindMapDocumentV2 {
 
 beforeEach(async () => {
   vi.useFakeTimers()
+  localStorage.clear()
   await i18n.changeLanguage('en-US')
   useAppStore.setState({
     ...originalAppState,
@@ -200,45 +201,65 @@ describe('MindMapThemePanel', () => {
     expect(screen.getByText('Requested imported or custom font may fall back in this app.')).toBeInTheDocument()
   })
 
-  it('supports HEX, transparent and CJK-safe document appearance controls', () => {
+  it('adjusts the document background color through the popover color well', () => {
     render(<MindMapThemePanel />)
 
-    fireEvent.change(screen.getByLabelText('Background HEX'), { target: { value: '#f0fdf4' } })
-    fireEvent.keyDown(screen.getByLabelText('Background HEX'), { key: 'Enter' })
-    expect(useMindMapViewStore.getState().current?.theme.background).toBe('#F0FDF4')
+    const swatch = screen.getByRole('button', { name: 'Background color' })
+    fireEvent.click(swatch)
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Transparent' })[0]!)
-    expect(useMindMapViewStore.getState().current?.theme.background).toBe('transparent')
+    fireEvent.change(within(dialog).getByLabelText('Background color'), {
+      target: { value: '#f0fdf4' }
+    })
+    expect(useMindMapViewStore.getState().current?.theme.background).toBe('#F0FDF4')
 
     fireEvent.click(screen.getByRole('button', { name: 'Font family System font' }))
     fireEvent.click(screen.getByRole('option', { name: 'CJK Sans-serif' }))
     expect(useMindMapViewStore.getState().current?.theme.fontFamily).toContain('Noto Sans CJK SC')
   })
 
-  it('commits 8-digit alpha HEX through the theme command and keeps it readable', () => {
+  it('shows preset background colors and applies a selected preset', () => {
     render(<MindMapThemePanel />)
-    const backgroundHex = screen.getByRole('textbox', { name: 'Background HEX' })
 
-    fireEvent.change(backgroundHex, { target: { value: '#10182780' } })
-    fireEvent.keyDown(backgroundHex, { key: 'Enter' })
+    const swatch = screen.getByRole('button', { name: 'Background color' })
+    expect(swatch).toHaveClass('mindmap-theme-bg-picker__swatch')
+    fireEvent.click(swatch)
 
-    expect(useMindMapViewStore.getState().current?.theme.background).toBe('#10182780')
+    const presets = screen.getByRole('group', { name: 'Preset colors' })
+    expect(within(presets).getAllByRole('button')).toHaveLength(45)
+    expect(within(presets).getByRole('button', { name: 'Preset color #FFFFFF' }))
+      .toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(within(presets).getByRole('button', { name: 'Preset color #86EFAC' }))
+
+    expect(useMindMapViewStore.getState().current?.theme.background).toBe('#86EFAC')
+    expect(within(presets).getByRole('button', { name: 'Preset color #86EFAC' }))
+      .toHaveAttribute('aria-pressed', 'true')
+
+    const recent = screen.getByRole('group', { name: 'Recent colors' })
+    expect(within(recent).getByRole('button', { name: 'Recent color #86EFAC' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(JSON.parse(localStorage.getItem('mindmap.recentBackgroundColors') ?? '[]'))
+      .toEqual(['#86EFAC'])
   })
 
   it('alpha slider converts the background to 8-digit hex with the new alpha', () => {
     render(<MindMapThemePanel />)
 
-    const alpha = screen.getByRole('slider', { name: 'Background opacity' })
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
+    const alpha = within(dialog).getByRole('slider', { name: 'Background opacity' })
+    const alphaInput = within(dialog).getByRole('spinbutton', {
+      name: 'Background opacity percentage'
+    })
     expect(alpha).toBeEnabled()
-    expect(screen.getByText('100%')).toBeInTheDocument()
+    expect(alphaInput).toHaveValue(100)
 
     act(() => {
       fireEvent.change(alpha, { target: { value: '50' } })
     })
-    const hex = screen.getByRole('textbox', { name: 'Background HEX' })
-    expect(hex).toHaveValue('#10182780')
     expect(useMindMapViewStore.getState().current?.theme.background).toBe('#10182780')
-    expect(screen.getByText('50%')).toBeInTheDocument()
+    expect(alphaInput).toHaveValue(50)
 
     act(() => {
       fireEvent.change(alpha, { target: { value: '100' } })
@@ -259,20 +280,45 @@ describe('MindMapThemePanel', () => {
     useMindMapViewStore.setState({ current: structuredClone(current) })
 
     render(<MindMapThemePanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
 
-    expect(screen.getByRole('slider', { name: 'Background opacity' })).toHaveValue('50')
-    expect(screen.getByText('50%')).toBeInTheDocument()
+    expect(within(dialog).getByRole('slider', { name: 'Background opacity' })).toHaveValue('50')
+    expect(within(dialog).getByRole('spinbutton', {
+      name: 'Background opacity percentage'
+    })).toHaveValue(50)
+  })
+
+  it('accepts direct opacity percentage input', () => {
+    render(<MindMapThemePanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
+    const alphaInput = within(dialog).getByRole('spinbutton', {
+      name: 'Background opacity percentage'
+    })
+
+    fireEvent.change(alphaInput, { target: { value: '35' } })
+
+    expect(useMindMapViewStore.getState().current?.theme.background).toBe('#10182759')
+    expect(within(dialog).getByRole('slider', { name: 'Background opacity' })).toHaveValue('35')
   })
 
   it('disables the alpha slider while the background is transparent', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.theme.background = 'transparent'
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+
     render(<MindMapThemePanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Transparent' })[0]!)
-    expect(useMindMapViewStore.getState().current?.theme.background).toBe('transparent')
-
-    const alpha = screen.getByRole('slider', { name: 'Background opacity' })
+    const alpha = within(dialog).getByRole('slider', { name: 'Background opacity' })
     expect(alpha).toBeDisabled()
     expect(alpha).toHaveAccessibleDescription('Unavailable while the background is transparent')
+    expect(within(dialog).getByRole('spinbutton', {
+      name: 'Background opacity percentage'
+    })).toBeDisabled()
   })
 
   it('announces the selected font option without relying on colour', () => {
@@ -285,61 +331,22 @@ describe('MindMapThemePanel', () => {
     expect(system).toHaveAccessibleDescription('Selected')
   })
 
-  it('tracks recent applied backgrounds in localStorage and applies them back', () => {
+  it('applies the color well value through the undoable theme command', () => {
     localStorage.clear()
     const dispatch = vi.spyOn(useMindMapViewStore.getState(), 'dispatchCommand')
     render(<MindMapThemePanel />)
 
-    const backgroundHex = screen.getByRole('textbox', { name: 'Background HEX' })
-    fireEvent.change(backgroundHex, { target: { value: '#f0fdf4' } })
-    fireEvent.keyDown(backgroundHex, { key: 'Enter' })
-    fireEvent.change(backgroundHex, { target: { value: '#101827' } })
-    fireEvent.keyDown(backgroundHex, { key: 'Enter' })
-
-    const stored = JSON.parse(localStorage.getItem('mindmap.recentBackgroundColors') ?? '[]') as string[]
-    expect(stored[0]).toBe('#101827')
-    expect(stored[1]).toBe('#F0FDF4')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Recent color #F0FDF4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
+    fireEvent.change(within(dialog).getByLabelText('Background color'), {
+      target: { value: '#f0fdf4' }
+    })
 
     expect(useMindMapViewStore.getState().current?.theme.background).toBe('#F0FDF4')
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'document.apply-theme' }),
       expect.anything()
     )
-  })
-
-  it('does not record transparent or malformed colors and loads recent colors on mount', () => {
-
-    localStorage.clear()
-    render(<MindMapThemePanel />)
-
-    fireEvent.click(screen.getAllByRole('button', { name: 'Transparent' })[0]!)
-    expect(localStorage.getItem('mindmap.recentBackgroundColors')).toBeNull()
-
-    const backgroundHex = screen.getByRole('textbox', { name: 'Background HEX' })
-    fireEvent.change(backgroundHex, { target: { value: 'garbage' } })
-    fireEvent.keyDown(backgroundHex, { key: 'Enter' })
-    expect(localStorage.getItem('mindmap.recentBackgroundColors')).toBeNull()
-
-    const current = useMindMapViewStore.getState().current
-    if (!current) throw new Error('expected current document')
-    current.theme.background = '#10182755'
-    useMindMapViewStore.setState({ current: structuredClone(current) })
-    localStorage.setItem(
-      'mindmap.recentBackgroundColors',
-      JSON.stringify(['#10182755', '#notacolor', '#F0FDF4', '#f0fdf4'])
-    )
-
-    const { unmount } = render(<MindMapThemePanel />)
-    expect(screen.getByRole('button', { name: 'Recent color #10182755' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Recent color #F0FDF4' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Recent color #notacolor' })).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Clear recent colors' }))
-    expect(localStorage.getItem('mindmap.recentBackgroundColors')).toBeNull()
-    expect(screen.queryByRole('group', { name: 'Recent colors' })).not.toBeInTheDocument()
-    unmount()
   })
 
   it('opens the font picker, filters by search and selects a font through the theme command', () => {
@@ -403,25 +410,6 @@ describe('MindMapThemePanel', () => {
     )
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
-  })
-
-  it('records a recently used font to localStorage and surfaces it in the Recent group', () => {
-    localStorage.clear()
-    render(<MindMapThemePanel />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Font family System font' }))
-    fireEvent.click(screen.getByRole('option', { name: 'CJK Sans-serif' }))
-
-    const stored = JSON.parse(localStorage.getItem('mindmap.recentFonts') ?? '[]') as string[]
-    expect(stored[0]).toBe('"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif')
-
-    // Reopen: the Recent group appears and lists the recorded font first.
-    fireEvent.click(screen.getByRole('button', { name: /CJK Sans-serif/ }))
-    const recentLabel = screen.getByText('Recent')
-    expect(recentLabel).toBeInTheDocument()
-    const recentOptions = recentLabel.closest('.mindmap-font-picker__group')
-      ?.querySelectorAll('[role="option"]')
-    expect(recentOptions?.length).toBeGreaterThan(0)
   })
 
   it('can clear a concrete topic font override back to inherit (clear item)', () => {

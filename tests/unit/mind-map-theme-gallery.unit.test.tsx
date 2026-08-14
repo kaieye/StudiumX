@@ -54,19 +54,16 @@ afterEach(() => {
 })
 
 describe('MindMapThemeGallery', () => {
-  it('keeps the preset catalogue collapsed until requested', () => {
+  it('keeps the color scheme catalogue collapsed until requested', () => {
     render(<MindMapThemeGallery />)
 
-    expect(screen.queryByRole('listbox', { name: 'Style preset' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: /Snowbrush/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('listbox', { name: 'Color Scheme' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /Dawn/i })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Style preset Custom/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
 
-    expect(screen.getByRole('listbox', { name: 'Style preset' })).toBeInTheDocument()
-    expect(screen.getByText(/Each preset lists its XMind fidelity results/i)).toBeInTheDocument()
-    expect(screen.getByRole('option', {
-      name: /Snowbrush\. XMind style fidelity: \d+ preserved, \d+ approximated, \d+ dropped\./i
-    })).toBeInTheDocument()
+    expect(screen.getByRole('listbox', { name: 'Color Scheme' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Dawn/i })).toBeInTheDocument()
   })
 
   it('supports focus entry, wrapped arrow navigation, and Escape focus return', async () => {
@@ -129,7 +126,7 @@ describe('MindMapThemeGallery', () => {
     expect(preview?.firstElementChild).toHaveStyle({ background: '#123456' })
   })
 
-  it('applies a color scheme without replacing the current style preset', () => {
+  it('applies a color scheme without changing the document theme id', () => {
     render(<MindMapThemeGallery />)
 
     fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
@@ -233,30 +230,5 @@ describe('MindMapThemeGallery', () => {
     expect(deepSea).toHaveFocus()
     fireEvent.keyDown(deepSea, { key: 'Escape' })
     expect(screen.queryByRole('listbox', { name: 'Color Scheme' })).not.toBeInTheDocument()
-  })
-
-  it('announces the active scheme and active preset without relying on colour', () => {
-    const current = useMindMapViewStore.getState().current
-    if (!current) throw new Error('expected current document')
-    current.theme.id = 'snowbrush'
-    useMindMapViewStore.setState({ current: structuredClone(current) })
-    render(<MindMapThemeGallery />)
-
-    // Scheme: Dawn is the active scheme -> aria-selected + text description + visible check.
-    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
-    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
-    const dawn = within(listbox).getByRole('option', { name: /Dawn/i })
-    expect(dawn).toHaveAttribute('aria-selected', 'true')
-    expect(dawn).toHaveAccessibleDescription('Selected')
-    expect(dawn.querySelector('.mindmap-theme-picker__check')).not.toBeNull()
-
-    fireEvent.keyDown(dawn, { key: 'Escape' })
-
-    // Preset: Snowbrush is the active preset -> aria-selected + description.
-    fireEvent.click(screen.getByRole('button', { name: /Style preset Snowbrush/i }))
-    const presetListbox = screen.getByRole('listbox', { name: 'Style preset' })
-    const snowbrush = within(presetListbox).getByRole('option', { name: /^Snowbrush\./i })
-    expect(snowbrush).toHaveAttribute('aria-selected', 'true')
-    expect(snowbrush).toHaveAccessibleDescription('Selected')
   })
 })

@@ -77,6 +77,41 @@ describe('MindMapCanvas accessibility', () => {
     expect(child).toHaveAttribute('tabindex', '-1')
   })
 
+  it('renders the quick-add disc and centered vector plus as one control', () => {
+    const { container } = renderCanvas()
+    const root = screen.getByRole('button', { name: 'Root' })
+    const action = root.querySelector<SVGGElement>('.mindmap-node-action-group--right')
+    const disc = action?.querySelector<SVGCircleElement>('.mindmap-node-action--add')
+    const plus = action?.querySelector<SVGPathElement>('.mindmap-node-action-plus')
+
+    expect(action).toBeInTheDocument()
+    expect(disc).toBeInTheDocument()
+    expect(plus).toBeInTheDocument()
+    expect(plus?.getAttribute('d')).toContain(`M ${Number(disc?.getAttribute('cx')) - 4.5}`)
+    expect(container.querySelector('.mindmap-node-action-label--add')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['org.xmind.ui.logic.balanced', ['left', 'right']],
+    ['org.xmind.ui.logic.left', ['left']],
+    ['org.xmind.ui.logic.down', ['bottom']],
+    ['org.xmind.ui.logic.up', ['top']],
+    ['org.xmind.ui.timeline.horizontal', ['right']],
+    ['org.xmind.ui.fishbone.rightHeaded', ['left']]
+  ] as const)('places root quick-add controls naturally for %s', (structureClass, directions) => {
+    const document = makeDocument()
+    document.sheets[0]!.layout.structureClass = structureClass
+
+    renderCanvas(document)
+
+    const root = screen.getByRole('button', { name: 'Root' })
+    const actualDirections = [...root.querySelectorAll<SVGGElement>('.mindmap-node-action-group')]
+      .map((action) => action.className.baseVal.match(/mindmap-node-action-group--(\w+)/)?.[1])
+      .filter((direction): direction is string => Boolean(direction))
+
+    expect(actualDirections).toEqual(directions)
+  })
+
   it('shows an unnamed topic as 未命名 instead of 未命名主题', () => {
     const document = makeDocument()
     document.sheets[0]!.root.children[0]!.title = ''

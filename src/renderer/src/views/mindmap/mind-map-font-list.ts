@@ -2,8 +2,8 @@ import { DEFAULT_TOPIC_FONT_FAMILY } from './mind-map-topic-display-style'
 
 /**
  * A curated catalogue of safe, widely available font stacks plus the app's own
- * defaults, with search + recent-use helpers (checklist C-02) and per-option
- * preview data consumed by the shared `MindMapFontPicker` component (C-06).
+ * defaults, with search helpers (checklist C-02) and per-option preview data
+ * consumed by the shared `MindMapFontPicker` component (C-06).
  *
  * This is intentionally NOT an OS-level font-installation probe: the renderer
  * cannot reliably tell whether a requested family is installed. We offer
@@ -25,9 +25,6 @@ export type FontCatalogueEntry = {
   label?: string
   category: FontCategory
 }
-
-export const MAX_RECENT_FONTS = 6
-export const RECENT_FONTS_KEY = 'mindmap.recentFonts'
 
 /**
  * App defaults and web-safe stacks. Stacks mirror the document/topic controls
@@ -176,47 +173,6 @@ export function filterFontCatalogue(
 }
 
 /**
- * Record a recently used font stack, most-recent first, deduped and capped.
- * Pure: returns a new array and never mutates the input.
- */
-export function recordRecentFont(
-  recent: readonly string[],
-  stack: string,
-  max = MAX_RECENT_FONTS
-): string[] {
-  const normalized = stack.trim()
-  if (!normalized) return [...recent]
-  return [normalized, ...recent.filter((existing) => existing !== normalized)].slice(0, max)
-}
-
-/** Load and validate persisted recent fonts from a storage backend. */
-export function loadRecentFonts(storage: Pick<Storage, 'getItem'>): string[] {
-  try {
-    const raw = storage.getItem(RECENT_FONTS_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    const fonts = parsed
-      .filter((value): value is string => typeof value === 'string')
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0)
-    return [...new Set(fonts)].slice(0, MAX_RECENT_FONTS)
-  } catch {
-    // localStorage may be unavailable or hold malformed data; start empty.
-    return []
-  }
-}
-
-/** Clear persisted recent fonts from a storage backend. */
-export function clearRecentFonts(storage: Pick<Storage, 'removeItem'>): void {
-  try {
-    storage.removeItem(RECENT_FONTS_KEY)
-  } catch {
-    // localStorage may be unavailable; the in-memory list is already cleared.
-  }
-}
-
-/**
  * Props for the shared `MindMapFontPicker` component (defined in
  * `MindMapThemePanel.tsx` so the JSX lives in a `.tsx` module; this project
  * restricts JSX to `.tsx` files).
@@ -230,7 +186,7 @@ export type MindMapFontPickerProps = {
   ariaLabel: string
   /** Called with the selected stack; '' selects the system entry when shown. */
   onSelect: (stack: string | undefined) => void
-  /** When true, show a "System" entry (empty stack) at the top of All. */
+  /** When set, show a "System" entry (empty stack) as the first option of All. */
   systemLabel?: string
   /** When true, show a "clear override" entry that calls onSelect(undefined). */
   showClearItem?: boolean
@@ -238,6 +194,5 @@ export type MindMapFontPickerProps = {
   searchPlaceholder?: string
   searchLabel?: string
   noResultsLabel?: string
-  recentLabel?: string
   allLabel?: string
 }

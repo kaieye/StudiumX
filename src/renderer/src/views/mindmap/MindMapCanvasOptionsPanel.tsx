@@ -1,5 +1,5 @@
 import { Check, ChevronDown, RotateCcw } from 'lucide-react'
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapSheetLayoutUpdatePatch } from '../../../../shared/mindmap/commands'
 import {
@@ -17,7 +17,9 @@ import {
   type MindMapLayoutField
 } from './mind-map-inspector-values'
 
-const SPACING_OPTIONS = [8, 16, 24, 32] as const
+const SPACING_MIN = 4
+const SPACING_MAX = 96
+const SPACING_DEFAULT = 16
 
 const LINE_WIDTH_OPTIONS: Array<{ value: number; labelKey: string }> = [
   { value: 0.5, labelKey: 'lineWidthExtraThin' },
@@ -33,9 +35,6 @@ type CanvasOptionsText = {
   compact: string
   compactDescription: string
   reset: string
-  spacingCompact: string
-  spacingComfortable: string
-  spacingSpacious: string
   right: string
   balanced: string
   left: string
@@ -121,6 +120,9 @@ export function MindMapCanvasOptionsPanel() {
 
   // Resolved once so TS can narrow each field to inherited vs concrete.
   const spacingValue = layoutField('spacing')
+  const spacingInputValue = spacingValue.state === 'concrete'
+    ? Math.max(SPACING_MIN, spacingValue.value)
+    : SPACING_DEFAULT
   const compactValue = layoutField('compact')
   const lineStyleValue = layoutField('lineStyle')
   const lineWidthScaleValue = layoutField('lineWidthScale')
@@ -190,12 +192,13 @@ export function MindMapCanvasOptionsPanel() {
       </div>
 
       <div className="mindmap-canvas-options__section">
-        <div className="mindmap-canvas-options__label">{text.layout}</div>
-        <div
-          ref={structurePickerRef}
-          className="mindmap-structure-picker"
-          onKeyDown={onStructurePickerKeyDown}
-        >
+        <div className="mm-row">
+          <span className="mm-row__label">{text.layout}</span>
+          <div
+            ref={structurePickerRef}
+            className="mindmap-structure-picker"
+            onKeyDown={onStructurePickerKeyDown}
+          >
           <button
             ref={structureTriggerRef}
             type="button"
@@ -251,35 +254,36 @@ export function MindMapCanvasOptionsPanel() {
               </div>
             </div>
           ) : null}
+          </div>
         </div>
       </div>
 
       <div className="mindmap-canvas-options__section">
-        <div className="mindmap-canvas-options__label">
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <div className="mm-row">
+          <span className="mm-row__label">
             {text.spacing}
             {resetFieldButton('spacing', spacingValue)}
           </span>
-        </div>
-        <div className="mindmap-spacing-options" role="group" aria-label={text.spacing}>
-          {SPACING_OPTIONS.map((spacing) => {
-            const selected = spacingValue.state === 'concrete'
-              ? spacingValue.value === spacing
-              : spacing === 16
-            const label = spacing <= 8 ? text.spacingCompact : spacing >= 24 ? text.spacingSpacious : text.spacingComfortable
-            return (
-              <button
-                type="button"
-                key={spacing}
-                className={`mindmap-spacing-option${selected ? ' is-selected' : ''}`}
-                aria-pressed={selected}
-                onClick={() => dispatchLayoutPatch({ spacing })}
-              >
-                <span className="mindmap-spacing-option__dots" style={{ '--mindmap-spacing': `${Math.max(4, spacing / 4)}px` } as CSSProperties} aria-hidden="true" />
-                <span>{label}</span>
-              </button>
-            )
-          })}
+          <label className="mindmap-spacing-field" htmlFor="mindmap-branch-spacing">
+            <input
+              id="mindmap-branch-spacing"
+              className="mm-number-input"
+              type="number"
+              min={SPACING_MIN}
+              max={SPACING_MAX}
+              step="1"
+              value={spacingInputValue}
+              placeholder={spacingValue.state === 'mixed' ? t('mindmap.topicStyle.mixed') : String(SPACING_DEFAULT)}
+              aria-label={text.spacing}
+              onChange={(event) => {
+                const next = Number(event.currentTarget.value)
+                if (Number.isFinite(next) && next >= SPACING_MIN && next <= SPACING_MAX) {
+                  dispatchLayoutPatch({ spacing: Math.round(next) })
+                }
+              }}
+            />
+            <span aria-hidden="true">px</span>
+          </label>
         </div>
         <label className="mm-row mm-row--switch">
           <span className="mm-row__label">

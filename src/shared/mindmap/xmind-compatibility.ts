@@ -391,8 +391,7 @@ function inspectStyleBlock(
 }
 
 /**
- * Classify one XMind style property against the native topic-style mapping
- * (the same mapping the theme importer uses in `from-xmind-theme.ts`).
+ * Classify one XMind style property against the native topic-style mapping.
  * Properties below are the known/canonical XMind topic style vocabulary;
  * everything else is reported as dropped with a stable, value-free reason.
  */
