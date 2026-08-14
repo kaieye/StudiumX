@@ -9,7 +9,8 @@
 import {
   getMindMapSvgExportDimensions,
   serializeMindMapSvg,
-  type MindMapSvgExportInput
+  type MindMapSvgExportInput,
+  type MindMapSvgExportOptions
 } from '../../../../shared/mindmap/svg-export'
 import {
   MIND_MAP_PNG_EXPORT_LIMITS,
@@ -17,7 +18,8 @@ import {
 } from '../../../../shared/mindmap/png-export'
 
 export async function rasterizeMindMapSvgToPng(
-  input: MindMapSvgExportInput
+  input: MindMapSvgExportInput,
+  options?: MindMapSvgExportOptions
 ): Promise<MindMapPngExportArtifact> {
   const dimensions = getMindMapSvgExportDimensions(input)
   if (
@@ -28,7 +30,7 @@ export async function rasterizeMindMapSvgToPng(
     throw new Error('PNG export dimensions exceed the safety limit')
   }
 
-  const svg = serializeMindMapSvg(input)
+  const svg = serializeMindMapSvg(input, options)
   const image = new Image()
   const sourceUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
   try {

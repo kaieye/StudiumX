@@ -101,7 +101,22 @@ const COMPATIBILITY_REASON_KEYS: Record<string, string> = {
     'unsupportedElementMetadata',
   'Cyclic object is not valid JSON content': 'cyclicObject',
   'Cyclic content was not traversed': 'cyclicContentNotTraversed',
-  'Expected content.json to contain a sheet array': 'contentNotSheetArray'
+  'Expected content.json to contain a sheet array': 'contentNotSheetArray',
+  'Malformed style block is not retained': 'malformedStyleBlock',
+  'Malformed style list is not retained': 'malformedStyleList',
+  'Malformed topic fill is not retained': 'malformedTopicFill',
+  'Malformed topic border color is not retained': 'malformedTopicBorderColor',
+  'Malformed topic text color is not retained': 'malformedTopicTextColor',
+  'Malformed topic font family is not retained': 'malformedTopicFontFamily',
+  'Malformed topic font size is not retained': 'malformedTopicFontSize',
+  'Malformed topic font weight is not retained': 'malformedTopicFontWeight',
+  'Malformed XMind numbering flag is not retained': 'malformedNumberingFlag',
+  'Malformed XMind numbering restart index is not retained': 'malformedNumberingRestartIndex',
+  'Unsupported topic font style is not retained': 'unsupportedTopicFontStyle',
+  'Unsupported topic text alignment is not retained': 'unsupportedTopicTextAlign',
+  'XMind border pattern has no native border-pattern mapping': 'xmindBorderPatternNoMapping',
+  'XMind numbering restart index is retained': 'xmindNumberingRestartIndexRetained',
+  'XMind text transform has no native topic-style mapping': 'xmindTextTransformNoMapping'
 }
 
 function findingCount(findings: readonly XmindCompatibilityFinding[]): number {

@@ -259,6 +259,42 @@ export function lineDashPattern(pattern?: string): string | undefined {
 }
 
 /**
+ * Accepted branch line-pattern tokens, mirroring the persisted layout enum.
+ * Anything outside this set is unknown and degrades to the solid fallback.
+ */
+export const BRANCH_LINE_PATTERN_TOKENS = [
+  'solid',
+  'dash',
+  'hand-drawn-solid',
+  'hand-drawn-dash'
+] as const
+
+export type LinePatternResolution = { dash: string | undefined; degraded: boolean }
+
+/**
+ * Resolve a branch line-pattern token to its dash value and report whether it
+ * is unknown (and therefore degraded to the stable solid fallback). Backward
+ * compatible with {@link lineDashPattern} via {@link LinePatternResolution.dash}.
+ * Unknown tokens keep the exact visual output of the solid fallback while the
+ * report records the degradation instead of silently reinterpreting the file.
+ */
+export function resolveLinePatternWithReport(
+  pattern: string | undefined
+): LinePatternResolution {
+  if (pattern === undefined) return { dash: undefined, degraded: false }
+  if (pattern === 'dash' || pattern === 'hand-drawn-dash') {
+    return { dash: '6 4', degraded: false }
+  }
+  if (pattern === 'solid' || pattern === 'hand-drawn-solid') {
+    return { dash: undefined, degraded: false }
+  }
+  // Unknown token: stable solid fallback (same dash as `solid`), reported as
+  // degraded instead of silently rendering a different dash than the document
+  // requested.
+  return { dash: undefined, degraded: true }
+}
+
+/**
  * Tapered (Xmind "线条渐细") edge rendered as a closed polygon whose width
  * shrinks from the parent anchor toward the child anchor. Produces a true
  * width taper that a uniform `stroke-width` cannot express.

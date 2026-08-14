@@ -16,8 +16,10 @@ import { join, resolve } from 'node:path'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 
 import {
+  buildXmindExportCompatibilityReport,
   documentToXmindContent,
   documentV2ToXmindContent,
+  type XmindV2ExportSheet,
   xmindContentToDocument
 } from '../../shared/mindmap/xmind-converter'
 import type { MindMapDocumentV2 } from '../../shared/mindmap/domain/types'
@@ -102,7 +104,38 @@ export function buildXmindZip(doc: MindMapDocument): Uint8Array {
  * (background, branch colors, font) in the sheet theme block (§7.5/§11).
  */
 export function buildXmindZipV2(doc: MindMapDocumentV2): Uint8Array {
-  const exportSheets = doc.sheets.map((sheet) => {
+  const exportSheets = v2DocumentExportSheets(doc)
+  const contentJson = JSON.stringify(documentV2ToXmindContent(exportSheets, doc.theme))
+  return zipSync({
+    [CONTENT_ENTRY]: strToU8(contentJson),
+    'metadata.json': strToU8(JSON.stringify(METADATA_JSON)),
+    'manifest.json': strToU8(JSON.stringify(MANIFEST_JSON))
+  })
+}
+
+/**
+ * Build a `.xmind` ZIP from a v2 document AND retain the structured
+ * compatibility audit for the exact export payload. Mirrors
+ * `parseXmindZipWithCompatibilityReport` on the import side; the legacy
+ * `buildXmindZipV2` helper keeps returning only the bytes so existing
+ * callers remain source-compatible.
+ */
+export function buildXmindZipV2WithCompatibilityReport(doc: MindMapDocumentV2): {
+  bytes: Uint8Array
+  compatibilityReport: XmindCompatibilityReport
+} {
+  const bytes = buildXmindZipV2(doc)
+  return {
+    bytes,
+    compatibilityReport: buildXmindExportCompatibilityReport(doc)
+  }
+}
+
+/** Map a v2 document's sheets to the `XmindV2ExportSheet` shape used by both the ZIP builder and its report. */
+function v2DocumentExportSheets(
+  doc: MindMapDocumentV2
+): XmindV2ExportSheet[] {
+  return doc.sheets.map((sheet) => {
     const relationships = convertSheetToV1(sheet).relationships
     return {
       id: sheet.id,
@@ -111,12 +144,6 @@ export function buildXmindZipV2(doc: MindMapDocumentV2): Uint8Array {
       structureClass: sheet.layout.structureClass,
       relationships
     }
-  })
-  const contentJson = JSON.stringify(documentV2ToXmindContent(exportSheets, doc.theme))
-  return zipSync({
-    [CONTENT_ENTRY]: strToU8(contentJson),
-    'metadata.json': strToU8(JSON.stringify(METADATA_JSON)),
-    'manifest.json': strToU8(JSON.stringify(MANIFEST_JSON))
   })
 }
 

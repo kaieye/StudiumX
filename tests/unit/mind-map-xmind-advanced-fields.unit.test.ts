@@ -16,7 +16,14 @@ describe('XMind advanced-field compatibility gates', () => {
     const fixtureExpectations = [
       {
         file: 'xmind-content-styles.json',
-        droppedPaths: ['sheets[].theme', 'topics[].style']
+        droppedPaths: [
+          'sheets[].theme',
+          // Style blocks are reported per property, not as a whole block.
+          'topics[].style.fill',
+          'topics[].style.line-color',
+          'topics[].style.shape',
+          'topics[].style.font-weight'
+        ]
       },
       {
         file: 'xmind-content-summaries.json',

@@ -19,10 +19,17 @@ import type {
   MindMapStructureClass
 } from './mind-map-types'
 import type {
+  MindMapDocumentV2,
+  MindMapRelationship as MindMapRelationshipElement,
   MindMapTheme,
   MindMapTopicStyleOverride,
   MindMapTopicV2
 } from './domain/types'
+import {
+  emptyXmindCompatibilityReport,
+  type XmindCompatibilityFinding,
+  type XmindCompatibilityReport
+} from './xmind-compatibility'
 
 /**
  * Numbering metadata carried on a v2 topic. Declared structurally here so
@@ -593,4 +600,564 @@ export function documentV2ToXmindContent(
         : {})
     }
   })
+}
+
+/* ------------------------------------------------------------------ *
+ * XMind EXPORT compatibility report
+ *
+ * Mirrors `documentV2ToXmindContent` so every exported/omitted property
+ * can be audited without re-deriving the mapping. Pure and value-free:
+ * findings carry stable paths, counts and reason strings only. It walks
+ * the same theme + topic inputs as the converter and additionally reports
+ * v2-only state (element styles, layout) that the export ignores.
+ * ------------------------------------------------------------------ */
+
+type ExportCategory = keyof XmindCompatibilityReport
+
+class ExportReportBuilder {
+  private readonly entries: Record<
+    ExportCategory,
+    Map<string, XmindCompatibilityFinding>
+  > = {
+    preserved: new Map(),
+    approximated: new Map(),
+    dropped: new Map(),
+    warnings: new Map()
+  }
+
+  public constructor(private readonly report: XmindCompatibilityReport) {}
+
+  public add(
+    category: ExportCategory,
+    path: string,
+    count: number,
+    reason: string
+  ): void {
+    if (count <= 0) return
+    const key = `${path}\u0000${reason}`
+    const bucket = this.entries[category]
+    const existing = bucket.get(key)
+    if (existing) {
+      existing.count += count
+      return
+    }
+    const finding = { path, count, reason }
+    bucket.set(key, finding)
+    this.report[category].push(finding)
+  }
+}
+
+/**
+ * Build a value-free per-item compatibility report for a StudiumX v2
+ * document being exported to XMind `content.json`. Categories:
+ *
+ * - `preserved`: the field is written to XMind 1:1.
+ * - `approximated`: written with a near mapping (e.g. hand-drawn border,
+ *   no-op text transform rewritten to XMind's `manual` token).
+ * - `dropped`: present in the v2 model but not exported by the converter.
+ * - `warnings`: genuinely surprising cases (e.g. rainbow branches disabled
+ *   with no fallback line color).
+ */
+export function buildXmindExportCompatibilityReport(
+  doc: MindMapDocumentV2
+): XmindCompatibilityReport {
+  const report = emptyXmindCompatibilityReport()
+  const builder = new ExportReportBuilder(report)
+  const theme = doc.theme
+
+  reportThemeExport(theme, doc.sheets.length, builder)
+
+  for (const sheet of doc.sheets) {
+    const relationships = sheet.elements.filter(
+      (el): el is MindMapRelationshipElement => el.type === 'relationship'
+    )
+    if (relationships.length > 0) {
+      builder.add(
+        'preserved',
+        'sheets[].relationships',
+        relationships.length,
+        'Sheet relationships map to XMind relationship elements'
+      )
+      for (const relationship of relationships) {
+        if (relationship.label !== undefined) {
+          builder.add(
+            'preserved',
+            'sheets[].relationships[].title',
+            1,
+            'Relationship label maps to the XMind relationship title'
+          )
+        }
+      }
+    }
+
+    const styledElements = sheet.elements.filter((el) => el.style !== undefined)
+    if (styledElements.length > 0) {
+      builder.add(
+        'dropped',
+        'sheets[].elements[].style',
+        styledElements.length,
+        'Element style for boundaries/summaries/callouts/free-topics/relationships is not exported to XMind'
+      )
+    }
+
+    if (sheet.layout.lineStyle !== undefined) {
+      builder.add(
+        'dropped',
+        'sheets[].layout.lineStyle',
+        1,
+        'Connector line style is not exported to XMind'
+      )
+    }
+    if (sheet.layout.linePattern !== undefined) {
+      builder.add(
+        'dropped',
+        'sheets[].layout.linePattern',
+        1,
+        'Branch line pattern is not exported to XMind'
+      )
+    }
+    if (sheet.layout.compact !== undefined) {
+      builder.add(
+        'dropped',
+        'sheets[].layout.compact',
+        1,
+        'Compact layout flag is not exported to XMind'
+      )
+    }
+    if (sheet.layout.spacing !== undefined) {
+      builder.add(
+        'dropped',
+        'sheets[].layout.spacing',
+        1,
+        'Layout spacing is not exported to XMind'
+      )
+    }
+    if (sheet.layout.tapered !== undefined) {
+      builder.add(
+        'dropped',
+        'sheets[].layout.tapered',
+        1,
+        'Tapered branch flag is not exported to XMind'
+      )
+    }
+    if (sheet.layout.lineWidthScale !== undefined) {
+      builder.add(
+        'dropped',
+        'sheets[].layout.lineWidthScale',
+        1,
+        'Branch line-width scale is not exported to XMind'
+      )
+    }
+
+    reportExportedTopic(sheet.root, theme, 0, builder)
+  }
+
+  return report
+}
+
+/** Theme-level export findings (the theme block is attached to every sheet). */
+function reportThemeExport(
+  theme: MindMapTheme | undefined,
+  sheetCount: number,
+  builder: ExportReportBuilder
+): void {
+  if (!theme) return
+  const rainbowDisabled = theme.rainbowBranches === false
+  if (theme.background) {
+    builder.add(
+      'preserved',
+      'sheets[].theme.map.svg:fill',
+      sheetCount,
+      'Theme background maps to the XMind sheet background fill'
+    )
+  }
+  if (theme.fontFamily) {
+    builder.add(
+      'preserved',
+      'sheets[].theme.defaults.fo:font-family',
+      sheetCount,
+      'Theme font family maps to the XMind sheet default font'
+    )
+  }
+  if (theme.branchColors && theme.branchColors.length > 0) {
+    if (rainbowDisabled && theme.lineColor) {
+      builder.add(
+        'dropped',
+        'sheets[].theme.multiLineColors',
+        sheetCount,
+        'Branch colors are dropped when rainbow branches are disabled and a line color is set'
+      )
+    } else if (rainbowDisabled) {
+      builder.add(
+        'dropped',
+        'sheets[].theme.multiLineColors',
+        sheetCount,
+        'Branch colors are dropped when rainbow branches are disabled'
+      )
+      builder.add(
+        'warnings',
+        'sheets[].theme.lineColor',
+        sheetCount,
+        'Rainbow branches are disabled but no line color is set'
+      )
+    } else {
+      builder.add(
+        'preserved',
+        'sheets[].theme.multiLineColors',
+        sheetCount,
+        'Branch colors map to the XMind multi-line branch palette'
+      )
+    }
+  }
+  if (theme.lineColor) {
+    builder.add(
+      'preserved',
+      'sheets[].theme.lineColor',
+      sheetCount,
+      'Theme line color maps to the XMind branch line color'
+    )
+  }
+  if (theme.textColor) {
+    builder.add(
+      'dropped',
+      'sheets[].theme.textColor',
+      sheetCount,
+      'Theme text color has no XMind export mapping'
+    )
+  }
+  if (theme.name) {
+    builder.add(
+      'dropped',
+      'sheets[].theme.name',
+      sheetCount,
+      'Theme name is not exported to XMind'
+    )
+  }
+  if (theme.shape) {
+    builder.add(
+      'dropped',
+      'sheets[].theme.shape',
+      sheetCount,
+      'Theme shape token is not exported to XMind'
+    )
+  }
+  if (theme.colorSchemeId) {
+    builder.add(
+      'dropped',
+      'sheets[].theme.colorSchemeId',
+      sheetCount,
+      'Theme color-scheme id is not exported to XMind'
+    )
+  }
+}
+
+/** Recursively report one topic and its subtree exactly as the exporter walks it. */
+function reportExportedTopic(
+  topic: MindMapTopicV2,
+  theme: MindMapTheme | undefined,
+  depth: number,
+  builder: ExportReportBuilder
+): void {
+  if (topic.note !== undefined) {
+    builder.add(
+      'preserved',
+      'topics[].note',
+      1,
+      'Topic note maps to the XMind note'
+    )
+  }
+  if (topic.collapsed !== undefined) {
+    builder.add(
+      'preserved',
+      'topics[].collapsed',
+      1,
+      'Collapsed state maps to the XMind collapsed flag'
+    )
+  }
+  const overrideStructure = topic.style?.structureClass
+  if (overrideStructure !== undefined) {
+    builder.add(
+      'preserved',
+      'topics[].structureClass',
+      1,
+      'Topic structure-class override is exported as the topic layout'
+    )
+  }
+
+  reportExportedTopicStyle(
+    effectiveTopicStyleForExport(topic, theme, depth),
+    builder
+  )
+
+  const numberingProperties = topicNumberingToXmind(topic)
+  if (numberingProperties) {
+    if (numberingProperties['xmind:numbering'] !== undefined) {
+      builder.add(
+        'preserved',
+        'topics[].style.xmind:numbering',
+        1,
+        'Topic numbering pattern maps to the XMind numbering token'
+      )
+    }
+    if (numberingProperties['xmind:numbering-tiered'] !== undefined) {
+      builder.add(
+        'preserved',
+        'topics[].style.xmind:numbering-tiered',
+        1,
+        'Topic tiered numbering maps to the XMind tiered flag'
+      )
+    }
+    if (numberingProperties['xmind:numbering-restart-at'] !== undefined) {
+      builder.add(
+        'preserved',
+        'topics[].style.xmind:numbering-restart-at',
+        1,
+        'Topic numbering restart index maps to the XMind restart-at property'
+      )
+    }
+  }
+
+  if (topic.labels !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].labels',
+      1,
+      'Topic labels are not exported to XMind'
+    )
+  }
+  if (topic.markers !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].markers',
+      1,
+      'Topic markers are not exported to XMind'
+    )
+  }
+  if (topic.links !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].links',
+      1,
+      'Topic links are not exported to XMind'
+    )
+  }
+  if (topic.sourceRefs !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].sourceRefs',
+      1,
+      'Topic source references are not exported to XMind'
+    )
+  }
+  if (topic.assetIds !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].assetIds',
+      1,
+      'Topic asset references are not exported to XMind'
+    )
+  }
+  if (topic.planning !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].planning',
+      1,
+      'Topic planning metadata is not exported to XMind'
+    )
+  }
+  if (topic.manualPosition !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].manualPosition',
+      1,
+      'Manual topic position is not exported to XMind'
+    )
+  }
+
+  for (const child of topic.children) {
+    reportExportedTopic(child, theme, depth + 1, builder)
+  }
+}
+
+/** Topic-style export findings, mirroring `topicStyleToXmindProperties`. */
+function reportExportedTopicStyle(
+  style: MindMapTopicStyleOverride | undefined,
+  builder: ExportReportBuilder
+): void {
+  if (!style) return
+  const border = style.borderStyle
+  if (border === 'none') {
+    builder.add(
+      'preserved',
+      'topics[].style.border-line-color',
+      1,
+      'Topic no-border style maps to an XMind no-border color'
+    )
+    builder.add(
+      'preserved',
+      'topics[].style.border-line-width',
+      1,
+      'Topic no-border style maps to a zero XMind border width'
+    )
+  } else {
+    if (style.stroke !== undefined) {
+      builder.add(
+        'preserved',
+        'topics[].style.border-line-color',
+        1,
+        'Topic border color maps to the XMind border color'
+      )
+    }
+    if (style.borderWidth !== undefined) {
+      builder.add(
+        'preserved',
+        'topics[].style.border-line-width',
+        1,
+        'Topic border width maps to the XMind border width'
+      )
+    }
+    if (border === 'solid') {
+      builder.add(
+        'preserved',
+        'topics[].style.border-line-pattern',
+        1,
+        'Solid border maps to the XMind solid border pattern'
+      )
+    } else if (border === 'dash') {
+      builder.add(
+        'preserved',
+        'topics[].style.border-line-pattern',
+        1,
+        'Dashed border maps to the XMind dash border pattern'
+      )
+    } else if (border === 'hand-drawn-solid') {
+      builder.add(
+        'approximated',
+        'topics[].style.border-line-pattern',
+        1,
+        'Hand-drawn border is approximated as a solid XMind border'
+      )
+    } else if (border === 'hand-drawn-dash') {
+      builder.add(
+        'approximated',
+        'topics[].style.border-line-pattern',
+        1,
+        'Hand-drawn border is approximated as a dashed XMind border'
+      )
+    }
+  }
+  if (style.textDecoration !== undefined) {
+    builder.add(
+      'preserved',
+      'topics[].style.fo:text-decoration',
+      1,
+      'Topic text decoration maps to the XMind text-decoration token'
+    )
+  }
+  if (style.textTransform !== undefined) {
+    if (style.textTransform === 'none') {
+      builder.add(
+        'approximated',
+        'topics[].style.fo:text-transform',
+        1,
+        'No text transform is approximated by the XMind manual token'
+      )
+    } else {
+      builder.add(
+        'preserved',
+        'topics[].style.fo:text-transform',
+        1,
+        'Topic text transform maps to the XMind text-transform token'
+      )
+    }
+  }
+  if (style.textAlign !== undefined) {
+    builder.add(
+      'preserved',
+      'topics[].style.fo:text-align',
+      1,
+      'Topic text alignment maps to the XMind text-alignment token'
+    )
+  }
+
+  if (style.fill !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].style.fill',
+      1,
+      'Topic fill has no XMind export mapping'
+    )
+  }
+  if (style.textColor !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].style.textColor',
+      1,
+      'Topic text color has no XMind export mapping'
+    )
+  }
+  if (style.fontFamily !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].style.fontFamily',
+      1,
+      'Topic font family has no XMind export mapping'
+    )
+  }
+  if (style.fontSize !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].style.fontSize',
+      1,
+      'Topic font size has no XMind export mapping'
+    )
+  }
+  if (style.fontWeight !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].style.fontWeight',
+      1,
+      'Topic font weight has no XMind export mapping'
+    )
+  }
+  if (style.fontStyle !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].style.fontStyle',
+      1,
+      'Topic font style has no XMind export mapping'
+    )
+  }
+  if (style.shape !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].style.shape',
+      1,
+      'Topic shape token has no XMind export mapping'
+    )
+  }
+  if (style.fillPattern !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].style.fillPattern',
+      1,
+      'Topic fill-pattern texture has no XMind export mapping'
+    )
+  }
+  if (style.widthMode !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].style.widthMode',
+      1,
+      'Topic width mode has no XMind export mapping'
+    )
+  }
+  if (style.width !== undefined) {
+    builder.add(
+      'dropped',
+      'topics[].style.width',
+      1,
+      'Fixed topic width has no XMind export mapping'
+    )
+  }
 }

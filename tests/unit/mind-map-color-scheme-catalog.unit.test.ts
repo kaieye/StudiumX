@@ -5,6 +5,7 @@ import {
   deleteUserColorScheme,
   duplicateUserColorScheme,
   EMPTY_COLOR_SCHEME_CATALOG,
+  getColorSchemeCategory,
   isBuiltInColorSchemeId,
   loadColorSchemeCatalog,
   MAX_RECENT_COLOR_SCHEMES,
@@ -37,6 +38,26 @@ afterEach(() => {
 })
 
 describe('color scheme catalog pure operations', () => {
+  it('resolves the category for built-in and custom schemes', () => {
+    // Built-in recommended schemes.
+    expect(getColorSchemeCategory('dawn')).toBe('recommended')
+    expect(getColorSchemeCategory('deep-sea')).toBe('recommended')
+    expect(getColorSchemeCategory('green-tea')).toBe('recommended')
+    // Built-in classic schemes.
+    expect(getColorSchemeCategory('painter')).toBe('classic')
+    expect(getColorSchemeCategory('vintage')).toBe('classic')
+    expect(getColorSchemeCategory('fire')).toBe('classic')
+    // Unknown / custom schemes resolve to custom.
+    expect(getColorSchemeCategory('user-abc')).toBe('custom')
+    expect(getColorSchemeCategory(undefined)).toBe('custom')
+  })
+
+  it('treats every user-created scheme as custom category', () => {
+    const { scheme } = catalogWithScheme()
+    expect(getColorSchemeCategory(scheme.id)).toBe('custom')
+    expect(isBuiltInColorSchemeId(scheme.id)).toBe(false)
+  })
+
   it('adds a custom scheme with a default-sized palette', () => {
     const { state, scheme } = catalogWithScheme()
     expect(state.schemes).toHaveLength(1)

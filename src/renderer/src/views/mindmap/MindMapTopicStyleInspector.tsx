@@ -26,9 +26,11 @@ import {
   type MindMapTextDecorationFlag
 } from './mind-map-topic-style'
 import { resolveSelectedTopicFontProvenance } from './mind-map-font-provenance'
+import { fontEntryLabel, SAFE_FONTS } from './mind-map-font-list'
+import { MindMapFontPicker } from './MindMapThemePanel'
 import { MindMapTopicShapePicker } from './MindMapTopicShapePicker'
 import { MindMapTopicColorPicker, MindMapTopicStyleMenu } from './MindMapTopicStyleMenu'
-import { DEFAULT_TOPIC_FONT_FAMILY, resolveTopicDisplayStyle } from './mind-map-topic-display-style'
+import { resolveTopicDisplayStyle } from './mind-map-topic-display-style'
 import { branchColor } from './mind-map-branch-colors'
 import type { MindMapQuickStylePreset } from '../../../../shared/mindmap/quick-styles'
 
@@ -129,16 +131,6 @@ const TEXT_ALIGN_OPTIONS = [
   value: NonNullable<MindMapTopicStyleOverride['textAlign']>
   labelKey: string
 }[]
-
-const FONT_OPTIONS = [
-  { value: DEFAULT_TOPIC_FONT_FAMILY, key: 'fontAppDefault' },
-  { value: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", key: 'fontSystem' },
-  { value: 'Arial, Helvetica, sans-serif', key: 'fontSans' },
-  { value: '"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif', key: 'fontCjkSans' },
-  { value: '"Noto Serif CJK SC", "Songti SC", SimSun, serif', key: 'fontCjkSerif' },
-  { value: "Georgia, 'Times New Roman', serif", key: 'fontSerif' },
-  { value: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', key: 'fontMono' }
-] as const
 
 /** Topic formatting for a single topic or a multi-selection. */
 export function MindMapTopicStyleInspector() {
@@ -347,8 +339,14 @@ export function MindMapTopicStyleInspector() {
     selectedTopicEntries.map(({ topic, depth }) => ({ nodeStyle: topic.style, depth })),
     current!.theme
   )
-  const hasUnlistedLocalFont = fontFamily.state === 'concrete'
-    && !FONT_OPTIONS.some((option) => option.value === fontFamily.value)
+  const effectiveFontFamilyLabel =
+    effectiveFontFamily.state === 'mixed'
+      ? t('mindmap.topicStyle.mixed')
+      : effectiveFontFamily.state === 'concrete'
+        ? SAFE_FONTS.find((entry) => entry.stack === effectiveFontFamily.value)
+          ? fontEntryLabel(SAFE_FONTS.find((entry) => entry.stack === effectiveFontFamily.value)!, t)
+          : t('mindmap.topicStyle.importedFont', { font: effectiveFontFamily.value })
+        : t('mindmap.topicStyle.inherit')
   const effectiveFontSize = effectiveFieldValue((style) => style.fontSize)
   const effectiveFontWeight = effectiveFieldValue((style) => style.fontWeight)
   const borderStyle = fieldValue('borderStyle')
@@ -664,30 +662,20 @@ export function MindMapTopicStyleInspector() {
 
       <div className="mm-subhead">{t('mindmap.topicStyle.textSection')}</div>
       <div className="mm-row">
-        <label className="mm-row__label" htmlFor="mindmap-topic-style-fontfamily">
-          {t('mindmap.topicStyle.fontFamily')}
-        </label>
-        <select
-          id="mindmap-topic-style-fontfamily"
-          className="mm-select"
-          value={selectValue(effectiveFontFamily)}
-          onChange={(event) => {
-            if (event.currentTarget.value !== MIXED_VALUE) {
-              updateStyleField('fontFamily', event.currentTarget.value || undefined)
-            }
-          }}
-        >
-          {effectiveFontFamily.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
-          {effectiveFontFamily.state === 'concrete' && !FONT_OPTIONS.some((option) => option.value === effectiveFontFamily.value) ? (
-            <option value={effectiveFontFamily.value}>{t('mindmap.topicStyle.importedFont', { font: effectiveFontFamily.value })}</option>
-          ) : null}
-          {hasUnlistedLocalFont && effectiveFontFamily.state !== 'concrete' ? (
-            <option value={fontFamily.value}>{t('mindmap.topicStyle.importedFont', { font: fontFamily.value })}</option>
-          ) : null}
-          {FONT_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{t(`mindmap.topicStyle.${option.key}`)}</option>
-          ))}
-        </select>
+        <span className="mm-row__label">{t('mindmap.topicStyle.fontFamily')}</span>
+        <MindMapFontPicker
+          value={effectiveFontFamily.state === 'concrete' ? effectiveFontFamily.value : undefined}
+          currentLabel={effectiveFontFamilyLabel}
+          ariaLabel={t('mindmap.topicStyle.fontFamily')}
+          showClearItem={fontFamily.state === 'concrete'}
+          clearLabel={t('mindmap.topicStyle.clearField')}
+          onSelect={(stack) => updateStyleField('fontFamily', stack || undefined)}
+          searchPlaceholder="Search fonts…"
+          searchLabel="Search fonts"
+          noResultsLabel="No fonts found."
+          recentLabel="Recent"
+          allLabel="All fonts"
+        />
         <span
           id="mindmap-topic-style-font-source"
           className="mindmap-topic-style__effective"

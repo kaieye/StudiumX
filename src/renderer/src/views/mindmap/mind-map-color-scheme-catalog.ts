@@ -1,4 +1,10 @@
-import { COLOR_SCHEMES } from '../../../../shared/mindmap/themes/color-schemes'
+import {
+  COLOR_SCHEMES,
+  getColorSchemeCategory,
+  type MindMapColorSchemeCategory
+} from '../../../../shared/mindmap/themes/color-schemes'
+
+export { getColorSchemeCategory, type MindMapColorSchemeCategory }
 
 /**
  * User color-scheme catalogue (user state, NOT teaching authority).

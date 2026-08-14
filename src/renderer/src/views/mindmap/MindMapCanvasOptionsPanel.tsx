@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, RotateCcw } from 'lucide-react'
+import { Check, ChevronDown, RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapSheetLayoutUpdatePatch } from '../../../../shared/mindmap/commands'
@@ -52,9 +52,6 @@ type CanvasOptionsText = {
   lineWidthDefault: string
   lineWidthThick: string
   lineWidthExtraThick: string
-  mapOperations: string
-  collapseAll: string
-  expandAll: string
   balancedMap: string
   balancedMapUnavailable: string
   resetField: string
@@ -67,8 +64,6 @@ export function MindMapCanvasOptionsPanel() {
   const current = useMindMapViewStore((state) => state.current)
   const activeSheetId = useMindMapViewStore((state) => state.activeSheetId)
   const dispatchCommand = useMindMapViewStore((state) => state.dispatchCommand)
-  const collapseAll = useMindMapViewStore((state) => state.collapseAll)
-  const expandAll = useMindMapViewStore((state) => state.expandAll)
   const [structurePickerOpen, setStructurePickerOpen] = useState(false)
   const structurePickerRef = useRef<HTMLDivElement>(null)
   const structureTriggerRef = useRef<HTMLButtonElement>(null)
@@ -238,6 +233,7 @@ export function MindMapCanvasOptionsPanel() {
                             key={option.id}
                             className={`mindmap-layout-option${selected ? ' is-selected' : ''}`}
                             aria-selected={selected}
+                            aria-description={selected ? t('mindmap.topicStyle.selected') : undefined}
                             onClick={() => {
                               dispatchLayoutPatch({ structureClass: option.id })
                               closeStructurePicker()
@@ -311,6 +307,11 @@ export function MindMapCanvasOptionsPanel() {
             id="mindmap-connector-style"
             className="mm-select"
             aria-label={text.connector}
+            aria-description={lineStyleValue.state === 'inherited'
+              ? t('mindmap.topicStyle.stateInherited')
+              : lineStyleValue.state === 'mixed'
+                ? t('mindmap.topicStyle.mixed')
+                : undefined}
             value={lineStyleValue.state === 'concrete' ? lineStyleValue.value : ''}
             onChange={(event) => {
               const value = event.currentTarget.value
@@ -334,6 +335,11 @@ export function MindMapCanvasOptionsPanel() {
             id="mindmap-branch-line-width"
             className="mm-select"
             aria-label={text.branchLineWidth}
+            aria-description={lineWidthScaleValue.state === 'inherited'
+              ? t('mindmap.topicStyle.stateInherited')
+              : lineWidthScaleValue.state === 'mixed'
+                ? t('mindmap.topicStyle.mixed')
+                : undefined}
             value={lineWidthScaleValue.state === 'concrete' ? lineWidthScaleValue.value : 1}
             onChange={(event) => dispatchLayoutPatch({ lineWidthScale: Number(event.currentTarget.value) })}
           >
@@ -351,6 +357,11 @@ export function MindMapCanvasOptionsPanel() {
             id="mindmap-branch-line-pattern"
             className="mm-select"
             aria-label={text.branchLinePattern}
+            aria-description={linePatternValue.state === 'inherited'
+              ? t('mindmap.topicStyle.stateInherited')
+              : linePatternValue.state === 'mixed'
+                ? t('mindmap.topicStyle.mixed')
+                : undefined}
             value={linePatternValue.state === 'concrete' ? linePatternValue.value : 'solid'}
             onChange={(event) => {
               const value = event.currentTarget.value as 'solid' | 'dash' | 'hand-drawn-solid' | 'hand-drawn-dash'
@@ -403,30 +414,6 @@ export function MindMapCanvasOptionsPanel() {
             {text.balancedMapUnavailable}
           </p>
         ) : null}
-      </div>
-
-      <div className="mindmap-canvas-options__section">
-        <div className="mindmap-canvas-options__label">{text.mapOperations}</div>
-        <div className="mindmap-canvas-options__actions">
-          <button
-            type="button"
-            className="mindmap-canvas-options__action"
-            onClick={collapseAll}
-            title={text.collapseAll}
-          >
-            <ChevronsDownUp size={14} aria-hidden="true" />
-            <span>{text.collapseAll}</span>
-          </button>
-          <button
-            type="button"
-            className="mindmap-canvas-options__action"
-            onClick={expandAll}
-            title={text.expandAll}
-          >
-            <ChevronsUpDown size={14} aria-hidden="true" />
-            <span>{text.expandAll}</span>
-          </button>
-        </div>
       </div>
     </section>
   )

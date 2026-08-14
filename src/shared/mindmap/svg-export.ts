@@ -28,6 +28,12 @@ export type MindMapSvgExportInput = {
   title: string
   nodes: readonly MindMapSvgNode[]
   edges: readonly MindMapSvgEdge[]
+  /**
+   * Optional resolved appearance carried on the input itself so a caller can
+   * attach theme-derived colors without a separate transport field. Optional
+   * and backward compatible: omitted inputs keep the serializer defaults.
+   */
+  options?: MindMapSvgExportOptions
 }
 
 export type MindMapSvgExportOptions = {
@@ -75,13 +81,17 @@ export function serializeMindMapSvg(
   options: MindMapSvgExportOptions = {}
 ): string {
   validateMindMapSvgExportInput(input)
-  const padding = validatePadding(options.padding ?? DEFAULT_PADDING)
-  const background = safePaint(options.background, DEFAULT_BACKGROUND)
-  const nodeFill = safePaint(options.nodeFill, DEFAULT_NODE_FILL)
-  const nodeStroke = safePaint(options.nodeStroke, DEFAULT_NODE_STROKE)
-  const edgeStroke = safePaint(options.edgeStroke, DEFAULT_EDGE_STROKE)
-  const textColor = safePaint(options.textColor, DEFAULT_TEXT_COLOR)
-  const fontFamily = safeFontFamily(options.fontFamily, DEFAULT_FONT_FAMILY)
+  // Explicit `options` override any options embedded on the input so callers
+  // keep a deterministic escape hatch, while the input can carry resolved
+  // appearance across a transport seam (PNG/SVG file export).
+  const resolved: MindMapSvgExportOptions = { ...(input.options ?? {}), ...options }
+  const padding = validatePadding(resolved.padding ?? DEFAULT_PADDING)
+  const background = safePaint(resolved.background, DEFAULT_BACKGROUND)
+  const nodeFill = safePaint(resolved.nodeFill, DEFAULT_NODE_FILL)
+  const nodeStroke = safePaint(resolved.nodeStroke, DEFAULT_NODE_STROKE)
+  const edgeStroke = safePaint(resolved.edgeStroke, DEFAULT_EDGE_STROKE)
+  const textColor = safePaint(resolved.textColor, DEFAULT_TEXT_COLOR)
+  const fontFamily = safeFontFamily(resolved.fontFamily, DEFAULT_FONT_FAMILY)
 
   const bounds = calculateBounds(input.nodes)
   const width = bounds.right - bounds.left + padding * 2
@@ -172,6 +182,7 @@ export function validateMindMapSvgExportInput(input: MindMapSvgExportInput): voi
   if (input.title.length > MIND_MAP_SVG_EXPORT_LIMITS.maxTextLength) {
     throw new Error('SVG export title exceeds the text safety limit')
   }
+  validateMindMapSvgExportOptions(input.options)
 
   const ids = new Set<string>()
   for (const node of input.nodes) {
@@ -283,6 +294,26 @@ function safePaint(value: string | undefined, fallback: string): string {
   if (/^(?:rgb|hsl)a?\([0-9.% ,+-]+\)$/i.test(value)) return value
   if (/^[a-z]{1,32}$/i.test(value)) return value
   return fallback
+}
+
+function validateMindMapSvgExportOptions(options: MindMapSvgExportOptions | undefined): void {
+  if (options === undefined) return
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    throw new Error('SVG export options must be a plain object')
+  }
+  for (const key of ['background', 'nodeFill', 'nodeStroke', 'edgeStroke', 'textColor', 'fontFamily']) {
+    const value = (options as Record<string, unknown>)[key]
+    if (value === undefined) continue
+    if (typeof value !== 'string' || value.length > MIND_MAP_SVG_EXPORT_LIMITS.maxTextLength) {
+      throw new Error(`SVG export option ${key} must be a bounded string`)
+    }
+  }
+  if (
+    options.padding !== undefined &&
+    (!Number.isFinite(options.padding) || options.padding < 0 || options.padding > 10_000)
+  ) {
+    throw new Error('SVG export option padding must be between 0 and 10000')
+  }
 }
 
 function safeFontFamily(value: string | undefined, fallback: string): string {

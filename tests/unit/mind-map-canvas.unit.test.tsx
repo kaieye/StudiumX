@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import i18n from '../../src/renderer/src/i18n'
 import { MindMapCanvas } from '../../src/renderer/src/views/mindmap/MindMapCanvas'
 import { computeMindMapLayout } from '../../src/renderer/src/views/mindmap/mind-map-layout'
 import { fitMindMapViewport } from '../../src/renderer/src/views/mindmap/mind-map-viewport'
@@ -45,7 +47,8 @@ function renderCanvas(document = makeDocument()) {
 }
 
 describe('MindMapCanvas accessibility', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN')
     useMindMapViewStore.setState({
       selection: { kind: 'topic', topicIds: ['root'] },
       selectedNodeId: 'root',
@@ -74,6 +77,17 @@ describe('MindMapCanvas accessibility', () => {
     expect(child).toHaveAttribute('tabindex', '-1')
   })
 
+  it('shows an unnamed topic as 未命名 instead of 未命名主题', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.children[0]!.title = ''
+
+    renderCanvas(document)
+
+    const unnamedTopic = screen.getByRole('button', { name: '未命名' })
+    expect(unnamedTopic).toHaveTextContent('未命名')
+    expect(unnamedTopic).not.toHaveTextContent('未命名主题')
+  })
+
   it('lets pointer users select an accessible topic without entering edit mode', () => {
     renderCanvas()
 
@@ -85,6 +99,98 @@ describe('MindMapCanvas accessibility', () => {
     expect(useMindMapViewStore.getState().editingNodeId).toBeNull()
     expect(child).toHaveAttribute('aria-pressed', 'true')
     expect(child).toHaveAttribute('tabindex', '0')
+  })
+
+  it('edits a double-clicked topic in place without changing its typography or anchor', async () => {
+    const user = userEvent.setup()
+    const { container } = renderCanvas()
+    const root = screen.getByRole('button', { name: 'Root' })
+    const labelBefore = root.querySelector<SVGTextElement>('.mindmap-node-label')
+    const labelPositionBefore = {
+      x: labelBefore?.getAttribute('x'),
+      y: labelBefore?.getAttribute('y'),
+      textAnchor: labelBefore?.getAttribute('text-anchor')
+    }
+
+    await user.dblClick(root)
+
+    expect(useMindMapViewStore.getState().editingNodeId).toBe('root')
+    const editor = screen.getByDisplayValue('Root')
+    expect(editor).toHaveStyle({
+      color: 'var(--mindmap-theme-text, var(--text))',
+      fontFamily: 'var(--mindmap-theme-font, inherit)',
+      fontSize: '26px',
+      fontWeight: '600',
+      letterSpacing: '0.01em',
+      lineHeight: '1',
+      textAlign: 'center'
+    })
+    const foreignObject = editor.closest('.mindmap-node-foreign')
+    const topicShape = root.querySelector<SVGElement>('.mindmap-node-rect')
+    expect(foreignObject).toHaveAttribute('x', topicShape?.getAttribute('x'))
+    expect(foreignObject).toHaveAttribute('y', topicShape?.getAttribute('y'))
+    expect(foreignObject).toHaveAttribute('width', topicShape?.getAttribute('width'))
+    expect(foreignObject).toHaveAttribute('height', topicShape?.getAttribute('height'))
+
+    fireEvent.keyDown(editor, { key: 'Escape' })
+
+    const labelAfter = container.querySelector<SVGTextElement>('.mindmap-node-label')
+    expect(labelAfter).toHaveAttribute('x', labelPositionBefore.x)
+    expect(labelAfter).toHaveAttribute('y', labelPositionBefore.y)
+    expect(labelAfter).toHaveAttribute('text-anchor', labelPositionBefore.textAnchor)
+    expect(labelAfter).toHaveStyle({
+      fill: 'var(--mindmap-theme-text, var(--text))',
+      fontFamily: 'var(--mindmap-theme-font, inherit)',
+      fontSize: '26px',
+      fontWeight: '600',
+      letterSpacing: '0.01em'
+    })
+  })
+
+  it('selects any double-clicked topic and keeps branch typography while editing', async () => {
+    const user = userEvent.setup()
+    renderCanvas()
+
+    await user.dblClick(screen.getByRole('button', { name: 'Child' }))
+
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'topic',
+      topicIds: ['child']
+    })
+    expect(screen.getByDisplayValue('Child')).toHaveStyle({
+      color: '#ffffff',
+      fontSize: '16px',
+      fontWeight: '500',
+      lineHeight: '1',
+      textAlign: 'left'
+    })
+  })
+
+  it('enters edit mode from two primary pointer activations even when no dblclick event is emitted', () => {
+    renderCanvas()
+    const canvas = screen.getByRole('img', { name: 'Overview' })
+    const child = screen.getByRole('button', { name: 'Child' })
+
+    fireEvent.pointerDown(child, { button: 0, clientX: 240, clientY: 160 })
+    fireEvent.pointerUp(canvas, { button: 0, clientX: 240, clientY: 160 })
+    fireEvent.pointerDown(child, { button: 0, clientX: 240, clientY: 160 })
+
+    expect(useMindMapViewStore.getState().editingNodeId).toBe('child')
+    expect(screen.getByDisplayValue('Child')).toHaveFocus()
+  })
+
+  it('does not mistake a node drag followed by a click for a double-click', () => {
+    renderCanvas()
+    const canvas = screen.getByRole('img', { name: 'Overview' })
+    const child = screen.getByRole('button', { name: 'Child' })
+
+    fireEvent.pointerDown(child, { button: 0, clientX: 240, clientY: 160 })
+    fireEvent.pointerMove(canvas, { button: 0, clientX: 264, clientY: 160 })
+    fireEvent.pointerUp(canvas, { button: 0, clientX: 264, clientY: 160 })
+    fireEvent.pointerDown(child, { button: 0, clientX: 240, clientY: 160 })
+
+    expect(useMindMapViewStore.getState().editingNodeId).toBeNull()
+    expect(screen.queryByDisplayValue('Child')).not.toBeInTheDocument()
   })
 
   it('uses Ctrl/Cmd pointer activation to toggle topics in a multi-selection', () => {
@@ -248,7 +354,13 @@ describe('MindMapCanvas accessibility', () => {
     renderCanvas(document)
 
     const input = screen.getByDisplayValue('Child')
-    expect(input).toHaveStyle({ textAlign: 'right' })
+    expect(input).toHaveStyle({
+      color: '#ffffff',
+      fontSize: '16px',
+      fontWeight: '500',
+      lineHeight: '1',
+      textAlign: 'right'
+    })
     expect(document.sheets[0]!.root.children[0]!.title).toBe('Child')
   })
 
@@ -442,5 +554,34 @@ describe('MindMapCanvas accessibility', () => {
     const pattern = root!.parentElement!.querySelector<SVGElement>('.mindmap-node-pattern')
     expect(pattern).not.toBeNull()
     expect(pattern!.style.fill).toContain('mindmap-pattern-diagonal')
+  })
+
+  it('renders a pathological document with unknown shape, pattern and font without throwing (stable fallbacks)', () => {
+    const document = makeDocument()
+    // Unknown shape token on a topic: must fall back to the stable rounded-rect.
+    document.sheets[0]!.root.style = {
+      shape: 'squiggle-petal',
+      fontFamily: 'Imported XMind Font, sans-serif'
+    }
+    // Unknown branch line pattern on the sheet layout: falls back to solid.
+    document.sheets[0]!.layout = {
+      ...document.sheets[0]!.layout,
+      linePattern: 'wavy-ribbon' as never
+    }
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      editingNodeId: null
+    })
+
+    const { container } = renderCanvas(document)
+    const root = [...container.querySelectorAll<SVGElement>('.mindmap-node-rect')]
+      .find((node) => node.parentElement?.textContent?.includes('Root'))
+    expect(root).not.toBeNull()
+    // Unknown shape degrades to the stable rounded-rect class.
+    expect(root!.classList.contains('mindmap-node-shape--rounded-rect')).toBe(true)
+    // The document still renders its topics: no silent crash.
+    expect(screen.getByRole('button', { name: 'Root' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Child' })).toBeInTheDocument()
   })
 })

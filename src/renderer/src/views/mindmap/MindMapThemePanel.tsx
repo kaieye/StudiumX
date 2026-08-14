@@ -1,11 +1,28 @@
-import { RotateCcw, X } from 'lucide-react'
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { ChevronDown, RotateCcw, Search, X } from 'lucide-react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   DEFAULT_MIND_MAP_THEME,
   type MindMapTheme
 } from '../../../../shared/mindmap/domain/types'
 import { isManagedMindMapFontFamily } from './mind-map-font-provenance'
+import {
+  filterFontCatalogue,
+  FontCatalogueEntry,
+  fontEntryLabel,
+  loadRecentFonts,
+  MindMapFontPickerProps,
+  RECENT_FONTS_KEY,
+  recordRecentFont,
+  SAFE_FONTS
+} from './mind-map-font-list'
 import { useMindMapViewStore } from './mind-map-view-store'
 
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i
@@ -85,27 +102,6 @@ const BACKGROUND_PRESETS = [
   { id: 'mint', value: '#F0FDF4' }
 ] as const
 
-const FONT_OPTIONS = [
-  { value: '', labelKey: 'systemFont' },
-  { value: 'Inter, system-ui, sans-serif', labelKey: 'sansFont' },
-  {
-    value: '"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif',
-    labelKey: 'cjkSansFont'
-  },
-  {
-    value: '"Noto Serif CJK SC", "Songti SC", SimSun, serif',
-    labelKey: 'cjkSerifFont'
-  },
-  {
-    value: 'ui-serif, Georgia, "Times New Roman", serif',
-    labelKey: 'serifFont'
-  },
-  {
-    value: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-    labelKey: 'monoFont'
-  }
-] as const
-
 /**
  * Document-theme controls. Every mutation uses one `document.apply-theme`
  * command so undo/redo and revisioned persistence stay on the canonical lane.
@@ -128,9 +124,14 @@ export function MindMapThemePanel() {
   const isDefaultTheme = themesEqual(current.theme, DEFAULT_MIND_MAP_THEME)
   const rainbowBranches = current.theme.rainbowBranches !== false
   const documentFont = current.theme.fontFamily ?? ''
-  const hasUnlistedDocumentFont = Boolean(
-    documentFont && !FONT_OPTIONS.some((option) => option.value === documentFont)
-  )
+  const documentFontEntry = documentFont
+    ? SAFE_FONTS.find((entry) => entry.stack === documentFont)
+    : undefined
+  const documentFontLabel = documentFont === ''
+    ? t('mindmap.themePanel.systemFont')
+    : documentFontEntry
+      ? fontEntryLabel(documentFontEntry, t)
+      : t('mindmap.topicStyle.importedFont', { font: documentFont })
   const documentFontMayFallback = Boolean(
     documentFont && !isManagedMindMapFontFamily(documentFont)
   )
@@ -255,6 +256,9 @@ export function MindMapThemePanel() {
               step={5}
               disabled={background === 'transparent'}
               aria-label={t('mindmap.themePanel.alphaLabel')}
+              aria-description={background === 'transparent'
+                ? t('mindmap.themePanel.alphaUnavailable')
+                : undefined}
               title={t('mindmap.themePanel.alphaLabel')}
               value={backgroundAlphaPercent(background)}
               onChange={(event) => {
@@ -330,24 +334,19 @@ export function MindMapThemePanel() {
       </div>
 
       <div className="mm-row">
-        <label className="mm-row__label" htmlFor="mindmap-theme-font">
-          {t('mindmap.themePanel.fontFamily')}
-        </label>
-        <select
-          id="mindmap-theme-font"
-          className="mm-select"
-          value={current.theme.fontFamily ?? ''}
-          onChange={(event) => applyThemeField({ fontFamily: event.currentTarget.value || undefined })}
-        >
-          {hasUnlistedDocumentFont ? (
-            <option value={documentFont}>{t('mindmap.topicStyle.importedFont', { font: documentFont })}</option>
-          ) : null}
-          {FONT_OPTIONS.map((option) => (
-            <option key={option.labelKey} value={option.value}>
-              {t(`mindmap.themePanel.${option.labelKey}`)}
-            </option>
-          ))}
-        </select>
+        <span className="mm-row__label">{t('mindmap.themePanel.fontFamily')}</span>
+        <MindMapFontPicker
+          value={documentFont || undefined}
+          currentLabel={documentFontLabel}
+          ariaLabel={t('mindmap.themePanel.fontFamily')}
+          systemLabel={t('mindmap.themePanel.systemFont')}
+          onSelect={(stack) => applyThemeField({ fontFamily: stack || undefined })}
+          searchPlaceholder="Search fonts…"
+          searchLabel="Search fonts"
+          noResultsLabel="No fonts found."
+          recentLabel="Recent"
+          allLabel="All fonts"
+        />
         {documentFontMayFallback ? (
           <span className="mindmap-topic-style__font-warning" role="status">
             {t('mindmap.topicStyle.fontMayFallback')}
@@ -403,4 +402,256 @@ export function MindMapThemePanel() {
 
 function themesEqual(left: MindMapTheme, right: MindMapTheme): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
+}
+
+const FONT_PICKER_OPTIONS_STYLE: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+  marginTop: '8px',
+  maxHeight: '260px',
+  overflowY: 'auto'
+}
+
+const FONT_GROUP_CATEGORY_STYLE: CSSProperties = {
+  display: 'block'
+}
+
+/**
+ * A searchable font picker with recent-use, keyboard navigation and
+ * per-option font previews (checklist C-02 / C-06). Long lists scroll within
+ * the popover via pure CSS (`max-height` + `overflow-y`) rather than a
+ * virtualization library, which is sufficient for the curated catalogue size.
+ */
+export function MindMapFontPicker({
+  value,
+  currentLabel,
+  ariaLabel,
+  onSelect,
+  systemLabel,
+  showClearItem = false,
+  clearLabel = 'Clear field override',
+  searchPlaceholder = 'Search fonts…',
+  searchLabel = 'Search fonts',
+  noResultsLabel = 'No fonts found.',
+  recentLabel = 'Recent',
+  allLabel = 'All fonts'
+}: MindMapFontPickerProps) {
+  const { t } = useTranslation()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const optionsRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [recent, setRecent] = useState<string[]>(() => loadRecentFonts(window.localStorage))
+
+  const labelOf = (entry: FontCatalogueEntry): string => fontEntryLabel(entry, t)
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const matching = filterFontCatalogue(SAFE_FONTS, normalizedQuery, labelOf)
+
+  useEffect(() => {
+    if (!open) return
+    searchRef.current?.focus()
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
+  const closeAndRestoreFocus = (): void => {
+    setOpen(false)
+    triggerRef.current?.focus()
+  }
+
+  const commit = (stack: string | undefined): void => {
+    if (stack) {
+      const next = recordRecentFont(recent, stack)
+      setRecent(next)
+      try {
+        window.localStorage.setItem(RECENT_FONTS_KEY, JSON.stringify(next))
+      } catch {
+        // localStorage may be unavailable; the in-memory list still works.
+      }
+    }
+    onSelect(stack)
+    closeAndRestoreFocus()
+  }
+
+  const recentStacks = recent.filter((stack) => stack.length > 0)
+  const recentEntries = recentStacks
+    .map((stack) => matching.find((entry) => entry.stack === stack))
+    .filter((entry): entry is FontCatalogueEntry => entry !== undefined)
+  const allEntries = matching.filter((entry) => !recentStacks.includes(entry.stack))
+
+  const systemShown = Boolean(
+    systemLabel &&
+    (normalizedQuery === '' || systemLabel.toLocaleLowerCase().includes(normalizedQuery))
+  )
+  const systemSelected = systemShown && (value === undefined || value === '')
+  const hasResults = systemShown || recentEntries.length > 0 || allEntries.length > 0
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeAndRestoreFocus()
+      return
+    }
+    if (event.key === 'Enter') {
+      const active = document.activeElement as HTMLElement | null
+      if (active?.getAttribute('role') === 'option') {
+        event.preventDefault()
+        active.click()
+        return
+      }
+      const first = optionsRef.current?.querySelector<HTMLElement>('[role="option"]')
+      if (first) {
+        event.preventDefault()
+        first.click()
+      }
+      return
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    const options = [
+      ...(optionsRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])
+    ]
+    if (options.length === 0) return
+    event.preventDefault()
+    const activeIndex = options.indexOf(document.activeElement as HTMLElement)
+    const direction = event.key === 'ArrowDown' ? 1 : -1
+    const startingIndex = activeIndex === -1 ? (direction > 0 ? -1 : 0) : activeIndex
+    options[(startingIndex + direction + options.length) % options.length]?.focus()
+  }
+
+  const renderOption = (entry: FontCatalogueEntry): ReactNode => {
+    const selected = value !== undefined && value === entry.stack
+    return (
+      <button
+        key={entry.id}
+        type="button"
+        role="option"
+        aria-selected={selected}
+        aria-description={selected ? t('mindmap.topicStyle.selected') : undefined}
+        className={selected ? 'is-active' : ''}
+        onClick={() => commit(entry.stack)}
+        style={{ fontFamily: entry.stack }}
+      >
+        {labelOf(entry)}
+      </button>
+    )
+  }
+
+  return (
+    <div ref={rootRef} className="mindmap-topic-shape-picker" onKeyDown={onKeyDown}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="mindmap-topic-shape-picker__trigger"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label={`${ariaLabel} ${currentLabel}`}
+        onClick={() => {
+          setQuery('')
+          setOpen((previous) => !previous)
+        }}
+      >
+        <span className="mindmap-topic-shape-picker__value" style={{ fontFamily: value || undefined }}>
+          {currentLabel}
+        </span>
+        <ChevronDown size={13} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          id="mindmap-font-picker-options"
+          className="mindmap-topic-shape-picker__popover"
+          role="dialog"
+          aria-label={ariaLabel}
+        >
+          <label className="mindmap-topic-shape-picker__search">
+            <Search size={13} aria-hidden="true" />
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              placeholder={searchPlaceholder}
+              aria-label={searchLabel}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+            />
+          </label>
+          {!hasResults ? (
+            <p className="mindmap-topic-shape-picker__empty" role="status">
+              {noResultsLabel}
+            </p>
+          ) : (
+            <div
+              ref={optionsRef}
+              className="mindmap-font-picker__options"
+              role="listbox"
+              aria-label={ariaLabel}
+              style={FONT_PICKER_OPTIONS_STYLE}
+            >
+              {showClearItem && value !== undefined && value !== '' ? (
+                <div
+                  className="mindmap-topic-shape-picker__category"
+                  style={FONT_GROUP_CATEGORY_STYLE}
+                >
+                  <button
+                    type="button"
+                    role="option"
+                    onClick={() => commit(undefined)}
+                  >
+                    {clearLabel}
+                  </button>
+                </div>
+              ) : null}
+              {systemShown ? (
+                <div
+                  className="mindmap-topic-shape-picker__category"
+                  style={FONT_GROUP_CATEGORY_STYLE}
+                >
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={systemSelected}
+                    aria-description={systemSelected ? t('mindmap.topicStyle.selected') : undefined}
+                    className={systemSelected ? 'is-active' : ''}
+                    onClick={() => commit('')}
+                  >
+                    {systemLabel}
+                  </button>
+                </div>
+              ) : null}
+              {recentEntries.length > 0 ? (
+                <div className="mindmap-font-picker__group">
+                  <span className="mindmap-topic-shape-picker__category-label">
+                    {recentLabel}
+                  </span>
+                  <div
+                    className="mindmap-topic-shape-picker__category"
+                    style={FONT_GROUP_CATEGORY_STYLE}
+                  >
+                    {recentEntries.map(renderOption)}
+                  </div>
+                </div>
+              ) : null}
+              {allEntries.length > 0 ? (
+                <div className="mindmap-font-picker__group">
+                  <span className="mindmap-topic-shape-picker__category-label">
+                    {allLabel}
+                  </span>
+                  <div
+                    className="mindmap-topic-shape-picker__category"
+                    style={FONT_GROUP_CATEGORY_STYLE}
+                  >
+                    {allEntries.map(renderOption)}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  )
 }

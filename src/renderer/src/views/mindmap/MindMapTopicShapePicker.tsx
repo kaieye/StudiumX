@@ -2,6 +2,10 @@ import { ChevronDown, Search } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { InspectorValue } from './mind-map-inspector-values'
+import {
+  fieldStateDescription,
+  selectedOptionDescription
+} from './mind-map-keyboard-navigation'
 
 type ShapeCategory = 'basic' | 'annotation' | 'directional' | 'decorative' | 'flow'
 
@@ -128,6 +132,11 @@ export function MindMapTopicShapePicker({
         aria-haspopup="dialog"
         aria-controls="mindmap-topic-shape-picker-options"
         aria-label={`${t('mindmap.topicStyle.shapeLabel')} ${valueLabel}`}
+        aria-description={fieldStateDescription(value.state, {
+          inherited: t('mindmap.topicStyle.stateInherited'),
+          none: t('mindmap.topicStyle.stateNone'),
+          mixed: t('mindmap.topicStyle.mixed')
+        })}
         onClick={() => {
           setQuery('')
           setOpen((previous) => !previous)
@@ -189,6 +198,7 @@ export function MindMapTopicShapePicker({
                           type="button"
                           role="option"
                           aria-selected={selected}
+                          aria-description={selectedOptionDescription(selected, t('mindmap.topicStyle.selected'))}
                           className={selected ? 'is-active' : ''}
                           onClick={() => selectShape(option.value)}
                         >

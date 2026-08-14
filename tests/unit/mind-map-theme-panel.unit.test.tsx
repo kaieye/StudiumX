@@ -196,26 +196,22 @@ describe('MindMapThemePanel', () => {
 
     render(<MindMapThemePanel />)
 
-    expect(screen.getByRole('combobox', { name: 'Font family' })).toHaveValue(
-      'Imported XMind Font, sans-serif'
-    )
+    expect(screen.getByRole('button', { name: /Imported XMind Font/ })).toBeInTheDocument()
     expect(screen.getByText('Requested imported or custom font may fall back in this app.')).toBeInTheDocument()
   })
 
   it('supports HEX, transparent and CJK-safe document appearance controls', () => {
     render(<MindMapThemePanel />)
 
-    const backgroundHex = screen.getByRole('textbox', { name: 'Background HEX' })
-    fireEvent.change(backgroundHex, { target: { value: '#f0fdf4' } })
-    fireEvent.keyDown(backgroundHex, { key: 'Enter' })
+    fireEvent.change(screen.getByLabelText('Background HEX'), { target: { value: '#f0fdf4' } })
+    fireEvent.keyDown(screen.getByLabelText('Background HEX'), { key: 'Enter' })
     expect(useMindMapViewStore.getState().current?.theme.background).toBe('#F0FDF4')
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Transparent' })[0]!)
     expect(useMindMapViewStore.getState().current?.theme.background).toBe('transparent')
 
-    fireEvent.change(screen.getByLabelText('Font family'), {
-      target: { value: '"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif' }
-    })
+    fireEvent.click(screen.getByRole('button', { name: 'Font family System font' }))
+    fireEvent.click(screen.getByRole('option', { name: 'CJK Sans-serif' }))
     expect(useMindMapViewStore.getState().current?.theme.fontFamily).toContain('Noto Sans CJK SC')
   })
 
@@ -274,7 +270,19 @@ describe('MindMapThemePanel', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Transparent' })[0]!)
     expect(useMindMapViewStore.getState().current?.theme.background).toBe('transparent')
 
-    expect(screen.getByRole('slider', { name: 'Background opacity' })).toBeDisabled()
+    const alpha = screen.getByRole('slider', { name: 'Background opacity' })
+    expect(alpha).toBeDisabled()
+    expect(alpha).toHaveAccessibleDescription('Unavailable while the background is transparent')
+  })
+
+  it('announces the selected font option without relying on colour', () => {
+    localStorage.clear()
+    render(<MindMapThemePanel />)
+    const trigger = screen.getByRole('button', { name: /Font family/ })
+    fireEvent.click(trigger)
+    const system = screen.getByRole('option', { name: 'System font' })
+    expect(system).toHaveAttribute('aria-selected', 'true')
+    expect(system).toHaveAccessibleDescription('Selected')
   })
 
   it('tracks recent applied backgrounds in localStorage and applies them back', () => {
@@ -302,6 +310,7 @@ describe('MindMapThemePanel', () => {
   })
 
   it('does not record transparent or malformed colors and loads recent colors on mount', () => {
+
     localStorage.clear()
     render(<MindMapThemePanel />)
 
@@ -331,6 +340,103 @@ describe('MindMapThemePanel', () => {
     expect(localStorage.getItem('mindmap.recentBackgroundColors')).toBeNull()
     expect(screen.queryByRole('group', { name: 'Recent colors' })).not.toBeInTheDocument()
     unmount()
+  })
+
+  it('opens the font picker, filters by search and selects a font through the theme command', () => {
+    localStorage.clear()
+    render(<MindMapThemePanel />)
+
+    const trigger = screen.getByRole('button', { name: 'Font family System font' })
+    fireEvent.click(trigger)
+    expect(screen.getByRole('searchbox', { name: 'Search fonts' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search fonts' }), {
+      target: { value: 'mono' }
+    })
+    const options = screen.getAllByRole('option')
+    expect(options.length).toBeGreaterThan(0)
+    // Every result either has a matching label or a matching stack family
+    // (e.g. the Menlo entry matches via its `ui-monospace` stack).
+    expect(options.every((option) => {
+      const label = (option.textContent ?? '').toLowerCase()
+      const style = option.getAttribute('style')?.toLowerCase()
+      return label.includes('mono') || (style?.includes('monospace') ?? false)
+    })).toBe(true)
+
+    fireEvent.click(screen.getByRole('option', { name: 'Monospace' }))
+    expect(useMindMapViewStore.getState().current?.theme.fontFamily).toContain('ui-monospace')
+  })
+
+  it('renders each font option in its own font family (C-06 preview)', () => {
+    render(<MindMapThemePanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Font family System font' }))
+
+    const option = screen.getByRole('option', { name: 'CJK Sans-serif' })
+    expect(option).toHaveStyle({
+      fontFamily: '"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif'
+    })
+  })
+
+  it('supports keyboard: arrows wrap, Enter selects, Escape closes and restores focus', () => {
+    localStorage.clear()
+    const dispatch = vi.spyOn(useMindMapViewStore.getState(), 'dispatchCommand')
+    render(<MindMapThemePanel />)
+
+    const trigger = screen.getByRole('button', { name: 'Font family System font' })
+    fireEvent.click(trigger)
+    const options = screen.getAllByRole('option')
+    const first = options[0]!
+    const last = options[options.length - 1]!
+
+    // ArrowUp from search (no option focused) wraps to the last option.
+    fireEvent.keyDown(screen.getByRole('searchbox', { name: 'Search fonts' }), { key: 'ArrowUp' })
+    expect(last).toHaveFocus()
+    // ArrowDown wraps to the first option.
+    fireEvent.keyDown(screen.getByRole('searchbox', { name: 'Search fonts' }), { key: 'ArrowDown' })
+    expect(first).toHaveFocus()
+
+    // Enter selects the focused option and commits through the theme command.
+    fireEvent.keyDown(first, { key: 'Enter' })
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'document.apply-theme' }),
+      expect.anything()
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('records a recently used font to localStorage and surfaces it in the Recent group', () => {
+    localStorage.clear()
+    render(<MindMapThemePanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Font family System font' }))
+    fireEvent.click(screen.getByRole('option', { name: 'CJK Sans-serif' }))
+
+    const stored = JSON.parse(localStorage.getItem('mindmap.recentFonts') ?? '[]') as string[]
+    expect(stored[0]).toBe('"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif')
+
+    // Reopen: the Recent group appears and lists the recorded font first.
+    fireEvent.click(screen.getByRole('button', { name: /CJK Sans-serif/ }))
+    const recentLabel = screen.getByText('Recent')
+    expect(recentLabel).toBeInTheDocument()
+    const recentOptions = recentLabel.closest('.mindmap-font-picker__group')
+      ?.querySelectorAll('[role="option"]')
+    expect(recentOptions?.length).toBeGreaterThan(0)
+  })
+
+  it('can clear a concrete topic font override back to inherit (clear item)', () => {
+    localStorage.clear()
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.theme.fontFamily = 'Verdana, Geneva, sans-serif'
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+
+    render(<MindMapThemePanel />)
+    const trigger = screen.getByRole('button', { name: /Verdana/ })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('option', { name: 'System font' }))
+
+    expect(useMindMapViewStore.getState().current?.theme.fontFamily).toBeUndefined()
   })
 
 })

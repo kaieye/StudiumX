@@ -9,6 +9,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import {
   buildXmindZip,
   buildXmindZipV2,
+  buildXmindZipV2WithCompatibilityReport,
   exportXmindFile,
   parseXmindZip,
   parseXmindZipWithCompatibilityReport,
@@ -149,7 +150,7 @@ describe('buildXmindZip / parseXmindZip', () => {
       ]),
       approximated: expect.any(Array),
       dropped: expect.arrayContaining([
-        expect.objectContaining({ path: 'topics[].style', count: 1 })
+        expect.objectContaining({ path: 'topics[].style.id', count: 1 })
       ]),
       warnings: expect.any(Array)
     })
@@ -614,5 +615,79 @@ describe('buildXmindZipV2 theme roundtrip', () => {
       restartAt: 3
     })
     expect(migratedRoot.children[0]!.numbering).toEqual({ pattern: 'roman' })
+  })
+
+  it('returns a value-free export compatibility report alongside the ZIP bytes', () => {
+    const doc: MindMapDocumentV2 = {
+      schemaVersion: 2,
+      id: 'v2-report',
+      revision: 1,
+      title: 'Report',
+      createdAt: NOW,
+      updatedAt: NOW,
+      theme: {
+        id: 'default',
+        background: '#FFFFFF',
+        fontFamily: 'system-ui, sans-serif',
+        branchColors: ['#FF6B6B'],
+        rainbowBranches: true
+      },
+      assets: [],
+      sheets: [
+        {
+          id: 'sheet-1',
+          title: 'Overview',
+          root: {
+            id: 'root',
+            title: 'Root',
+            style: { stroke: '#112233', borderStyle: 'hand-drawn-solid' as const },
+            children: []
+          },
+          elements: [
+            {
+              id: 'boundary-1',
+              type: 'boundary',
+              topicId: 'root',
+              style: { outlineShape: 'rounded-rectangle' }
+            }
+          ],
+          layout: { structureClass: 'org.xmind.ui.logic.right' }
+        }
+      ]
+    }
+
+    const { bytes, compatibilityReport } =
+      buildXmindZipV2WithCompatibilityReport(doc)
+
+    // The report corresponds to the exact bytes being written.
+    const content = JSON.parse(strFromU8(unzipSync(bytes)['content.json'])) as Array<
+      Record<string, unknown>
+    >
+    expect((content[0]!.theme as Record<string, unknown>).map).toBeDefined()
+
+    expect(compatibilityReport.preserved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'sheets[].theme.map.svg:fill',
+          count: 1
+        })
+      ])
+    )
+    expect(compatibilityReport.approximated).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'topics[].style.border-line-pattern',
+          reason: 'Hand-drawn border is approximated as a solid XMind border'
+        })
+      ])
+    )
+    expect(compatibilityReport.dropped).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'sheets[].elements[].style',
+          count: 1
+        })
+      ])
+    )
   })
 })

@@ -88,4 +88,43 @@ describe('serializeMindMapSvg', () => {
     expect(svg).not.toContain('javascript:')
     expect(svg).not.toContain('onload=')
   })
+
+  it('emits the resolved theme style values into the SVG', () => {
+    const svg = serializeMindMapSvg(
+      sampleInput(),
+      {
+        background: '#101828',
+        nodeFill: '#1D4ED8',
+        nodeStroke: '#93C5FD',
+        edgeStroke: '#FF6B6B',
+        textColor: '#FFFFFF',
+        fontFamily: 'Georgia, serif'
+      }
+    )
+
+    expect(svg).toContain('fill="#101828"')
+    expect(svg).toContain('fill="#1D4ED8" stroke="#93C5FD"')
+    expect(svg).toContain('stroke="#FF6B6B"')
+    expect(svg).toContain('fill="#FFFFFF"')
+    expect(svg).toContain('font-family="Georgia, serif"')
+  })
+
+  it('honors options carried on the export input for downstream file writes', () => {
+    const svg = serializeMindMapSvg({
+      ...sampleInput(),
+      options: {
+        background: '#F8FAFC',
+        nodeFill: '#334155',
+        nodeStroke: '#64748b',
+        edgeStroke: '#94a3b8',
+        textColor: '#0f172a',
+        fontFamily: 'Arial, sans-serif'
+      }
+    })
+
+    expect(svg).toContain('fill="#F8FAFC"')
+    expect(svg).toContain('fill="#334155" stroke="#64748b"')
+    expect(svg).toContain('stroke="#94a3b8"')
+    expect(svg).toContain('font-family="Arial, sans-serif"')
+  })
 })

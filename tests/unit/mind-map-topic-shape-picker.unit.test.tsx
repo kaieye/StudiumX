@@ -42,7 +42,6 @@ describe('MindMapTopicShapePicker', () => {
   it('has keyboard dismissal and reports an empty search without emitting a mutation', () => {
     const onChange = vi.fn()
     render(<MindMapTopicShapePicker value={{ state: 'mixed' }} onChange={onChange} />)
-
     const trigger = screen.getByRole('button', { name: 'Shape Mixed' })
     fireEvent.click(trigger)
     const dialog = screen.getByRole('dialog', { name: 'Choose shape' })
@@ -55,5 +54,37 @@ describe('MindMapTopicShapePicker', () => {
     fireEvent.keyDown(search, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: 'Choose shape' })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
+  })
+
+  it('announces inherited/none state and selected option without relying on colour', () => {
+    const onChange = vi.fn()
+    render(
+      <MindMapTopicShapePicker
+        value={{ state: 'inherited' }}
+        displayValue={{ state: 'concrete', value: 'rounded-rect' }}
+        onChange={onChange}
+      />
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Shape Rounded Rect' })
+    expect(trigger).toHaveAccessibleDescription('Inherited from theme')
+
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Choose shape' })
+    const selected = within(dialog).getByRole('option', { name: 'Rounded Rect' })
+    expect(selected).toHaveAttribute('aria-selected', 'true')
+    expect(selected).toHaveAccessibleDescription('Selected')
+  })
+
+  it('announces the explicit none state on the trigger', () => {
+    render(
+      <MindMapTopicShapePicker
+        value={{ state: 'none' }}
+        displayValue={{ state: 'concrete', value: 'none' }}
+        onChange={vi.fn()}
+      />
+    )
+    const trigger = screen.getByRole('button', { name: 'Shape None' })
+    expect(trigger).toHaveAccessibleDescription('Explicit none')
   })
 })

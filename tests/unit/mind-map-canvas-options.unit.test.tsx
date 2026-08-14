@@ -276,4 +276,31 @@ describe('MindMapCanvasOptionsPanel', () => {
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 1 }))
     expect(update.mock.calls.at(-1)?.[0].doc.sheets[0]?.layout.lineWidthScale).toBe(1.5)
   })
+
+  it('no longer hosts collapse/expand-all map operations in the format area', () => {
+    render(<MindMapCanvasOptionsPanel />)
+
+    expect(screen.queryByText('Map operations')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Collapse all' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Expand all' })).not.toBeInTheDocument()
+  })
+
+  it('announces inherited state for sheet-layout selects', () => {
+    render(<MindMapCanvasOptionsPanel />)
+    expect(screen.getByRole('combobox', { name: 'Connectors' }))
+      .toHaveAccessibleDescription('Inherited from theme')
+    expect(screen.getByRole('combobox', { name: 'Branch line width' }))
+      .toHaveAccessibleDescription('Inherited from theme')
+    expect(screen.getByRole('combobox', { name: 'Branch line pattern' }))
+      .toHaveAccessibleDescription('Inherited from theme')
+  })
+
+  it('announces the currently selected structure option', () => {
+    render(<MindMapCanvasOptionsPanel />)
+    const trigger = screen.getByRole('button', { name: /Structure: Right/ })
+    fireEvent.click(trigger)
+    const right = screen.getByRole('option', { name: 'Right' })
+    expect(right).toHaveAttribute('aria-selected', 'true')
+    expect(right).toHaveAccessibleDescription('Selected')
+  })
 })

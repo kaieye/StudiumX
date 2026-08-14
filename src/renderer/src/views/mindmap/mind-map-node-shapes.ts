@@ -26,6 +26,33 @@ export type NodeShape =
   | 'parallelogram'
   | 'hexagon'
 
+/** The default accepted NodeShape tokens, including legacy aliases. */
+export const KNOWN_SHAPE_TOKENS: readonly string[] = [
+  'roundedRect',
+  'rounded-rect',
+  'rect',
+  'rectangle',
+  'ellipse',
+  'oval',
+  'diamond',
+  'underline',
+  'no-shape',
+  'none',
+  'quote',
+  'callout',
+  'speech-bubble',
+  'bracket',
+  'arrow-right',
+  'arrow-left',
+  'heart',
+  'cloud',
+  'star',
+  'parallelogram',
+  'hexagon'
+]
+
+const KNOWN_SHAPE_TOKEN_SET = new Set<string>(KNOWN_SHAPE_TOKENS)
+
 /** Map a style shape string to a NodeShape. */
 export function resolveShape(shape: string | undefined): NodeShape {
   switch (shape) {
@@ -67,6 +94,32 @@ export function resolveShape(shape: string | undefined): NodeShape {
       return 'rounded-rect'
   }
 }
+
+export type ShapeResolution = { shape: NodeShape; degraded: boolean }
+
+/**
+ * Resolve a style shape string and report whether it is unknown (and therefore
+ * degraded to the stable `rounded-rect` fallback). Backward compatible with
+ * {@link resolveShape} via {@link ShapeResolution.shape}. Unknown shape tokens
+ * are reported instead of silently distorting geometry.
+ */
+export function resolveShapeWithReport(shape: string | undefined): ShapeResolution {
+  const resolved = resolveShape(shape)
+  return {
+    shape: resolved,
+    // `undefined` means "no override" (app/theme default), not degradation.
+    // A schema-accepted-but-unsupported token such as `fishbone` (resolved to
+    // rounded-rect) is still reported as degraded rather than silently changed.
+    degraded: shape !== undefined && !KNOWN_SHAPE_TOKEN_SET.has(shape)
+  }
+}
+
+/**
+ * Stable effective fallback for an unknown shape token. Kept as the exact
+ * `rounded-rect` NodeShape the canvas already renders today so the report's
+ * "degradedTo" remains truthful.
+ */
+export const FALLBACK_NODE_SHAPE: NodeShape = 'rounded-rect'
 
 export type ShapeElement = {
   tag: 'rect' | 'ellipse' | 'path' | 'line'

@@ -789,7 +789,7 @@ describe('Teaching IPC gateway', () => {
           })
         ]),
         dropped: expect.arrayContaining([
-          expect.objectContaining({ path: 'topics[].style', count: 1 })
+          expect.objectContaining({ path: 'topics[].style.id', count: 1 })
         ]),
         warnings: expect.any(Array)
       }

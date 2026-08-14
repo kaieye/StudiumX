@@ -45,6 +45,11 @@ describe('MindMapContextMenu style clipboard', () => {
       />
     )
 
+    expect(screen.getByRole('button', { name: 'Add child node' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add sibling node' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Duplicate node' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete node' })).toBeInTheDocument()
+
     fireEvent.click(screen.getByRole('button', { name: 'Copy Style' }))
     expect(menuActions.copyStyle).toHaveBeenCalledWith('topic')
 

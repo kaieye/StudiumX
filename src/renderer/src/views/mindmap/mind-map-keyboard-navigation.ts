@@ -1,5 +1,54 @@
 import type { MindMapLayoutNode } from './mind-map-layout'
 
+/**
+ * Right-panel popover accessibility helpers (§8.3).
+ *
+ * State must never be conveyed by colour alone: every selected option and
+ * every non-concrete field state is announced through the accessible
+ * description (screen readers) without altering the accessible name that
+ * keyboard users and existing tests rely on.
+ */
+
+export type InspectorFieldStateKind =
+  | 'concrete'
+  | 'inherited'
+  | 'none'
+  | 'mixed'
+  | 'default'
+
+export type InspectorFieldStateLabels = {
+  inherited: string
+  none: string
+  mixed: string
+}
+
+/**
+ * Accessible description for a field trigger whose value would otherwise be
+ * indistinguishable from a concrete value (e.g. a colour well showing the
+ * inherited hex). `mixed` is already surfaced in the visible value label, so
+ * it only needs the description when the caller passes it.
+ */
+export function fieldStateDescription(
+  state: InspectorFieldStateKind,
+  labels: InspectorFieldStateLabels
+): string | undefined {
+  if (state === 'inherited') return labels.inherited
+  if (state === 'none') return labels.none
+  return undefined
+}
+
+/**
+ * Accessible description marking the currently selected option. Use in
+ * addition to `aria-selected` + a visible check/outline so selection is not
+ * conveyed by colour alone.
+ */
+export function selectedOptionDescription(
+  selected: boolean,
+  selectedLabel: string
+): string | undefined {
+  return selected ? selectedLabel : undefined
+}
+
 export type MindMapFocusDirection = 'up' | 'down' | 'left' | 'right'
 
 type Point = { x: number; y: number }

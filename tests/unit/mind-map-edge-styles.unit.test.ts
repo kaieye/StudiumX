@@ -8,8 +8,10 @@ import {
   elbowEdgePath,
   fishboneEdgePath,
   foldEdgePath,
+  lineDashPattern,
   matrixEdgePath,
   resolveEdgePath,
+  resolveLinePatternWithReport,
   roundedElbowEdgePath,
   roundedFoldEdgePath,
   straightEdgePath,
@@ -168,6 +170,33 @@ describe('mind map edge stroke width', () => {
     expect(edgeStrokeWidth(1, Number.NaN)).toBe(4)
     expect(edgeStrokeWidth(1, 0)).toBe(4)
     expect(edgeStrokeWidth(1, -1)).toBe(4)
+  })
+})
+
+describe('resolveLinePatternWithReport (unknown line-pattern degradation)', () => {
+  it('keeps lineDashPattern backward compatible for every accepted pattern', () => {
+    expect(resolveLinePatternWithReport('solid').dash).toBe(lineDashPattern('solid'))
+    expect(resolveLinePatternWithReport('dash').dash).toBe(lineDashPattern('dash'))
+    expect(resolveLinePatternWithReport('hand-drawn-solid').dash).toBe(lineDashPattern('hand-drawn-solid'))
+    expect(resolveLinePatternWithReport('hand-drawn-dash').dash).toBe(lineDashPattern('hand-drawn-dash'))
+    expect(resolveLinePatternWithReport(undefined).dash).toBe(lineDashPattern(undefined))
+  })
+
+  it('resolves every accepted pattern without degradation', () => {
+    expect(resolveLinePatternWithReport('solid')).toEqual({ dash: undefined, degraded: false })
+    expect(resolveLinePatternWithReport('dash')).toEqual({ dash: '6 4', degraded: false })
+    expect(resolveLinePatternWithReport('hand-drawn-solid')).toEqual({ dash: undefined, degraded: false })
+    expect(resolveLinePatternWithReport('hand-drawn-dash')).toEqual({ dash: '6 4', degraded: false })
+    expect(resolveLinePatternWithReport(undefined)).toEqual({ dash: undefined, degraded: false })
+  })
+
+  it('flags unknown line patterns as degraded with the stable solid fallback', () => {
+    for (const pattern of ['dotted', 'zigzag', 'double-dash', 'wavy', 'org.xmind.linePattern.curly']) {
+      const resolved = resolveLinePatternWithReport(pattern)
+      expect(resolved.degraded, `expected ${JSON.stringify(pattern)} to degrade`).toBe(true)
+      // The stable fallback renders the same solid dash as the `solid` token.
+      expect(resolved.dash).toBe(undefined)
+    }
   })
 })
 

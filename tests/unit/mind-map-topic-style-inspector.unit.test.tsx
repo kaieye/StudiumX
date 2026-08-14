@@ -4,6 +4,7 @@ import i18n from '../../src/renderer/src/i18n'
 import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
 import { MindMapTopicStyleInspector } from '../../src/renderer/src/views/mindmap/MindMapTopicStyleInspector'
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
+import { mindMapTopicStyleOverrideSchema } from '../../src/shared/mindmap/domain/schema'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 import type { TeachingSystemApi, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 
@@ -140,8 +141,8 @@ describe('MindMapTopicStyleInspector', () => {
   it('shows the effective sheet layout for the selected topic', () => {
     render(<MindMapTopicStyleInspector />)
 
-    expect(screen.getByText('Topic style')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Topic layout' })).toHaveValue('org.xmind.ui.logic.right')
+    expect(screen.getByText('Node style')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Node layout' })).toHaveValue('org.xmind.ui.logic.right')
     expect(screen.getByText('Effective layout: Right')).toBeInTheDocument()
   })
 
@@ -185,7 +186,7 @@ describe('MindMapTopicStyleInspector', () => {
 
   it('updates only the layout override and keeps unrelated style fields', () => {
     render(<MindMapTopicStyleInspector />)
-    const select = screen.getByRole('combobox', { name: 'Topic layout' })
+    const select = screen.getByRole('combobox', { name: 'Node layout' })
 
     fireEvent.change(select, { target: { value: 'org.xmind.ui.logic.balanced' } })
 
@@ -201,7 +202,7 @@ describe('MindMapTopicStyleInspector', () => {
 
   it('clears the override to inherit again and remains undoable', () => {
     render(<MindMapTopicStyleInspector />)
-    const select = screen.getByRole('combobox', { name: 'Topic layout' })
+    const select = screen.getByRole('combobox', { name: 'Node layout' })
 
     fireEvent.change(select, { target: { value: 'org.xmind.ui.logic.left' } })
     fireEvent.change(select, { target: { value: '' } })
@@ -232,9 +233,9 @@ describe('MindMapTopicStyleInspector', () => {
     })
     render(<MindMapTopicStyleInspector />)
 
-    expect(screen.getByText('2 topics selected')).toBeInTheDocument()
+    expect(screen.getByText('2 nodes selected')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Font Weight' })).toHaveValue('__mixed__')
-    expect(screen.getByRole('combobox', { name: 'Topic layout' })).toHaveValue('__mixed__')
+    expect(screen.getByRole('combobox', { name: 'Node layout' })).toHaveValue('__mixed__')
     expect(screen.getAllByRole('option', { name: 'Mixed' }).length).toBeGreaterThanOrEqual(2)
     expect(screen.getByRole('button', { name: 'Fill Color Mixed' })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByRole('button', { name: 'Border Color Mixed' })).toHaveAttribute('aria-expanded', 'false')
@@ -964,7 +965,7 @@ describe('MindMapTopicStyleInspector', () => {
     useMindMapViewStore.setState({ current: structuredClone(withLocalFont) })
     rerender(<MindMapTopicStyleInspector />)
 
-    expect(screen.getByRole('combobox', { name: 'Font' })).toHaveValue('Imported XMind Font, sans-serif')
+    expect(screen.getByRole('button', { name: /Imported XMind Font/ })).toBeInTheDocument()
     expect(screen.getByRole('status', { name: /Font source:/ })).toHaveTextContent(
       'Font source: Local override (Imported XMind Font, sans-serif)'
     )
@@ -1023,5 +1024,27 @@ describe('MindMapTopicStyleInspector', () => {
     })
     root = useMindMapViewStore.getState().current?.sheets[0]?.root
     expect(root?.children[1]?.numbering).toBeUndefined()
+  })
+
+  it('writes an 8-digit fill color with transparency through the command path', () => {
+    render(<MindMapTopicStyleInspector />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fill Color #123456' }))
+    const dialog = screen.getByRole('dialog', { name: 'Fill Color' })
+    fireEvent.change(
+      within(dialog).getByRole('slider', { name: 'Background opacity' }),
+      { target: { value: '50' } }
+    )
+
+    const root = useMindMapViewStore.getState().current?.sheets[0]?.root
+    expect(root?.style?.fill).toBe('#12345680')
+  })
+
+  it('accepts an 8-digit alpha color in the persisted topic style schema', () => {
+    const parsed = mindMapTopicStyleOverrideSchema.safeParse({ fill: '#12345680', stroke: '#111111' })
+    expect(parsed.success).toBe(true)
+    if (parsed.success) {
+      expect(parsed.data.fill).toBe('#12345680')
+    }
   })
 })

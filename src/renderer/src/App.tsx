@@ -6,9 +6,7 @@ import {
   BookCopy,
   BookOpen,
   Bot,
-  BrainCircuit,
   Check,
-  ChevronDown,
   Clock3,
   FileText,
   Folder,
@@ -42,7 +40,7 @@ import {
 import { AppUpdateDialog } from './views/updater/AppUpdateDialog'
 import { AppStudyRoomPresenceProvider } from './sync/app-study-room-presence'
 import type { TeachingPresentationSnapshot } from '../../shared/teaching-types/teaching-presentation'
-import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
+import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Component, lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -94,16 +92,16 @@ import { mergeComposerSkillIds, useSkillCapabilityPicker } from './skills/SkillC
 import { useTeachingComposerCommands } from './teaching/TeachingComposerCommandMenu'
 import { isForbiddenTechnicalComposerToken, parseTeachingCommandInput, resolveTeachingCommandSubmission } from '../../shared/teaching-command'
 import { SettingsView } from './views/settings/SettingsView'
+import {
+  OverviewModelPicker,
+  OverviewReasoningPicker,
+  usePickerOutsideClose
+} from './ui/overview-composer-pickers'
 import { AuthGate } from './sync/AuthGate'
 import { useSyncState } from './sync/sync-store'
 import {
-  activeModelProvider,
   applySettingsSideEffects,
-  DARK_THEME_MEDIA_QUERY,
-  reasoningEffortDescription,
-  reasoningEffortLabel,
-  reasoningEffortOptionsForSettings,
-  selectedReasoningEffort
+  DARK_THEME_MEDIA_QUERY
 } from './workflows/settings'
 import {
   LESSON_STYLES,
@@ -145,7 +143,6 @@ import {
   type AskAnswer,
   type AskQuestion,
   type TeachingGitBranchRow,
-  type ModelReasoningEffort,
   type TeachingWorkspaceChangedFile,
   type TeachingWorkspaceChangeSummary,
   type TeachingWorkspaceSummary,
@@ -453,19 +450,6 @@ function middleEllipsize(value: string, max: number): string {
   const head = Math.ceil(keep / 2)
   const tail = Math.floor(keep / 2)
   return `${value.slice(0, head)}…${value.slice(value.length - tail)}`
-}
-
-function usePickerOutsideClose(open: boolean, wrapRef: RefObject<HTMLDivElement | null>, setOpen: (v: boolean) => void): void {
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: PointerEvent): void => {
-      const target = event.target
-      if (target instanceof Node && wrapRef.current?.contains(target)) return
-      setOpen(false)
-    }
-    window.addEventListener('pointerdown', onPointerDown)
-    return () => window.removeEventListener('pointerdown', onPointerDown)
-  }, [open, wrapRef, setOpen])
 }
 
 function ProjectFolderPicker({ mode = 'workspace' }: { mode?: 'workspace' | 'temporary' }) {
@@ -835,151 +819,6 @@ function GitBranchPicker({ workspaceRoot }: { workspaceRoot: string }) {
               </button>
             </div>
           ) : null}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function OverviewModelPicker() {
-  const { t } = useTranslation()
-  const settings = useAppStore((s) => s.settings)
-  const updateSettings = useAppStore((s) => s.updateSettings)
-  const [open, setOpen] = useState(false)
-  const [acting, setActing] = useState(false)
-  const wrapRef = useRef<HTMLDivElement | null>(null)
-  usePickerOutsideClose(open, wrapRef, setOpen)
-
-  const provider = activeModelProvider(settings)
-  const models = provider?.models ?? []
-  const current = settings.generator.model
-  const label = current || i18n.t('common.auto')
-
-  const handleSelect = async (model: string): Promise<void> => {
-    if (acting) return
-    if (model === current) {
-      setOpen(false)
-      return
-    }
-    setActing(true)
-    try {
-      await updateSettings({ generator: { providerId: provider?.id, model } })
-      setOpen(false)
-    } finally {
-      setActing(false)
-    }
-  }
-
-  return (
-    <div ref={wrapRef} className="overview-picker overview-model-picker">
-      <button
-        type="button"
-        className="overview-dialog-model"
-        onClick={() => setOpen((v) => !v)}
-        disabled={acting}
-        title={label}
-      >
-        <span>{label}</span>
-        {acting ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
-      </button>
-
-      {open ? (
-        <div className="overview-picker-menu overview-model-menu" role="listbox">
-          <div className="overview-picker-list">
-            {models.length === 0 ? (
-              <div className="overview-picker-empty">{t('overview.modelEmpty')}</div>
-            ) : (
-              models.map((model) => {
-                const isCurrent = model === current
-                return (
-                  <button
-                    key={model}
-                    type="button"
-                    className={`overview-picker-option${isCurrent ? ' is-current' : ''}`}
-                    onClick={() => void handleSelect(model)}
-                    disabled={acting || isCurrent}
-                    title={model}
-                  >
-                    <span className="overview-picker-option-body">
-                      <span className="overview-picker-option-title">{model}</span>
-                    </span>
-                    {isCurrent ? <Check size={15} /> : null}
-                  </button>
-                )
-              })
-            )}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function OverviewReasoningPicker() {
-  const { t } = useTranslation()
-  const settings = useAppStore((s) => s.settings)
-  const updateSettings = useAppStore((s) => s.updateSettings)
-  const [open, setOpen] = useState(false)
-  const [acting, setActing] = useState(false)
-  const wrapRef = useRef<HTMLDivElement | null>(null)
-  usePickerOutsideClose(open, wrapRef, setOpen)
-
-  const options = reasoningEffortOptionsForSettings(settings)
-  const current = selectedReasoningEffort(settings)
-  const label = reasoningEffortLabel(current)
-
-  const handleSelect = async (reasoningEffort: ModelReasoningEffort): Promise<void> => {
-    if (acting) return
-    if (reasoningEffort === current && settings.generator.reasoningEffort === current) {
-      setOpen(false)
-      return
-    }
-    setActing(true)
-    try {
-      await updateSettings({ generator: { reasoningEffort } })
-      setOpen(false)
-    } finally {
-      setActing(false)
-    }
-  }
-
-  return (
-    <div ref={wrapRef} className="overview-picker overview-reasoning-picker">
-      <button
-        type="button"
-        className="overview-dialog-model overview-dialog-reasoning"
-        onClick={() => setOpen((v) => !v)}
-        disabled={acting}
-        title={`${t('reasoning.title')}: ${label}`}
-      >
-        <BrainCircuit size={14} />
-        <span>{label}</span>
-        {acting ? <Loader2 size={13} className="spin" /> : <ChevronDown size={13} />}
-      </button>
-
-      {open ? (
-        <div className="overview-picker-menu overview-reasoning-menu" role="listbox">
-          <div className="overview-picker-list">
-            <div className="overview-picker-group-label">{t('reasoning.title')}</div>
-            {options.map((effort) => {
-              const isCurrent = effort === current
-              return (
-                <button
-                  key={effort}
-                  type="button"
-                  className={`overview-picker-option${isCurrent ? ' is-current' : ''}`}
-                  onClick={() => void handleSelect(effort)}
-                  disabled={acting || (isCurrent && settings.generator.reasoningEffort === current)}
-                  title={reasoningEffortDescription(effort)}
-                >
-                  <span className="overview-picker-option-body">
-                    <span className="overview-picker-option-title">{reasoningEffortLabel(effort)}</span>
-                  </span>
-                  {isCurrent ? <Check size={15} /> : null}
-                </button>
-              )
-            })}
-          </div>
         </div>
       ) : null}
     </div>

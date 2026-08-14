@@ -76,7 +76,9 @@ const RELATIONSHIP_FIELDS = new Set([
   'from',
   'to',
   'title',
-  'label'
+  'label',
+  'style',
+  'styles'
 ])
 
 const TOPIC_FIELDS = new Set([
@@ -88,7 +90,9 @@ const TOPIC_FIELDS = new Set([
   'structureClass',
   'children',
   'image',
-  'attachment'
+  'attachment',
+  'style',
+  'styles'
 ])
 
 const CHILDREN_FIELDS = new Set(['attached'])
@@ -102,9 +106,19 @@ const UNSUPPORTED_ELEMENT_FIELDS = new Set([
   'freeTopics',
   'markers',
   'labels',
-  'links',
-  'style',
-  'styles'
+  'links'
+])
+
+/**
+ * XMind numbering pattern tokens that `xmindContentToDocument` imports into
+ * the native `numbering.pattern` (see `xmind-converter.ts`).
+ */
+const XMIND_NUMBERING_TOKENS = new Set([
+  'org.xmind.numbering.none',
+  'org.xmind.numbering.arabic',
+  'org.xmind.numbering.uppercase',
+  'org.xmind.numbering.lowercase',
+  'org.xmind.numbering.roman'
 ])
 
 /**
@@ -272,6 +286,461 @@ function inspectSheet(
   if (sheet.relationships !== undefined) {
     inspectRelationships(sheet.relationships, builder)
   }
+
+  inspectStyleBlocks('sheets[]', sheet, builder)
+  inspectElementCollections('sheets[]', sheet, builder)
+}
+
+/**
+ * Walk the style blocks that ride on element collections (boundaries,
+ * summaries, callouts). Elements themselves are unsupported at the import
+ * boundary, so their style fields are reported per field with stable paths
+ * instead of a whole-collection drop.
+ */
+function inspectElementCollections(
+  ownerPath: string,
+  owner: ObjectRecord,
+  builder: ReportBuilder
+): void {
+  for (const key of ['boundaries', 'summaries', 'callouts']) {
+    const raw = owner[key]
+    if (raw === undefined) continue
+    if (!Array.isArray(raw)) continue
+    for (let index = 0; index < raw.length; index += 1) {
+      const element = asObject(raw[index])
+      if (element === null) continue
+      inspectStyleBlocks(`${ownerPath}.${key}[]`, element, builder)
+    }
+  }
+}
+
+/**
+ * Root of all per-style-field classification. Walks `style` (single block)
+ * and `styles` (block list) on topics, relationships, or other holders.
+ */
+function inspectStyleBlocks(
+  ownerPath: string,
+  owner: ObjectRecord | undefined,
+  builder: ReportBuilder
+): void {
+  if (!owner) return
+  const style = owner.style
+  if (style !== undefined) {
+    if (isObject(style)) {
+      inspectStyleBlock(builder, `${ownerPath}.style`, style)
+    } else {
+      builder.add('dropped', `${ownerPath}.style`, 1, 'Malformed style block is not retained')
+    }
+  }
+  const styles = owner.styles
+  if (styles !== undefined) {
+    if (Array.isArray(styles)) {
+      for (const raw of styles) {
+        if (isObject(raw)) {
+          inspectStyleBlock(builder, `${ownerPath}.styles[]`, raw)
+        } else {
+          builder.add('dropped', `${ownerPath}.styles[]`, 1, 'Malformed style block is not retained')
+        }
+      }
+    } else {
+      builder.add('dropped', `${ownerPath}.styles`, 1, 'Malformed style list is not retained')
+    }
+  }
+}
+
+/**
+ * Report one style block. Properties are read from a `properties` bag when
+ * present (canonical XMind shape), otherwise from the block's own keys
+ * (flat shape used by some exports). Every known style property is reported
+ * per field with a stable path.
+ */
+function inspectStyleBlock(
+  builder: ReportBuilder,
+  blockPath: string,
+  block: ObjectRecord
+): void {
+  if (block.id !== undefined) {
+    builder.add(
+      'dropped',
+      `${blockPath}.id`,
+      1,
+      'XMind style-block id is not retained by the StudiumX mind-map model'
+    )
+  }
+  if (block.type !== undefined) {
+    builder.add(
+      'dropped',
+      `${blockPath}.type`,
+      1,
+      'XMind style-block type metadata is not retained by the StudiumX mind-map model'
+    )
+  }
+
+  const properties = asObject(block.properties)
+  if (properties !== null) {
+    for (const property of Object.keys(properties)) {
+      inspectStyleProperty(builder, `${blockPath}.properties`, property, properties[property])
+    }
+    return
+  }
+
+  for (const property of Object.keys(block)) {
+    if (property === 'id' || property === 'type') continue
+    inspectStyleProperty(builder, blockPath, property, block[property])
+  }
+}
+
+/**
+ * Classify one XMind style property against the native topic-style mapping
+ * (the same mapping the theme importer uses in `from-xmind-theme.ts`).
+ * Properties below are the known/canonical XMind topic style vocabulary;
+ * everything else is reported as dropped with a stable, value-free reason.
+ */
+function inspectStyleProperty(
+  builder: ReportBuilder,
+  basePath: string,
+  property: string,
+  value: unknown
+): void {
+  const path = `${basePath}.${safePropertyPath(property)}`
+
+  switch (property) {
+    case 'svg:fill':
+      if (typeof value === 'string' && value !== 'none') {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Topic fill maps to the native topic fill'
+        )
+      } else if (value === 'none') {
+        builder.add(
+          'dropped',
+          path,
+          1,
+          'Explicit XMind no-fill token is not retained by the native topic style'
+        )
+      } else {
+        builder.add('dropped', path, 1, 'Malformed topic fill is not retained')
+      }
+      return
+
+    case 'border-line-color':
+      if (typeof value === 'string' && value !== 'none') {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Topic border color maps to the native topic stroke'
+        )
+      } else if (value === 'none') {
+        builder.add(
+          'approximated',
+          path,
+          1,
+          'XMind no-border color token is represented by the native border style'
+        )
+      } else {
+        builder.add('dropped', path, 1, 'Malformed topic border color is not retained')
+      }
+      return
+
+    case 'border-line-width': {
+      const width = typeof value === 'string' ? Number.parseFloat(value) : Number.NaN
+      if (width === 0) {
+        builder.add(
+          'approximated',
+          path,
+          1,
+          'Zero XMind border width is represented by the native no-border style'
+        )
+      } else if (Number.isFinite(width) && width > 0 && width <= 32) {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Topic border width maps to the native topic border width'
+        )
+      } else {
+        builder.add(
+          'dropped',
+          path,
+          1,
+          'Topic border width falls outside the native supported range'
+        )
+      }
+      return
+    }
+
+    case 'border-line-pattern':
+      if (value === 'solid') {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Solid XMind border pattern maps to the native solid border'
+        )
+      } else if (value === 'dash') {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Dashed XMind border pattern maps to the native dashed border'
+        )
+      } else if (value === 'dot' || value === 'dash-dot' || value === 'dash-dot-dot') {
+        builder.add(
+          'approximated',
+          path,
+          1,
+          'XMind border pattern is collapsed to the native dashed border'
+        )
+      } else {
+        builder.add('dropped', path, 1, 'XMind border pattern has no native border-pattern mapping')
+      }
+      return
+
+    case 'fo:color':
+      if (typeof value === 'string' && value.length > 0) {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Topic text color maps to the native topic text color'
+        )
+      } else {
+        builder.add('dropped', path, 1, 'Malformed topic text color is not retained')
+      }
+      return
+
+    case 'fo:font-family':
+      if (typeof value === 'string' && value.length > 0) {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Topic font family maps to the native topic font family'
+        )
+      } else {
+        builder.add('dropped', path, 1, 'Malformed topic font family is not retained')
+      }
+      return
+
+    case 'fo:font-size':
+      if (typeof value === 'string' && Number.isFinite(Number.parseFloat(value))) {
+        builder.add(
+          'approximated',
+          path,
+          1,
+          'XMind point font size is converted to CSS pixels'
+        )
+      } else {
+        builder.add('dropped', path, 1, 'Malformed topic font size is not retained')
+      }
+      return
+
+    case 'fo:font-weight':
+      if (typeof value === 'string' && value.length > 0) {
+        if (value === 'normal' || value === 'bold') {
+          builder.add(
+            'approximated',
+            path,
+            1,
+            'Named XMind font weight is normalized to a CSS numeric weight'
+          )
+        } else {
+          builder.add(
+            'preserved',
+            path,
+            1,
+            'Topic font weight maps to the native topic font weight'
+          )
+        }
+      } else {
+        builder.add('dropped', path, 1, 'Malformed topic font weight is not retained')
+      }
+      return
+
+    case 'fo:font-style':
+      if (value === 'normal' || value === 'italic') {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Topic font style maps to the native topic font style'
+        )
+      } else {
+        builder.add('dropped', path, 1, 'Unsupported topic font style is not retained')
+      }
+      return
+
+    case 'fo:text-decoration': {
+      if (typeof value !== 'string') {
+        builder.add(
+          'dropped',
+          path,
+          1,
+          'Malformed topic text decoration is not retained'
+        )
+        return
+      }
+      const tokens = new Set(value.trim().split(/\s+/).filter(Boolean))
+      if (tokens.has('none') || tokens.has('underline') || tokens.has('line-through')) {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Topic text decoration maps to the native topic text decoration'
+        )
+      } else {
+        builder.add(
+          'dropped',
+          path,
+          1,
+          'XMind text decoration has no native topic-style mapping'
+        )
+      }
+      return
+    }
+
+    case 'fo:text-transform':
+      if (value === 'manual') {
+        builder.add(
+          'approximated',
+          path,
+          1,
+          'XMind manual text transform is represented by the native no-transform token'
+        )
+      } else if (
+        value === 'none' ||
+        value === 'uppercase' ||
+        value === 'lowercase' ||
+        value === 'capitalize'
+      ) {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Topic text transform maps to the native topic text transform'
+        )
+      } else {
+        builder.add('dropped', path, 1, 'XMind text transform has no native topic-style mapping')
+      }
+      return
+
+    case 'fo:text-align':
+      if (value === 'left' || value === 'center' || value === 'right') {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'Topic text alignment maps to the native topic text alignment'
+        )
+      } else {
+        builder.add('dropped', path, 1, 'Unsupported topic text alignment is not retained')
+      }
+      return
+
+    case 'shape-class':
+      if (
+        typeof value === 'string' &&
+        (value.includes('roundedRect') || value.includes('underline') || value.includes('fishbone'))
+      ) {
+        builder.add(
+          'approximated',
+          path,
+          1,
+          'XMind shape class is mapped to the closest native topic shape'
+        )
+      } else {
+        builder.add(
+          'dropped',
+          path,
+          1,
+          'XMind topic shape class has no native topic-shape mapping'
+        )
+      }
+      return
+
+    case 'line-color':
+      builder.add(
+        'dropped',
+        path,
+        1,
+        'Topic connector color has no depth-specific native theme mapping'
+      )
+      return
+
+    case 'xmind:numbering':
+      if (typeof value === 'string' && XMIND_NUMBERING_TOKENS.has(value)) {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'XMind numbering token maps to the native numbering pattern'
+        )
+      } else if (typeof value === 'string' && value.startsWith('org.xmind.numbering.')) {
+        builder.add(
+          'dropped',
+          path,
+          1,
+          'Unknown XMind numbering token is not retained'
+        )
+      } else {
+        builder.add(
+          'dropped',
+          path,
+          1,
+          'Malformed XMind numbering token is not retained'
+        )
+      }
+      return
+
+    case 'xmind:numbering-tiered':
+      if (value === 'true') {
+        builder.add(
+          'preserved',
+          path,
+          1,
+          'XMind tiered-numbering flag maps to the native numbering tiered flag'
+        )
+      } else if (value === 'false') {
+        builder.add(
+          'approximated',
+          path,
+          1,
+          'XMind tiered-numbering false flag is not retained and uses the native default'
+        )
+      } else {
+        builder.add('dropped', path, 1, 'Malformed XMind numbering flag is not retained')
+      }
+      return
+
+    case 'xmind:numbering-restart-at': {
+      const parsed =
+        typeof value === 'string' ? Number.parseInt(value, 10) : Number.NaN
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        builder.add('preserved', path, 1, 'XMind numbering restart index is retained')
+      } else {
+        builder.add('dropped', path, 1, 'Malformed XMind numbering restart index is not retained')
+      }
+      return
+    }
+
+    default:
+      builder.add(
+        'dropped',
+        path,
+        1,
+        'XMind topic style property has no native theme mapping'
+      )
+  }
+}
+
+/** Keep style property names stable and value-free in report paths. */
+function safePropertyPath(name: string): string {
+  return /^[a-zA-Z0-9]+(?::[a-zA-Z-]+)?(?:-[a-zA-Z0-9]+)*$/.test(name)
+    ? name
+    : '<unknown-property>'
 }
 
 function inspectRelationships(raw: unknown, builder: ReportBuilder): void {
@@ -316,6 +785,8 @@ function inspectRelationships(raw: unknown, builder: ReportBuilder): void {
         'Unknown relationship wrapper class'
       )
     }
+
+    inspectStyleBlocks('sheets[].relationships[]', relationship, builder)
 
     if (typeof relationship.id !== 'string' || relationship.id.length === 0) {
       builder.add(
@@ -460,6 +931,8 @@ function inspectTopic(
       builder.add('warnings', 'topics[].collapsed', 1, 'Topic collapsed state has an unsupported value')
     }
   }
+
+  inspectStyleBlocks('topics[]', topic, builder)
 
   if (topic.structureClass !== undefined) {
     if (isValidStructureClass(topic.structureClass)) {

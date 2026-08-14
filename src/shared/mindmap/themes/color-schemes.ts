@@ -15,6 +15,11 @@
  * Each scheme has 6 colors. Branch indices wrap around.
  */
 
+export type MindMapColorSchemeCategory = 'recommended' | 'classic' | 'custom'
+
+/** Category of a bundled scheme; user-created schemes are always `'custom'`. */
+export type MindMapBuiltInColorSchemeCategory = 'recommended' | 'classic'
+
 export type MindMapColorScheme = {
   /** Stable identifier (e.g. 'dawn'). */
   id: string
@@ -22,6 +27,8 @@ export type MindMapColorScheme = {
   nameKey: string
   /** 6 branch colors. */
   colors: readonly string[]
+  /** Curated category used to group the picker (recommended/classic). */
+  category: MindMapBuiltInColorSchemeCategory
 }
 
 /** Xmind "Dawn" (晨曦) — the default color scheme. */
@@ -86,12 +93,12 @@ export const GREEN_TEA_COLORS = [
 
 /** All built-in color schemes. */
 export const COLOR_SCHEMES: readonly MindMapColorScheme[] = [
-  { id: 'dawn', nameKey: 'dawn', colors: DAWN_COLORS },
-  { id: 'painter', nameKey: 'painter', colors: PAINTER_COLORS },
-  { id: 'vintage', nameKey: 'vintage', colors: VINTAGE_COLORS },
-  { id: 'fire', nameKey: 'fire', colors: FIRE_COLORS },
-  { id: 'deep-sea', nameKey: 'deepSea', colors: DEEP_SEA_COLORS },
-  { id: 'green-tea', nameKey: 'greenTea', colors: GREEN_TEA_COLORS }
+  { id: 'dawn', nameKey: 'dawn', colors: DAWN_COLORS, category: 'recommended' },
+  { id: 'painter', nameKey: 'painter', colors: PAINTER_COLORS, category: 'classic' },
+  { id: 'vintage', nameKey: 'vintage', colors: VINTAGE_COLORS, category: 'classic' },
+  { id: 'fire', nameKey: 'fire', colors: FIRE_COLORS, category: 'classic' },
+  { id: 'deep-sea', nameKey: 'deepSea', colors: DEEP_SEA_COLORS, category: 'recommended' },
+  { id: 'green-tea', nameKey: 'greenTea', colors: GREEN_TEA_COLORS, category: 'recommended' }
 ]
 
 /**
@@ -105,4 +112,17 @@ export function getColorScheme(id: string | undefined): MindMapColorScheme {
     if (found) return found
   }
   return COLOR_SCHEMES[0]!
+}
+
+/**
+ * Resolve the category for a color-scheme entry id.
+ * Built-in schemes return their curated category; any unknown / user-created
+ * scheme id (custom catalogue) resolves to `'custom'`.
+ */
+export function getColorSchemeCategory(id: string | undefined): MindMapColorSchemeCategory {
+  if (id) {
+    const found = COLOR_SCHEMES.find((s) => s.id === id)
+    if (found) return found.category
+  }
+  return 'custom'
 }

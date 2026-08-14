@@ -1969,8 +1969,8 @@
     "shareComingSoon": "分享功能即将上线，当前导图仍只保存在本地。",
     "undo": "撤销",
     "redo": "重做",
-    "canvasHint": "选择主题后，可使用工具栏或快捷键继续构建导图",
-    "editTopic": "编辑主题",
+    "canvasHint": "选择节点后，可使用工具栏或快捷键继续构建导图",
+    "editTopic": "编辑节点",
     "inspector": {
       "title": "思维导图检查器",
       "ai": "AI",
@@ -2050,9 +2050,9 @@
         "fishbone": "鱼骨",
         "matrix": "矩阵"
       },
-      "format": "格式",
-      "content": "内容",
-      "contentTopicOnly": "请选择主题或元素以编辑其内容与格式。"
+      "format": "画布",
+      "content": "节点",
+      "contentTopicOnly": "请选择节点或元素以编辑其内容与格式。"
     },
     "newDocument": "新建导图",
     "createDialog": {
@@ -2068,11 +2068,11 @@
       "presets": {
         "mindMap": {
           "title": "思维导图",
-          "description": "从中心主题向各个方向自由展开。"
+          "description": "从中心节点向各个方向自由展开。"
         },
         "logic": {
           "title": "逻辑图",
-          "description": "从左到右梳理主题之间的逻辑。"
+          "description": "从左到右梳理节点之间的逻辑。"
         },
         "org": {
           "title": "组织结构图",
@@ -2080,11 +2080,11 @@
         },
         "tree": {
           "title": "树状图",
-          "description": "从根主题向右逐层展开。"
+          "description": "从根节点向右逐层展开。"
         },
         "brace": {
           "title": "括号图",
-          "description": "使用括号式布局归纳相关主题。"
+          "description": "使用括号式布局归纳相关节点。"
         },
         "timeline": {
           "title": "时间轴",
@@ -2096,7 +2096,7 @@
         },
         "matrix": {
           "title": "矩阵图",
-          "description": "用行列网格比较多个主题。"
+          "description": "用行列网格比较多个节点。"
         }
       }
     },
@@ -2211,7 +2211,22 @@
         "unsupportedElementMetadata": "不受支持的 XMind 元素元数据未迁移为 StudiumX 元素。",
         "cyclicObject": "循环对象不是有效的 JSON 内容。",
         "cyclicContentNotTraversed": "未遍历循环内容。",
-        "contentNotSheetArray": "内容文件不包含画布数组。"
+        "contentNotSheetArray": "内容文件不包含画布数组。",
+        "malformedStyleBlock": "格式错误的样式块未被保留。",
+        "malformedStyleList": "格式错误的样式列表未被保留。",
+        "malformedTopicFill": "格式错误的主题填充色未被保留。",
+        "malformedTopicBorderColor": "格式错误的主题边框颜色未被保留。",
+        "malformedTopicTextColor": "格式错误的主题文字颜色未被保留。",
+        "malformedTopicFontFamily": "格式错误的主题字体未被保留。",
+        "malformedTopicFontSize": "格式错误的主题字号未被保留。",
+        "malformedTopicFontWeight": "格式错误的主题字重未被保留。",
+        "malformedNumberingFlag": "格式错误的编号标志未被保留。",
+        "malformedNumberingRestartIndex": "格式错误的编号重新开始索引未被保留。",
+        "unsupportedTopicFontStyle": "不支持的主题字体样式未被保留。",
+        "unsupportedTopicTextAlign": "不支持的主题文本对齐方式未被保留。",
+        "xmindBorderPatternNoMapping": "XMind 边框线型没有对应的本地边框样式映射。",
+        "xmindNumberingRestartIndexRetained": "已保留 XMind 编号重新开始索引。",
+        "xmindTextTransformNoMapping": "XMind 文本大小写转换没有对应的本地样式映射。"
       }
     },
     "aiTitle": "AI 生成",
@@ -2227,7 +2242,7 @@
     "aiReviewTitle": "请求审阅预览",
     "aiReviewLocalOnly": "仅本地请求——不调用 provider，也不修改导图",
     "aiReviewScopeLabel": "请求范围",
-    "aiReviewSelection": "选中的主题",
+    "aiReviewSelection": "选中的节点",
     "aiReviewSheet": "整张画布",
     "aiReviewSource": "当前画布中的来源",
     "aiReviewSelectedFile": "选中的工作区文件",
@@ -2274,9 +2289,9 @@
       "cancelled": "已在本地取消——未修改导图"
     },
     "retry": "重试",
-    "addChild": "添加子主题",
-    "addSibling": "添加同级主题",
-    "deleteNode": "删除主题",
+    "addChild": "添加子节点",
+    "addSibling": "添加同级节点",
+    "deleteNode": "删除节点",
     "collapseAll": "全部折叠",
     "expandAll": "全部展开",
     "layout": "布局",
@@ -2300,7 +2315,7 @@
     "noWorkspace": "请先选择一个工作区",
     "save": "保存",
     "enterTitle": "输入标题…",
-    "enterNodeTitle": "输入主题名称…",
+    "enterNodeTitle": "输入节点名称…",
     "cancel": "取消",
     "fitCanvas": "适应画布",
     "actualSize": "100%",
@@ -2309,11 +2324,11 @@
     "sourceInvalid": "该来源引用无法安全打开。",
     "sourceUnavailable": "当前工作区中找不到该来源。",
     "outline": "大纲",
-    "outlineTopics": "{{count}} 个主题",
+    "outlineTopics": "{{count}} 个节点",
     "topicStyle": {
-      "title": "主题样式",
-      "noSelection": "请选择一个主题来编辑样式。",
-      "layoutLabel": "主题布局",
+      "title": "节点样式",
+      "noSelection": "请选择一个节点来编辑样式。",
+      "layoutLabel": "节点布局",
       "inherit": "默认",
       "inheritLayout": "默认布局",
       "effective": "当前生效布局：{{layout}}",
@@ -2392,17 +2407,17 @@
       "styleSection": "样式",
       "textSection": "文本",
       "layoutSection": "布局",
-      "reset": "重置主题样式",
+      "reset": "重置节点样式",
       "fontCjkSans": "中日韩无衬线",
       "fontCjkSerif": "中日韩衬线",
       "mixed": "混合",
-      "multiSelection": "已选择 {{count}} 个主题",
+      "multiSelection": "已选择 {{count}} 个节点",
       "clearField": "恢复默认样式",
       "effectiveMixed": "当前生效布局：混合",
       "propagationSection": "应用样式",
-      "applyToSiblings": "同级主题（{{count}}）",
-      "applyToDescendants": "所有子主题（{{count}}）",
-      "propagationHint": "复制完整的主题局部样式，并作为一次操作撤销。",
+      "applyToSiblings": "同级节点（{{count}}）",
+      "applyToDescendants": "所有子节点（{{count}}）",
+      "propagationHint": "复制完整的节点局部样式，并作为一次操作撤销。",
       "fillPattern": "填充图案",
       "fillPatternSolid": "纯色",
       "fillPatternHandDrawn": "手绘",
@@ -2428,13 +2443,17 @@
       },
       "importedFont": "请求的字体：{{font}}",
       "fontSource": "字体来源：{{source}}",
-      "fontSourceLocal": "主题局部覆盖",
+      "fontSourceLocal": "节点局部覆盖",
       "fontSourceDocument": "文档全局字体",
       "fontSourceMixed": "混合来源",
       "fontMayFallback": "请求的导入或自定义字体可能在此应用中回退。",
       "fontSourceWithFamily": "字体来源：{{source}}（{{font}}）",
       "fontSourceThemeLayer": "主题层级",
-      "fontSourceAppFallback": "应用回退字体"
+      "fontSourceAppFallback": "应用回退字体",
+      "selected": "已选中",
+      "stateInherited": "继承自主题",
+      "stateNone": "显式无",
+      "disabledReason": "已禁用"
     },
     "themePanel": {
       "title": "文档主题",
@@ -2475,9 +2494,10 @@
       "alphaLabel": "背景不透明度",
       "recentColors": "最近颜色",
       "recentColor": "最近颜色 {color}",
-      "clearRecent": "清除最近颜色"
+      "clearRecent": "清除最近颜色",
+      "alphaUnavailable": "背景为透明时不可用"
     },
-    "untitledTopic": "未命名主题",
+    "untitledTopic": "未命名",
     "collapseTopic": "折叠 {{title}}",
     "expandTopic": "展开 {{title}}",
     "search": "搜索当前画布",
@@ -2500,7 +2520,7 @@
     "sourceCount": "{{count}} 个来源",
     "noSources": "尚未关联来源",
     "sourceStale": "来源已变化",
-    "sourceNodeCount": "{{count}} 个主题",
+    "sourceNodeCount": "{{count}} 个节点",
     "untitledSource": "未命名来源",
     "sourceRefresh": {
       "refresh": "检查更新",
@@ -2548,7 +2568,7 @@
     "ctxCopy": "复制",
     "ctxCut": "剪切",
     "ctxPaste": "粘贴",
-    "ctxDuplicate": "复制主题",
+    "ctxDuplicate": "复制节点",
     "copyStyle": "复制样式",
     "pasteStyle": "粘贴样式",
     "resetStyle": "重设样式",
@@ -2559,7 +2579,7 @@
     "zoomOut": "缩小",
     "notesPanel": {
       "title": "备注",
-      "placeholder": "为主题添加备注…"
+      "placeholder": "为节点添加备注…"
     },
     "markersPanel": {
       "title": "标记",
@@ -2703,7 +2723,7 @@
     },
     "dragToReparent": "拖拽以重新设置父节点",
     "minimap": "缩略图",
-    "topicCount": "{{count}} 个主题",
+    "topicCount": "{{count}} 个节点",
     "addRelationship": "添加联系",
     "notes": "笔记",
     "colorScheme": {
@@ -2735,7 +2755,13 @@
       "deleteScheme": "删除方案",
       "readabilityHint": "部分颜色与白色文本对比度低于 4.5（最低约 {{ratio}}），仅供参考。",
       "readabilityOk": "当前调色板与白色文本对比度良好。",
-      "duplicateAria": "复制 {{name}}"
+      "duplicateAria": "复制 {{name}}",
+      "recommended": "推荐",
+      "classic": "经典",
+      "custom": "自定义",
+      "searchPlaceholder": "搜索配色方案",
+      "searchResults": "搜索结果",
+      "noResults": "没有匹配的配色方案"
     },
     "colorSchemeTitle": "配色方案",
     "rainbowBranches": "彩虹分支",
@@ -2760,14 +2786,14 @@
       "dashed": "虚线",
       "capability": {
         "unsupportedElementField": "{{element}}暂不支持此字段。",
-        "freeTopicCanvasUnavailable": "自由主题画布渲染启用前，暂不提供其样式编辑。"
+        "freeTopicCanvasUnavailable": "自由节点画布渲染启用前，暂不提供其样式编辑。"
       },
       "types": {
         "relationship": "联系线",
         "boundary": "外框",
         "summary": "概要",
         "callout": "标注",
-        "free-topic": "自由主题"
+        "free-topic": "自由节点"
       },
       "lineShape": "线条形状",
       "beginArrow": "起始箭头",
@@ -2827,15 +2853,22 @@
       "patternRoman": "I. II. III.",
       "tiered": "分级编号",
       "tieredHint": "编号包含完整层级，如 2.1.3。",
-      "restart": "从此主题重新编号",
-      "restartHint": "子主题从该主题开始重新编号。",
+      "restart": "从此节点重新编号",
+      "restartHint": "子节点从该节点开始重新编号。",
       "restartAt": "起始数字",
       "inherit": "无",
-      "appliedToChildren": "编号应用于该主题的子主题。",
+      "appliedToChildren": "编号应用于该节点的子节点。",
       "mixed": "混合",
-      "applyToSiblings": "将编号应用到同级主题",
+      "applyToSiblings": "将编号应用到同级节点",
       "on": "开",
       "off": "关"
+    },
+    "fontPicker": {
+      "searchPlaceholder": "搜索字体…",
+      "search": "搜索字体",
+      "noResults": "未找到字体。",
+      "recent": "最近使用",
+      "all": "全部字体"
     }
   }
 }

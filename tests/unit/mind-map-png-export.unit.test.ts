@@ -9,6 +9,7 @@ import { exportMindMapPngFile } from '../../src/main/mindmap/png-file'
 import { parseMindMapPngExportPayload } from '../../src/main/mindmap/mind-map-ipc-commands'
 import {
   getMindMapSvgExportDimensions,
+  serializeMindMapSvg,
   type MindMapSvgExportInput
 } from '../../src/shared/mindmap/svg-export'
 import { inspectMindMapPngExportArtifact } from '../../src/shared/mindmap/png-export'
@@ -160,5 +161,36 @@ describe('mind-map PNG export contract', () => {
         pngBase64: replaceBase64Byte(valid.pngBase64, 29)
       })
     ).toBeNull()
+  })
+
+  it('passes resolved options through to the serialized SVG the PNG rasterizes', () => {
+    // `rasterizeMindMapSvgToPng(input, options)` serializes through the same
+    // shared `serializeMindMapSvg(input, options)` and rasterizes that exact
+    // SVG string. Asserting the serialized string carries the resolved colours
+    // proves the PNG artifact uses the canvas-resolved palette, not a separate
+    // hardcoded export palette.
+    const input: MindMapSvgExportInput = {
+      ...sampleInput(),
+      nodes: [
+        ...sampleInput().nodes,
+        { id: 'child', title: 'Child', x: 10, y: 0, width: 10, height: 10 }
+      ],
+      edges: [{ from: 'root', to: 'child' }],
+      options: {
+        background: '#101828',
+        nodeFill: '#1D4ED8',
+        nodeStroke: '#93C5FD',
+        edgeStroke: '#FF6B6B',
+        textColor: '#FFFFFF',
+        fontFamily: 'Georgia, serif'
+      }
+    }
+
+    const svg = serializeMindMapSvg(input)
+    expect(svg).toContain('fill="#101828"')
+    expect(svg).toContain('fill="#1D4ED8" stroke="#93C5FD"')
+    expect(svg).toContain('stroke="#FF6B6B"')
+    expect(svg).toContain('fill="#FFFFFF"')
+    expect(svg).toContain('font-family="Georgia, serif"')
   })
 })

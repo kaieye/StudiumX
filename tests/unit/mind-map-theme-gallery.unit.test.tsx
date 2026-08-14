@@ -76,18 +76,19 @@ describe('MindMapThemeGallery', () => {
     fireEvent.click(trigger)
     const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
     const dawn = within(listbox).getByRole('option', { name: /Dawn/i })
-    const painter = within(listbox).getByRole('option', { name: /Painter/i })
-    const greenTea = within(listbox).getByRole('option', { name: /Green Tea/i })
+    const deepSea = within(listbox).getByRole('option', { name: /Ocean/i })
+    const fire = within(listbox).getByRole('option', { name: /Fireplace/i })
 
     await waitFor(() => expect(dawn).toHaveFocus())
     fireEvent.keyDown(dawn, { key: 'ArrowDown' })
-    expect(painter).toHaveFocus()
-    fireEvent.keyDown(painter, { key: 'ArrowUp' })
+    expect(deepSea).toHaveFocus()
+    fireEvent.keyDown(deepSea, { key: 'ArrowUp' })
     expect(dawn).toHaveFocus()
+    // ArrowUp from the first option wraps to the last option in the list.
     fireEvent.keyDown(dawn, { key: 'ArrowUp' })
-    expect(greenTea).toHaveFocus()
+    expect(fire).toHaveFocus()
 
-    fireEvent.keyDown(greenTea, { key: 'Escape' })
+    fireEvent.keyDown(fire, { key: 'Escape' })
     expect(screen.queryByRole('listbox', { name: 'Color Scheme' })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
   })
@@ -140,5 +141,122 @@ describe('MindMapThemeGallery', () => {
     expect(useMindMapViewStore.getState().current?.theme.id).toBe('custom-theme')
     expect(useMindMapViewStore.getState().current?.theme.colorSchemeId).toBe('painter')
     expect(screen.queryByRole('listbox', { name: 'Color Scheme' })).not.toBeInTheDocument()
+  })
+
+  it('groups built-in color schemes into Recommended/Classic sections', () => {
+    render(<MindMapThemeGallery />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
+    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
+
+    const recommended = within(listbox).getByText('Recommended')
+    const classic = within(listbox).getByText('Classic')
+    expect(recommended).toBeInTheDocument()
+    expect(classic).toBeInTheDocument()
+
+    const recommendedGroup = within(listbox).getByRole('group', { name: 'Recommended' })
+    const classicGroup = within(listbox).getByRole('group', { name: 'Classic' })
+    expect(within(recommendedGroup).getByRole('option', { name: /Dawn/i })).toBeInTheDocument()
+    expect(within(recommendedGroup).getByRole('option', { name: /Green Tea/i })).toBeInTheDocument()
+    expect(within(classicGroup).getByRole('option', { name: /Painter/i })).toBeInTheDocument()
+    expect(within(classicGroup).getByRole('option', { name: /Vintage/i })).toBeInTheDocument()
+    expect(within(classicGroup).getByRole('option', { name: /Fireplace/i })).toBeInTheDocument()
+  })
+
+  it('keeps favorites pinned first within their category group', () => {
+    useMindMapViewStore.setState({ colorSchemes: { schemes: [], favorites: ['vintage'], recent: [] } })
+    render(<MindMapThemeGallery />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
+    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
+    const classicGroup = within(listbox).getByRole('group', { name: 'Classic' })
+    const classicOptions = within(classicGroup).getAllByRole('option')
+    // Vintage is favorited and therefore pinned first inside its category.
+    expect(classicOptions[0]).toHaveTextContent('Vintage')
+  })
+
+  it('filters schemes by name with a non-empty search query', () => {
+    render(<MindMapThemeGallery />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
+    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
+    const search = within(listbox).getByRole('searchbox')
+
+    fireEvent.change(search, { target: { value: 'fire' } })
+    // Group labels disappear while searching; only matching options remain.
+    expect(within(listbox).queryByText('Recommended')).not.toBeInTheDocument()
+    expect(within(listbox).queryByText('Classic')).not.toBeInTheDocument()
+    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['Fireplace'])
+  })
+
+  it('shows a no-results empty state for an unmatched query', () => {
+    render(<MindMapThemeGallery />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
+    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
+    const search = within(listbox).getByRole('searchbox')
+
+    fireEvent.change(search, { target: { value: 'zzz' } })
+    expect(within(listbox).queryAllByRole('option')).toHaveLength(0)
+    expect(within(listbox).getByText('No matching color schemes')).toBeInTheDocument()
+  })
+
+  it('searches case-insensitively and matches custom scheme names too', () => {
+    useMindMapViewStore.setState({
+      colorSchemes: {
+        schemes: [{ id: 'user-1', name: 'My Palette', colors: ['#101010', '#202020', '#303030', '#404040', '#505050', '#606060'], createdAt: 1, updatedAt: 1 }],
+        favorites: [],
+        recent: []
+      }
+    })
+    render(<MindMapThemeGallery />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
+    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
+    const search = within(listbox).getByRole('searchbox')
+
+    fireEvent.change(search, { target: { value: 'PALETTE' } })
+    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['My PaletteCustom'])
+  })
+
+  it('keeps keyboard navigation working across grouped sections', () => {
+    render(<MindMapThemeGallery />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
+    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
+    const dawn = within(listbox).getByRole('option', { name: /Dawn/i })
+    const deepSea = within(listbox).getByRole('option', { name: /Ocean/i })
+
+    // Navigation is flat across grouped options: dawn is first, ArrowDown moves to the next option.
+    fireEvent.focus(dawn)
+    fireEvent.keyDown(dawn, { key: 'ArrowDown' })
+    expect(deepSea).toHaveFocus()
+    fireEvent.keyDown(deepSea, { key: 'Escape' })
+    expect(screen.queryByRole('listbox', { name: 'Color Scheme' })).not.toBeInTheDocument()
+  })
+
+  it('announces the active scheme and active preset without relying on colour', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.theme.id = 'snowbrush'
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+    render(<MindMapThemeGallery />)
+
+    // Scheme: Dawn is the active scheme -> aria-selected + text description + visible check.
+    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
+    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
+    const dawn = within(listbox).getByRole('option', { name: /Dawn/i })
+    expect(dawn).toHaveAttribute('aria-selected', 'true')
+    expect(dawn).toHaveAccessibleDescription('Selected')
+    expect(dawn.querySelector('.mindmap-theme-picker__check')).not.toBeNull()
+
+    fireEvent.keyDown(dawn, { key: 'Escape' })
+
+    // Preset: Snowbrush is the active preset -> aria-selected + description.
+    fireEvent.click(screen.getByRole('button', { name: /Style preset Snowbrush/i }))
+    const presetListbox = screen.getByRole('listbox', { name: 'Style preset' })
+    const snowbrush = within(presetListbox).getByRole('option', { name: /^Snowbrush\./i })
+    expect(snowbrush).toHaveAttribute('aria-selected', 'true')
+    expect(snowbrush).toHaveAccessibleDescription('Selected')
   })
 })

@@ -5,6 +5,10 @@ import { useTranslation } from 'react-i18next'
 import type { MindMapProposalDecision } from '../../../../shared/mindmap/commands/mind-map-proposal'
 import type { MindMapStreamStatus } from '../../../../shared/teaching-types/mindmap'
 import { useAppStore } from '../../app-shell/appStore'
+import {
+  OverviewModelPicker,
+  OverviewReasoningPicker
+} from '../../ui/overview-composer-pickers'
 import { useMindMapViewStore } from './mind-map-view-store'
 import { MindMapMarkersPanel } from './MindMapMarkersPanel'
 import { MindMapNotesPanel } from './MindMapNotesPanel'
@@ -289,6 +293,21 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
   const inspectorTab = useMindMapViewStore((s) => s.inspectorTab)
   const setInspectorTab = useMindMapViewStore((s) => s.setInspectorTab)
 
+  // Compact generation status shown in the composer statusbar (mirrors the
+  // overview dialog's status strip).
+  const lastMessage = generationMessages[generationMessages.length - 1]
+  const statusLabel = generationMessages.length === 0 && error
+    ? t('mindmap.aiError')
+    : !lastMessage
+      ? null
+      : lastMessage.status === 'generating'
+        ? t('mindmap.aiStreaming')
+        : lastMessage.status === 'cancelled'
+          ? t('mindmap.aiStreamCancelled')
+          : lastMessage.status === 'error'
+            ? t('mindmap.aiError')
+            : t('mindmap.aiApplied')
+
   return (
     <aside className={`mindmap-ai-panel${open ? '' : ' is-collapsed'}`} aria-label={t('mindmap.inspector.title')}>
       <div className="mindmap-inspector-tabs" role="tablist" aria-label={t('mindmap.inspector.title')}>
@@ -445,10 +464,10 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
             </div>
 
             <form className="mindmap-ai-panel__composer" onSubmit={onSubmit}>
-              <label className="mindmap-ai-panel__composer-label" htmlFor="mindmap-ai-prompt">
-                {t('mindmap.aiPromptLabel')}
-              </label>
-              <div className="mindmap-ai-panel__composer-box">
+              <div className="mindmap-ai-panel__composer-card">
+                <label className="mindmap-ai-panel__composer-label" htmlFor="mindmap-ai-prompt">
+                  {t('mindmap.aiPromptLabel')}
+                </label>
                 <textarea
                   id="mindmap-ai-prompt"
                   className="mindmap-ai-panel__input"
@@ -459,27 +478,43 @@ export function MindMapAiPanel({ open, onToggle }: MindMapAiPanelProps) {
                   rows={2}
                   disabled={generating}
                 />
-                {generating ? (
-                  <button
-                    type="button"
-                    className="mindmap-ai-panel__send"
-                    onClick={cancelGeneration}
-                    aria-label={t('mindmap.aiCancel')}
-                    title={t('mindmap.aiCancel')}
-                  >
-                    <Square size={14} aria-hidden="true" />
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    className="mindmap-ai-panel__send"
-                    disabled={!canSubmit}
-                    aria-label={t('mindmap.aiGenerate')}
-                    title={t('mindmap.aiGenerate')}
-                  >
-                    <SendHorizontal size={16} aria-hidden="true" />
-                  </button>
-                )}
+                <div className="mindmap-ai-panel__composer-footer">
+                  <div className="mindmap-ai-panel__composer-actions">
+                    <OverviewModelPicker />
+                    <OverviewReasoningPicker />
+                  </div>
+                  {generating ? (
+                    <button
+                      type="button"
+                      className="mindmap-ai-panel__send"
+                      onClick={cancelGeneration}
+                      aria-label={t('mindmap.aiCancel')}
+                      title={t('mindmap.aiCancel')}
+                    >
+                      <Square size={16} aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      className="mindmap-ai-panel__send"
+                      disabled={!canSubmit}
+                      aria-label={t('mindmap.aiGenerate')}
+                      title={t('mindmap.aiGenerate')}
+                    >
+                      <SendHorizontal size={18} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="mindmap-ai-panel__statusbar" aria-label={t('mindmap.inspector.ai')}>
+                <div className="mindmap-ai-panel__status-group" />
+                <div className="mindmap-ai-panel__status-group">
+                  {statusLabel ? (
+                    <span className="mindmap-ai-panel__status-text" role="status" aria-live="polite">
+                      {statusLabel}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </form>
           </div>

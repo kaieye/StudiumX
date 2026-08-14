@@ -80,7 +80,9 @@ describe('mind map page layout contract', () => {
     expect(thread).toMatch(/min-height:\s*0/)
     expect(thread).toMatch(/overflow-y:\s*auto/)
     expect(composer).toMatch(/flex:\s*0\s+0\s+auto/)
-    expect(composer).toMatch(/border-top:\s*1px\s+solid\s+var\(--line\)/)
+    // The card-based composer keeps the surface pinned below the thread; the
+    // separator moved inside the card surface (rounded card + status strip).
+    expect(composer).toMatch(/padding:\s*0\s+10px\s+10px/)
   })
 
   it('uses a translucent, blurred popover for compact topic-style menus', () => {
@@ -100,5 +102,21 @@ describe('mind map page layout contract', () => {
     expect(declarations).toMatch(/background:\s*var\(--surface-muted\)/)
     expect(declarations).not.toMatch(/box-shadow\s*:/)
     expect(declarations).not.toMatch(/border-bottom\s*:/)
+  })
+
+  it('keeps inline topic editing on the same transparent text plane as the SVG label', () => {
+    const wrapper = readMindMapRuleDeclarations('.mindmap-node-input-wrap')
+    const input = readMindMapRuleDeclarations('.mindmap-node-input')
+    const focus = readAllMindMapRuleDeclarations('.mindmap-node-input:focus-visible')
+
+    expect(wrapper).toMatch(/box-sizing:\s*border-box/)
+    expect(wrapper).toMatch(/width:\s*100%/)
+    expect(wrapper).toMatch(/height:\s*100%/)
+    expect(wrapper).toMatch(/padding:\s*0\s+10px/)
+    expect(input).toMatch(/height:\s*1em/)
+    expect(input).toMatch(/padding:\s*0/)
+    expect(input).toMatch(/background:\s*transparent/)
+    expect(input).toMatch(/border:\s*0/)
+    expect(focus).toMatch(/box-shadow:\s*none/)
   })
 })

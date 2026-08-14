@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  buildXmindExportCompatibilityReport,
   buildXmindImportCompatibilityReport,
   documentToXmindContent,
   mindMapDocumentToMarkdown,
@@ -91,5 +92,45 @@ describe('mind-map public pure interop API', () => {
       title: 'Interop',
       root: { id: 'root-v1', title: 'Root', note: 'Interop note' }
     })
+  })
+
+  it('exposes the pure v2 export compatibility report from the package entry point', () => {
+    const doc = v2Document()
+    doc.theme = {
+      id: 'theme-1',
+      background: '#FFFFFF',
+      branchColors: ['#FF6B6B'],
+      rainbowBranches: true
+    }
+    doc.sheets[0]!.root = {
+      id: 'root-v2',
+      title: 'Root',
+      note: 'Keep this note',
+      style: { borderStyle: 'hand-drawn-dash' as const },
+      children: []
+    }
+
+    const report = buildXmindExportCompatibilityReport(doc)
+
+    expect(report.preserved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'sheets[].theme.map.svg:fill',
+          count: 1
+        }),
+        expect.objectContaining({
+          path: 'topics[].note',
+          count: 1
+        })
+      ])
+    )
+    expect(report.approximated).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'topics[].style.border-line-pattern',
+          reason: 'Hand-drawn border is approximated as a dashed XMind border'
+        })
+      ])
+    )
   })
 })

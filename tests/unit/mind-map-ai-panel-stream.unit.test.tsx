@@ -188,7 +188,7 @@ describe('MindMapAiPanel streaming preview', () => {
     vi.restoreAllMocks()
   })
 
-  it('keeps canvas-wide options in Format and merges module style into Content', async () => {
+  it('keeps canvas-wide options in Canvas and merges module style into Node', async () => {
     const user = userEvent.setup()
     const current = generatedDocument()
     current.sheets[0]!.elements = [
@@ -204,30 +204,31 @@ describe('MindMapAiPanel streaming preview', () => {
 
     const { container } = render(<MindMapAiPanel open onToggle={() => {}} />)
 
-    expect(screen.getByRole('tab', { name: 'Format' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: 'Content' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Canvas' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Node' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'AI' })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Style' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: 'Canvas' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Format' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Content' })).not.toBeInTheDocument()
     expect(screen.getByText('Canvas options')).toBeInTheDocument()
 
-    // Selecting a topic reveals the Content tab, where its style now lives
+    // Selecting a topic reveals the Node tab, where its style now lives
     // alongside notes and markers.
     act(() => useMindMapViewStore.getState().selectTopic('root'))
-    expect(screen.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByText('Topic style')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Node' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('Node style')).toBeInTheDocument()
     expect(screen.queryByText('Canvas options')).not.toBeInTheDocument()
     expect(container.querySelector('#mindmap-inspector-notes')).toBeInTheDocument()
     expect(container.querySelector('#mindmap-inspector-markers')).toBeInTheDocument()
 
-    // The Format tab keeps only the canvas-wide controls for any selection.
-    await user.click(screen.getByRole('tab', { name: 'Format' }))
+    // The Canvas tab keeps only the canvas-wide controls for any selection.
+    await user.click(screen.getByRole('tab', { name: 'Canvas' }))
     expect(screen.getByText('Canvas options')).toBeInTheDocument()
-    expect(screen.queryByText('Topic style')).not.toBeInTheDocument()
+    expect(screen.queryByText('Node style')).not.toBeInTheDocument()
 
-    // Selecting an element also lands on Content with its style inspector.
+    // Selecting an element also lands on Node with its style inspector.
     act(() => useMindMapViewStore.getState().selectElement('relationship-1', 'relationship'))
-    expect(screen.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Node' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.getByText('Relationship')).toBeInTheDocument()
     expect(screen.getByText('Element style')).toBeInTheDocument()

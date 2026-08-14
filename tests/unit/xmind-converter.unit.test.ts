@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  buildXmindExportCompatibilityReport,
   documentToXmindContent,
   documentV2ToXmindContent,
   xmindContentToDocument
 } from '../../src/shared/mindmap/xmind-converter'
+import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 import type { MindMapDocument } from '../../src/shared/mindmap/mind-map-types'
 
 const NOW = '2026-08-09T00:00:00.000Z'
@@ -749,5 +751,217 @@ describe('documentV2ToXmindContent', () => {
     ]
     const doc = xmindContentToDocument(content)
     expect(doc.sheets[0]!.root.numbering).toBeUndefined()
+  })
+})
+
+function v2ExportDocument(): MindMapDocumentV2 {
+  return {
+    schemaVersion: 2,
+    id: 'v2-report-doc',
+    revision: 1,
+    title: 'Report',
+    createdAt: NOW,
+    updatedAt: NOW,
+    theme: {
+      id: 'default',
+      name: 'Default Theme',
+      background: '#FFFFFF',
+      fontFamily: 'system-ui, sans-serif',
+      branchColors: ['#FF6B6B', '#97D3B6'],
+      lineColor: '#8E8E93',
+      rainbowBranches: true
+    },
+    assets: [],
+    sheets: [
+      {
+        id: 'sheet-1',
+        title: 'Sheet 1',
+        root: {
+          id: 'root',
+          title: 'Root',
+          collapsed: true,
+          style: {
+            stroke: '#112233',
+            borderWidth: 3,
+            borderStyle: 'hand-drawn-solid',
+            textDecoration: 'line-through',
+            textTransform: 'none',
+            textAlign: 'center',
+            shape: 'rounded-rectangle',
+            fillPattern: 'diagonal'
+          },
+          numbering: { pattern: 'arabic', tiered: true, restartAt: 3 },
+          labels: ['urgent'],
+          planning: { taskStatus: 'doing' },
+          children: [
+            {
+              id: 'child',
+              title: 'Child',
+              style: { borderStyle: 'hand-drawn-dash' as const, fill: '#FFCC00' },
+              children: []
+            }
+          ]
+        },
+        elements: [
+          {
+            id: 'rel-1',
+            type: 'relationship',
+            from: 'root',
+            to: 'child',
+            label: 'depends on',
+            style: { stroke: '#99AABB', lineShape: 'curved' }
+          },
+          {
+            id: 'boundary-1',
+            type: 'boundary',
+            topicId: 'child',
+            style: { outlineShape: 'rounded-rectangle' }
+          }
+        ],
+        layout: {
+          structureClass: 'org.xmind.ui.logic.right',
+          lineStyle: 'elbow',
+          linePattern: 'dash',
+          compact: true
+        }
+      }
+    ]
+  }
+}
+
+describe('buildXmindExportCompatibilityReport', () => {
+  it('reports preserved theme fields with exact XMind paths', () => {
+    const report = buildXmindExportCompatibilityReport(v2ExportDocument())
+    const preserved = new Map(
+      report.preserved.map((finding) => [finding.path, finding.count])
+    )
+    expect(preserved.get('sheets[].theme.map.svg:fill')).toBe(1)
+    expect(preserved.get('sheets[].theme.defaults.fo:font-family')).toBe(1)
+    expect(preserved.get('sheets[].theme.multiLineColors')).toBe(1)
+    expect(preserved.get('sheets[].theme.lineColor')).toBe(1)
+  })
+
+  it('reports approximated hand-drawn borders as solid/dash approximations', () => {
+    const report = buildXmindExportCompatibilityReport(v2ExportDocument())
+    const approximated = report.approximated
+    expect(approximated).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'topics[].style.border-line-pattern',
+          count: 1,
+          reason: 'Hand-drawn border is approximated as a solid XMind border'
+        }),
+        expect.objectContaining({
+          path: 'topics[].style.border-line-pattern',
+          count: 1,
+          reason: 'Hand-drawn border is approximated as a dashed XMind border'
+        })
+      ])
+    )
+  })
+
+  it('reports dropped element styles, v2-only topic fields, and unmapped topic styles', () => {
+    const report = buildXmindExportCompatibilityReport(v2ExportDocument())
+    const dropped = new Map(
+      report.dropped.map((finding) => [finding.path, finding.count])
+    )
+    // Both elements carry styles.
+    expect(dropped.get('sheets[].elements[].style')).toBe(2)
+    expect(dropped.get('sheets[].layout.lineStyle')).toBe(1)
+    expect(dropped.get('topics[].style.fill')).toBe(1)
+    expect(dropped.get('topics[].style.shape')).toBe(1)
+    expect(dropped.get('topics[].style.fillPattern')).toBe(1)
+    expect(dropped.get('topics[].labels')).toBe(1)
+    expect(dropped.get('topics[].planning')).toBe(1)
+  })
+
+  it('reports preserved topic exports and numbering tokens', () => {
+    const report = buildXmindExportCompatibilityReport(v2ExportDocument())
+    const preserved = new Map(
+      report.preserved.map((finding) => [finding.path, finding.count])
+    )
+    // Root: collapsed + border color + border width + solid-hand-drawn
+    // approximation already counted separately + text-decoration + text-align
+    // + numbering tokens.
+    expect(preserved.get('topics[].collapsed')).toBe(1)
+    expect(preserved.get('topics[].style.border-line-color')).toBe(1)
+    expect(preserved.get('topics[].style.border-line-width')).toBe(1)
+    expect(preserved.get('topics[].style.border-line-pattern')).toBeUndefined()
+    expect(preserved.get('topics[].style.fo:text-decoration')).toBe(1)
+    expect(preserved.get('topics[].style.fo:text-align')).toBe(1)
+    expect(preserved.get('topics[].style.xmind:numbering')).toBe(1)
+    expect(preserved.get('topics[].style.xmind:numbering-tiered')).toBe(1)
+    expect(preserved.get('topics[].style.xmind:numbering-restart-at')).toBe(1)
+    // Relationship label maps to the XMind relationship title.
+    expect(preserved.get('sheets[].relationships[].title')).toBe(1)
+  })
+
+  it('warns when rainbow branches are disabled with no fallback line color', () => {
+    const doc = v2ExportDocument()
+    doc.theme = {
+      id: 'default',
+      branchColors: ['#FF6B6B'],
+      rainbowBranches: false
+    }
+    const report = buildXmindExportCompatibilityReport(doc)
+    expect(report.warnings).toEqual([
+      expect.objectContaining({
+        path: 'sheets[].theme.lineColor',
+        count: 1,
+        reason: 'Rainbow branches are disabled but no line color is set'
+      })
+    ])
+    const dropped = new Map(
+      report.dropped.map((finding) => [finding.path, finding.count])
+    )
+    expect(dropped.get('sheets[].theme.multiLineColors')).toBe(1)
+  })
+
+  it('reports a drop-only report for a minimal document (no exported style state)', () => {
+    const doc: MindMapDocumentV2 = {
+      schemaVersion: 2,
+      id: 'v2-min',
+      revision: 1,
+      title: 'Minimal',
+      createdAt: NOW,
+      updatedAt: NOW,
+      theme: { id: 'default' },
+      assets: [],
+      sheets: [
+        {
+          id: 'sheet-1',
+          title: 'Sheet',
+          root: { id: 'root', title: 'Root', children: [] },
+          elements: [],
+          layout: { structureClass: 'org.xmind.ui.logic.right' }
+        }
+      ]
+    }
+    const report = buildXmindExportCompatibilityReport(doc)
+    expect(report.preserved).toEqual([])
+    expect(report.approximated).toEqual([])
+    expect(report.dropped).toEqual([])
+    expect(report.warnings).toEqual([])
+  })
+
+  it('walks the full tree depth like the exporter', () => {
+    const doc = v2ExportDocument()
+    doc.sheets[0]!.root.children[0]!.children = [
+      {
+        id: 'leaf',
+        title: 'Leaf',
+        style: { borderStyle: 'dash' as const, fontWeight: 'bold' },
+        children: []
+      }
+    ]
+    const report = buildXmindExportCompatibilityReport(doc)
+    const preserved = new Map(
+      report.preserved.map((finding) => [finding.path, finding.count])
+    )
+    const dropped = new Map(
+      report.dropped.map((finding) => [finding.path, finding.count])
+    )
+    expect(preserved.get('topics[].style.border-line-pattern')).toBe(1)
+    expect(dropped.get('topics[].style.fontWeight')).toBe(1)
   })
 })

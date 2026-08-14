@@ -130,7 +130,7 @@ describe('MindMapSourcePanel', () => {
     expect(screen.getByRole('button', { name: /Unit 1 \/ Introduction.*Open source/ })).toBeInTheDocument()
     expect(screen.getByText('lessons/unit-1.md')).toBeInTheDocument()
     expect(screen.getByText(/Source changed/)).toBeInTheDocument()
-    expect(screen.getByText(/2 topics/)).toBeInTheDocument()
+    expect(screen.getByText(/2 nodes/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /review\.md.*Open source/ })).toBeInTheDocument()
   })
 

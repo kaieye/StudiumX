@@ -20,6 +20,8 @@ import {
   Tag,
   Undo2,
   Upload,
+  ChevronsDownUp,
+  ChevronsUpDown,
   X
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -49,7 +51,10 @@ import { DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS } from './mind-map-create-presets'
 import type { MindMapFocusDirection } from './mind-map-keyboard-navigation'
 import { nextMindMapFocus } from './mind-map-keyboard-navigation'
 import { computeMindMapLayout } from './mind-map-layout'
-import { mindMapLayoutToSvgInput } from './mind-map-svg-adapter'
+import {
+  mindMapLayoutToSvgInput,
+  mindMapResolvedSvgOptions
+} from './mind-map-svg-adapter'
 import { rasterizeMindMapSvgToPng } from './mind-map-png-export'
 import { useMindMapViewStore } from './mind-map-view-store'
 import { buildMindMapTextReplacementPatch } from './mind-map-search'
@@ -93,6 +98,8 @@ export function MindMapView() {
   const insertAbove = useMindMapViewStore((s) => s.insertAbove)
   const deleteNode = useMindMapViewStore((s) => s.deleteNode)
   const toggleCollapse = useMindMapViewStore((s) => s.toggleCollapse)
+  const collapseAll = useMindMapViewStore((s) => s.collapseAll)
+  const expandAll = useMindMapViewStore((s) => s.expandAll)
   const copyNode = useMindMapViewStore((s) => s.copyNode)
   const cutNode = useMindMapViewStore((s) => s.cutNode)
   const pasteNode = useMindMapViewStore((s) => s.pasteNode)
@@ -486,7 +493,8 @@ export function MindMapView() {
       const input = mindMapLayoutToSvgInput(
         sheet.title,
         computeMindMapLayout(sheet),
-        sheet.elements
+        sheet.elements,
+        mindMapResolvedSvgOptions(latest.theme)
       )
       const result = await window.teachingSystem?.exportMindMapSvg({
         workspaceId: activeWorkspace.id,
@@ -527,7 +535,8 @@ export function MindMapView() {
       const input = mindMapLayoutToSvgInput(
         sheet.title,
         computeMindMapLayout(sheet),
-        sheet.elements
+        sheet.elements,
+        mindMapResolvedSvgOptions(latest.theme)
       )
       const raster = await rasterizeMindMapSvgToPng(input)
       const result = await window.teachingSystem?.exportMindMapPng({
@@ -831,6 +840,27 @@ export function MindMapView() {
             aria-label={t('mindmap.redo')}
           >
             <Redo2 size={16} />
+          </button>
+          <span className="mindmap-floating-toolbar__divider" aria-hidden="true" />
+          <button
+            type="button"
+            className="mindmap-floating-toolbar__btn"
+            disabled={!current}
+            onClick={collapseAll}
+            title={t('mindmap.collapseAll')}
+            aria-label={t('mindmap.collapseAll')}
+          >
+            <ChevronsDownUp size={16} />
+          </button>
+          <button
+            type="button"
+            className="mindmap-floating-toolbar__btn"
+            disabled={!current}
+            onClick={expandAll}
+            title={t('mindmap.expandAll')}
+            aria-label={t('mindmap.expandAll')}
+          >
+            <ChevronsUpDown size={16} />
           </button>
           <span className="mindmap-floating-toolbar__divider" aria-hidden="true" />
           <button

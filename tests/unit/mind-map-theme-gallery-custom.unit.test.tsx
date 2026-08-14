@@ -115,11 +115,11 @@ describe('MindMapThemeGallery custom color schemes', () => {
     expect(localStorage.getItem('mindmap.colorSchemes')).toContain('painter')
   })
 
-  it('pins favorites first and highlights the current scheme', () => {
+  it('pins favorites first within their category and highlights the current scheme', () => {
     useMindMapViewStore.setState({
       colorSchemes: {
-        schemes: [customScheme()],
-        favorites: ['user-1'],
+        schemes: [customScheme(), { ...customScheme('user-2'), name: 'Second palette' }],
+        favorites: ['user-2'],
         recent: []
       }
     })
@@ -127,9 +127,10 @@ describe('MindMapThemeGallery custom color schemes', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
     const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
-    const options = within(listbox).getAllByRole('option')
-    // Favorited custom scheme is pinned first.
-    expect(options[0]).toHaveTextContent('My palette')
+    // Favorited custom scheme is pinned first within its Custom category.
+    const customGroup = within(listbox).getByRole('group', { name: 'Custom' })
+    const customOptions = within(customGroup).getAllByRole('option')
+    expect(customOptions[0]).toHaveTextContent('Second palette')
     // Current scheme (dawn) is highlighted and selected.
     const dawn = within(listbox).getByRole('option', { name: /Dawn/i })
     expect(dawn).toHaveAttribute('aria-selected', 'true')
@@ -252,5 +253,25 @@ describe('MindMapThemeGallery custom color schemes', () => {
     expect(stored.schemes[0]?.colors).toEqual([...CUSTOM_PALETTE])
     expect(stored.favorites).toEqual(['dawn'])
     expect(stored.recent).toEqual(['fire'])
+  })
+
+  it('groups custom schemes under the Custom category and searches them', () => {
+    useMindMapViewStore.setState({
+      colorSchemes: { schemes: [customScheme()], favorites: [], recent: [] }
+    })
+    render(<MindMapThemeGallery />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
+    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
+    const customGroup = within(listbox).getByRole('group', { name: 'Custom' })
+    expect(within(customGroup).getByRole('option', { name: /My palette/i })).toBeInTheDocument()
+
+    // Searching matches the custom scheme by name (case-insensitive).
+    const search = within(listbox).getByRole('searchbox')
+    fireEvent.change(search, { target: { value: 'palette' } })
+    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['My paletteCustom'])
+    // Group labels are hidden while searching.
+    expect(within(listbox).queryByText('Recommended')).not.toBeInTheDocument()
+    expect(within(listbox).queryByRole('group', { name: 'Custom' })).not.toBeInTheDocument()
   })
 })

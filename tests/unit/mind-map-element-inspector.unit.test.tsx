@@ -191,7 +191,7 @@ describe('mind map element selection and inspector', () => {
     ]) {
       expect(screen.getByLabelText(name)).toBeDisabled()
     }
-    expect(screen.getByText('Free-topic styling is unavailable until free-topic canvas rendering is enabled.')).toBeInTheDocument()
+    expect(screen.getByText('Free-node styling is unavailable until free-node canvas rendering is enabled.')).toBeInTheDocument()
   })
   it('renders every persisted boundary style field and defaults an unspecified boundary to solid', () => {
     const document = makeDocument()

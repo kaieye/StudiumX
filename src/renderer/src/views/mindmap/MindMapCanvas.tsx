@@ -13,6 +13,10 @@ import {
 } from './mind-map-layout'
 import { branchColor } from './mind-map-branch-colors'
 import { defaultTopicTextAlign, resolveEffectiveTopicStyle } from './mind-map-topic-style'
+import {
+  resolveMindMapTopicTextColor,
+  resolveMindMapTopicTextStyle
+} from './mind-map-topic-text-style'
 import { resolveEdgePath, edgeStrokeWidth, lineDashPattern, taperedEdgePath } from './mind-map-edge-styles'
 import {
   elementLineDashArray,
@@ -76,6 +80,11 @@ const SUMMARY_GAP = 24
 const SUMMARY_LABEL_GAP = 12
 const SUMMARY_LABEL_WIDTH = 160
 const TOPIC_LABEL_HORIZONTAL_PADDING = 10
+// Starting a node drag changes the SVG hit target before pointer-up, so some
+// Chromium/Electron builds never synthesize the subsequent `dblclick`. Detect
+// the same gesture at the pointer-down seam that always receives both presses.
+const NODE_DOUBLE_POINTER_INTERVAL_MS = 450
+const NODE_DOUBLE_POINTER_DISTANCE_PX = 8
 
 function topicLabelGeometry(
   node: MindMapLayoutNode,
@@ -326,6 +335,11 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   const [zoom, setZoom] = useState(1)
   const [editValue, setEditValue] = useState('')
   const dragRef = useRef<{ startPointer: Vec2; startPan: Vec2; moved: boolean } | null>(null)
+  const lastNodePointerDownRef = useRef<{
+    nodeId: string
+    at: number
+    pointer: Vec2
+  } | null>(null)
   const handledViewportActionIdRef = useRef<number | null>(null)
   // Node drag-and-drop reparenting state
   const [nodeDragState, setNodeDragState] = useState<{
@@ -487,6 +501,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
 
   const startPointerDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (editingNodeId) return
+    lastNodePointerDownRef.current = null
     dragRef.current = {
       startPointer: { x: event.clientX, y: event.clientY },
       startPan: pan,
@@ -526,6 +541,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   }
 
   const beginEdit = (nodeId: string, initial: string): void => {
+    selectTopic(nodeId, false)
     setEditingNodeId(nodeId)
     setEditValue(initial)
   }
@@ -558,6 +574,16 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
 
   const updateNodeDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (!nodeDragState) return
+    const lastNodePointerDown = lastNodePointerDownRef.current
+    if (
+      lastNodePointerDown &&
+      Math.hypot(
+        event.clientX - lastNodePointerDown.pointer.x,
+        event.clientY - lastNodePointerDown.pointer.y
+      ) > NODE_DOUBLE_POINTER_DISTANCE_PX
+    ) {
+      lastNodePointerDownRef.current = null
+    }
     // Hit-test: find which node is under the pointer
     // Container-pixel coordinates: SVG user space = CSS pixel space.
     const svg = event.currentTarget
@@ -1004,6 +1030,8 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 node.depth
               )
             const labelGeometry = topicLabelGeometry(node, textAlign)
+            const topicTextStyle = resolveMindMapTopicTextStyle(node.depth, styleOverride)
+            const topicTextColor = resolveMindMapTopicTextColor(node.depth, styleOverride)
             return (
               <g
                 key={node.id}
@@ -1022,7 +1050,38 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   // default focus transfer avoids a second outer rectangle.
                   event.preventDefault()
                   dragRef.current = null
-                  beginNodeAction(node.id, event.metaKey || event.ctrlKey)
+                  const additive = event.metaKey || event.ctrlKey
+                  const isPrimaryActivation = event.button === 0 && !additive
+                  const now = performance.now()
+                  const previous = lastNodePointerDownRef.current
+                  // Do not rely solely on React's onDoubleClick here. The
+                  // drag class can make the topic pointer-transparent between
+                  // down/up, which prevents Chromium from emitting dblclick.
+                  const isDoublePointerActivation = Boolean(
+                    isPrimaryActivation &&
+                    previous?.nodeId === node.id &&
+                    now - previous.at <= NODE_DOUBLE_POINTER_INTERVAL_MS &&
+                    Math.hypot(
+                      event.clientX - previous.pointer.x,
+                      event.clientY - previous.pointer.y
+                    ) <= NODE_DOUBLE_POINTER_DISTANCE_PX
+                  )
+
+                  if (isDoublePointerActivation) {
+                    lastNodePointerDownRef.current = null
+                    setNodeDragState(null)
+                    beginEdit(node.id, node.title)
+                    return
+                  }
+
+                  lastNodePointerDownRef.current = isPrimaryActivation
+                    ? {
+                        nodeId: node.id,
+                        at: now,
+                        pointer: { x: event.clientX, y: event.clientY }
+                      }
+                    : null
+                  beginNodeAction(node.id, additive)
                 }}
                 onContextMenu={(event) => {
                   if (onContextMenu) {
@@ -1045,7 +1104,10 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                     startNodeDrag(node.id, event)
                   }
                 }}
-                onDoubleClick={() => beginEdit(node.id, node.title)}
+                onDoubleClick={(event) => {
+                  event.stopPropagation()
+                  if (!isEditing) beginEdit(node.id, node.title)
+                }}
               >
                 {(() => {
                   const shape = resolveShape(node.shape)
@@ -1165,13 +1227,9 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                         value={editValue}
                         autoFocus
                         style={{
-                          ...(styleOverride?.textColor ? { color: styleOverride.textColor } : {}),
-                          ...(styleOverride?.fontFamily ? { fontFamily: styleOverride.fontFamily } : {}),
-                          ...(styleOverride?.fontSize ? { fontSize: `${styleOverride.fontSize}px` } : {}),
-                          ...(styleOverride?.fontWeight ? { fontWeight: styleOverride.fontWeight } : {}),
-                          ...(styleOverride?.fontStyle ? { fontStyle: styleOverride.fontStyle } : {}),
-                          ...(styleOverride?.textDecoration ? { textDecoration: styleOverride.textDecoration } : {}),
-                          ...(styleOverride?.textTransform ? { textTransform: styleOverride.textTransform } : {}),
+                          ...topicTextStyle,
+                          color: topicTextColor,
+                          lineHeight: 1,
                           textAlign
                         }}
                         onFocus={(event) => event.target.select()}
@@ -1187,6 +1245,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                           }
                         }}
                         onPointerDown={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => event.stopPropagation()}
                       />
                     </div>
                   </foreignObject>
@@ -1198,13 +1257,8 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                       textAnchor={labelGeometry.textAnchor}
                       dominantBaseline="central"
                       style={{
-                        ...(styleOverride?.textColor ? { fill: styleOverride.textColor } : {}),
-                        ...(styleOverride?.fontFamily ? { fontFamily: styleOverride.fontFamily } : {}),
-                        ...(styleOverride?.fontSize ? { fontSize: `${styleOverride.fontSize}px` } : {}),
-                        ...(styleOverride?.fontWeight ? { fontWeight: styleOverride.fontWeight } : {}),
-                        ...(styleOverride?.fontStyle ? { fontStyle: styleOverride.fontStyle } : {}),
-                        ...(styleOverride?.textDecoration ? { textDecoration: styleOverride.textDecoration } : {}),
-                        ...(styleOverride?.textTransform ? { textTransform: styleOverride.textTransform } : {})
+                        ...topicTextStyle,
+                        fill: topicTextColor
                       }}
                     >
                     {topicNumbers.get(node.id) ? (

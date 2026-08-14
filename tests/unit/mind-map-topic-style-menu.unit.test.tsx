@@ -1,11 +1,16 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../src/renderer/src/i18n'
 import { MindMapTopicColorPicker, MindMapTopicStyleMenu } from '../../src/renderer/src/views/mindmap/MindMapTopicStyleMenu'
 
 describe('MindMapTopicStyleMenu', () => {
   beforeEach(async () => {
     await i18n.changeLanguage('en-US')
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    localStorage.clear()
   })
 
   it('keeps color options out of the inspector until the compact trigger is requested', () => {
@@ -172,5 +177,201 @@ describe('MindMapTopicStyleMenu', () => {
     fireEvent.click(selectedTrigger)
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Border Width' })).getByRole('button', { name: 'Clear field override' }))
     expect(onChange).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('renders an alpha slider that rewrites the concrete color to 8-digit hex', () => {
+    const onChange = vi.fn()
+    render(
+      <MindMapTopicColorPicker
+        id="fill-color"
+        label="Fill Color"
+        value={{ state: 'concrete', value: '#123456' }}
+        presets={['#123456']}
+        fallback="#FFFFFF"
+        onChange={onChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fill Color #123456' }))
+    const dialog = screen.getByRole('dialog', { name: 'Fill Color' })
+    const slider = within(dialog).getByRole('slider', { name: 'Background opacity' })
+    expect(slider).toHaveValue('100')
+
+    fireEvent.change(slider, { target: { value: '50' } })
+    expect(onChange).toHaveBeenLastCalledWith('#12345680')
+
+    fireEvent.change(slider, { target: { value: '0' } })
+    expect(onChange).toHaveBeenLastCalledWith('#12345600')
+  })
+
+  it('strips alpha from the native color well value', () => {
+    const onChange = vi.fn()
+    render(
+      <MindMapTopicColorPicker
+        id="fill-color"
+        label="Fill Color"
+        value={{ state: 'concrete', value: '#12345680' }}
+        presets={['#12345680']}
+        fallback="#FFFFFF"
+        onChange={onChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fill Color #12345680' }))
+    const dialog = screen.getByRole('dialog', { name: 'Fill Color' })
+    expect(within(dialog).getByLabelText('Custom Color')).toHaveValue('#123456')
+  })
+
+  it('bases the alpha slider on the effective display color for mixed/inherit values', () => {
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <MindMapTopicColorPicker
+        id="fill-color"
+        label="Fill Color"
+        value={{ state: 'inherited' }}
+        displayValue={{ state: 'concrete', value: '#12345680' }}
+        presets={[]}
+        fallback="#FFFFFF"
+        onChange={onChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fill Color #12345680' }))
+    expect(within(screen.getByRole('dialog', { name: 'Fill Color' })).getByRole('slider', { name: 'Background opacity' }))
+      .toHaveValue('50')
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+
+    rerender(
+      <MindMapTopicColorPicker
+        id="fill-color"
+        label="Fill Color"
+        value={{ state: 'mixed' }}
+        displayValue={{ state: 'mixed' }}
+        presets={[]}
+        fallback="#FFFFFF"
+        onChange={onChange}
+      />
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Fill Color Mixed' })
+    fireEvent.click(trigger)
+    const slider = within(screen.getByRole('dialog', { name: 'Fill Color' })).getByRole('slider', { name: 'Background opacity' })
+    expect(slider).toHaveValue('100')
+    fireEvent.change(slider, { target: { value: '50' } })
+    expect(onChange).toHaveBeenLastCalledWith('#FFFFFF80')
+  })
+
+  it('records a recently used color and reapplies it from the recent row', () => {
+    const onChange = vi.fn()
+    const { unmount } = render(
+      <MindMapTopicColorPicker
+        id="fill-color"
+        label="Fill Color"
+        value={{ state: 'inherited' }}
+        displayValue={{ state: 'concrete', value: '#4A90D9' }}
+        presets={['#4A90D9', '#123456']}
+        fallback="#4A90D9"
+        onChange={onChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fill Color #4A90D9' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Fill Color' })).getByRole('option', { name: '#123456' }))
+    expect(onChange).toHaveBeenCalledWith('#123456')
+    unmount()
+
+    // Recent colors are persisted in localStorage and restored on remount.
+    onChange.mockClear()
+    render(
+      <MindMapTopicColorPicker
+        id="fill-color"
+        label="Fill Color"
+        value={{ state: 'concrete', value: '#654321' }}
+        presets={['#4A90D9']}
+        fallback="#4A90D9"
+        onChange={onChange}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Fill Color #654321' }))
+    const dialog = screen.getByRole('dialog', { name: 'Fill Color' })
+    const chip = within(dialog).getByRole('button', { name: 'Recent color #123456' })
+    expect(chip).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(chip)
+    expect(onChange).toHaveBeenCalledWith('#123456')
+  })
+
+  it('dedupes, caps at 8 most-recent-first, and clears recent colors', () => {
+    const onChange = vi.fn()
+    render(
+      <MindMapTopicColorPicker
+        id="fill-color"
+        label="Fill Color"
+        value={{ state: 'concrete', value: '#123456' }}
+        presets={['#123456']}
+        fallback="#FFFFFF"
+        onChange={onChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fill Color #123456' }))
+    const dialog = screen.getByRole('dialog', { name: 'Fill Color' })
+    const slider = within(dialog).getByRole('slider', { name: 'Background opacity' })
+    // 9 distinct alpha variants -> capped to 8, most-recent-first.
+    ;[100, 90, 80, 70, 60, 50, 40, 30, 20].forEach((value) => {
+      fireEvent.change(slider, { target: { value: String(value) } })
+    })
+    const group = within(dialog).getByRole('group', { name: 'Recent colors' })
+    const chips = within(group).getAllByRole('button')
+    expect(chips).toHaveLength(8)
+    expect(chips[0]).toHaveAttribute('aria-label', 'Recent color #12345633')
+    expect(chips[7]).toHaveAttribute('aria-label', 'Recent color #123456E6')
+
+    // Applying the most-recent color again is deduped (still 8 unique).
+    fireEvent.change(slider, { target: { value: '20' } })
+    expect(within(group).getAllByRole('button')).toHaveLength(8)
+    expect(within(group).getAllByRole('button')[0]).toHaveAttribute('aria-label', 'Recent color #12345633')
+    expect(within(group).getAllByRole('button').filter(
+      (chip) => chip.getAttribute('aria-label') === 'Recent color #12345633'
+    )).toHaveLength(1)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear recent colors' }))
+    expect(within(dialog).queryByRole('group', { name: 'Recent colors' })).not.toBeInTheDocument()
+  })
+
+  it('announces inherited field state and selected option without relying on colour', () => {
+    render(
+      <MindMapTopicStyleMenu
+        id="border-style"
+        label="Border Style"
+        value={{ state: 'inherited' }}
+        displayValue={{ state: 'concrete', value: 'solid' }}
+        options={[{ value: 'solid', label: 'Solid' }, { value: 'dash', label: 'Dashed' }]}
+        onChange={vi.fn()}
+      />
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Border Style Solid' })
+    expect(trigger).toHaveAccessibleDescription('Inherited from theme')
+
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Border Style' })
+    const selected = within(dialog).getByRole('option', { name: 'Solid' })
+    expect(selected).toHaveAttribute('aria-selected', 'true')
+    expect(selected).toHaveAccessibleDescription('Selected')
+  })
+
+  it('announces the explicit none state on the trigger', () => {
+    render(
+      <MindMapTopicStyleMenu
+        id="fill-pattern"
+        label="Fill Pattern"
+        value={{ state: 'none' }}
+        displayValue={{ state: 'none' }}
+        options={[{ value: 'solid', label: 'Solid' }]}
+        onChange={vi.fn()}
+      />
+    )
+    const trigger = screen.getByRole('button', { name: 'Fill Pattern None' })
+    expect(trigger).toHaveAccessibleDescription('Explicit none')
   })
 })
