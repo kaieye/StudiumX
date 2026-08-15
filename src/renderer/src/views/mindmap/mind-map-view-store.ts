@@ -28,7 +28,9 @@ import {
   buildOutdentCommand,
   buildPasteCommandForPayload,
   buildRemoveCommand,
+  buildRemoveTopicsCommand,
   buildToggleCollapseCommand,
+  buildToggleCollapseTopicsCommand,
   findTopicInSheet
 } from './mind-map-commands'
 import type { MindMapQuickStylePreset } from '../../../../shared/mindmap/quick-styles'
@@ -123,6 +125,7 @@ type MindMapViewState = {
 
   dispatchCommand: (command: MindMapCommand, options?: MindMapExecuteOptions) => void
   selectTopic: (id: string, additive?: boolean) => void
+  setTopicSelection: (topicIds: readonly string[], additive?: boolean) => void
   selectElement: (id: string, type: MindMapElementType) => void
   selectCanvas: () => void
   undo: () => void
@@ -140,7 +143,9 @@ type MindMapViewState = {
   outdent: (nodeId: string) => void
   insertAbove: (nodeId: string) => void
   deleteNode: (nodeId: string) => void
+  deleteNodes: (nodeIds: readonly string[]) => void
   toggleCollapse: (nodeId: string) => void
+  toggleCollapseNodes: (nodeIds: readonly string[]) => void
   updateNode: (nodeId: string, patch: MindMapTopicUpdatePatch) => void
   collapseAll: () => void
   expandAll: () => void
@@ -657,6 +662,39 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       })
     },
 
+
+    setTopicSelection: (topicIds, additive = false) => {
+      const ids = [...new Set(topicIds)]
+      set((state) => {
+        if (ids.length === 0 && !additive) {
+          return {
+            selection: { kind: 'canvas' as const },
+            selectedNodeId: null,
+            editingNodeId: null,
+            ...revealInspector('format')
+          }
+        }
+        const merged = additive && state.selection.kind === 'topic'
+          ? [...new Set([...state.selection.topicIds, ...ids])]
+          : ids
+        if (merged.length === 0) {
+          return {
+            selection: { kind: 'canvas' as const },
+            selectedNodeId: null,
+            editingNodeId: null,
+            ...revealInspector('format')
+          }
+        }
+        const primary = merged.at(-1) ?? null
+        return {
+          selection: { kind: 'topic' as const, topicIds: merged },
+          selectedNodeId: primary,
+          editingNodeId: null,
+          ...revealInspector('content')
+        }
+      })
+    },
+
     selectElement: (id, type) => {
       set({
         selection: { kind: 'element', elementId: id, elementType: type },
@@ -780,6 +818,17 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       }
     },
 
+    deleteNodes: (nodeIds) => {
+      const firstId = nodeIds[0]
+      const sheet = firstId ? activeSheetContainingTopic(get(), firstId) : undefined
+      if (!sheet) return
+      const command = buildRemoveTopicsCommand(sheet, nodeIds)
+      if (command) {
+        dispatchCommand(command, { label: nodeIds.length > 1 ? 'Delete selected topics' : 'Delete topic' })
+        set({ selection: { kind: 'canvas' }, selectedNodeId: null })
+      }
+    },
+
     toggleCollapse: (nodeId) => {
       const sheet = activeSheetContainingTopic(get(), nodeId)
       if (!sheet) return
@@ -789,6 +838,19 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       dispatchCommand(buildToggleCollapseCommand(sheet.id, nodeId, collapsed), {
         label: 'Toggle collapse'
       })
+    },
+
+    toggleCollapseNodes: (nodeIds) => {
+      const firstId = nodeIds[0]
+      const sheet = firstId ? activeSheetContainingTopic(get(), firstId) : undefined
+      if (!sheet) return
+      const refs = [...new Set(nodeIds)]
+        .map((id) => findTopicInSheet(sheet, id)?.node)
+        .filter((topic): topic is NonNullable<typeof topic> => topic !== undefined)
+      if (refs.length === 0) return
+      const collapsed = refs.some((topic) => topic.collapsed !== true)
+      const command = buildToggleCollapseTopicsCommand(sheet, refs.map((topic) => topic.id), collapsed)
+      if (command) dispatchCommand(command, { label: refs.length > 1 ? 'Toggle selected topics' : 'Toggle collapse' })
     },
 
     updateNode: (nodeId, patch) => {

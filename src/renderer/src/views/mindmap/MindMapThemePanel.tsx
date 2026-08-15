@@ -236,7 +236,6 @@ export function MindMapThemePanel() {
           searchPlaceholder="Search fonts…"
           searchLabel="Search fonts"
           noResultsLabel="No fonts found."
-          allLabel="All fonts"
         />
         {documentFontMayFallback ? (
           <span className="mindmap-topic-style__font-warning" role="status">
@@ -545,8 +544,7 @@ export function MindMapFontPicker({
   clearLabel = 'Clear field override',
   searchPlaceholder = 'Search fonts…',
   searchLabel = 'Search fonts',
-  noResultsLabel = 'No fonts found.',
-  allLabel = 'All fonts'
+  noResultsLabel = 'No fonts found.'
 }: MindMapFontPickerProps) {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -704,9 +702,6 @@ export function MindMapFontPicker({
               ) : null}
               {systemShown || allEntries.length > 0 ? (
                 <div className="mindmap-font-picker__group">
-                  <span className="mindmap-topic-shape-picker__category-label">
-                    {allLabel}
-                  </span>
                   <div
                     className="mindmap-topic-shape-picker__category"
                     style={FONT_GROUP_CATEGORY_STYLE}

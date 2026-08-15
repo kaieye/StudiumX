@@ -40,7 +40,6 @@ import { MindMapContextMenu } from './MindMapContextMenu'
 import { MindMapZoomControls } from './MindMapZoomControls'
 import { useMindMapContextMenu } from './mind-map-context-menu-hook'
 import type { MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
-import type { MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
 import type { MindMapCommand } from '../../../../shared/mindmap/commands'
 import type { XmindCompatibilityReport } from '../../../../shared/mindmap/xmind-compatibility'
 import { useMindMapKeyboard } from './mind-map-keyboard'
@@ -92,7 +91,9 @@ export function MindMapView() {
   const outdent = useMindMapViewStore((s) => s.outdent)
   const insertAbove = useMindMapViewStore((s) => s.insertAbove)
   const deleteNode = useMindMapViewStore((s) => s.deleteNode)
+  const deleteNodes = useMindMapViewStore((s) => s.deleteNodes)
   const toggleCollapse = useMindMapViewStore((s) => s.toggleCollapse)
+  const toggleCollapseNodes = useMindMapViewStore((s) => s.toggleCollapseNodes)
   const collapseAll = useMindMapViewStore((s) => s.collapseAll)
   const expandAll = useMindMapViewStore((s) => s.expandAll)
   const copyNode = useMindMapViewStore((s) => s.copyNode)
@@ -119,9 +120,6 @@ export function MindMapView() {
   const [createSubmitting, setCreateSubmitting] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [titleDraft, setTitleDraft] = useState('')
-  const [createStructureClass, setCreateStructureClass] = useState<MindMapStructureClass>(
-    DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS
-  )
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [exportFeedback, setExportFeedback] = useState<MindMapExportFeedbackState | null>(null)
@@ -142,6 +140,7 @@ export function MindMapView() {
   } = useMindMapContextMenu()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const createSubmittingRef = useRef(false)
+  const exportMenuRef = useRef<HTMLDivElement | null>(null)
 
   const triggerViewportAction = (
     action: Exclude<MindMapCanvasViewportAction, { type: 'navigate' }>['type']
@@ -167,10 +166,12 @@ export function MindMapView() {
         if (selectedNodeId !== null) insertAbove(selectedNodeId)
       },
       toggleCollapse: () => {
-        if (selectedNodeId !== null) toggleCollapse(selectedNodeId)
+        if (selection.kind === 'topic' && selection.topicIds.length > 1) toggleCollapseNodes(selection.topicIds)
+        else if (selectedNodeId !== null) toggleCollapse(selectedNodeId)
       },
       remove: () => {
-        if (selectedNodeId !== null) deleteNode(selectedNodeId)
+        if (selection.kind === 'topic' && selection.topicIds.length > 1) deleteNodes(selection.topicIds)
+        else if (selectedNodeId !== null) deleteNode(selectedNodeId)
       },
       edit: () => {
         if (selectedNodeId !== null) setEditingNodeId(selectedNodeId)
@@ -214,13 +215,25 @@ export function MindMapView() {
     void loadDocuments()
   }, [loadDocuments, activeWorkspace?.id])
 
-  // Keep this callback stable while the dialog is open so typing or changing
-  // a preset does not re-run the dialog's focus/escape effect.
+  // Close the import/export menu when clicking anywhere outside it, instead of
+  // requiring a second click on the trigger to dismiss it.
+  useEffect(() => {
+    if (!exportMenuOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setExportMenuOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [exportMenuOpen])
+
+  // Keep this callback stable while the dialog is open so typing does not
+  // re-run the dialog's focus/escape effect.
   const cancelCreate = useCallback((): void => {
     if (createSubmittingRef.current) return
     setCreating(false)
     setTitleDraft('')
-    setCreateStructureClass(DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS)
     setCreateError(null)
   }, [])
 
@@ -235,7 +248,6 @@ export function MindMapView() {
   const handleCreate = (): void => {
     setNotice(null)
     setTitleDraft('')
-    setCreateStructureClass(DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS)
     setCreateError(null)
     setCreating(true)
   }
@@ -243,12 +255,11 @@ export function MindMapView() {
   const commitCreate = async (): Promise<void> => {
     if (createSubmittingRef.current) return
     const title = titleDraft.trim() || t('mindmap.newDocument')
-    const structureClass = createStructureClass
     createSubmittingRef.current = true
     setCreateSubmitting(true)
     setCreateError(null)
     try {
-      const created = await createDocument(title, structureClass)
+      const created = await createDocument(title, DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS)
       // XMind starts a new map in an editable root topic. Keep the same low
       // friction flow while still creating a valid, persisted document first.
       const root = created.sheets[0]?.root
@@ -258,7 +269,6 @@ export function MindMapView() {
       }
       setCreating(false)
       setTitleDraft('')
-      setCreateStructureClass(DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS)
     } catch (error) {
       setCreateError(
         error instanceof Error && error.message
@@ -597,20 +607,36 @@ export function MindMapView() {
     handleAddChild()
   }
 
+  const closeUtilityPanel = (): void => {
+    // Open the inspector before removing the utility body when the utility was
+    // opened from the collapsed rail. This keeps the shell expanded throughout
+    // the hand-off instead of briefly animating through a collapsed state.
+    if (!inspectorOpen) toggleInspector()
+    setUtilityPanel(null)
+  }
+
   const toggleUtilityPanel = (panel: MindMapUtilityPanelKind): void => {
     if (utilityPanel === panel) {
-      setUtilityPanel(null)
+      closeUtilityPanel()
       return
     }
 
-    // Only one right-side surface is visible at a time. The inspector remains
-    // available from its own header action, rather than competing with a tool.
-    if (inspectorOpen) toggleInspector()
+    // Utility views reuse the inspector shell so the header actions stay
+    // available above the tool. Keep the inspector's persisted open state
+    // unchanged; closing the utility can then restore the regular body.
     setUtilityPanel(panel)
   }
 
   const toggleInspectorPanel = (): void => {
-    setUtilityPanel(null)
+    if (utilityPanel !== null) {
+      // If the utility was opened while the inspector was expanded, the
+      // header collapse action should still collapse it. If it was already
+      // collapsed, dismissing the utility keeps it collapsed. Toggle first so
+      // the regular inspector body never flashes during the hand-off.
+      if (inspectorOpen) toggleInspector()
+      setUtilityPanel(null)
+      return
+    }
     toggleInspector()
   }
 
@@ -644,10 +670,8 @@ export function MindMapView() {
           createSubmitting={createSubmitting}
           createError={createError}
           titleDraft={titleDraft}
-          createStructureClass={createStructureClass}
           onCreate={handleCreate}
           onTitleDraftChange={setTitleDraft}
-          onCreateStructureClassChange={setCreateStructureClass}
           onCommitCreate={commitCreate}
           onCancelCreate={cancelCreate}
           onOpenDocument={openDocument}
@@ -674,34 +698,6 @@ export function MindMapView() {
           >
             <Home size={18} aria-hidden="true" />
           </button>
-        </div>
-        <div className="mindmap-stage__top-actions">
-          <div
-            className="mindmap-stage__utility-actions"
-            role="toolbar"
-            aria-label={t('mindmap.viewTitle')}
-          >
-            <button
-              type="button"
-              className={`mindmap-stage__utility-button${utilityPanel === 'search' ? ' is-active' : ''}`}
-              onClick={() => toggleUtilityPanel('search')}
-              title={t('mindmap.search')}
-              aria-label={t('mindmap.search')}
-              aria-pressed={utilityPanel === 'search'}
-            >
-              <Search size={16} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className={`mindmap-stage__utility-button${utilityPanel === 'outline' ? ' is-active' : ''}`}
-              onClick={() => toggleUtilityPanel('outline')}
-              title={t('mindmap.outline')}
-              aria-label={t('mindmap.outline')}
-              aria-pressed={utilityPanel === 'outline'}
-            >
-              <ListTree size={16} aria-hidden="true" />
-            </button>
-          </div>
         </div>
         <div className="mindmap-floating-toolbar" role="toolbar" aria-label={t('mindmap.viewTitle')}>
           <button
@@ -886,79 +882,102 @@ export function MindMapView() {
         </>
       </div>
 
-      {utilityPanel && activeSheet ? (
-        <MindMapUtilityPanel
-          panel={utilityPanel}
-          sheet={activeSheet}
-          selectedNodeId={selectedNodeId}
-          onClose={() => setUtilityPanel(null)}
-          onSelect={selectAndRevealMindMapNode}
-          onToggleCollapse={toggleCollapse}
-          onReplace={replaceMindMapText}
-          onReplaceAll={replaceAllMindMapText}
-        />
-      ) : (
-        <MindMapAiPanel
-          open={inspectorOpen}
-          onToggle={toggleInspectorPanel}
-          documentTitle={current.title}
-          onRenameDocument={renameDocument}
-          importExportControl={(
-            <div className="mindmap-export-dropdown">
-              <button
-                type="button"
-                className="mindmap-inspector-header-button icon-button"
-                disabled={busy}
-                onClick={() => setExportMenuOpen((value) => !value)}
-                title={t('mindmap.share')}
-                aria-label={t('mindmap.share')}
-                aria-expanded={exportMenuOpen}
-              >
-                <Share2 size={14} aria-hidden="true" />
-              </button>
-              {exportMenuOpen ? (
-                <div className="mindmap-export-dropdown__menu" role="menu">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept={MIND_MAP_IMPORT_ACCEPT}
-                    hidden
-                    onChange={(event) => {
-                      void handleImport(event.currentTarget.files?.[0] ?? null)
-                      setExportMenuOpen(false)
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="mindmap-export-dropdown__item"
-                    role="menuitem"
-                    disabled={busy}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <Upload size={14} /> {t('mindmap.import')}
-                  </button>
-                  <div className="mindmap-export-dropdown__divider" />
-                  <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleExport(); setExportMenuOpen(false) }}>
-                    <Download size={14} /> {t('mindmap.exportXmind')}
-                  </button>
-                  <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleMarkdownExport(); setExportMenuOpen(false) }}>
-                    <FileText size={14} /> {t('mindmap.exportMarkdown')}
-                  </button>
-                  <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleOpmlExport(); setExportMenuOpen(false) }}>
-                    <FileCode size={14} /> {t('mindmap.exportOpml')}
-                  </button>
-                  <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleSvgExport(); setExportMenuOpen(false) }}>
-                    <ImageIcon size={14} /> {t('mindmap.exportSvg')}
-                  </button>
-                  <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handlePngExport(); setExportMenuOpen(false) }}>
-                    <FileImage size={14} /> {t('mindmap.exportPng')}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          )}
-        />
-      )}
+      <MindMapAiPanel
+        open={inspectorOpen || utilityPanel !== null}
+        onToggle={toggleInspectorPanel}
+        documentTitle={current.title}
+        onRenameDocument={renameDocument}
+        utilityControl={(
+          <div className="mindmap-inspector-utility" role="toolbar" aria-label={t('mindmap.viewTitle')}>
+            <button
+              type="button"
+              className={`mindmap-inspector-header-button icon-button${utilityPanel === 'search' ? ' is-active' : ''}`}
+              onClick={() => toggleUtilityPanel('search')}
+              title={t('mindmap.search')}
+              aria-label={t('mindmap.search')}
+              aria-pressed={utilityPanel === 'search'}
+            >
+              <Search size={15} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`mindmap-inspector-header-button icon-button${utilityPanel === 'outline' ? ' is-active' : ''}`}
+              onClick={() => toggleUtilityPanel('outline')}
+              title={t('mindmap.outline')}
+              aria-label={t('mindmap.outline')}
+              aria-pressed={utilityPanel === 'outline'}
+            >
+              <ListTree size={15} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        utilityContent={utilityPanel && activeSheet ? (
+          <MindMapUtilityPanel
+            panel={utilityPanel}
+            sheet={activeSheet}
+            selectedNodeId={selectedNodeId}
+            onClose={closeUtilityPanel}
+            onSelect={selectAndRevealMindMapNode}
+            onToggleCollapse={toggleCollapse}
+            onReplace={replaceMindMapText}
+            onReplaceAll={replaceAllMindMapText}
+          />
+        ) : null}
+        importExportControl={(
+          <div ref={exportMenuRef} className="mindmap-export-dropdown">
+            <button
+              type="button"
+              className="mindmap-inspector-header-button icon-button"
+              disabled={busy}
+              onClick={() => setExportMenuOpen((value) => !value)}
+              title={t('mindmap.share')}
+              aria-label={t('mindmap.share')}
+              aria-expanded={exportMenuOpen}
+            >
+              <Share2 size={14} aria-hidden="true" />
+            </button>
+            {exportMenuOpen ? (
+              <div className="mindmap-export-dropdown__menu" role="menu">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={MIND_MAP_IMPORT_ACCEPT}
+                  hidden
+                  onChange={(event) => {
+                    void handleImport(event.currentTarget.files?.[0] ?? null)
+                    setExportMenuOpen(false)
+                  }}
+                />
+                <button
+                  type="button"
+                  className="mindmap-export-dropdown__item"
+                  role="menuitem"
+                  disabled={busy}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload size={14} /> {t('mindmap.import')}
+                </button>
+                <div className="mindmap-export-dropdown__divider" />
+                <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleExport(); setExportMenuOpen(false) }}>
+                  <Download size={14} /> {t('mindmap.exportXmind')}
+                </button>
+                <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleMarkdownExport(); setExportMenuOpen(false) }}>
+                  <FileText size={14} /> {t('mindmap.exportMarkdown')}
+                </button>
+                <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleOpmlExport(); setExportMenuOpen(false) }}>
+                  <FileCode size={14} /> {t('mindmap.exportOpml')}
+                </button>
+                <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleSvgExport(); setExportMenuOpen(false) }}>
+                  <ImageIcon size={14} /> {t('mindmap.exportSvg')}
+                </button>
+                <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handlePngExport(); setExportMenuOpen(false) }}>
+                  <FileImage size={14} /> {t('mindmap.exportPng')}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )}
+      />
     </div>
   )
 }

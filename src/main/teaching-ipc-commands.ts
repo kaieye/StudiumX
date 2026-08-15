@@ -46,6 +46,8 @@ export {
   parseMindMapListPayload,
   parseMindMapCreatePayload,
   parseMindMapAccessPayload,
+  parseMindMapAssetImportPayload,
+  parseMindMapAssetReadPayload,
   parseMindMapUpdatePayload,
   parseMindMapFlushPayload,
   parseMindMapSourceRefreshPayload,

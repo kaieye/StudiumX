@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../src/renderer/src/i18n'
 import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
@@ -8,7 +9,17 @@ import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 import type { MindMapSummary } from '../../src/shared/mindmap/mind-map-types'
 import type { TeachingSystemApi, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 
-vi.mock('../../src/renderer/src/views/mindmap/MindMapAiPanel', () => ({ MindMapAiPanel: () => null }))
+vi.mock('../../src/renderer/src/views/mindmap/MindMapAiPanel', () => ({
+  MindMapAiPanel: ({
+    utilityControl,
+    utilityContent
+  }: { utilityControl?: ReactNode; utilityContent?: ReactNode }) => (
+    <aside>
+      {utilityControl}
+      {utilityContent}
+    </aside>
+  )
+}))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapCanvas', () => ({ MindMapCanvas: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapExportFeedback', () => ({ MindMapExportFeedback: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapImportCompatibilityReport', () => ({ MindMapImportCompatibilityReport: () => null }))
@@ -124,7 +135,7 @@ describe('MindMapView create flow', () => {
     expect(container.querySelector('.mindmap-stage')).not.toBeInTheDocument()
   })
 
-  it('opens a floating create dialog and creates with the selected structure', async () => {
+  it('opens a focused create dialog and uses the standard mind map structure', async () => {
     render(<MindMapView />)
 
     const createButton = screen.getAllByRole('button', { name: 'New mind map' })[0]
@@ -133,17 +144,10 @@ describe('MindMapView create flow', () => {
     expect(screen.getByRole('dialog', { name: 'Create a mind map' })).toBeInTheDocument()
     expect(createButton).toHaveClass('mindmap-home-card--new')
     expect(createButton).not.toHaveClass('mindmap-home-card--creating')
-    expect(screen.getByRole('radio', { name: /Mind map/i })).toHaveAttribute(
-      'aria-checked',
-      'true'
-    )
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
     expect(window.teachingSystem?.createMindMap).not.toHaveBeenCalled()
 
-    const matrixPreset = screen.getByRole('radio', { name: /Matrix chart/i })
-    matrixPreset.focus()
-    fireEvent.click(matrixPreset)
-    expect(matrixPreset).toHaveFocus()
-    expect(matrixPreset).toHaveAttribute('aria-checked', 'true')
     fireEvent.change(screen.getByRole('textbox', { name: 'Mind map name' }), {
       target: { value: 'Chemistry' }
     })
@@ -152,7 +156,7 @@ describe('MindMapView create flow', () => {
     await waitFor(() => expect(window.teachingSystem?.createMindMap).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       title: 'Chemistry',
-      structureClass: 'org.xmind.ui.spreadsheet'
+      structureClass: 'org.xmind.ui.logic.map'
     }))
     expect(useMindMapViewStore.getState().current?.title).toBe('Chemistry')
   })

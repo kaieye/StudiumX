@@ -384,6 +384,7 @@ export const mindMapTopicV2Schema: z.ZodType<
       labels: z.array(z.string()).optional(),
       markers: z.array(mindMapMarkerSchema).optional(),
       links: z.array(mindMapLinkSchema).optional(),
+      formula: z.string().max(16_384).optional(),
       sourceRefs: z.array(mindMapSourceRefSchema).optional(),
       assetIds: z.array(z.string().min(1)).optional(),
       planning: mindMapPlanningMetadataSchema.optional(),

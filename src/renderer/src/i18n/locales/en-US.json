@@ -1983,7 +1983,6 @@
         "connector": "Connectors",
         "spacing": "Branch spacing",
         "compact": "Compact branches",
-        "compactDescription": "Reduce vertical gaps between sibling branches.",
         "reset": "Reset canvas layout",
         "updateLabel": "Update canvas layout",
         "right": "Right",
@@ -2041,7 +2040,6 @@
         "rounded-elbow": "Rounded Elbow",
         "rounded-fold": "Rounded Fold",
         "connectorDefault": "Structure default",
-        "resetField": "Use structure default",
         "brace": "Brace",
         "timeline": "Timeline",
         "fishbone": "Fishbone",
@@ -2051,51 +2049,34 @@
       "content": "Node",
       "contentTopicOnly": "Select a node or element to edit its content and style."
     },
+    "contentPanel": {
+      "title": "Node content",
+      "formula": "Formula (LaTeX)",
+      "formulaPlaceholder": "Enter a LaTeX formula, for example: \\frac{a}{b}",
+      "formulaPreview": "Preview",
+      "links": "Links",
+      "linkUrl": "URL",
+      "linkTitle": "Title (optional)",
+      "addLink": "Add link",
+      "removeLink": "Remove link",
+      "openLink": "Open link",
+      "images": "Images",
+      "addImage": "Add image",
+      "removeImage": "Remove image",
+      "assetLoading": "Loading image…",
+      "assetError": "Unable to load image",
+      "invalidUrl": "Only http:// and https:// links are allowed.",
+      "multiSelection": "Select one node to edit formulas, links, or images ({{count}} selected)."
+    },
     "newDocument": "New mind map",
     "createDialog": {
       "title": "Create a mind map",
-      "description": "Name your map and choose a structure to start with.",
+      "description": "Name your map to start with the standard mind map layout.",
       "nameLabel": "Mind map name",
-      "structureLabel": "Choose a structure",
       "cancel": "Cancel",
       "create": "Create mind map",
       "creating": "Creating mind map…",
-      "createFailed": "Could not create the mind map. Please try again.",
-      "selected": "Selected",
-      "presets": {
-        "mindMap": {
-          "title": "Mind map",
-          "description": "Branch freely from a central node."
-        },
-        "logic": {
-          "title": "Logic chart",
-          "description": "Organize nodes from left to right."
-        },
-        "org": {
-          "title": "Organization chart",
-          "description": "Show a hierarchy from top to bottom."
-        },
-        "tree": {
-          "title": "Tree chart",
-          "description": "Expand a root node toward the right."
-        },
-        "brace": {
-          "title": "Brace map",
-          "description": "Group related nodes with a bracket layout."
-        },
-        "timeline": {
-          "title": "Timeline",
-          "description": "Arrange events along a horizontal sequence."
-        },
-        "fishbone": {
-          "title": "Fishbone chart",
-          "description": "Explore causes around a central result."
-        },
-        "matrix": {
-          "title": "Matrix chart",
-          "description": "Compare nodes in a grid of rows and columns."
-        }
-      }
+      "createFailed": "Could not create the mind map. Please try again."
     },
     "import": "Import",
     "importXmind": "Import XMind",
@@ -2417,9 +2398,9 @@
       "fillPatternHandDrawn": "Hand-drawn",
       "fillPatternDiagonal": "Diagonal",
       "fillPatternHorizontal": "Horizontal",
-      "shapeQuote": "Quote",
+      "shapeQuote": "Double Quote",
       "shapeCallout": "Callout",
-      "shapeBracket": "Bracket",
+      "shapeBracket": "Square Bracket",
       "shapeArrowRight": "Arrow Right",
       "shapeArrowLeft": "Arrow Left",
       "shapeHeart": "Heart",
@@ -2714,7 +2695,7 @@
       },
       "outlineShapes": {
         "rectangle": "Rectangle",
-        "rounded-rectangle": "Rounded rectangle",
+        "rounded-rectangle": "Rounded Rectangle",
         "ellipse": "Ellipse",
         "polygon": "Polygon",
         "scallops": "Scallops",

@@ -7,7 +7,7 @@ import type {
   MindMapProposalRequest,
 } from '../mindmap/commands/mind-map-proposal-request'
 import type { MindMapProposalScope } from '../mindmap/commands/mind-map-proposal'
-import type { MindMapSourceRef } from '../mindmap/domain/types'
+import type { MindMapAssetRef, MindMapSourceRef } from '../mindmap/domain/types'
 import type { MindMapDocumentV2 } from '../mindmap/domain/types'
 import type { MindMapStructureClass } from '../mindmap/mind-map-types'
 import type { MindMapSvgExportInput } from '../mindmap/svg-export'
@@ -37,6 +37,28 @@ export type MindMapAccessPayload = {
   workspaceId: string
   id: string
 }
+
+/** Open a native image picker and copy the selected file into the workspace. */
+export type MindMapAssetImportPayload = {
+  workspaceId: string
+  id: string
+}
+
+export type MindMapAssetImportResult =
+  | { canceled: true }
+  | { canceled: false; asset: MindMapAssetRef }
+
+/** Read one document-declared image as a short-lived renderer data URL. */
+export type MindMapAssetReadPayload = {
+  workspaceId: string
+  id: string
+  assetId: string
+}
+
+export type MindMapAssetReadResult = {
+  asset: MindMapAssetRef
+  dataUrl: string
+} | null
 
 export type MindMapUpdatePayload = {
   workspaceId: string

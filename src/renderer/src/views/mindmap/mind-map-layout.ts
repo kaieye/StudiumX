@@ -815,3 +815,81 @@ export function computeMindMapLayout(
 
   return { nodes, edges, relationships, callouts, summaries, boundaries }
 }
+
+/** Find a topic by id within a cloned tree (or null). */
+function findTopicNodeById(node: MindMapTopicV2, id: string): MindMapTopicV2 | null {
+  if (node.id === id) return node
+  for (const child of node.children) {
+    const found = findTopicNodeById(child, id)
+    if (found) return found
+  }
+  return null
+}
+
+/** Find the parent of the topic with `id` (or null if it is the root / absent). */
+function findTopicParentNodeById(
+  node: MindMapTopicV2,
+  id: string
+): MindMapTopicV2 | null {
+  for (const child of node.children) {
+    if (child.id === id) return node
+    const found = findTopicParentNodeById(child, id)
+    if (found) return found
+  }
+  return null
+}
+
+/** Whether `id` is `node` itself or one of its descendants. */
+function containsTopicNode(node: MindMapTopicV2, id: string): boolean {
+  if (node.id === id) return true
+  return node.children.some((child) => containsTopicNode(child, id))
+}
+
+/** The content-space rect of a topic in a layout result. */
+export type MindMapMovedTopicPreview = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/**
+ * Compute where a topic would be placed if it were moved to become a child of
+ * `toParentId` (mirroring `topic.move`'s insert-at-front default), without
+ * mutating the input tree.
+ *
+ * Returns the moved topic's layout rect in the preview tree, or `null` when
+ * the move is invalid (topic missing, is the root, target missing, or a
+ * cyclic move into its own descendant). The caller renders a dashed ghost node
+ * at the returned rect so the user sees exactly where the topic will land.
+ */
+export function computeMovedTopicPreview(
+  sheet: MindMapSheetV2,
+  draggingId: string,
+  toParentId: string
+): MindMapMovedTopicPreview | null {
+  if (draggingId === toParentId) return null
+  const root = structuredClone(sheet.root)
+
+  const dragNode = findTopicNodeById(root, draggingId)
+  if (!dragNode) return null
+  const toParent = findTopicNodeById(root, toParentId)
+  if (!toParent) return null
+  // Reject cyclic moves (target is the dragged topic or inside its subtree).
+  if (containsTopicNode(dragNode, toParentId)) return null
+
+  // Detach the dragged topic from its current parent (must not be the root).
+  const dragParent = findTopicParentNodeById(root, draggingId)
+  if (!dragParent) return null // root topic cannot be moved
+  const fromIndex = dragParent.children.indexOf(dragNode)
+  dragParent.children.splice(fromIndex, 1)
+
+  // Attach as the first child of the target (matches `topic.move` default).
+  toParent.children.unshift(dragNode)
+
+  const preview = computeMindMapLayout({ ...sheet, root })
+  const moved = preview.nodes.find((node) => node.id === draggingId)
+  return moved
+    ? { x: moved.x, y: moved.y, width: moved.width, height: moved.height }
+    : null
+}

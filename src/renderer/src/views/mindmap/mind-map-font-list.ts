@@ -194,5 +194,4 @@ export type MindMapFontPickerProps = {
   searchPlaceholder?: string
   searchLabel?: string
   noResultsLabel?: string
-  allLabel?: string
 }

@@ -234,22 +234,20 @@ describe('mind-map controls survive save -> reopen (L-03)', () => {
   it('retains the branch connector style (sheet.layout.lineStyle) after reopen', async () => {
     renderPanels()
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Connectors' }), {
-      target: { value: 'rounded-fold' }
-    })
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('rounded-fold')
+    fireEvent.click(screen.getByRole('button', { name: 'Connectors' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Connectors' })).getByRole('option', { name: 'Elbow' }))
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('elbow')
 
     const reopened = await saveAndReopen()
-    expect(reopened.sheets[0]?.layout.lineStyle).toBe('rounded-fold')
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('rounded-fold')
+    expect(reopened.sheets[0]?.layout.lineStyle).toBe('elbow')
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('elbow')
   })
 
   it('retains the branch line pattern and tapered flag (sheet.layout.linePattern / tapered) after reopen', async () => {
     renderPanels()
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Branch line pattern' }), {
-      target: { value: 'dash' }
-    })
+    fireEvent.click(screen.getByRole('button', { name: 'Branch line pattern' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Branch line pattern' })).getByRole('option', { name: 'Dash' }))
     fireEvent.click(screen.getByRole('checkbox', { name: /Tapered line/ }))
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout).toMatchObject({
       linePattern: 'dash',

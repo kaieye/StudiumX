@@ -14,6 +14,7 @@
 import type {
   MindMapDocumentV2,
   MindMapLayoutSettings,
+  MindMapAssetRef,
   MindMapElement,
   MindMapElementStyle,
   MindMapLink,
@@ -36,6 +37,9 @@ export type MindMapTopicUpdatePatch = {
   labels?: string[] | null
   markers?: MindMapMarker[] | null
   links?: MindMapLink[] | null
+  formula?: string | null
+  /** Stable document-level asset ids attached to this topic. */
+  assetIds?: string[] | null
   sourceRefs?: MindMapSourceRef[] | null
   planning?: MindMapPlanningMetadata | null
   style?: MindMapTopicStyleOverride | null
@@ -83,6 +87,8 @@ export type MindMapCommand =
   | { type: 'topic.update'; sheetId: string; topicId: string; patch: MindMapTopicUpdatePatch }
   | { type: 'topic.move'; sheetId: string; topicId: string; toParentId: string; toIndex?: number }
   | { type: 'topic.remove'; sheetId: string; topicId: string }
+  | { type: 'asset.create'; asset: MindMapAssetRef }
+  | { type: 'asset.remove'; assetId: string }
   | { type: 'element.create'; sheetId: string; index?: number; element: MindMapElement }
   | { type: 'element.update'; sheetId: string; elementId: string; patch: MindMapElementUpdatePatch }
   | { type: 'element.remove'; sheetId: string; elementId: string }
@@ -104,6 +110,7 @@ export type MindMapCommandErrorCode =
   | 'PARENT_NOT_FOUND'
   | 'TOPIC_IS_ROOT'
   | 'ELEMENT_NOT_FOUND'
+  | 'ASSET_NOT_FOUND'
   | 'DUPLICATE_ID'
   | 'CYCLIC_MOVE'
   | 'INVALID_INDEX'

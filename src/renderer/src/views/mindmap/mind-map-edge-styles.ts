@@ -130,8 +130,10 @@ function elbowEdgePathWithRadius(
 }
 
 /**
- * Bight connector: an elbow whose middle segment carries a small inward
- * V-notch ("pocket"), a distinct Xmind-influenced branch language.
+ * Bight connector: an elbow whose middle segment carries a small square
+ * pocket (a "bight"), a distinct Xmind-influenced branch language. The pocket
+ * is sized from the horizontal span so it stays visible even when the child
+ * sits level with the parent (where a vertical-only clamp would collapse it).
  */
 export function bightEdgePath(
   from: MindMapLayoutNode,
@@ -144,19 +146,27 @@ export function bightEdgePath(
   if (edge.axis === 'vertical') {
     const midX = edge.x1 + (edge.x2 - edge.x1) / 2
     const midY = edge.y1 + (edge.y2 - edge.y1) / 2
-    const notch = Math.min(n, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
-    return `M ${edge.x1} ${edge.y1} L ${midX} ${edge.y1} L ${midX} ${midY - notch} L ${midX - notch} ${midY} L ${midX} ${midY + notch} L ${midX} ${edge.y2} L ${edge.x2} ${edge.y2}`
+    const notch = Math.min(n, Math.abs(edge.y2 - edge.y1) / 4)
+    const sign = edge.x2 >= edge.x1 ? 1 : -1
+    return `M ${edge.x1} ${edge.y1} L ${midX} ${edge.y1} L ${midX} ${midY - notch} ` +
+      `L ${midX + sign * notch} ${midY - notch} L ${midX + sign * notch} ${midY + notch} ` +
+      `L ${midX} ${midY + notch} L ${midX} ${edge.y2} L ${edge.x2} ${edge.y2}`
   }
 
   const midX = edge.x1 + (edge.x2 - edge.x1) / 2
   const midY = edge.y1 + (edge.y2 - edge.y1) / 2
-  const notch = Math.min(n, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
-  return `M ${edge.x1} ${edge.y1} L ${edge.x1} ${midY} L ${midX - notch} ${midY} L ${midX} ${midY - notch} L ${midX + notch} ${midY} L ${edge.x2} ${midY} L ${edge.x2} ${edge.y2}`
+  const notch = Math.min(n, Math.abs(edge.x2 - edge.x1) / 4)
+  const sign = edge.y2 >= edge.y1 ? 1 : -1
+  return `M ${edge.x1} ${edge.y1} L ${edge.x1} ${midY} L ${midX - notch} ${midY} ` +
+    `L ${midX - notch} ${midY + sign * notch} L ${midX + notch} ${midY + sign * notch} ` +
+    `L ${midX + notch} ${midY} L ${edge.x2} ${midY} L ${edge.x2} ${edge.y2}`
 }
 
 /**
- * Fold connector: an elbow with an extra outward shelf segment, producing a
- * two-step orthogonal fold along the dominant axis.
+ * Fold connector: a two-step Z-fold (double elbow) with a horizontal shelf.
+ * The shelf sits roughly centred between the two endpoints but always keeps a
+ * minimum excursion from each, so a child level with its parent still renders
+ * a visible fold instead of collapsing to a straight line.
  */
 export function foldEdgePath(
   from: MindMapLayoutNode,
@@ -164,24 +174,28 @@ export function foldEdgePath(
   axis?: EdgeOrientation['axis']
 ): string {
   const edge = edgeOrientation(from, to, axis)
-  const s = 16
+  const step = 16
 
   if (edge.axis === 'vertical') {
-    const midX = edge.x1 + (edge.x2 - edge.x1) / 2
     const midY = edge.y1 + (edge.y2 - edge.y1) / 2
-    const shelf = Math.min(s, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
-    return `M ${edge.x1} ${edge.y1} L ${edge.x1} ${midY - shelf} L ${midX} ${midY - shelf} L ${midX} ${midY + shelf} L ${edge.x2} ${midY + shelf} L ${edge.x2} ${edge.y2}`
+    const vstep = Math.min(step, Math.abs(edge.y2 - edge.y1) / 4)
+    const shelfX = shelfBetween(edge.x1, edge.x2, Math.min(step, Math.abs(edge.x2 - edge.x1) / 4))
+    return `M ${edge.x1} ${edge.y1} L ${edge.x1} ${midY - vstep} L ${shelfX} ${midY - vstep} ` +
+      `L ${shelfX} ${midY + vstep} L ${edge.x2} ${midY + vstep} L ${edge.x2} ${edge.y2}`
   }
 
   const midX = edge.x1 + (edge.x2 - edge.x1) / 2
-  const midY = edge.y1 + (edge.y2 - edge.y1) / 2
-  const shelf = Math.min(s, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
-  return `M ${edge.x1} ${edge.y1} L ${midX - shelf} ${edge.y1} L ${midX - shelf} ${midY} L ${midX + shelf} ${midY} L ${midX + shelf} ${edge.y2} L ${edge.x2} ${edge.y2}`
+  const shelfY = shelfBetween(edge.y1, edge.y2, Math.min(step, Math.abs(edge.x2 - edge.x1) / 4))
+  return `M ${edge.x1} ${edge.y1} L ${midX - step} ${edge.y1} L ${midX - step} ${shelfY} ` +
+    `L ${midX + step} ${shelfY} L ${midX + step} ${edge.y2} L ${edge.x2} ${edge.y2}`
 }
 
 /**
  * Rounded fold connector: a fold path with softened corners so the two-step
- * shelf reads as continuous rather than sharply stepped.
+ * shelf reads as continuous rather than sharply stepped. Corners are rounded
+ * by a generic polyline helper that always rounds toward the fold and clamps
+ * the radius to half each segment, so it is correct for above/below children
+ * and never collapses for a level child.
  */
 export function roundedFoldEdgePath(
   from: MindMapLayoutNode,
@@ -189,23 +203,81 @@ export function roundedFoldEdgePath(
   axis?: EdgeOrientation['axis']
 ): string {
   const edge = edgeOrientation(from, to, axis)
-  const s = 16
+  const step = 16
   const r = 6
 
   if (edge.axis === 'vertical') {
-    const midX = edge.x1 + (edge.x2 - edge.x1) / 2
     const midY = edge.y1 + (edge.y2 - edge.y1) / 2
-    const shelf = Math.min(s, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
-    const rad = Math.min(r, shelf / 2)
-    return `M ${edge.x1} ${edge.y1} L ${edge.x1} ${midY - shelf + rad} Q ${edge.x1} ${midY - shelf}, ${edge.x1 + rad} ${midY - shelf} L ${midX - rad} ${midY - shelf} Q ${midX} ${midY - shelf}, ${midX} ${midY - shelf + rad} L ${midX} ${midY + shelf - rad} Q ${midX} ${midY + shelf}, ${midX - rad} ${midY + shelf} L ${edge.x2 - rad} ${midY + shelf} Q ${edge.x2} ${midY + shelf}, ${edge.x2} ${midY + shelf - rad} L ${edge.x2} ${edge.y2}`
+    const vstep = Math.min(step, Math.abs(edge.y2 - edge.y1) / 4)
+    const shelfX = shelfBetween(edge.x1, edge.x2, Math.min(step, Math.abs(edge.x2 - edge.x1) / 4))
+    const points: Array<[number, number]> = [
+      [edge.x1, edge.y1],
+      [edge.x1, midY - vstep],
+      [shelfX, midY - vstep],
+      [shelfX, midY + vstep],
+      [edge.x2, midY + vstep],
+      [edge.x2, edge.y2]
+    ]
+    return roundedPolylinePath(points, r)
   }
 
   const midX = edge.x1 + (edge.x2 - edge.x1) / 2
-  const midY = edge.y1 + (edge.y2 - edge.y1) / 2
-  const shelf = Math.min(s, Math.abs(edge.x2 - edge.x1) / 3, Math.abs(edge.y2 - edge.y1) / 3)
-  const rad = Math.min(r, shelf / 2)
-  const dir = edge.direction
-  return `M ${edge.x1} ${edge.y1} L ${midX - dir * (shelf - rad)} ${edge.y1} Q ${midX - dir * shelf} ${edge.y1}, ${midX - dir * shelf} ${edge.y1 + rad} L ${midX - dir * shelf} ${midY - rad} Q ${midX - dir * shelf} ${midY}, ${midX - dir * (shelf - rad)} ${midY} L ${midX + dir * (shelf - rad)} ${midY} Q ${midX + dir * shelf} ${midY}, ${midX + dir * shelf} ${midY + rad} L ${midX + dir * shelf} ${edge.y2 - rad} Q ${midX + dir * shelf} ${edge.y2}, ${midX + dir * (shelf - rad)} ${edge.y2} L ${edge.x2} ${edge.y2}`
+  const shelfY = shelfBetween(edge.y1, edge.y2, Math.min(step, Math.abs(edge.x2 - edge.x1) / 4))
+  const points: Array<[number, number]> = [
+    [edge.x1, edge.y1],
+    [midX - step, edge.y1],
+    [midX - step, shelfY],
+    [midX + step, shelfY],
+    [midX + step, edge.y2],
+    [edge.x2, edge.y2]
+  ]
+  return roundedPolylinePath(points, r)
+}
+
+/**
+ * Emit an SVG path through `points`, rounding each interior corner with a
+ * quadratic curve of radius `r`. The radius is clamped to half the shorter
+ * adjacent segment so the corner never overshoots, regardless of direction.
+ */
+function roundedPolylinePath(points: Array<[number, number]>, r: number): string {
+  const [x0, y0] = points[0]
+  let d = `M ${x0} ${y0}`
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const [px, py] = points[i]
+    const [ax, ay] = points[i - 1]
+    const [bx, by] = points[i + 1]
+    const dAx = px - ax
+    const dAy = py - ay
+    const dBx = bx - px
+    const dBy = by - py
+    const lenA = Math.hypot(dAx, dAy) || 1
+    const lenB = Math.hypot(dBx, dBy) || 1
+    const rad = Math.min(r, lenA / 2, lenB / 2)
+    const sx = px - (dAx / lenA) * rad
+    const sy = py - (dAy / lenA) * rad
+    const ex = px + (dBx / lenB) * rad
+    const ey = py + (dBy / lenB) * rad
+    d += ` L ${sx} ${sy} Q ${px} ${py}, ${ex} ${ey}`
+  }
+  const [xn, yn] = points[points.length - 1]
+  d += ` L ${xn} ${yn}`
+  return d
+}
+
+/**
+ * Pick a shelf coordinate between two endpoints that stays at least
+ * `excursion` away from both, falling back to a centred value. Used by the
+ * fold / rounded-fold connectors so their step never collapses to a line when
+ * the endpoints share the same coordinate.
+ */
+function shelfBetween(a: number, b: number, excursion: number): number {
+  const lo = Math.min(a, b)
+  const hi = Math.max(a, b)
+  const mid = (a + b) / 2
+  const minC = lo + excursion
+  const maxC = hi - excursion
+  if (minC > maxC) return lo + excursion
+  return Math.max(minC, Math.min(maxC, mid))
 }
 
 /** Straight line from parent to child. */

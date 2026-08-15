@@ -6,10 +6,12 @@ import type { MindMapDocumentV2, MindMapMarker, MindMapTopicV2 } from '../../../
 import { MARKER_DEFS } from './mind-map-marker-icons'
 import {
   computeMindMapLayout,
+  computeMovedTopicPreview,
   type MindMapLayoutCallout,
   type MindMapLayoutNode,
   type MindMapLayoutRelationship,
-  type MindMapLayoutSummary
+  type MindMapLayoutSummary,
+  type MindMapMovedTopicPreview
 } from './mind-map-layout'
 import { branchColor } from './mind-map-branch-colors'
 import { defaultTopicTextAlign, resolveEffectiveTopicStyle } from './mind-map-topic-style'
@@ -34,6 +36,7 @@ import {
 } from './mind-map-viewport'
 import { useMindMapViewStore } from './mind-map-view-store'
 import { computeAllTopicNumbers } from './mind-map-numbering'
+import { selectMindMapNodesInRectangle } from '../../../../shared/mindmap/domain/selection'
 import {
   MIND_MAP_NODE_ACTION_OFFSET,
   MIND_MAP_NODE_ACTION_RADIUS,
@@ -114,6 +117,22 @@ function relationshipLabelPosition(
     x: (fromCenter.x + toCenter.x) / 2,
     y: (fromCenter.y + toCenter.y) / 2 - 6
   }
+}
+
+/**
+ * Smooth dashed connector from the hovered target node to the drop ghost,
+ * mirroring the default curve edge style so the preview reads as a new child.
+ */
+function ghostConnectorPath(
+  from: MindMapLayoutNode,
+  ghost: MindMapMovedTopicPreview
+): string {
+  const fx = from.x + from.width / 2
+  const fy = from.y + from.height / 2
+  const tx = ghost.x + ghost.width / 2
+  const ty = ghost.y + ghost.height / 2
+  const midX = (fx + tx) / 2
+  return `M ${fx} ${fy} C ${midX} ${fy}, ${midX} ${ty}, ${tx} ${ty}`
 }
 
 type MindMapCalloutRect = {
@@ -239,6 +258,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   const selection = useMindMapViewStore((s) => s.selection)
   const selectedNodeId = useMindMapViewStore((s) => s.selectedNodeId)
   const selectTopic = useMindMapViewStore((s) => s.selectTopic)
+  const setTopicSelection = useMindMapViewStore((s) => s.setTopicSelection)
   const selectElement = useMindMapViewStore((s) => s.selectElement)
   const selectCanvas = useMindMapViewStore((s) => s.selectCanvas)
   const editingNodeId = useMindMapViewStore((s) => s.editingNodeId)
@@ -315,9 +335,24 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     const el = containerRef.current
     if (!el) return
 
+    const svg = el.querySelector<SVGSVGElement>('.mindmap-svg')
+
+    // Keep the SVG's coordinate system in the same ResizeObserver delivery as
+    // the CSS box; waiting for the React state update can leave one frame where
+    // the old viewBox is fitted into the new width, making the map shrink or
+    // slide during a layout resize.
+    const syncSvgViewBox = (width: number, height: number): void => {
+      if (!svg) return
+      const nextViewBox = `0 0 ${width} ${height}`
+      if (svg.getAttribute('viewBox') !== nextViewBox) {
+        svg.setAttribute('viewBox', nextViewBox)
+      }
+    }
+
     const updateContainerSize = (width: number, height: number): void => {
       if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
       const next = { cw: Math.max(1, width), ch: Math.max(1, height) }
+      syncSvgViewBox(next.cw, next.ch)
       setContainerSize((current) =>
         current.cw === next.cw && current.ch === next.ch ? current : next
       )
@@ -339,7 +374,18 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   const [pan, setPan] = useState<Vec2>({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
   const [editValue, setEditValue] = useState('')
-  const dragRef = useRef<{ startPointer: Vec2; startPan: Vec2; moved: boolean } | null>(null)
+  const dragRef = useRef<{
+    kind: 'pan' | 'box'
+    startPointer: Vec2
+    startSvg: Vec2
+    startPan: Vec2
+    moved: boolean
+    additive: boolean
+  } | null>(null)
+  const [selectionBox, setSelectionBox] = useState<{
+    start: Vec2
+    current: Vec2
+  } | null>(null)
   const lastNodePointerDownRef = useRef<{
     nodeId: string
     at: number
@@ -351,6 +397,8 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     draggingId: string
     startPointer: Vec2
     dropTargetId: string | null
+    /** Dashed ghost rect where the dragged topic will land (content space). */
+    ghost: MindMapMovedTopicPreview | null
   } | null>(null)
 
   // When the store's editing node changes (e.g. F2 from the keyboard), seed the
@@ -504,13 +552,34 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     onZoomChange?.(zoom)
   }, [zoom, onZoomChange])
 
+  const svgPointFromPointer = (event: ReactPointerEvent<SVGSVGElement>): Vec2 => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+  }
+
   const startPointerDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (editingNodeId) return
     lastNodePointerDownRef.current = null
+    const startSvg = svgPointFromPointer(event)
+    // A primary-button drag on the empty canvas is a marquee selection.  Keep
+    // middle-button (and other non-primary pointers) as the existing pan
+    // gesture so users can still move the viewport without changing the
+    // current selection.
+    const kind = event.button === 0 || event.button === undefined ? 'box' : 'pan'
     dragRef.current = {
+      kind,
       startPointer: { x: event.clientX, y: event.clientY },
+      startSvg,
       startPan: pan,
-      moved: false
+      moved: false,
+      additive: event.metaKey || event.ctrlKey || event.shiftKey
+    }
+    if (kind === 'box') setSelectionBox({ start: startSvg, current: startSvg })
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // Pointer capture is not available in a few test/webview shims. The
+      // normal bubbling handlers still provide a safe fallback there.
     }
   }
 
@@ -520,15 +589,44 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     const dx = event.clientX - drag.startPointer.x
     const dy = event.clientY - drag.startPointer.y
     if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true
+    if (drag.kind === 'box') {
+      setSelectionBox({ start: drag.startSvg, current: svgPointFromPointer(event) })
+      return
+    }
     setPan({ x: drag.startPan.x + dx, y: drag.startPan.y + dy })
   }
 
   const endPointerDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
-    // Treat a click on the background as a selection clear.
-    if (dragRef.current && !dragRef.current.moved && event.target === event.currentTarget) {
+    const drag = dragRef.current
+    const isBackground = event.target === event.currentTarget
+    if (drag?.kind === 'box' && drag.moved) {
+      const endSvg = svgPointFromPointer(event)
+      const left = Math.min(drag.startSvg.x, endSvg.x)
+      const top = Math.min(drag.startSvg.y, endSvg.y)
+      const right = Math.max(drag.startSvg.x, endSvg.x)
+      const bottom = Math.max(drag.startSvg.y, endSvg.y)
+      const ids = selectMindMapNodesInRectangle(
+        layout.nodes.map((node) => ({
+          id: node.id,
+          x: pan.x + node.x * zoom,
+          y: pan.y + node.y * zoom,
+          width: node.width * zoom,
+          height: node.height * zoom
+        })),
+        { left, top, right, bottom }
+      )
+      setTopicSelection(ids, drag.additive)
+    } else if (drag && !drag.moved && isBackground) {
+      // Treat a click on the background as a selection clear.
       selectCanvas()
     }
+    setSelectionBox(null)
     dragRef.current = null
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      // See the matching setPointerCapture guard above.
+    }
   }
 
   const onWheel = (event: ReactWheelEvent<SVGSVGElement>): void => {
@@ -573,7 +671,8 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     setNodeDragState({
       draggingId: nodeId,
       startPointer: { x: event.clientX, y: event.clientY },
-      dropTargetId: null
+      dropTargetId: null,
+      ghost: null
     })
   }
 
@@ -613,7 +712,14 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
       }
     }
     if (targetId !== nodeDragState.dropTargetId) {
-      setNodeDragState({ ...nodeDragState, dropTargetId: targetId })
+      // Recompute the drop ghost only when the hovered target changes; the
+      // ghost position is determined by the tree, not the pointer, so this
+      // avoids re-running the layout on every pointer move.
+      const ghost =
+        targetId && sheet
+          ? computeMovedTopicPreview(sheet, nodeDragState.draggingId, targetId)
+          : null
+      setNodeDragState({ ...nodeDragState, dropTargetId: targetId, ghost })
     }
   }
 
@@ -672,6 +778,16 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
         onPointerLeave={(e) => { endPointerDrag(e); endNodeDrag() }}
         onWheel={onWheel}
       >
+        {selectionBox ? (
+          <rect
+            className="mindmap-selection-box"
+            pointerEvents="none"
+            x={Math.min(selectionBox.start.x, selectionBox.current.x)}
+            y={Math.min(selectionBox.start.y, selectionBox.current.y)}
+            width={Math.abs(selectionBox.current.x - selectionBox.start.x)}
+            height={Math.abs(selectionBox.current.y - selectionBox.start.y)}
+          />
+        ) : null}
         <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
           <defs>
             <filter id="mindmap-topic-hand-drawn" x="-8%" y="-12%" width="116%" height="124%">
@@ -1056,7 +1172,12 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   // default focus transfer avoids a second outer rectangle.
                   event.preventDefault()
                   dragRef.current = null
-                  const additive = event.metaKey || event.ctrlKey
+                  // Match marquee selection: Ctrl/Cmd/Shift all add or remove
+                  // a topic from the current selection instead of starting a
+                  // reparent drag. Shift is especially useful on keyboards
+                  // without a Command key and mirrors XMind's range-select
+                  // affordance.
+                  const additive = event.metaKey || event.ctrlKey || event.shiftKey
                   const isPrimaryActivation = event.button === 0 && !additive
                   const now = performance.now()
                   const previous = lastNodePointerDownRef.current
@@ -1104,6 +1225,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                     event.button === 0 &&
                     !event.metaKey &&
                     !event.ctrlKey &&
+                    !event.shiftKey &&
                     !editingNodeId &&
                     !isControl
                   ) {
@@ -1410,6 +1532,32 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
               </g>
             )
           })}
+
+          {nodeDragState?.ghost ? (() => {
+            const ghost = nodeDragState.ghost
+            const dropTarget = nodeDragState.dropTargetId
+              ? nodeById.get(nodeDragState.dropTargetId)
+              : undefined
+            return (
+              <g className="mindmap-node-ghost" pointerEvents="none" aria-hidden="true">
+                {dropTarget ? (
+                  <path
+                    className="mindmap-node-ghost-edge"
+                    d={ghostConnectorPath(dropTarget, ghost)}
+                  />
+                ) : null}
+                <rect
+                  className="mindmap-node-ghost-rect"
+                  x={ghost.x}
+                  y={ghost.y}
+                  width={ghost.width}
+                  height={ghost.height}
+                  rx={Math.min(12, ghost.height / 2)}
+                  ry={Math.min(12, ghost.height / 2)}
+                />
+              </g>
+            )
+          })() : null}
         </g>
       </svg>
     </div>

@@ -673,7 +673,6 @@ export function MindMapTopicStyleInspector() {
           searchPlaceholder="Search fonts…"
           searchLabel="Search fonts"
           noResultsLabel="No fonts found."
-          allLabel="All fonts"
         />
         <span
           id="mindmap-topic-style-font-source"

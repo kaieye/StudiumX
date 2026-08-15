@@ -18,6 +18,16 @@ import {
   resolveElementStyleField,
   type InspectorValue
 } from './mind-map-inspector-values'
+import {
+  MindMapIconPicker,
+  type IconPickerOption
+} from './MindMapIconPicker'
+import {
+  ArrowShapeIcon,
+  LinePatternIcon,
+  LineShapeIcon,
+  OutlineShapeIcon
+} from './mind-map-shape-icons'
 
 export { ELEMENT_STYLE_CAPABILITIES } from './mind-map-inspector-capabilities'
 
@@ -200,38 +210,34 @@ export function MindMapElementStyleInspector() {
     )
   }
 
-  const renderEnumSelect = (
+  const renderIconSelect = (
     field: 'lineShape' | 'beginArrow' | 'endArrow' | 'linePattern' | 'outlineShape',
-    options: readonly string[],
+    options: IconPickerOption[],
     labelKey: string,
-    optionPrefix: string
+    dialogLabel: string
   ) => {
     const value = fieldValue(field)
+    const concrete = value.state === 'concrete' ? String(value.value) : undefined
+    const isMixed = value.state === 'mixed'
     return (
-      <label className="mindmap-element-style__field">
-        <span>{t(labelKey)}</span>
-        <select
-          value={selectValue(value)}
-          disabled={fieldCapability(field).disabled}
-          aria-label={labelFor(labelKey, value)}
-          aria-describedby={describeField(field)}
-          onChange={(event) => {
-            const next = event.currentTarget.value
-            if (next === MIXED_VALUE) return
-            updateStyle({ [field]: next ? next as never : undefined })
-          }}
-        >
-          {value.state === 'mixed' ? (
-            <option value={MIXED_VALUE} disabled>{mixedLabel}</option>
-          ) : null}
-          <option value="">{t('mindmap.elementStyle.inherit')}</option>
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {t(`${optionPrefix}.${option}`)}
-            </option>
-          ))}
-        </select>
-      </label>
+      <MindMapIconPicker
+        label={t(labelKey)}
+        value={concrete}
+        isMixed={isMixed}
+        displayLabel={t('mindmap.elementStyle.inherit')}
+        options={options}
+        searchable={false}
+        showClear={concrete !== undefined}
+        clearLabel={t('mindmap.elementStyle.inherit')}
+        onClear={() => updateStyle({ [field]: undefined })}
+        dialogLabel={dialogLabel}
+        triggerDescription={isMixed ? t('mindmap.elementStyle.mixed') : undefined}
+        disabled={fieldCapability(field).disabled}
+        onChange={(next) => {
+          if (next === MIXED_VALUE) return
+          updateStyle({ [field]: next ? (next as never) : undefined })
+        }}
+      />
     )
   }
 
@@ -322,13 +328,58 @@ export function MindMapElementStyleInspector() {
         </span>
       </label>
 
-      {renderEnumSelect('lineShape', MIND_MAP_ELEMENT_LINE_SHAPES, 'mindmap.elementStyle.lineShape', 'mindmap.elementStyle.lineShapes')}
+      {renderIconSelect(
+        'lineShape',
+        MIND_MAP_ELEMENT_LINE_SHAPES.map((shape) => ({
+          value: shape,
+          label: t(`mindmap.elementStyle.lineShapes.${shape}`),
+          icon: <LineShapeIcon shape={shape} />
+        })),
+        'mindmap.elementStyle.lineShape',
+        t('mindmap.elementStyle.lineShape')
+      )}
       <div className="mindmap-element-style__grid">
-        {renderEnumSelect('beginArrow', MIND_MAP_ELEMENT_ARROW_SHAPES, 'mindmap.elementStyle.beginArrow', 'mindmap.elementStyle.arrowShapes')}
-        {renderEnumSelect('endArrow', MIND_MAP_ELEMENT_ARROW_SHAPES, 'mindmap.elementStyle.endArrow', 'mindmap.elementStyle.arrowShapes')}
+        {renderIconSelect(
+          'beginArrow',
+          MIND_MAP_ELEMENT_ARROW_SHAPES.map((arrow) => ({
+            value: arrow,
+            label: t(`mindmap.elementStyle.arrowShapes.${arrow}`),
+            icon: <ArrowShapeIcon shape={arrow} />
+          })),
+          'mindmap.elementStyle.beginArrow',
+          t('mindmap.elementStyle.beginArrow')
+        )}
+        {renderIconSelect(
+          'endArrow',
+          MIND_MAP_ELEMENT_ARROW_SHAPES.map((arrow) => ({
+            value: arrow,
+            label: t(`mindmap.elementStyle.arrowShapes.${arrow}`),
+            icon: <ArrowShapeIcon shape={arrow} />
+          })),
+          'mindmap.elementStyle.endArrow',
+          t('mindmap.elementStyle.endArrow')
+        )}
       </div>
-      {renderEnumSelect('linePattern', MIND_MAP_ELEMENT_LINE_PATTERNS, 'mindmap.elementStyle.linePattern', 'mindmap.elementStyle.linePatterns')}
-      {renderEnumSelect('outlineShape', MIND_MAP_ELEMENT_OUTLINE_SHAPES, 'mindmap.elementStyle.outlineShape', 'mindmap.elementStyle.outlineShapes')}
+      {renderIconSelect(
+        'linePattern',
+        MIND_MAP_ELEMENT_LINE_PATTERNS.map((pattern) => ({
+          value: pattern,
+          label: t(`mindmap.elementStyle.linePatterns.${pattern}`),
+          icon: <LinePatternIcon pattern={pattern} />
+        })),
+        'mindmap.elementStyle.linePattern',
+        t('mindmap.elementStyle.linePattern')
+      )}
+      {renderIconSelect(
+        'outlineShape',
+        MIND_MAP_ELEMENT_OUTLINE_SHAPES.map((shape) => ({
+          value: shape,
+          label: t(`mindmap.elementStyle.outlineShapes.${shape}`),
+          icon: <OutlineShapeIcon shape={shape} />
+        })),
+        'mindmap.elementStyle.outlineShape',
+        t('mindmap.elementStyle.outlineShape')
+      )}
 
       <label className="mindmap-element-style__field">
         <span>{t('mindmap.elementStyle.fontFamily')}</span>

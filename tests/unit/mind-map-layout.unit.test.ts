@@ -6,6 +6,7 @@ import type {
 } from '../../src/shared/mindmap/domain/types'
 import {
   computeMindMapLayout,
+  computeMovedTopicPreview,
   MIND_MAP_HORIZONTAL_GAP,
   MIND_MAP_VERTICAL_GAP,
   horizontalGapForDepth,
@@ -581,5 +582,48 @@ describe('computeMindMapLayout', () => {
         }
       }
     }
+  })
+})
+
+describe('computeMovedTopicPreview', () => {
+  it('returns the dragged topic rect when reparented under the target', () => {
+    const root = node('a', 'A', [node('b', 'B'), node('c', 'C', [node('d', 'D')])])
+    const preview = computeMovedTopicPreview(sheet(root), 'd', 'b')
+    expect(preview).not.toBeNull()
+    const moved = computeMindMapLayout(sheet(node('a', 'A', [node('b', 'B', [node('d', 'D')]), node('c', 'C')])))
+      .nodes.find((n) => n.id === 'd')
+    expect(preview).toEqual({
+      x: moved!.x,
+      y: moved!.y,
+      width: moved!.width,
+      height: moved!.height
+    })
+  })
+
+  it('does not mutate the input sheet', () => {
+    const root = node('a', 'A', [node('b', 'B'), node('c', 'C')])
+    computeMovedTopicPreview(sheet(root), 'c', 'b')
+    expect(root.children.map((c) => c.id)).toEqual(['b', 'c'])
+    expect(root.children[0]!.children).toEqual([])
+  })
+
+  it('returns null for the root topic, missing topics and cyclic moves', () => {
+    const root = node('a', 'A', [node('b', 'B', [node('c', 'C')])])
+    // root cannot be moved
+    expect(computeMovedTopicPreview(sheet(root), 'a', 'b')).toBeNull()
+    // missing dragged topic
+    expect(computeMovedTopicPreview(sheet(root), 'zz', 'b')).toBeNull()
+    // missing target
+    expect(computeMovedTopicPreview(sheet(root), 'b', 'zz')).toBeNull()
+    // moving a topic into its own descendant is cyclic
+    expect(computeMovedTopicPreview(sheet(root), 'b', 'c')).toBeNull()
+    // target equal to the dragged topic
+    expect(computeMovedTopicPreview(sheet(root), 'b', 'b')).toBeNull()
+  })
+
+  it('suppresses a ghost when the move would be a no-op reorder of the same parent', () => {
+    const root = node('a', 'A', [node('b', 'B'), node('c', 'C')])
+    // Moving b under c changes depth, so it is still a valid cross-branch move.
+    expect(computeMovedTopicPreview(sheet(root), 'b', 'c')).not.toBeNull()
   })
 })

@@ -145,6 +145,10 @@ import type { MindMapDocumentV2 } from '../mindmap/domain/types'
 import type { MindMapSummary } from '../mindmap/mind-map-types'
 import type {
   MindMapAccessPayload,
+  MindMapAssetImportPayload,
+  MindMapAssetImportResult,
+  MindMapAssetReadPayload,
+  MindMapAssetReadResult,
   MindMapCancelGenerationPayload,
   MindMapCreatePayload,
   MindMapExportPayload,
@@ -515,6 +519,8 @@ export type TeachingSystemApi = {
   createMindMap: (payload: MindMapCreatePayload) => Promise<MindMapDocumentV2>
   /** Read one mind map document. */
   readMindMap: (payload: MindMapAccessPayload) => Promise<MindMapDocumentV2>
+  importMindMapAsset: (payload: MindMapAssetImportPayload) => Promise<MindMapAssetImportResult>
+  readMindMapAsset: (payload: MindMapAssetReadPayload) => Promise<MindMapAssetReadResult>
   /** Update (persist) one mind map document. */
   updateMindMap: (payload: MindMapUpdatePayload) => Promise<MindMapUpdateResult>
   /** Delete one mind map document (idempotent). */

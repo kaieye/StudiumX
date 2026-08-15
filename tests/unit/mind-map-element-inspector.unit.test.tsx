@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../src/renderer/src/i18n'
 import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
@@ -92,10 +92,15 @@ describe('mind map element selection and inspector', () => {
     useMindMapViewStore.getState().selectElement('rel', 'relationship')
     render(<MindMapElementStyleInspector />)
 
-    fireEvent.change(screen.getByLabelText('Line shape'), { target: { value: 'angled' } })
-    fireEvent.change(screen.getByLabelText('Start arrow'), { target: { value: 'dot' } })
-    fireEvent.change(screen.getByLabelText('End arrow'), { target: { value: 'triangle' } })
-    fireEvent.change(screen.getByLabelText('Line pattern'), { target: { value: 'dash-dot' } })
+    const selectIcon = (name: string, optionName: string): void => {
+      fireEvent.click(screen.getByRole('button', { name }))
+      fireEvent.click(within(screen.getByRole('dialog', { name })).getByRole('option', { name: optionName }))
+    }
+
+    selectIcon('Line shape', 'Angled')
+    selectIcon('Start arrow', 'Dot')
+    selectIcon('End arrow', 'Triangle')
+    selectIcon('Line pattern', 'Dash-dot')
 
     expect(useMindMapViewStore.getState().current?.sheets[0]?.elements[0]?.style).toMatchObject({
       lineShape: 'angled', beginArrow: 'dot', endArrow: 'triangle', linePattern: 'dash-dot'
@@ -126,8 +131,12 @@ describe('mind map element selection and inspector', () => {
     useMindMapViewStore.setState({ current: structuredClone(current) })
     useMindMapViewStore.getState().selectElement('rel', 'relationship')
     render(<MindMapElementStyleInspector />)
-    fireEvent.change(screen.getByLabelText('Line shape'), { target: { value: '' } })
-    fireEvent.change(screen.getByLabelText('Line pattern'), { target: { value: '' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Line shape' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Line shape' })).getByRole('button', { name: 'Inherit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Line pattern' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Line pattern' })).getByRole('button', { name: 'Inherit' }))
+
     expect(useMindMapViewStore.getState().current?.sheets[0]?.elements[0]?.style).toEqual({
       stroke: '#112233', beginArrow: 'dot', outlineShape: 'waves'
     })
@@ -136,8 +145,12 @@ describe('mind map element selection and inspector', () => {
   it('applies boundary outline and pattern fields through element.update', () => {
     useMindMapViewStore.getState().selectElement('boundary', 'boundary')
     render(<MindMapElementStyleInspector />)
-    fireEvent.change(screen.getByLabelText('Outline shape'), { target: { value: 'scallops' } })
-    fireEvent.change(screen.getByLabelText('Line pattern'), { target: { value: 'dash' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Outline shape' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Outline shape' })).getByRole('option', { name: 'Scallops' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Line pattern' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Line pattern' })).getByRole('option', { name: 'Dash' }))
+
     expect(useMindMapViewStore.getState().current?.sheets[0]?.elements[1]?.style).toMatchObject({
       outlineShape: 'scallops', linePattern: 'dash'
     })

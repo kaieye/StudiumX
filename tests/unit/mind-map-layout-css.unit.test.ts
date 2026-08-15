@@ -64,6 +64,52 @@ describe('mind map page layout contract', () => {
     expect(content).toMatch(/overscroll-behavior:\s*contain/)
   })
 
+  it('does not animate the inspector grid while the SVG viewport is resized', () => {
+    const editor = readAllMindMapRuleDeclarations('.mindmap-view--editor')
+
+    expect(editor).not.toMatch(/transition:\s*grid-template-columns/)
+  })
+
+  it('uses one layout owner for the inspector and anchors its header to the editor shell', () => {
+    const panel = readMindMapRuleDeclarations('.mindmap-ai-panel')
+    const header = readMindMapRuleDeclarations('.mindmap-inspector-header')
+    const collapsedPanel = readAllMindMapRuleDeclarations('.mindmap-ai-panel.is-collapsed')
+    const collapsedHeader = readMindMapRuleDeclarations(
+      '.mindmap-ai-panel.is-collapsed .mindmap-inspector-header'
+    )
+
+    // The grid track is the only thing that changes width. A second width
+    // transition on the child panel makes Chromium negotiate two sizes in the
+    // same frame and causes the canvas to twitch.
+    expect(panel).not.toMatch(/transition:[^;]*width/)
+    expect(collapsedPanel).not.toMatch(/width:\s*0/)
+
+    // Both open and collapsed headers use the editor shell as their containing
+    // block. This avoids switching from flex-flow to a panel-relative
+    // absolute position while the zero-width grid track is applied.
+    expect(header).toMatch(/position:\s*absolute/)
+    expect(header).toMatch(/right:\s*0/)
+    expect(header).toMatch(/left:\s*auto/)
+    expect(header).toMatch(/width:\s*300px/)
+    expect(collapsedPanel).toMatch(/position:\s*static/)
+    expect(collapsedHeader).toMatch(/left:\s*auto/)
+    expect(collapsedHeader).toMatch(/right:\s*4px/)
+  })
+
+  it('keeps search and outline content below the persistent inspector header', () => {
+    const utilityContent = readMindMapRuleDeclarations('.mindmap-inspector-utility-content')
+    const embeddedUtility = readMindMapRuleDeclarations(
+      '.mindmap-ai-panel .mindmap-inspector-utility-content > .mindmap-utility-panel'
+    )
+
+    expect(utilityContent).toMatch(/display:\s*flex/)
+    expect(utilityContent).toMatch(/flex:\s*1\s+1\s+auto/)
+    expect(utilityContent).toMatch(/min-height:\s*0/)
+    expect(utilityContent).toMatch(/overflow:\s*hidden/)
+    expect(embeddedUtility).toMatch(/position:\s*static/)
+    expect(embeddedUtility).toMatch(/border-left:\s*0/)
+  })
+
   it('keeps the AI composer below a separately scrollable conversation thread', () => {
     const aiContent = readAllMindMapRuleDeclarations('.mindmap-inspector-tab-content--ai')
     const conversation = readAllMindMapRuleDeclarations('.mindmap-ai-panel__conversation')
@@ -83,6 +129,13 @@ describe('mind map page layout contract', () => {
     // The card-based composer keeps the surface pinned below the thread; the
     // separator moved inside the card surface (rounded card + status strip).
     expect(composer).toMatch(/padding:\s*0\s+10px\s+10px/)
+  })
+
+  it('opens the model menu inward from the left edge of the narrow AI composer', () => {
+    const modelMenu = readMindMapRuleDeclarations('.mindmap-ai-panel .overview-model-menu')
+
+    expect(modelMenu).toMatch(/left:\s*0/)
+    expect(modelMenu).toMatch(/right:\s*auto/)
   })
 
   it('uses a translucent, blurred popover for compact topic-style menus', () => {

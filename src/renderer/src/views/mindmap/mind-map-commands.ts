@@ -207,6 +207,66 @@ export function buildRemoveCommand(
   return { type: 'topic.remove', sheetId: sheet.id, topicId }
 }
 
+/** Delete several selected topics atomically, ignoring the root and descendants of selected ancestors. */
+export function buildRemoveTopicsCommand(
+  sheet: MindMapSheetV2,
+  topicIds: readonly string[]
+): MindMapCommand | null {
+  // Root selection is intentionally ignored for deletion: the root itself
+  // cannot be removed, and selecting it must not suppress removable children.
+  // Keep only selected topics that have a parent when checking ancestor
+  // coverage, while still preserving the caller's first-seen order.
+  const uniqueIds = [...new Set(topicIds)]
+  const selectedRemovable = new Set(
+    uniqueIds.filter((topicId) => {
+      const ref = findTopicInSheet(sheet, topicId)
+      return ref !== undefined && ref.parent !== null
+    })
+  )
+  const targets: MindMapTopicV2[] = []
+  for (const topicId of uniqueIds) {
+    const ref = findTopicInSheet(sheet, topicId)
+    if (!ref || ref.parent === null) continue
+    let ancestor: MindMapTopicV2 | null = ref.parent
+    let covered = false
+    while (ancestor) {
+      if (selectedRemovable.has(ancestor.id)) {
+        covered = true
+        break
+      }
+      const parentRef = findTopicInSheet(sheet, ancestor.id)
+      ancestor = parentRef?.parent ?? null
+    }
+    if (!covered) targets.push(ref.node)
+  }
+  if (targets.length === 0) return null
+  const commands: MindMapCommand[] = targets.map((topic) => ({
+    type: 'topic.remove',
+    sheetId: sheet.id,
+    topicId: topic.id
+  }))
+  return commands.length === 1 ? commands[0] : { type: 'transaction', commands }
+}
+
+/** Apply one collapsed state to several selected topics atomically. */
+export function buildToggleCollapseTopicsCommand(
+  sheet: MindMapSheetV2,
+  topicIds: readonly string[],
+  collapsed: boolean
+): MindMapCommand | null {
+  const commands = [...new Set(topicIds)]
+    .map((topicId) => findTopicInSheet(sheet, topicId)?.node)
+    .filter((topic): topic is MindMapTopicV2 => topic !== undefined)
+    .map((topic) => ({
+      type: 'topic.update' as const,
+      sheetId: sheet.id,
+      topicId: topic.id,
+      patch: { collapsed }
+    }))
+  if (commands.length === 0) return null
+  return commands.length === 1 ? commands[0] : { type: 'transaction', commands }
+}
+
 /** F2 / inline edit commit. */
 export function buildUpdateTitleCommand(
   sheetId: string,

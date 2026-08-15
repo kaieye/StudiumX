@@ -54,6 +54,8 @@ const TOPIC_PATCH_FIELDS: ReadonlyArray<keyof MindMapTopicUpdatePatch> = [
   'labels',
   'markers',
   'links',
+  'formula',
+  'assetIds',
   'sourceRefs',
   'planning',
   'style',
@@ -447,6 +449,45 @@ function applyTopicRemove(document: MindMapDocumentV2, command: Extract<MindMapC
   return ok(next, inverse)
 }
 
+function applyAssetCreate(document: MindMapDocumentV2, command: Extract<MindMapCommand, { type: 'asset.create' }>): MindMapCommandResult {
+  const asset = command.asset
+  if (!asset || typeof asset.id !== 'string' || asset.id.length === 0 || typeof asset.fileName !== 'string') {
+    return error(command, 'INVALID_PATCH', 'asset.create requires a valid asset reference')
+  }
+  if (document.assets.some((candidate) => candidate.id === asset.id)) {
+    return error(command, 'DUPLICATE_ID', `Asset id "${asset.id}" already exists`)
+  }
+  const next = cloneDocument(document)
+  next.assets.push(structuredClone(asset))
+  return ok(next, { type: 'asset.remove', assetId: asset.id })
+}
+
+function collectAssetReferences(document: MindMapDocumentV2, assetId: string): number {
+  let count = 0
+  for (const sheet of document.sheets) {
+    const stack: MindMapTopicV2[] = [sheet.root]
+    while (stack.length > 0) {
+      const topic = stack.pop()
+      if (!topic) continue
+      if (topic.assetIds?.includes(assetId)) count += 1
+      stack.push(...topic.children)
+    }
+  }
+  return count
+}
+
+function applyAssetRemove(document: MindMapDocumentV2, command: Extract<MindMapCommand, { type: 'asset.remove' }>): MindMapCommandResult {
+  const index = document.assets.findIndex((asset) => asset.id === command.assetId)
+  if (index < 0) return error(command, 'ASSET_NOT_FOUND', `Asset "${command.assetId}" not found`)
+  if (collectAssetReferences(document, command.assetId) > 0) {
+    return error(command, 'INVALID_PATCH', `Asset "${command.assetId}" is still referenced by a topic`)
+  }
+  const removed = structuredClone(document.assets[index])
+  const next = cloneDocument(document)
+  next.assets.splice(index, 1)
+  return ok(next, { type: 'asset.create', asset: removed })
+}
+
 function applyElementCreate(document: MindMapDocumentV2, command: Extract<MindMapCommand, { type: 'element.create' }>): MindMapCommandResult {
   const sheet = getSheet(document, command.sheetId)
   if (sheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
@@ -818,6 +859,10 @@ export function applyMindMapCommand(document: MindMapDocumentV2, command: MindMa
       return applyTopicMove(document, command)
     case 'topic.remove':
       return applyTopicRemove(document, command)
+    case 'asset.create':
+      return applyAssetCreate(document, command)
+    case 'asset.remove':
+      return applyAssetRemove(document, command)
     case 'element.create':
       return applyElementCreate(document, command)
     case 'element.update':

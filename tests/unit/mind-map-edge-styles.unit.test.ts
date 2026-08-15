@@ -122,12 +122,13 @@ describe('extended connector shapes', () => {
     expect(path).toContain('Q ')
   })
 
-  it('renders a bight with an inward V-notch pocket on the middle segment', () => {
+  it('renders a bight with a square pocket on the middle segment', () => {
     const path = bightEdgePath(from, right)
     expect(path.startsWith('M 180 68 L ')).toBe(true)
     expect(path.endsWith('L 280 138')).toBe(true)
-    // The notch detours off the horizontal mid line (midY=103, notch 10).
-    expect(path).toContain('L 220 103 L 230 93 L 240 103')
+    // The pocket detours off the horizontal mid line (midY=103, notch 10),
+    // dropping a small square bump below the line.
+    expect(path).toContain('L 220 103 L 220 113 L 240 113 L 240 103')
   })
 
   it('renders a two-step fold with a horizontal shelf', () => {
@@ -142,6 +143,15 @@ describe('extended connector shapes', () => {
     expect(path.startsWith('M 180 68 L ')).toBe(true)
     expect(path.endsWith('L 280 138')).toBe(true)
     expect(path).toContain('Q ')
+  })
+
+  it('keeps bight/fold/rounded-fold visible for a child level with its parent', () => {
+    // A level child (y2 === y1) used to collapse these to a plain straight
+    // line; the notch/shelf must stay visible instead.
+    const level: MindMapLayoutNode = { ...right, y: 50 } // child centre y = 68 == parent
+    expect(bightEdgePath(from, level)).toContain('L 220 78 L 240 78')
+    expect(foldEdgePath(from, level)).toContain('L 214 84 L 246 84')
+    expect(roundedFoldEdgePath(from, level)).toContain('Q ')
   })
 
   it('resolves every extended connector style to its own generator', () => {

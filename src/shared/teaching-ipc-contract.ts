@@ -125,6 +125,8 @@ export const teachingInvokeChannels = {
   listMindMaps: 'teach:list-mind-maps',
   createMindMap: 'teach:create-mind-map',
   readMindMap: 'teach:read-mind-map',
+  importMindMapAsset: 'teach:import-mind-map-asset',
+  readMindMapAsset: 'teach:read-mind-map-asset',
   updateMindMap: 'teach:update-mind-map',
   flushMindMap: 'teach:flush-mind-map',
   previewMindMapSourceRefresh: 'teach:preview-mind-map-source-refresh',

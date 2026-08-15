@@ -18,7 +18,9 @@ export function useMindMapContextMenu() {
   const insertAbove = useMindMapViewStore((s) => s.insertAbove)
   const outdent = useMindMapViewStore((s) => s.outdent)
   const deleteNode = useMindMapViewStore((s) => s.deleteNode)
+  const deleteNodes = useMindMapViewStore((s) => s.deleteNodes)
   const toggleCollapse = useMindMapViewStore((s) => s.toggleCollapse)
+  const toggleCollapseNodes = useMindMapViewStore((s) => s.toggleCollapseNodes)
   const copyNode = useMindMapViewStore((s) => s.copyNode)
   const cutNode = useMindMapViewStore((s) => s.cutNode)
   const pasteNode = useMindMapViewStore((s) => s.pasteNode)
@@ -81,8 +83,22 @@ export function useMindMapContextMenu() {
       addChild,
       addSibling,
       edit: (nodeId: string) => setEditingNodeId(nodeId),
-      deleteNode,
-      toggleCollapse,
+      deleteNode: (nodeId: string) => {
+        const selection = useMindMapViewStore.getState().selection
+        if (selection.kind === 'topic' && selection.topicIds.length > 1 && selection.topicIds.includes(nodeId)) {
+          deleteNodes(selection.topicIds)
+        } else {
+          deleteNode(nodeId)
+        }
+      },
+      toggleCollapse: (nodeId: string) => {
+        const selection = useMindMapViewStore.getState().selection
+        if (selection.kind === 'topic' && selection.topicIds.length > 1 && selection.topicIds.includes(nodeId)) {
+          toggleCollapseNodes(selection.topicIds)
+        } else {
+          toggleCollapse(nodeId)
+        }
+      },
       copy: wrappedCopy,
       cut: wrappedCut,
       paste: pasteNode,

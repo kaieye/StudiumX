@@ -554,6 +554,43 @@ describe('MindMapCanvas accessibility', () => {
     }
   })
 
+  it('keeps the SVG viewBox in sync during the same resize delivery', () => {
+    const originalResizeObserver = globalThis.ResizeObserver
+    let observer: { callback: ResizeObserverCallback } | null = null
+
+    class ControlledResizeObserver {
+      callback: ResizeObserverCallback
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+        observer = this
+      }
+
+      disconnect = vi.fn()
+      observe = vi.fn()
+      unobserve = vi.fn()
+    }
+
+    vi.stubGlobal('ResizeObserver', ControlledResizeObserver)
+    const { container, unmount } = renderCanvas(makeDocument())
+
+    try {
+      if (!observer) throw new Error('expected canvas resize observer')
+      const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+      if (!svg) throw new Error('expected mind map SVG')
+
+      observer.callback(
+        [{ contentRect: { width: 1200, height: 900 } } as ResizeObserverEntry],
+        observer as unknown as ResizeObserver
+      )
+
+      expect(svg).toHaveAttribute('viewBox', '0 0 1200 900')
+    } finally {
+      unmount()
+      vi.stubGlobal('ResizeObserver', originalResizeObserver)
+    }
+  })
+
   it.each(['quote', 'callout', 'bracket', 'arrow-right', 'arrow-left', 'heart', 'cloud', 'star', 'parallelogram', 'hexagon'] as const)(
     'renders the %s topic shape with a dedicated class',
     (shape) => {

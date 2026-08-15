@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type {
+  MindMapAssetRef,
   MindMapDocumentV2,
   MindMapElement,
   MindMapSheetV2,
@@ -17,6 +18,10 @@ import type {
   MindMapCommand,
   MindMapCommandResult
 } from '../../src/shared/mindmap/commands/mind-map-command-types'
+import {
+  buildRemoveTopicsCommand,
+  buildToggleCollapseTopicsCommand
+} from '../../src/renderer/src/views/mindmap/mind-map-commands'
 
 function makeDocument(): MindMapDocumentV2 {
   return {
@@ -71,6 +76,34 @@ function collectTopicIds(root: MindMapTopicV2): string[] {
 }
 
 describe('applyMindMapCommand — topic commands', () => {
+  it('builds one batch command while filtering roots and descendants', () => {
+    const doc = makeDocument()
+    doc.sheets[0]!.root.children[0]!.children.push({
+      id: 'a-child',
+      title: 'A child',
+      children: []
+    })
+    const sheet = doc.sheets[0]!
+
+    const command = buildRemoveTopicsCommand(sheet, ['root-1', 'a-child', 'a', 'b'])
+    expect(command).toEqual({
+      type: 'transaction',
+      commands: [
+        { type: 'topic.remove', sheetId: 'sheet-1', topicId: 'a' },
+        { type: 'topic.remove', sheetId: 'sheet-1', topicId: 'b' }
+      ]
+    })
+
+    const collapsed = buildToggleCollapseTopicsCommand(sheet, ['a', 'b'], true)
+    expect(collapsed).toEqual({
+      type: 'transaction',
+      commands: [
+        { type: 'topic.update', sheetId: 'sheet-1', topicId: 'a', patch: { collapsed: true } },
+        { type: 'topic.update', sheetId: 'sheet-1', topicId: 'b', patch: { collapsed: true } }
+      ]
+    })
+  })
+
   it('inserts a topic and the inverse removes it', () => {
     const doc = makeDocument()
     const command: MindMapCommand = {
@@ -112,6 +145,57 @@ describe('applyMindMapCommand — topic commands', () => {
     expect(restored.note).toBeUndefined()
     expect(restored.style).toBeUndefined()
     expectInvariants(undone.document)
+  })
+
+  it('stores formula and asset references through the command and undo paths', () => {
+    const doc = makeDocument()
+    const asset: MindMapAssetRef = {
+      id: 'asset-1',
+      fileName: 'diagram.png',
+      mimeType: 'image/png',
+      sizeBytes: 12
+    }
+
+    const created = applyMindMapCommand(doc, { type: 'asset.create', asset })
+    expectOk(created)
+    expect(created.document.assets).toEqual([asset])
+
+    const updated = applyMindMapCommand(created.document, {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { formula: 'x^2 + y^2 = z^2', assetIds: [asset.id] }
+    })
+    expectOk(updated)
+    expect(updated.document.sheets[0]!.root.children[0]).toMatchObject({
+      formula: 'x^2 + y^2 = z^2',
+      assetIds: [asset.id]
+    })
+    expectInvariants(updated.document)
+
+    const blockedRemove = applyMindMapCommand(updated.document, {
+      type: 'asset.remove',
+      assetId: asset.id
+    })
+    expect(blockedRemove.ok).toBe(false)
+
+    const detached = applyMindMapCommand(updated.document, {
+      type: 'topic.update',
+      sheetId: 'sheet-1',
+      topicId: 'a',
+      patch: { formula: null, assetIds: null }
+    })
+    expectOk(detached)
+    const removed = applyMindMapCommand(detached.document, {
+      type: 'asset.remove',
+      assetId: asset.id
+    })
+    expectOk(removed)
+    expect(removed.document.assets).toEqual([])
+
+    const restored = applyMindMapCommand(removed.document, removed.inverse)
+    expectOk(restored)
+    expect(restored.document.assets).toEqual([asset])
   })
 
   it('validates fixed topic width and restores width mode through the inverse', () => {

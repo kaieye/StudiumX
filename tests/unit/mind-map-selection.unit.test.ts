@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   clearMindMapSelection,
   isMindMapNodeSelected,
+  selectMindMapNodesInRectangle,
   selectAllMindMapNodes,
   toggleMindMapNodeSelection
 } from '../../src/shared/mindmap/domain/selection'
@@ -46,5 +47,36 @@ describe('mind-map selection helpers', () => {
     expect(isMindMapNodeSelected(selection, 'child')).toBe(true)
     expect(isMindMapNodeSelected(selection, 'missing')).toBe(false)
     expect(selection).toEqual(['root', 'child'])
+  })
+
+  it('selects nodes intersecting a marquee in either drag direction', () => {
+    const nodes = [
+      { id: 'root', x: 10, y: 10, width: 40, height: 20 },
+      { id: 'child-a', x: 80, y: 20, width: 30, height: 20 },
+      { id: 'child-b', x: 150, y: 60, width: 30, height: 20 }
+    ]
+
+    expect(selectMindMapNodesInRectangle(nodes, {
+      left: 180,
+      top: 100,
+      right: 0,
+      bottom: 0
+    })).toEqual(['root', 'child-a', 'child-b'])
+  })
+
+  it('uses rectangle intersection and keeps node order without duplicates', () => {
+    const nodes = [
+      { id: 'first', x: 0, y: 0, width: 20, height: 20 },
+      { id: 'first', x: 2, y: 2, width: 4, height: 4 },
+      { id: 'edge', x: 40, y: 40, width: 10, height: 10 },
+      { id: 'outside', x: 100, y: 100, width: 10, height: 10 }
+    ]
+
+    expect(selectMindMapNodesInRectangle(nodes, {
+      left: 20,
+      top: 20,
+      right: 45,
+      bottom: 45
+    })).toEqual(['first', 'edge'])
   })
 })

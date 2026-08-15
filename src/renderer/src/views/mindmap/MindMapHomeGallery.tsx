@@ -2,7 +2,7 @@ import { Plus, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapDocumentV2 } from '../../../../shared/mindmap/domain/types'
-import type { MindMapSummary, MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
+import type { MindMapSummary } from '../../../../shared/mindmap/mind-map-types'
 import {
   MindMapHomeCardMenu,
   type MindMapHomeCardMenuState
@@ -18,10 +18,8 @@ type MindMapHomeGalleryProps = {
   createSubmitting: boolean
   createError: string | null
   titleDraft: string
-  createStructureClass: MindMapStructureClass
   onCreate: () => void
   onTitleDraftChange: (title: string) => void
-  onCreateStructureClassChange: (structureClass: MindMapStructureClass) => void
   onCommitCreate: () => void | Promise<void>
   onCancelCreate: () => void
   onOpenDocument: (id: string) => void | Promise<void>
@@ -42,10 +40,8 @@ export function MindMapHomeGallery({
   createSubmitting,
   createError,
   titleDraft,
-  createStructureClass,
   onCreate,
   onTitleDraftChange,
-  onCreateStructureClassChange,
   onCommitCreate,
   onCancelCreate,
   onOpenDocument,
@@ -246,9 +242,7 @@ export function MindMapHomeGallery({
         submitting={createSubmitting}
         error={createError}
         title={titleDraft}
-        selectedStructureClass={createStructureClass}
         onTitleChange={onTitleDraftChange}
-        onStructureClassChange={onCreateStructureClassChange}
         onSubmit={onCommitCreate}
         onCancel={onCancelCreate}
       />

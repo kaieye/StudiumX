@@ -181,6 +181,8 @@ export type MindMapTopicV2 = {
   labels?: string[]
   markers?: MindMapMarker[]
   links?: MindMapLink[]
+  /** Optional LaTeX/KaTeX formula rendered alongside the topic content. */
+  formula?: string
   sourceRefs?: MindMapSourceRef[]
   /** Stable ids into the document-level workspace asset table. */
   assetIds?: string[]

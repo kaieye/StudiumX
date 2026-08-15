@@ -42,6 +42,15 @@ export function MindMapSheetTabs({
     setDraft(title)
   }
 
+  /** Switch to the sheet; only rename when it is already the active sheet. */
+  const handleTabClick = (sheet: MindMapDocumentV2['sheets'][number], isActive: boolean): void => {
+    if (isActive) {
+      beginRename(sheet.id, sheet.title)
+    } else {
+      onActivate(sheet.id)
+    }
+  }
+
   const cancelRename = (): void => {
     setRenamingId(null)
     setDraft('')
@@ -108,7 +117,7 @@ export function MindMapSheetTabs({
                   tabIndex={isActive ? 0 : -1}
                   className={`mindmap-sheet-tab${isActive ? ' is-active' : ''}`}
                   title={t('mindmap.renameSheet', { title: sheet.title })}
-                  onClick={() => beginRename(sheet.id, sheet.title)}
+                  onClick={() => handleTabClick(sheet, isActive)}
                   onContextMenu={(event) => {
                     event.preventDefault()
                     setSheetMenu({
@@ -133,7 +142,7 @@ export function MindMapSheetTabs({
                       focusSheet(document.sheets.length - 1)
                     } else if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
-                      beginRename(sheet.id, sheet.title)
+                      handleTabClick(sheet, isActive)
                     } else if (
                       event.key === 'ContextMenu' ||
                       (event.shiftKey && event.key === 'F10')

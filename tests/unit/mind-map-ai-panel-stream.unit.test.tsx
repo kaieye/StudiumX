@@ -279,6 +279,15 @@ describe('MindMapAiPanel streaming preview', () => {
     act(() => resolveGeneration?.(generatedDocument()))
   })
 
+  it('does not render an empty gray status strip below the idle composer', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+
+    expect(container.querySelector('.mindmap-ai-panel__composer')).toBeInTheDocument()
+    expect(container.querySelector('.mindmap-ai-panel__statusbar')).not.toBeInTheDocument()
+  })
+
   it('uses a conversation thread with a bottom composer and supports Enter to send', async () => {
     const user = userEvent.setup()
     const { container } = render(<MindMapAiPanel open onToggle={() => {}} />)
@@ -301,6 +310,7 @@ describe('MindMapAiPanel streaming preview', () => {
     }))
     expect(within(screen.getByRole('log')).getByText('Map the Krebs cycle')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+    expect(container.querySelector('.mindmap-ai-panel__statusbar')).toBeInTheDocument()
   })
 
   it('retries the prompt from the failed conversation turn', async () => {

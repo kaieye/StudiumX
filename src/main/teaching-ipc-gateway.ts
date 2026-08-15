@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { basename, extname, join, resolve } from 'node:path'
 import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
 import { cancelStreamToolPermissionPending, resolveToolPermissionPending } from './ai/tool-permission-pending'
 import type { AgentEventBus } from './ai/agent-event-bus'
@@ -51,7 +51,7 @@ import {
   parseCancelConversationTurnIntent,
   parseWorkspaceItemRemovePayload, parseWorkspaceRemovePayload, parseRunTeachingDoctorPayload, parseProjectTeachingTurnReviewPayload, parseDecideTeachingTurnReviewPayload, parseProjectTeachingTurnReviewHandoffPayload, parseGetTeachingTurnReviewLastBundlePayload, parseSaveTeachingTurnReviewLastBundlePayload, requireStreamId, requireString,
   requireWindowControlAction,
-  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapUpdatePayload, parseMindMapFlushPayload, parseMindMapSourceRefreshPayload, parseMindMapGeneratePayload, parseMindMapProposalGeneratePayload, parseMindMapCancelGenerationPayload, parseMindMapImportPayload, parseMindMapMarkdownImportPayload, parseMindMapOpmlImportPayload, parseMindMapExportPayload, parseMindMapMarkdownExportPayload, parseMindMapOpmlExportPayload, parseMindMapSvgExportPayload, parseMindMapPngExportPayload
+  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapAssetImportPayload, parseMindMapAssetReadPayload, parseMindMapUpdatePayload, parseMindMapFlushPayload, parseMindMapSourceRefreshPayload, parseMindMapGeneratePayload, parseMindMapProposalGeneratePayload, parseMindMapCancelGenerationPayload, parseMindMapImportPayload, parseMindMapMarkdownImportPayload, parseMindMapOpmlImportPayload, parseMindMapExportPayload, parseMindMapMarkdownExportPayload, parseMindMapOpmlExportPayload, parseMindMapSvgExportPayload, parseMindMapPngExportPayload
 } from './teaching-ipc-commands'
 import type { TeachingSettingsService } from './teaching-settings'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
@@ -1486,6 +1486,72 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
     command({
+      channel: teachingInvokeChannels.importMindMapAsset,
+      parser: (payload) => parseMindMapAssetImportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'importMindMapAsset')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        // The document id is part of the capability envelope. Resolve it before
+        // opening a native picker so an asset cannot be imported into a stale or
+        // unknown mind-map context.
+        await getMindMapStore(root).read(p.id)
+        const options: Electron.OpenDialogOptions = {
+          title: '选择思维导图图片',
+          properties: ['openFile', 'dontAddToRecent'],
+          filters: [
+            {
+              name: 'Images',
+              extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
+            }
+          ]
+        }
+        const mainWindow = BrowserWindow.getFocusedWindow()
+        const result = mainWindow
+          ? await dialog.showOpenDialog(mainWindow, options)
+          : await dialog.showOpenDialog(options)
+        const sourcePath = result.filePaths[0]
+        if (result.canceled || !sourcePath) return { canceled: true as const }
+
+        const assetStore = new MindMapAssetStore({ rootPath: join(root, 'mindmap-assets') })
+        const asset = await assetStore.importFromFile({
+          id: randomUUID(),
+          fileName: basename(sourcePath),
+          sourcePath
+        })
+        if (!isMindMapImageAsset(asset)) {
+          await assetStore.remove(asset).catch(() => undefined)
+          throw new Error('Selected mind-map asset is not a supported image.')
+        }
+        // Return only metadata. The renderer must attach the id through the
+        // canonical asset.create + topic.update transaction before it is used.
+        return { canceled: false as const, asset }
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.readMindMapAsset,
+      parser: (payload) => parseMindMapAssetReadPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'readMindMapAsset')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const document = await getMindMapStore(root).read(p.id)
+        const asset = document.assets.find((candidate) => candidate.id === p.assetId)
+        if (!asset) return null
+        if (!isMindMapImageAsset(asset)) {
+          throw new Error('Mind-map asset is not an image.')
+        }
+        const assetStore = new MindMapAssetStore({ rootPath: join(root, 'mindmap-assets') })
+        const bytes = await assetStore.read(asset)
+        const mimeType = mindMapImageMimeType(asset)
+        if (!mimeType) throw new Error('Mind-map image MIME type is unavailable.')
+        return {
+          asset,
+          dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`
+        }
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
       channel: teachingInvokeChannels.updateMindMap,
       parser: (payload) => parseMindMapUpdatePayload(payload),
       action: async (_event, payload) => {
@@ -2319,6 +2385,24 @@ function resolveProxyUrl(settings: TeachingSettingsV1): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function mindMapImageMimeType(asset: MindMapAssetRef): string | null {
+  const explicit = asset.mimeType?.split(';', 1)[0]?.trim().toLowerCase()
+  if (explicit?.startsWith('image/')) return explicit
+  const extension = extname(asset.fileName).toLowerCase()
+  return {
+    '.gif': 'image/gif',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.png': 'image/png',
+    '.svg': 'image/svg+xml',
+    '.webp': 'image/webp'
+  }[extension] ?? null
+}
+
+function isMindMapImageAsset(asset: MindMapAssetRef): boolean {
+  return mindMapImageMimeType(asset) !== null
 }
 
 function stableXmindAssetId(zipPath: string, bytes: Uint8Array): string {

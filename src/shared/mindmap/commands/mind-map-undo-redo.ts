@@ -42,6 +42,10 @@ export function defaultMindMapCommandLabel(command: MindMapCommand): string {
       return 'Move topic'
     case 'topic.remove':
       return 'Remove topic'
+    case 'asset.create':
+      return 'Add asset'
+    case 'asset.remove':
+      return 'Remove asset'
     case 'element.create':
       return 'Create element'
     case 'element.update':

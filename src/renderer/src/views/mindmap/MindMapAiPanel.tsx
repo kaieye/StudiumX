@@ -15,6 +15,7 @@ import { MindMapNotesPanel } from './MindMapNotesPanel'
 import { MindMapThemeGallery } from './MindMapThemeGallery'
 import { MindMapThemePanel } from './MindMapThemePanel'
 import { MindMapTopicStyleInspector } from './MindMapTopicStyleInspector'
+import { MindMapTopicContentPanel } from './MindMapTopicContentPanel'
 import { MindMapCanvasOptionsPanel } from './MindMapCanvasOptionsPanel'
 import { MindMapElementStyleInspector } from './MindMapElementStyleInspector'
 
@@ -50,6 +51,10 @@ type MindMapAiPanelProps = {
   onRenameDocument: (title: string) => void
   /** Import/export control rendered beside the panel collapse button. */
   importExportControl?: ReactNode
+  /** Search/outline tool buttons rendered to the left of the import/export control. */
+  utilityControl?: ReactNode
+  /** Optional search/outline surface rendered below the persistent header row. */
+  utilityContent?: ReactNode
 }
 
 export function MindMapAiPanel({
@@ -57,7 +62,9 @@ export function MindMapAiPanel({
   onToggle,
   documentTitle,
   onRenameDocument,
-  importExportControl
+  importExportControl,
+  utilityControl,
+  utilityContent
 }: MindMapAiPanelProps) {
   const { t } = useTranslation()
   const aiPrompt = useMindMapViewStore((s) => s.aiPrompt)
@@ -374,6 +381,7 @@ export function MindMapAiPanel({
             {documentTitle}
           </button>
         )}
+        {utilityControl}
         {importExportControl}
         <button
           type="button"
@@ -385,206 +393,216 @@ export function MindMapAiPanel({
           <PanelRightClose size={14} aria-hidden="true" />
         </button>
       </div>
-      <div className="mindmap-inspector-tabs" role="tablist" aria-label={t('mindmap.inspector.title')}>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={inspectorTab === 'format'}
-          className={`mindmap-inspector-tab${inspectorTab === 'format' ? ' is-active' : ''}`}
-          onClick={() => setInspectorTab('format')}
-        >
-          {t('mindmap.inspector.format')}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={inspectorTab === 'content'}
-          className={`mindmap-inspector-tab${inspectorTab === 'content' ? ' is-active' : ''}`}
-          onClick={() => setInspectorTab('content')}
-        >
-          {t('mindmap.inspector.content')}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={inspectorTab === 'ai'}
-          className={`mindmap-inspector-tab${inspectorTab === 'ai' ? ' is-active' : ''}`}
-          onClick={() => setInspectorTab('ai')}
-        >
-          {t('mindmap.inspector.ai')}
-        </button>
-      </div>
-      {inspectorTab === 'format' ? (
-        <div className="mindmap-inspector-tab-content">
-          <MindMapThemeGallery />
-          <MindMapThemePanel />
-          <MindMapCanvasOptionsPanel />
-        </div>
-      ) : inspectorTab === 'content' ? (
-        <div className="mindmap-inspector-tab-content mindmap-inspector-tab-content--content">
-          {selection.kind === 'topic' ? (
-            <>
-              <MindMapTopicStyleInspector />
-              <div id="mindmap-inspector-notes">
-                <MindMapNotesPanel />
-              </div>
-              <div id="mindmap-inspector-markers">
-                <MindMapMarkersPanel />
-              </div>
-            </>
-          ) : selection.kind === 'element' ? (
-            <MindMapElementStyleInspector />
-          ) : (
-            <div className="mindmap-inspector-empty" role="status">
-              {t('mindmap.inspector.contentTopicOnly')}
-            </div>
-          )}
+      {utilityContent ? (
+        <div className="mindmap-inspector-utility-content">
+          {utilityContent}
         </div>
       ) : (
-        <div className="mindmap-inspector-tab-content mindmap-inspector-tab-content--ai">
-          <div className="mindmap-ai-panel__conversation">
-            <div
-              ref={threadRef}
-              className="mindmap-ai-panel__thread"
-              role="log"
-              aria-label={t('mindmap.inspector.ai')}
-              aria-live="off"
-              onScroll={updateThreadStickiness}
+        <>
+          <div className="mindmap-inspector-tabs" role="tablist" aria-label={t('mindmap.inspector.title')}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={inspectorTab === 'format'}
+              className={`mindmap-inspector-tab${inspectorTab === 'format' ? ' is-active' : ''}`}
+              onClick={() => setInspectorTab('format')}
             >
-              {generationMessages.length === 0 && !error ? (
-                <div className="mindmap-ai-panel__empty">
-                  <Sparkles size={18} aria-hidden="true" />
-                  <strong>{t('mindmap.aiTitle')}</strong>
-                </div>
-              ) : null}
-
-              {generationMessages.map((message) => {
-                const active = message.status === 'generating'
-                const preview = message.preview || (active ? streamText : '')
-                return (
-                  <div className="mindmap-ai-panel__exchange" key={message.generationId}>
-                    <div className="mindmap-ai-panel__turn mindmap-ai-panel__turn--user">
-                      <p className="mindmap-ai-panel__message mindmap-ai-panel__message--user">
-                        {message.prompt}
-                      </p>
-                    </div>
-                    <div className="mindmap-ai-panel__turn mindmap-ai-panel__turn--assistant">
-                      <article
-                        className={`mindmap-ai-panel__message mindmap-ai-panel__message--assistant${message.status === 'error' ? ' is-error' : ''}`}
-                        data-stream-step={active ? streamStep : undefined}
-                        data-generation-status={message.status}
-                      >
-                        <div className="mindmap-ai-panel__message-status">
-                          {active ? <Loader2 size={14} className="spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
-                          <span>
-                            {active
-                              ? t('mindmap.aiStreaming')
-                              : message.status === 'cancelled'
-                                ? t('mindmap.aiStreamCancelled')
-                                : message.status === 'error'
-                                  ? t('mindmap.aiError')
-                                  : preview
-                                    ? t('mindmap.aiStreamPreview')
-                                    : t('mindmap.aiApplied')}
-                          </span>
-                        </div>
-                        {preview ? <pre className="mindmap-ai-panel__message-preview">{preview}</pre> : null}
-                        {message.error ? <p className="mindmap-ai-panel__message-error">{message.error}</p> : null}
-                        {message.status === 'error' ? (
-                          <button
-                            type="button"
-                            className="ghost-button"
-                            onClick={() => retryGeneration(message.prompt)}
-                            disabled={generating}
-                          >
-                            {t('mindmap.retry')}
-                          </button>
-                        ) : null}
-                        {message.status === 'generating' || message.status === 'cancelled' ? (
-                          <span className="mindmap-ai-panel__message-announcement" role="status" aria-live="polite">
-                            {message.status === 'generating'
-                              ? t('mindmap.aiStreaming')
-                              : t('mindmap.aiStreamCancelled')}
-                          </span>
-                        ) : null}
-                      </article>
-                    </div>
-                  </div>
-                )
-              })}
-
-              {error && generationMessages.length === 0 ? (
-                <div className="mindmap-ai-panel__error" role="alert">
-                  <span>{t('mindmap.aiError')}</span>
-                  <p>{error}</p>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => retryGeneration(aiPrompt.trim())}
-                    disabled={generating || !aiPrompt.trim()}
-                  >
-                    {t('mindmap.retry')}
-                  </button>
-                </div>
-              ) : null}
+              {t('mindmap.inspector.format')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={inspectorTab === 'content'}
+              className={`mindmap-inspector-tab${inspectorTab === 'content' ? ' is-active' : ''}`}
+              disabled={selection.kind !== 'topic' && selection.kind !== 'element'}
+              onClick={() => setInspectorTab('content')}
+            >
+              {t('mindmap.inspector.content')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={inspectorTab === 'ai'}
+              className={`mindmap-inspector-tab${inspectorTab === 'ai' ? ' is-active' : ''}`}
+              onClick={() => setInspectorTab('ai')}
+            >
+              {t('mindmap.inspector.ai')}
+            </button>
+          </div>
+          {inspectorTab === 'format' ? (
+            <div className="mindmap-inspector-tab-content">
+              <MindMapThemeGallery />
+              <MindMapThemePanel />
+              <MindMapCanvasOptionsPanel />
             </div>
-
-            <form className="mindmap-ai-panel__composer" onSubmit={onSubmit}>
-              <div className="mindmap-ai-panel__composer-card">
-                <label className="mindmap-ai-panel__composer-label" htmlFor="mindmap-ai-prompt">
-                  {t('mindmap.aiPromptLabel')}
-                </label>
-                <textarea
-                  id="mindmap-ai-prompt"
-                  className="mindmap-ai-panel__input"
-                  value={aiPrompt}
-                  onChange={(event) => setAiPrompt(event.currentTarget.value)}
-                  onKeyDown={onComposerKeyDown}
-                  placeholder={t('mindmap.aiPromptPlaceholder')}
-                  rows={2}
-                  disabled={generating}
-                />
-                <div className="mindmap-ai-panel__composer-footer">
-                  <div className="mindmap-ai-panel__composer-actions">
-                    <OverviewModelPicker />
-                    <OverviewReasoningPicker />
+          ) : inspectorTab === 'content' ? (
+            <div className="mindmap-inspector-tab-content mindmap-inspector-tab-content--content">
+              {selection.kind === 'topic' ? (
+                <>
+                  <MindMapTopicStyleInspector />
+                  <MindMapTopicContentPanel />
+                  <div id="mindmap-inspector-notes">
+                    <MindMapNotesPanel />
                   </div>
-                  {generating ? (
-                    <button
-                      type="button"
-                      className="mindmap-ai-panel__send"
-                      onClick={cancelGeneration}
-                      aria-label={t('mindmap.aiCancel')}
-                      title={t('mindmap.aiCancel')}
-                    >
-                      <Square size={16} aria-hidden="true" />
-                    </button>
-                  ) : (
-                    <button
-                      type="submit"
-                      className="mindmap-ai-panel__send"
-                      disabled={!canSubmit}
-                      aria-label={t('mindmap.aiGenerate')}
-                      title={t('mindmap.aiGenerate')}
-                    >
-                      <SendHorizontal size={18} aria-hidden="true" />
-                    </button>
-                  )}
+                  <div id="mindmap-inspector-markers">
+                    <MindMapMarkersPanel />
+                  </div>
+                </>
+              ) : selection.kind === 'element' ? (
+                <MindMapElementStyleInspector />
+              ) : (
+                <div className="mindmap-inspector-empty" role="status">
+                  {t('mindmap.inspector.contentTopicOnly')}
                 </div>
-              </div>
-              <div className="mindmap-ai-panel__statusbar" aria-label={t('mindmap.inspector.ai')}>
-                <div className="mindmap-ai-panel__status-group" />
-                <div className="mindmap-ai-panel__status-group">
-                  {statusLabel ? (
-                    <span className="mindmap-ai-panel__status-text" role="status" aria-live="polite">
-                      {statusLabel}
-                    </span>
+              )}
+            </div>
+          ) : (
+            <div className="mindmap-inspector-tab-content mindmap-inspector-tab-content--ai">
+              <div className="mindmap-ai-panel__conversation">
+                <div
+                  ref={threadRef}
+                  className="mindmap-ai-panel__thread"
+                  role="log"
+                  aria-label={t('mindmap.inspector.ai')}
+                  aria-live="off"
+                  onScroll={updateThreadStickiness}
+                >
+                  {generationMessages.length === 0 && !error ? (
+                    <div className="mindmap-ai-panel__empty">
+                      <Sparkles size={18} aria-hidden="true" />
+                      <strong>{t('mindmap.aiTitle')}</strong>
+                    </div>
+                  ) : null}
+
+                  {generationMessages.map((message) => {
+                    const active = message.status === 'generating'
+                    const preview = message.preview || (active ? streamText : '')
+                    return (
+                      <div className="mindmap-ai-panel__exchange" key={message.generationId}>
+                        <div className="mindmap-ai-panel__turn mindmap-ai-panel__turn--user">
+                          <p className="mindmap-ai-panel__message mindmap-ai-panel__message--user">
+                            {message.prompt}
+                          </p>
+                        </div>
+                        <div className="mindmap-ai-panel__turn mindmap-ai-panel__turn--assistant">
+                          <article
+                            className={`mindmap-ai-panel__message mindmap-ai-panel__message--assistant${message.status === 'error' ? ' is-error' : ''}`}
+                            data-stream-step={active ? streamStep : undefined}
+                            data-generation-status={message.status}
+                          >
+                            <div className="mindmap-ai-panel__message-status">
+                              {active ? <Loader2 size={14} className="spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
+                              <span>
+                                {active
+                                  ? t('mindmap.aiStreaming')
+                                  : message.status === 'cancelled'
+                                    ? t('mindmap.aiStreamCancelled')
+                                    : message.status === 'error'
+                                      ? t('mindmap.aiError')
+                                      : preview
+                                        ? t('mindmap.aiStreamPreview')
+                                        : t('mindmap.aiApplied')}
+                              </span>
+                            </div>
+                            {preview ? <pre className="mindmap-ai-panel__message-preview">{preview}</pre> : null}
+                            {message.error ? <p className="mindmap-ai-panel__message-error">{message.error}</p> : null}
+                            {message.status === 'error' ? (
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() => retryGeneration(message.prompt)}
+                                disabled={generating}
+                              >
+                                {t('mindmap.retry')}
+                              </button>
+                            ) : null}
+                            {message.status === 'generating' || message.status === 'cancelled' ? (
+                              <span className="mindmap-ai-panel__message-announcement" role="status" aria-live="polite">
+                                {message.status === 'generating'
+                                  ? t('mindmap.aiStreaming')
+                                  : t('mindmap.aiStreamCancelled')}
+                              </span>
+                            ) : null}
+                          </article>
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {error && generationMessages.length === 0 ? (
+                    <div className="mindmap-ai-panel__error" role="alert">
+                      <span>{t('mindmap.aiError')}</span>
+                      <p>{error}</p>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => retryGeneration(aiPrompt.trim())}
+                        disabled={generating || !aiPrompt.trim()}
+                      >
+                        {t('mindmap.retry')}
+                      </button>
+                    </div>
                   ) : null}
                 </div>
+
+                <form className="mindmap-ai-panel__composer" onSubmit={onSubmit}>
+                  <div className="mindmap-ai-panel__composer-card">
+                    <label className="mindmap-ai-panel__composer-label" htmlFor="mindmap-ai-prompt">
+                      {t('mindmap.aiPromptLabel')}
+                    </label>
+                    <textarea
+                      id="mindmap-ai-prompt"
+                      className="mindmap-ai-panel__input"
+                      value={aiPrompt}
+                      onChange={(event) => setAiPrompt(event.currentTarget.value)}
+                      onKeyDown={onComposerKeyDown}
+                      placeholder={t('mindmap.aiPromptPlaceholder')}
+                      rows={2}
+                      disabled={generating}
+                    />
+                    <div className="mindmap-ai-panel__composer-footer">
+                      <div className="mindmap-ai-panel__composer-actions">
+                        <OverviewModelPicker />
+                        <OverviewReasoningPicker />
+                      </div>
+                      {generating ? (
+                        <button
+                          type="button"
+                          className="mindmap-ai-panel__send"
+                          onClick={cancelGeneration}
+                          aria-label={t('mindmap.aiCancel')}
+                          title={t('mindmap.aiCancel')}
+                        >
+                          <Square size={16} aria-hidden="true" />
+                        </button>
+                      ) : (
+                        <button
+                          type="submit"
+                          className="mindmap-ai-panel__send"
+                          disabled={!canSubmit}
+                          aria-label={t('mindmap.aiGenerate')}
+                          title={t('mindmap.aiGenerate')}
+                        >
+                          <SendHorizontal size={18} aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {statusLabel ? (
+                    <div className="mindmap-ai-panel__statusbar" aria-label={t('mindmap.inspector.ai')}>
+                      <div className="mindmap-ai-panel__status-group" />
+                      <div className="mindmap-ai-panel__status-group">
+                        <span className="mindmap-ai-panel__status-text" role="status" aria-live="polite">
+                          {statusLabel}
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
+                </form>
               </div>
-            </form>
-          </div>
-        </div>
+            </div>
+          )}
+        </>
       )}
     </aside>
   )

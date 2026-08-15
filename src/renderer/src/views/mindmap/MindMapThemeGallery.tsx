@@ -378,9 +378,6 @@ export function MindMapThemeGallery() {
           <>
             {recentEntries.length > 0 ? (
               <div className="mindmap-theme-picker__section">
-                <span className="mindmap-theme-picker__section-label">
-                  {t('mindmap.colorScheme.recent')}
-                </span>
                 <div className="mindmap-theme-picker__recent" role="group" aria-label={t('mindmap.colorScheme.recent')}>
                   {recentEntries.map((entry) => (
                     <button
@@ -400,7 +397,6 @@ export function MindMapThemeGallery() {
 
             {groups.map((group) => (
               <div key={group.category} className="mindmap-theme-picker__section">
-                <span className="mindmap-theme-picker__section-label">{group.label}</span>
                 <div className="mindmap-theme-picker__scheme-grid" role="group" aria-label={group.label}>
                   {group.entries.map(renderSchemeOption)}
                 </div>

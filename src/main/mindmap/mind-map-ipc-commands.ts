@@ -34,6 +34,8 @@ import type {
 } from '../../shared/mindmap/domain/types'
 import type {
   MindMapAccessPayload,
+  MindMapAssetImportPayload,
+  MindMapAssetReadPayload,
   MindMapCancelGenerationPayload,
   MindMapCreatePayload,
   MindMapExportPayload,
@@ -126,6 +128,20 @@ export function parseMindMapAccessPayload(value: unknown): MindMapAccessPayload 
   const id = requireNonEmptyString(record.id)
   if (!workspaceId || !id) return null
   return { workspaceId, id }
+}
+
+export function parseMindMapAssetImportPayload(value: unknown): MindMapAssetImportPayload | null {
+  return parseMindMapAccessPayload(value)
+}
+
+export function parseMindMapAssetReadPayload(value: unknown): MindMapAssetReadPayload | null {
+  const record = requireExactKeys(value, ['workspaceId', 'id', 'assetId'])
+  if (!record) return null
+  const workspaceId = requireNonEmptyString(record.workspaceId)
+  const id = requireNonEmptyString(record.id)
+  const assetId = requireNonEmptyString(record.assetId)
+  if (!workspaceId || !id || !assetId) return null
+  return { workspaceId, id, assetId }
 }
 
 export function parseMindMapUpdatePayload(value: unknown): MindMapUpdatePayload | null {

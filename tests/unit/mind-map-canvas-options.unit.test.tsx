@@ -124,44 +124,15 @@ describe('MindMapCanvasOptionsPanel', () => {
     expect(select).toHaveValue('1')
   })
 
-  it('enables balanced mode only for compatible logic structures', () => {
+  it('does not expose structure switching controls', () => {
     render(<MindMapCanvasOptionsPanel />)
 
-    const balanced = screen.getByRole('checkbox', { name: 'Balanced map' })
-    expect(balanced).toBeEnabled()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Structure: Right' }))
-    fireEvent.click(within(screen.getByRole('listbox', { name: 'Structure' })).getByRole('option', { name: 'Matrix (Rows)' }))
-    expect(balanced).toBeDisabled()
-    expect(screen.getByText('Balanced mode is available only for Logic Chart structures.')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Structure: Matrix (Rows)' }))
-    fireEvent.click(within(screen.getByRole('listbox', { name: 'Structure' })).getByRole('option', { name: 'Right' }))
-    expect(balanced).toBeEnabled()
+    expect(screen.queryByText('Structure')).not.toBeInTheDocument()
+    expect(screen.queryByRole('listbox', { name: 'Structure' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'Balanced map' })).not.toBeInTheDocument()
   })
 
-  it('keeps structures in a compact keyboard-accessible picker', async () => {
-    render(<MindMapCanvasOptionsPanel />)
-
-    const trigger = screen.getByRole('button', { name: 'Structure: Right' })
-    expect(screen.queryByRole('listbox', { name: 'Structure' })).not.toBeInTheDocument()
-
-    fireEvent.click(trigger)
-    const listbox = screen.getByRole('listbox', { name: 'Structure' })
-    const right = within(listbox).getByRole('option', { name: 'Right' })
-    const balanced = within(listbox).getByRole('option', { name: 'Balanced' })
-    await act(async () => Promise.resolve())
-    expect(right).toHaveFocus()
-
-    fireEvent.keyDown(right, { key: 'ArrowRight' })
-    expect(balanced).toHaveFocus()
-    fireEvent.keyDown(balanced, { key: 'Escape' })
-    expect(screen.queryByRole('listbox', { name: 'Structure' })).not.toBeInTheDocument()
-    await act(async () => Promise.resolve())
-    expect(trigger).toHaveFocus()
-  })
-
-  it('resets to the current structure family default instead of forcing logic right', () => {
+  it('resets canvas presentation without changing the document structure', () => {
     const current = useMindMapViewStore.getState().current
     if (!current) throw new Error('expected current document')
     current.sheets[0]!.layout = {
@@ -175,73 +146,62 @@ describe('MindMapCanvasOptionsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset canvas layout' }))
 
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout).toEqual({
-      structureClass: 'org.xmind.ui.spreadsheet'
+      structureClass: 'org.xmind.ui.spreadsheet.column'
     })
   })
 
   it('separates the structure default from explicit connector overrides', () => {
     render(<MindMapCanvasOptionsPanel />)
 
-    const select = screen.getByRole('combobox', { name: 'Connectors' })
-    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'Structure default', 'Curve', 'Straight', 'Elbow', 'Rounded Elbow', 'Bight', 'Fold', 'Rounded Fold'
+    // For a logic chart the structure default is Curve, so it is shown as the
+    // selected option instead of a redundant "Structure default" entry.
+    const trigger = screen.getByRole('button', { name: 'Connectors' })
+    expect(trigger).toHaveTextContent('Curve')
+
+    fireEvent.click(trigger)
+    let dialog = screen.getByRole('dialog', { name: 'Connectors' })
+    expect(within(dialog).getAllByRole('option').map((option) => option.getAttribute('aria-label'))).toEqual([
+      'Rounded Elbow', 'Elbow', 'Straight', 'Curve'
     ])
-    expect(select).toHaveValue('')
+    expect(within(dialog).getByRole('option', { name: 'Curve' })).toHaveAttribute('aria-selected', 'true')
+    expect(within(dialog).queryByRole('button', { name: 'Structure default' })).not.toBeInTheDocument()
 
-    fireEvent.change(select, { target: { value: 'rounded-fold' } })
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('rounded-fold')
-    expect(select).toHaveValue('rounded-fold')
+    fireEvent.click(within(dialog).getByRole('option', { name: 'Elbow' }))
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('elbow')
 
-    fireEvent.change(select, { target: { value: '' } })
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBeUndefined()
-    expect(select).toHaveValue('')
-
-    act(() => useMindMapViewStore.getState().undo())
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('rounded-fold')
-    expect(select).toHaveValue('rounded-fold')
+    // Selecting Curve again makes it an explicit concrete override.
+    fireEvent.click(screen.getByRole('button', { name: 'Connectors' }))
+    dialog = screen.getByRole('dialog', { name: 'Connectors' })
+    fireEvent.click(within(dialog).getByRole('option', { name: 'Curve' }))
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('curve')
 
     act(() => useMindMapViewStore.getState().undo())
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBeUndefined()
-    expect(select).toHaveValue('')
-  })
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBe('elbow')
 
-  it('preserves an explicit connector override when the structure changes', () => {
-    render(<MindMapCanvasOptionsPanel />)
-
-    const connector = screen.getByRole('combobox', { name: 'Connectors' })
-    fireEvent.change(connector, { target: { value: 'curve' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Structure: Right' }))
-    fireEvent.click(within(screen.getByRole('listbox', { name: 'Structure' })).getByRole('option', { name: 'Timeline (H)' }))
-
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout).toMatchObject({
-      structureClass: 'org.xmind.ui.timeline.horizontal',
-      lineStyle: 'curve'
-    })
-    expect(connector).toHaveValue('curve')
-
-    fireEvent.change(connector, { target: { value: '' } })
+    act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.lineStyle).toBeUndefined()
   })
 
   it('offers the branch line pattern selector and keeps each change undoable', () => {
     render(<MindMapCanvasOptionsPanel />)
 
-    const select = screen.getByRole('combobox', { name: 'Branch line pattern' })
-    expect(within(select).getAllByRole('option')).toHaveLength(4)
-    expect(select).toHaveValue('solid')
+    const trigger = screen.getByRole('button', { name: 'Branch line pattern' })
+    fireEvent.click(trigger)
+    let dialog = screen.getByRole('dialog', { name: 'Branch line pattern' })
+    expect(within(dialog).getAllByRole('option')).toHaveLength(4)
 
-    fireEvent.change(select, { target: { value: 'dash' } })
+    fireEvent.click(within(dialog).getByRole('option', { name: 'Dash' }))
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.linePattern).toBe('dash')
-    expect(select).toHaveValue('dash')
 
-    fireEvent.change(select, { target: { value: 'hand-drawn-dash' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Branch line pattern' }))
+    dialog = screen.getByRole('dialog', { name: 'Branch line pattern' })
+    fireEvent.click(within(dialog).getByRole('option', { name: 'Hand-drawn dash' }))
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.linePattern).toBe('hand-drawn-dash')
 
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.linePattern).toBe('dash')
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.linePattern).toBeUndefined()
-    expect(select).toHaveValue('solid')
   })
 
   it('toggles the tapered line switch through the command path', () => {
@@ -287,20 +247,12 @@ describe('MindMapCanvasOptionsPanel', () => {
 
   it('announces inherited state for sheet-layout selects', () => {
     render(<MindMapCanvasOptionsPanel />)
-    expect(screen.getByRole('combobox', { name: 'Connectors' }))
+    expect(screen.getByRole('button', { name: 'Connectors' }))
       .toHaveAccessibleDescription('Inherited from theme')
     expect(screen.getByRole('combobox', { name: 'Branch line width' }))
       .toHaveAccessibleDescription('Inherited from theme')
-    expect(screen.getByRole('combobox', { name: 'Branch line pattern' }))
+    expect(screen.getByRole('button', { name: 'Branch line pattern' }))
       .toHaveAccessibleDescription('Inherited from theme')
   })
 
-  it('announces the currently selected structure option', () => {
-    render(<MindMapCanvasOptionsPanel />)
-    const trigger = screen.getByRole('button', { name: /Structure: Right/ })
-    fireEvent.click(trigger)
-    const right = screen.getByRole('option', { name: 'Right' })
-    expect(right).toHaveAttribute('aria-selected', 'true')
-    expect(right).toHaveAccessibleDescription('Selected')
-  })
 })
