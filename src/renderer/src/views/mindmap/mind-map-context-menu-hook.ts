@@ -1,8 +1,7 @@
 import { useCallback, useState } from 'react'
-import type { MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
-import type { MindMapContextMenuState } from './MindMapContextMenu'
+import type { MindMapContextMenuActions, MindMapContextMenuState } from './MindMapContextMenu'
+import { findTopicInSheet } from './mind-map-commands'
 import { useMindMapViewStore } from './mind-map-view-store'
-import type { MindMapQuickStylePreset } from '../../../../shared/mindmap/quick-styles'
 
 /**
  * Hook that wires the Xmind-style right-click context menu into MindMapView.
@@ -12,15 +11,22 @@ import type { MindMapQuickStylePreset } from '../../../../shared/mindmap/quick-s
  * canvas and the <MindMapContextMenu> element.
  */
 
-export function useMindMapContextMenu() {
+export type MindMapContextMenuInsertActions = Pick<
+  MindMapContextMenuActions,
+  'insertMarkers' | 'insertNotes' | 'insertFormula' | 'insertLink' | 'insertImage'
+>
+
+export function useMindMapContextMenu(
+  insertActions: MindMapContextMenuInsertActions
+) {
   const addChild = useMindMapViewStore((s) => s.addChild)
   const addSibling = useMindMapViewStore((s) => s.addSibling)
   const insertAbove = useMindMapViewStore((s) => s.insertAbove)
   const outdent = useMindMapViewStore((s) => s.outdent)
   const deleteNode = useMindMapViewStore((s) => s.deleteNode)
   const deleteNodes = useMindMapViewStore((s) => s.deleteNodes)
-  const toggleCollapse = useMindMapViewStore((s) => s.toggleCollapse)
-  const toggleCollapseNodes = useMindMapViewStore((s) => s.toggleCollapseNodes)
+  const setTopicChildrenCollapsed = useMindMapViewStore((s) => s.setTopicChildrenCollapsed)
+  const setSiblingTopicsCollapsed = useMindMapViewStore((s) => s.setSiblingTopicsCollapsed)
   const copyNode = useMindMapViewStore((s) => s.copyNode)
   const cutNode = useMindMapViewStore((s) => s.cutNode)
   const pasteNode = useMindMapViewStore((s) => s.pasteNode)
@@ -29,8 +35,6 @@ export function useMindMapContextMenu() {
   const copyTopicStyle = useMindMapViewStore((s) => s.copyTopicStyle)
   const pasteTopicStyle = useMindMapViewStore((s) => s.pasteTopicStyle)
   const resetTopicStyle = useMindMapViewStore((s) => s.resetTopicStyle)
-  const applyQuickStyle = useMindMapViewStore((s) => s.applyQuickStyle)
-  const setEditingNodeId = useMindMapViewStore((s) => s.setEditingNodeId)
 
   const [contextMenu, setContextMenu] = useState<MindMapContextMenuState>({
     visible: false,
@@ -45,17 +49,23 @@ export function useMindMapContextMenu() {
     const doc = state.current
     const sheetId = state.activeSheetId
     const sheet = doc?.sheets.find((s) => s.id === sheetId) ?? doc?.sheets[0]
-    let topic: MindMapTopicV2 | null = null
-    if (sheet) {
-      topic = findTopic(sheet.root, nodeId)
-    }
+    const topicRef = sheet ? findTopicInSheet(sheet, nodeId) : undefined
+    const topic = topicRef?.node
+    const parent = topicRef?.parent
+    const siblingBranches = parent?.children.filter((candidate) => candidate.children.length > 0) ?? []
     setContextMenu({
       visible: true,
       x,
       y,
       nodeId,
       isRoot: nodeId === sheet?.root.id,
-      isCollapsed: topic?.collapsed ?? false
+      isCollapsed: topic?.collapsed ?? false,
+      hasChildren: (topic?.children.length ?? 0) > 0,
+      hasSiblingChildren: parent !== null && parent !== undefined
+        && parent.children.length > 1
+        && siblingBranches.length > 0,
+      siblingChildrenCollapsed: siblingBranches.length > 0
+        && siblingBranches.every((candidate) => candidate.collapsed === true)
     })
   }, [])
 
@@ -82,7 +92,6 @@ export function useMindMapContextMenu() {
     actions: {
       addChild,
       addSibling,
-      edit: (nodeId: string) => setEditingNodeId(nodeId),
       deleteNode: (nodeId: string) => {
         const selection = useMindMapViewStore.getState().selection
         if (selection.kind === 'topic' && selection.topicIds.length > 1 && selection.topicIds.includes(nodeId)) {
@@ -92,12 +101,23 @@ export function useMindMapContextMenu() {
         }
       },
       toggleCollapse: (nodeId: string) => {
-        const selection = useMindMapViewStore.getState().selection
-        if (selection.kind === 'topic' && selection.topicIds.length > 1 && selection.topicIds.includes(nodeId)) {
-          toggleCollapseNodes(selection.topicIds)
-        } else {
-          toggleCollapse(nodeId)
-        }
+        const state = useMindMapViewStore.getState()
+        const sheet = state.current?.sheets.find((candidate) => candidate.id === state.activeSheetId)
+          ?? state.current?.sheets[0]
+        const topic = sheet ? findTopicInSheet(sheet, nodeId)?.node : undefined
+        if (!topic || topic.children.length === 0) return
+        setTopicChildrenCollapsed(nodeId, topic.collapsed !== true)
+      },
+      toggleSiblingCollapse: (nodeId: string) => {
+        const state = useMindMapViewStore.getState()
+        const sheet = state.current?.sheets.find((candidate) => candidate.id === state.activeSheetId)
+          ?? state.current?.sheets[0]
+        const parent = sheet ? findTopicInSheet(sheet, nodeId)?.parent : undefined
+        if (!parent) return
+        const branches = parent.children.filter((candidate) => candidate.children.length > 0)
+        if (branches.length === 0) return
+        const allCollapsed = branches.every((candidate) => candidate.collapsed === true)
+        setSiblingTopicsCollapsed(nodeId, !allCollapsed)
       },
       copy: wrappedCopy,
       cut: wrappedCut,
@@ -118,24 +138,9 @@ export function useMindMapContextMenu() {
           : [nodeId]
         resetTopicStyle(topicIds)
       },
-      applyQuickStyle: (nodeId: string, preset: MindMapQuickStylePreset) => {
-        const selection = useMindMapViewStore.getState().selection
-        const topicIds = selection.kind === 'topic' && selection.topicIds.includes(nodeId)
-          ? selection.topicIds
-          : [nodeId]
-        applyQuickStyle(topicIds, preset)
-      },
       insertAbove,
-      outdent
+      outdent,
+      ...insertActions
     }
   }
-}
-
-function findTopic(node: MindMapTopicV2, id: string): MindMapTopicV2 | null {
-  if (node.id === id) return node
-  for (const child of node.children) {
-    const found = findTopic(child, id)
-    if (found) return found
-  }
-  return null
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MindMapTheme } from '../../src/shared/mindmap/domain/types'
-import { branchColor, hexToRgba, DEFAULT_BRANCH_COLORS } from '../../src/renderer/src/views/mindmap/mind-map-branch-colors'
+import { branchColor, branchColorForKey, hexToRgba, DEFAULT_BRANCH_COLORS } from '../../src/renderer/src/views/mindmap/mind-map-branch-colors'
 import { DAWN_COLORS, COLOR_SCHEMES, getColorScheme } from '../../src/shared/mindmap/themes/color-schemes'
 
 describe('branchColor', () => {
@@ -62,6 +62,43 @@ describe('branchColor', () => {
     expect(branchColor(theme, 0)).toBe('#aaa')
   })
 })
+
+describe('branchColorForKey', () => {
+  it('returns a colour stable per branch key (independent of position)', () => {
+    const theme: MindMapTheme = { id: 'test', branchColors: ['#aaa', '#bbb', '#ccc'] }
+    // A branch keeps its colour when a sibling is inserted before it: the
+    // colour depends on the branch's stable id, not its positional index.
+    expect(branchColorForKey(theme, 'branch-x')).toBe(branchColorForKey(theme, 'branch-x'))
+    expect(branchColorForKey(theme, 'branch-y')).toBe(branchColorForKey(theme, 'branch-y'))
+    // Distinct keys resolve to a palette member.
+    const colors = ['#aaa', '#bbb', '#ccc']
+    expect(colors).toContain(branchColorForKey(theme, 'branch-z'))
+  })
+
+  it('returns the same colour as the positional API for the root/first branch', () => {
+    const theme: MindMapTheme = { id: 'test', branchColors: ['#aaa', '#bbb', '#ccc'] }
+    expect(branchColorForKey(theme, theme.id)).toBe(branchColor(theme, stableSlotOf(theme.id)))
+  })
+
+  it('short-circuits to lineColor when rainbowBranches is false', () => {
+    const theme: MindMapTheme = {
+      id: 'test',
+      rainbowBranches: false,
+      lineColor: '#FF0000',
+      branchColors: ['#aaa', '#bbb']
+    }
+    expect(branchColorForKey(theme, 'branch-x')).toBe('#FF0000')
+  })
+})
+
+function stableSlotOf(key: string): number {
+  let hash = 2166136261
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0) % 3
+}
 
 describe('hexToRgba', () => {
   it('converts a 6-digit hex to rgba', () => {

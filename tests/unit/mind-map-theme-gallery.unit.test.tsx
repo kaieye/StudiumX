@@ -172,50 +172,6 @@ describe('MindMapThemeGallery', () => {
     expect(classicOptions[0]).toHaveTextContent('Vintage')
   })
 
-  it('filters schemes by name with a non-empty search query', () => {
-    render(<MindMapThemeGallery />)
-
-    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
-    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
-    const search = within(listbox).getByRole('searchbox')
-
-    fireEvent.change(search, { target: { value: 'fire' } })
-    // Group labels disappear while searching; only matching options remain.
-    expect(within(listbox).queryByText('Recommended')).not.toBeInTheDocument()
-    expect(within(listbox).queryByText('Classic')).not.toBeInTheDocument()
-    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['Fireplace'])
-  })
-
-  it('shows a no-results empty state for an unmatched query', () => {
-    render(<MindMapThemeGallery />)
-
-    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
-    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
-    const search = within(listbox).getByRole('searchbox')
-
-    fireEvent.change(search, { target: { value: 'zzz' } })
-    expect(within(listbox).queryAllByRole('option')).toHaveLength(0)
-    expect(within(listbox).getByText('No matching color schemes')).toBeInTheDocument()
-  })
-
-  it('searches case-insensitively and matches custom scheme names too', () => {
-    useMindMapViewStore.setState({
-      colorSchemes: {
-        schemes: [{ id: 'user-1', name: 'My Palette', colors: ['#101010', '#202020', '#303030', '#404040', '#505050', '#606060'], createdAt: 1, updatedAt: 1 }],
-        favorites: [],
-        recent: []
-      }
-    })
-    render(<MindMapThemeGallery />)
-
-    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
-    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
-    const search = within(listbox).getByRole('searchbox')
-
-    fireEvent.change(search, { target: { value: 'PALETTE' } })
-    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['My PaletteCustom'])
-  })
-
   it('keeps keyboard navigation working across grouped sections', () => {
     render(<MindMapThemeGallery />)
 

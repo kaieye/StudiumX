@@ -81,6 +81,7 @@ function mapSheet(v1Sheet: {
     title: v1Sheet.title,
     root: mapTopic(v1Sheet.root),
     elements: (v1Sheet.relationships ?? []).map(mapRelationship),
+    images: [],
     layout: { structureClass: v1Sheet.structureClass }
   }
 }

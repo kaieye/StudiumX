@@ -1,12 +1,15 @@
 import { ChevronDown, RotateCcw, Search, X } from 'lucide-react'
 import {
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode
 } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
   DEFAULT_MIND_MAP_THEME,
@@ -26,53 +29,33 @@ const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 const DEFAULT_BACKGROUND = '#FFFFFF'
 const DEFAULT_LINE_COLOR = '#8E8E93'
 const RECENT_BACKGROUND_COLORS_KEY = 'mindmap.recentBackgroundColors'
-const MAX_RECENT_BACKGROUND_COLORS = 8
+const RECENT_LINE_COLORS_KEY = 'mindmap.recentLineColors'
+const MAX_RECENT_COLORS = 8
+/**
+ * Compact two-row Morandi palette for document backgrounds and branch-line colors.
+ *
+ * The swatches intentionally mix warm and cool, low-saturation neutrals
+ * instead of presenting a long, rainbow-ordered catalogue.
+ */
 const BACKGROUND_COLOR_PRESETS = [
   '#FFFFFF',
-  '#F3F4F6',
-  '#D1D5DB',
-  '#9CA3AF',
-  '#6B7280',
-  '#4B5563',
-  '#374151',
-  '#1F2937',
-  '#111827',
-  '#FDE047',
-  '#FCA5A5',
-  '#86EFAC',
-  '#5EEAD4',
-  '#7DD3FC',
-  '#60A5FA',
-  '#818CF8',
-  '#C084FC',
-  '#F0ABFC',
-  '#FBBF24',
-  '#F87171',
-  '#4ADE80',
-  '#2DD4BF',
-  '#38BDF8',
-  '#0EA5E9',
-  '#6366F1',
-  '#A855F7',
-  '#E879F9',
-  '#F59E0B',
-  '#F97316',
-  '#22C55E',
-  '#14B8A6',
-  '#06B6D4',
-  '#0284C7',
-  '#4F46E5',
-  '#9333EA',
-  '#DB2777',
-  '#EA580C',
-  '#DC2626',
-  '#16A34A',
-  '#0F766E',
-  '#0E7490',
-  '#0369A1',
-  '#3730A3',
-  '#6B21A8',
-  '#9D174D'
+  '#D9CEC2',
+  '#A6B8A4',
+  '#C6B5A7',
+  '#B5C9C7',
+  '#B49A8F',
+  '#D3CDD9',
+  '#9E8F84',
+  '#98B0AF',
+  '#E8E2D8',
+  '#BBC9B7',
+  '#A9857C',
+  '#D0DDDC',
+  '#B9B0C4',
+  '#8FA693',
+  '#7F9A9A',
+  '#9A8DA6',
+  '#7F7488'
 ] as const
 
 function expandHexDigits(digits: string): string {
@@ -82,66 +65,72 @@ function expandHexDigits(digits: string): string {
 }
 
 /** The native color well needs an opaque 6-digit value; strip any alpha. */
-function hexColorWellValue(background: string): string {
-  const match = HEX_COLOR_PATTERN.exec(background)
+function hexColorWellValue(color: string): string {
+  const match = HEX_COLOR_PATTERN.exec(color)
   if (!match) return DEFAULT_BACKGROUND
   return `#${expandHexDigits(match[1]!).slice(0, 6).toLowerCase()}`
 }
 
-/** Current alpha of a hex background as a percentage; defaults to 100%. */
-function backgroundAlphaPercent(background: string): number {
-  const match = HEX_COLOR_PATTERN.exec(background)
+/** Current alpha of a hex color as a percentage; defaults to 100%. */
+function colorAlphaPercent(color: string): number {
+  const match = HEX_COLOR_PATTERN.exec(color)
   if (!match) return 100
   const digits = expandHexDigits(match[1]!)
   const alpha = digits.length === 8 ? Number.parseInt(digits.slice(6, 8), 16) / 255 : 1
   return Math.round(alpha * 100)
 }
 
-/** Rewrite a hex background as 8-digit #RRGGBBAA with the given percentage alpha. */
-function backgroundWithAlpha(background: string, percent: number): string | null {
-  const match = HEX_COLOR_PATTERN.exec(background)
+/** Rewrite a hex color as 8-digit #RRGGBBAA with the given percentage alpha. */
+function colorWithAlpha(color: string, percent: number): string | null {
+  const match = HEX_COLOR_PATTERN.exec(color)
   if (!match) return null
   const digits = expandHexDigits(match[1]!).slice(0, 6).toUpperCase()
   const alpha = Math.max(0, Math.min(255, Math.round((percent / 100) * 255)))
   return `#${digits}${alpha.toString(16).padStart(2, '0').toUpperCase()}`
 }
 
-function normalizeRecentBackgroundColor(value: string): string | null {
+function normalizeRecentColor(value: string): string | null {
   if (!HEX_COLOR_PATTERN.test(value)) return null
-  return hexColorWellValue(value).toUpperCase()
+  const digits = expandHexDigits(HEX_COLOR_PATTERN.exec(value)![1]!)
+  const rgb = digits.slice(0, 6).toUpperCase()
+  const alpha = digits.length === 8 ? digits.slice(6, 8).toUpperCase() : 'FF'
+  // Collapse fully-opaque colors to the familiar 6-digit form; keep any real
+  // transparency so opacity-adjusted swatches stay visually distinct.
+  return alpha === 'FF' ? `#${rgb}` : `#${rgb}${alpha}`
 }
 
-function loadRecentBackgroundColors(): string[] {
+function loadRecentColors(storageKey: string): string[] {
   try {
-    const raw = window.localStorage.getItem(RECENT_BACKGROUND_COLORS_KEY)
+    const raw = window.localStorage.getItem(storageKey)
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     const colors = parsed
-      .map((value) => typeof value === 'string' ? normalizeRecentBackgroundColor(value) : null)
+      .map((value) => typeof value === 'string' ? normalizeRecentColor(value) : null)
       .filter((value): value is string => value !== null)
-    return [...new Set(colors)].slice(0, MAX_RECENT_BACKGROUND_COLORS)
+    return [...new Set(colors)].slice(0, MAX_RECENT_COLORS)
   } catch {
     return []
   }
 }
 
-function recordRecentBackgroundColor(colors: readonly string[], value: string): string[] {
-  const normalized = normalizeRecentBackgroundColor(value)
+function recordRecentColor(colors: readonly string[], value: string): string[] {
+  const normalized = normalizeRecentColor(value)
   if (!normalized) return [...colors]
   return [
     normalized,
     ...colors.filter((color) => color !== normalized)
-  ].slice(0, MAX_RECENT_BACKGROUND_COLORS)
+  ].slice(0, MAX_RECENT_COLORS)
 }
 
-function persistRecentBackgroundColors(colors: readonly string[]): void {
+function persistRecentColors(storageKey: string, colors: readonly string[]): void {
   try {
-    window.localStorage.setItem(RECENT_BACKGROUND_COLORS_KEY, JSON.stringify(colors))
+    window.localStorage.setItem(storageKey, JSON.stringify(colors))
   } catch {
     // localStorage may be unavailable; keep the in-memory list usable.
   }
 }
+
 
 /**
  * Document-theme controls. Every mutation uses one `document.apply-theme`
@@ -153,7 +142,6 @@ export function MindMapThemePanel() {
   const dispatchCommand = useMindMapViewStore((state) => state.dispatchCommand)
   const background = current?.theme.background ?? DEFAULT_BACKGROUND
   const lineColor = current?.theme.lineColor ?? DEFAULT_LINE_COLOR
-  const [lineColorDraft, setLineColorDraft] = useState(lineColor)
 
   if (!current) return null
 
@@ -186,21 +174,6 @@ export function MindMapThemePanel() {
     )
   }
 
-  const commitLineColorDraft = (): void => {
-    if (HEX_COLOR_PATTERN.test(lineColorDraft)) {
-      applyThemeField({ lineColor: lineColorDraft.toUpperCase() })
-      return
-    }
-    setLineColorDraft(lineColor)
-  }
-
-  const commitOnEnter = (event: KeyboardEvent<HTMLInputElement>): void => {
-    if (event.key !== 'Enter') return
-    event.preventDefault()
-    commitLineColorDraft()
-    event.currentTarget.blur()
-  }
-
   return (
     <section className="mindmap-theme-panel mm-section" aria-labelledby="mindmap-theme-panel-title">
       <div className="mm-section__head">
@@ -219,9 +192,16 @@ export function MindMapThemePanel() {
 
       <div className="mm-row">
         <span className="mm-row__label">{t('mindmap.themePanel.backgroundColor')}</span>
-        <MindMapBackgroundPicker
-          background={background}
+        <MindMapThemeColorPicker
+          color={background}
           onChange={(value) => applyThemeField({ background: value })}
+          label={t('mindmap.themePanel.backgroundColor')}
+          recentStorageKey={RECENT_BACKGROUND_COLORS_KEY}
+          nativeInputId="mindmap-theme-background-native"
+          alphaInputId="mindmap-theme-background-alpha"
+          alphaLabel={t('mindmap.themePanel.alphaLabel')}
+          alphaInputLabel={t('mindmap.themePanel.alphaInputLabel')}
+          alphaUnavailableLabel={t('mindmap.themePanel.alphaUnavailable')}
         />
       </div>
 
@@ -247,7 +227,6 @@ export function MindMapThemePanel() {
       <label className="mm-row mm-row--switch">
         <span className="mm-row__label">
           {t('mindmap.themePanel.rainbowBranches')}
-          <small>{t('mindmap.themePanel.branchColorPreserved')}</small>
         </span>
         <span className="mm-switch">
           <input
@@ -260,31 +239,21 @@ export function MindMapThemePanel() {
         </span>
       </label>
 
-      {!rainbowBranches ? (
-        <div className="mm-row">
-          <label className="mm-row__label" htmlFor="mindmap-theme-line-color">
-            {t('mindmap.themePanel.lineColor')}
-          </label>
-          <div className="mindmap-theme-color-editor">
-            <input
-              id="mindmap-theme-line-color"
-              type="color"
-              className="mm-color-well"
-              value={lineColor}
-              onChange={(event) => applyThemeField({ lineColor: event.currentTarget.value.toUpperCase() })}
-            />
-            <input
-              className="mindmap-theme-color-editor__hex"
-              aria-label={t('mindmap.themePanel.lineColorHex')}
-              value={lineColorDraft}
-              onChange={(event) => setLineColorDraft(event.currentTarget.value)}
-              onBlur={commitLineColorDraft}
-              onKeyDown={commitOnEnter}
-              spellCheck={false}
-            />
-          </div>
-        </div>
-      ) : null}
+      <div className="mm-row">
+        <span className="mm-row__label">{t('mindmap.themePanel.lineColor')}</span>
+        <MindMapThemeColorPicker
+          color={lineColor}
+          onChange={(value) => applyThemeField({ lineColor: value })}
+          label={t('mindmap.themePanel.lineColor')}
+          recentStorageKey={RECENT_LINE_COLORS_KEY}
+          nativeInputId="mindmap-theme-line-color-native"
+          alphaInputId="mindmap-theme-line-color-alpha"
+          alphaLabel={t('mindmap.themePanel.lineColorAlphaLabel')}
+          alphaInputLabel={t('mindmap.themePanel.lineColorAlphaInputLabel')}
+          alphaUnavailableLabel={t('mindmap.themePanel.lineColorAlphaUnavailable')}
+          hexInputLabel={t('mindmap.themePanel.lineColorHex')}
+        />
+      </div>
 
     </section>
   )
@@ -295,66 +264,209 @@ function themesEqual(left: MindMapTheme, right: MindMapTheme): boolean {
 }
 
 /**
- * Compact background-color control: a rounded rectangular swatch opens a
- * preset palette, native color well and opacity slider. The swatch always
- * reflects the current background (including alpha).
+ * Shared document-theme color control. A rounded rectangular swatch opens the
+ * same portaled palette, native color well, opacity slider, and recent-color
+ * section for both the canvas background and the unified branch-line color.
  */
-function MindMapBackgroundPicker({
-  background,
-  onChange
+function MindMapThemeColorPicker({
+  color,
+  onChange,
+  label,
+  recentStorageKey,
+  nativeInputId,
+  alphaInputId,
+  alphaLabel,
+  alphaInputLabel,
+  alphaUnavailableLabel,
+  hexInputLabel
 }: {
-  background: string
+  color: string
   onChange: (value: string) => void
+  label: string
+  recentStorageKey: string
+  nativeInputId: string
+  alphaInputId: string
+  alphaLabel: string
+  alphaInputLabel: string
+  alphaUnavailableLabel: string
+  hexInputLabel?: string
 }) {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const nativeColorDraftRef = useRef<string | null>(null)
+  const committedHexRef = useRef<string | null>(null)
   const [open, setOpen] = useState(false)
-  const [recentColors, setRecentColors] = useState<string[]>(loadRecentBackgroundColors)
+  const [hexDraft, setHexDraft] = useState(color)
+  const [recentColors, setRecentColors] = useState<string[]>(() => loadRecentColors(recentStorageKey))
+  // The popover is portaled to `document.body` so it can overlay the mind-map
+  // canvas instead of being clipped by the inspector's scroll container
+  // (`mindmap-inspector-tab-content` has `overflow-y: auto`; `mindmap-ai-panel`
+  // has `overflow: hidden`). It is positioned with `position: fixed` relative
+  // to the swatch trigger and clamped to the viewport.
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null)
+
+  useEffect(() => setHexDraft(color), [color])
+
+  const positionPopover = useCallback((): void => {
+    const popover = popoverRef.current
+    const trigger = triggerRef.current
+    if (!popover || !trigger) return
+    // Measure the rendered popover so viewport clamping uses its true size.
+    const { width, height } = popover.getBoundingClientRect()
+    const triggerRect = trigger.getBoundingClientRect()
+    const viewportPadding = 8
+    const gap = 6
+    // Align the popover's right edge with the swatch's right edge, mirroring
+    // the old `right: 0` alignment.
+    let left = triggerRect.right - width
+    let top = triggerRect.bottom + gap
+    // Prefer opening downward; flip above the trigger when it would otherwise
+    // overflow the bottom of the viewport.
+    if (top + height > window.innerHeight - viewportPadding) {
+      top = triggerRect.top - height - gap
+    }
+    top = Math.max(viewportPadding, top)
+    left = Math.min(
+      Math.max(left, viewportPadding),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding)
+    )
+    setPopoverStyle({
+      position: 'fixed',
+      top,
+      left,
+      right: 'auto',
+      zIndex: 1000
+    })
+  }, [])
+
+  // Position the portaled popover and keep it glued to the swatch while open
+  // (the inspector scrolls and the window can be resized).
+  useLayoutEffect(() => {
+    if (!open) return
+    positionPopover()
+    const onScroll = (event: Event): void => {
+      if (event.target instanceof Node && popoverRef.current?.contains(event.target)) return
+      positionPopover()
+    }
+    window.addEventListener('resize', positionPopover)
+    document.addEventListener('scroll', onScroll, true)
+    return () => {
+      window.removeEventListener('resize', positionPopover)
+      document.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open, positionPopover])
+
+  // Reload the recent list from storage each time the popover opens. The
+  // picker stays mounted across open/close, and a reorder persisted for the
+  // next session (recent-swatch switch) should only take effect on the next
+  // open, never reshuffling the list while it is open.
+  useEffect(() => {
+    if (open) setRecentColors(loadRecentColors(recentStorageKey))
+  }, [open, recentStorageKey])
 
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
+        setOpen(false)
+      }
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
     }
     document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
   }, [open])
 
-  const label = t('mindmap.themePanel.backgroundColor')
-  const swatchStyle: CSSProperties = background === 'transparent'
+  const swatchStyle: CSSProperties = color === 'transparent'
     ? {
         backgroundImage: 'linear-gradient(135deg, transparent 45%, #dc2626 46%, #dc2626 54%, transparent 55%)',
         backgroundColor: '#ffffff'
       }
-    : { background: background }
-  const selectedPreset = background === 'transparent' || backgroundAlphaPercent(background) !== 100
-    ? null
-    : hexColorWellValue(background).toUpperCase()
-  const alphaPercent = backgroundAlphaPercent(background)
-  const alphaUnavailable = background === 'transparent'
+    : { background: color }
+  // Normalized form of the current color, used to highlight the matching
+  // swatch (preset or recent). Unlike the raw 6-digit form, it also matches an
+  // opacity-adjusted 8-digit recent color as selected.
+  const selectedColor = normalizeRecentColor(color)
+  const alphaPercent = colorAlphaPercent(color)
+  const alphaUnavailable = color === 'transparent'
 
-  const commitBackground = (value: string): void => {
+  const rememberRecentColor = (value: string): void => {
+    // Base the update on the persisted list (not the possibly-stale visible
+    // state) so a recent-swatch reorder persisted for the next open is not
+    // clobbered by a later commit in the same session.
+    const next = recordRecentColor(loadRecentColors(recentStorageKey), value)
+    persistRecentColors(recentStorageKey, next)
+    setRecentColors(next)
+  }
+
+  const commitColor = (value: string): void => {
     onChange(value)
-    setRecentColors((previous) => {
-      const next = recordRecentBackgroundColor(previous, value)
-      if (next.length === previous.length && next.every((color, index) => color === previous[index])) {
-        return previous
-      }
-      persistRecentBackgroundColors(next)
-      return next
-    })
+    rememberRecentColor(value)
+  }
+
+  const selectRecentColor = (value: string): void => {
+    onChange(value)
+    // Switching among recent swatches should not reshuffle the visible list
+    // while the popover stays open; persist the reorder so the next open shows
+    // this swatch at the front.
+    persistRecentColors(recentStorageKey, recordRecentColor(recentColors, value))
+  }
+
+  const previewNativeColor = (value: string): void => {
+    const normalized = value.toUpperCase()
+    nativeColorDraftRef.current = normalized
+    onChange(normalized)
+  }
+
+  const commitNativeColor = (value: string): void => {
+    const normalized = value.toUpperCase()
+    const pending = nativeColorDraftRef.current
+    nativeColorDraftRef.current = null
+    if (pending || normalized !== hexColorWellValue(color).toUpperCase()) {
+      rememberRecentColor(pending ?? normalized)
+    }
+  }
+
+  const commitHexDraft = (): void => {
+    if (HEX_COLOR_PATTERN.test(hexDraft)) {
+      const normalized = hexDraft.toUpperCase()
+      committedHexRef.current = normalized
+      commitColor(normalized)
+      return
+    }
+    setHexDraft(color)
   }
 
   const applyAlpha = (percent: number): void => {
-    const next = backgroundWithAlpha(background, Math.max(0, Math.min(100, percent)))
-    if (next) commitBackground(next)
+    const next = colorWithAlpha(color, Math.max(0, Math.min(100, percent)))
+    // Opacity is a refinement of the current color, not a new color choice.
+    // Keep the recent row stable while the slider is being adjusted.
+    if (next) onChange(next)
+  }
+
+  const commitAlpha = (): void => {
+    // A finished opacity adjustment is a distinct color choice: once the
+    // slider is released (or the input loses focus), record the resulting
+    // 8-digit color as a recent swatch instead of only previewing it.
+    rememberRecentColor(color)
   }
 
   const clearRecentColors = (): void => {
     setRecentColors([])
     try {
-      window.localStorage.removeItem(RECENT_BACKGROUND_COLORS_KEY)
+      window.localStorage.removeItem(recentStorageKey)
     } catch {
       // The visible list is already cleared when localStorage is unavailable.
     }
@@ -368,14 +480,16 @@ function MindMapBackgroundPicker({
         className="mindmap-theme-bg-picker__swatch"
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={t('mindmap.themePanel.backgroundColor')}
-        title={t('mindmap.themePanel.backgroundColor')}
+        aria-label={label}
+        title={label}
         style={swatchStyle}
         onClick={() => setOpen((previous) => !previous)}
       />
-      {open ? (
+      {open ? createPortal((
         <div
+          ref={popoverRef}
           className="mindmap-theme-bg-picker__popover"
+          style={popoverStyle ?? undefined}
           role="dialog"
           aria-label={label}
           onKeyDown={(event) => {
@@ -392,7 +506,7 @@ function MindMapBackgroundPicker({
             aria-label={t('mindmap.themePanel.presetColors')}
           >
             {BACKGROUND_COLOR_PRESETS.map((color) => {
-              const selected = selectedPreset === color
+              const selected = selectedColor === color
               return (
                 <button
                   key={color}
@@ -401,51 +515,83 @@ function MindMapBackgroundPicker({
                   aria-label={`${t('mindmap.themePanel.presetColor')} ${color}`}
                   aria-pressed={selected}
                   title={color}
-                  style={{ backgroundColor: color }}
-                  onClick={() => commitBackground(color)}
+                  style={{ background: color }}
+                  onClick={() => commitColor(color)}
                 />
               )
             })}
           </div>
           <div className="mindmap-theme-bg-picker__controls">
             <div className="mindmap-theme-bg-picker__row">
-              <label className="mm-row__label" htmlFor="mindmap-theme-background-native">
-                {t('mindmap.themePanel.backgroundColor')}
+              <label className="mm-row__label" htmlFor={nativeInputId}>
+                {label}
               </label>
-              <input
-                id="mindmap-theme-background-native"
-                type="color"
-                aria-label={t('mindmap.themePanel.backgroundColor')}
-                value={hexColorWellValue(background)}
-                onChange={(event) => commitBackground(event.currentTarget.value.toUpperCase())}
-              />
+              <span className="mindmap-theme-bg-picker__row-controls">
+                <input
+                  id={nativeInputId}
+                  type="color"
+                  aria-label={label}
+                  value={hexColorWellValue(color)}
+                  onChange={(event) => previewNativeColor(event.currentTarget.value)}
+                  onBlur={(event) => commitNativeColor(event.currentTarget.value)}
+                />
+                {hexInputLabel ? (
+                  <input
+                    className="mindmap-theme-color-editor__hex"
+                    aria-label={hexInputLabel}
+                    value={hexDraft}
+                    onChange={(event) => setHexDraft(event.currentTarget.value)}
+                    onBlur={() => {
+                      const normalized = HEX_COLOR_PATTERN.test(hexDraft)
+                        ? hexDraft.toUpperCase()
+                        : null
+                      if (normalized && committedHexRef.current === normalized) {
+                        committedHexRef.current = null
+                        setHexDraft(normalized)
+                        return
+                      }
+                      committedHexRef.current = null
+                      commitHexDraft()
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return
+                      event.preventDefault()
+                      commitHexDraft()
+                      event.currentTarget.blur()
+                    }}
+                    spellCheck={false}
+                  />
+                ) : null}
+              </span>
             </div>
             <div className="mindmap-theme-bg-picker__alpha">
-              <label className="mindmap-theme-bg-picker__alpha-label" htmlFor="mindmap-theme-background-alpha">
+              <label className="mindmap-theme-bg-picker__alpha-label" htmlFor={alphaInputId}>
                 {t('mindmap.themePanel.alpha')}
               </label>
               <span className="mindmap-theme-alpha-row__control">
                 <input
-                  id="mindmap-theme-background-alpha"
+                  id={alphaInputId}
                   type="range"
                   min={0}
                   max={100}
                   step={1}
                   disabled={alphaUnavailable}
-                  aria-label={t('mindmap.themePanel.alphaLabel')}
+                  aria-label={alphaLabel}
                   aria-description={alphaUnavailable
-                    ? t('mindmap.themePanel.alphaUnavailable')
+                    ? alphaUnavailableLabel
                     : undefined}
-                  title={t('mindmap.themePanel.alphaLabel')}
+                  title={alphaLabel}
                   value={alphaPercent}
                   style={{
                     background: `linear-gradient(to right, var(--accent, #438eff) 0 ${alphaPercent}%, color-mix(in srgb, var(--text) 14%, transparent) ${alphaPercent}% 100%)`
                   }}
                   onChange={(event) => applyAlpha(Number(event.currentTarget.value))}
+                  onPointerUp={commitAlpha}
+                  onBlur={commitAlpha}
                 />
                 <label
                   className="mindmap-theme-alpha-row__value"
-                  aria-label={t('mindmap.themePanel.alphaInputLabel')}
+                  aria-label={alphaInputLabel}
                 >
                   <input
                     type="number"
@@ -453,13 +599,14 @@ function MindMapBackgroundPicker({
                     max={100}
                     step={1}
                     disabled={alphaUnavailable}
-                    aria-label={t('mindmap.themePanel.alphaInputLabel')}
+                    aria-label={alphaInputLabel}
                     value={alphaPercent}
                     onChange={(event) => {
                       if (!Number.isNaN(event.currentTarget.valueAsNumber)) {
                         applyAlpha(event.currentTarget.valueAsNumber)
                       }
                     }}
+                    onBlur={commitAlpha}
                   />
                   <span aria-hidden="true">%</span>
                 </label>
@@ -488,7 +635,7 @@ function MindMapBackgroundPicker({
                 aria-label={t('mindmap.themePanel.recentColors')}
               >
                 {recentColors.map((color) => {
-                  const selected = selectedPreset === color
+                  const selected = selectedColor === color
                   return (
                     <button
                       key={color}
@@ -497,8 +644,8 @@ function MindMapBackgroundPicker({
                       aria-label={`${t('mindmap.themePanel.recentColorLabel')} ${color}`}
                       aria-pressed={selected}
                       title={color}
-                      style={{ backgroundColor: color }}
-                      onClick={() => commitBackground(color)}
+                      style={{ background: color }}
+                      onClick={() => selectRecentColor(color)}
                     />
                   )
                 })}
@@ -510,7 +657,7 @@ function MindMapBackgroundPicker({
             )}
           </div>
         </div>
-      ) : null}
+      ), document.body) : null}
     </div>
   )
 }

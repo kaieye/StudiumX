@@ -7,7 +7,7 @@ import { MARKER_GROUPS } from './mind-map-marker-icons'
  * Markers/icons picker panel for the selected topic (Xmind-style).
  *
  * Offers a curated set of SVG marker icons (priority, task progress, flags,
- * stars, smileys, people, arrows, symbols) that can be attached to or removed
+ * stars, symbols) that can be attached to or removed
  * from the selected topic.  Uses original SVG icons inspired by Xmind's
  * marker system.
  */

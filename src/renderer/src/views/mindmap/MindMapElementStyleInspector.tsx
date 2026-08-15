@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
@@ -32,6 +32,8 @@ import {
 export { ELEMENT_STYLE_CAPABILITIES } from './mind-map-inspector-capabilities'
 
 const MIXED_VALUE = '__mixed__'
+
+const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 
 const FONT_OPTIONS = [
   { value: '', key: 'inherit' },
@@ -119,6 +121,8 @@ export function MindMapElementStyleInspector() {
   const selection = useMindMapViewStore((state) => state.selection)
   const dispatchCommand = useMindMapViewStore((state) => state.dispatchCommand)
   const dashedRef = useRef<HTMLInputElement>(null)
+  // Per-field hex drafts for the element color inputs (stroke / fill / text).
+  const [colorHexDrafts, setColorHexDrafts] = useState<Partial<Record<'stroke' | 'fill' | 'textColor', string>>>({})
 
   const activeSheet = current?.sheets.find((sheet) => sheet.id === activeSheetId) ?? current?.sheets[0]
   const element = selection.kind === 'element'
@@ -192,6 +196,20 @@ export function MindMapElementStyleInspector() {
   /** Reset one field to inherit; only meaningful while the field is concrete. */
   const clearField = (field: keyof MindMapElementStyle): void => {
     updateStyle({ [field]: undefined })
+  }
+  /** Commit a typed hex value for an element color field, or revert on error. */
+  const commitColorHex = (field: 'stroke' | 'fill' | 'textColor', draft: string): void => {
+    if (HEX_COLOR_PATTERN.test(draft)) {
+      const normalized = draft.toUpperCase()
+      setColorHexDrafts((current) => ({ ...current, [field]: normalized }))
+      updateStyle({ [field]: normalized })
+      return
+    }
+    setColorHexDrafts((current) => {
+      const next = { ...current }
+      delete next[field]
+      return next
+    })
   }
   const clearButton = (field: keyof MindMapElementStyle, value: InspectorValue<unknown>, labelKey: string) => {
     if (value.state !== 'concrete') return null
@@ -273,13 +291,14 @@ export function MindMapElementStyleInspector() {
       <div className="mindmap-element-style__grid">
         {(['stroke', 'fill', 'textColor'] as const).map((field) => {
           const value = fieldValue(field)
+          const color = concreteValue(value) ?? FALLBACK[field]
           return (
             <label key={field} className="mindmap-element-style__field">
               <span>{t(`mindmap.elementStyle.${field}`)}</span>
               <span style={ROW_STYLE}>
                 <input
                   type="color"
-                  value={concreteValue(value) ?? FALLBACK[field]}
+                  value={color}
                   style={{ flex: '1 1 0', minWidth: 0 }}
                   disabled={fieldCapability(field).disabled}
                   aria-label={labelFor(`mindmap.elementStyle.${field}`, value)}
@@ -288,6 +307,22 @@ export function MindMapElementStyleInspector() {
                 />
                 {clearButton(field, value, `mindmap.elementStyle.${field}`)}
               </span>
+              <input
+                className="mindmap-theme-color-editor__hex"
+                aria-label={t(`mindmap.elementStyle.${field}Hex`)}
+                value={colorHexDrafts[field] ?? color}
+                spellCheck={false}
+                disabled={fieldCapability(field).disabled}
+                aria-describedby={describeField(field)}
+                onChange={(event) => setColorHexDrafts((current) => ({ ...current, [field]: event.currentTarget.value }))}
+                onBlur={(event) => commitColorHex(field, event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return
+                  event.preventDefault()
+                  commitColorHex(field, event.currentTarget.value)
+                  event.currentTarget.blur()
+                }}
+              />
             </label>
           )
         })}

@@ -31,6 +31,9 @@ export function buildMindMapElementAccessibleLabel(
       break
     case 'summary':
       description = `Summary from ${topicName(element.from, topicTitles)} to ${topicName(element.to, topicTitles)}`
+      if (element.summaryTopicId !== undefined) {
+        description += ` with output topic ${topicName(element.summaryTopicId, topicTitles)}`
+      }
       break
     case 'callout':
       description = `Callout on ${topicName(element.topicId, topicTitles)}`

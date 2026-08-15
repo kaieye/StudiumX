@@ -90,6 +90,16 @@ export type MindMapLayoutSettings = {
   linePattern?: 'solid' | 'dash' | 'hand-drawn-solid' | 'hand-drawn-dash'
   /** When true, branch lines taper from the parent width toward the child. */
   tapered?: boolean
+  /** Shape assigned to topics created after this per-sheet default is selected. */
+  defaultTopicShape?: string
+  /**
+   * Default topic style applied to every newly created node (the "global node"
+   * defaults in the canvas options). Mirrors {@link defaultTopicShape} but
+   * carries the full style override so new nodes inherit the same defaults as
+   * the per-node style inspector exposes. `shape` here takes precedence over
+   * {@link defaultTopicShape} when both are set.
+   */
+  defaultTopicStyle?: MindMapTopicStyleOverride
 }
 
 /** Per-sheet viewport (camera) state. */
@@ -171,6 +181,12 @@ export type MindMapTopicStyleOverride = {
   structureClass?: MindMapStructureClass
 }
 
+/**
+ * Where a topic's image block is placed relative to its text label.
+ * `'bottom'` keeps the historical behaviour (image stacked below the text).
+ */
+export type MindMapImagePlacement = 'top' | 'bottom' | 'left' | 'right'
+
 /** A topic (node) in a sheet's topic tree. */
 export type MindMapTopicV2 = {
   id: string
@@ -186,6 +202,8 @@ export type MindMapTopicV2 = {
   sourceRefs?: MindMapSourceRef[]
   /** Stable ids into the document-level workspace asset table. */
   assetIds?: string[]
+  /** Where the attached image block sits relative to the text label. */
+  imagePlacement?: MindMapImagePlacement
   planning?: MindMapPlanningMetadata
   style?: MindMapTopicStyleOverride
   /** Manual (free) position override for the topic. */
@@ -247,11 +265,21 @@ export type MindMapBoundary = MindMapElementBase & {
   children?: string[]
 }
 
-/** A brace-style summary over a contiguous sibling range. */
+/** A brace-style summary over sibling ranges or explicitly selected branch topics. */
 export type MindMapSummary = MindMapElementBase & {
   type: 'summary'
   from: string
   to: string
+  /**
+   * Explicit source topics for a cross-branch summary. When omitted, `from` /
+   * `to` retain the legacy contiguous sibling-range semantics.
+   */
+  sourceTopicIds?: string[]
+  /**
+   * The ordinary topic rendered beside this summary's brace. Legacy summaries
+   * omit this reference and retain their historical label-only rendering.
+   */
+  summaryTopicId?: string
 }
 
 /** An annotation attached to a topic. */
@@ -276,6 +304,34 @@ export type MindMapElement =
   | MindMapSummary
   | MindMapCallout
   | MindMapFreeTopic
+
+/**
+ * A draggable, resizable image on the sheet. An image either sits inside a
+ * hosting topic (attached, `topicId`) or floats freely on the canvas
+ * (`position`). Its rendered size is always explicit so it can be resized
+ * independently of the topic, mirroring node resizing. Images are stored in
+ * their own sheet `images` collection (not in `MindMapElement`).
+ */
+export type MindMapImageElement = {
+  id: string
+  type: 'image'
+  label?: string
+  style?: MindMapElementStyle
+  /** Document-level workspace asset id backing this image. */
+  assetId: string
+  /** Rendered width in document (canvas) coordinates. */
+  width: number
+  /** Rendered height in document (canvas) coordinates. */
+  height: number
+  /** Free canvas position (top-left) when the image is not attached to a topic. */
+  position?: MindMapPoint
+  /**
+   * Host topic id when the image is attached to a node. The image renders
+   * inside that topic's image block, whose placement is the topic's own
+   * `imagePlacement`.
+   */
+  topicId?: string
+}
 
 /** Relationship endpoint arrow token (XMind `org.xmind.arrowShape.*`). */
 export type MindMapElementArrowShape =
@@ -346,6 +402,8 @@ export type MindMapSheetV2 = {
   title: string
   root: MindMapTopicV2
   elements: MindMapElement[]
+  /** Draggable/resizable images (attached to topics or free on the canvas). */
+  images?: MindMapImageElement[]
   layout: MindMapLayoutSettings
   viewport?: MindMapViewport
 }

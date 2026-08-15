@@ -45,8 +45,6 @@ import type { LucideIcon } from 'lucide-react'
 import { Component, lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown, { type Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import i18n from './i18n'
 import { MarkdownEditor } from './markdown-editor'
 import { MarkdownPreview } from './markdown-preview'
@@ -79,6 +77,7 @@ import {
 import { TeachingWorkspaceNavigator } from './app-shell/teaching-workspace-navigator'
 import { DesktopSidebarFrame } from './ui/DesktopSidebarFrame'
 import { DesktopTopbar } from './ui/DesktopTopbar'
+import { MarkdownMessage } from './ui/MarkdownMessage'
 import { WebDesktopDownloadNotice } from './ui/WebDesktopDownloadNotice'
 import { LessonStyleGallery } from './views/resources/LessonStyleGallery'
 import { PetLibrary } from './views/resources/PetLibrary'
@@ -2666,48 +2665,6 @@ function AgentSourceReferences({
         ))}
       </ol>
     </section>
-  )
-}
-
-function MarkdownMessage({
-  content,
-  tone,
-  compact = false
-}: {
-  content: string
-  tone: AgentChatTurn['role']
-  compact?: boolean
-}) {
-  const openExternal = useAppStore((state) => state.openExternal)
-  const markdownComponents = useMemo<Components>(() => ({
-    a: ({ node: _node, href, children, ...props }) => (
-      <a
-        {...props}
-        href={href}
-        rel="noreferrer"
-        target="_blank"
-        onClick={(event) => {
-          if (!href) return
-          event.preventDefault()
-          void openExternal(href)
-        }}
-      >
-        {children}
-      </a>
-    ),
-    code: ({ node: _node, className, children, ...props }) => (
-      <code {...props} className={className}>
-        {children}
-      </code>
-    )
-  }), [openExternal])
-
-  return (
-    <div className={`markdown-message markdown-message--${tone}${compact ? ' is-compact' : ''}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-        {content}
-      </ReactMarkdown>
-    </div>
   )
 }
 

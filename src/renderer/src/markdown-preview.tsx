@@ -86,9 +86,47 @@ function findClosingInlineDelimiter(src: string, start: number, end: number, del
   return -1
 }
 
-function mathInlineRule(state: MarkdownItStateInline, silent: boolean): boolean {
+function mathInlineRule(
+  state: MarkdownItStateInline,
+  silent: boolean,
+  allowDisplayMath = false
+): boolean {
   const start = state.pos
   const src = state.src
+
+  // Compact markdown surfaces (notably mind-map topic labels) use
+  // `renderInline`, so block delimiters never reach the block parser above.
+  // Recognise them here as well and emit the same display-mode token. This
+  // supports both one-line and multi-line `$$ … $$` / `\[ … \]` formulas
+  // without changing the full document renderer's block behaviour.
+  const blockOpener = allowDisplayMath
+    ? src.startsWith('$$', start)
+      ? '$$'
+      : src.startsWith('\\[', start)
+        ? '\\['
+        : null
+    : null
+  if (blockOpener && !isEscaped(src, start)) {
+    const blockCloser = blockOpener === '$$' ? '$$' : '\\]'
+    const end = findClosingInlineDelimiter(
+      src,
+      start + blockOpener.length,
+      state.posMax,
+      blockCloser
+    )
+    if (end >= 0) {
+      const content = src.slice(start + blockOpener.length, end)
+      if (content.trim()) {
+        if (!silent) {
+          const token = state.push('math_display_inline', 'math', 0)
+          token.content = content.trim()
+          token.markup = blockOpener
+        }
+        state.pos = end + blockCloser.length
+        return true
+      }
+    }
+  }
 
   if (src[start] === '$' && src[start + 1] !== '$' && !isEscaped(src, start)) {
     const end = findClosingDollar(src, start + 1, state.posMax)
@@ -221,7 +259,40 @@ function getMermaidRenderer(): Promise<MermaidRenderer> {
   return mermaidRendererPromise
 }
 
-function createMarkdownRenderer(): MarkdownIt {
+/** Support the single-equals highlight spelling used by mind-map topics.
+ * markdown-it-mark intentionally follows CommonMark-style `==mark==`; the
+ * compact mind-map editor also accepts `=mark=` as requested by the product UI.
+ */
+function markdownItSingleMark(md: MarkdownIt): void {
+  md.inline.ruler.before('emphasis', 'single_mark', (state: MarkdownItStateInline, silent: boolean) => {
+    const start = state.pos
+    if (silent || state.src[start] !== '=' || state.src[start + 1] === '=') return false
+
+    let end = start + 1
+    while (end < state.posMax) {
+      if (state.src[end] === '=' && state.src[end - 1] !== '=' && state.src[end + 1] !== '=') break
+      end += 1
+    }
+    if (end >= state.posMax || end === start + 1) return false
+
+    const content = state.src.slice(start + 1, end)
+    if (!content.trim() || /^\s|\s$/u.test(content)) return false
+
+    const open = state.push('mark_open', 'mark', 1)
+    open.markup = '='
+    const text = state.push('text', '', 0)
+    text.content = content
+    const close = state.push('mark_close', 'mark', -1)
+    close.markup = '='
+    state.pos = end + 1
+    return true
+  })
+}
+
+function createMarkdownRenderer(options: {
+  singleEqualsMark?: boolean
+  inlineDisplayMath?: boolean
+} = {}): MarkdownIt {
   const md = new MarkdownIt({
     html: false,
     linkify: true,
@@ -237,8 +308,11 @@ function createMarkdownRenderer(): MarkdownIt {
 
   md.use(markdownItTaskLists, { enabled: false, label: true })
   md.use(markdownItMark)
+  if (options.singleEqualsMark) md.use(markdownItSingleMark)
   md.block.ruler.before('fence', 'math_block', mathBlockRule)
-  md.inline.ruler.before('escape', 'math_inline', mathInlineRule)
+  md.inline.ruler.before('escape', 'math_inline', (state, silent) =>
+    mathInlineRule(state, silent, options.inlineDisplayMath === true)
+  )
 
   const defaultFence = md.renderer.rules.fence
   md.renderer.rules.fence = (tokens, index, options, env, self) => {
@@ -256,6 +330,10 @@ function createMarkdownRenderer(): MarkdownIt {
 
   md.renderer.rules.math_block = (tokens, index) => {
     return `<div class="markdown-math markdown-math--block">${renderKatex(tokens[index]!.content, true)}</div>`
+  }
+
+  md.renderer.rules.math_display_inline = (tokens, index) => {
+    return `<span class="markdown-math markdown-math--block">${renderKatex(tokens[index]!.content, true)}</span>`
   }
 
   md.core.ruler.push('source_lines', (state) => {
@@ -281,9 +359,37 @@ function createMarkdownRenderer(): MarkdownIt {
 }
 
 const markdownRenderer = createMarkdownRenderer()
+const inlineMarkdownRenderer = createMarkdownRenderer({
+  singleEqualsMark: true,
+  inlineDisplayMath: true
+})
 
 export function renderMarkdownPreviewHtml(source: string): string {
   return markdownRenderer.render(source)
+}
+
+/** Render markdown syntax used by compact surfaces such as mind-map topic labels.
+ *
+ * The same renderer and math/mark plugins as the full preview are used, while
+ * `renderInline` deliberately avoids paragraph/block wrappers that do not fit
+ * inside an SVG foreignObject node. HTML input is disabled and KaTeX is run
+ * with `trust: false`, so topic text remains data rather than executable markup.
+ */
+export function renderMarkdownInlineHtml(source: string): string {
+  return inlineMarkdownRenderer.renderInline(source)
+}
+
+/** Whether a compact mind-map label contains markdown that needs HTML layout.
+ * Plain text stays on the faster SVG text path; any real inline token (links,
+ * emphasis, code, marks, strikethrough, or math) opts into the foreignObject
+ * renderer. Soft line breaks alone remain on the normal wrapped-text path.
+ */
+export function hasMindMapTopicMarkdown(source: string): boolean {
+  if (!source) return false
+  const tokens = inlineMarkdownRenderer.parseInline(source, {})
+  return tokens.some((token) => token.children?.some(
+    (child) => child.type !== 'text' && child.type !== 'softbreak'
+  ))
 }
 
 function isSpecialHref(value: string): boolean {

@@ -68,6 +68,7 @@ export type MindMapLayoutField =
   | 'tapered'
   | 'compact'
   | 'spacing'
+  | 'defaultTopicShape'
 
 /**
  * Resolve one sheet-layout field into the five-state adapter.

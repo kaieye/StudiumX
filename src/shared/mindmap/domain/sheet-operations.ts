@@ -128,7 +128,13 @@ function cloneElement(
         ...element,
         id: newElementId,
         from: remap(element.from),
-        to: remap(element.to)
+        to: remap(element.to),
+        ...(element.sourceTopicIds !== undefined
+          ? { sourceTopicIds: element.sourceTopicIds.map(remap) }
+          : {}),
+        ...(element.summaryTopicId !== undefined
+          ? { summaryTopicId: remap(element.summaryTopicId) }
+          : {})
       }
     case 'callout':
       return {

@@ -52,13 +52,19 @@ function edgeOrientation(
   }
 
   const toRight = deltaX >= 0
+  // An underline topic's visible border is its baseline, not the middle of its
+  // layout box. Attach horizontal branches to that baseline so an incoming
+  // edge, the underline itself, and any outgoing edges read as one continuous
+  // branch (matching XMind's underline-topic geometry).
+  const fromAnchorY = from.shape === 'underline' ? from.y + from.height : fromCenterY
+  const toAnchorY = to.shape === 'underline' ? to.y + to.height : toCenterY
   return {
     axis: 'horizontal',
     direction: toRight ? 1 : -1,
     x1: toRight ? from.x + from.width : from.x,
-    y1: fromCenterY,
+    y1: fromAnchorY,
     x2: toRight ? to.x : to.x + to.width,
-    y2: toCenterY
+    y2: toAnchorY
   }
 }
 

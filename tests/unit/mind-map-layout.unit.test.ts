@@ -7,10 +7,15 @@ import type {
 import {
   computeMindMapLayout,
   computeMovedTopicPreview,
+  computeTopicImageAndTextRegions,
   MIND_MAP_HORIZONTAL_GAP,
+  MIND_MAP_NODE_MIN_WIDTH,
+  MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH,
+  MIND_MAP_TOPIC_IMAGE_HEIGHT,
   MIND_MAP_VERTICAL_GAP,
   horizontalGapForDepth,
-  verticalGapForDepth
+  verticalGapForDepth,
+  wrapMindMapTopicTitle
 } from '../../src/renderer/src/views/mindmap/mind-map-layout'
 
 function node(
@@ -53,9 +58,9 @@ describe('computeMindMapLayout', () => {
 
     expect(nodes.map((n) => n.id).sort()).toEqual(['a', 'b', 'c', 'd'])
     expect(edges).toEqual([
-      { from: 'a', to: 'b', branchIndex: 0, axis: 'horizontal' },
-      { from: 'b', to: 'c', branchIndex: 0, axis: 'horizontal' },
-      { from: 'a', to: 'd', branchIndex: 1, axis: 'horizontal' }
+      { from: 'a', to: 'b', branchIndex: 0, branchKey: 'b', axis: 'horizontal' },
+      { from: 'b', to: 'c', branchIndex: 0, branchKey: 'b', axis: 'horizontal' },
+      { from: 'a', to: 'd', branchIndex: 1, branchKey: 'd', axis: 'horizontal' }
     ])
   })
 
@@ -70,8 +75,8 @@ describe('computeMindMapLayout', () => {
     )
 
     expect(edges).toEqual([
-      { from: 'a', to: 'b', branchIndex: 0, axis: 'horizontal' },
-      { from: 'a', to: 'c', branchIndex: 1, axis: 'horizontal' }
+      { from: 'a', to: 'b', branchIndex: 0, branchKey: 'b', axis: 'horizontal' },
+      { from: 'a', to: 'c', branchIndex: 1, branchKey: 'c', axis: 'horizontal' }
     ])
     expect(relationships).toEqual([
       { id: 'rel-1', from: 'b', to: 'c', label: 'depends on' }
@@ -80,9 +85,45 @@ describe('computeMindMapLayout', () => {
       { id: 'callout-1', topicId: 'a', text: 'note', position: { x: 12, y: 24 } }
     ])
     expect(summaries).toEqual([
-      { id: 'summary-1', from: 'b', to: 'c', label: 'group' }
+      expect.objectContaining({ id: 'summary-1', from: 'b', to: 'c', label: 'group' })
     ])
     expect(boundaries).toEqual([])
+  })
+
+  it('places a linked summary output as a regular node beside its brace', () => {
+    const root = node('a', 'A', [
+      node('b', 'B'),
+      node('c', 'C'),
+      node('summary-topic', 'Node summary')
+    ])
+    const layout = computeMindMapLayout(
+      sheet(root, 'org.xmind.ui.logic.right', [
+        {
+          id: 'summary-1',
+          type: 'summary',
+          from: 'b',
+          to: 'c',
+          summaryTopicId: 'summary-topic'
+        }
+      ])
+    )
+    const byId = new Map(layout.nodes.map((layoutNode) => [layoutNode.id, layoutNode]))
+    const from = byId.get('b')!
+    const to = byId.get('c')!
+    const output = byId.get('summary-topic')!
+
+    expect(layout.summaries).toEqual([
+      { id: 'summary-1', from: 'b', to: 'c', summaryTopicId: 'summary-topic' }
+    ])
+    expect(output.depth).toBe(1)
+    // Summary output sits directly after a compact brace: 20px from the
+    // covered range to the brace, 24px brace width, then 20px to the node.
+    expect(output.x - Math.max(from.x + from.width, to.x + to.width)).toBe(64)
+    expect(output.y + output.height / 2).toBeCloseTo(
+      (from.y + from.height / 2 + to.y + to.height / 2) / 2,
+      5
+    )
+    expect(layout.edges.some((edge) => edge.to === 'summary-topic')).toBe(false)
   })
 
   it('projects topic markers without changing tree geometry', () => {
@@ -100,7 +141,7 @@ describe('computeMindMapLayout', () => {
       { id: 'marker-1', symbol: '★', label: 'Important' },
       { id: 'marker-2', symbol: '!', label: 'Review' }
     ])
-    expect(layout.edges).toEqual([{ from: 'a', to: 'b', branchIndex: 0, axis: 'horizontal' }])
+    expect(layout.edges).toEqual([{ from: 'a', to: 'b', branchIndex: 0, branchKey: 'b', axis: 'horizontal' }])
     // Positions are deterministic for the same input. The child is centred on
     // the root midline: (56 root height − 42 branch height) / 2 = 7.
     expect(layout.nodes.map(({ id, y }) => ({ id, y }))).toEqual([
@@ -281,9 +322,9 @@ describe('computeMindMapLayout', () => {
     expect(children.map((child) => child.x)).toEqual([...children].sort((a, b) => a.x - b.x).map((child) => child.x))
     expect(new Set(children.map((child) => child.y)).size).toBe(1)
     expect(edges).toEqual([
-      { from: 'a', to: 'b', branchIndex: 0, axis: 'vertical', connectorStyle: 'elbow' },
-      { from: 'a', to: 'c', branchIndex: 1, axis: 'vertical', connectorStyle: 'elbow' },
-      { from: 'a', to: 'd', branchIndex: 2, axis: 'vertical', connectorStyle: 'elbow' }
+      { from: 'a', to: 'b', branchIndex: 0, branchKey: 'b', axis: 'vertical', connectorStyle: 'elbow' },
+      { from: 'a', to: 'c', branchIndex: 1, branchKey: 'c', axis: 'vertical', connectorStyle: 'elbow' },
+      { from: 'a', to: 'd', branchIndex: 2, branchKey: 'd', axis: 'vertical', connectorStyle: 'elbow' }
     ])
   })
 
@@ -346,6 +387,44 @@ describe('computeMindMapLayout', () => {
     expect(shortNode.width).toBeGreaterThanOrEqual(72) // minimum width
   })
 
+  it('reserves visible space for images rendered inside a topic', () => {
+    const plain = computeMindMapLayout(sheet(node('a', 'Diagram'))).nodes[0]!
+    const withImageSheet: MindMapSheetV2 = {
+      ...sheet(node('a', 'Diagram')),
+      images: [{ id: 'img-1', type: 'image', assetId: 'asset-1', width: 160, height: 88, topicId: 'a' }]
+    }
+    const withImage = computeMindMapLayout(withImageSheet).nodes[0]!
+
+    expect(withImage.width).toBeGreaterThanOrEqual(180)
+    expect(withImage.height).toBeGreaterThan(plain.height)
+  })
+
+  it('reserves only the note action slot while formula and links become title Markdown', () => {
+    const plainRoot = node('a', 'Topic')
+    const contentRoot: MindMapTopicV2 = {
+      ...node('a', 'Topic'),
+      note: 'Remember this',
+      formula: 'a^2+b^2=c^2',
+      links: [{ id: 'link-1', url: 'https://example.com' }]
+    }
+    const plain = computeMindMapLayout(sheet(plainRoot), {
+      reserveTopicActionButtonSpace: true
+    }).nodes[0]!
+    const withContent = computeMindMapLayout(sheet(contentRoot), {
+      reserveTopicActionButtonSpace: true
+    }).nodes[0]!
+    const withoutReservedAction = computeMindMapLayout(sheet(contentRoot)).nodes[0]!
+
+    expect(withContent.width - withoutReservedAction.width).toBe(MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH)
+    expect(withContent).toMatchObject({
+      hasNote: true,
+      hasFormula: true,
+      hasLinks: true
+    })
+    expect(withContent.title).toContain('$$\na^2+b^2=c^2\n$$')
+    expect(withContent.title).toContain('[https://example.com](https://example.com)')
+  })
+
   it('uses a fixed topic width and reflows its title height within that width', () => {
     const root = node('a', 'This is a title that should wrap when the topic is fixed narrow', [node('b', 'B')])
     root.style = { widthMode: 'fixed', width: 120 }
@@ -354,6 +433,36 @@ describe('computeMindMapLayout', () => {
 
     expect(rendered.width).toBe(120)
     expect(rendered.height).toBeGreaterThan(56)
+  })
+
+  it('clamps very narrow topics and wraps mixed CJK and Latin text deterministically', () => {
+    const title = '节点 text that must wrap 自动换行'
+    const root = node('a', title)
+    root.style = { widthMode: 'fixed', width: 24 }
+
+    const rendered = computeMindMapLayout(sheet(root)).nodes.find((n) => n.id === 'a')!
+    const lines = wrapMindMapTopicTitle(title, rendered.width, rendered.depth)
+
+    expect(rendered.width).toBe(MIND_MAP_NODE_MIN_WIDTH)
+    expect(lines.length).toBeGreaterThan(1)
+    expect(lines.every((line) => line.length > 0)).toBe(true)
+    expect(lines.join('').replaceAll(' ', '')).toBe(title.replaceAll(' ', ''))
+    expect(rendered.height).toBeGreaterThan(56)
+  })
+
+  it('preserves explicit title line breaks when calculating adaptive height', () => {
+    const title = 'First line\n第二行\nThird line'
+    const root = node('a', title)
+    root.style = { widthMode: 'fixed', width: 240 }
+
+    const rendered = computeMindMapLayout(sheet(root)).nodes.find((n) => n.id === 'a')!
+
+    expect(wrapMindMapTopicTitle(title, rendered.width, rendered.depth)).toEqual([
+      'First line',
+      '第二行',
+      'Third line'
+    ])
+    expect(rendered.height).toBe(124)
   })
 
   it('falls back to automatic sizing when a width override is reset', () => {
@@ -625,5 +734,70 @@ describe('computeMovedTopicPreview', () => {
     const root = node('a', 'A', [node('b', 'B'), node('c', 'C')])
     // Moving b under c changes depth, so it is still a valid cross-branch move.
     expect(computeMovedTopicPreview(sheet(root), 'b', 'c')).not.toBeNull()
+  })
+})
+
+describe('topic image placement', () => {
+  const img = (width = 160, height = 88) => ({ width, height })
+
+  it('regions never overlap and keep text and image separate for every placement', () => {
+    const base = { x: 10, y: 20, width: 300, height: 200 }
+    for (const placement of ['top', 'bottom', 'left', 'right'] as const) {
+      const { text, image } = computeTopicImageAndTextRegions(base, [img(), img()], placement)
+      expect(image).not.toBeNull()
+      // disjoint: no shared interior area
+      const overlapX = Math.max(0, Math.min(text.x + text.width, image!.x + image!.width) - Math.max(text.x, image!.x))
+      const overlapY = Math.max(0, Math.min(text.y + text.height, image!.y + image!.height) - Math.max(text.y, image!.y))
+      expect(overlapX * overlapY).toBe(0)
+    }
+  })
+
+  it('places the image above the text for top placement', () => {
+    const { text, image } = computeTopicImageAndTextRegions(
+      { x: 0, y: 0, width: 300, height: 200 },
+      [img()],
+      'top'
+    )
+    expect(image!.y).toBe(0)
+    expect(text.y).toBe(image!.y + image!.height)
+    expect(text.y + text.height).toBe(200)
+  })
+
+  it('places the image to the right of the text for right placement', () => {
+    const { text, image } = computeTopicImageAndTextRegions(
+      { x: 0, y: 0, width: 300, height: 200 },
+      [img()],
+      'right'
+    )
+    expect(image!.x).toBe(text.x + text.width)
+    expect(text.x).toBe(0)
+    expect(image!.x + image!.width).toBe(300)
+  })
+
+  it('returns null image region and full-node text for an image-less topic', () => {
+    const regions = computeTopicImageAndTextRegions({ x: 0, y: 0, width: 120, height: 40 })
+    expect(regions.image).toBeNull()
+    expect(regions.text).toEqual({ x: 0, y: 0, width: 120, height: 40 })
+  })
+
+  it('sizes a topic wider for side-by-side placement and taller for stacked placement', () => {
+    const withImage = {
+      root: { ...node('a', 'Diagram'), imagePlacement: 'bottom' as const },
+      images: [{ id: 'img-1', type: 'image' as const, assetId: 'a-1', width: 160, height: 88, topicId: 'a' }]
+    }
+    const layoutSheet = (placement: 'bottom' | 'right' | 'top') => ({
+      ...sheet(withImage.root),
+      images: withImage.images.map((i) => ({ ...i, topicId: 'a' })),
+      root: { ...withImage.root, imagePlacement: placement }
+    })
+    const bottom = computeMindMapLayout(layoutSheet('bottom')).nodes[0]!
+    const right = computeMindMapLayout(layoutSheet('right')).nodes[0]!
+    const top = computeMindMapLayout(layoutSheet('top')).nodes[0]!
+
+    expect(bottom.height).toBeGreaterThanOrEqual(MIND_MAP_TOPIC_IMAGE_HEIGHT)
+    expect(top.height).toBe(bottom.height)
+    // side-by-side adds the image column to the width instead of the height
+    expect(right.width).toBeGreaterThan(bottom.width)
+    expect(right.height).toBeLessThan(bottom.height)
   })
 })

@@ -123,6 +123,7 @@ export const teachingInvokeChannels = {
   readStudyPlanning: 'teach:read-study-planning',
   applyStudyPlanning: 'teach:apply-study-planning',
   listMindMaps: 'teach:list-mind-maps',
+  listMindMapLibrary: 'teach:list-mind-map-library',
   createMindMap: 'teach:create-mind-map',
   readMindMap: 'teach:read-mind-map',
   importMindMapAsset: 'teach:import-mind-map-asset',

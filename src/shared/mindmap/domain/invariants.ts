@@ -154,7 +154,14 @@ function elementRefs(element: MindMapElement): ElementRef[] {
     case 'summary':
       return [
         { field: 'from', id: element.from },
-        { field: 'to', id: element.to }
+        { field: 'to', id: element.to },
+        ...(element.sourceTopicIds ?? []).map((id, index) => ({
+          field: `sourceTopicIds[${index}]`,
+          id
+        })),
+        ...(element.summaryTopicId === undefined
+          ? []
+          : [{ field: 'summaryTopicId', id: element.summaryTopicId }])
       ]
     case 'callout':
       return [{ field: 'topicId', id: element.topicId }]
@@ -212,6 +219,49 @@ export function validateMindMapSheetV2(sheet: MindMapSheetV2): MindMapInvariantE
           path: [...path, ref.field]
         })
       }
+    }
+  }
+
+  const imageIds = new Set<string>()
+  for (let i = 0; i < (sheet.images ?? []).length; i += 1) {
+    const image = sheet.images![i]
+    const path = ['images', String(i)]
+
+    if (typeof image.id !== 'string' || image.id.length === 0) {
+      errors.push({
+        code: 'EMPTY_ELEMENT_ID',
+        message: 'Image id must be a non-empty string',
+        path: [...path, 'id']
+      })
+    } else if (imageIds.has(image.id)) {
+      errors.push({
+        code: 'DUPLICATE_ELEMENT_ID',
+        message: `Duplicate image id "${image.id}"`,
+        path: [...path, 'id']
+      })
+    }
+    imageIds.add(image.id)
+
+    if (typeof image.width !== 'number' || !(image.width > 0)) {
+      errors.push({
+        code: 'ELEMENT_REF_MISSING',
+        message: `Image "${image.id}" width must be a positive number`,
+        path: [...path, 'width']
+      })
+    }
+    if (typeof image.height !== 'number' || !(image.height > 0)) {
+      errors.push({
+        code: 'ELEMENT_REF_MISSING',
+        message: `Image "${image.id}" height must be a positive number`,
+        path: [...path, 'height']
+      })
+    }
+    if (image.topicId !== undefined && !topicIds.has(image.topicId)) {
+      errors.push({
+        code: 'ELEMENT_REF_MISSING',
+        message: `Image "${image.id}" references missing node id "${image.topicId}" (topicId)`,
+        path: [...path, 'topicId']
+      })
     }
   }
 
@@ -282,6 +332,20 @@ export function validateMindMapDocumentV2(
       })
     }
     assetIds.add(asset.id)
+  }
+
+  for (let s = 0; s < doc.sheets.length; s += 1) {
+    const sheet = doc.sheets[s]
+    for (let i = 0; i < (sheet.images ?? []).length; i += 1) {
+      const image = sheet.images![i]
+      if (!assetIds.has(image.assetId)) {
+        errors.push({
+          code: 'ELEMENT_REF_MISSING',
+          message: `Image "${image.id}" references missing asset id "${image.assetId}"`,
+          path: ['sheets', String(s), 'images', String(i), 'assetId']
+        })
+      }
+    }
   }
 
   return errors.length === 0 ? { ok: true } : { ok: false, errors }

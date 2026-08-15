@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../src/renderer/src/i18n'
-import { MindMapTopicShapePicker } from '../../src/renderer/src/views/mindmap/MindMapTopicShapePicker'
+import {
+  MIND_MAP_TOPIC_SHAPE_OPTIONS,
+  MindMapTopicShapePicker
+} from '../../src/renderer/src/views/mindmap/MindMapTopicShapePicker'
+import { NodeShapeIcon } from '../../src/renderer/src/views/mindmap/mind-map-shape-icons'
 
 describe('MindMapTopicShapePicker', () => {
   beforeEach(async () => {
@@ -28,13 +32,13 @@ describe('MindMapTopicShapePicker', () => {
     expect(within(dialog).getByText('Flowchart')).toBeInTheDocument()
 
     fireEvent.change(within(dialog).getByRole('searchbox', { name: 'Search shapes' }), {
-      target: { value: 'heart' }
+      target: { value: 'diamond' }
     })
-    expect(within(dialog).getByRole('option', { name: 'Heart' })).toBeInTheDocument()
-    expect(within(dialog).queryByRole('option', { name: 'Cloud' })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('option', { name: 'Diamond' })).toBeInTheDocument()
+    expect(within(dialog).queryByRole('option', { name: 'Rounded Rect' })).not.toBeInTheDocument()
 
-    fireEvent.click(within(dialog).getByRole('option', { name: 'Heart' }))
-    expect(onChange).toHaveBeenCalledWith('heart')
+    fireEvent.click(within(dialog).getByRole('option', { name: 'Diamond' }))
+    expect(onChange).toHaveBeenCalledWith('diamond')
     expect(screen.queryByRole('dialog', { name: 'Choose shape' })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
   })
@@ -86,5 +90,26 @@ describe('MindMapTopicShapePicker', () => {
     )
     const trigger = screen.getByRole('button', { name: 'Shape None' })
     expect(trigger).toHaveAccessibleDescription('Explicit none')
+  })
+
+  it('does not offer the legacy quotation-mark shape', () => {
+    expect(MIND_MAP_TOPIC_SHAPE_OPTIONS.map((option) => option.value)).not.toContain('quote')
+
+    render(<MindMapTopicShapePicker value={{ state: 'mixed' }} onChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Shape Mixed' }))
+
+    expect(screen.queryByRole('option', { name: 'Quote' })).not.toBeInTheDocument()
+  })
+
+  it('draws the ellipse option as a true oval outline', () => {
+    const { container } = render(<NodeShapeIcon shape="ellipse" />)
+    const ellipse = container.querySelector('ellipse')
+
+    expect(ellipse).toHaveAttribute('cx', '16')
+    expect(ellipse).toHaveAttribute('cy', '16')
+    expect(ellipse).toHaveAttribute('rx', '11.5')
+    expect(ellipse).toHaveAttribute('ry', '7.5')
+    expect(ellipse).toHaveAttribute('fill', 'none')
+    expect(ellipse).toHaveAttribute('stroke', 'currentColor')
   })
 })

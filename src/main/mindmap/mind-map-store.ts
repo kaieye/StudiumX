@@ -22,7 +22,10 @@ import { mindMapDocumentV2Schema } from '../../shared/mindmap/domain/schema'
 import { DEFAULT_MIND_MAP_THEME } from '../../shared/mindmap/domain/types'
 import type { MindMapDocumentV2 } from '../../shared/mindmap/domain/types'
 import { migrateV1ToV2 } from '../../shared/mindmap/migrations'
-import { DEFAULT_MIND_MAP_STRUCTURE_CLASS } from '../../shared/mindmap/mind-map-types'
+import {
+  DEFAULT_MIND_MAP_STRUCTURE_CLASS,
+  DEFAULT_MIND_MAP_TOPIC_SHAPE
+} from '../../shared/mindmap/mind-map-types'
 import type { MindMapStructureClass, MindMapSummary } from '../../shared/mindmap/mind-map-types'
 
 export type { MindMapSummary } from '../../shared/mindmap/mind-map-types'
@@ -120,10 +123,10 @@ function assertValidId(id: string): asserts id is string {
  * Returns the absolute path for a document id, asserting (belt and suspenders,
  * on top of the regex) that the resolved path stays under `<rootPath>/mindmaps/`.
  */
-function pathFor(rootPath: string, id: string): string {
+function pathFor(rootPath: string, id: string, dirName: string = MIND_MAPS_DIR): string {
   assertValidId(id)
   const root = resolve(rootPath)
-  const mindMapsRoot = resolve(root, MIND_MAPS_DIR)
+  const mindMapsRoot = dirName ? resolve(root, dirName) : root
   const filePath = resolve(mindMapsRoot, `${id}${FILE_SUFFIX}`)
   const rel = relative(mindMapsRoot, filePath)
   if (rel.startsWith('..') || rel.includes('..') || rel.startsWith('/')) {
@@ -141,8 +144,8 @@ function tempPathFor(filePath: string): string {
 }
 
 /** Ensures the `<rootPath>/mindmaps/` directory exists (idempotent). */
-async function ensureDirectory(rootPath: string): Promise<void> {
-  await mkdir(resolve(rootPath, MIND_MAPS_DIR), { recursive: true })
+async function ensureDirectory(rootPath: string, dirName: string = MIND_MAPS_DIR): Promise<void> {
+  await mkdir(dirName ? resolve(rootPath, dirName) : rootPath, { recursive: true })
 }
 
 /** Parse raw JSON and migrate legacy v1 documents to v2. */
@@ -202,8 +205,12 @@ async function writeDurably(filePath: string, doc: MindMapDocumentV2): Promise<v
 }
 
 /** Read the latest legal snapshot: valid journal first, then the main file. */
-async function readDocumentFromDisk(rootPath: string, id: string): Promise<MindMapDocumentV2> {
-  const filePath = pathFor(rootPath, id)
+async function readDocumentFromDisk(
+  rootPath: string,
+  id: string,
+  dirName: string = MIND_MAPS_DIR
+): Promise<MindMapDocumentV2> {
+  const filePath = pathFor(rootPath, id, dirName)
   const journalPath = journalPathFor(filePath)
   try {
     const journal = await readFile(journalPath, 'utf8')
@@ -243,7 +250,14 @@ function stampUpdatedAt(doc: MindMapDocumentV2): MindMapDocumentV2 {
   return { ...doc, updatedAt: new Date(stampedMs).toISOString() }
 }
 
-export function createMindMapStore(rootPath: string): MindMapStore {
+/**
+ * Create a mind-map store rooted at `rootPath`.
+ *
+ * `dirName` defaults to the per-workspace `mindmaps/` folder. The home
+ * location passes `''` so maps are written directly into `rootPath` (the
+ * `MindMaps/` directory itself) rather than a nested subfolder.
+ */
+export function createMindMapStore(rootPath: string, dirName: string = MIND_MAPS_DIR): MindMapStore {
   const pendingSaves = new Map<string, PendingSave>()
   const pendingFlushes = new Map<string, Promise<void>>()
   const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -290,7 +304,7 @@ export function createMindMapStore(rootPath: string): MindMapStore {
           const pending = pendingSaves.get(id)
           if (!pending) return
 
-          await writeDurably(pathFor(rootPath, id), pending.doc)
+          await writeDurably(pathFor(rootPath, id, dirName), pending.doc)
           if (pendingSaves.get(id)?.revision === pending.revision) {
             pendingSaves.delete(id)
             return
@@ -323,7 +337,7 @@ export function createMindMapStore(rootPath: string): MindMapStore {
 
   return {
     async list(): Promise<MindMapSummary[]> {
-      const dir = resolve(rootPath, MIND_MAPS_DIR)
+      const dir = dirName ? resolve(rootPath, dirName) : rootPath
       let names: string[]
       try {
         names = await readdir(dir)
@@ -358,7 +372,7 @@ export function createMindMapStore(rootPath: string): MindMapStore {
     },
 
     async create(title: string, structureClass?: MindMapStructureClass): Promise<MindMapDocumentV2> {
-      await ensureDirectory(rootPath)
+      await ensureDirectory(rootPath, dirName)
       const id = randomUUID()
       const now = new Date().toISOString()
       const doc: MindMapDocumentV2 = {
@@ -375,12 +389,15 @@ export function createMindMapStore(rootPath: string): MindMapStore {
             title: 'Sheet 1',
             root: { id: randomUUID(), title, children: [] },
             elements: [],
-            layout: { structureClass: structureClass ?? DEFAULT_MIND_MAP_STRUCTURE_CLASS }
+            layout: {
+              structureClass: structureClass ?? DEFAULT_MIND_MAP_STRUCTURE_CLASS,
+              defaultTopicShape: DEFAULT_MIND_MAP_TOPIC_SHAPE
+            }
           }
         ],
         assets: []
       }
-      await writeDurably(pathFor(rootPath, id), doc)
+      await writeDurably(pathFor(rootPath, id, dirName), doc)
       return doc
     },
 
@@ -388,7 +405,7 @@ export function createMindMapStore(rootPath: string): MindMapStore {
       return runExclusive(id, async () => {
         const pending = pendingSaves.get(id)
         if (pending) return pending.doc
-        const doc = await readDocumentFromDisk(rootPath, id)
+        const doc = await readDocumentFromDisk(rootPath, id, dirName)
         return validateV2Document(id, doc)
       })
     },
@@ -402,7 +419,7 @@ export function createMindMapStore(rootPath: string): MindMapStore {
         if (doc.id !== id) {
           throw new Error(`Mind map id mismatch: expected "${id}" but document has id "${doc.id}".`)
         }
-        const current = pendingSaves.get(id)?.doc ?? (await readDocumentFromDisk(rootPath, id))
+        const current = pendingSaves.get(id)?.doc ?? (await readDocumentFromDisk(rootPath, id, dirName))
         const currentRevision = current.revision
         if (expectedRevision !== currentRevision) {
           return {
@@ -435,7 +452,7 @@ export function createMindMapStore(rootPath: string): MindMapStore {
         // Wait for that write before unlinking the target, otherwise its
         // completion could resurrect a document the caller just removed.
         await pendingFlushes.get(id)?.catch(() => undefined)
-        const filePath = pathFor(rootPath, id)
+        const filePath = pathFor(rootPath, id, dirName)
         try {
           await unlink(filePath)
         } catch (error) {

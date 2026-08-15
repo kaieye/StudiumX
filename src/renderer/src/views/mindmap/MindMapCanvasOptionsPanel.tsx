@@ -7,8 +7,14 @@ import {
   type MindMapLayoutField
 } from './mind-map-inspector-values'
 import { MindMapIconPicker } from './MindMapIconPicker'
-import { ConnectorStyleIcon, LinePatternIcon } from './mind-map-shape-icons'
+import { MIND_MAP_TOPIC_SHAPE_OPTIONS } from './MindMapTopicShapePicker'
+import type { NodeShape } from './mind-map-node-shapes'
+import { ConnectorStyleIcon, LinePatternIcon, NodeShapeIcon } from './mind-map-shape-icons'
 import { getConnectorStyle } from '../../../../shared/mindmap/structure-types'
+import { DEFAULT_MIND_MAP_TOPIC_SHAPE } from '../../../../shared/mindmap/mind-map-types'
+import { DEFAULT_MIND_MAP_THEME, type MindMapTopicStyleOverride } from '../../../../shared/mindmap/domain/types'
+import { getCanvasInspectorFieldCapability } from './mind-map-inspector-capabilities'
+import { MindMapDefaultNodeStyle } from './MindMapDefaultNodeStyle'
 
 const SPACING_MIN = 4
 const SPACING_MAX = 96
@@ -27,7 +33,6 @@ const SELECTABLE_CONNECTORS = ['rounded-elbow', 'elbow', 'straight', 'curve'] as
 
 type CanvasOptionsText = {
   spacing: string
-  compact: string
   reset: string
   connector: string
   curve: string
@@ -39,6 +44,8 @@ type CanvasOptionsText = {
   lineWidthDefault: string
   lineWidthThick: string
   lineWidthExtraThick: string
+  globalNode: string
+  globalNodeReset: string
   [key: string]: string
 }
 
@@ -64,16 +71,23 @@ export function MindMapCanvasOptionsPanel() {
   const layoutField = <K extends MindMapLayoutField>(field: K) =>
     resolveLayoutField(sheet.layout, field)
 
+  const defaultTopicStyle = sheet.layout.defaultTopicStyle ?? {}
+  const setDefaultTopicStyle = (next: MindMapTopicStyleOverride | null): void => {
+    dispatchLayoutPatch({ defaultTopicStyle: next })
+  }
+
   // Resolved once so TS can narrow each field to inherited vs concrete.
   const spacingValue = layoutField('spacing')
   const spacingInputValue = spacingValue.state === 'concrete'
     ? Math.max(SPACING_MIN, spacingValue.value)
     : SPACING_DEFAULT
-  const compactValue = layoutField('compact')
   const lineStyleValue = layoutField('lineStyle')
   const lineWidthScaleValue = layoutField('lineWidthScale')
   const linePatternValue = layoutField('linePattern')
   const taperedValue = layoutField('tapered')
+  const defaultTopicShapeValue = layoutField('defaultTopicShape')
+  const autoBalanceCapability = getCanvasInspectorFieldCapability('autoBalance', sheet.layout.structureClass)
+  const autoBalanceEnabled = sheet.layout.structureClass === 'org.xmind.ui.logic.balanced'
 
   // The structure's default connector (e.g. Curve for map/logic, Elbow for
   // org/tree). When that default is itself one of the selectable styles, treat
@@ -96,7 +110,9 @@ export function MindMapCanvasOptionsPanel() {
       lineStyle: null,
       lineWidthScale: null,
       linePattern: null,
-      tapered: null
+      tapered: null,
+      defaultTopicShape: null,
+      defaultTopicStyle: null
     })
   }
 
@@ -141,19 +157,52 @@ export function MindMapCanvasOptionsPanel() {
             <span aria-hidden="true">px</span>
           </label>
         </div>
-        <label className="mm-row mm-row--switch">
+        <label
+          className="mm-row mm-row--switch"
+          title={autoBalanceCapability.reasonKey ? t(`mindmap.inspector.canvasControls.${autoBalanceCapability.reasonKey}`) : undefined}
+        >
           <span className="mm-row__label">
-            {text.compact}
+            {text.autoBalance}
           </span>
           <span className="mm-switch">
             <input
               type="checkbox"
-              checked={compactValue.state === 'concrete' && compactValue.value === true}
-              onChange={(event) => dispatchLayoutPatch({ compact: event.currentTarget.checked })}
+              checked={autoBalanceEnabled}
+              disabled={autoBalanceCapability.disabled}
+              onChange={(event) => dispatchLayoutPatch({
+                structureClass: event.currentTarget.checked
+                  ? 'org.xmind.ui.logic.balanced'
+                  : 'org.xmind.ui.logic.right'
+              })}
             />
             <span className="mm-switch__track" aria-hidden="true" />
           </span>
         </label>
+        <MindMapIconPicker
+          label={text.defaultNodeShape}
+          value={defaultTopicShapeValue.state === 'concrete'
+            ? defaultTopicShapeValue.value
+            : DEFAULT_MIND_MAP_TOPIC_SHAPE}
+          isMixed={defaultTopicShapeValue.state === 'mixed'}
+          displayLabel={text.defaultNodeShapeDefault}
+          options={MIND_MAP_TOPIC_SHAPE_OPTIONS.map((option) => ({
+            value: option.value,
+            label: t(`mindmap.topicStyle.${option.labelKey}`),
+            icon: <NodeShapeIcon shape={option.value as NodeShape} />
+          }))}
+          searchable
+          showClear={defaultTopicShapeValue.state === 'concrete'}
+          clearLabel={text.defaultNodeShapeDefault}
+          onClear={() => dispatchLayoutPatch({ defaultTopicShape: DEFAULT_MIND_MAP_TOPIC_SHAPE })}
+          dialogLabel={text.defaultNodeShapePicker}
+          buildTriggerName={(triggerLabel) => `${text.defaultNodeShape} ${triggerLabel}`}
+          triggerDescription={defaultTopicShapeValue.state === 'mixed'
+              ? t('mindmap.topicStyle.mixed')
+              : undefined}
+          onChange={(value) => dispatchLayoutPatch({
+            defaultTopicShape: value ?? DEFAULT_MIND_MAP_TOPIC_SHAPE
+          })}
+        />
       </div>
 
       <div className="mindmap-canvas-options__section">
@@ -231,7 +280,6 @@ export function MindMapCanvasOptionsPanel() {
         <label className="mm-row mm-row--switch">
           <span className="mm-row__label">
             {text.taperedLine}
-            <small>{text.taperedLineDescription}</small>
           </span>
           <span className="mm-switch">
             <input
@@ -242,6 +290,18 @@ export function MindMapCanvasOptionsPanel() {
             <span className="mm-switch__track" aria-hidden="true" />
           </span>
         </label>
+      </div>
+
+      <div className="mindmap-canvas-options__section mindmap-canvas-options__section--global-node">
+        <div className="mindmap-canvas-options__subhead">
+          <strong>{text.globalNode}</strong>
+        </div>
+        <MindMapDefaultNodeStyle
+          value={defaultTopicStyle}
+          onChange={(next) => setDefaultTopicStyle(Object.keys(next).length > 0 ? next : null)}
+          resetLabel={text.globalNodeReset}
+          theme={current?.theme ?? DEFAULT_MIND_MAP_THEME}
+        />
       </div>
     </section>
   )

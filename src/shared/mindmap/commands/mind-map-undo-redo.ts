@@ -52,6 +52,12 @@ export function defaultMindMapCommandLabel(command: MindMapCommand): string {
       return 'Update element'
     case 'element.remove':
       return 'Remove element'
+    case 'image.create':
+      return 'Add image'
+    case 'image.update':
+      return 'Update image'
+    case 'image.remove':
+      return 'Remove image'
     case 'selection.set-style':
       return 'Set style'
     case 'sheet.create':

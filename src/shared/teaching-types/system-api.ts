@@ -162,6 +162,7 @@ import type {
   MindMapImportPayload,
   MindMapXmindImportResult,
   MindMapFlushPayload,
+  MindMapLibrary,
   MindMapListPayload,
   MindMapProposalApplyPayload,
   MindMapProposalApplyResult,
@@ -515,6 +516,8 @@ export type TeachingSystemApi = {
   mcpSetStudiumxAccessToken: (token: string | null) => Promise<void>
   /** List mind maps in the workspace (docs/mindmap §4). */
   listMindMaps: (payload: MindMapListPayload) => Promise<MindMapSummary[]>
+  /** Aggregate library for the home page: home cards + one folder per workspace. */
+  listMindMapLibrary: () => Promise<MindMapLibrary>
   /** Create a new empty mind map document. */
   createMindMap: (payload: MindMapCreatePayload) => Promise<MindMapDocumentV2>
   /** Read one mind map document. */

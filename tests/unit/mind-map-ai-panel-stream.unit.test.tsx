@@ -209,6 +209,29 @@ describe('MindMapAiPanel streaming preview', () => {
     ).toBeTruthy()
   })
 
+  it('keeps the document title input mounted while entering rename mode', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <MindMapAiPanel
+        open
+        onToggle={() => {}}
+        documentTitle="Study map"
+        onRenameDocument={() => {}}
+      />
+    )
+
+    const titleInput = screen.getByLabelText('Rename')
+    expect(titleInput).toHaveValue('Study map')
+    expect(titleInput).toHaveAttribute('readonly')
+
+    await user.click(titleInput)
+
+    expect(screen.getByLabelText('Rename')).toBe(titleInput)
+    expect(titleInput).not.toHaveAttribute('readonly')
+    expect(titleInput).toHaveFocus()
+  })
+
   it('keeps canvas-wide options in Canvas and merges module style into Node', async () => {
     const user = userEvent.setup()
     const current = generatedDocument()
@@ -233,19 +256,20 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(screen.queryByRole('tab', { name: 'Content' })).not.toBeInTheDocument()
     expect(screen.getByText('Canvas options')).toBeInTheDocument()
 
-    // Selecting a topic reveals the Node tab, where its style now lives
-    // alongside notes and markers.
+    // Selecting a topic reveals the Node tab, where its style now lives.
+    // Notes and markers were removed from the node settings panel (they are
+    // edited in the canvas-adjacent topic popover).
     act(() => useMindMapViewStore.getState().selectTopic('root'))
     expect(screen.getByRole('tab', { name: 'Node' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByText('Node style')).toBeInTheDocument()
+    expect(container.querySelector('.mindmap-topic-style .mm-subhead')).toHaveTextContent('Style')
     expect(screen.queryByText('Canvas options')).not.toBeInTheDocument()
-    expect(container.querySelector('#mindmap-inspector-notes')).toBeInTheDocument()
-    expect(container.querySelector('#mindmap-inspector-markers')).toBeInTheDocument()
+    expect(container.querySelector('#mindmap-inspector-notes')).not.toBeInTheDocument()
+    expect(container.querySelector('#mindmap-inspector-markers')).not.toBeInTheDocument()
 
     // The Canvas tab keeps only the canvas-wide controls for any selection.
     await user.click(screen.getByRole('tab', { name: 'Canvas' }))
     expect(screen.getByText('Canvas options')).toBeInTheDocument()
-    expect(screen.queryByText('Node style')).not.toBeInTheDocument()
+    expect(container.querySelector('.mindmap-topic-style')).not.toBeInTheDocument()
 
     // Selecting an element also lands on Node with its style inspector.
     act(() => useMindMapViewStore.getState().selectElement('relationship-1', 'relationship'))
@@ -275,6 +299,12 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(screen.getByText('{"sheets":[]}')).toBeInTheDocument()
     expect(container.querySelector('[data-stream-step="streaming"]')).toBeInTheDocument()
     expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'off')
+    expect(container.querySelector('.mindmap-ai-panel__thread-inner')).toHaveClass('overview-dialog-thread-inner')
+    expect(within(screen.getByRole('log')).getByText('Build a study map').closest('.markdown-message')).toHaveClass(
+      'markdown-message--user'
+    )
+    expect(screen.getByText('{"sheets":[]}').closest('.markdown-message')).toHaveClass('markdown-message--assistant')
+    expect(container.querySelector('.mindmap-ai-panel__message-preview')).not.toBeInTheDocument()
 
     act(() => resolveGeneration?.(generatedDocument()))
   })
@@ -296,9 +326,14 @@ describe('MindMapAiPanel streaming preview', () => {
     const conversation = container.querySelector('.mindmap-ai-panel__conversation')
     const thread = container.querySelector('.mindmap-ai-panel__thread')
     const composer = container.querySelector('.mindmap-ai-panel__composer')
+    const composerCard = container.querySelector('.mindmap-ai-panel__composer-card')
     expect(conversation).toContainElement(thread)
     expect(conversation).toContainElement(composer)
     expect(thread?.compareDocumentPosition(composer!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(conversation).toHaveClass('overview-dialog-shell', 'has-conversation')
+    expect(thread).toHaveClass('overview-dialog-thread')
+    expect(composer).toHaveClass('overview-dialog-stack')
+    expect(composerCard).toHaveClass('overview-dialog-card')
 
     const prompt = screen.getByLabelText('Topic or prompt')
     await user.clear(prompt)
@@ -310,7 +345,9 @@ describe('MindMapAiPanel streaming preview', () => {
     }))
     expect(within(screen.getByRole('log')).getByText('Map the Krebs cycle')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('overview-dialog-send')
     expect(container.querySelector('.mindmap-ai-panel__statusbar')).toBeInTheDocument()
+    expect(container.querySelector('.mindmap-ai-panel__statusbar')).toHaveClass('overview-dialog-statusbar')
   })
 
   it('retries the prompt from the failed conversation turn', async () => {

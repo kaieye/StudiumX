@@ -172,4 +172,15 @@ describe('mind map page layout contract', () => {
     expect(input).toMatch(/border:\s*0/)
     expect(focus).toMatch(/box-shadow:\s*none/)
   })
+
+  it('keeps the inspector rename title stable without a focus ring', () => {
+    const input = readAllMindMapRuleDeclarations('.mindmap-inspector-title-input')
+    const editing = readMindMapRuleDeclarations('.mindmap-inspector-title-input.is-editing')
+    const focus = readAllMindMapRuleDeclarations('.mindmap-inspector-title-input:focus-visible')
+
+    expect(input).toMatch(/padding:\s*1px\s+8px\s+0/)
+    expect(editing).toMatch(/border-color:\s*var\(--line\)/)
+    expect(focus).toMatch(/outline:\s*none/)
+    expect(focus).toMatch(/box-shadow:\s*none/)
+  })
 })

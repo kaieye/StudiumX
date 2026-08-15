@@ -27,11 +27,48 @@ export function branchColor(
   if (theme?.rainbowBranches === false) {
     return theme.lineColor ?? '#8E8E93'
   }
+  return paletteColor(theme, branchIndex)
+}
+
+/**
+ * Deterministic, stable FNV-1a-style hash of a branch's stable id.
+ *
+ * Used so a first-level branch keeps the same colour even when a sibling is
+ * inserted above/before it (which would otherwise shift its positional index
+ * and re-colour every following branch).
+ */
+function stableBranchHash(key: string): number {
+  let hash = 2166136261
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+/**
+ * Resolve a branch colour that is stable per-branch (keyed by the top-level
+ * branch's topic id) rather than per-positional-index. Inserting or moving a
+ * sibling no longer re-colours existing branches.
+ */
+export function branchColorForKey(
+  theme: MindMapTheme | undefined,
+  branchKey: string
+): string | null {
+  // P2 §5.3: When rainbowBranches is explicitly false, use a single line color.
+  if (theme?.rainbowBranches === false) {
+    return theme.lineColor ?? '#8E8E93'
+  }
+  return paletteColor(theme, stableBranchHash(branchKey))
+}
+
+/** Pick a palette colour for a raw slot (index or stable hash), wrapping around. */
+function paletteColor(theme: MindMapTheme | undefined, slot: number): string | null {
   const palette = theme?.branchColors
   if (palette && palette.length > 0) {
-    return palette[branchIndex % palette.length] ?? null
+    return palette[slot % palette.length] ?? null
   }
-  return DEFAULT_BRANCH_COLORS[branchIndex % DEFAULT_BRANCH_COLORS.length] ?? null
+  return DEFAULT_BRANCH_COLORS[slot % DEFAULT_BRANCH_COLORS.length] ?? null
 }
 
 /**

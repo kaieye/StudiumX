@@ -1,5 +1,5 @@
 import { useRef, type CSSProperties } from 'react'
-import { Bold, Italic, RotateCcw, Strikethrough, Underline } from 'lucide-react'
+import { Bold, Italic, Strikethrough, Underline } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
 import type { MindMapTopicStyleOverride, MindMapTopicNumbering, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
@@ -31,8 +31,7 @@ import { MindMapFontPicker } from './MindMapThemePanel'
 import { MindMapTopicShapePicker } from './MindMapTopicShapePicker'
 import { MindMapTopicColorPicker, MindMapTopicStyleMenu } from './MindMapTopicStyleMenu'
 import { resolveTopicDisplayStyle } from './mind-map-topic-display-style'
-import { branchColor } from './mind-map-branch-colors'
-import type { MindMapQuickStylePreset } from '../../../../shared/mindmap/quick-styles'
+import { branchColorForKey } from './mind-map-branch-colors'
 
 type MindMapTopicStyleLayoutOption = {
   value: MindMapStructureClass
@@ -40,21 +39,11 @@ type MindMapTopicStyleLayoutOption = {
 }
 
 const MIXED_VALUE = '__mixed__'
-const WIDTH_MIN = 72
-const WIDTH_MAX = 720
 
 const TOPIC_STYLE_DEFAULTS = {
   fill: '#F8F7F7',
   stroke: '#8E8E93',
   textColor: '#24324A'
-} as const
-
-const FONT_SOURCE_LABEL_KEYS = {
-  local: 'fontSourceLocal',
-  document: 'fontSourceDocument',
-  'theme-layer': 'fontSourceThemeLayer',
-  'app-fallback': 'fontSourceAppFallback',
-  mixed: 'fontSourceMixed'
 } as const
 
 const NUMBERING_PATTERN_OPTIONS = [
@@ -103,9 +92,7 @@ const TEXT_COLOR_PRESETS: readonly string[] = [
 const BORDER_STYLE_OPTIONS = [
   { value: 'none', labelKey: 'borderStyleNone' },
   { value: 'solid', labelKey: 'borderStyleSolid' },
-  { value: 'dash', labelKey: 'borderStyleDash' },
-  { value: 'hand-drawn-solid', labelKey: 'borderStyleHandDrawnSolid' },
-  { value: 'hand-drawn-dash', labelKey: 'borderStyleHandDrawnDash' }
+  { value: 'dash', labelKey: 'borderStyleDash' }
 ] as const satisfies readonly {
   value: NonNullable<MindMapTopicStyleOverride['borderStyle']>
   labelKey: string
@@ -139,7 +126,8 @@ export function MindMapTopicStyleInspector() {
   const activeSheetId = useMindMapViewStore((state) => state.activeSheetId)
   const selection = useMindMapViewStore((state) => state.selection)
   const dispatchCommand = useMindMapViewStore((state) => state.dispatchCommand)
-  const applyQuickStyle = useMindMapViewStore((state) => state.applyQuickStyle)
+  const setTopicChildrenCollapsed = useMindMapViewStore((state) => state.setTopicChildrenCollapsed)
+  const setSiblingTopicsCollapsed = useMindMapViewStore((state) => state.setSiblingTopicsCollapsed)
   const fontSizeEditSession = useRef(0)
 
   const activeSheet =
@@ -147,7 +135,7 @@ export function MindMapTopicStyleInspector() {
   const selectedTopicEntries = activeSheet && selection.kind === 'topic'
     ? selection.topicIds
         .map((id) => findMindMapTopic(activeSheet.root, id, activeSheet.layout.structureClass))
-        .filter((entry): entry is { topic: MindMapTopicV2; depth: number; branchIndex: number; structureClass: MindMapStructureClass } => entry !== null)
+        .filter((entry): entry is { topic: MindMapTopicV2; depth: number; branchIndex: number; branchKey: string; structureClass: MindMapStructureClass } => entry !== null)
     : []
   const selectedTopics = selectedTopicEntries.map((entry) => entry.topic)
   const hasSelection = selectedTopics.length > 0
@@ -191,16 +179,22 @@ export function MindMapTopicStyleInspector() {
     }, options)
   }
 
-  const resetStyles = (): void => {
-    dispatchStyleMutation(() => ({}))
-  }
-
   const selectedTopicRef = activeSheet && selectedTopics.length === 1
     ? findTopicInSheet(activeSheet, selectedTopics[0].id)
     : undefined
   const siblingCount = selectedTopicRef?.parent?.children.filter(
     (topic) => topic.id !== selectedTopicRef.node.id
   ).length ?? 0
+  const currentTopicHasChildren = (selectedTopicRef?.node.children.length ?? 0) > 0
+  const siblingBranchTopics = selectedTopicRef?.parent?.children.filter(
+    (topic) => topic.children.length > 0
+  ) ?? []
+  const canToggleSiblingChildren = selectedTopicRef?.parent !== null
+    && selectedTopicRef?.parent !== undefined
+    && siblingCount > 0
+    && siblingBranchTopics.length > 0
+  const siblingChildrenCollapsed = siblingBranchTopics.length > 0
+    && siblingBranchTopics.every((topic) => topic.collapsed === true)
   const descendantCount = selectedTopicRef ? countDescendants(selectedTopicRef.node) : 0
   const propagateStyle = (scope: MindMapTopicStylePropagationScope): void => {
     if (!activeSheet || !selectedTopicRef) return
@@ -285,10 +279,7 @@ export function MindMapTopicStyleInspector() {
 
   if (!hasSelection) {
     return (
-      <section className="mindmap-topic-style mm-section" aria-labelledby="mindmap-topic-style-title">
-        <div className="mm-section__head">
-          <strong id="mindmap-topic-style-title">{t('mindmap.topicStyle.title')}</strong>
-        </div>
+      <section className="mindmap-topic-style mm-section">
         <p className="mindmap-topic-style__empty">{t('mindmap.topicStyle.noSelection')}</p>
       </section>
     )
@@ -299,9 +290,9 @@ export function MindMapTopicStyleInspector() {
   const effectiveFieldValue = <T,>(
     resolve: (style: ReturnType<typeof resolveTopicDisplayStyle>) => T
   ): InspectorValue<T> => resolveInspectorValue(
-    selectedTopicEntries.map(({ topic, depth, branchIndex, structureClass }) =>
+    selectedTopicEntries.map(({ topic, depth, branchKey, structureClass }) =>
       resolve(resolveTopicDisplayStyle(topic.style, current!.theme, depth, {
-        branchColor: branchColor(current!.theme, branchIndex),
+        branchColor: branchColorForKey(current!.theme, branchKey),
         structureClass,
         darkAppearance: document.documentElement.dataset.resolvedTheme === 'dark'
       }))
@@ -333,7 +324,6 @@ export function MindMapTopicStyleInspector() {
   const effectiveStrokeColor = effectiveFieldValue((style) => style.stroke)
   const textColor = fieldValue('textColor')
   const effectiveTextColor = effectiveFieldValue((style) => style.textColor)
-  const fontFamily = fieldValue('fontFamily')
   const effectiveFontFamily = effectiveFieldValue((style) => style.fontFamily)
   const resolvedFont = resolveSelectedTopicFontProvenance(
     selectedTopicEntries.map(({ topic, depth }) => ({ nodeStyle: topic.style, depth })),
@@ -353,9 +343,9 @@ export function MindMapTopicStyleInspector() {
   const effectiveBorderStyle = effectiveFieldValue((style) => style.borderStyle)
   const borderWidth = fieldValue('borderWidth')
   const effectiveBorderWidth = effectiveFieldValue((style) => style.borderWidth)
-  const effectiveBorderStyles = selectedTopicEntries.map(({ topic, depth, branchIndex, structureClass }) =>
+  const effectiveBorderStyles = selectedTopicEntries.map(({ topic, depth, branchKey, structureClass }) =>
     resolveTopicDisplayStyle(topic.style, current!.theme, depth, {
-      branchColor: branchColor(current!.theme, branchIndex),
+      branchColor: branchColorForKey(current!.theme, branchKey),
       structureClass,
       darkAppearance: document.documentElement.dataset.resolvedTheme === 'dark'
     }).borderStyle
@@ -402,138 +392,14 @@ export function MindMapTopicStyleInspector() {
     })
   }
   const effectiveStructureClassValue = effectiveFieldValue((style) => style.structureClass)
-  const effectiveWidthMode = effectiveFieldValue((style) => style.widthMode)
-  const width = fieldValue('width')
-  const widthModeValue = selectValue(effectiveWidthMode)
-  const fixedWidthActive = effectiveWidthMode.state === 'concrete' && effectiveWidthMode.value === 'fixed'
-  const widthInputValue = width.state === 'concrete'
-    ? width.value
-    : effectiveWidthMode.state === 'concrete' && effectiveWidthMode.value === 'fixed'
-      ? 160
-      : ''
-  const effectiveStructureClass = effectiveStructureClassValue.state === 'concrete'
-    ? effectiveStructureClassValue.value
-    : null
-  const hasAnyStyle = selectedTopics.some((topic) => topic.style && Object.keys(topic.style).length > 0)
-  const heading = selectedTopics.length === 1
-    ? selectedTopics[0].title || t('mindmap.untitledTopic')
-    : t('mindmap.topicStyle.multiSelection', { count: selectedTopics.length })
-
   return (
-    <section className="mindmap-topic-style mm-section" aria-labelledby="mindmap-topic-style-title">
-      <div className="mm-section__head">
-        <strong id="mindmap-topic-style-title">{t('mindmap.topicStyle.title')}</strong>
-        <div className="mindmap-topic-style__heading-actions">
-          <span className="mm-section__hint" title={heading}>{heading}</span>
-          {hasAnyStyle ? (
-            <button
-              type="button"
-              className="mindmap-topic-style__reset"
-              onClick={resetStyles}
-              title={t('mindmap.topicStyle.reset')}
-              aria-label={t('mindmap.topicStyle.reset')}
-            >
-              <RotateCcw size={13} aria-hidden="true" />
-            </button>
-          ) : null}
-        </div>
-      </div>
-
+    <section className="mindmap-topic-style mm-section">
       <div className="mm-subhead">{t('mindmap.topicStyle.styleSection')}</div>
-      <div className="mm-row mm-row--stack">
-        <span className="mm-row__label">{t('mindmap.topicStyle.quickStyle')}</span>
-        <div
-          className="mindmap-topic-style__quick-styles"
-          role="group"
-          aria-label={t('mindmap.topicStyle.quickStyle')}
-        >
-          {([
-            'default',
-            'important',
-            'very-important',
-            'strikethrough'
-          ] as const satisfies readonly MindMapQuickStylePreset[]).map((preset) => (
-            <button
-              type="button"
-              key={preset}
-              className={`mindmap-topic-style__quick-style mindmap-topic-style__quick-style--${preset}`}
-              onClick={() => applyQuickStyle(selectedTopics.map((topic) => topic.id), preset)}
-            >
-              {t(`mindmap.topicStyle.quickStyles.${preset}`)}
-            </button>
-          ))}
-        </div>
-        <span className="mindmap-topic-style__hint">{t('mindmap.topicStyle.quickStyleHint')}</span>
-      </div>
       <MindMapTopicShapePicker
         value={shape}
         displayValue={effectiveShape}
         onChange={(nextShape) => updateStyleField('shape', nextShape)}
       />
-      <div className="mm-row">
-        <label className="mm-row__label" htmlFor="mindmap-topic-style-width-mode">
-          {t('mindmap.topicStyle.nodeWidth')}
-        </label>
-        <select
-          id="mindmap-topic-style-width-mode"
-          className="mm-select"
-          value={widthModeValue}
-          onChange={(event) => {
-            const next = event.currentTarget.value
-            if (next === MIXED_VALUE) return
-            if (next === 'fixed') {
-              const currentWidth = typeof widthInputValue === 'number' ? widthInputValue : 160
-              dispatchStyleMutation((style) => {
-                style.widthMode = 'fixed'
-                style.width = Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, currentWidth))
-                return style
-              })
-            } else if (next === 'auto') {
-              dispatchStyleMutation((style) => {
-                style.widthMode = 'auto'
-                delete style.width
-                return style
-              })
-            } else if (next === '') {
-              dispatchStyleMutation((style) => {
-                delete style.widthMode
-                delete style.width
-                return style
-              })
-            }
-          }}
-        >
-          {effectiveWidthMode.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
-          <option value="auto">{t('mindmap.topicStyle.widthAuto')}</option>
-          <option value="fixed">{t('mindmap.topicStyle.widthFixed')}</option>
-        </select>
-      </div>
-      {fixedWidthActive ? (
-        <div className="mm-row">
-          <label className="mm-row__label" htmlFor="mindmap-topic-style-width">
-            {t('mindmap.topicStyle.nodeWidth')}
-          </label>
-          <div className="mindmap-topic-style__number-field">
-            <input
-              id="mindmap-topic-style-width"
-              className="mm-number-input"
-              type="number"
-              min={WIDTH_MIN}
-              max={WIDTH_MAX}
-              step="1"
-              value={widthInputValue}
-              placeholder={width.state === 'mixed' ? t('mindmap.topicStyle.mixed') : '160'}
-              onChange={(event) => {
-                const next = Number(event.currentTarget.value)
-                if (Number.isFinite(next) && next >= WIDTH_MIN && next <= WIDTH_MAX) {
-                  updateStyleField('width', next)
-                }
-              }}
-            />
-            <span aria-hidden="true">px</span>
-          </div>
-        </div>
-      ) : null}
       <MindMapTopicStyleMenu
         id="mindmap-topic-style-fill-pattern"
         label={t('mindmap.topicStyle.fillPattern')}
@@ -602,7 +468,6 @@ export function MindMapTopicStyleInspector() {
       <fieldset
         className="mindmap-topic-style__border-field"
         disabled={borderStrokeCapability.disabled}
-        aria-describedby={borderStrokeCapability.disabled ? 'mindmap-topic-border-disabled' : undefined}
       >
         <MindMapTopicColorPicker
           id="mindmap-topic-style-border-color"
@@ -618,7 +483,6 @@ export function MindMapTopicStyleInspector() {
       <fieldset
         className="mindmap-topic-style__border-field"
         disabled={borderWidthCapability.disabled}
-        aria-describedby={borderWidthCapability.disabled ? 'mindmap-topic-border-disabled' : undefined}
       >
         <MindMapTopicStyleMenu
           id="mindmap-topic-style-border-width"
@@ -654,11 +518,6 @@ export function MindMapTopicStyleInspector() {
           )}
         />
       </fieldset>
-      {borderStrokeCapability.disabled || borderWidthCapability.disabled ? (
-        <span id="mindmap-topic-border-disabled" className="mindmap-topic-style__effective">
-          {t('mindmap.topicStyle.borderDisabled')}
-        </span>
-      ) : null}
 
       <div className="mm-subhead">{t('mindmap.topicStyle.textSection')}</div>
       <div className="mm-row">
@@ -667,36 +526,11 @@ export function MindMapTopicStyleInspector() {
           value={effectiveFontFamily.state === 'concrete' ? effectiveFontFamily.value : undefined}
           currentLabel={effectiveFontFamilyLabel}
           ariaLabel={t('mindmap.topicStyle.fontFamily')}
-          showClearItem={fontFamily.state === 'concrete'}
-          clearLabel={t('mindmap.topicStyle.clearField')}
           onSelect={(stack) => updateStyleField('fontFamily', stack || undefined)}
           searchPlaceholder="Search fonts…"
           searchLabel="Search fonts"
           noResultsLabel="No fonts found."
         />
-        <span
-          id="mindmap-topic-style-font-source"
-          className="mindmap-topic-style__effective"
-          data-font-source={resolvedFont.source}
-          role="status"
-          aria-label={resolvedFont.fontFamily
-            ? t('mindmap.topicStyle.fontSourceWithFamily', {
-              source: t(`mindmap.topicStyle.${FONT_SOURCE_LABEL_KEYS[resolvedFont.source]}`),
-              font: resolvedFont.fontFamily
-            })
-            : t('mindmap.topicStyle.fontSource', {
-              source: t(`mindmap.topicStyle.${FONT_SOURCE_LABEL_KEYS[resolvedFont.source]}`)
-            })}
-        >
-          {resolvedFont.fontFamily
-            ? t('mindmap.topicStyle.fontSourceWithFamily', {
-              source: t(`mindmap.topicStyle.${FONT_SOURCE_LABEL_KEYS[resolvedFont.source]}`),
-              font: resolvedFont.fontFamily
-            })
-            : t('mindmap.topicStyle.fontSource', {
-              source: t(`mindmap.topicStyle.${FONT_SOURCE_LABEL_KEYS[resolvedFont.source]}`)
-            })}
-        </span>
         {resolvedFont.mayFallback ? (
           <span
             id="mindmap-topic-style-font-fallback"
@@ -965,18 +799,41 @@ export function MindMapTopicStyleInspector() {
           ))}
         </select>
       </div>
-      {effectiveStructureClassValue.state === 'mixed' ? (
-        <span className="mindmap-topic-style__effective">{t('mindmap.topicStyle.effectiveMixed')}</span>
-      ) : effectiveStructureClass ? (
-        <span className="mindmap-topic-style__effective">
-          {t('mindmap.topicStyle.effective', {
-            layout: topicStyleLayoutLabel(t, effectiveStructureClass)
-          })}
-        </span>
-      ) : null}
-
       {selectedTopics.length === 1 ? (
         <>
+          <div className="mm-subhead">{t('mindmap.topicStyle.childVisibilitySection')}</div>
+          <div className="mindmap-topic-style__propagation-actions">
+            <button
+              type="button"
+              disabled={!currentTopicHasChildren || !selectedTopicRef}
+              onClick={() => {
+                if (selectedTopicRef) {
+                  setTopicChildrenCollapsed(
+                    selectedTopicRef.node.id,
+                    selectedTopicRef.node.collapsed !== true
+                  )
+                }
+              }}
+            >
+              {selectedTopicRef?.node.collapsed === true
+                ? t('mindmap.expandCurrentChildren')
+                : t('mindmap.collapseCurrentChildren')}
+            </button>
+            <button
+              type="button"
+              disabled={!canToggleSiblingChildren || !selectedTopicRef}
+              onClick={() => {
+                if (selectedTopicRef) {
+                  setSiblingTopicsCollapsed(selectedTopicRef.node.id, !siblingChildrenCollapsed)
+                }
+              }}
+            >
+              {siblingChildrenCollapsed
+                ? t('mindmap.expandSiblingChildren')
+                : t('mindmap.collapseSiblingChildren')}
+            </button>
+          </div>
+
           <div className="mm-subhead">{t('mindmap.numbering.title')}</div>
           <div className="mm-row">
             <label className="mm-row__label" htmlFor="mindmap-topic-numbering-pattern">
@@ -1045,9 +902,6 @@ export function MindMapTopicStyleInspector() {
               ) : null}
             </>
           ) : null}
-          <span className="mindmap-topic-style__effective">
-            {t('mindmap.numbering.appliedToChildren')}
-          </span>
           <div className="mindmap-topic-style__propagation-actions">
             <button
               type="button"
@@ -1084,32 +938,24 @@ export function MindMapTopicStyleInspector() {
   )
 }
 
-function topicStyleLayoutLabel(
-  t: (key: string) => string,
-  structureClass: MindMapStructureClass
-): string {
-  const option = MIND_MAP_TOPIC_STYLE_LAYOUT_OPTIONS.find(
-    (candidate) => candidate.value === structureClass
-  )
-  return option ? t(`mindmap.topicStyle.layouts.${option.labelKey}`) : structureClass
-}
-
 function findMindMapTopic(
   node: MindMapTopicV2,
   id: string,
   inheritedStructureClass: MindMapStructureClass,
   depth = 0,
-  branchIndex = 0
-): { topic: MindMapTopicV2; depth: number; branchIndex: number; structureClass: MindMapStructureClass } | null {
+  branchIndex = 0,
+  branchKey = node.id
+): { topic: MindMapTopicV2; depth: number; branchIndex: number; branchKey: string; structureClass: MindMapStructureClass } | null {
   const structureClass = node.style?.structureClass ?? inheritedStructureClass
-  if (node.id === id) return { topic: node, depth, branchIndex, structureClass }
+  if (node.id === id) return { topic: node, depth, branchIndex, branchKey, structureClass }
   for (const [index, child] of node.children.entries()) {
     const found = findMindMapTopic(
       child,
       id,
       structureClass,
       depth + 1,
-      depth === 0 ? index : branchIndex
+      depth === 0 ? index : branchIndex,
+      depth === 0 ? child.id : branchKey
     )
     if (found) return found
   }

@@ -19,6 +19,9 @@ import type {
   MindMapCommandResult
 } from '../../src/shared/mindmap/commands/mind-map-command-types'
 import {
+  buildInsertAboveCommand,
+  buildInsertChildCommand,
+  buildInsertSiblingCommand,
   buildRemoveTopicsCommand,
   buildToggleCollapseTopicsCommand
 } from '../../src/renderer/src/views/mindmap/mind-map-commands'
@@ -101,6 +104,37 @@ describe('applyMindMapCommand — topic commands', () => {
         { type: 'topic.update', sheetId: 'sheet-1', topicId: 'a', patch: { collapsed: true } },
         { type: 'topic.update', sheetId: 'sheet-1', topicId: 'b', patch: { collapsed: true } }
       ]
+    })
+  })
+
+  it('applies the per-sheet default shape to every newly inserted topic', () => {
+    const sheet = makeDocument().sheets[0]!
+    sheet.layout.defaultTopicShape = 'ellipse'
+
+    const child = buildInsertChildCommand(sheet, 'root-1')
+    const sibling = buildInsertSiblingCommand(sheet, 'a')
+    const above = buildInsertAboveCommand(sheet, 'a')
+
+    expect(child.command).toMatchObject({ node: { style: { shape: 'ellipse' } } })
+    expect(sibling?.command).toMatchObject({ node: { style: { shape: 'ellipse' } } })
+    expect(above?.command).toMatchObject({ node: { style: { shape: 'ellipse' } } })
+  })
+
+  it('applies the global default style (plus shape precedence) to new topics', () => {
+    const sheet = makeDocument().sheets[0]!
+    sheet.layout.defaultTopicStyle = {
+      shape: 'diamond',
+      fill: '#112233',
+      fontSize: 20,
+      fontStyle: 'italic'
+    }
+    // The global default style's shape takes precedence over the legacy
+    // default-shape field when both are set.
+    sheet.layout.defaultTopicShape = 'ellipse'
+
+    const child = buildInsertChildCommand(sheet, 'root-1')
+    expect(child.command).toMatchObject({
+      node: { style: { shape: 'diamond', fill: '#112233', fontSize: 20, fontStyle: 'italic' } }
     })
   })
 
@@ -564,6 +598,10 @@ describe('applyMindMapCommand — sheets and theme', () => {
     expectOk(result)
     inverses.push(result.inverse)
     expect(result.document.sheets.map((s) => s.id)).toEqual(['sheet-1', 'sheet-2'])
+    expect(result.document.sheets[1]!.layout).toMatchObject({
+      structureClass: 'org.xmind.ui.logic.right',
+      defaultTopicShape: 'rounded-rect'
+    })
     expectInvariants(result.document)
 
     result = applyMindMapCommand(result.document, { type: 'sheet.rename', sheetId: 'sheet-2', title: 'Renamed' })
@@ -668,9 +706,71 @@ describe('applyMindMapCommand — sheets and theme', () => {
         lineStyle: 'curve',
         lineWidthScale: null,
         linePattern: null,
-        tapered: null
+        tapered: null,
+        defaultTopicShape: null,
+        defaultTopicStyle: null
       }
     })
+  })
+
+  it('persists, clears, and validates the default topic shape', () => {
+    const doc = makeDocument()
+    const updated = applyMindMapCommand(doc, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { defaultTopicShape: 'hexagon' }
+    })
+    expectOk(updated)
+    expect(updated.document.sheets[0]!.layout.defaultTopicShape).toBe('hexagon')
+
+    const cleared = applyMindMapCommand(updated.document, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { defaultTopicShape: null }
+    })
+    expectOk(cleared)
+    expect(cleared.document.sheets[0]!.layout.defaultTopicShape).toBeUndefined()
+
+    const invalid = applyMindMapCommand(doc, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { defaultTopicShape: 'not-a-shape' as never }
+    })
+    expect(invalid.ok).toBe(false)
+    if (!invalid.ok) expect(invalid.error.code).toBe('INVALID_PATCH')
+  })
+
+  it('persists, clears, and validates the global default topic style', () => {
+    const doc = makeDocument()
+    const updated = applyMindMapCommand(doc, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: {
+        defaultTopicStyle: { fill: '#112233', fontSize: 20, fontStyle: 'italic' }
+      }
+    })
+    expectOk(updated)
+    expect(updated.document.sheets[0]!.layout.defaultTopicStyle).toEqual({
+      fill: '#112233',
+      fontSize: 20,
+      fontStyle: 'italic'
+    })
+
+    const cleared = applyMindMapCommand(updated.document, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { defaultTopicStyle: null }
+    })
+    expectOk(cleared)
+    expect(cleared.document.sheets[0]!.layout.defaultTopicStyle).toBeUndefined()
+
+    const invalid = applyMindMapCommand(doc, {
+      type: 'sheet.update-layout',
+      sheetId: 'sheet-1',
+      patch: { defaultTopicStyle: { fontSize: -1 } }
+    })
+    expect(invalid.ok).toBe(false)
+    if (!invalid.ok) expect(invalid.error.code).toBe('INVALID_PATCH')
   })
 
   it('rejects invalid sheet layout spacing and connector style', () => {
@@ -905,6 +1005,31 @@ describe('clipboard', () => {
       expect(elements[0]!.from).toBe('a-new')
       expect(elements[0]!.to).toBe('a-new')
     }
+  })
+
+  it('remaps a linked summary output topic with the copied branch', () => {
+    const data = {
+      documentId: 'doc-1',
+      sheetId: 'sheet-1',
+      branches: [{ id: 'output', title: 'Node summary', children: [] }],
+      elements: [{
+        id: 'summary',
+        type: 'summary' as const,
+        from: 'output',
+        to: 'output',
+        summaryTopicId: 'output'
+      }],
+      capturedAt: '2026-08-09T00:00:00.000Z'
+    }
+    const { elements } = remapClipboardIds(data, (id) => `${id}-copy`)
+
+    expect(elements[0]).toEqual({
+      id: 'summary',
+      type: 'summary',
+      from: 'output-copy',
+      to: 'output-copy',
+      summaryTopicId: 'output-copy'
+    })
   })
 })
 

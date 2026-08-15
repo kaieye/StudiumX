@@ -1,19 +1,31 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
+import { StickyNote, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { MindMapDocumentV2, MindMapMarker, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
+import type { MindMapDocumentV2, MindMapImageElement, MindMapImagePlacement, MindMapMarker, MindMapSheetV2, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
+import type { MindMapCommand } from '../../../../shared/mindmap/commands'
+import { classifyExternalDestination } from '../../../../shared/external-destination'
 import { MARKER_DEFS } from './mind-map-marker-icons'
 import {
+  clampMindMapNodeWidth,
   computeMindMapLayout,
   computeMovedTopicPreview,
+  computeTopicImageAndTextRegions,
+  MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH,
+  MIND_MAP_SUMMARY_BRACE_WIDTH,
+  MIND_MAP_SUMMARY_RANGE_GAP,
+  MIND_MAP_TOPIC_IMAGE_GAP,
+  MIND_MAP_TOPIC_IMAGE_SIDE_PADDING,
+  mindMapTopicLineHeight,
   type MindMapLayoutCallout,
   type MindMapLayoutNode,
   type MindMapLayoutRelationship,
   type MindMapLayoutSummary,
-  type MindMapMovedTopicPreview
+  type MindMapMovedTopicPreview,
+  wrapMindMapTopicTitle
 } from './mind-map-layout'
-import { branchColor } from './mind-map-branch-colors'
+import { branchColor, branchColorForKey } from './mind-map-branch-colors'
 import { defaultTopicTextAlign, resolveEffectiveTopicStyle } from './mind-map-topic-style'
 import {
   resolveMindMapTopicTextColor,
@@ -35,6 +47,8 @@ import {
   zoomMindMapViewport
 } from './mind-map-viewport'
 import { useMindMapViewStore } from './mind-map-view-store'
+import { useAppStore } from '../../app-shell/appStore'
+import { hasMindMapTopicMarkdown, renderMarkdownInlineHtml } from '../../markdown-preview'
 import { computeAllTopicNumbers } from './mind-map-numbering'
 import { selectMindMapNodesInRectangle } from '../../../../shared/mindmap/domain/selection'
 import {
@@ -75,6 +89,7 @@ type CanvasProps = {
   onViewportChange?: (viewport: { x: number; y: number; width: number; height: number }) => void
   onContextMenu?: (nodeId: string, x: number, y: number) => void
   onMoveNode?: (topicId: string, toParentId: string) => void
+  onOpenNote?: (nodeId: string) => void
 }
 
 const VIEW_PADDING = 48
@@ -85,26 +100,32 @@ const MARKER_BADGE_SIZE = 18
 const MARKER_BADGE_GAP = 3
 /** Size of the SVG icons drawn by `mind-map-marker-icons` (their default). */
 const MARKER_ICON_SIZE = 14
-const SUMMARY_GAP = 24
 const SUMMARY_LABEL_GAP = 12
 const SUMMARY_LABEL_WIDTH = 160
 const TOPIC_LABEL_HORIZONTAL_PADDING = 10
+/** Visual breathing room between an underline topic's text and its baseline. */
+const UNDERLINE_TOPIC_LABEL_GAP = 3
 // Starting a node drag changes the SVG hit target before pointer-up, so some
 // Chromium/Electron builds never synthesize the subsequent `dblclick`. Detect
 // the same gesture at the pointer-down seam that always receives both presses.
 const NODE_DOUBLE_POINTER_INTERVAL_MS = 450
 const NODE_DOUBLE_POINTER_DISTANCE_PX = 8
+/** Below this pointer travel a press/release is a plain click, not a drag. */
+const IMAGE_DRAG_THRESHOLD_PX = 4
+/** Invisible horizontal edge hit target for direct node-width resizing. */
+const MIND_MAP_NODE_RESIZE_EDGE_HIT_SIZE = 8
 function topicLabelGeometry(
-  node: MindMapLayoutNode,
+  regionX: number,
+  regionWidth: number,
   textAlign: NonNullable<NonNullable<MindMapTopicV2['style']>['textAlign']>
 ): { x: number; textAnchor: 'start' | 'middle' | 'end' } {
   if (textAlign === 'left') {
-    return { x: node.x + TOPIC_LABEL_HORIZONTAL_PADDING, textAnchor: 'start' }
+    return { x: regionX + TOPIC_LABEL_HORIZONTAL_PADDING, textAnchor: 'start' }
   }
   if (textAlign === 'right') {
-    return { x: node.x + node.width - TOPIC_LABEL_HORIZONTAL_PADDING, textAnchor: 'end' }
+    return { x: regionX + regionWidth - TOPIC_LABEL_HORIZONTAL_PADDING, textAnchor: 'end' }
   }
-  return { x: node.x + node.width / 2, textAnchor: 'middle' }
+  return { x: regionX + regionWidth / 2, textAnchor: 'middle' }
 }
 
 function relationshipLabelPosition(
@@ -212,6 +233,9 @@ type MindMapSummaryBracket = {
   summary: MindMapLayoutSummary
   from: MindMapLayoutNode
   to: MindMapLayoutNode
+  sourceTopics: readonly MindMapLayoutNode[]
+  /** The real topic output for newly created summaries. */
+  outputTopic?: MindMapLayoutNode
   x: number
   y: number
   bottom: number
@@ -221,16 +245,23 @@ type MindMapSummaryBracket = {
 
 function summaryBracket(
   summary: MindMapLayoutSummary,
-  from: MindMapLayoutNode,
-  to: MindMapLayoutNode
+  sourceTopics: readonly MindMapLayoutNode[],
+  outputTopic?: MindMapLayoutNode
 ): MindMapSummaryBracket {
-  const y = Math.min(from.y, to.y) - 4
-  const bottom = Math.max(from.y + from.height, to.y + to.height) + 4
-  const x = Math.max(from.x + from.width, to.x + to.width) + SUMMARY_GAP
+  const from = sourceTopics[0]!
+  const to = sourceTopics.at(-1)!
+  // A summary brace spans the centres of every covered source topic, rather
+  // than their outer bounds, matching the visual rhythm of branch lines.
+  const y = Math.min(...sourceTopics.map((topic) => topic.y + topic.height / 2))
+  const bottom = Math.max(...sourceTopics.map((topic) => topic.y + topic.height / 2))
+  const x = Math.max(...sourceTopics.map((topic) => topic.x + topic.width))
+    + MIND_MAP_SUMMARY_RANGE_GAP
   return {
     summary,
     from,
     to,
+    sourceTopics,
+    outputTopic,
     x,
     y,
     bottom,
@@ -239,22 +270,185 @@ function summaryBracket(
   }
 }
 
-function summaryPath(bracket: MindMapSummaryBracket): string {
+function summaryBraceGeometry(bracket: MindMapSummaryBracket): {
+  height: number
+  middle: number
+  shoulderX: number
+  pointX: number
+  upperY: number
+  lowerY: number
+} {
   const height = Math.max(16, bracket.bottom - bracket.y)
-  const middle = bracket.y + height / 2
-  const hook = Math.min(12, Math.max(6, height / 4))
-  const bend = Math.min(18, Math.max(8, height / 3))
+  const shoulderX = bracket.x + MIND_MAP_SUMMARY_BRACE_WIDTH * 0.62
+  return {
+    height,
+    middle: bracket.y + height / 2,
+    shoulderX,
+    // Keep the acute point inside the brace envelope. It should read as a
+    // compact flower-brace point, never as a separate oversized connector.
+    pointX: bracket.x + MIND_MAP_SUMMARY_BRACE_WIDTH,
+    upperY: bracket.y + height * 0.24,
+    lowerY: bracket.bottom - height * 0.24
+  }
+}
+
+function summaryPath(bracket: MindMapSummaryBracket): string {
+  const { height, middle, shoulderX, pointX, upperY, lowerY } = summaryBraceGeometry(bracket)
+  const pointControlY = Math.max(6, height * 0.13)
   return [
     `M ${bracket.x} ${bracket.y}`,
-    `C ${bracket.x + hook} ${bracket.y}, ${bracket.x + hook} ${bracket.y + bend}, ${bracket.x + bend} ${bracket.y + bend}`,
-    `C ${bracket.x + bend * 1.45} ${bracket.y + bend}, ${bracket.x + bend * 1.45} ${middle - hook}, ${bracket.x + bend * 2} ${middle}`,
-    `C ${bracket.x + bend * 1.45} ${middle + hook}, ${bracket.x + bend * 1.45} ${bracket.bottom - bend}, ${bracket.x + bend} ${bracket.bottom - bend}`,
-    `C ${bracket.x + hook} ${bracket.bottom - bend}, ${bracket.x + hook} ${bracket.bottom}, ${bracket.x} ${bracket.bottom}`
+    `C ${bracket.x + MIND_MAP_SUMMARY_BRACE_WIDTH * 0.5} ${bracket.y}, ${shoulderX} ${bracket.y + height * 0.08}, ${shoulderX} ${upperY}`,
+    // Different incoming/outgoing tangents make the centre a deliberate sharp
+    // point while keeping the two brace arms gently curved.
+    `C ${shoulderX} ${bracket.y + height * 0.4}, ${pointX - MIND_MAP_SUMMARY_BRACE_WIDTH * 0.35} ${middle - pointControlY}, ${pointX} ${middle}`,
+    `C ${pointX - MIND_MAP_SUMMARY_BRACE_WIDTH * 0.35} ${middle + pointControlY}, ${shoulderX} ${bracket.bottom - height * 0.4}, ${shoulderX} ${lowerY}`,
+    `C ${shoulderX} ${bracket.bottom - height * 0.08}, ${bracket.x + MIND_MAP_SUMMARY_BRACE_WIDTH * 0.5} ${bracket.bottom}, ${bracket.x} ${bracket.bottom}`
   ].join(' ')
 }
 
-export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZoomChange, onViewportChange, onContextMenu, onMoveNode }: CanvasProps) {
+function updateTopicWidth(
+  topic: MindMapTopicV2,
+  topicId: string,
+  width: number
+): MindMapTopicV2 {
+  if (topic.id === topicId) {
+    return {
+      ...topic,
+      style: {
+        ...(topic.style ?? {}),
+        widthMode: 'fixed',
+        width: clampMindMapNodeWidth(width)
+      }
+    }
+  }
+
+  let changed = false
+  const children = topic.children.map((child) => {
+    const next = updateTopicWidth(child, topicId, width)
+    if (next !== child) changed = true
+    return next
+  })
+  return changed ? { ...topic, children } : topic
+}
+
+function updateTopicTitlePreview(
+  topic: MindMapTopicV2,
+  topicId: string,
+  title: string
+): MindMapTopicV2 {
+  if (topic.id === topicId) {
+    return topic.title === title ? topic : { ...topic, title }
+  }
+
+  let changed = false
+  const children = topic.children.map((child) => {
+    const next = updateTopicTitlePreview(child, topicId, title)
+    if (next !== child) changed = true
+    return next
+  })
+  return changed ? { ...topic, children } : topic
+}
+
+function findTopicNode(node: MindMapTopicV2, id: string): MindMapTopicV2 | undefined {
+  if (node.id === id) return node
+  for (const child of node.children) {
+    const found = findTopicNode(child, id)
+    if (found) return found
+  }
+  return undefined
+}
+
+/** Counts how many sheet elements still reference an asset (for cleanup). */
+function countImageAssetReferences(document: MindMapDocumentV2, assetId: string): number {
+  let count = 0
+  for (const sheet of document.sheets) {
+    for (const image of sheet.images ?? []) {
+      if (image.assetId === assetId) count += 1
+    }
+  }
+  return count
+}
+
+/** Projected rectangle for every sheet image (attached and free). */
+function computeImageRects(
+  sheet: MindMapSheetV2 | null,
+  nodeById: Map<string, MindMapLayoutNode>
+): Array<{
+  id: string
+  assetId: string
+  x: number
+  y: number
+  width: number
+  height: number
+  attached: boolean
+  topicId?: string
+}> {
+  const rects: ReturnType<typeof computeImageRects> = []
+  const images = sheet?.images ?? []
+  const byTopic = new Map<string, MindMapImageElement[]>()
+  for (const image of images) {
+    if (image.topicId !== undefined) {
+      const list = byTopic.get(image.topicId) ?? []
+      list.push(image)
+      byTopic.set(image.topicId, list)
+    }
+  }
+  for (const [topicId, list] of byTopic) {
+    const node = nodeById.get(topicId)
+    if (!node) continue
+    const placement = (node.imagePlacement ?? 'bottom') as MindMapImagePlacement
+    const regions = computeTopicImageAndTextRegions(node, list, placement)
+    if (!regions.image) continue
+    const block = regions.image
+    const side = placement === 'left' || placement === 'right'
+    const totalHeight =
+      list.reduce((sum, img) => sum + img.height, 0)
+      + Math.max(0, list.length - 1) * MIND_MAP_TOPIC_IMAGE_GAP
+    const startY = block.y + (block.height - totalHeight) / 2
+    let acc = 0
+    for (const image of list) {
+      let x: number
+      if (side) {
+        x =
+          placement === 'left'
+            ? block.x + MIND_MAP_TOPIC_IMAGE_SIDE_PADDING
+            : block.x + block.width - MIND_MAP_TOPIC_IMAGE_SIDE_PADDING - image.width
+      } else {
+        x = block.x + (block.width - image.width) / 2
+      }
+      rects.push({
+        id: image.id,
+        assetId: image.assetId,
+        x,
+        y: startY + acc,
+        width: image.width,
+        height: image.height,
+        attached: true,
+        topicId
+      })
+      acc += image.height + MIND_MAP_TOPIC_IMAGE_GAP
+    }
+  }
+  for (const image of images) {
+    if (image.topicId === undefined && image.position !== undefined) {
+      rects.push({
+        id: image.id,
+        assetId: image.assetId,
+        x: image.position.x,
+        y: image.position.y,
+        width: image.width,
+        height: image.height,
+        attached: false
+      })
+    }
+  }
+  return rects
+}
+
+export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZoomChange, onViewportChange, onContextMenu, onMoveNode, onOpenNote }: CanvasProps) {
   const { t } = useTranslation()
+  const openExternal = useAppStore((state) => state.openExternal)
+  const workspaceId = useAppStore((state) => state.appState?.activeWorkspace?.id ?? null)
   const selection = useMindMapViewStore((s) => s.selection)
   const selectedNodeId = useMindMapViewStore((s) => s.selectedNodeId)
   const selectTopic = useMindMapViewStore((s) => s.selectTopic)
@@ -266,20 +460,106 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   const updateNode = useMindMapViewStore((s) => s.updateNode)
   const addChild = useMindMapViewStore((s) => s.addChild)
   const toggleCollapse = useMindMapViewStore((s) => s.toggleCollapse)
+  const selectImage = useMindMapViewStore((s) => s.selectImage)
+  const moveImage = useMindMapViewStore((s) => s.moveImage)
+  const resizeImage = useMindMapViewStore((s) => s.resizeImage)
   const dispatchCommand = useMindMapViewStore((s) => s.dispatchCommand)
 
   const sheetCount = document.sheets.length
   const safeSheetIndex = Math.min(Math.max(activeSheetIndex, 0), sheetCount - 1)
   const sheet = document.sheets[safeSheetIndex]
+  const [editValue, setEditValue] = useState('')
+
+  const [nodeResizeState, setNodeResizeState] = useState<{
+    nodeId: string
+    edge: 'left' | 'right'
+    startPointer: Vec2
+    startWidth: number
+    width: number
+  } | null>(null)
+
+  // Image drag: moving an image between nodes or to a free position. The
+  // dragged image follows the pointer as a local ghost and commits on release.
+  const [imageDragState, setImageDragState] = useState<{
+    imageId: string
+    startPointer: Vec2
+    /** Live pointer position in content coordinates while dragging. */
+    current: Vec2
+    /** Offset from the grab pointer to the image's top-left corner, so the
+     *  grabbed point stays under the cursor instead of recentring the image. */
+    grabOffset: Vec2
+    /** The 4-region node we are currently hovering (for the drop highlight). */
+    dropRegion: { topicId: string; region: MindMapImagePlacement } | null
+  } | null>(null)
+  const [imageResizeState, setImageResizeState] = useState<{
+    imageId: string
+    startPointer: Vec2
+    startWidth: number
+    startHeight: number
+  } | null>(null)
+
+  // Edit and resize previews stay local until commit so typing does not create
+  // one undoable topic.update command per keypress. The pure layout still sees
+  // the draft title/width, keeping the topic and its connectors in sync.
+  const layoutSheet = useMemo(() => {
+    if (!sheet) return sheet
+    let root = sheet.root
+    if (editingNodeId !== null) {
+      root = updateTopicTitlePreview(root, editingNodeId, editValue)
+    }
+    if (nodeResizeState) {
+      root = updateTopicWidth(root, nodeResizeState.nodeId, nodeResizeState.width)
+    }
+    return root === sheet.root ? sheet : { ...sheet, root }
+  }, [editValue, editingNodeId, nodeResizeState, sheet])
 
   const layout = useMemo(
-    () => (sheet
+    () => (layoutSheet
       // G3: untitled topics are measured as the placeholder label so they
       // render as a normal-sized chip instead of a blank stub.
-      ? computeMindMapLayout(sheet, { emptyTitleFallback: t('mindmap.untitledTopic') })
-      : { nodes: [], edges: [], relationships: [], callouts: [], summaries: [], boundaries: [] }),
-    [sheet, t]
+      ? computeMindMapLayout(layoutSheet, {
+          emptyTitleFallback: t('mindmap.untitledTopic'),
+          reserveTopicActionButtonSpace: true
+        })
+      : { nodes: [], edges: [], relationships: [], callouts: [], summaries: [], boundaries: [], images: [] }),
+    [layoutSheet, t]
   )
+
+  const visibleAssetIds = useMemo(
+    () => [...new Set((sheet?.images ?? []).map((image) => image.assetId))],
+    [sheet]
+  )
+  const [assetDataUrls, setAssetDataUrls] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    if (!workspaceId || visibleAssetIds.length === 0) {
+      setAssetDataUrls({})
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void Promise.all(visibleAssetIds.map(async (assetId) => {
+      try {
+        const result = await window.teachingSystem?.readMindMapAsset({
+          workspaceId,
+          id: document.id,
+          assetId
+        })
+        return result ? [assetId, result.dataUrl] as const : null
+      } catch {
+        return null
+      }
+    })).then((entries) => {
+      if (cancelled) return
+      setAssetDataUrls(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => entry !== null)))
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [document.id, visibleAssetIds, workspaceId])
 
   const nodeById = useMemo(() => {
     const map = new Map<string, MindMapLayoutNode>()
@@ -313,12 +593,16 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   const summaryBrackets = useMemo(() => {
     const brackets: MindMapSummaryBracket[] = []
     for (const summary of layout.summaries) {
-      const from = nodeById.get(summary.from)
-      const to = nodeById.get(summary.to)
+      const sourceTopicIds = summary.sourceTopicIds ?? [summary.from, summary.to]
+      const sourceTopics = sourceTopicIds.map((topicId) => nodeById.get(topicId))
       // A collapsed subtree removes its descendants from nodeById; hide the
       // summary rather than leaving a dangling structural annotation.
-      if (!from || !to) continue
-      brackets.push(summaryBracket(summary, from, to))
+      if (sourceTopics.some((topic) => topic === undefined)) continue
+      const outputTopic = summary.summaryTopicId === undefined
+        ? undefined
+        : nodeById.get(summary.summaryTopicId)
+      if (summary.summaryTopicId !== undefined && outputTopic === undefined) continue
+      brackets.push(summaryBracket(summary, sourceTopics as MindMapLayoutNode[], outputTopic))
     }
     return brackets
   }, [layout.summaries, nodeById])
@@ -373,7 +657,6 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
 
   const [pan, setPan] = useState<Vec2>({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
-  const [editValue, setEditValue] = useState('')
   const dragRef = useRef<{
     kind: 'pan' | 'box'
     startPointer: Vec2
@@ -430,10 +713,14 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
       bottom = Math.max(bottom, callout.y + callout.height)
     }
     for (const summary of summaryBrackets) {
+      const { pointX } = summaryBraceGeometry(summary)
       left = Math.min(left, summary.x)
       top = Math.min(top, summary.y)
-      right = Math.max(right, summary.labelX + SUMMARY_LABEL_WIDTH)
+      right = Math.max(right, pointX)
       bottom = Math.max(bottom, summary.bottom)
+      if (!summary.outputTopic) {
+        right = Math.max(right, summary.labelX + SUMMARY_LABEL_WIDTH)
+      }
     }
     return { left, top, right, bottom }
   }, [calloutRects, layout.nodes, summaryBrackets])
@@ -558,7 +845,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   }
 
   const startPointerDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
-    if (editingNodeId) return
+    if (editingNodeId || nodeResizeState) return
     lastNodePointerDownRef.current = null
     const startSvg = svgPointFromPointer(event)
     // A primary-button drag on the empty canvas is a marquee selection.  Keep
@@ -584,6 +871,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   }
 
   const onPointerMove = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (nodeResizeState) return
     const drag = dragRef.current
     if (!drag) return
     const dx = event.clientX - drag.startPointer.x
@@ -631,16 +919,41 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
 
   const onWheel = (event: ReactWheelEvent<SVGSVGElement>): void => {
     event.preventDefault()
-    const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1
-    const rect = event.currentTarget.getBoundingClientRect()
-    // Container-pixel coordinates: pointer maps 1:1 to SVG user space.
-    const pointer = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
+    // Ctrl/Cmd + wheel (trackpad pinch) still zooms; a plain wheel scrolls the
+    // canvas instead. This matches the requested Xmind-style interaction where
+    // a vertical wheel pans up/down and a horizontal wheel (tilt wheel / shift
+    // + scroll) pans left/right through the map.
+    if (event.ctrlKey || event.metaKey) {
+      const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1
+      const rect = event.currentTarget.getBoundingClientRect()
+      // Container-pixel coordinates: pointer maps 1:1 to SVG user space.
+      const pointer = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      }
+      const next = zoomMindMapViewport({ pan, zoom }, pointer, factor)
+      setPan(next.pan)
+      setZoom(Math.min(MAX_MIND_MAP_ZOOM, Math.max(MIN_MIND_MAP_ZOOM, next.zoom)))
+      return
     }
-    const next = zoomMindMapViewport({ pan, zoom }, pointer, factor)
-    setPan(next.pan)
-    setZoom(Math.min(MAX_MIND_MAP_ZOOM, Math.max(MIN_MIND_MAP_ZOOM, next.zoom)))
+
+    // Normalize the wheel delta across pixel / line / page modes so scrolling
+    // feels like a normal page scroll regardless of the pointing device.
+    let dx = event.deltaX
+    let dy = event.deltaY
+    if (event.deltaMode === 1) {
+      // WheelEvent.DOM_DELTA_LINE: most mice report lines; treat each as ~16px.
+      dx *= 16
+      dy *= 16
+    } else if (event.deltaMode === 2) {
+      // WheelEvent.DOM_DELTA_PAGE: treat a page as a full viewport dimension.
+      dx *= viewportSize.width
+      dy *= viewportSize.height
+    }
+    // Scrolling up reveals content above (pan.y increases); scrolling down
+    // reveals content below (pan.y decreases). A horizontal tilt wheel scrolls
+    // left/right through the map.
+    setPan((prev) => ({ x: prev.x - dx, y: prev.y - dy }))
   }
 
   const beginEdit = (nodeId: string, initial: string): void => {
@@ -662,6 +975,66 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     },
     [selectTopic]
   )
+
+  // --- Node resize interaction ---
+
+  const startNodeResize = (
+    node: MindMapLayoutNode,
+    edge: 'left' | 'right',
+    event: ReactPointerEvent<SVGGElement>
+  ): void => {
+    if (editingNodeId || nodeDragState) return
+    event.stopPropagation()
+    event.preventDefault()
+    dragRef.current = null
+    lastNodePointerDownRef.current = null
+    setNodeResizeState({
+      nodeId: node.id,
+      edge,
+      startPointer: { x: event.clientX, y: event.clientY },
+      startWidth: node.width,
+      width: node.width
+    })
+    try {
+      event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
+    } catch {
+      // Pointer capture is not available in a few test/webview shims.
+    }
+  }
+
+  const updateNodeResize = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    const resize = nodeResizeState
+    if (!resize) return
+    const horizontalDelta = (event.clientX - resize.startPointer.x) / Math.max(zoom, 0.01)
+    const nextWidth = clampMindMapNodeWidth(
+      resize.startWidth + (resize.edge === 'right' ? horizontalDelta : -horizontalDelta)
+    )
+    if (nextWidth === resize.width) return
+    setNodeResizeState({ ...resize, width: nextWidth })
+  }
+
+  const endNodeResize = (event?: ReactPointerEvent<SVGSVGElement>): void => {
+    const resize = nodeResizeState
+    if (!resize) return
+    const topic = sheet ? findTopicNode(sheet.root, resize.nodeId) : undefined
+    if (topic && Math.abs(resize.width - resize.startWidth) >= 0.5) {
+      updateNode(resize.nodeId, {
+        style: {
+          ...(topic.style ?? {}),
+          widthMode: 'fixed',
+          width: resize.width
+        }
+      })
+    }
+    setNodeResizeState(null)
+    if (event) {
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch {
+        // See the matching setPointerCapture guard above.
+      }
+    }
+  }
 
   // --- Node drag-and-drop reparenting ---
 
@@ -737,6 +1110,184 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     setNodeDragState(null)
   }
 
+  // --- Image drag / resize interactions ---
+
+  const contentPointFromPointer = (clientX: number, clientY: number): Vec2 => {
+    // clientX/clientY are viewport-relative; subtract the canvas's on-screen
+    // origin (the same offset the node drag path uses) so the pointer maps to
+    // the correct content coordinate instead of drifting by the sidebar/toolbar.
+    const origin = containerRef.current?.getBoundingClientRect()
+    const originX = origin?.left ?? 0
+    const originY = origin?.top ?? 0
+    return {
+      x: (clientX - originX - pan.x) / Math.max(zoom, 0.01),
+      y: (clientY - originY - pan.y) / Math.max(zoom, 0.01)
+    }
+  }
+
+  /** Which 4-region slot the pointer is over for a given node. */
+  const regionForPointer = (
+    node: MindMapLayoutNode,
+    point: Vec2
+  ): MindMapImagePlacement => {
+    const midX = node.x + node.width / 2
+    const midY = node.y + node.height / 2
+    if (Math.abs(point.y - midY) > Math.abs(point.x - midX)) {
+      return point.y < midY ? 'top' : 'bottom'
+    }
+    return point.x < midX ? 'left' : 'right'
+  }
+
+  const startImageDrag = (
+    imageId: string,
+    event: ReactPointerEvent<SVGSVGElement | SVGGElement>
+  ): void => {
+    event.stopPropagation()
+    event.preventDefault()
+    dragRef.current = null
+    lastNodePointerDownRef.current = null
+    selectImage(imageId)
+    const pointer = contentPointFromPointer(event.clientX, event.clientY)
+    const sourceRect = imageRects.find((rect) => rect.id === imageId)
+    setImageDragState({
+      imageId,
+      startPointer: { x: event.clientX, y: event.clientY },
+      current: pointer,
+      grabOffset: {
+        x: pointer.x - (sourceRect?.x ?? 0),
+        y: pointer.y - (sourceRect?.y ?? 0)
+      },
+      dropRegion: null
+    })
+  }
+
+  const updateImageDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (!imageDragState) return
+    const point = contentPointFromPointer(event.clientX, event.clientY)
+    let dropRegion: { topicId: string; region: MindMapImagePlacement } | null = null
+    for (const node of layout.nodes) {
+      if (
+        point.x >= node.x &&
+        point.x <= node.x + node.width &&
+        point.y >= node.y &&
+        point.y <= node.y + node.height
+      ) {
+        dropRegion = { topicId: node.id, region: regionForPointer(node, point) }
+        break
+      }
+    }
+    if (
+      (dropRegion?.topicId ?? null) !== (imageDragState.dropRegion?.topicId ?? null) ||
+      (dropRegion?.region ?? null) !== (imageDragState.dropRegion?.region ?? null)
+    ) {
+      setImageDragState({ ...imageDragState, current: point, dropRegion })
+    } else if (
+      imageDragState.current.x !== point.x ||
+      imageDragState.current.y !== point.y
+    ) {
+      setImageDragState({ ...imageDragState, current: point })
+    }
+  }
+
+  const endImageDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (!imageDragState) return
+    // A press/release without real pointer travel is just a click (selection);
+    // do not detach the image from its topic or move it.
+    const travelled = Math.hypot(
+      event.clientX - imageDragState.startPointer.x,
+      event.clientY - imageDragState.startPointer.y
+    )
+    if (travelled <= IMAGE_DRAG_THRESHOLD_PX) {
+      setImageDragState(null)
+      return
+    }
+    const point = contentPointFromPointer(event.clientX, event.clientY)
+    const { imageId, grabOffset } = imageDragState
+    if (imageDragState.dropRegion) {
+      const { topicId, region } = imageDragState.dropRegion
+      if (sheet) {
+        dispatchCommand(
+          {
+            type: 'transaction',
+            commands: [
+              {
+                type: 'image.update',
+                sheetId: sheet.id,
+                imageId,
+                patch: { topicId, position: null }
+              },
+              {
+                type: 'topic.update',
+                sheetId: sheet.id,
+                topicId,
+                patch: { imagePlacement: region }
+              }
+            ]
+          },
+          { label: 'Attach image to topic' }
+        )
+      }
+    } else {
+      moveImage(imageId, {
+        topicId: null,
+        position: { x: point.x - grabOffset.x, y: point.y - grabOffset.y }
+      })
+    }
+    setImageDragState(null)
+  }
+
+  const startImageResize = (
+    imageId: string,
+    event: ReactPointerEvent<SVGSVGElement | SVGGElement>
+  ): void => {
+    event.stopPropagation()
+    event.preventDefault()
+    const rect = imageRects.find((candidate) => candidate.id === imageId)
+    selectImage(imageId)
+    setImageResizeState({
+      imageId,
+      startPointer: { x: event.clientX, y: event.clientY },
+      startWidth: rect?.width ?? 160,
+      startHeight: rect?.height ?? 88
+    })
+  }
+
+  const updateImageResize = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    const resize = imageResizeState
+    if (!resize) return
+    const dx = (event.clientX - resize.startPointer.x) / Math.max(zoom, 0.01)
+    const dy = (event.clientY - resize.startPointer.y) / Math.max(zoom, 0.01)
+    const nextWidth = Math.max(24, Math.round(resize.startWidth + dx))
+    const nextHeight = Math.max(24, Math.round(resize.startHeight + dy))
+    if (nextWidth !== resize.startWidth || nextHeight !== resize.startHeight) {
+      resizeImage(resize.imageId, nextWidth, nextHeight)
+    }
+  }
+
+  const endImageResize = (): void => {
+    setImageResizeState(null)
+  }
+
+  const deleteImage = (imageId: string): void => {
+    if (!sheet) return
+    const image = sheet.images?.find((candidate) => candidate.id === imageId)
+    const commands: MindMapCommand[] = [
+      { type: 'image.remove', sheetId: sheet.id, imageId }
+    ]
+    // Drop the backing asset too when no other element references it, so
+    // removing an image does not leave orphaned asset files behind.
+    if (image && countImageAssetReferences(document, image.assetId) <= 1) {
+      commands.push({ type: 'asset.remove', assetId: image.assetId })
+    }
+    dispatchCommand({ type: 'transaction', commands }, { label: 'Remove image' })
+    selectCanvas()
+  }
+
+  const imageRects = useMemo(
+    () => computeImageRects(sheet, nodeById),
+    [sheet, nodeById]
+  )
+
   if (!sheet || layout.nodes.length === 0) {
     return (
       <div className="mindmap-canvas mindmap-canvas--empty" role="status">
@@ -773,9 +1324,10 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
         role="img"
         aria-label={sheet.title}
         onPointerDown={startPointerDrag}
-        onPointerMove={(e) => { onPointerMove(e); updateNodeDrag(e) }}
-        onPointerUp={(e) => { endPointerDrag(e); endNodeDrag() }}
-        onPointerLeave={(e) => { endPointerDrag(e); endNodeDrag() }}
+        onPointerMove={(e) => { onPointerMove(e); updateNodeDrag(e); updateNodeResize(e); updateImageDrag(e); updateImageResize(e) }}
+        onPointerUp={(e) => { endPointerDrag(e); endNodeDrag(); endNodeResize(e); endImageDrag(e); endImageResize() }}
+        onPointerLeave={(e) => { endPointerDrag(e); endNodeDrag(); endNodeResize(e); endImageDrag(e); endImageResize() }}
+        onPointerCancel={(e) => { endPointerDrag(e); endNodeDrag(); endNodeResize(e); endImageDrag(e); endImageResize() }}
         onWheel={onWheel}
       >
         {selectionBox ? (
@@ -837,7 +1389,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             const from = nodeById.get(edge.from)
             const to = nodeById.get(edge.to)
             if (!from || !to) return null
-            const color = branchColor(document.theme, edge.branchIndex)
+            const color = branchColorForKey(document.theme, edge.branchKey)
             // A user-selected line style is an explicit override. Otherwise
             // use the connector language attached by the structure layout so
             // a timeline/fishbone/matrix does not look like a generic map.
@@ -1020,9 +1572,25 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             const endpointLabel =
               `${bracket.from.title || t('mindmap.untitledTopic')} → ` +
               `${bracket.to.title || t('mindmap.untitledTopic')}`
-            const label = bracket.summary.label || endpointLabel
-            // P3 §6.3: summary brace follows the from-node's branch colour.
-            const summaryColor = branchColor(document.theme, bracket.from.branchIndex)
+            const label = bracket.outputTopic?.title || bracket.summary.label || endpointLabel
+            // The brace follows the covered branch. The output topic itself is
+            // painted in the ordinary node loop below, with its own style.
+            const summaryColor = branchColorForKey(document.theme, bracket.from.branchKey)
+            const strokeColor = bracket.summary.style?.stroke ?? summaryColor ?? undefined
+            const branchStrokeWidth = edgeStrokeWidth(
+              bracket.to.depth,
+              sheet?.layout?.lineWidthScale
+            )
+            const lineStyleProps = {
+              strokeWidth: bracket.summary.style?.strokeWidth ?? branchStrokeWidth,
+              ...(bracket.summary.style?.linePattern !== undefined
+                ? { strokeDasharray: elementLineDashArray(bracket.summary.style.linePattern) ?? 'none' }
+                : bracket.summary.style?.dashed === false
+                  ? { strokeDasharray: 'none' }
+                  : bracket.summary.style?.dashed
+                    ? { strokeDasharray: '5 4' }
+                    : {})
+            }
 
             return (
               <g
@@ -1039,34 +1607,29 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 }}
                 aria-label={label}
               >
+                <title>{label}</title>
                 <path
                   className="mindmap-summary-brace"
                   d={summaryPath(bracket)}
-                  style={{
-                    stroke: bracket.summary.style?.stroke ?? summaryColor ?? undefined,
-                    ...(bracket.summary.style?.strokeWidth !== undefined ? { strokeWidth: bracket.summary.style.strokeWidth } : {}),
-                    ...(bracket.summary.style?.linePattern !== undefined
-                      ? { strokeDasharray: elementLineDashArray(bracket.summary.style.linePattern) ?? 'none' }
-                      : bracket.summary.style?.dashed === false
-                        ? { strokeDasharray: 'none' }
-                        : bracket.summary.style?.dashed
-                          ? { strokeDasharray: '5 4' }
-                          : {})
-                  }}
+                  style={{ stroke: strokeColor, ...lineStyleProps }}
                   aria-hidden="true"
-                >
-                  <title>{label}</title>
-                </path>
-                {bracket.summary.label ? (
+                />
+                {bracket.outputTopic === undefined && bracket.summary.label ? (
                   <text
                     className="mindmap-summary-label"
                     x={bracket.labelX}
                     y={bracket.labelY}
                     dominantBaseline="central"
                     style={{
-                      ...(bracket.summary.style?.textColor ? { fill: bracket.summary.style.textColor } : {}),
-                      ...(bracket.summary.style?.fontFamily ? { fontFamily: bracket.summary.style.fontFamily } : {}),
-                      ...(bracket.summary.style?.fontSize ? { fontSize: `${bracket.summary.style.fontSize}px` } : {})
+                      ...(bracket.summary.style?.textColor
+                        ? { fill: bracket.summary.style.textColor }
+                        : {}),
+                      ...(bracket.summary.style?.fontFamily
+                        ? { fontFamily: bracket.summary.style.fontFamily }
+                        : {}),
+                      ...(bracket.summary.style?.fontSize
+                        ? { fontSize: `${bracket.summary.style.fontSize}px` }
+                        : {})
                     }}
                   >
                     {bracket.summary.label}
@@ -1151,14 +1714,62 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 styleOverride?.structureClass ?? sheet.layout.structureClass,
                 node.depth
               )
-            const labelGeometry = topicLabelGeometry(node, textAlign)
+            const topicActions: Array<{
+              kind: 'note'
+              label: string
+              onOpen?: (nodeId: string) => void
+            }> = []
+            if (node.hasNote) {
+              topicActions.push({
+                kind: 'note',
+                label: t('mindmap.notesPanel.title'),
+                onOpen: onOpenNote
+              })
+            }
+            // Split the laid-out topic rect into non-overlapping text and image
+            // regions so text editing never collides with the attached image,
+            // and so the image can sit above/below/beside the label.
+            const imagePlacement = node.imagePlacement ?? 'bottom'
+            const nodeImages = (sheet?.images ?? []).filter(
+              (image) => image.topicId === node.id
+            )
+            const regions = computeTopicImageAndTextRegions(node, nodeImages, imagePlacement)
+            const textRegion = regions.text
+            const shape = resolveShape(node.shape)
             const topicTextStyle = resolveMindMapTopicTextStyle(node.depth, styleOverride)
-            const topicTextColor = resolveMindMapTopicTextColor(node.depth, styleOverride)
+            const topicTextColor = shape === 'underline' && !styleOverride?.textColor
+              ? 'var(--mindmap-theme-text, var(--text))'
+              : resolveMindMapTopicTextColor(node.depth, styleOverride)
+            const displayTitle = node.title || t('mindmap.untitledTopic')
+            // Keep ordinary labels in SVG text (which preserves the existing
+            // measurement/wrapping behaviour), and opt into a foreignObject
+            // whenever markdown-it finds real formatting tokens. This covers
+            // links, emphasis, inline code, marks, strikethrough, and math.
+            const hasInlineMarkdown = hasMindMapTopicMarkdown(node.title)
+            const labelLines = wrapMindMapTopicTitle(displayTitle, textRegion.width, node.depth)
+            const labelLineHeight = mindMapTopicLineHeight(node.depth)
+            // Keep every representation of an underline label—SVG text,
+            // markdown and the textarea editor—in the same bottom-aligned
+            // region. Switching into edit mode therefore replaces the label in
+            // place instead of re-centering it higher in the full node box.
+            const labelRegion = shape === 'underline'
+              ? {
+                  ...textRegion,
+                  y: textRegion.y + textRegion.height
+                    - UNDERLINE_TOPIC_LABEL_GAP
+                    - labelLines.length * labelLineHeight,
+                  height: labelLines.length * labelLineHeight
+                }
+              : textRegion
+            const labelGeometry = topicLabelGeometry(labelRegion.x, labelRegion.width, textAlign)
+            const firstLabelLineY = labelRegion.y + labelRegion.height / 2
+              - ((labelLines.length - 1) * labelLineHeight) / 2
             return (
               <g
                 key={node.id}
-                className={`mindmap-node-group${isSelected ? ' is-selected' : ''}${depthClass}${nodeDragState?.draggingId === node.id ? ' is-dragging' : ''}${nodeDragState?.dropTargetId === node.id ? ' is-drop-target' : ''}`}
+                className={`mindmap-node-group${isSelected ? ' is-selected' : ''}${depthClass}${nodeDragState?.draggingId === node.id ? ' is-dragging' : ''}${nodeDragState?.dropTargetId === node.id ? ' is-drop-target' : ''}${nodeResizeState?.nodeId === node.id ? ' is-resizing' : ''}`}
                 data-depth={node.depth}
+                data-node-id={node.id}
                 role="button"
                 tabIndex={isPrimarySelection ? 0 : -1}
                 style={{ outline: 'none' }}
@@ -1166,6 +1777,11 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 aria-pressed={isSelected}
                 onPointerDown={(event) => {
                   event.stopPropagation()
+                  // A secondary click opens the context menu. It must not run
+                  // the normal primary-click selection path first, otherwise
+                  // right-clicking one topic collapses a marquee selection to
+                  // that topic before batch actions can inspect it.
+                  if (event.button !== 0) return
                   // SVG groups can receive the browser's native focus halo on
                   // pointer activation. The selected topic already has an
                   // explicit outline on its own shape, so suppressing the
@@ -1219,7 +1835,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 onPointerDownCapture={(event) => {
                   const target = event.target as Element
                   const isControl = target.closest?.(
-                    '.mindmap-node-action, .mindmap-node-action-group, .mindmap-collapse-badge, .mindmap-node-input'
+                    '.mindmap-node-action, .mindmap-node-action-group, .mindmap-collapse-badge, .mindmap-node-topic-action, .mindmap-node-topic-action-group, .mindmap-node-note-button, .mindmap-node-note-button-group, .mindmap-node-input, .mindmap-node-resize-control'
                   )
                   if (
                     event.button === 0 &&
@@ -1238,27 +1854,28 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 }}
               >
                 {(() => {
-                  const shape = resolveShape(node.shape)
                   const elem = shapeElement(node, shape)
-                  const bColor = node.depth === 1
-                    ? branchColor(document.theme, node.branchIndex)
-                    : null
+                  const branchInk = branchColorForKey(document.theme, node.branchKey)
+                  const bColor = node.depth === 1 ? branchInk : null
                   // Xmind Snowbrush look: first-level branches are solid chips
                   // in the branch colour with no border; deeper topics use the
                   // quiet grey fill from the stylesheet.
                   const fill = styleOverride?.fill
                     ?? (node.depth === 1 && bColor ? bColor : undefined)
-                  // Selection/focus is rendered on the topic shape itself.
-                  // This deliberately takes precedence over the branch chip's
-                  // borderless default and any theme stroke so a selected topic
-                  // has exactly one visible highlight, not a second outer ring.
-                  const focusStroke = !isEditing && isSelected
+                  // Selection/focus is rendered on ordinary topic shapes.
+                  // Underlines stay in branch ink because they are connectors,
+                  // not independently highlighted node borders.
+                  const focusStroke = !isEditing && isSelected && shape !== 'underline'
                     ? 'var(--mm-focus)'
                     : undefined
                   const borderStyle = styleOverride?.borderStyle
                   const stroke = focusStroke
                     ?? (borderStyle === 'none' ? 'none' : styleOverride?.stroke)
                     ?? (borderStyle ? 'var(--mindmap-theme-line, #8E8E93)' : undefined)
+                    // The underline is part of the branch, so its default ink
+                    // must match the incoming/outgoing edge rather than the
+                    // transparent branch-chip border default.
+                    ?? (shape === 'underline' ? branchInk : undefined)
                     ?? (node.depth === 1 ? 'none' : undefined)
                   const styleProps: Record<string, string | number> = {}
                   if (fill) styleProps.fill = fill
@@ -1268,6 +1885,15 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                     styleProps.strokeDasharray = 'none'
                     styleProps.filter = 'none'
                   } else {
+                    // The underline is a continuation of the branch, not an
+                    // independent border. Match the incoming branch's width so
+                    // it reads as one uninterrupted line.
+                    if (shape === 'underline' && styleOverride?.borderWidth === undefined) {
+                      styleProps.strokeWidth = edgeStrokeWidth(
+                        node.depth,
+                        sheet?.layout?.lineWidthScale
+                      )
+                    }
                     if (styleOverride?.borderWidth !== undefined) {
                       styleProps.strokeWidth = styleOverride.borderWidth
                     }
@@ -1307,26 +1933,57 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                     </>
                   )
                 })()}
-                {node.hasNote ? (
-                  <g className="mindmap-note-indicator" role="img" aria-label="Note">
-                    <title>{node.note}</title>
-                    <circle
-                      className="mindmap-note-indicator-badge"
-                      cx={node.x + node.width - 10}
-                      cy={node.y + node.height - 10}
-                      r={7}
-                    />
-                    <text
-                      className="mindmap-note-indicator-symbol"
-                      x={node.x + node.width - 10}
-                      y={node.y + node.height - 10}
-                      textAnchor="middle"
-                      dominantBaseline="central"
+                {!isEditing ? topicActions.map((action, actionIndex) => {
+                  const actionX = node.x + node.width
+                    - topicActions.length * MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH
+                    + actionIndex * MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH
+                    + 3
+                  const actionY = node.y + node.height - 24
+                  const actionLabel = `${action.label}: ${node.title || t('mindmap.untitledTopic')}`
+                  const iconProps = {
+                    x: actionX + 4,
+                    y: actionY + 4,
+                    width: 14,
+                    height: 14,
+                    strokeWidth: 1.7,
+                    className: 'mindmap-node-topic-action-icon'
+                  }
+                  return (
+                    <g
+                      key={action.kind}
+                      className={`mindmap-node-topic-action-group mindmap-node-note-button-group${action.kind === 'note' ? ' mindmap-note-indicator' : ''}`}
+                      data-topic-action={action.kind}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={actionLabel}
+                      onPointerDown={(event) => {
+                        event.stopPropagation()
+                        event.preventDefault()
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        action.onOpen?.(node.id)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return
+                        event.preventDefault()
+                        event.stopPropagation()
+                        action.onOpen?.(node.id)
+                      }}
                     >
-                      i
-                    </text>
-                  </g>
-                ) : null}
+                      <title>{actionLabel}</title>
+                      <rect
+                        className="mindmap-node-topic-action mindmap-node-note-button"
+                        x={actionX}
+                        y={actionY}
+                        width={22}
+                        height={22}
+                        rx={6}
+                      />
+                      {action.kind === 'note' ? <StickyNote {...iconProps} /> : null}
+                    </g>
+                  )
+                }) : null}
                 {node.labels && node.labels.length > 0 ? (
                   <g className="mindmap-node-labels">
                     {node.labels.map((label, labelIndex) => (
@@ -1343,16 +2000,17 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 ) : null}
                 {isEditing ? (
                   <foreignObject
-                    x={node.x}
-                    y={node.y}
-                    width={node.width}
-                    height={node.height}
-                    className="mindmap-node-foreign"
+                    x={labelRegion.x}
+                    y={labelRegion.y}
+                    width={labelRegion.width}
+                    height={labelRegion.height}
+                    className={`mindmap-node-foreign mindmap-node-input-foreign mindmap-node-region--${imagePlacement}`}
                   >
                     <div className="mindmap-node-input-wrap">
-                      <input
+                      <textarea
                         className="mindmap-node-input"
                         value={editValue}
+                        rows={Math.max(1, labelLines.length)}
                         autoFocus
                         style={{
                           ...topicTextStyle,
@@ -1364,7 +2022,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                         onChange={(event) => setEditValue(event.currentTarget.value)}
                         onBlur={commitEdit}
                         onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
+                          if (event.key === 'Enter' && !event.shiftKey) {
                             event.preventDefault()
                             commitEdit()
                           }
@@ -1377,11 +2035,55 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                       />
                     </div>
                   </foreignObject>
+                ) : hasInlineMarkdown ? (
+                  <foreignObject
+                    x={labelRegion.x}
+                    y={labelRegion.y}
+                    width={labelRegion.width}
+                    height={labelRegion.height}
+                    className="mindmap-node-foreign mindmap-node-markdown-foreign"
+                  >
+                    <div
+                      className={`mindmap-node-markdown-label${node.title ? '' : ' is-placeholder'}`}
+                      style={{
+                        ...topicTextStyle,
+                        color: topicTextColor,
+                        textAlign,
+                        lineHeight: 1.2
+                      }}
+                      onPointerDown={(event) => {
+                        const target = event.target as HTMLElement
+                        if (target.closest('a')) event.stopPropagation()
+                      }}
+                      onClick={(event) => {
+                        const target = event.target as HTMLElement
+                        const anchor = target.closest('a')
+                        if (!anchor) return
+                        event.preventDefault()
+                        event.stopPropagation()
+                        const destination = classifyExternalDestination(anchor.getAttribute('href'))
+                        if (destination.kind === 'browser') void openExternal(destination.url)
+                      }}
+                    >
+                      <span
+                        className="mindmap-node-markdown-label__content"
+                        // markdown-it is configured with html disabled and the
+                        // KaTeX renderer does not trust user commands.
+                        dangerouslySetInnerHTML={{
+                          __html: renderMarkdownInlineHtml(
+                            topicNumbers.get(node.id)
+                              ? `${topicNumbers.get(node.id)}  ${displayTitle}`
+                              : displayTitle
+                          )
+                        }}
+                      />
+                    </div>
+                  </foreignObject>
                 ) : (
                     <text
                       className={`mindmap-node-label${node.title ? '' : ' is-placeholder'}`}
                       x={labelGeometry.x}
-                      y={node.y + node.height / 2}
+                      y={firstLabelLineY}
                       textAnchor={labelGeometry.textAnchor}
                       dominantBaseline="central"
                       style={{
@@ -1389,12 +2091,42 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                         fill: topicTextColor
                       }}
                     >
-                    {topicNumbers.get(node.id) ? (
-                      <tspan className="mindmap-node-number">{topicNumbers.get(node.id)}  </tspan>
-                    ) : null}
-                    {node.title || t('mindmap.untitledTopic')}
-                  </text>
+                      {labelLines.map((line, lineIndex) => (
+                        <tspan
+                          key={`${lineIndex}-${line}`}
+                          className="mindmap-node-label-line"
+                          x={labelGeometry.x}
+                          dy={lineIndex === 0 ? 0 : labelLineHeight}
+                        >
+                          {lineIndex === 0 && topicNumbers.get(node.id) ? (
+                            <tspan className="mindmap-node-number">{topicNumbers.get(node.id)}  </tspan>
+                          ) : null}
+                          {line}
+                        </tspan>
+                      ))}
+                    </text>
                 )}
+
+                {!isEditing ? (
+                  <g className="mindmap-node-resize-control" aria-hidden="true">
+                    <rect
+                      className="mindmap-node-resize-hitarea"
+                      x={node.x - MIND_MAP_NODE_RESIZE_EDGE_HIT_SIZE / 2}
+                      y={node.y}
+                      width={MIND_MAP_NODE_RESIZE_EDGE_HIT_SIZE}
+                      height={node.height}
+                      onPointerDown={(event) => startNodeResize(node, 'left', event)}
+                    />
+                    <rect
+                      className="mindmap-node-resize-hitarea"
+                      x={node.x + node.width - MIND_MAP_NODE_RESIZE_EDGE_HIT_SIZE / 2}
+                      y={node.y}
+                      width={MIND_MAP_NODE_RESIZE_EDGE_HIT_SIZE}
+                      height={node.height}
+                      onPointerDown={(event) => startNodeResize(node, 'right', event)}
+                    />
+                  </g>
+                ) : null}
 
                 {node.markers?.map((marker, index) => {
                   const position = markerBadgePosition(node, index)
@@ -1444,7 +2176,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                     const badgeH = 18
                     const badgeX = node.x + node.width + 4
                     const badgeY = node.y + node.height / 2 - badgeH / 2
-                    const bColor = branchColor(document.theme, node.branchIndex) ?? '#438EFF'
+                    const bColor = branchColorForKey(document.theme, node.branchKey) ?? '#438EFF'
                     return (
                       <g
                         className="mindmap-collapse-badge"
@@ -1532,6 +2264,132 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
               </g>
             )
           })}
+
+          {imageDragState?.dropRegion ? (() => {
+            const dropNode = nodeById.get(imageDragState.dropRegion.topicId)
+            if (!dropNode) return null
+            return (
+              <g className="mindmap-image-drop-regions" pointerEvents="none" aria-hidden="true">
+                {(['top', 'bottom', 'left', 'right'] as const).map((region) => {
+                  const active = imageDragState.dropRegion?.region === region
+                  let r: { x: number; y: number; width: number; height: number }
+                  if (region === 'top') r = { x: dropNode.x, y: dropNode.y, width: dropNode.width, height: dropNode.height / 2 }
+                  else if (region === 'bottom') r = { x: dropNode.x, y: dropNode.y + dropNode.height / 2, width: dropNode.width, height: dropNode.height / 2 }
+                  else if (region === 'left') r = { x: dropNode.x, y: dropNode.y, width: dropNode.width / 2, height: dropNode.height }
+                  else r = { x: dropNode.x + dropNode.width / 2, y: dropNode.y, width: dropNode.width / 2, height: dropNode.height }
+                  return (
+                    <path
+                      key={region}
+                      className={`mindmap-image-drop-region${active ? ' is-active' : ''}`}
+                      d={elementOutlinePath(r, 'rounded-rectangle')}
+                      data-region={region}
+                    />
+                  )
+                })}
+              </g>
+            )
+          })() : null}
+
+          {imageRects.map((rect) => {
+            const dataUrl = assetDataUrls[rect.assetId]
+            const asset = document.assets.find((a) => a.id === rect.assetId)
+            const isSelected = selection.kind === 'image' && selection.imageId === rect.id
+            const isDragging = imageDragState?.imageId === rect.id
+            return (
+              <g
+                key={rect.id}
+                className={`mindmap-image-group${isSelected ? ' is-selected' : ''}${isDragging ? ' is-dragging' : ''}`}
+                role="button"
+                tabIndex={isSelected ? 0 : -1}
+                aria-label={asset?.fileName ?? t('mindmap.contentPanel.images')}
+                onPointerDown={(event) => startImageDrag(rect.id, event)}
+              >
+                <foreignObject
+                  x={rect.x}
+                  y={rect.y}
+                  width={rect.width}
+                  height={rect.height}
+                  className="mindmap-image-foreign"
+                >
+                  {dataUrl ? (
+                    <img
+                      className="mindmap-image"
+                      src={dataUrl}
+                      alt={asset?.fileName ?? t('mindmap.contentPanel.images')}
+                      draggable={false}
+                    />
+                  ) : (
+                    <div className="mindmap-image mindmap-image--loading" role="status">
+                      {t('mindmap.contentPanel.assetLoading')}
+                    </div>
+                  )}
+                </foreignObject>
+                {isSelected && !isDragging ? (
+                  <>
+                    <rect
+                      className="mindmap-image-selection"
+                      x={rect.x - 1}
+                      y={rect.y - 1}
+                      width={rect.width + 2}
+                      height={rect.height + 2}
+                      rx={6}
+                      pointerEvents="none"
+                    />
+                    <rect
+                      className="mindmap-image-resize-handle"
+                      x={rect.x + rect.width - 9}
+                      y={rect.y + rect.height - 9}
+                      width={12}
+                      height={12}
+                      rx={3}
+                      onPointerDown={(event) => startImageResize(rect.id, event)}
+                    />
+                    <g
+                      className="mindmap-image-delete-button"
+                      role="button"
+                      aria-label={t('mindmap.contentPanel.removeImage')}
+                      transform={`translate(${rect.x + rect.width - 26} ${rect.y - 26})`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        deleteImage(rect.id)
+                      }}
+                    >
+                      <rect width={20} height={20} rx={6} />
+                      <Trash2 x={3} y={3} width={14} height={14} />
+                    </g>
+                  </>
+                ) : null}
+              </g>
+            )
+          })}
+
+          {imageDragState ? (() => {
+            const rect = imageRects.find((candidate) => candidate.id === imageDragState.imageId)
+            const dataUrl = rect ? assetDataUrls[rect.assetId] : undefined
+            const width = rect?.width ?? 160
+            const height = rect?.height ?? 88
+            return (
+              <g
+                className="mindmap-image-ghost"
+                pointerEvents="none"
+                aria-hidden="true"
+                transform={`translate(${imageDragState.current.x - imageDragState.grabOffset.x} ${imageDragState.current.y - imageDragState.grabOffset.y})`}
+              >
+                <rect width={width} height={height} rx={6} />
+                {dataUrl ? (
+                  <image
+                    href={dataUrl}
+                    x={2}
+                    y={2}
+                    width={width - 4}
+                    height={height - 4}
+                    preserveAspectRatio="xMidYMid meet"
+                  />
+                ) : null}
+              </g>
+            )
+          })() : null}
 
           {nodeDragState?.ghost ? (() => {
             const ghost = nodeDragState.ghost

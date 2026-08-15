@@ -4,7 +4,7 @@ import type { ReactElement } from 'react'
  * SVG marker icon set inspired by Xmind's marker system.
  *
  * Xmind organises markers into groups: priority, task/progress, flags,
- * stars, smileys, people, arrows, etc. Each marker is a small SVG icon
+ * stars, symbols, etc. Each marker is a small SVG icon
  * rendered inside a circular badge on the node.
  *
  * These are original SVG paths designed to visually echo the Xmind style
@@ -104,79 +104,6 @@ export function StarMarkerIcon({ color, size = 14 }: MarkerIconProps & { color: 
   )
 }
 
-/* ---- Smiley markers ---- */
-
-export function SmileyMarkerIcon({ type, size = 14 }: MarkerIconProps & { type: 'smile' | 'sad' | 'laugh' | 'angry' | 'surprise' | 'love' | 'cry' | 'think' }): ReactElement {
-  const colorMap: Record<string, string> = {
-    smile: '#F1C40F', sad: '#5DADE2', laugh: '#F39C12', angry: '#E74C3C',
-    surprise: '#A569BD', love: '#E91E63', cry: '#5DADE2', think: '#ABB2B9'
-  }
-  const color = colorMap[type] ?? '#F1C40F'
-  const eyeY = type === 'angry' ? 5.5 : 6
-  const eyeLeftX = type === 'angry' ? 5.5 : 6
-  const eyeRightX = type === 'angry' ? 10.5 : 10
-  return (
-    <svg {...svgProps(size)}>
-      <circle cx={8} cy={8} r={6.5} fill={color} stroke="white" strokeWidth={0.8} />
-      {/* Eyes */}
-      {type === 'love' ? (
-        <>
-          <path d="M5 5.5 C4.3 4.8 3.5 5.3 3.5 6 C3.5 6.7 4.5 7.3 5 8 C5.5 7.3 6.5 6.7 6.5 6 C6.5 5.3 5.7 4.8 5 5.5 Z" fill="white" />
-          <path d="M11 5.5 C10.3 4.8 9.5 5.3 9.5 6 C9.5 6.7 10.5 7.3 11 8 C11.5 7.3 12.5 6.7 12.5 6 C12.5 5.3 11.7 4.8 11 5.5 Z" fill="white" />
-        </>
-      ) : type === 'surprise' ? (
-        <>
-          <circle cx={eyeLeftX} cy={eyeY} r={1.2} fill="white" />
-          <circle cx={eyeRightX} cy={eyeY} r={1.2} fill="white" />
-        </>
-      ) : (
-        <>
-          <line x1={eyeLeftX - 1} y1={eyeY} x2={eyeLeftX + 1} y2={eyeY} stroke="white" strokeWidth={1.5} strokeLinecap="round" />
-          <line x1={eyeRightX - 1} y1={eyeY} x2={eyeRightX + 1} y2={eyeY} stroke="white" strokeWidth={1.5} strokeLinecap="round" />
-        </>
-      )}
-      {/* Mouth */}
-      {type === 'smile' && <path d="M5 9.5 Q8 12 11 9.5" fill="none" stroke="white" strokeWidth={1.2} strokeLinecap="round" />}
-      {type === 'laugh' && <path d="M5 9 Q8 13 11 9 Z" fill="white" />}
-      {type === 'sad' && <path d="M5 11 Q8 8.5 11 11" fill="none" stroke="white" strokeWidth={1.2} strokeLinecap="round" />}
-      {type === 'angry' && <path d="M5 11 Q8 9 11 11" fill="none" stroke="white" strokeWidth={1.2} strokeLinecap="round" />}
-      {type === 'surprise' && <ellipse cx={8} cy={10.5} rx={1.5} ry={2} fill="white" />}
-      {type === 'love' && <path d="M5 9.5 Q8 12 11 9.5" fill="none" stroke="white" strokeWidth={1.2} strokeLinecap="round" />}
-      {type === 'cry' && <path d="M5 11 Q8 8.5 11 11" fill="none" stroke="white" strokeWidth={1.2} strokeLinecap="round" />}
-      {type === 'think' && <path d="M6 10.5 Q8 9.5 10 10.5 Q10 11.5 8 11.5" fill="none" stroke="white" strokeWidth={1} strokeLinecap="round" />}
-    </svg>
-  )
-}
-
-/* ---- People markers ---- */
-
-export function PeopleMarkerIcon({ color, size = 14 }: MarkerIconProps & { color: string }): ReactElement {
-  return (
-    <svg {...svgProps(size)}>
-      <circle cx={8} cy={5} r={2.5} fill={color} />
-      <path d="M3 14 Q3 9 8 9 Q13 9 13 14 Z" fill={color} />
-    </svg>
-  )
-}
-
-/* ---- Arrow markers ---- */
-
-export function ArrowMarkerIcon({ direction, size = 14 }: MarkerIconProps & { direction: 'up' | 'down' | 'left' | 'right' | 'left-right' | 'up-down' }): ReactElement {
-  const arrowPaths: Record<string, string> = {
-    up: 'M8 2 L12 8 L9 8 L9 14 L7 14 L7 8 L4 8 Z',
-    down: 'M8 14 L12 8 L9 8 L9 2 L7 2 L7 8 L4 8 Z',
-    left: 'M2 8 L8 4 L8 7 L14 7 L14 9 L8 9 L8 12 Z',
-    right: 'M14 8 L8 4 L8 7 L2 7 L2 9 L8 9 L8 12 Z',
-    'left-right': 'M2 8 L6 4 L6 6 L10 6 L10 4 L14 8 L10 12 L10 10 L6 10 L6 12 Z',
-    'up-down': 'M8 2 L12 6 L10 6 L10 10 L12 10 L8 14 L4 10 L6 10 L6 6 L4 6 Z'
-  }
-  return (
-    <svg {...svgProps(size)}>
-      <path d={arrowPaths[direction] ?? arrowPaths.right} fill="#34495E" stroke="white" strokeWidth={0.5} strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 /* ---- Symbol markers ---- */
 
 export function SymbolMarkerIcon({ type, size = 14 }: MarkerIconProps & { type: 'idea' | 'important' | 'question' | 'warning' | 'check' | 'cross' | 'plus' | 'minus' }): ReactElement {
@@ -245,7 +172,7 @@ export function SymbolMarkerIcon({ type, size = 14 }: MarkerIconProps & { type: 
 
 export type MarkerDef = {
   id: string
-  group: 'priority' | 'task' | 'flag' | 'star' | 'smiley' | 'people' | 'arrow' | 'symbol'
+  group: 'priority' | 'task' | 'flag' | 'star' | 'symbol'
   labelKey: string
   render: () => ReactElement
 }
@@ -284,30 +211,6 @@ export const MARKER_DEFS: readonly MarkerDef[] = [
       render: () => <StarMarkerIcon color={color} />
     }
   }),
-  // Smileys
-  ...(['smile', 'sad', 'laugh', 'angry', 'surprise', 'love', 'cry', 'think'] as const).map((type) => ({
-    id: `smiley-${type}`,
-    group: 'smiley' as const,
-    labelKey: `smiley${type.charAt(0).toUpperCase() + type.slice(1)}`,
-    render: () => <SmileyMarkerIcon type={type} />
-  })),
-  // People
-  ...['#E74C3C', '#E67E22', '#F1C40F', '#27AE60', '#3498DB', '#9B59B6'].map((color, i) => {
-    const names = ['Red', 'Orange', 'Yellow', 'Green', 'Blue', 'Purple']
-    return {
-      id: `people-${names[i].toLowerCase()}`,
-      group: 'people' as const,
-      labelKey: `people${names[i]}`,
-      render: () => <PeopleMarkerIcon color={color} />
-    }
-  }),
-  // Arrows
-  ...(['up', 'down', 'left', 'right', 'left-right', 'up-down'] as const).map((direction) => ({
-    id: `arrow-${direction}`,
-    group: 'arrow' as const,
-    labelKey: `arrow${direction.replace(/(^|-)(.)/g, (_, _d, c) => c.toUpperCase())}`,
-    render: () => <ArrowMarkerIcon direction={direction} />
-  })),
   // Symbols
   ...(['idea', 'important', 'question', 'warning', 'check', 'cross', 'plus', 'minus'] as const).map((type) => ({
     id: `symbol-${type}`,
@@ -322,8 +225,5 @@ export const MARKER_GROUPS: readonly { labelKey: string; markers: readonly Marke
   { labelKey: 'taskProgress', markers: MARKER_DEFS.filter((m) => m.group === 'task') },
   { labelKey: 'flags', markers: MARKER_DEFS.filter((m) => m.group === 'flag') },
   { labelKey: 'stars', markers: MARKER_DEFS.filter((m) => m.group === 'star') },
-  { labelKey: 'smileys', markers: MARKER_DEFS.filter((m) => m.group === 'smiley') },
-  { labelKey: 'people', markers: MARKER_DEFS.filter((m) => m.group === 'people') },
-  { labelKey: 'arrows', markers: MARKER_DEFS.filter((m) => m.group === 'arrow') },
   { labelKey: 'symbols', markers: MARKER_DEFS.filter((m) => m.group === 'symbol') }
 ]

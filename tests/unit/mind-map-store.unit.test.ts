@@ -73,6 +73,8 @@ describe('createMindMapStore', () => {
     expect(created.sheets).toHaveLength(1)
     expect(created.sheets[0]!.root.title).toBe('My mind map')
     expect(created.sheets[0]!.root.children).toEqual([])
+    expect(created.sheets[0]!.layout.structureClass).toBe('org.xmind.ui.logic.right')
+    expect(created.sheets[0]!.layout.defaultTopicShape).toBe('rounded-rect')
 
     const read = await store.read(created.id)
     expect(read).toEqual(created)

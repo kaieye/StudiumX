@@ -3,32 +3,42 @@ import type {
   MindMapCommand,
   MindMapClipboardPayload,
   MindMapExecuteOptions,
+  MindMapImageUpdatePatch,
   MindMapTopicUpdatePatch
 } from '../../../../shared/mindmap/commands'
 import { MindMapUndoRedoStack } from '../../../../shared/mindmap/commands/mind-map-undo-redo'
 import type {
   MindMapDocumentV2,
   MindMapElementType,
+  MindMapImageElement,
+  MindMapPoint,
   MindMapSheetV2
 } from '../../../../shared/mindmap/domain/types'
 import type { MindMapStructureClass, MindMapSummary } from '../../../../shared/mindmap/mind-map-types'
-import type { MindMapMarkdownExportSnapshot } from '../../../../shared/teaching-types/mindmap'
+import {
+  HOME_MIND_MAP_WORKSPACE_ID,
+  type MindMapLibrary,
+  type MindMapMarkdownExportSnapshot
+} from '../../../../shared/teaching-types/mindmap'
 import { useAppStore } from '../../app-shell/appStore'
 import {
   buildApplyQuickStyleCommand,
-  buildCollapseAllCommand,
+  buildCollapseLastLevelCommand,
   buildCopyPayload,
   buildCopySheetCommand,
   buildCutPayload,
   buildDuplicateCommand,
-  buildExpandAllCommand,
+  buildExpandNextLevelCommand,
   buildInsertAboveCommand,
   buildInsertChildCommand,
   buildInsertSiblingCommand,
   buildOutdentCommand,
   buildPasteCommandForPayload,
+  buildAddSummaryCommand,
   buildRemoveCommand,
   buildRemoveTopicsCommand,
+  buildSetSiblingTopicsCollapsedCommand,
+  buildSetTopicChildrenCollapsedCommand,
   buildToggleCollapseCommand,
   buildToggleCollapseTopicsCommand,
   findTopicInSheet
@@ -52,6 +62,7 @@ import {
   captureTopicStyleClipboard,
   type MindMapTopicStyleClipboard
 } from './mind-map-topic-style-clipboard'
+import { migrateTopicAssetsToImages } from '../../../../shared/mindmap/migrations'
 
 /**
  * Renderer state for the mind-map view (docs/mindmap/design.md §6.6).
@@ -66,10 +77,22 @@ import {
 export type MindMapSelection =
   | { kind: 'topic'; topicIds: string[] }
   | { kind: 'element'; elementId: string; elementType: MindMapElementType }
+  | { kind: 'image'; imageId: string }
   | { kind: 'canvas' }
+
+/**
+ * Browse scope for the mind-map library. `'home'` addresses the global
+ * `MindMaps/` location; a string is a registered workspace id; `null` falls
+ * back to the active teaching workspace (backward compatible).
+ */
+export type MindMapScope = 'home' | string | null
 
 type MindMapViewState = {
   documents: MindMapSummary[]
+  /** Aggregate home-page library: home cards + one folder per workspace. */
+  library: MindMapLibrary | null
+  /** Current browse scope (home vs a workspace folder). */
+  scope: MindMapScope
   current: MindMapDocumentV2 | null
   /** Canonical editor selection across topics, non-topic elements, and the canvas. */
   selection: MindMapSelection
@@ -105,6 +128,10 @@ type MindMapViewState = {
   setInspectorTab: (tab: 'format' | 'content' | 'ai') => void
 
   loadDocuments: () => Promise<void>
+  /** Load the aggregate home-page library (home cards + workspace folders). */
+  loadLibrary: () => Promise<void>
+  /** Switch the browse scope (home vs a workspace folder) and reload its cards. */
+  setScope: (scope: MindMapScope) => Promise<void>
   openDocument: (id: string) => Promise<void>
   /** Flush pending local writes and return to the document gallery. */
   closeDocument: () => Promise<void>
@@ -144,9 +171,21 @@ type MindMapViewState = {
   insertAbove: (nodeId: string) => void
   deleteNode: (nodeId: string) => void
   deleteNodes: (nodeIds: readonly string[]) => void
+  /** Add a brace summary and its ordinary output topic over selected siblings. */
+  addSummary: (topicIds: readonly string[], title?: string) => string | null
   toggleCollapse: (nodeId: string) => void
   toggleCollapseNodes: (nodeIds: readonly string[]) => void
+  setTopicChildrenCollapsed: (nodeId: string, collapsed: boolean) => void
+  setSiblingTopicsCollapsed: (nodeId: string, collapsed: boolean) => void
   updateNode: (nodeId: string, patch: MindMapTopicUpdatePatch) => void
+  selectImage: (imageId: string) => void
+  /** Create an image element (attached to `topicId` or free at `position`). */
+  addImage: (assetId: string, opts?: { topicId?: string | null; position?: MindMapPoint }) => void
+  updateImage: (imageId: string, patch: MindMapImageUpdatePatch) => void
+  /** Move an image between topics or to a free position in one step. */
+  moveImage: (imageId: string, opts: { topicId?: string | null; position?: MindMapPoint }) => void
+  resizeImage: (imageId: string, width: number, height: number) => void
+  removeImage: (imageId: string) => void
   collapseAll: () => void
   expandAll: () => void
 
@@ -175,7 +214,32 @@ type MindMapViewState = {
 }
 
 function workspaceId(): string | null {
+  const scope = useMindMapViewStore.getState().scope
+  if (scope === 'home') return HOME_MIND_MAP_WORKSPACE_ID
+  if (scope) return scope
   return useAppStore.getState().appState?.activeWorkspace?.id ?? null
+}
+
+/**
+ * Resolve the workspace that owns a document id. On the home page cards span
+ * the home location and every workspace folder, so the owning workspace must
+ * be looked up in the aggregate library rather than assumed to be the active
+ * workspace.
+ */
+function workspaceIdForDocument(id: string): string | null {
+  const state = useMindMapViewStore.getState()
+  const scope = state.scope
+  if (scope && scope !== 'home') return scope
+  const library = state.library
+  if (library) {
+    if (library.home.some((doc) => doc.id === id)) return HOME_MIND_MAP_WORKSPACE_ID
+    const owned = library.workspaces.find((entry) =>
+      entry.documents.some((doc) => doc.id === id)
+    )
+    if (owned) return owned.workspaceId
+  }
+  if (scope === 'home') return HOME_MIND_MAP_WORKSPACE_ID
+  return workspaceId()
 }
 
 function activeSheetOf(state: Pick<MindMapViewState, 'current' | 'activeSheetId'>): MindMapSheetV2 | undefined {
@@ -195,6 +259,17 @@ function activeSheetContainingTopic(
 ): MindMapSheetV2 | undefined {
   const sheet = activeSheetOf(state)
   return sheet !== undefined && findTopicInSheet(sheet, topicId) !== undefined ? sheet : undefined
+}
+
+/** Resolve an image only in the active sheet (image ids are sheet-scoped). */
+function activeSheetContainingImage(
+  state: Pick<MindMapViewState, 'current' | 'activeSheetId'>,
+  imageId: string
+): MindMapSheetV2 | undefined {
+  const sheet = activeSheetOf(state)
+  return sheet !== undefined && (sheet.images ?? []).some((image) => image.id === imageId)
+    ? sheet
+    : undefined
 }
 
 export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
@@ -323,6 +398,16 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     if (!workspace) return
     const documents = await window.teachingSystem?.listMindMaps({ workspaceId: workspace })
     if (documents) set({ documents })
+    // The home page shows the aggregate library; keep it fresh alongside the
+    // current scope's cards.
+    if (get().scope === 'home') {
+      try {
+        const library = await window.teachingSystem?.listMindMapLibrary()
+        if (library) set({ library })
+      } catch {
+        // Best effort: the scope cards are already refreshed above.
+      }
+    }
   }
 
   /** Update the user colour-scheme catalogue and persist it to localStorage. */
@@ -377,6 +462,8 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
 
   return {
     documents: [],
+    library: null,
+    scope: null,
     current: null,
     selection: { kind: 'canvas' },
     selectedNodeId: null,
@@ -420,18 +507,47 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       }
     },
 
-    openDocument: async (id) => {
+    loadLibrary: async () => {
+      try {
+        const library = await window.teachingSystem?.listMindMapLibrary()
+        if (library) set({ library })
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) })
+      }
+    },
+
+    setScope: async (scope) => {
+      set({ scope })
       const workspace = workspaceId()
+      if (!workspace) {
+        set({ documents: [], current: null })
+        return
+      }
+      try {
+        const documents = await window.teachingSystem?.listMindMaps({ workspaceId: workspace })
+        if (documents) set({ documents })
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) })
+      }
+    },
+
+    openDocument: async (id) => {
+      const workspace = workspaceIdForDocument(id)
       if (!workspace) return
       try {
         const current = await window.teachingSystem?.readMindMap({ workspaceId: workspace, id })
         if (current) {
           clearPendingPersist()
           dirty = false
-          undoStack = new MindMapUndoRedoStack(current)
+          const migrated = migrateTopicAssetsToImages(current)
+          undoStack = new MindMapUndoRedoStack(migrated)
           mutationEpoch += 1
+          // Anchor the editor to the owning workspace so persistence targets the
+          // document's actual location (a workspace folder or the home location),
+          // not whatever scope the gallery was browsing when the card was opened.
           set({
-            current,
+            scope: workspace === HOME_MIND_MAP_WORKSPACE_ID ? 'home' : workspace,
+            current: migrated,
             selection: current.sheets[0]?.root.id
               ? { kind: 'topic', topicIds: [current.sheets[0].root.id] }
               : { kind: 'canvas' },
@@ -527,26 +643,39 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     },
 
     deleteDocument: async (id) => {
-      const workspace = workspaceId()
+      const workspace = workspaceIdForDocument(id)
       if (!workspace) return
       try {
         await window.teachingSystem?.deleteMindMap({ workspaceId: workspace, id })
         clearPendingPersist()
         if (get().current?.id === id) dirty = false
         if (get().current?.id === id) undoStack = null
-        set((state) => ({
-          documents: state.documents.filter((doc) => doc.id !== id),
-          ...(state.current?.id === id
-            ? { current: null, selection: { kind: 'canvas' }, selectedNodeId: null, activeSheetId: null, editingNodeId: null }
-            : {})
-        }))
+        set((state) => {
+          const library = state.library
+            ? {
+                ...state.library,
+                home: state.library.home.filter((doc) => doc.id !== id),
+                workspaces: state.library.workspaces.map((entry) => ({
+                  ...entry,
+                  documents: entry.documents.filter((doc) => doc.id !== id)
+                }))
+              }
+            : null
+          return {
+            documents: state.documents.filter((doc) => doc.id !== id),
+            ...(library ? { library } : {}),
+            ...(state.current?.id === id
+              ? { current: null, selection: { kind: 'canvas' }, selectedNodeId: null, activeSheetId: null, editingNodeId: null }
+              : {})
+          }
+        })
       } catch (error) {
         set({ error: error instanceof Error ? error.message : String(error) })
       }
     },
 
     renameDocumentById: async (id, title) => {
-      const workspace = workspaceId()
+      const workspace = workspaceIdForDocument(id)
       const nextTitle = title.trim()
       if (!workspace || !nextTitle) return
 
@@ -584,7 +713,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     },
 
     duplicateDocument: async (id, title) => {
-      const workspace = workspaceId()
+      const workspace = workspaceIdForDocument(id)
       const copyTitle = title.trim()
       if (!workspace || !copyTitle) return
 
@@ -776,7 +905,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     addChild: (parentId) => {
       const sheet = activeSheetContainingTopic(get(), parentId)
       if (!sheet) return
-      const built = buildInsertChildCommand(sheet.id, parentId)
+      const built = buildInsertChildCommand(sheet, parentId)
       dispatchCommand(built.command, { label: 'Insert child' })
       set({ selection: { kind: 'topic', topicIds: [built.nodeId] }, selectedNodeId: built.nodeId, editingNodeId: built.nodeId })
     },
@@ -829,6 +958,20 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       }
     },
 
+    addSummary: (topicIds, title) => {
+      const firstId = topicIds[0]
+      const sheet = firstId ? activeSheetContainingTopic(get(), firstId) : undefined
+      if (!sheet) return null
+      const built = buildAddSummaryCommand(sheet, topicIds, title)
+      if (!built) return null
+      dispatchCommand(built.command, { label: 'Add node summary' })
+      set({
+        selection: { kind: 'topic', topicIds: [built.summaryTopicId] },
+        selectedNodeId: built.summaryTopicId
+      })
+      return built.summaryId
+    },
+
     toggleCollapse: (nodeId) => {
       const sheet = activeSheetContainingTopic(get(), nodeId)
       if (!sheet) return
@@ -853,6 +996,26 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       if (command) dispatchCommand(command, { label: refs.length > 1 ? 'Toggle selected topics' : 'Toggle collapse' })
     },
 
+    setTopicChildrenCollapsed: (nodeId, collapsed) => {
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!sheet) return
+      const command = buildSetTopicChildrenCollapsedCommand(sheet, nodeId, collapsed)
+      if (command) {
+        dispatchCommand(command, { label: collapsed ? 'Collapse topic children' : 'Expand topic children' })
+      }
+    },
+
+    setSiblingTopicsCollapsed: (nodeId, collapsed) => {
+      const sheet = activeSheetContainingTopic(get(), nodeId)
+      if (!sheet) return
+      const command = buildSetSiblingTopicsCollapsedCommand(sheet, nodeId, collapsed)
+      if (command) {
+        dispatchCommand(command, {
+          label: collapsed ? 'Collapse sibling topic children' : 'Expand sibling topic children'
+        })
+      }
+    },
+
     updateNode: (nodeId, patch) => {
       const sheet = activeSheetContainingTopic(get(), nodeId)
       if (!sheet) return
@@ -862,16 +1025,96 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       )
     },
 
+    selectImage: (imageId) => {
+      set({
+        selection: { kind: 'image', imageId },
+        selectedNodeId: null,
+        editingNodeId: null
+      })
+    },
+
+    addImage: (assetId, opts = {}) => {
+      const sheet = activeSheetOf(get())
+      if (!sheet) return
+      const image: MindMapImageElement = {
+        id: crypto.randomUUID(),
+        type: 'image',
+        assetId,
+        width: 160,
+        height: 88,
+        ...(opts.topicId !== undefined && opts.topicId !== null
+          ? { topicId: opts.topicId }
+          : opts.position !== undefined
+            ? { position: { ...opts.position } }
+            : {})
+      }
+      dispatchCommand(
+        { type: 'image.create', sheetId: sheet.id, image },
+        { label: 'Add image' }
+      )
+    },
+
+    updateImage: (imageId, patch) => {
+      const sheet = activeSheetContainingImage(get(), imageId)
+      if (!sheet) return
+      dispatchCommand(
+        { type: 'image.update', sheetId: sheet.id, imageId, patch },
+        { label: 'Update image' }
+      )
+    },
+
+    moveImage: (imageId, opts) => {
+      const sheet = activeSheetContainingImage(get(), imageId)
+      if (!sheet) return
+      dispatchCommand(
+        {
+          type: 'image.update',
+          sheetId: sheet.id,
+          imageId,
+          patch: {
+            topicId: opts.topicId === undefined ? undefined : opts.topicId ?? null,
+            ...(opts.position !== undefined ? { position: { ...opts.position } } : {})
+          }
+        },
+        { label: 'Move image' }
+      )
+    },
+
+    resizeImage: (imageId, width, height) => {
+      const sheet = activeSheetContainingImage(get(), imageId)
+      if (!sheet) return
+      dispatchCommand(
+        {
+          type: 'image.update',
+          sheetId: sheet.id,
+          imageId,
+          patch: { width, height }
+        },
+        { label: 'Resize image' }
+      )
+    },
+
+    removeImage: (imageId) => {
+      const sheet = activeSheetContainingImage(get(), imageId)
+      if (!sheet) return
+      dispatchCommand(
+        { type: 'image.remove', sheetId: sheet.id, imageId },
+        { label: 'Remove image' }
+      )
+    },
+
     collapseAll: () => {
       const sheet = activeSheetOf(get())
       if (!sheet) return
-      dispatchCommand(buildCollapseAllCommand(sheet.id, sheet.root), { label: 'Collapse all' })
+      const command = buildCollapseLastLevelCommand(sheet)
+      if (command) dispatchCommand(command, { label: 'Collapse last visible level' })
     },
 
     expandAll: () => {
       const sheet = activeSheetOf(get())
       if (!sheet) return
-      dispatchCommand(buildExpandAllCommand(sheet.id, sheet.root), { label: 'Expand all' })
+      const command = buildExpandNextLevelCommand(sheet)
+      if (command) dispatchCommand(command, { label: 'Expand next visible level' })
     },
 
     copyNode: (nodeId) => {

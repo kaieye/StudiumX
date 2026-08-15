@@ -14,9 +14,10 @@ import {
  * Small graphical glyphs used inside the shape / border / branch pickers.
  *
  * Xmind renders each option in these menus as a miniature drawing of the
- * shape rather than a bare text label. These components reproduce Xmind's own
- * filled vector assets (see `mind-map-xmind-icon-paths.ts`) so the pickers
- * show the exact same icons, drawn with `currentColor` to inherit the theme.
+ * shape rather than a bare text label. Most use Xmind's own filled vector
+ * assets (see `mind-map-xmind-icon-paths.ts`); basic geometric shapes use SVG
+ * primitives where that gives a clearer, faithful outline. All inherit the
+ * active theme through `currentColor`.
  */
 
 type GlyphProps = {
@@ -56,6 +57,21 @@ function FilledPaths({ def, size }: { def: XmindIconDef; size?: number }) {
  * still has a concrete picture.
  */
 export function NodeShapeIcon({ shape, size = 26 }: { shape: NodeShape | 'none'; size?: number }) {
+  if (shape === 'ellipse') {
+    return (
+      <Glyph size={size}>
+        <ellipse
+          cx={16}
+          cy={16}
+          rx={11.5}
+          ry={7.5}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.8}
+        />
+      </Glyph>
+    )
+  }
   if (shape === 'none' || shape === 'no-shape') {
     return (
       <Glyph size={size}>

@@ -24,13 +24,18 @@ import type {
   MindMapElementLineShape,
   MindMapElementOutlineShape,
   MindMapElementStyle,
+  MindMapImageElement,
   MindMapLayoutSettings,
   MindMapSheetV2,
   MindMapTopicNumbering,
   MindMapTopicStyleOverride,
   MindMapTopicV2
 } from '../domain/types'
-import type { MindMapStructureClass } from '../mind-map-types'
+import {
+  DEFAULT_MIND_MAP_STRUCTURE_CLASS,
+  DEFAULT_MIND_MAP_TOPIC_SHAPE,
+  type MindMapStructureClass
+} from '../mind-map-types'
 import { STRUCTURE_TYPE_PRESETS } from '../structure-types'
 import {
   collectTopicIds,
@@ -44,6 +49,7 @@ import type {
   MindMapCommandErrorCode,
   MindMapCommandResult,
   MindMapElementUpdatePatch,
+  MindMapImageUpdatePatch,
   MindMapTopicUpdatePatch
 } from './mind-map-command-types'
 
@@ -56,6 +62,7 @@ const TOPIC_PATCH_FIELDS: ReadonlyArray<keyof MindMapTopicUpdatePatch> = [
   'links',
   'formula',
   'assetIds',
+  'imagePlacement',
   'sourceRefs',
   'planning',
   'style',
@@ -66,7 +73,7 @@ const TOPIC_PATCH_FIELDS: ReadonlyArray<keyof MindMapTopicUpdatePatch> = [
 const ELEMENT_ALLOWED_FIELDS: Readonly<Record<string, ReadonlySet<string>>> = {
   relationship: new Set(['label', 'from', 'to', 'style']),
   boundary: new Set(['label', 'topicId', 'children', 'style']),
-  summary: new Set(['label', 'from', 'to', 'style']),
+  summary: new Set(['label', 'from', 'to', 'sourceTopicIds', 'summaryTopicId', 'style']),
   callout: new Set(['label', 'topicId', 'text', 'position', 'style']),
   'free-topic': new Set(['label', 'topicId', 'position', 'style'])
 }
@@ -270,6 +277,18 @@ function elementReferenceErrors(element: MindMapElement, topicIds: ReadonlySet<s
     case 'summary':
       if (!topicIds.has(element.from)) errors.push(`summary "${element.id}" references missing "from" node "${element.from}"`)
       if (!topicIds.has(element.to)) errors.push(`summary "${element.id}" references missing "to" node "${element.to}"`)
+      if (element.sourceTopicIds !== undefined && element.sourceTopicIds.length < 2) {
+        errors.push(`summary "${element.id}" requires at least two source nodes`)
+      }
+      for (const sourceTopicId of element.sourceTopicIds ?? []) {
+        if (!topicIds.has(sourceTopicId)) errors.push(`summary "${element.id}" references missing source node "${sourceTopicId}"`)
+      }
+      if (
+        element.summaryTopicId !== undefined &&
+        !topicIds.has(element.summaryTopicId)
+      ) {
+        errors.push(`summary "${element.id}" references missing output node "${element.summaryTopicId}"`)
+      }
       break
     case 'callout':
       if (!topicIds.has(element.topicId)) errors.push(`callout "${element.id}" references missing topic "${element.topicId}"`)
@@ -288,7 +307,12 @@ function elementRefIds(element: MindMapElement): string[] {
     case 'boundary':
       return element.children === undefined ? [element.topicId] : [element.topicId, ...element.children]
     case 'summary':
-      return [element.from, element.to]
+      return [
+        element.from,
+        element.to,
+        ...(element.sourceTopicIds ?? []),
+        ...(element.summaryTopicId === undefined ? [] : [element.summaryTopicId])
+      ]
     case 'callout':
       return [element.topicId]
     case 'free-topic':
@@ -412,12 +436,50 @@ function applyTopicRemove(document: MindMapDocumentV2, command: Extract<MindMapC
   const parentId = topic.parent.id
   const index = topic.index
 
-  // Elements that reference any topic inside the removed subtree must be
-  // removed too, otherwise the element-reference invariant breaks.
+  // Elements that reference any topic inside the removed subtree normally
+  // disappear with it. A sibling-range summary is the exception while at least
+  // two source topics survive: retarget it to the smaller source set so a
+  // later deletion can still reparent its output correctly. Cross-branch
+  // summaries persist their explicit source ids, so this applies equally to
+  // summaries that span several branches.
   const removedTopicIds = new Set(collectTopicIds({ ...sheet, root: topic.node }))
+  const retainedSummaryEndpoints = new Map<string, {
+    from: string
+    to: string
+    sourceTopicIds?: string[]
+  }>()
+  for (const element of sheet.elements) {
+    if (element.type !== 'summary' || element.summaryTopicId === undefined) continue
+    if (removedTopicIds.has(element.summaryTopicId)) continue
+    const explicitSourceIds = element.sourceTopicIds
+    const from = findTopic(sheet, element.from)
+    const to = findTopic(sheet, element.to)
+    if (!from || !to) continue
+    const coveredTopics = explicitSourceIds === undefined
+      ? from.parent !== null && from.parent === to.parent
+        ? from.parent.children.slice(Math.min(from.index, to.index), Math.max(from.index, to.index) + 1)
+        : [from.node, to.node]
+      : explicitSourceIds.map((topicId) => findTopic(sheet, topicId)?.node)
+    if (coveredTopics.some((candidate) => candidate === undefined)) continue
+    const resolvedTopics = coveredTopics as MindMapTopicV2[]
+    if (!resolvedTopics.some((candidate) => removedTopicIds.has(candidate.id))) continue
+    const remainingRange = resolvedTopics.filter((candidate) => !removedTopicIds.has(candidate.id))
+    if (remainingRange.length >= 2) {
+      retainedSummaryEndpoints.set(element.id, {
+        from: remainingRange[0]!.id,
+        to: remainingRange.at(-1)!.id,
+        ...(explicitSourceIds === undefined
+          ? {}
+          : { sourceTopicIds: remainingRange.map((candidate) => candidate.id) })
+      })
+    }
+  }
   const attachedElements = sheet.elements
     .map((element, elementIndex) => ({ element, elementIndex }))
-    .filter(({ element }) => elementRefIds(element).some((id) => removedTopicIds.has(id)))
+    .filter(({ element }) =>
+      !retainedSummaryEndpoints.has(element.id) &&
+      elementRefIds(element).some((id) => removedTopicIds.has(id))
+    )
 
   const next = cloneDocument(document)
   const nextSheet = getSheet(next, command.sheetId)
@@ -428,7 +490,23 @@ function applyTopicRemove(document: MindMapDocumentV2, command: Extract<MindMapC
   }
   nextTopic.parent.children.splice(nextTopic.index, 1)
   const removedElementIds = new Set(attachedElements.map(({ element }) => element.id))
-  nextSheet.elements = nextSheet.elements.filter((element) => !removedElementIds.has(element.id))
+  nextSheet.elements = nextSheet.elements
+    .filter((element) => !removedElementIds.has(element.id))
+    .map((element) => {
+      const endpoints = retainedSummaryEndpoints.get(element.id)
+      return endpoints && element.type === 'summary'
+        ? { ...element, ...endpoints }
+        : element
+    })
+
+  // Images attached to any removed topic are removed with it (they reference a
+  // now-missing topicId and would otherwise violate domain invariants).
+  const removedImages = (nextSheet.images ?? []).filter((image) =>
+    removedTopicIds.has(image.topicId ?? '')
+  )
+  const removedImageIds = new Set(removedImages.map((image) => image.id))
+  const remainingImages = (nextSheet.images ?? []).filter((image) => !removedImageIds.has(image.id))
+  nextSheet.images = remainingImages.length > 0 ? remainingImages : undefined
 
   const inverseCommands: MindMapCommand[] = [
     { type: 'topic.insert', sheetId: command.sheetId, parentId, index, node: removed }
@@ -441,9 +519,32 @@ function applyTopicRemove(document: MindMapDocumentV2, command: Extract<MindMapC
       element: structuredClone(element)
     })
   }
+  for (const removedImage of removedImages) {
+    inverseCommands.push({
+      type: 'image.create',
+      sheetId: command.sheetId,
+      image: structuredClone(removedImage)
+    })
+  }
+  for (const [elementId] of retainedSummaryEndpoints) {
+    const original = sheet.elements.find((element) => element.id === elementId)
+    if (!original || original.type !== 'summary') continue
+    inverseCommands.push({
+      type: 'element.update',
+      sheetId: command.sheetId,
+      elementId,
+      patch: {
+        from: original.from,
+        to: original.to,
+        ...(original.sourceTopicIds === undefined
+          ? {}
+          : { sourceTopicIds: [...original.sourceTopicIds] })
+      }
+    })
+  }
 
   const inverse: MindMapCommand =
-    inverseCommands.length === 1 && attachedElements.length === 0
+    inverseCommands.length === 1
       ? inverseCommands[0]!
       : { type: 'transaction', commands: inverseCommands }
   return ok(next, inverse)
@@ -465,6 +566,9 @@ function applyAssetCreate(document: MindMapDocumentV2, command: Extract<MindMapC
 function collectAssetReferences(document: MindMapDocumentV2, assetId: string): number {
   let count = 0
   for (const sheet of document.sheets) {
+    for (const image of sheet.images ?? []) {
+      if (image.assetId === assetId) count += 1
+    }
     const stack: MindMapTopicV2[] = [sheet.root]
     while (stack.length > 0) {
       const topic = stack.pop()
@@ -569,6 +673,110 @@ function applyElementRemove(document: MindMapDocumentV2, command: Extract<MindMa
   return ok(next, inverse)
 }
 
+function imageReferenceErrors(image: MindMapImageElement, topicIds: Set<string>): string[] {
+  const errors: string[] = []
+  if (image.topicId !== undefined && !topicIds.has(image.topicId)) {
+    errors.push(`image "${image.id}" references missing topic "${image.topicId}"`)
+  }
+  if (image.assetId === undefined || image.assetId.length === 0) {
+    errors.push(`image "${image.id}" requires a non-empty assetId`)
+  }
+  if (!(image.width > 0) || !(image.height > 0)) {
+    errors.push(`image "${image.id}" requires positive width and height`)
+  }
+  return errors
+}
+
+function applyImageCreate(document: MindMapDocumentV2, command: Extract<MindMapCommand, { type: 'image.create' }>): MindMapCommandResult {
+  const sheet = getSheet(document, command.sheetId)
+  if (sheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
+  if (document.assets.findIndex((a) => a.id === command.image.assetId) < 0) {
+    return error(command, 'ASSET_NOT_FOUND', `Asset "${command.image.assetId}" not found`)
+  }
+  if ((sheet.images ?? []).some((image) => image.id === command.image.id)) {
+    return error(command, 'DUPLICATE_ID', `Image id "${command.image.id}" already exists in sheet "${command.sheetId}"`)
+  }
+  const topicIds = new Set(collectTopicIds(sheet))
+  const refErrors = imageReferenceErrors(command.image, topicIds)
+  if (refErrors.length > 0) return error(command, 'INVALID_PATCH', refErrors.join('; '))
+
+  const next = cloneDocument(document)
+  const nextSheet = getSheet(next, command.sheetId)
+  if (nextSheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
+  const images = nextSheet.images ?? (nextSheet.images = [])
+  const insertIndex = clampIndex(command.index ?? images.length, images.length)
+  images.splice(insertIndex, 0, structuredClone(command.image))
+
+  const inverse: MindMapCommand = { type: 'image.remove', sheetId: command.sheetId, imageId: command.image.id }
+  return ok(next, inverse)
+}
+
+function mutateImageWithPatch(image: MindMapImageElement, patch: MindMapImageUpdatePatch): MindMapImageUpdatePatch {
+  const record = image as unknown as Record<string, unknown>
+  const inverseRecord: Record<string, unknown> = {}
+  for (const key of ['label', 'assetId', 'width', 'height', 'position', 'topicId', 'style'] as const) {
+    const value = (patch as Record<string, unknown>)[key]
+    if (value === undefined) continue
+    inverseRecord[key] = record[key]
+    record[key] = value === null ? undefined : value
+  }
+  return inverseRecord as MindMapImageUpdatePatch
+}
+
+function applyImageUpdate(document: MindMapDocumentV2, command: Extract<MindMapCommand, { type: 'image.update' }>): MindMapCommandResult {
+  const sheet = getSheet(document, command.sheetId)
+  if (sheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
+  const image = (sheet.images ?? []).find((candidate) => candidate.id === command.imageId)
+  if (image === undefined) return error(command, 'ELEMENT_NOT_FOUND', `Image "${command.imageId}" not found in sheet "${command.sheetId}"`)
+
+  const next = cloneDocument(document)
+  const nextSheet = getSheet(next, command.sheetId)
+  if (nextSheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
+  const nextImage = (nextSheet.images ?? []).find((candidate) => candidate.id === command.imageId)
+  if (nextImage === undefined) return error(command, 'ELEMENT_NOT_FOUND', `Image "${command.imageId}" not found`)
+
+  const inversePatch = mutateImageWithPatch(nextImage, command.patch)
+  const topicIds = new Set(collectTopicIds(nextSheet))
+  const refErrors = imageReferenceErrors(nextImage, topicIds)
+  if (refErrors.length > 0) return error(command, 'INVALID_PATCH', refErrors.join('; '))
+  if (document.assets.findIndex((a) => a.id === nextImage.assetId) < 0) {
+    return error(command, 'ASSET_NOT_FOUND', `Asset "${nextImage.assetId}" not found`)
+  }
+
+  const inverse: MindMapCommand = {
+    type: 'image.update',
+    sheetId: command.sheetId,
+    imageId: command.imageId,
+    patch: inversePatch
+  }
+  return ok(next, inverse)
+}
+
+function applyImageRemove(document: MindMapDocumentV2, command: Extract<MindMapCommand, { type: 'image.remove' }>): MindMapCommandResult {
+  const sheet = getSheet(document, command.sheetId)
+  if (sheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
+  const images = sheet.images ?? []
+  const index = images.findIndex((candidate) => candidate.id === command.imageId)
+  if (index === -1) return error(command, 'ELEMENT_NOT_FOUND', `Image "${command.imageId}" not found in sheet "${command.sheetId}"`)
+  const removed = structuredClone(images[index])
+
+  const next = cloneDocument(document)
+  const nextSheet = getSheet(next, command.sheetId)
+  if (nextSheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
+  const nextImages = nextSheet.images ?? (nextSheet.images = [])
+  const nextIndex = nextImages.findIndex((candidate) => candidate.id === command.imageId)
+  if (nextIndex === -1) return error(command, 'ELEMENT_NOT_FOUND', `Image "${command.imageId}" not found`)
+  nextImages.splice(nextIndex, 1)
+
+  const inverse: MindMapCommand = {
+    type: 'image.create',
+    sheetId: command.sheetId,
+    index,
+    image: removed
+  }
+  return ok(next, inverse)
+}
+
 function applySelectionSetStyle(document: MindMapDocumentV2, command: Extract<MindMapCommand, { type: 'selection.set-style' }>): MindMapCommandResult {
   const sheet = getSheet(document, command.sheetId)
   if (sheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
@@ -630,7 +838,10 @@ function applySheetCreate(document: MindMapDocumentV2, command: Extract<MindMapC
           title: title as string,
           root: { id: `${sheetId as string}-root`, title: title as string, children: [] },
           elements: [],
-          layout: { structureClass: 'org.xmind.ui.logic.balanced' }
+          layout: {
+            structureClass: DEFAULT_MIND_MAP_STRUCTURE_CLASS,
+            defaultTopicShape: DEFAULT_MIND_MAP_TOPIC_SHAPE
+          }
         }
 
   const insertIndex = clampIndex(command.index ?? document.sheets.length, document.sheets.length)
@@ -657,6 +868,12 @@ function applySheetRename(document: MindMapDocumentV2, command: Extract<MindMapC
 const VALID_STRUCTURE_CLASSES: ReadonlySet<MindMapStructureClass> = new Set(
   STRUCTURE_TYPE_PRESETS.map((preset) => preset.id)
 )
+
+const KNOWN_TOPIC_SHAPES = new Set([
+  'roundedRect', 'rounded-rect', 'rect', 'ellipse', 'diamond', 'underline', 'fishbone', 'none',
+  'quote', 'callout', 'bracket', 'arrow-right', 'arrow-left', 'heart', 'cloud',
+  'star', 'parallelogram', 'hexagon'
+])
 
 const VALID_LINE_STYLES: ReadonlySet<NonNullable<MindMapLayoutSettings['lineStyle']>> = new Set([
   'curve',
@@ -704,6 +921,15 @@ function applySheetUpdateLayout(
   if (patch.linePattern !== undefined && patch.linePattern !== null && !VALID_LINE_PATTERNS.has(patch.linePattern)) {
     return error(command, 'INVALID_PATCH', `Unknown branch line pattern "${String(patch.linePattern)}"`)
   }
+  if (patch.defaultTopicShape !== undefined && patch.defaultTopicShape !== null && !KNOWN_TOPIC_SHAPES.has(patch.defaultTopicShape)) {
+    return error(command, 'INVALID_PATCH', `Unknown default topic shape "${String(patch.defaultTopicShape)}"`)
+  }
+  if (patch.defaultTopicStyle !== undefined && patch.defaultTopicStyle !== null) {
+    const styleErrors = validateTopicStyle(patch.defaultTopicStyle)
+    if (styleErrors.length > 0) {
+      return error(command, 'INVALID_PATCH', `Invalid default topic style: ${styleErrors.join('; ')}`)
+    }
+  }
 
   const next = cloneDocument(document)
   const nextSheet = getSheet(next, command.sheetId)
@@ -720,7 +946,9 @@ function applySheetUpdateLayout(
     lineStyle: previous.lineStyle ?? null,
     lineWidthScale: previous.lineWidthScale ?? null,
     linePattern: previous.linePattern ?? null,
-    tapered: previous.tapered ?? null
+    tapered: previous.tapered ?? null,
+    defaultTopicShape: previous.defaultTopicShape ?? null,
+    defaultTopicStyle: previous.defaultTopicStyle ?? null
   }
 
   const nextLayout = { ...previous }
@@ -752,6 +980,14 @@ function applySheetUpdateLayout(
   if (patch.tapered !== undefined) {
     if (patch.tapered === null) delete nextLayout.tapered
     else nextLayout.tapered = patch.tapered
+  }
+  if (patch.defaultTopicShape !== undefined) {
+    if (patch.defaultTopicShape === null) delete nextLayout.defaultTopicShape
+    else nextLayout.defaultTopicShape = patch.defaultTopicShape
+  }
+  if (patch.defaultTopicStyle !== undefined) {
+    if (patch.defaultTopicStyle === null) delete nextLayout.defaultTopicStyle
+    else nextLayout.defaultTopicStyle = structuredClone(patch.defaultTopicStyle)
   }
   nextSheet.layout = nextLayout
 
@@ -869,6 +1105,12 @@ export function applyMindMapCommand(document: MindMapDocumentV2, command: MindMa
       return applyElementUpdate(document, command)
     case 'element.remove':
       return applyElementRemove(document, command)
+    case 'image.create':
+      return applyImageCreate(document, command)
+    case 'image.update':
+      return applyImageUpdate(document, command)
+    case 'image.remove':
+      return applyImageRemove(document, command)
     case 'selection.set-style':
       return applySelectionSetStyle(document, command)
     case 'sheet.create':

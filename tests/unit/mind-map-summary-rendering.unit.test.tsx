@@ -78,6 +78,7 @@ describe('MindMapCanvas summary rendering', () => {
         type: 'summary',
         from: 'child-a',
         to: 'child-c',
+        sourceTopicIds: ['child-a', 'child-b', 'child-c'],
         label: 'Core ideas'
       }
     ])
@@ -91,7 +92,14 @@ describe('MindMapCanvas summary rendering', () => {
   it('skips summaries whose endpoints are missing or hidden by collapse', () => {
     const { container } = renderCanvas([
       { id: 'missing', type: 'summary', from: 'child-a', to: 'not-in-tree', label: 'Missing' },
-      { id: 'hidden', type: 'summary', from: 'child-a', to: 'hidden', label: 'Hidden' }
+      {
+        id: 'hidden',
+        type: 'summary',
+        from: 'child-a',
+        to: 'child-c',
+        sourceTopicIds: ['child-a', 'child-b', 'hidden'],
+        label: 'Hidden'
+      }
     ])
 
     expect(container.querySelectorAll('.mindmap-summary-group')).toHaveLength(0)

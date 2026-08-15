@@ -134,7 +134,10 @@ afterEach(() => {
 function chooseTopicStyleMenuOption(menuLabel: string, optionLabel: string): void {
   fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${menuLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} `) }))
   const dialog = screen.getByRole('dialog', { name: menuLabel })
-  fireEvent.click(within(dialog).getByRole('option', { name: optionLabel }))
+  const target = within(dialog).queryByRole('option', { name: optionLabel })
+    ?? within(dialog).queryByRole('button', { name: optionLabel })
+    ?? within(dialog).getByRole('button', { name: `Preset color ${optionLabel}` })
+  fireEvent.click(target)
 }
 
 describe('MindMapTopicStyleInspector', () => {
@@ -144,6 +147,35 @@ describe('MindMapTopicStyleInspector', () => {
     expect(screen.getByText('Node style')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Node layout' })).toHaveValue('org.xmind.ui.logic.right')
     expect(screen.getByText('Effective layout: Right')).toBeInTheDocument()
+  })
+
+  it('collapses and expands the current topic and all branch topics at the same level', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.sheets[0]!.root.children[1]!.children.push({
+      id: 'peer-child',
+      title: 'Peer child',
+      children: []
+    })
+    useMindMapViewStore.setState({
+      current: structuredClone(current),
+      selection: { kind: 'topic', topicIds: ['child'] },
+      selectedNodeId: 'child'
+    })
+    render(<MindMapTopicStyleInspector />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse current child nodes' }))
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.root.children[0]?.collapsed).toBe(true)
+    expect(screen.getByRole('button', { name: 'Expand current child nodes' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all sibling child nodes' }))
+    const collapsedSiblings = useMindMapViewStore.getState().current?.sheets[0]?.root.children
+    expect(collapsedSiblings?.map((topic) => topic.collapsed)).toEqual([true, true])
+    expect(screen.getByRole('button', { name: 'Expand all sibling child nodes' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all sibling child nodes' }))
+    const expandedSiblings = useMindMapViewStore.getState().current?.sheets[0]?.root.children
+    expect(expandedSiblings?.map((topic) => topic.collapsed)).toEqual([false, false])
   })
 
   it('shows concrete defaults instead of source labels when a topic has no local setting', () => {
@@ -157,31 +189,8 @@ describe('MindMapTopicStyleInspector', () => {
     expect(screen.getByRole('button', { name: 'Fill Pattern Solid' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Fill Color #FFFFFF' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Border Style Solid' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Node width' })).toHaveValue('auto')
     expect(screen.getByRole('combobox', { name: 'Font Weight' })).toHaveValue('600')
     expect(screen.getByRole('spinbutton', { name: 'Font Size' })).toHaveValue(26)
-  })
-
-  it('sets a fixed width atomically, reflows the layout, and resets to auto', () => {
-    render(<MindMapTopicStyleInspector />)
-    const mode = screen.getByRole('combobox', { name: 'Node width' })
-
-    fireEvent.change(mode, { target: { value: 'fixed' } })
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style).toMatchObject({
-      widthMode: 'fixed',
-      width: 160
-    })
-
-    const width = screen.getByRole('spinbutton', { name: 'Node width' })
-    fireEvent.change(width, { target: { value: '240' } })
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style).toMatchObject({
-      widthMode: 'fixed',
-      width: 240
-    })
-
-    fireEvent.change(mode, { target: { value: '' } })
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style?.widthMode).toBeUndefined()
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style?.width).toBeUndefined()
   })
 
   it('updates only the layout override and keeps unrelated style fields', () => {
@@ -277,41 +286,6 @@ describe('MindMapTopicStyleInspector', () => {
     const persisted = updateMindMap.mock.calls[0]?.[0].doc
     expect(persisted.sheets[0]?.root.style?.fill).toBe('#4A90D9')
     expect(persisted.sheets[0]?.root.children[0]?.style?.fill).toBe('#4A90D9')
-  })
-
-  it('applies visual quick styles without changing learning metadata and can reset them with undo', async () => {
-    render(<MindMapTopicStyleInspector />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Important' }))
-
-    let root = useMindMapViewStore.getState().current?.sheets[0]?.root
-    expect(root?.planning).toEqual({ taskStatus: 'doing', priority: 4 })
-    expect(root?.style).toMatchObject({
-      fill: '#FFF3BF',
-      textColor: '#6B4E00',
-      fontWeight: '700'
-    })
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(400)
-    })
-    expect(vi.mocked(window.teachingSystem!.updateMindMap)).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(window.teachingSystem!.updateMindMap).mock.calls[0]?.[0].doc.sheets[0]?.root.planning)
-      .toEqual({ taskStatus: 'doing', priority: 4 })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Default' }))
-    root = useMindMapViewStore.getState().current?.sheets[0]?.root
-    expect(root?.style).toBeUndefined()
-    expect(root?.planning).toEqual({ taskStatus: 'doing', priority: 4 })
-
-    act(() => useMindMapViewStore.getState().undo())
-    root = useMindMapViewStore.getState().current?.sheets[0]?.root
-    expect(root?.style).toMatchObject({
-      fill: '#FFF3BF',
-      textColor: '#6B4E00',
-      fontWeight: '700'
-    })
-    expect(root?.planning).toEqual({ taskStatus: 'doing', priority: 4 })
   })
 
   it('updates border pattern and width with undo, redo, and revisioned persistence', async () => {
@@ -837,26 +811,6 @@ describe('MindMapTopicStyleInspector', () => {
     expect(root?.children[0]?.style?.fontStyle).toBe('italic')
   })
 
-  it('clears one mixed field across selected topics without resetting other overrides', () => {
-    useMindMapViewStore.setState({
-      selection: { kind: 'topic', topicIds: ['root', 'child'] },
-      selectedNodeId: 'child'
-    })
-    render(<MindMapTopicStyleInspector />)
-
-    fireEvent.click(screen.getByRole('button', { name: /^Fill Color / }))
-    fireEvent.click(within(screen.getByRole('dialog', { name: 'Fill Color' })).getByRole('button', { name: 'Clear field override' }))
-
-    const root = useMindMapViewStore.getState().current?.sheets[0]?.root
-    const child = root?.children[0]
-    expect(root?.style).toEqual({ stroke: '#111111', fontWeight: '600' })
-    expect(child?.style).toEqual({
-      stroke: '#222222',
-      fontWeight: '400',
-      structureClass: 'org.xmind.ui.logic.left'
-    })
-  })
-
   it('propagates the complete local style to every descendant as one undoable persisted change', async () => {
     render(<MindMapTopicStyleInspector />)
 
@@ -887,10 +841,10 @@ describe('MindMapTopicStyleInspector', () => {
     render(<MindMapTopicStyleInspector />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Shape Rounded Rect' }))
-    fireEvent.click(within(screen.getByRole('dialog', { name: 'Choose shape' })).getByRole('option', { name: 'Heart' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Choose shape' })).getByRole('option', { name: 'Diamond' }))
 
     const root = useMindMapViewStore.getState().current?.sheets[0]?.root
-    expect(root?.style?.shape).toBe('heart')
+    expect(root?.style?.shape).toBe('diamond')
 
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style?.shape).toBeUndefined()
@@ -903,7 +857,7 @@ describe('MindMapTopicStyleInspector', () => {
     expect(updateMindMap).toHaveBeenCalledTimes(1)
     expect(updateMindMap.mock.calls[0]?.[0]).toMatchObject({
       expectedRevision: 1,
-      doc: { sheets: [{ root: { style: { shape: 'heart' } } }] }
+      doc: { sheets: [{ root: { style: { shape: 'diamond' } } }] }
     })
   })
 

@@ -17,6 +17,8 @@ import type {
   MindMapAssetRef,
   MindMapElement,
   MindMapElementStyle,
+  MindMapImageElement,
+  MindMapImagePlacement,
   MindMapLink,
   MindMapMarker,
   MindMapPlanningMetadata,
@@ -40,6 +42,8 @@ export type MindMapTopicUpdatePatch = {
   formula?: string | null
   /** Stable document-level asset ids attached to this topic. */
   assetIds?: string[] | null
+  /** Where the attached image block sits relative to the text label. */
+  imagePlacement?: MindMapImagePlacement | null
   sourceRefs?: MindMapSourceRef[] | null
   planning?: MindMapPlanningMetadata | null
   style?: MindMapTopicStyleOverride | null
@@ -62,16 +66,37 @@ export type MindMapSheetLayoutUpdatePatch = {
   lineWidthScale?: number | null
   linePattern?: MindMapLayoutSettings['linePattern'] | null
   tapered?: boolean | null
+  defaultTopicShape?: string | null
+  /** Global-node default style applied to newly created nodes. `null` clears it. */
+  defaultTopicStyle?: MindMapTopicStyleOverride | null
 }
 
 export type MindMapElementUpdatePatch = {
   label?: string | null
   from?: string
   to?: string
+  /** Explicit cross-branch source topics; `null` restores sibling-range semantics. */
+  sourceTopicIds?: string[] | null
+  /** Links a summary brace to its ordinary output topic. */
+  summaryTopicId?: string | null
   topicId?: string
   children?: string[] | null
   text?: string
   position?: MindMapPoint | null
+  style?: MindMapElementStyle | null
+}
+
+/** Partial image update. `null` removes an optional field; `undefined` leaves it untouched. */
+export type MindMapImageUpdatePatch = {
+  label?: string | null
+  /** Swap the underlying document asset (rare; normally images keep their asset). */
+  assetId?: string
+  width?: number
+  height?: number
+  /** Free canvas position; `null` detaches and requires a new `position` in the same command. */
+  position?: MindMapPoint | null
+  /** Host topic id when attached; `null` detaches the image to a free position. */
+  topicId?: string | null
   style?: MindMapElementStyle | null
 }
 
@@ -92,6 +117,9 @@ export type MindMapCommand =
   | { type: 'element.create'; sheetId: string; index?: number; element: MindMapElement }
   | { type: 'element.update'; sheetId: string; elementId: string; patch: MindMapElementUpdatePatch }
   | { type: 'element.remove'; sheetId: string; elementId: string }
+  | { type: 'image.create'; sheetId: string; index?: number; image: MindMapImageElement }
+  | { type: 'image.update'; sheetId: string; imageId: string; patch: MindMapImageUpdatePatch }
+  | { type: 'image.remove'; sheetId: string; imageId: string }
   | { type: 'selection.set-style'; sheetId: string; topicIds: string[]; style: MindMapTopicStyleOverride }
   | { type: 'sheet.create'; sheetId?: string; title?: string; index?: number; sheet?: MindMapSheetV2 }
   | { type: 'document.rename'; title: string }

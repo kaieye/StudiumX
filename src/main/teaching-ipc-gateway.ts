@@ -115,7 +115,10 @@ import {
 import type { AgentChatStreamPayload, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AgentRealtimeEvent, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, MindMapStreamStep, TeachingSettingsV1 } from '../shared/teaching-types'
 import type { MindMapAssetRef, MindMapDocumentV2 } from '../shared/mindmap/domain/types'
 import type { MindMapDocument } from '../shared/mindmap/mind-map-types'
-import type { MindMapUpdateResult } from '../shared/teaching-types/mindmap'
+import {
+  HOME_MIND_MAP_WORKSPACE_ID,
+  type MindMapUpdateResult
+} from '../shared/teaching-types/mindmap'
 import { migrateV1ToV2 } from '../shared/mindmap/migrations'
 import { applyMindMapProposal as applyReviewedMindMapProposal } from '../shared/mindmap/commands/mind-map-proposal'
 import { applyMindMapCommand } from '../shared/mindmap/commands/mind-map-reducer'
@@ -341,7 +344,33 @@ export function registerTeachingIpcGateway(registration: TeachingIpcRegistration
 
 function createCommands(context: GatewayContext): GatewayCommand[] {
   const { workspaceService: service, settingsService: settings, skillLibraryService: skills, learningAnalyticsService: analytics } = context
-  const getMindMapStore = context.mindMapStoreFactory ?? createMindMapStore
+
+  /**
+   * Root of the global home mind-map location (`<defaultRoot>/MindMaps`),
+   * separate from every teaching workspace's `mindmaps/` folder. Maps created
+   * directly on the home page live here.
+   */
+  let homeMindMapRoot: string | null = null
+  const resolveHomeMindMapRoot = async (): Promise<string> => {
+    if (homeMindMapRoot) return homeMindMapRoot
+    const loaded = await settings.load()
+    const defaultRoot = loaded.workspace.defaultRoot || app.getPath('documents')
+    homeMindMapRoot = join(defaultRoot, 'MindMaps')
+    return homeMindMapRoot
+  }
+
+  /**
+   * Mind-map store for a resolved root. The home location writes maps directly
+   * into its root (`MindMaps/`); every workspace store uses the default
+   * `mindmaps/` subfolder. Test factories are honored for workspace roots.
+   */
+  const getMindMapStore = (rootPath: string): MindMapStore => {
+    const factory = context.mindMapStoreFactory ?? createMindMapStore
+    if (homeMindMapRoot && resolve(rootPath) === resolve(homeMindMapRoot)) {
+      return createMindMapStore(rootPath, '')
+    }
+    return factory(rootPath)
+  }
   const retainAgentEventBus = (streamId: string, eventBus: AgentEventBus): void => {
     context.retainedAgentEventBuses.delete(streamId)
     context.retainedAgentEventBuses.set(streamId, eventBus)
@@ -361,6 +390,12 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
    * registered `workspaceId`; otherwise falls back to the active workspace root.
    */
   const resolveMindMapWorkspaceRoot = async (workspaceId: string): Promise<string> => {
+    // The reserved home sentinel addresses the global MindMaps location
+    // (`~/Documents/StudiumX Workspaces/MindMaps`), independent of any teaching
+    // workspace. It reuses the same per-document IPC lanes unchanged.
+    if (workspaceId === HOME_MIND_MAP_WORKSPACE_ID) {
+      return resolveHomeMindMapRoot()
+    }
     const state = await service.getState()
     if (workspaceId) {
       // Mind-map IPC envelopes carry the registered workspace identifier. Keep
@@ -1462,6 +1497,28 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         const p = requireMindMapPayload(payload, 'listMindMaps')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
         return getMindMapStore(root).list()
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.listMindMapLibrary,
+      parser: () => undefined,
+      action: async () => {
+        const state = await service.getState()
+        // Home cards live in the global MindMaps folder; each registered
+        // workspace is a folder of its own per-workspace maps. Folders are
+        // reported even when a workspace has no maps so the home page can show
+        // every workspace folder.
+        const homeRoot = await resolveHomeMindMapRoot()
+        const home = await getMindMapStore(homeRoot).list()
+        const workspaces = await Promise.all(
+          state.workspaces.map(async (workspace) => ({
+            workspaceId: workspace.id,
+            name: workspace.name,
+            documents: await getMindMapStore(workspace.rootPath).list()
+          }))
+        )
+        return { home, workspaces }
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),

@@ -130,7 +130,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('MindMapView collapse/expand-all toolbar actions', () => {
+describe('MindMapView recursive collapse/expand toolbar actions', () => {
   it('does not render rename or inspector controls in the canvas action capsule', () => {
     render(<MindMapView />)
 
@@ -138,40 +138,46 @@ describe('MindMapView collapse/expand-all toolbar actions', () => {
     expect(screen.queryByRole('button', { name: 'Mind map inspector' })).not.toBeInTheDocument()
   })
 
-  it('renders collapse-all/expand-all controls in the canvas toolbar', () => {
+  it('renders last-level collapse and next-level expand controls in the canvas toolbar', () => {
     render(<MindMapView />)
 
-    expect(screen.getByRole('button', { name: 'Collapse all' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Expand all' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Collapse last visible level' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand next level' })).toBeInTheDocument()
   })
 
-  it('collapses every topic through the canonical command path when collapse-all is clicked', () => {
+  it('collapses the deepest visible branch layer recursively through the canonical command path', () => {
     render(<MindMapView />)
 
     expect(collapsedIds()).toEqual([])
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse last visible level' }))
+    expect(collapsedIds()).toEqual(['branch-a'])
 
-    expect(collapsedIds().sort()).toEqual(['branch-a', 'branch-b', 'leaf-a1', 'root'])
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse last visible level' }))
+    expect(collapsedIds().sort()).toEqual(['branch-a', 'root'])
 
-    // A single user-level undo entry restores the whole map to expanded.
+    // Each layer is one user-level undo entry.
+    useMindMapViewStore.getState().undo()
+    expect(collapsedIds()).toEqual(['branch-a'])
     useMindMapViewStore.getState().undo()
     expect(collapsedIds()).toEqual([])
   })
 
-  it('expands every topic through the canonical command path when expand-all is clicked', () => {
+  it('expands one visible child layer at a time across the whole map', () => {
     render(<MindMapView />)
 
-    // Collapse everything first so expand-all has something to revert.
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }))
-    expect(collapsedIds().length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse last visible level' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse last visible level' }))
+    expect(collapsedIds().sort()).toEqual(['branch-a', 'root'])
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand next level' }))
+    expect(collapsedIds()).toEqual(['branch-a'])
 
+    fireEvent.click(screen.getByRole('button', { name: 'Expand next level' }))
     expect(collapsedIds()).toEqual([])
 
-    // Undo returns to the fully-collapsed state as a single entry.
+    // Undo restores the previous frontier as a single entry.
     useMindMapViewStore.getState().undo()
-    expect(collapsedIds().length).toBeGreaterThan(0)
+    expect(collapsedIds()).toEqual(['branch-a'])
   })
 })

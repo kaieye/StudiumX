@@ -104,17 +104,6 @@ describe('MindMapThemeGallery custom color schemes', () => {
     expect(useMindMapViewStore.getState().current?.theme.colorSchemeId).toBe('user-1')
   })
 
-  it('records the applied scheme as recent and caps recent to built-ins and customs', () => {
-    render(<MindMapThemeGallery />)
-
-    fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
-    const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
-    act(() => fireEvent.click(within(listbox).getByRole('option', { name: /Painter/i })))
-
-    expect(useMindMapViewStore.getState().colorSchemes.recent[0]).toBe('painter')
-    expect(localStorage.getItem('mindmap.colorSchemes')).toContain('painter')
-  })
-
   it('pins favorites first within their category and highlights the current scheme', () => {
     useMindMapViewStore.setState({
       colorSchemes: {
@@ -255,7 +244,7 @@ describe('MindMapThemeGallery custom color schemes', () => {
     expect(stored.recent).toEqual(['fire'])
   })
 
-  it('groups custom schemes under the Custom category and searches them', () => {
+  it('groups custom schemes under the Custom category', () => {
     useMindMapViewStore.setState({
       colorSchemes: { schemes: [customScheme()], favorites: [], recent: [] }
     })
@@ -265,13 +254,5 @@ describe('MindMapThemeGallery custom color schemes', () => {
     const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
     const customGroup = within(listbox).getByRole('group', { name: 'Custom' })
     expect(within(customGroup).getByRole('option', { name: /My palette/i })).toBeInTheDocument()
-
-    // Searching matches the custom scheme by name (case-insensitive).
-    const search = within(listbox).getByRole('searchbox')
-    fireEvent.change(search, { target: { value: 'palette' } })
-    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['My paletteCustom'])
-    // Group labels are hidden while searching.
-    expect(within(listbox).queryByText('Recommended')).not.toBeInTheDocument()
-    expect(within(listbox).queryByRole('group', { name: 'Custom' })).not.toBeInTheDocument()
   })
 })

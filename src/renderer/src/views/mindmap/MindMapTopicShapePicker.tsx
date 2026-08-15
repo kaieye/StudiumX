@@ -8,7 +8,7 @@ import {
 } from './MindMapIconPicker'
 import { NodeShapeIcon } from './mind-map-shape-icons'
 
-type ShapeCategory = 'basic' | 'annotation' | 'directional' | 'decorative' | 'flow'
+type ShapeCategory = 'basic' | 'annotation' | 'flow'
 
 type ShapeOption = {
   value: string
@@ -23,14 +23,8 @@ export const MIND_MAP_TOPIC_SHAPE_OPTIONS: readonly ShapeOption[] = [
   { value: 'diamond', labelKey: 'shapeDiamond', category: 'basic' },
   { value: 'underline', labelKey: 'shapeUnderline', category: 'basic' },
   { value: 'none', labelKey: 'shapeNone', category: 'basic' },
-  { value: 'quote', labelKey: 'shapeQuote', category: 'annotation' },
   { value: 'callout', labelKey: 'shapeCallout', category: 'annotation' },
   { value: 'bracket', labelKey: 'shapeBracket', category: 'annotation' },
-  { value: 'arrow-right', labelKey: 'shapeArrowRight', category: 'directional' },
-  { value: 'arrow-left', labelKey: 'shapeArrowLeft', category: 'directional' },
-  { value: 'heart', labelKey: 'shapeHeart', category: 'decorative' },
-  { value: 'cloud', labelKey: 'shapeCloud', category: 'decorative' },
-  { value: 'star', labelKey: 'shapeStar', category: 'decorative' },
   { value: 'parallelogram', labelKey: 'shapeParallelogram', category: 'flow' },
   { value: 'hexagon', labelKey: 'shapeHexagon', category: 'flow' }
 ]
@@ -38,8 +32,6 @@ export const MIND_MAP_TOPIC_SHAPE_OPTIONS: readonly ShapeOption[] = [
 const SHAPE_CATEGORIES: readonly { key: ShapeCategory; labelKey: string }[] = [
   { key: 'basic', labelKey: 'shapeCategories.basic' },
   { key: 'annotation', labelKey: 'shapeCategories.annotation' },
-  { key: 'directional', labelKey: 'shapeCategories.directional' },
-  { key: 'decorative', labelKey: 'shapeCategories.decorative' },
   { key: 'flow', labelKey: 'shapeCategories.flow' }
 ]
 
@@ -94,9 +86,6 @@ export function MindMapTopicShapePicker({
         key: c.key,
         label: t(`mindmap.topicStyle.${c.labelKey}`)
       }))}
-      showClear={hasLocalOverride}
-      clearLabel={t('mindmap.topicStyle.clearField')}
-      onClear={() => onChange(undefined)}
       dialogLabel={t('mindmap.topicStyle.shapePicker')}
       optionLabelKey={(shapeValue) =>
         t(`mindmap.topicStyle.${MIND_MAP_TOPIC_SHAPE_OPTIONS.find((o) => o.value === shapeValue)?.labelKey ?? 'shapeRoundedRect'}`)

@@ -18,6 +18,7 @@ import type {
 import { buildPasteCommand } from '../../../../shared/mindmap/commands'
 import { collectTopicIds } from '../../../../shared/mindmap/domain/invariants'
 import { copySheet } from '../../../../shared/mindmap/domain/sheet-operations'
+import { DEFAULT_MIND_MAP_TOPIC_SHAPE } from '../../../../shared/mindmap/mind-map-types'
 import {
   applyMindMapQuickStyle,
   type MindMapQuickStylePreset
@@ -26,6 +27,7 @@ import type {
   MindMapDocumentV2,
   MindMapElement,
   MindMapSheetV2,
+  MindMapSummary,
   MindMapTopicStyleOverride,
   MindMapTopicV2,
   MindMapTopicNumbering
@@ -47,7 +49,12 @@ export function elementRefIds(element: MindMapElement): string[] {
         ? [element.topicId]
         : [element.topicId, ...element.children]
     case 'summary':
-      return [element.from, element.to]
+      return [
+        element.from,
+        element.to,
+        ...(element.sourceTopicIds ?? []),
+        ...(element.summaryTopicId === undefined ? [] : [element.summaryTopicId])
+      ]
     case 'callout':
       return [element.topicId]
     case 'free-topic':
@@ -78,8 +85,45 @@ function findTopicInChildren(
   return undefined
 }
 
-export function newTopicNode(title = ''): MindMapTopicV2 {
-  return { id: crypto.randomUUID(), title, children: [] }
+/** Source topics covered by a summary. Sibling summaries include their range;
+ * cross-branch summaries persist every explicitly selected source topic. */
+function summarySourceTopics(
+  sheet: MindMapSheetV2,
+  summary: MindMapSummary
+): MindMapTopicV2[] | undefined {
+  if (summary.sourceTopicIds !== undefined) {
+    const sourceTopics = summary.sourceTopicIds
+      .map((topicId) => findTopicInSheet(sheet, topicId)?.node)
+    return sourceTopics.every((topic): topic is MindMapTopicV2 => topic !== undefined)
+      ? sourceTopics
+      : undefined
+  }
+  const from = findTopicInSheet(sheet, summary.from)
+  const to = findTopicInSheet(sheet, summary.to)
+  if (!from || !to) return undefined
+  if (from.parent !== null && from.parent === to.parent) {
+    const firstIndex = Math.min(from.index, to.index)
+    const lastIndex = Math.max(from.index, to.index)
+    return from.parent.children.slice(firstIndex, lastIndex + 1)
+  }
+  return [from.node, to.node]
+}
+
+export function newTopicNode(
+  title = '',
+  defaultTopicStyle?: MindMapTopicStyleOverride,
+  defaultTopicShape?: string
+): MindMapTopicV2 {
+  const style: MindMapTopicStyleOverride = {
+    ...(defaultTopicStyle ?? {}),
+    shape: defaultTopicStyle?.shape ?? defaultTopicShape ?? DEFAULT_MIND_MAP_TOPIC_SHAPE
+  }
+  return {
+    id: crypto.randomUUID(),
+    title,
+    children: [],
+    style
+  }
 }
 
 /**
@@ -109,13 +153,13 @@ export function buildApplyQuickStyleCommand(
 
 /** Tab: insert a child under `parentId`. */
 export function buildInsertChildCommand(
-  sheetId: string,
+  sheet: MindMapSheetV2,
   parentId: string
 ): { command: MindMapCommand; nodeId: string } {
-  const node = newTopicNode()
+  const node = newTopicNode('', sheet.layout.defaultTopicStyle, sheet.layout.defaultTopicShape)
   return {
     nodeId: node.id,
-    command: { type: 'topic.insert', sheetId, parentId, node }
+    command: { type: 'topic.insert', sheetId: sheet.id, parentId, node }
   }
 }
 
@@ -127,9 +171,9 @@ export function buildInsertSiblingCommand(
   const ref = findTopicInSheet(sheet, topicId)
   if (ref === undefined) return null
   if (ref.parent === null) {
-    return buildInsertChildCommand(sheet.id, topicId)
+    return buildInsertChildCommand(sheet, topicId)
   }
-  const node = newTopicNode()
+  const node = newTopicNode('', sheet.layout.defaultTopicStyle, sheet.layout.defaultTopicShape)
   return {
     nodeId: node.id,
     command: {
@@ -150,9 +194,9 @@ export function buildInsertAboveCommand(
   const ref = findTopicInSheet(sheet, topicId)
   if (ref === undefined) return null
   if (ref.parent === null) {
-    return buildInsertChildCommand(sheet.id, topicId)
+    return buildInsertChildCommand(sheet, topicId)
   }
-  const node = newTopicNode()
+  const node = newTopicNode('', sheet.layout.defaultTopicStyle, sheet.layout.defaultTopicShape)
   return {
     nodeId: node.id,
     command: {
@@ -204,7 +248,7 @@ export function buildRemoveCommand(
 ): MindMapCommand | null {
   const ref = findTopicInSheet(sheet, topicId)
   if (ref === undefined || ref.parent === null) return null
-  return { type: 'topic.remove', sheetId: sheet.id, topicId }
+  return buildRemoveTopicsCommand(sheet, [topicId])
 }
 
 /** Delete several selected topics atomically, ignoring the root and descendants of selected ancestors. */
@@ -240,11 +284,68 @@ export function buildRemoveTopicsCommand(
     if (!covered) targets.push(ref.node)
   }
   if (targets.length === 0) return null
-  const commands: MindMapCommand[] = targets.map((topic) => ({
-    type: 'topic.remove',
-    sheetId: sheet.id,
-    topicId: topic.id
-  }))
+
+  // A modern summary owns an ordinary output topic. Maintain that output as
+  // the covered sibling range shrinks, all inside the same undoable deletion:
+  // - when the whole range goes away, delete the output too;
+  // - when exactly one source topic remains, make the output its last child.
+  // In the latter case the brace is naturally removed by the reducer because
+  // one of its endpoints disappears, while the useful summary content remains
+  // attached to the sole surviving topic.
+  const removedTopicIds = new Set<string>()
+  for (const target of targets) {
+    for (const id of collectTopicIds({ ...sheet, root: target })) removedTopicIds.add(id)
+  }
+  const summaryOutputIdsToRemove = new Set<string>()
+  const summaryOutputMoves = new Map<string, string>()
+  for (const element of sheet.elements) {
+    if (element.type !== 'summary' || element.summaryTopicId === undefined) continue
+    const coveredTopics = summarySourceTopics(sheet, element)
+    if (coveredTopics === undefined) continue
+    const remainingRange = coveredTopics.filter((topic) => !removedTopicIds.has(topic.id))
+    if (remainingRange.length === 0) {
+      summaryOutputIdsToRemove.add(element.summaryTopicId)
+    } else if (remainingRange.length === 1) {
+      summaryOutputMoves.set(element.summaryTopicId, remainingRange[0].id)
+    }
+  }
+
+  const moveCommands: MindMapCommand[] = []
+  for (const [outputId, remainingTopicId] of summaryOutputMoves) {
+    // An explicitly selected output (or one inside a selected parent branch)
+    // is already being removed, so it cannot become a surviving child's node.
+    if (removedTopicIds.has(outputId)) continue
+    const output = findTopicInSheet(sheet, outputId)
+    const remaining = findTopicInSheet(sheet, remainingTopicId)
+    if (!output || output.parent === null || !remaining) continue
+    moveCommands.push({
+      type: 'topic.move',
+      sheetId: sheet.id,
+      topicId: outputId,
+      toParentId: remainingTopicId,
+      toIndex: remaining.node.children.length
+    })
+  }
+
+  for (const outputId of summaryOutputIdsToRemove) {
+    // Its containing source branch is already being removed, or the output was
+    // explicitly selected, so no second command is necessary.
+    if (removedTopicIds.has(outputId)) continue
+    const output = findTopicInSheet(sheet, outputId)
+    if (output !== undefined && output.parent !== null) {
+      targets.push(output.node)
+      for (const id of collectTopicIds({ ...sheet, root: output.node })) removedTopicIds.add(id)
+    }
+  }
+
+  const commands: MindMapCommand[] = [
+    ...moveCommands,
+    ...targets.map((topic) => ({
+      type: 'topic.remove' as const,
+      sheetId: sheet.id,
+      topicId: topic.id
+    }))
+  ]
   return commands.length === 1 ? commands[0] : { type: 'transaction', commands }
 }
 
@@ -276,9 +377,92 @@ export function buildUpdateTitleCommand(
   return { type: 'topic.update', sheetId, topicId, patch: { title } }
 }
 
-/** Batch collapse/expand over every topic in a sheet. */
 function collectTopics(node: MindMapTopicV2): MindMapTopicV2[] {
   return [node, ...node.children.flatMap(collectTopics)]
+}
+
+type VisibleTopicEntry = { topic: MindMapTopicV2; depth: number }
+
+/**
+ * Return the currently visible topic tree. A collapsed topic is included, but
+ * its descendants are intentionally not traversed because they are hidden.
+ */
+function collectVisibleTopics(root: MindMapTopicV2): VisibleTopicEntry[] {
+  const entries: VisibleTopicEntry[] = []
+  const visit = (topic: MindMapTopicV2, depth: number): void => {
+    entries.push({ topic, depth })
+    if (topic.collapsed === true) return
+    for (const child of topic.children) visit(child, depth + 1)
+  }
+  visit(root, 0)
+  return entries
+}
+
+function buildCollapseTopicsCommand(
+  sheet: MindMapSheetV2,
+  topics: readonly MindMapTopicV2[],
+  collapsed: boolean
+): MindMapCommand | null {
+  const commands = topics
+    .filter((topic) => topic.children.length > 0 && (topic.collapsed === true) !== collapsed)
+    .map((topic) => ({
+      type: 'topic.update' as const,
+      sheetId: sheet.id,
+      topicId: topic.id,
+      patch: { collapsed }
+    }))
+  if (commands.length === 0) return null
+  return commands.length === 1 ? commands[0] : { type: 'transaction', commands }
+}
+
+/**
+ * Collapse the deepest currently expanded branch layer across the whole map.
+ * Repeating the command walks back toward the root one visible layer at a time.
+ */
+export function buildCollapseLastLevelCommand(sheet: MindMapSheetV2): MindMapCommand | null {
+  const visible = collectVisibleTopics(sheet.root)
+  const expandable = visible.filter(
+    ({ topic }) => topic.children.length > 0 && topic.collapsed !== true
+  )
+  if (expandable.length === 0) return null
+  const deepestDepth = Math.max(...expandable.map(({ depth }) => depth))
+  return buildCollapseTopicsCommand(
+    sheet,
+    expandable.filter(({ depth }) => depth === deepestDepth).map(({ topic }) => topic),
+    true
+  )
+}
+
+/**
+ * Expand every visible collapsed branch once. Repeating the command reveals
+ * the next child layer without recursively expanding newly revealed nodes.
+ */
+export function buildExpandNextLevelCommand(sheet: MindMapSheetV2): MindMapCommand | null {
+  const visibleCollapsed = collectVisibleTopics(sheet.root)
+    .map(({ topic }) => topic)
+    .filter((topic) => topic.children.length > 0 && topic.collapsed === true)
+  return buildCollapseTopicsCommand(sheet, visibleCollapsed, false)
+}
+
+/** Set the collapsed state for one topic's children. */
+export function buildSetTopicChildrenCollapsedCommand(
+  sheet: MindMapSheetV2,
+  topicId: string,
+  collapsed: boolean
+): MindMapCommand | null {
+  const ref = findTopicInSheet(sheet, topicId)
+  return ref === undefined ? null : buildCollapseTopicsCommand(sheet, [ref.node], collapsed)
+}
+
+/** Set the collapsed state for all branch topics at the selected topic's level. */
+export function buildSetSiblingTopicsCollapsedCommand(
+  sheet: MindMapSheetV2,
+  topicId: string,
+  collapsed: boolean
+): MindMapCommand | null {
+  const ref = findTopicInSheet(sheet, topicId)
+  if (ref === undefined || ref.parent === null) return null
+  return buildCollapseTopicsCommand(sheet, ref.parent.children, collapsed)
 }
 
 export type MindMapTopicStylePropagationScope = 'siblings' | 'descendants'
@@ -346,33 +530,153 @@ export function buildPropagateTopicNumberingCommand(
   }
 }
 
-export function buildCollapseAllCommand(
-  sheetId: string,
-  root: MindMapTopicV2
-): MindMapCommand {
-  return {
-    type: 'transaction',
-    commands: collectTopics(root).map((topic) => ({
-      type: 'topic.update',
-      sheetId,
-      topicId: topic.id,
-      patch: { collapsed: true }
-    }))
+
+/** Return the topic path from `root` to `topicId`, inclusive. */
+function topicPath(root: MindMapTopicV2, topicId: string): MindMapTopicV2[] | undefined {
+  if (root.id === topicId) return [root]
+  for (const child of root.children) {
+    const childPath = topicPath(child, topicId)
+    if (childPath !== undefined) return [root, ...childPath]
   }
+  return undefined
 }
 
-export function buildExpandAllCommand(
-  sheetId: string,
-  root: MindMapTopicV2
-): MindMapCommand {
+/** Find the nearest shared ancestor for the supplied topic ids. */
+function lowestCommonTopicAncestor(
+  root: MindMapTopicV2,
+  topicIds: readonly string[]
+): MindMapTopicV2 | undefined {
+  const paths = topicIds.map((topicId) => topicPath(root, topicId))
+  if (paths.some((path) => path === undefined)) return undefined
+  const resolvedPaths = paths as MindMapTopicV2[][]
+  let common = resolvedPaths[0]![0]
+  for (let index = 1; ; index += 1) {
+    const candidate = resolvedPaths[0]![index]
+    if (candidate === undefined || !resolvedPaths.every((path) => path[index]?.id === candidate.id)) break
+    common = candidate
+  }
+  return common
+}
+
+/** The immediate child of `ancestor` that contains `topicId`, if any. */
+function descendantBranchIndex(
+  ancestor: MindMapTopicV2,
+  topicId: string
+): number | undefined {
+  const path = topicPath(ancestor, topicId)
+  if (path === undefined || path.length < 2) return undefined
+  const branch = path[1]
+  return ancestor.children.findIndex((child) => child.id === branch.id)
+}
+
+/**
+ * Resolve the actual source topics for a summary selection. The root is not a
+ * valid summary source, but a marquee spanning several branches can naturally
+ * intersect it as well. Ignore that incidental root hit so selecting three or
+ * more nodes across branches does not make the summary action unavailable.
+ * Missing ids remain invalid and are checked by the caller.
+ */
+function summarySourceTopicIds(
+  sheet: MindMapSheetV2,
+  topicIds: readonly string[]
+): string[] | null {
+  const uniqueIds = [...new Set(topicIds)]
+  const refs = uniqueIds.map((id) => findTopicInSheet(sheet, id))
+  if (refs.some((ref) => ref === undefined)) return null
+  return uniqueIds.filter((_, index) => refs[index]!.parent !== null)
+}
+
+/**
+ * Whether the given topics can form a brace summary. Sibling selections keep
+ * the traditional range behavior. Cross-branch selections attach their output
+ * beneath the lowest common ancestor shared by every selected topic. An
+ * incidental root topic from a marquee selection is ignored.
+ */
+export function canAddSummaryToTopics(
+  sheet: MindMapSheetV2,
+  topicIds: readonly string[]
+): boolean {
+  const sourceIds = summarySourceTopicIds(sheet, topicIds)
+  if (sourceIds === null || sourceIds.length < 2) return false
+  const refs = sourceIds
+    .map((id) => findTopicInSheet(sheet, id))
+    .filter((ref): ref is MindMapNodeRef => ref !== undefined)
+  const parent = refs[0]!.parent
+  if (parent !== null && refs.every((ref) => ref.parent === parent)) return true
+  const commonAncestor = lowestCommonTopicAncestor(sheet.root, sourceIds)
+  return commonAncestor !== undefined && sourceIds.every(
+    (topicId) => descendantBranchIndex(commonAncestor, topicId) !== undefined
+  )
+}
+
+/**
+ * Build one atomic node-summary operation. Sibling selections summarize their
+ * contiguous range; selections across different branches instead form a
+ * cross-branch summary that persists every selected source topic.
+ * The layout continues to position that ordinary topic beside its brace.
+ */
+export function buildAddSummaryCommand(
+  sheet: MindMapSheetV2,
+  topicIds: readonly string[],
+  title = ''
+): { command: MindMapCommand; summaryId: string; summaryTopicId: string } | null {
+  const sourceIds = summarySourceTopicIds(sheet, topicIds)
+  if (sourceIds === null || !canAddSummaryToTopics(sheet, sourceIds)) return null
+  const refs = sourceIds
+    .map((id) => findTopicInSheet(sheet, id))
+    .filter((ref): ref is MindMapNodeRef => ref !== undefined)
+  const sharedParent = refs[0]!.parent
+
+  let outputParent: MindMapTopicV2
+  let insertIndex: number
+  let from: string
+  let to: string
+  if (sharedParent !== null && refs.every((ref) => ref.parent === sharedParent)) {
+    const indices = refs.map((ref) => ref.index)
+    from = sharedParent.children[Math.min(...indices)]!.id
+    insertIndex = Math.max(...indices) + 1
+    to = sharedParent.children[insertIndex - 1]!.id
+    outputParent = sharedParent
+  } else {
+    const commonAncestor = lowestCommonTopicAncestor(sheet.root, sourceIds)
+    if (commonAncestor === undefined) return null
+    const branchIndices = sourceIds
+      .map((topicId) => descendantBranchIndex(commonAncestor, topicId))
+    if (branchIndices.some((index) => index === undefined)) return null
+    outputParent = commonAncestor
+    insertIndex = Math.max(...(branchIndices as number[])) + 1
+    from = refs[0]!.node.id
+    to = refs.at(-1)!.node.id
+  }
+
+  const summaryId = crypto.randomUUID()
+  const summaryTopic = newTopicNode(title, sheet.layout.defaultTopicStyle, sheet.layout.defaultTopicShape)
+  const element: MindMapSummary = {
+    id: summaryId,
+    type: 'summary',
+    from,
+    to,
+    ...(sharedParent !== null && refs.every((ref) => ref.parent === sharedParent)
+      ? {}
+      : { sourceTopicIds: sourceIds }),
+    summaryTopicId: summaryTopic.id
+  }
   return {
-    type: 'transaction',
-    commands: collectTopics(root).map((topic) => ({
-      type: 'topic.update',
-      sheetId,
-      topicId: topic.id,
-      patch: { collapsed: false }
-    }))
+    summaryId,
+    summaryTopicId: summaryTopic.id,
+    command: {
+      type: 'transaction',
+      commands: [
+        {
+          type: 'topic.insert',
+          sheetId: sheet.id,
+          parentId: outputParent.id,
+          index: insertIndex,
+          node: summaryTopic
+        },
+        { type: 'element.create', sheetId: sheet.id, element }
+      ]
+    }
   }
 }
 
@@ -390,7 +694,14 @@ export function captureClipboardData(
   const branch = structuredClone(ref.node)
   const branchIds = new Set(collectTopicIds({ ...sheet, root: ref.node }))
   const elements = sheet.elements
-    .filter((element) => elementRefIds(element).some((id) => branchIds.has(id)))
+    .filter((element) => {
+      const refs = elementRefIds(element)
+      if (!refs.some((id) => branchIds.has(id))) return false
+      // A linked summary is only portable when its covered range and output
+      // topic are copied together. Copying its output alone must remain a
+      // normal node operation rather than creating dangling brace references.
+      return element.type !== 'summary' || refs.every((id) => branchIds.has(id))
+    })
     .map((element) => structuredClone(element))
 
   return {

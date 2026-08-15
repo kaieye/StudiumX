@@ -1,33 +1,33 @@
 import {
-  Crosshair,
   Download,
   FileCode,
   FileImage,
   FileText,
   FilePlus2,
-  GitBranch,
   Home,
   Image as ImageIcon,
+  ImagePlus,
+  Link2,
   ListTree,
-  ListPlus,
   Maximize2,
+  Plus,
   Redo2,
   Search,
   Share2,
+  Sigma,
   StickyNote,
   Tag,
   Undo2,
   Upload,
-  ChevronsDownUp,
-  ChevronsUpDown,
-  X
+  X,
+  Braces
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../app-shell/appStore'
 import { MindMapAiPanel } from './MindMapAiPanel'
 import { MindMapCanvas, type MindMapCanvasViewportAction } from './MindMapCanvas'
-import { MindMapHomeGallery } from './MindMapHomeGallery'
+import { MindMapHomeLibrary } from './MindMapHomeLibrary'
 import {
   MindMapExportFeedback,
   type MindMapExportFeedbackState,
@@ -37,6 +37,13 @@ import { MindMapImportCompatibilityReport } from './MindMapImportCompatibilityRe
 import { MindMapSheetTabs } from './MindMapSheetTabs'
 import { MindMapUtilityPanel, type MindMapUtilityPanelKind } from './MindMapUtilityPanel'
 import { MindMapContextMenu } from './MindMapContextMenu'
+import { MindMapTopicPopover, type MindMapTopicPopoverSection } from './MindMapTopicPopover'
+import {
+  AddChildTopicIcon,
+  AddSiblingTopicIcon,
+  CollapseAllTopicsIcon,
+  ExpandAllTopicsIcon
+} from './MindMapToolbarIcons'
 import { MindMapZoomControls } from './MindMapZoomControls'
 import { useMindMapContextMenu } from './mind-map-context-menu-hook'
 import type { MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
@@ -58,6 +65,7 @@ import {
   MIND_MAP_IMPORT_ACCEPT,
   mindMapImportFormatForFileName
 } from './mind-map-import-format'
+import { canAddSummaryToTopics } from './mind-map-commands'
 import './mindmap.css'
 
 /**
@@ -69,12 +77,15 @@ import './mindmap.css'
 export function MindMapView() {
   const { t } = useTranslation()
   const activeWorkspace = useAppStore((s) => s.appState?.activeWorkspace)
-  const documents = useMindMapViewStore((s) => s.documents)
+  const library = useMindMapViewStore((s) => s.library)
+  const scope = useMindMapViewStore((s) => s.scope)
   const current = useMindMapViewStore((s) => s.current)
   const selectedNodeId = useMindMapViewStore((s) => s.selectedNodeId)
   const activeSheetId = useMindMapViewStore((s) => s.activeSheetId)
   const editingNodeId = useMindMapViewStore((s) => s.editingNodeId)
   const loadDocuments = useMindMapViewStore((s) => s.loadDocuments)
+  const loadLibrary = useMindMapViewStore((s) => s.loadLibrary)
+  const setScope = useMindMapViewStore((s) => s.setScope)
   const openDocument = useMindMapViewStore((s) => s.openDocument)
   const createDocument = useMindMapViewStore((s) => s.createDocument)
   const closeDocument = useMindMapViewStore((s) => s.closeDocument)
@@ -92,6 +103,7 @@ export function MindMapView() {
   const insertAbove = useMindMapViewStore((s) => s.insertAbove)
   const deleteNode = useMindMapViewStore((s) => s.deleteNode)
   const deleteNodes = useMindMapViewStore((s) => s.deleteNodes)
+  const addSummary = useMindMapViewStore((s) => s.addSummary)
   const toggleCollapse = useMindMapViewStore((s) => s.toggleCollapse)
   const toggleCollapseNodes = useMindMapViewStore((s) => s.toggleCollapseNodes)
   const collapseAll = useMindMapViewStore((s) => s.collapseAll)
@@ -110,26 +122,60 @@ export function MindMapView() {
   const selectTopic = useMindMapViewStore((s) => s.selectTopic)
   const flushForExport = useMindMapViewStore((s) => s.flushForExport)
   const dispatchCommand = useMindMapViewStore((s) => s.dispatchCommand)
+  const addImage = useMindMapViewStore((s) => s.addImage)
   const inspectorOpen = useMindMapViewStore((s) => s.inspectorOpen)
   const toggleInspector = useMindMapViewStore((s) => s.toggleInspector)
-  const setInspectorTab = useMindMapViewStore((s) => s.setInspectorTab)
 
   const activeSheet = current?.sheets.find((sheet) => sheet.id === activeSheetId) ?? current?.sheets[0]
 
   const [creating, setCreating] = useState(false)
-  const [createSubmitting, setCreateSubmitting] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [titleDraft, setTitleDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [exportFeedback, setExportFeedback] = useState<MindMapExportFeedbackState | null>(null)
   const [importCompatibilityReport, setImportCompatibilityReport] =
     useState<XmindCompatibilityReport | null>(null)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const [insertMenuOpen, setInsertMenuOpen] = useState(false)
   const [utilityPanel, setUtilityPanel] = useState<MindMapUtilityPanelKind | null>(null)
   const [viewportAction, setViewportAction] = useState<MindMapCanvasViewportAction | null>(null)
   const viewportActionIdRef = useRef(0)
   const [zoomLevel, setZoomLevel] = useState(1)
+  const [canvasViewportRevision, setCanvasViewportRevision] = useState(0)
+  const [topicPopover, setTopicPopover] = useState<{ nodeId: string; section: MindMapTopicPopoverSection } | null>(null)
+  const handleCanvasViewportChange = useCallback(() => {
+    setCanvasViewportRevision((value) => value + 1)
+  }, [])
+
+  // Markers, notes, formulas and links are edited in a canvas-adjacent
+  // floating popover so each insert action opens a focused card next to the
+  // target node instead of sending the user to the side inspector.
+  const openTopicPopover = (section: MindMapTopicPopoverSection, nodeId: string | null = selectedNodeId): void => {
+    setUtilityPanel(null)
+    if (nodeId) setTopicPopover({ nodeId, section })
+  }
+
+  // Inserting an image goes straight to the native file picker and attaches
+  // the chosen asset to the target topic — no intermediate panel. Images are
+  // managed (removed / repositioned) directly on the canvas once placed.
+  const handleInsertImage = async (nodeId: string | null = selectedNodeId): Promise<void> => {
+    if (!current || !nodeId || !activeWorkspace) return
+    try {
+      const result = await window.teachingSystem?.importMindMapAsset({
+        workspaceId: activeWorkspace.id,
+        id: current.id
+      })
+      if (!result || result.canceled) return
+      dispatchCommand(
+        { type: 'asset.create', asset: result.asset },
+        { label: 'Add image asset' }
+      )
+      addImage(result.asset.id, { topicId: nodeId })
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   const {
     contextMenu,
     openContextMenu,
@@ -137,10 +183,17 @@ export function MindMapView() {
     canPaste,
     canPasteStyle,
     actions: contextMenuActions
-  } = useMindMapContextMenu()
+  } = useMindMapContextMenu({
+    insertMarkers: (nodeId) => openTopicPopover('markers', nodeId),
+    insertNotes: (nodeId) => openTopicPopover('note', nodeId),
+    insertFormula: (nodeId) => openTopicPopover('formula', nodeId),
+    insertLink: (nodeId) => openTopicPopover('link', nodeId),
+    insertImage: (nodeId) => void handleInsertImage(nodeId)
+  })
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const createSubmittingRef = useRef(false)
+  const creatingRef = useRef(false)
   const exportMenuRef = useRef<HTMLDivElement | null>(null)
+  const insertMenuRef = useRef<HTMLDivElement | null>(null)
 
   const triggerViewportAction = (
     action: Exclude<MindMapCanvasViewportAction, { type: 'navigate' }>['type']
@@ -213,7 +266,8 @@ export function MindMapView() {
     setNotice(null)
     setImportCompatibilityReport(null)
     void loadDocuments()
-  }, [loadDocuments, activeWorkspace?.id])
+    void loadLibrary()
+  }, [loadDocuments, loadLibrary, activeWorkspace?.id])
 
   // Close the import/export menu when clicking anywhere outside it, instead of
   // requiring a second click on the trigger to dismiss it.
@@ -228,14 +282,17 @@ export function MindMapView() {
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [exportMenuOpen])
 
-  // Keep this callback stable while the dialog is open so typing does not
-  // re-run the dialog's focus/escape effect.
-  const cancelCreate = useCallback((): void => {
-    if (createSubmittingRef.current) return
-    setCreating(false)
-    setTitleDraft('')
-    setCreateError(null)
-  }, [])
+  // Close the insert (add to topic) menu when clicking anywhere outside it.
+  useEffect(() => {
+    if (!insertMenuOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!insertMenuRef.current?.contains(event.target as Node)) {
+        setInsertMenuOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [insertMenuOpen])
 
   if (!activeWorkspace) {
     return (
@@ -245,21 +302,17 @@ export function MindMapView() {
     )
   }
 
-  const handleCreate = (): void => {
+  const handleCreate = async (): Promise<void> => {
+    if (creatingRef.current) return
+    creatingRef.current = true
     setNotice(null)
-    setTitleDraft('')
     setCreateError(null)
     setCreating(true)
-  }
-
-  const commitCreate = async (): Promise<void> => {
-    if (createSubmittingRef.current) return
-    const title = titleDraft.trim() || t('mindmap.newDocument')
-    createSubmittingRef.current = true
-    setCreateSubmitting(true)
-    setCreateError(null)
     try {
-      const created = await createDocument(title, DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS)
+      const created = await createDocument(
+        t('mindmap.newDocument'),
+        DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS
+      )
       // XMind starts a new map in an editable root topic. Keep the same low
       // friction flow while still creating a valid, persisted document first.
       const root = created.sheets[0]?.root
@@ -267,8 +320,6 @@ export function MindMapView() {
         selectTopic(root.id)
         setEditingNodeId(root.id)
       }
-      setCreating(false)
-      setTitleDraft('')
     } catch (error) {
       setCreateError(
         error instanceof Error && error.message
@@ -276,8 +327,8 @@ export function MindMapView() {
           : t('mindmap.createDialog.createFailed')
       )
     } finally {
-      createSubmittingRef.current = false
-      setCreateSubmitting(false)
+      creatingRef.current = false
+      setCreating(false)
     }
   }
 
@@ -607,6 +658,18 @@ export function MindMapView() {
     handleAddChild()
   }
 
+  // A node summary accepts sibling ranges or multiple selected topics across branches.
+  const canAddSummary =
+    activeSheet !== undefined &&
+    selection.kind === 'topic' &&
+    canAddSummaryToTopics(activeSheet, selection.topicIds)
+
+  const handleAddSummary = (): void => {
+    if (selection.kind === 'topic' && selection.topicIds.length > 0) {
+      addSummary(selection.topicIds, t('mindmap.addSummary'))
+    }
+  }
+
   const closeUtilityPanel = (): void => {
     // Open the inspector before removing the utility body when the utility was
     // opened from the collapsed rail. This keeps the shell expanded throughout
@@ -647,34 +710,20 @@ export function MindMapView() {
     void closeDocument()
   }
 
-  // Markers and notes live with the selected topic's style in the inspector's
-  // content tab; the format tab holds whole-canvas controls only.
-  const openInspectorSection = (section: 'markers' | 'notes'): void => {
-    setUtilityPanel(null)
-    if (!inspectorOpen) toggleInspector()
-    setInspectorTab('content')
-    requestAnimationFrame(() => {
-      document
-        .getElementById(`mindmap-inspector-${section}`)
-        ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-    })
-  }
+  const folder = scope && scope !== 'home' ? scope : null
 
   if (!current) {
     return (
       <div className="mindmap-view mindmap-view--home">
-        <MindMapHomeGallery
-          documents={documents}
-          workspaceId={activeWorkspace.id}
+        <MindMapHomeLibrary
+          library={library}
+          folder={folder}
           creating={creating}
-          createSubmitting={createSubmitting}
           createError={createError}
-          titleDraft={titleDraft}
           onCreate={handleCreate}
-          onTitleDraftChange={setTitleDraft}
-          onCommitCreate={commitCreate}
-          onCancelCreate={cancelCreate}
           onOpenDocument={openDocument}
+          onOpenFolder={setScope}
+          onBackToLibrary={() => void setScope('home')}
           onRenameDocument={renameDocumentById}
           onDeleteDocument={deleteDocument}
           onCopyDocument={duplicateDocument}
@@ -705,7 +754,7 @@ export function MindMapView() {
             className="mindmap-floating-toolbar__btn"
             disabled={!current}
             onClick={undo}
-            title={t('mindmap.undo')}
+            data-tooltip={t('mindmap.toolbar.undo')}
             aria-label={t('mindmap.undo')}
           >
             <Undo2 size={16} />
@@ -715,7 +764,7 @@ export function MindMapView() {
             className="mindmap-floating-toolbar__btn"
             disabled={!current}
             onClick={redo}
-            title={t('mindmap.redo')}
+            data-tooltip={t('mindmap.toolbar.redo')}
             aria-label={t('mindmap.redo')}
           >
             <Redo2 size={16} />
@@ -723,76 +772,130 @@ export function MindMapView() {
           <span className="mindmap-floating-toolbar__divider" aria-hidden="true" />
           <button
             type="button"
-            className="mindmap-floating-toolbar__btn"
+            className="mindmap-floating-toolbar__btn mindmap-floating-toolbar__btn--structure"
             disabled={!current}
             onClick={collapseAll}
-            title={t('mindmap.collapseAll')}
-            aria-label={t('mindmap.collapseAll')}
+            data-tooltip={t('mindmap.toolbar.collapseLevel')}
+            aria-label={t('mindmap.collapseLastLevel')}
           >
-            <ChevronsDownUp size={16} />
+            <CollapseAllTopicsIcon />
           </button>
           <button
             type="button"
-            className="mindmap-floating-toolbar__btn"
+            className="mindmap-floating-toolbar__btn mindmap-floating-toolbar__btn--structure"
             disabled={!current}
             onClick={expandAll}
-            title={t('mindmap.expandAll')}
-            aria-label={t('mindmap.expandAll')}
+            data-tooltip={t('mindmap.toolbar.expandLevel')}
+            aria-label={t('mindmap.expandNextLevel')}
           >
-            <ChevronsUpDown size={16} />
+            <ExpandAllTopicsIcon />
           </button>
           <span className="mindmap-floating-toolbar__divider" aria-hidden="true" />
           <button
             type="button"
-            className="mindmap-floating-toolbar__btn"
+            className="mindmap-floating-toolbar__btn mindmap-floating-toolbar__btn--node-action"
             disabled={!current || !selectedNodeId}
             onClick={handleAddTopicFromCanvas}
-            title={`${t('mindmap.addChild')} (Tab)`}
+            data-tooltip={t('mindmap.toolbar.addChild')}
             aria-label={t('mindmap.addChild')}
           >
-            <GitBranch size={16} />
+            <AddChildTopicIcon />
           </button>
           <button
             type="button"
-            className="mindmap-floating-toolbar__btn"
+            className="mindmap-floating-toolbar__btn mindmap-floating-toolbar__btn--node-action"
             disabled={!current || !selectedNodeId}
             onClick={handleAddSibling}
-            title={`${t('mindmap.addSibling')} (Enter)`}
+            data-tooltip={t('mindmap.toolbar.addSibling')}
             aria-label={t('mindmap.addSibling')}
           >
-            <ListPlus size={16} />
+            <AddSiblingTopicIcon />
+          </button>
+          <button
+            type="button"
+            className="mindmap-floating-toolbar__btn mindmap-floating-toolbar__btn--node-action"
+            disabled={!current || !canAddSummary}
+            onClick={handleAddSummary}
+            data-tooltip={t('mindmap.toolbar.addSummary')}
+            aria-label={t('mindmap.addSummary')}
+          >
+            <Braces size={16} />
           </button>
           <span className="mindmap-floating-toolbar__divider" aria-hidden="true" />
-          <button
-            type="button"
-            className="mindmap-floating-toolbar__btn"
-            disabled={!current || !selectedNodeId}
-            onClick={() => setNotice(t('mindmap.addRelationship') + ' - coming soon')}
-            title={t('mindmap.addRelationship')}
-            aria-label={t('mindmap.addRelationship')}
-          >
-            <Crosshair size={16} />
-          </button>
-          <button
-            type="button"
-            className="mindmap-floating-toolbar__btn"
-            disabled={!current || !selectedNodeId}
-            onClick={() => openInspectorSection('markers')}
-            title={t('mindmap.markersPanel.title')}
-            aria-label={t('mindmap.markersPanel.title')}
-          >
-            <Tag size={16} />
-          </button>
-          <button
-            type="button"
-            className="mindmap-floating-toolbar__btn"
-            disabled={!current || !selectedNodeId}
-            onClick={() => openInspectorSection('notes')}
-            title={t('mindmap.notesPanel.title')}
-            aria-label={t('mindmap.notesPanel.title')}
-          >
-            <StickyNote size={16} />
-          </button>
+          <div ref={insertMenuRef} className="mindmap-insert-dropdown">
+            <button
+              type="button"
+              className="mindmap-floating-toolbar__btn"
+              disabled={!current || !selectedNodeId}
+              onClick={() => setInsertMenuOpen((value) => !value)}
+              data-tooltip={t('mindmap.toolbar.addContent')}
+              aria-label={t('mindmap.addToTopic')}
+              aria-haspopup="menu"
+              aria-expanded={insertMenuOpen}
+            >
+              <Plus size={16} />
+            </button>
+            {insertMenuOpen ? (
+              <div className="mindmap-insert-dropdown__menu" role="menu">
+                <button
+                  type="button"
+                  className="mindmap-insert-dropdown__item"
+                  role="menuitem"
+                  onClick={() => {
+                    openTopicPopover('markers')
+                    setInsertMenuOpen(false)
+                  }}
+                >
+                  <Tag size={14} /> {t('mindmap.markersPanel.title')}
+                </button>
+                <button
+                  type="button"
+                  className="mindmap-insert-dropdown__item"
+                  role="menuitem"
+                  onClick={() => {
+                    openTopicPopover('note')
+                    setInsertMenuOpen(false)
+                  }}
+                >
+                  <StickyNote size={14} /> {t('mindmap.notesPanel.title')}
+                </button>
+                <div className="mindmap-insert-dropdown__divider" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="mindmap-insert-dropdown__item"
+                  role="menuitem"
+                  onClick={() => {
+                    openTopicPopover('formula')
+                    setInsertMenuOpen(false)
+                  }}
+                >
+                  <Sigma size={14} /> {t('mindmap.contentPanel.formula')}
+                </button>
+                <button
+                  type="button"
+                  className="mindmap-insert-dropdown__item"
+                  role="menuitem"
+                  onClick={() => {
+                    openTopicPopover('link')
+                    setInsertMenuOpen(false)
+                  }}
+                >
+                  <Link2 size={14} /> {t('mindmap.contentPanel.links')}
+                </button>
+                <button
+                  type="button"
+                  className="mindmap-insert-dropdown__item"
+                  role="menuitem"
+                  onClick={() => {
+                    setInsertMenuOpen(false)
+                    void handleInsertImage()
+                  }}
+                >
+                  <ImagePlus size={14} /> {t('mindmap.contentPanel.images')}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {notice ? (
@@ -825,8 +928,16 @@ export function MindMapView() {
               onActiveSheetChange={() => undefined}
               viewportAction={viewportAction}
               onZoomChange={setZoomLevel}
+              onViewportChange={handleCanvasViewportChange}
               onContextMenu={openContextMenu}
               onMoveNode={handleMoveNode}
+              onOpenNote={(nodeId) => setTopicPopover({ nodeId, section: 'note' })}
+            />
+            <MindMapTopicPopover
+              nodeId={topicPopover?.nodeId ?? null}
+              section={topicPopover?.section ?? 'note'}
+              positionRevision={canvasViewportRevision}
+              onClose={() => setTopicPopover(null)}
             />
             <div className="mindmap-sheet-dock">
               <MindMapSheetTabs

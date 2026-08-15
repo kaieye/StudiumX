@@ -74,7 +74,8 @@
 }.sidebar-rail-item:hover,
 .sidebar-rail-item:focus-visible {
   color: var(--text);
-  border-color: var(--lg-line-soft);
+  /* Fill-only hover: keep the grey highlight without the light border ring. */
+  border-color: transparent;
   background: rgba(12, 18, 28, 0.045);
   outline: none;
 }.sidebar-rail-item:active {

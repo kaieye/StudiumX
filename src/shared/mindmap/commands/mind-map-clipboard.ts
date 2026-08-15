@@ -73,7 +73,17 @@ function remapElement(element: MindMapElement, remap: (oldId: string) => string)
           : {})
       }
     case 'summary':
-      return { ...element, from: remap(element.from), to: remap(element.to) }
+      return {
+        ...element,
+        from: remap(element.from),
+        to: remap(element.to),
+        ...(element.sourceTopicIds !== undefined
+          ? { sourceTopicIds: element.sourceTopicIds.map(remap) }
+          : {}),
+        ...(element.summaryTopicId !== undefined
+          ? { summaryTopicId: remap(element.summaryTopicId) }
+          : {})
+      }
     case 'callout':
       return { ...element, topicId: remap(element.topicId) }
     case 'free-topic':

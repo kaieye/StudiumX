@@ -7,21 +7,15 @@ import {
   MindMapHomeCardMenu,
   type MindMapHomeCardMenuState
 } from './MindMapHomeCardMenu'
-import { MindMapCreateDialog } from './MindMapCreateDialog'
-import { branchColor } from './mind-map-branch-colors'
+import { branchColorForKey } from './mind-map-branch-colors'
 import { computeMindMapLayout, type MindMapLayoutResult } from './mind-map-layout'
 
 type MindMapHomeGalleryProps = {
   documents: readonly MindMapSummary[]
   workspaceId: string
   creating: boolean
-  createSubmitting: boolean
   createError: string | null
-  titleDraft: string
-  onCreate: () => void
-  onTitleDraftChange: (title: string) => void
-  onCommitCreate: () => void | Promise<void>
-  onCancelCreate: () => void
+  onCreate: () => void | Promise<void>
   onOpenDocument: (id: string) => void | Promise<void>
   onRenameDocument: (id: string, title: string) => void | Promise<void>
   onDeleteDocument: (id: string) => void | Promise<void>
@@ -37,13 +31,8 @@ export function MindMapHomeGallery({
   documents,
   workspaceId,
   creating,
-  createSubmitting,
   createError,
-  titleDraft,
   onCreate,
-  onTitleDraftChange,
-  onCommitCreate,
-  onCancelCreate,
   onOpenDocument,
   onRenameDocument,
   onDeleteDocument,
@@ -159,11 +148,18 @@ export function MindMapHomeGallery({
           ) : null}
         </div>
       </div>
+      {createError ? (
+        <p className="mindmap-home__hint" role="alert">
+          {createError}
+        </p>
+      ) : null}
       <div className="mindmap-home__grid">
         <button
           type="button"
           className="mindmap-home-card mindmap-home-card--new"
-          onClick={onCreate}
+          onClick={() => void onCreate()}
+          disabled={creating}
+          aria-busy={creating}
           aria-label={t('mindmap.newDocument')}
         >
           <span className="mindmap-home-card__preview mindmap-home-card__preview--new">
@@ -237,15 +233,6 @@ export function MindMapHomeGallery({
         onRemove={(summary) => onDeleteDocument(summary.id)}
         onCopy={copyDocument}
       />
-      <MindMapCreateDialog
-        open={creating}
-        submitting={createSubmitting}
-        error={createError}
-        title={titleDraft}
-        onTitleChange={onTitleDraftChange}
-        onSubmit={onCommitCreate}
-        onCancel={onCancelCreate}
-      />
     </section>
   )
 }
@@ -299,7 +286,7 @@ function PreviewSvg({ document, layout }: { document: MindMapDocumentV2; layout:
               y1={from.y + from.height / 2}
               x2={to.x + to.width / 2}
               y2={to.y + to.height / 2}
-              stroke={branchColor(document.theme, edge.branchIndex) ?? '#6b82ee'}
+              stroke={branchColorForKey(document.theme, edge.branchKey) ?? '#6b82ee'}
               strokeWidth={Math.max(1.5, 3 - edge.branchIndex * 0.25)}
               strokeLinecap="round"
             />
@@ -307,7 +294,7 @@ function PreviewSvg({ document, layout }: { document: MindMapDocumentV2; layout:
         })}
       </g>
       {nodes.map((node) => {
-        const fill = node.depth === 1 ? branchColor(document.theme, node.branchIndex) ?? '#3157dd' : node.depth === 0 ? '#fff' : '#f5f5f7'
+        const fill = node.depth === 1 ? branchColorForKey(document.theme, node.branchKey) ?? '#3157dd' : node.depth === 0 ? '#fff' : '#f5f5f7'
         const text = node.depth === 1 ? '#fff' : node.depth === 0 ? '#2854d8' : '#343434'
         return (
           <g key={node.id}>

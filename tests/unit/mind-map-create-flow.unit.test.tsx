@@ -135,33 +135,60 @@ describe('MindMapView create flow', () => {
     expect(container.querySelector('.mindmap-stage')).not.toBeInTheDocument()
   })
 
-  it('opens a focused create dialog and uses the standard mind map structure', async () => {
-    render(<MindMapView />)
+  it('creates a default-titled mind map and enters the editor without showing a naming dialog', async () => {
+    const { container } = render(<MindMapView />)
 
     const createButton = screen.getAllByRole('button', { name: 'New mind map' })[0]
     fireEvent.click(createButton)
 
-    expect(screen.getByRole('dialog', { name: 'Create a mind map' })).toBeInTheDocument()
-    expect(createButton).toHaveClass('mindmap-home-card--new')
-    expect(createButton).not.toHaveClass('mindmap-home-card--creating')
-    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
-    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
-    expect(window.teachingSystem?.createMindMap).not.toHaveBeenCalled()
-
-    fireEvent.change(screen.getByRole('textbox', { name: 'Mind map name' }), {
-      target: { value: 'Chemistry' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Create mind map' }))
-
     await waitFor(() => expect(window.teachingSystem?.createMindMap).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
-      title: 'Chemistry',
-      structureClass: 'org.xmind.ui.logic.map'
+      title: 'New mind map',
+      structureClass: 'org.xmind.ui.logic.right'
     }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(container.querySelector('.mindmap-home')).not.toBeInTheDocument()
+    expect(container.querySelector('.mindmap-stage')).toBeInTheDocument()
     expect(useMindMapViewStore.getState().current?.title).toBe('Chemistry')
   })
 
-  it('keeps the create dialog open and reports an error when creation fails', async () => {
+  it('uses compact Chinese hover labels for floating-toolbar actions', async () => {
+    await i18n.changeLanguage('zh-CN')
+    const { container } = render(<MindMapView />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: i18n.t('mindmap.newDocument') })[0])
+
+    await waitFor(() =>
+      expect(container.querySelector('.mindmap-floating-toolbar')).toBeInTheDocument()
+    )
+    const toolbar = container.querySelector('.mindmap-floating-toolbar')
+    expect(toolbar).not.toBeNull()
+    const expectedTooltips = [
+      ['撤销', '撤销'],
+      ['重做', '重做'],
+      ['收起最后一层子节点', '收起最后一层子节点'],
+      ['展开下一层子节点', '展开下一层子节点'],
+      ['添加子节点', '加子节点'],
+      ['添加同级节点', '加同级'],
+      ['节点总结', '加总结'],
+      ['添加内容', '加内容']
+    ]
+
+    for (const [name, tooltip] of expectedTooltips) {
+      const button = toolbar?.querySelector(`button[aria-label="${name}"]`)
+      expect(button).toHaveAttribute('data-tooltip', tooltip)
+      expect(button).not.toHaveAttribute('title')
+    }
+
+    expect(toolbar?.querySelector('button[aria-label="添加子节点"] svg > path'))
+      .toHaveAttribute('d', 'M8.75 10H11.25')
+    expect(toolbar?.querySelector('button[aria-label="收起最后一层子节点"] svg > path'))
+      .toHaveAttribute('d', 'M5.5 5.5L9 10L5.5 14.5')
+    expect(toolbar?.querySelector('button[aria-label="展开下一层子节点"] svg > path'))
+      .toHaveAttribute('d', 'M8.5 5.5L5 10L8.5 14.5')
+  })
+
+  it('keeps the user in the gallery when direct creation fails', async () => {
     const createMindMap = vi.fn(async () => {
       throw new Error('create failed')
     })
@@ -175,29 +202,12 @@ describe('MindMapView create flow', () => {
 
     render(<MindMapView />)
     fireEvent.click(screen.getAllByRole('button', { name: 'New mind map' })[0])
-    fireEvent.change(screen.getByRole('textbox', { name: 'Mind map name' }), {
-      target: { value: 'Chemistry' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Create mind map' }))
 
     await waitFor(() => expect(createMindMap).toHaveBeenCalled())
-    expect(screen.getByRole('dialog', { name: 'Create a mind map' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search mind maps')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('create failed')
     expect(useMindMapViewStore.getState().current).toBeNull()
-  })
-
-  it('closes the create dialog with Escape without creating a document', () => {
-    render(<MindMapView />)
-
-    const createButton = screen.getAllByRole('button', { name: 'New mind map' })[0]
-    fireEvent.click(createButton)
-    expect(screen.getByRole('dialog', { name: 'Create a mind map' })).toBeInTheDocument()
-
-    fireEvent.keyDown(document, { key: 'Escape' })
-
-    expect(screen.queryByRole('dialog', { name: 'Create a mind map' })).not.toBeInTheDocument()
-    expect(createButton).toBeInTheDocument()
-    expect(window.teachingSystem?.createMindMap).not.toHaveBeenCalled()
   })
 
   it('shows rename, copy, and remove actions when a preview card is right-clicked', async () => {
@@ -217,6 +227,10 @@ describe('MindMapView create flow', () => {
       updatedAt: '2026-08-10T01:00:00.000Z'
     }
     const listMindMaps = vi.fn(async () => [summary])
+    const listMindMapLibrary = vi.fn(async () => ({
+      home: [],
+      workspaces: [{ workspaceId: 'workspace-1', name: 'Test workspace', documents: [summary] }]
+    }))
     const readMindMap = vi.fn(async ({ id }: { id: string }) =>
       id === copied.id ? copied : source
     )
@@ -230,6 +244,7 @@ describe('MindMapView create flow', () => {
       configurable: true,
       value: {
         listMindMaps,
+        listMindMapLibrary,
         readMindMap,
         createMindMap,
         updateMindMap,
@@ -239,9 +254,11 @@ describe('MindMapView create flow', () => {
 
     render(<MindMapView />)
 
-    await screen.findByRole('button', { name: 'Chemistry' })
+    // The map appears in both the "Recently edited" and "All mind maps"
+    // sections (recent is a highlight subset of all), so match all instances.
+    await screen.findAllByRole('button', { name: 'Chemistry' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rename: Chemistry' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Rename: Chemistry' })[0])
     expect(useMindMapViewStore.getState().current).toBeNull()
     const renameInput = screen.getByRole('textbox', { name: 'Rename' })
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
@@ -262,7 +279,7 @@ describe('MindMapView create flow', () => {
       expect(screen.queryByRole('textbox', { name: 'Rename' })).not.toBeInTheDocument()
     )
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: 'Chemistry' }), {
+    fireEvent.contextMenu(screen.getAllByRole('button', { name: 'Chemistry' })[0], {
       clientX: 100,
       clientY: 120
     })
@@ -272,7 +289,7 @@ describe('MindMapView create flow', () => {
     expect(screen.getByRole('menuitem', { name: 'Copy mind map' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Remove mind map' })).toBeInTheDocument()
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: 'Chemistry' }), {
+    fireEvent.contextMenu(screen.getAllByRole('button', { name: 'Chemistry' })[0], {
       clientX: 100,
       clientY: 120
     })
@@ -296,7 +313,7 @@ describe('MindMapView create flow', () => {
       })
     )
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: 'Chemistry' }), {
+    fireEvent.contextMenu(screen.getAllByRole('button', { name: 'Chemistry' })[0], {
       clientX: 100,
       clientY: 120
     })
@@ -304,7 +321,7 @@ describe('MindMapView create flow', () => {
     await waitFor(() =>
       expect(deleteMindMap).toHaveBeenCalledWith({ workspaceId: 'workspace-1', id: source.id })
     )
-    expect(screen.queryByRole('button', { name: 'Chemistry' })).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('button', { name: 'Chemistry' })).toHaveLength(0)
   })
 
   it('opens editor utilities from the right and returns to the gallery from the home icon', async () => {

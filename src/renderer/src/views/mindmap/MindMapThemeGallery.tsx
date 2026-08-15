@@ -127,10 +127,8 @@ export function MindMapThemeGallery() {
   const duplicateColorScheme = useMindMapViewStore((state) => state.duplicateColorScheme)
   const deleteColorScheme = useMindMapViewStore((state) => state.deleteColorScheme)
   const toggleColorSchemeFavorite = useMindMapViewStore((state) => state.toggleColorSchemeFavorite)
-  const recordRecentColorScheme = useMindMapViewStore((state) => state.recordRecentColorScheme)
   const [openPicker, setOpenPicker] = useState<'scheme' | null>(null)
   const [editor, setEditor] = useState<EditorTarget>(null)
-  const [searchQuery, setSearchQuery] = useState('')
 
   if (!current) return null
 
@@ -162,9 +160,6 @@ export function MindMapThemeGallery() {
 
   const isFavorite = (id: string): boolean => colorSchemes.favorites.includes(id)
   const favoritesSet = new Set(colorSchemes.favorites)
-  const recentEntries = colorSchemes.recent
-    .map((id) => entryById.get(id))
-    .filter((entry): entry is SchemeEntry => entry !== undefined)
 
   const applyColorScheme = (schemeId: string, colors: readonly string[]): void => {
     dispatchCommand(
@@ -179,12 +174,9 @@ export function MindMapThemeGallery() {
       },
       { label: t('mindmap.themeGallery.applyColorScheme') }
     )
-    recordRecentColorScheme(schemeId)
-    setSearchQuery('')
     setOpenPicker(null)
   }
 
-  const normalizedQuery = searchQuery.trim().toLowerCase()
   const categoryLabel = (category: MindMapColorSchemeCategory): string => {
     switch (category) {
       case 'recommended':
@@ -196,24 +188,17 @@ export function MindMapThemeGallery() {
     }
   }
 
-  // When searching, ignore grouping and recent; only matching entries are shown.
-  const filteredEntries = normalizedQuery
-    ? allEntries.filter((entry) => entry.name.toLowerCase().includes(normalizedQuery))
-    : allEntries
-
   const groups: Array<{
     category: MindMapColorSchemeCategory
     label: string
     entries: SchemeEntry[]
   }> = []
-  if (!normalizedQuery) {
-    const order: MindMapColorSchemeCategory[] = ['recommended', 'classic', 'custom']
-    for (const category of order) {
-      const entries = allEntries
-        .filter((entry) => getColorSchemeCategory(entry.id) === category)
-        .sort((left, right) => Number(favoritesSet.has(right.id)) - Number(favoritesSet.has(left.id)))
-      groups.push({ category, label: categoryLabel(category), entries })
-    }
+  const order: MindMapColorSchemeCategory[] = ['recommended', 'classic', 'custom']
+  for (const category of order) {
+    const entries = allEntries
+      .filter((entry) => getColorSchemeCategory(entry.id) === category)
+      .sort((left, right) => Number(favoritesSet.has(right.id)) - Number(favoritesSet.has(left.id)))
+    groups.push({ category, label: categoryLabel(category), entries })
   }
 
   const renderSchemeOption = (entry: SchemeEntry): ReactNode => {
@@ -338,72 +323,15 @@ export function MindMapThemeGallery() {
           </span>
         )}
         open={openPicker === 'scheme'}
-        onOpenChange={(open) => {
-          if (!open) setSearchQuery('')
-          setOpenPicker(open ? 'scheme' : null)
-        }}
+        onOpenChange={(open) => setOpenPicker(open ? 'scheme' : null)}
       >
-        <div className="mindmap-theme-picker__search">
-          <input
-            type="text"
-            role="searchbox"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && filteredEntries.length > 0) {
-                event.preventDefault()
-                applyColorScheme(filteredEntries[0]!.id, filteredEntries[0]!.colors)
-              }
-            }}
-            placeholder={t('mindmap.colorScheme.searchPlaceholder', 'Search color schemes')}
-            aria-label={t('mindmap.colorScheme.searchPlaceholder', 'Search color schemes')}
-          />
-        </div>
-
-        {normalizedQuery ? (
-          filteredEntries.length > 0 ? (
-            <div
-              className="mindmap-theme-picker__scheme-grid"
-              role="group"
-              aria-label={t('mindmap.colorScheme.searchResults', 'Search results')}
-            >
-              {filteredEntries.map(renderSchemeOption)}
+        {groups.map((group) => (
+          <div key={group.category} className="mindmap-theme-picker__section">
+            <div className="mindmap-theme-picker__scheme-grid" role="group" aria-label={group.label}>
+              {group.entries.map(renderSchemeOption)}
             </div>
-          ) : (
-            <div className="mindmap-theme-picker__empty" role="status">
-              {t('mindmap.colorScheme.noResults', 'No matching color schemes')}
-            </div>
-          )
-        ) : (
-          <>
-            {recentEntries.length > 0 ? (
-              <div className="mindmap-theme-picker__section">
-                <div className="mindmap-theme-picker__recent" role="group" aria-label={t('mindmap.colorScheme.recent')}>
-                  {recentEntries.map((entry) => (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      className="mindmap-theme-picker__recent-chip"
-                      aria-label={t('mindmap.colorScheme.applyRecent', { name: entry.name })}
-                      onClick={() => applyColorScheme(entry.id, entry.colors)}
-                    >
-                      {renderColorStrip(entry.colors)}
-                      <span>{entry.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {groups.map((group) => (
-              <div key={group.category} className="mindmap-theme-picker__section">
-                <div className="mindmap-theme-picker__scheme-grid" role="group" aria-label={group.label}>
-                  {group.entries.map(renderSchemeOption)}
-                </div>
-              </div>
-            ))}
-          </>
-        )}
+          </div>
+        ))}
 
         <div className="mindmap-theme-picker__footer">
           <button

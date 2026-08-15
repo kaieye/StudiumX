@@ -27,7 +27,8 @@ const from: MindMapLayoutNode = {
   height: 36,
   depth: 0,
   collapsed: false,
-  branchIndex: 0
+  branchIndex: 0,
+  branchKey: 'from'
 }
 
 const right: MindMapLayoutNode = {
@@ -78,6 +79,20 @@ describe('mind map edge styles', () => {
     expect(leftPath.startsWith('M 100 68 L ')).toBe(true)
     expect(rightPath.endsWith('L 280 138')).toBe(true)
     expect(leftPath.endsWith('L -20 138')).toBe(true)
+  })
+
+  it('joins horizontal branches to underline topic baselines', () => {
+    const underlinedParent: MindMapLayoutNode = { ...from, shape: 'underline' }
+    const underlinedChild: MindMapLayoutNode = { ...right, shape: 'underline' }
+
+    // The visible underline spans y=86 on the parent and y=156 on the child.
+    // Using those exact coordinates lets the node underline bridge incoming
+    // and outgoing branch paths without a detached vertical gap.
+    expect(straightEdgePath(underlinedParent, underlinedChild, 'horizontal'))
+      .toBe('M 180 86 L 280 156')
+    expect(curveEdgePath(from, underlinedChild, 'horizontal')).toBe(
+      'M 180 68 C 216 68, 244 156, 280 156'
+    )
   })
 })
 

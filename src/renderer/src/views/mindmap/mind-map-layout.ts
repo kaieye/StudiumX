@@ -11,12 +11,15 @@ import type {
   MindMapBoundary,
   MindMapCallout,
   MindMapElementStyle,
+  MindMapImageElement,
+  MindMapImagePlacement,
   MindMapMarker,
   MindMapSheetV2,
   MindMapSummary,
   MindMapTopicStyleOverride,
   MindMapTopicV2
 } from '../../../../shared/mindmap/domain/types'
+import { mindMapTopicDisplayTitle } from './mind-map-topic-markdown'
 
 /**
  * Pure, deterministic O(n) tree layout for a v2 mind-map sheet.
@@ -76,7 +79,7 @@ function baseHeightForDepth(depth: number): number {
 }
 
 /** Wrapped-line advance per depth; base height = line height + Y padding. */
-function lineHeightForDepth(depth: number): number {
+export function mindMapTopicLineHeight(depth: number): number {
   if (depth === 0) return 34
   if (depth === 1) return 22
   return 18
@@ -88,6 +91,99 @@ export const MIND_MAP_NODE_MIN_WIDTH = 72
 export const MIND_MAP_AUTO_NODE_MAX_WIDTH = 360
 /** Maximum persisted fixed topic width. */
 export const MIND_MAP_NODE_MAX_WIDTH = 720
+/** Canvas-only width reserved for each in-node topic-content action button. */
+export const MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH = 28
+/** @deprecated Use {@link MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH}. */
+export const MIND_MAP_NOTE_BUTTON_RESERVED_WIDTH = MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH
+/** Fixed thumbnail height used for workspace-backed images rendered inside a topic. */
+export const MIND_MAP_TOPIC_IMAGE_HEIGHT = 88
+/** Minimum width for an image-bearing topic so the thumbnail stays useful. */
+export const MIND_MAP_TOPIC_IMAGE_MIN_WIDTH = 180
+/** Gap between stacked images inside a topic image block. */
+export const MIND_MAP_TOPIC_IMAGE_GAP = 6
+/** Top/bottom padding of a stacked image block. */
+export const MIND_MAP_TOPIC_IMAGE_VERTICAL_PADDING = 12
+/** Per-side padding of the image column when images sit beside the text (left/right). */
+export const MIND_MAP_TOPIC_IMAGE_SIDE_PADDING = 8
+
+/** Minimal size metadata needed to lay out an image. */
+export type MindMapTopicImageDim = { width: number; height: number }
+
+/**
+ * Intrinsic size of a stacked image block for the given images and placement.
+ * `height` is the total vertical extent (stack + gaps + padding); `width` is
+ * the widest image (plus side padding when the block sits beside the text).
+ */
+export function topicImageBlockSize(
+  images: MindMapTopicImageDim[],
+  placement: MindMapImagePlacement
+): { width: number; height: number } {
+  if (images.length === 0) return { width: 0, height: 0 }
+  const stackHeight =
+    images.reduce((sum, img) => sum + img.height, 0)
+    + Math.max(0, images.length - 1) * MIND_MAP_TOPIC_IMAGE_GAP
+    + MIND_MAP_TOPIC_IMAGE_VERTICAL_PADDING
+  const maxWidth = Math.max(...images.map((img) => img.width))
+  if (placement === 'left' || placement === 'right') {
+    return { width: maxWidth + MIND_MAP_TOPIC_IMAGE_SIDE_PADDING * 2, height: stackHeight }
+  }
+  return { width: maxWidth, height: stackHeight }
+}
+
+/**
+ * Split a laid-out topic rect into its text and image regions for a given
+ * image placement. `image` is `null` when the topic has no images. The two
+ * regions never overlap, so editing text never collides with the image.
+ */
+export function computeTopicImageAndTextRegions(
+  node: { x: number; y: number; width: number; height: number },
+  images: MindMapTopicImageDim[] = [],
+  placement: MindMapImagePlacement = 'bottom'
+): {
+  text: { x: number; y: number; width: number; height: number }
+  image: { x: number; y: number; width: number; height: number } | null
+} {
+  const block = topicImageBlockSize(images, placement)
+  if (images.length === 0) {
+    return {
+      text: { x: node.x, y: node.y, width: node.width, height: node.height },
+      image: null
+    }
+  }
+  switch (placement) {
+    case 'top': {
+      const textHeight = Math.max(1, node.height - block.height)
+      return {
+        text: { x: node.x, y: node.y + block.height, width: node.width, height: textHeight },
+        image: { x: node.x, y: node.y, width: node.width, height: block.height }
+      }
+    }
+    case 'left': {
+      const imageWidth = Math.min(block.width, node.width - 1)
+      const textWidth = Math.max(1, node.width - imageWidth)
+      return {
+        text: { x: node.x + imageWidth, y: node.y, width: textWidth, height: node.height },
+        image: { x: node.x, y: node.y, width: imageWidth, height: node.height }
+      }
+    }
+    case 'right': {
+      const imageWidth = Math.min(block.width, node.width - 1)
+      const textWidth = Math.max(1, node.width - imageWidth)
+      return {
+        text: { x: node.x, y: node.y, width: textWidth, height: node.height },
+        image: { x: node.x + textWidth, y: node.y, width: imageWidth, height: node.height }
+      }
+    }
+    case 'bottom':
+    default: {
+      const textHeight = Math.max(1, node.height - block.height)
+      return {
+        text: { x: node.x, y: node.y, width: node.width, height: textHeight },
+        image: { x: node.x, y: node.y + textHeight, width: node.width, height: block.height }
+      }
+    }
+  }
+}
 
 export function clampMindMapNodeWidth(width: number): number {
   return Math.min(MIND_MAP_NODE_MAX_WIDTH, Math.max(MIND_MAP_NODE_MIN_WIDTH, width))
@@ -102,27 +198,96 @@ function isCJK(char: string): boolean {
   )
 }
 
+function measuredCharacterWidth(char: string, depth: number): number {
+  const { cjk, ascii } = charWidthsForDepth(depth)
+  return isCJK(char) ? cjk : ascii
+}
+
+/**
+ * Wrap a topic title to the same approximate text metrics used by the pure
+ * layout. SVG text has no native width-constrained line wrapping, so the
+ * canvas renders these lines as tspans while `measureNodeHeight` uses their
+ * count. Keeping both callers on this helper prevents the label from visually
+ * overflowing a narrow fixed-width topic.
+ *
+ * Explicit newlines are preserved. For Latin text, whitespace is preferred as
+ * a break point; CJK text and words wider than the available line fall back to
+ * character-level wrapping.
+ */
+export function wrapMindMapTopicTitle(title: string, width: number, depth: number): string[] {
+  if (!title) return ['']
+
+  const innerWidth = Math.max(1, clampMindMapNodeWidth(width) - paddingForDepth(depth))
+  const wrappedLines: string[] = []
+
+  for (const paragraph of title.split(/\r?\n/)) {
+    const characters = Array.from(paragraph)
+    if (characters.length === 0 || characters.every((char) => /\s/u.test(char))) {
+      wrappedLines.push('')
+      continue
+    }
+
+    let start = 0
+    while (start < characters.length) {
+      // Whitespace used as a previous line's break point should not become
+      // indentation on the next visual line.
+      while (start < characters.length && /\s/u.test(characters[start]!)) start += 1
+      if (start >= characters.length) break
+
+      let cursor = start
+      let measuredWidth = 0
+      let lastWhitespace = -1
+
+      while (cursor < characters.length) {
+        const char = characters[cursor]!
+        const nextWidth = measuredWidth + measuredCharacterWidth(char, depth)
+        if (nextWidth > innerWidth && cursor > start) break
+        measuredWidth = nextWidth
+        if (/\s/u.test(char)) lastWhitespace = cursor
+        cursor += 1
+        // A single glyph can be wider than the usable area at the minimum
+        // width. Always consume it so wrapping makes forward progress.
+        if (nextWidth > innerWidth) break
+      }
+
+      if (cursor < characters.length && lastWhitespace >= start) {
+        const line = characters.slice(start, lastWhitespace).join('').trimEnd()
+        if (line) wrappedLines.push(line)
+        start = lastWhitespace + 1
+      } else {
+        wrappedLines.push(characters.slice(start, cursor).join('').trimEnd())
+        start = cursor
+      }
+    }
+  }
+
+  return wrappedLines.length > 0 ? wrappedLines : ['']
+}
+
 function measureNodeWidth(title: string, depth: number): number {
   if (!title) return MIND_MAP_NODE_MIN_WIDTH
-  const { cjk, ascii } = charWidthsForDepth(depth)
-  let textWidth = 0
+  let widestLine = 0
+  let lineWidth = 0
   for (const char of title) {
-    textWidth += isCJK(char) ? cjk : ascii
+    if (char === '\n' || char === '\r') {
+      widestLine = Math.max(widestLine, lineWidth)
+      lineWidth = 0
+      continue
+    }
+    lineWidth += measuredCharacterWidth(char, depth)
   }
+  widestLine = Math.max(widestLine, lineWidth)
   const paddingX = paddingForDepth(depth)
-  return Math.min(MIND_MAP_AUTO_NODE_MAX_WIDTH, Math.max(MIND_MAP_NODE_MIN_WIDTH, textWidth + paddingX))
+  return Math.min(MIND_MAP_AUTO_NODE_MAX_WIDTH, Math.max(MIND_MAP_NODE_MIN_WIDTH, widestLine + paddingX))
 }
 
 function measureNodeHeight(title: string, width: number, depth: number): number {
   const baseHeight = baseHeightForDepth(depth)
   if (!title) return baseHeight
-  const paddingX = paddingForDepth(depth)
-  const { ascii } = charWidthsForDepth(depth)
-  const innerWidth = width - paddingX
-  const charsPerLine = Math.max(1, Math.floor(innerWidth / ascii))
-  const lines = Math.max(1, Math.ceil(title.length / charsPerLine))
-  const paddingY = baseHeight - lineHeightForDepth(depth)
-  return Math.max(baseHeight, lines * lineHeightForDepth(depth) + paddingY)
+  const lineHeight = mindMapTopicLineHeight(depth)
+  const lines = wrapMindMapTopicTitle(title, width, depth).length
+  const paddingY = baseHeight - lineHeight
+  return Math.max(baseHeight, lines * lineHeight + paddingY)
 }
 
 // ---- layout types ----
@@ -141,12 +306,24 @@ export type MindMapLayoutNode = {
   note?: string
   /** Whether the topic has a non-empty note (for note indicator badge). */
   hasNote?: boolean
+  /** Whether the topic has a formula that can be reopened from the node. */
+  hasFormula?: boolean
+  /** Whether the topic has at least one link that can be reopened from the node. */
+  hasLinks?: boolean
+  /** Workspace-backed images attached to this topic (from the sheet `images` collection). */
+  imageCount?: number
+  /** Where the attached image block sits relative to the text label. */
+  imagePlacement?: MindMapImagePlacement
   /** Small, accessible XMind-style marker badges attached to the topic. */
   markers?: MindMapMarker[]
   /** Text labels attached to the topic. */
   labels?: string[]
   /** Branch index for colour assignment (0 for root, 0-based for first-level children, inherited by descendants). */
   branchIndex: number
+  /** Stable identity of the top-level branch ancestor (its topic id). Used for
+   * colour assignment so inserting/reordering siblings does not re-colour
+   * existing branches. Root has its own id. */
+  branchKey: string
   /** Shape override from topic style or theme. */
   shape?: string
   /** Number of descendants hidden when this node is collapsed (for badge display). */
@@ -164,6 +341,8 @@ export type MindMapLayoutEdge = {
   to: string
   /** Branch index for edge colouring. */
   branchIndex: number
+  /** Stable identity of the top-level branch ancestor (its topic id). */
+  branchKey: string
   /** Connector attachment axis dictated by the structure layout. */
   axis: 'horizontal' | 'vertical'
   /** Family-specific connector language; omitted for the default curve. */
@@ -188,11 +367,16 @@ export type MindMapLayoutCallout = {
   style?: MindMapElementStyle
 }
 
-/** A sheet-level brace summary projected into layout coordinates. */
+/** A sheet-level brace summary. Its linked output remains a normal layout node. */
 export type MindMapLayoutSummary = {
   id: string
   from: string
   to: string
+  /** Explicit source topics for a cross-branch summary. */
+  sourceTopicIds?: string[]
+  /** Real topic rendered beside the brace for newly created summaries. */
+  summaryTopicId?: string
+  /** Legacy label-only summaries omit `summaryTopicId`. */
   label?: string
   style?: MindMapElementStyle
 }
@@ -209,6 +393,18 @@ export type MindMapLayoutBoundary = {
   height: number
 }
 
+/** A free (canvas-positioned) image projected into layout coordinates. */
+export type MindMapLayoutImage = {
+  id: string
+  assetId: string
+  x: number
+  y: number
+  width: number
+  height: number
+  label?: string
+  style?: MindMapElementStyle
+}
+
 export type MindMapLayoutResult = {
   nodes: MindMapLayoutNode[]
   edges: MindMapLayoutEdge[]
@@ -216,6 +412,7 @@ export type MindMapLayoutResult = {
   callouts: MindMapLayoutCallout[]
   summaries: MindMapLayoutSummary[]
   boundaries: MindMapLayoutBoundary[]
+  images: MindMapLayoutImage[]
 }
 
 // ---- layout constants (kept for tests / external consumers) ----
@@ -299,6 +496,7 @@ function pushEdge(
   from: string,
   to: string,
   branchIndex: number,
+  branchKey: string,
   structureClass: MindMapStructureClass
 ): void {
   const geometry = getLayoutGeometry(structureClass)
@@ -315,6 +513,7 @@ function pushEdge(
     from,
     to,
     branchIndex,
+    branchKey,
     axis,
     ...(connectorStyle === 'curve' ? {} : { connectorStyle })
   })
@@ -636,18 +835,37 @@ function precomputeSizes(
   node: MindMapTopicV2,
   sizes: Map<string, { width: number; height: number }>,
   depth: number,
-  emptyTitleFallback?: string
+  emptyTitleFallback?: string,
+  reserveTopicActionButtonSpace = false,
+  attachedImages?: Map<string, MindMapImageElement[]>
 ): void {
   // Untitled topics are rendered with a placeholder label (G3), so they are
   // measured as that placeholder rather than collapsing to the bare minimum.
-  const measuredTitle = node.title || emptyTitleFallback || ''
-  const width = node.style?.widthMode === 'fixed' && node.style.width !== undefined
-    ? clampMindMapNodeWidth(node.style.width)
+  const displayTitle = mindMapTopicDisplayTitle(node)
+  const measuredTitle = displayTitle || emptyTitleFallback || ''
+  const fixedWidth = node.style?.widthMode === 'fixed' ? node.style.width : undefined
+  const hasFixedWidth = fixedWidth !== undefined
+  const measuredContentWidth = fixedWidth !== undefined
+    ? clampMindMapNodeWidth(fixedWidth)
     : measureNodeWidth(measuredTitle, depth)
-  const height = measureNodeHeight(measuredTitle, width, depth)
+  const images = attachedImages?.get(node.id) ?? []
+  const hasImages = images.length > 0
+  const placement = node.imagePlacement ?? 'bottom'
+  const vertical = placement === 'top' || placement === 'bottom'
+  const block = topicImageBlockSize(images, placement)
+  const textWidth = hasImages && !hasFixedWidth && vertical
+    ? Math.max(measuredContentWidth, MIND_MAP_TOPIC_IMAGE_MIN_WIDTH, block.width)
+    : measuredContentWidth
+  const topicActionCount = Number(Boolean(node.note))
+  const textHeight = measureNodeHeight(measuredTitle, textWidth, depth)
+  const width = (vertical ? textWidth : textWidth + block.width)
+    + (reserveTopicActionButtonSpace
+      ? topicActionCount * MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH
+      : 0)
+  const height = vertical ? textHeight + block.height : Math.max(textHeight, block.height)
   sizes.set(node.id, { width, height })
   for (const child of node.children) {
-    precomputeSizes(child, sizes, depth + 1, emptyTitleFallback)
+    precomputeSizes(child, sizes, depth + 1, emptyTitleFallback, reserveTopicActionButtonSpace, attachedImages)
   }
 }
 
@@ -657,6 +875,7 @@ function emitLayoutPlan(
   topY: number,
   depth: number,
   branchIndex: number,
+  branchKey: string,
   nodes: MindMapLayoutNode[],
   edges: MindMapLayoutEdge[]
 ): void {
@@ -664,7 +883,8 @@ function emitLayoutPlan(
 
   nodes.push({
     id: node.id,
-    title: node.title,
+    branchKey,
+    title: mindMapTopicDisplayTitle(node),
     x: centerX - size.width / 2,
     y: topY,
     width: size.width,
@@ -672,6 +892,9 @@ function emitLayoutPlan(
     depth,
     collapsed,
     ...(node.note ? { note: node.note, hasNote: true } : {}),
+    ...(node.formula ? { hasFormula: true } : {}),
+    ...(node.links && node.links.length > 0 ? { hasLinks: true } : {}),
+    ...(node.imagePlacement ? { imagePlacement: node.imagePlacement } : {}),
     ...(node.markers && node.markers.length > 0
       ? {
           markers: node.markers.map(({ id, symbol, label }) => ({
@@ -698,17 +921,60 @@ function emitLayoutPlan(
 
   for (const child of plan.children) {
     const childBranchIndex = depth === 0 ? child.index : branchIndex
-    pushEdge(edges, node.id, child.plan.node.id, childBranchIndex, structureClass)
+    const childBranchKey = depth === 0 ? child.plan.node.id : branchKey
+    pushEdge(edges, node.id, child.plan.node.id, childBranchIndex, childBranchKey, structureClass)
     emitLayoutPlan(
       child.plan,
       centerX + child.offsetX,
       topY + child.offsetY,
       depth + 1,
       childBranchIndex,
+      childBranchKey,
       nodes,
       edges
     )
   }
+}
+
+/** Space between the covered range and the summary brace. */
+export const MIND_MAP_SUMMARY_RANGE_GAP = 20
+/** Horizontal envelope of the compact curly brace. */
+export const MIND_MAP_SUMMARY_BRACE_WIDTH = 24
+/** Clear space between the brace envelope and its output topic. */
+export const MIND_MAP_SUMMARY_OUTPUT_GAP = 20
+
+/**
+ * Move a linked summary topic (and its visible descendants) beside its brace.
+ * The topic remains in the tree and continues through the regular canvas node
+ * rendering path; only its ordinary incoming tree edge is suppressed below.
+ */
+function placeSummaryTopicBesideBrace(
+  root: MindMapTopicV2,
+  nodes: MindMapLayoutNode[],
+  summaryTopicId: string,
+  x: number,
+  y: number
+): boolean {
+  if (root.id === summaryTopicId) return false
+  const topic = findTopicNodeById(root, summaryTopicId)
+  const layoutTopic = nodes.find((node) => node.id === summaryTopicId)
+  if (!topic || !layoutTopic) return false
+
+  const topicIds = new Set<string>()
+  const collectIds = (candidate: MindMapTopicV2): void => {
+    topicIds.add(candidate.id)
+    for (const child of candidate.children) collectIds(child)
+  }
+  collectIds(topic)
+
+  const deltaX = x - layoutTopic.x
+  const deltaY = y - layoutTopic.y
+  for (const node of nodes) {
+    if (!topicIds.has(node.id)) continue
+    node.x += deltaX
+    node.y += deltaY
+  }
+  return true
 }
 
 /** Optional knobs for {@link computeMindMapLayout}. */
@@ -719,6 +985,10 @@ export type MindMapLayoutOptions = {
    * callers omit it and keep the bare minimum width.
    */
   emptyTitleFallback?: string
+  /** Reserve one right-side slot for each note, formula, or link action button. */
+  reserveTopicActionButtonSpace?: boolean
+  /** @deprecated Use `reserveTopicActionButtonSpace`. */
+  reserveNoteButtonSpace?: boolean
 }
 
 export function computeMindMapLayout(
@@ -728,8 +998,35 @@ export function computeMindMapLayout(
   const nodes: MindMapLayoutNode[] = []
   const edges: MindMapLayoutEdge[] = []
   const sizes = new Map<string, { width: number; height: number }>()
-  precomputeSizes(sheet.root, sizes, 0, options?.emptyTitleFallback)
+  const attachedImages = new Map<string, MindMapImageElement[]>()
+  for (const image of sheet.images ?? []) {
+    if (image.topicId === undefined) continue
+    const list = attachedImages.get(image.topicId) ?? []
+    list.push(image)
+    attachedImages.set(image.topicId, list)
+  }
+  precomputeSizes(
+    sheet.root,
+    sizes,
+    0,
+    options?.emptyTitleFallback,
+    options?.reserveTopicActionButtonSpace ?? options?.reserveNoteButtonSpace,
+    attachedImages
+  )
   const verticalGap = (depth: number): number => effectiveVerticalGap(sheet, depth)
+
+  const images = (sheet.images ?? [])
+    .filter((image) => image.topicId === undefined && image.position !== undefined)
+    .map(({ id, assetId, width, height, position, label, style }) => ({
+      id,
+      assetId,
+      x: position!.x,
+      y: position!.y,
+      width,
+      height,
+      ...(label !== undefined ? { label } : {}),
+      ...(style !== undefined ? { style: { ...style } } : {})
+    }))
 
   const relationships = sheet.elements
     .filter((element) => element.type === 'relationship')
@@ -749,12 +1046,14 @@ export function computeMindMapLayout(
       ...(position !== undefined ? { position: { ...position } } : {}),
       ...(style !== undefined ? { style: { ...style } } : {})
     }))
-  const summaries = sheet.elements
+  const summaryBase = sheet.elements
     .filter((element): element is MindMapSummary => element.type === 'summary')
-    .map(({ id, from, to, label, style }) => ({
+    .map(({ id, from, to, sourceTopicIds, summaryTopicId, label, style }) => ({
       id,
       from,
       to,
+      ...(sourceTopicIds !== undefined ? { sourceTopicIds: [...sourceTopicIds] } : {}),
+      ...(summaryTopicId !== undefined ? { summaryTopicId } : {}),
       ...(label !== undefined ? { label } : {}),
       ...(style !== undefined ? { style: { ...style } } : {})
     }))
@@ -766,7 +1065,37 @@ export function computeMindMapLayout(
     sizes,
     verticalGap
   )
-  emitLayoutPlan(plan, 0, 0, 0, 0, nodes, edges)
+  emitLayoutPlan(plan, 0, 0, 0, 0, sheet.root.id, nodes, edges)
+
+  // New summaries link to a real tree topic. Reposition its rendered subtree
+  // beside the brace, then remove only its normal parent edge; all other topic
+  // behavior remains the standard layout/canvas behavior.
+  const summaryTopicIds = new Set<string>()
+  for (const summary of summaryBase) {
+    if (summary.summaryTopicId === undefined) continue
+    const sourceTopicIds = summary.sourceTopicIds ?? [summary.from, summary.to]
+    const sourceNodes = sourceTopicIds.map((topicId) => nodes.find((node) => node.id === topicId))
+    const outputNode = nodes.find((node) => node.id === summary.summaryTopicId)
+    if (sourceNodes.some((node) => node === undefined) || !outputNode) continue
+    const resolvedSourceNodes = sourceNodes as MindMapLayoutNode[]
+
+    const top = Math.min(...resolvedSourceNodes.map((node) => node.y + node.height / 2))
+    const bottom = Math.max(...resolvedSourceNodes.map((node) => node.y + node.height / 2))
+    const right = Math.max(...resolvedSourceNodes.map((node) => node.x + node.width))
+    const placed = placeSummaryTopicBesideBrace(
+      sheet.root,
+      nodes,
+      summary.summaryTopicId,
+      right
+        + MIND_MAP_SUMMARY_RANGE_GAP
+        + MIND_MAP_SUMMARY_BRACE_WIDTH
+        + MIND_MAP_SUMMARY_OUTPUT_GAP,
+      (top + bottom) / 2 - outputNode.height / 2
+    )
+    if (placed) summaryTopicIds.add(summary.summaryTopicId)
+  }
+  const visibleEdges = edges.filter((edge) => !summaryTopicIds.has(edge.to))
+  const summaries = summaryBase
 
   // Compute boundary rectangles from layout nodes.
   const boundaries = sheet.elements
@@ -813,7 +1142,7 @@ export function computeMindMapLayout(
     })
     .filter((b): b is MindMapLayoutBoundary => b !== null)
 
-  return { nodes, edges, relationships, callouts, summaries, boundaries }
+  return { nodes, edges: visibleEdges, relationships, callouts, summaries, boundaries, images }
 }
 
 /** Find a topic by id within a cloned tree (or null). */

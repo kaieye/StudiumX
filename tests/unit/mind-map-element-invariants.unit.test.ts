@@ -42,6 +42,10 @@ describe('mind map element reference invariants', () => {
       'summary.to',
       { id: 'summary-1', type: 'summary', from: 'root-1', to: 'missing' }
     ],
+    [
+      'summary.summaryTopicId',
+      { id: 'summary-1', type: 'summary', from: 'root-1', to: 'child-1', summaryTopicId: 'missing' }
+    ],
     ['callout.topicId', { id: 'callout-1', type: 'callout', topicId: 'missing', text: 'Note' }],
     [
       'free-topic.topicId',

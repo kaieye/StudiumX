@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../src/renderer/src/i18n'
 import { MindMapCanvas } from '../../src/renderer/src/views/mindmap/MindMapCanvas'
-import { computeMindMapLayout } from '../../src/renderer/src/views/mindmap/mind-map-layout'
+import { edgeStrokeWidth } from '../../src/renderer/src/views/mindmap/mind-map-edge-styles'
+import { computeMindMapLayout, mindMapTopicLineHeight } from '../../src/renderer/src/views/mindmap/mind-map-layout'
 import { fitMindMapViewport } from '../../src/renderer/src/views/mindmap/mind-map-viewport'
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
@@ -136,6 +137,76 @@ describe('MindMapCanvas accessibility', () => {
     expect(child).toHaveAttribute('tabindex', '0')
   })
 
+  it('uses invisible edge targets for resize instead of showing a resize handle', () => {
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null
+    })
+    const { container } = renderCanvas()
+    const root = screen.getByRole('button', { name: 'Root' })
+
+    expect(root.querySelectorAll('.mindmap-node-resize-hitarea')).toHaveLength(2)
+    expect(container.querySelector('.mindmap-node-resize-handle')).not.toBeInTheDocument()
+    expect(container.querySelector('.mindmap-node-resize-grip')).not.toBeInTheDocument()
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+  })
+
+  it('resizes an unselected topic directly from its edge and commits once on release', () => {
+    const updateNode = vi.fn()
+    const originalUpdateNode = useMindMapViewStore.getState().updateNode
+    useMindMapViewStore.setState({
+      updateNode,
+      selection: { kind: 'canvas' },
+      selectedNodeId: null
+    })
+
+    try {
+      const { container } = renderCanvas()
+      const canvas = screen.getByRole('img', { name: 'Overview' })
+      const child = screen.getByRole('button', { name: 'Child' })
+      const initialWidth = Number(child.querySelector('.mindmap-node-rect')?.getAttribute('width'))
+      const rightEdge = child.querySelectorAll<SVGRectElement>('.mindmap-node-resize-hitarea')[1]
+      if (!rightEdge) throw new Error('expected child right resize edge')
+
+      fireEvent.pointerDown(rightEdge, { button: 0, pointerId: 1, clientX: 100, clientY: 100 })
+      fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 164, clientY: 100 })
+
+      const previewWidth = Number(child.querySelector('.mindmap-node-rect')?.getAttribute('width'))
+      expect(previewWidth).toBeGreaterThan(initialWidth)
+      expect(updateNode).not.toHaveBeenCalled()
+      expect(container.querySelector('.mindmap-node-group.is-resizing')).toBeInTheDocument()
+
+      fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 164, clientY: 100 })
+
+      expect(updateNode).toHaveBeenCalledTimes(1)
+      expect(updateNode).toHaveBeenCalledWith('child', {
+        style: { widthMode: 'fixed', width: previewWidth }
+      })
+      expect(useMindMapViewStore.getState().selectedNodeId).toBeNull()
+      expect(container.querySelector('.mindmap-node-group.is-resizing')).not.toBeInTheDocument()
+    } finally {
+      useMindMapViewStore.setState({ updateNode: originalUpdateNode })
+    }
+  })
+
+  it('wraps a narrow topic label and grows the node height to contain every line', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.title = 'A long root topic that must wrap inside its narrow node'
+    document.sheets[0]!.root.style = { widthMode: 'fixed', width: 72 }
+
+    renderCanvas(document)
+
+    const root = screen.getByRole('button', { name: document.sheets[0]!.root.title })
+    const shape = root.querySelector<SVGElement>('.mindmap-node-rect')
+    const label = root.querySelector<SVGTextElement>('.mindmap-node-label')
+    const lines = label?.querySelectorAll<SVGTSpanElement>('.mindmap-node-label-line') ?? []
+
+    expect(shape).toHaveAttribute('width', '72')
+    expect(Number(shape?.getAttribute('height'))).toBeGreaterThan(56)
+    expect(lines.length).toBeGreaterThan(1)
+    expect([...lines].every((line) => line.getAttribute('x') === label?.getAttribute('x'))).toBe(true)
+  })
+
   it('edits a double-clicked topic in place without changing its typography or anchor', async () => {
     const user = userEvent.setup()
     const { container } = renderCanvas()
@@ -180,6 +251,44 @@ describe('MindMapCanvas accessibility', () => {
       fontWeight: '600',
       letterSpacing: '0.01em'
     })
+  })
+
+  it('grows an auto-sized topic while its edited title gets longer', async () => {
+    const user = userEvent.setup()
+    renderCanvas()
+
+    const root = screen.getByRole('button', { name: 'Root' })
+    const shape = root.querySelector<SVGElement>('.mindmap-node-rect')
+    const initialWidth = Number(shape?.getAttribute('width'))
+
+    await user.dblClick(root)
+
+    const editor = screen.getByDisplayValue('Root')
+    fireEvent.change(editor, {
+      target: { value: 'A much longer topic title that should expand while typing' }
+    })
+
+    const expandedWidth = Number(shape?.getAttribute('width'))
+    expect(expandedWidth).toBeGreaterThan(initialWidth)
+    expect(editor.closest('.mindmap-node-foreign')).toHaveAttribute('width', String(expandedWidth))
+  })
+
+  it('inserts a new line with Shift+Enter without committing the edit', async () => {
+    const user = userEvent.setup()
+    renderCanvas()
+
+    const root = screen.getByRole('button', { name: 'Root' })
+    const shape = root.querySelector<SVGElement>('.mindmap-node-rect')
+    const initialHeight = Number(shape?.getAttribute('height'))
+
+    await user.dblClick(root)
+
+    const editor = screen.getByDisplayValue('Root')
+    await user.keyboard('{End}{Shift>}{Enter}{/Shift}Second line')
+
+    expect(editor).toHaveValue('Root\nSecond line')
+    expect(useMindMapViewStore.getState().editingNodeId).toBe('root')
+    expect(Number(shape?.getAttribute('height'))).toBeGreaterThan(initialHeight)
   })
 
   it('selects any double-clicked topic and keeps branch typography while editing', async () => {
@@ -271,6 +380,68 @@ describe('MindMapCanvas accessibility', () => {
 
     expect(root.querySelector('.mindmap-node-rect')).toHaveStyle({ stroke: 'var(--mm-focus)' })
     expect(child.querySelector('.mindmap-node-rect')).not.toHaveStyle({ stroke: 'var(--mm-focus)' })
+  })
+
+  it('renders underline topics as a continuous branch with the label resting above it', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.children[0]!.style = { shape: 'underline' }
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      editingNodeId: null
+    })
+
+    const layout = computeMindMapLayout(document.sheets[0]!)
+    const childNode = layout.nodes.find((node) => node.id === 'child')
+    if (!childNode) throw new Error('expected child layout node')
+
+    const { container } = renderCanvas(document)
+    const child = screen.getByRole('button', { name: 'Child' })
+    const underline = child.querySelector<SVGLineElement>('.mindmap-node-shape--underline')
+    const label = child.querySelector<SVGTextElement>('.mindmap-node-label')
+    const edge = container.querySelector<SVGPathElement>('.mindmap-edge')
+    const baselineY = childNode.y + childNode.height
+
+    expect(underline).toHaveAttribute('x1', String(childNode.x))
+    expect(underline).toHaveAttribute('y1', String(baselineY))
+    expect(edge?.getAttribute('d')).toMatch(new RegExp(`${childNode.x} ${baselineY}$`))
+    expect(underline?.style.stroke).toBe(edge?.style.stroke)
+    expect(underline?.style.strokeWidth).toBe(String(edgeStrokeWidth(childNode.depth)))
+    expect(label?.style.fill).toBe('var(--mindmap-theme-text, var(--text))')
+    expect(Number(label?.getAttribute('y'))).toBeLessThan(baselineY)
+    expect(baselineY - Number(label?.getAttribute('y'))).toBe(
+      3 + mindMapTopicLineHeight(childNode.depth) / 2
+    )
+
+    const labelY = Number(label?.getAttribute('y'))
+    act(() => {
+      useMindMapViewStore.setState({
+        selection: { kind: 'topic', topicIds: ['child'] },
+        selectedNodeId: 'child',
+        editingNodeId: 'child'
+      })
+    })
+    const editorRegion = child.querySelector<SVGForeignObjectElement>('.mindmap-node-input-foreign')
+    const editorCenterY = Number(editorRegion?.getAttribute('y'))
+      + Number(editorRegion?.getAttribute('height')) / 2
+    expect(editorCenterY).toBe(labelY)
+    expect(screen.getByDisplayValue('Child')).toBeInTheDocument()
+  })
+
+  it('does not replace an underline topic branch color with the selection highlight', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.children[0]!.style = { shape: 'underline' }
+    useMindMapViewStore.setState({
+      selection: { kind: 'topic', topicIds: ['child'] },
+      selectedNodeId: 'child',
+      editingNodeId: null
+    })
+
+    renderCanvas(document)
+
+    const child = screen.getByRole('button', { name: 'Child' })
+    const underline = child.querySelector<SVGLineElement>('.mindmap-node-shape--underline')
+    expect(underline?.style.stroke).not.toBe('var(--mm-focus)')
   })
 
   it('renders persisted bold, italic, underline, and strikethrough topic styles together', () => {
@@ -447,7 +618,7 @@ describe('MindMapCanvas accessibility', () => {
     expect(selectedShape?.style.filter).toBe('none')
   })
 
-  it('lets an explicit border override the shape-none fallback stroke attribute', () => {
+  it('lets an explicit border override the shape-none dashed fallback outline', () => {
     const document = makeDocument()
     document.sheets[0]!.root.style = {
       shape: 'none',
@@ -464,8 +635,12 @@ describe('MindMapCanvas accessibility', () => {
     const { container } = renderCanvas(document)
     const shape = [...container.querySelectorAll<SVGElement>('.mindmap-node-rect')]
       .find((element) => element.parentElement?.textContent?.includes('Root'))
-    expect(shape?.getAttribute('stroke')).toBe('none')
+    // The no-shape element itself carries no stroke (it is the dashed CSS
+    // fallback outline) and keeps its transparent fill…
+    expect(shape?.getAttribute('fill')).toBe('none')
+    // …but an explicit solid border still overrides stroke and clears the dash.
     expect(shape?.style.stroke).toBe('rgb(18, 52, 86)')
+    expect(shape?.style.strokeDasharray).toBe('none')
   })
 
   it('keeps the viewport center fixed when toolbar zoom reaches 25%', () => {
@@ -655,5 +830,73 @@ describe('MindMapCanvas accessibility', () => {
     // The document still renders its topics: no silent crash.
     expect(screen.getByRole('button', { name: 'Root' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Child' })).toBeInTheDocument()
+  })
+
+  it('renders a linked node summary with a brace and an ordinary topic output', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.children.push(
+      { id: 'selected-two', title: 'Second selected', children: [] },
+      { id: 'summary-output', title: '节点总结', children: [] }
+    )
+    document.sheets[0]!.elements = [
+      {
+        id: 'summary-1',
+        type: 'summary',
+        from: 'child',
+        to: 'selected-two',
+        summaryTopicId: 'summary-output'
+      }
+    ]
+
+    const { container } = renderCanvas(document)
+    const outputNode = container.querySelector<SVGGElement>('[data-node-id="summary-output"]')
+
+    expect(outputNode).toBeInTheDocument()
+    expect(outputNode).toHaveAccessibleName('节点总结')
+    expect(container.querySelector('.mindmap-summary-brace')).toBeInTheDocument()
+    expect(container.querySelector('.mindmap-summary-connector')).not.toBeInTheDocument()
+    expect(container.querySelector('.mindmap-summary-node')).not.toBeInTheDocument()
+
+    fireEvent.pointerDown(outputNode!)
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'topic',
+      topicIds: ['summary-output']
+    })
+  })
+
+  it('scrolls the canvas instead of zooming when the vertical wheel is used', () => {
+    const { container } = renderCanvas()
+    const svg = container.querySelector('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+
+    // Scrolling down (positive deltaY) reveals content below the current view.
+    fireEvent.wheel(svg, { deltaY: 120, deltaX: 0, deltaMode: 0 })
+    expect(container.querySelector('.mindmap-svg > g')?.getAttribute('transform'))
+      .toBe('translate(0 -120) scale(1)')
+
+    // Scrolling up (negative deltaY) reveals content above the current view.
+    fireEvent.wheel(svg, { deltaY: -40, deltaX: 0, deltaMode: 0 })
+    expect(container.querySelector('.mindmap-svg > g')?.getAttribute('transform'))
+      .toBe('translate(0 -80) scale(1)')
+  })
+
+  it('pans horizontally when a tilt wheel reports a horizontal delta', () => {
+    const { container } = renderCanvas()
+    const svg = container.querySelector('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+
+    fireEvent.wheel(svg, { deltaY: 0, deltaX: 60, deltaMode: 0 })
+    expect(container.querySelector('.mindmap-svg > g')?.getAttribute('transform'))
+      .toBe('translate(-60 0) scale(1)')
+  })
+
+  it('still zooms when Ctrl/Cmd + wheel is used (trackpad pinch)', () => {
+    const { container } = renderCanvas()
+    const svg = container.querySelector('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+
+    fireEvent.wheel(svg, { deltaY: -100, deltaX: 0, deltaMode: 0, ctrlKey: true })
+    const transform = container.querySelector('.mindmap-svg > g')?.getAttribute('transform')
+    expect(transform).toMatch(/scale\(1\.1\)$/)
   })
 })

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapDocumentV2 } from '../../../../shared/mindmap/domain/types'
 import { computeMindMapLayout } from './mind-map-layout'
-import { branchColor } from './mind-map-branch-colors'
+import { branchColorForKey } from './mind-map-branch-colors'
 
 /**
  * Minimap (overview) panel for the mind-map canvas (Xmind-style).
@@ -109,7 +109,7 @@ export function MindMapMinimap({
         {nodes.map((node) => {
           const color = node.depth === 0
             ? null
-            : branchColor(document.theme, node.branchIndex)
+            : branchColorForKey(document.theme, node.branchKey)
           return (
             <rect
               key={node.id}

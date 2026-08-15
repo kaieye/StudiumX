@@ -188,7 +188,10 @@ export function shapeElement(
       }
 
     case 'no-shape':
-      // No shape: return a transparent rect as a placeholder for hit-testing
+      // No shape: render the node bounds as a dashed placeholder outline (the
+      // same visual its picker option shows), so the node stays visible while
+      // still reading as "no solid shape". Hit-testing keeps working because
+      // the element still occupies the node bounds.
       return {
         tag: 'rect',
         attrs: {
@@ -196,24 +199,45 @@ export function shapeElement(
           y,
           width,
           height,
-          rx: 0,
-          ry: 0,
-          fill: 'transparent',
-          stroke: 'none'
+          rx: Math.min(8, height / 2),
+          ry: Math.min(8, height / 2),
+          fill: 'none'
         }
       }
 
     case 'quote': {
-      // Rounded rect with a quotation-mark notch in the top-left corner.
-      const r = Math.min(12, height / 2)
-      const d = Math.min(22, width / 3)
+      // Rounded rect with a double-quotation-mark notch in the top-left edge:
+      // two small slots cut down from the top edge, echoing the picker glyph.
+      const r = Math.min(10, height / 2)
+      const qw = Math.min(7, Math.max(3, width * 0.05))
+      const qg = Math.min(6, Math.max(2, width * 0.04))
+      const qd = Math.min(12, Math.max(4, height * 0.3))
+      const qStart = x + r
+      const qEnd = qStart + 2 * qw + qg
       return {
         tag: 'path',
         attrs: {
-          d: `M ${x + d} ${y} Q ${x + r} ${y} ${x + r} ${y + r} L ${x + r} ${y + d} ` +
-            `L ${x} ${y + d} L ${x} ${y + height - r} Q ${x} ${y + height} ${x + r} ${y + height} ` +
-            `L ${x + width - r} ${y + height} Q ${x + width} ${y + height} ${x + width} ${y + height - r} ` +
-            `L ${x + width} ${y + r} Q ${x + width} ${y} ${x + width - r} ${y} Z`
+          d: `M ${x + width - r} ${y} ` +
+            `Q ${x + width} ${y} ${x + width} ${y + r} ` +
+            `L ${x + width} ${y + height - r} ` +
+            `Q ${x + width} ${y + height} ${x + width - r} ${y + height} ` +
+            `L ${x + r} ${y + height} ` +
+            `Q ${x} ${y + height} ${x} ${y + height - r} ` +
+            `L ${x} ${y + r} ` +
+            `Q ${x} ${y} ${x + r} ${y} ` +
+            `L ${qEnd} ${y} ` +
+            `L ${qEnd} ${y + qd} ` +
+            `L ${qEnd - qw} ${y + qd} ` +
+            `L ${qEnd - qw} ${y} ` +
+            `L ${qEnd - qw - qg} ${y} ` +
+            `L ${qEnd - qw - qg} ${y + qd} ` +
+            `L ${qEnd - qw - qg - qw} ${y + qd} ` +
+            `L ${qEnd - qw - qg - qw} ${y} ` +
+            `L ${qStart} ${y} Z`,
+          // The two quote bays are inner loops drawn in the same direction as
+          // the box, so evenodd winding is required to punch them out as holes
+          // rather than filling them solid.
+          'fill-rule': 'evenodd'
         }
       }
     }
@@ -234,13 +258,18 @@ export function shapeElement(
     }
 
     case 'bracket': {
-      // Left-facing square bracket, open on the right.
-      const hw = Math.min(10, height / 2)
+      // Square brackets on both sides (like `[ text ]`), stroked rather than
+      // filled so the text between the brackets stays readable.
+      const t = Math.min(10, width * 0.12, height * 0.4)
       return {
         tag: 'path',
         attrs: {
-          d: `M ${x + hw} ${y} L ${x + hw} ${y + height} L ${x + width} ${y + height} ` +
-            `M ${x + hw} ${y} L ${x + width} ${y} M ${x + hw} ${y + height / 2} L ${x + width} ${y + height / 2}`
+          d: `M ${x} ${y} L ${x} ${y + height} ` +
+            `M ${x} ${y} L ${x + t} ${y} ` +
+            `M ${x} ${y + height} L ${x + t} ${y + height} ` +
+            `M ${x + width} ${y} L ${x + width} ${y + height} ` +
+            `M ${x + width - t} ${y} L ${x + width} ${y} ` +
+            `M ${x + width - t} ${y + height} L ${x + width} ${y + height}`
         }
       }
     }

@@ -873,7 +873,8 @@
 .mindmap-summary-brace {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: miter;
   opacity: 0.8;
   pointer-events: none;
 }
@@ -882,10 +883,7 @@
   fill: var(--text-muted);
   font-size: 10px;
   pointer-events: none;
-  paint-order: stroke;
-  stroke: var(--surface-subtle);
-  stroke-width: 4px;
-  stroke-linejoin: round;
+  user-select: none;
 }
 
 .mindmap-node-marker {
@@ -925,15 +923,19 @@
 }
 
 .mindmap-node-input {
+  display: block;
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  height: 1em;
+  min-height: 1em;
+  max-height: 100%;
   padding: 0;
+  overflow: hidden;
   background: transparent;
   border: 0;
   border-radius: 0;
   caret-color: currentColor;
+  resize: none;
 }
 
 .mindmap-node-input:focus {
@@ -1062,23 +1064,38 @@
   stroke-linejoin: round;
 }
 
-/* ---- Note indicator ---- */
-.mindmap-note-indicator {
-  cursor: help;
+/* ---- Topic content actions ---- */
+/* These in-node affordances mirror the note/formula/link controls in the top
+ * insert menu: quiet rounded icon buttons that reveal their editor on demand. */
+.mindmap-node-topic-action-group,
+.mindmap-node-note-button-group {
+  cursor: pointer;
+  outline: none;
 }
 
-.mindmap-note-indicator-badge {
-  fill: #F5A623;
-  stroke: #ffffff;
-  stroke-width: 1;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.15));
+.mindmap-node-topic-action,
+.mindmap-node-note-button {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+  transition: fill 120ms ease, color 120ms ease;
 }
 
-.mindmap-note-indicator-symbol {
-  fill: #ffffff;
-  font-size: 9px;
-  font-weight: 700;
-  font-style: italic;
+.mindmap-node-topic-action-group:hover .mindmap-node-topic-action,
+.mindmap-node-topic-action-group:focus-visible .mindmap-node-topic-action,
+.mindmap-node-note-button-group:hover .mindmap-node-note-button,
+.mindmap-node-note-button-group:focus-visible .mindmap-node-note-button {
+  fill: var(--surface-muted);
+}
+
+.mindmap-node-topic-action-icon,
+.mindmap-node-note-button-icon {
+  fill: none;
+  stroke: currentColor;
+  color: var(--text);
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+  stroke-linecap: round;
   pointer-events: none;
 }
 
@@ -1099,10 +1116,6 @@
 }
 
 /* ---- Node shape variants ---- */
-.mindmap-node-shape--ellipse {
-  rx: auto;
-}
-
 .mindmap-node-shape--diamond {
   fill-opacity: 1;
 }
@@ -1113,9 +1126,16 @@
 }
 
 .mindmap-node-shape--no-shape {
-  fill: transparent;
-  stroke: none;
+  fill: none;
+  stroke: var(--mindmap-theme-line, #8E8E93);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
   filter: none;
+}
+
+.mindmap-node-shape--bracket {
+  fill: none;
+  stroke-width: 2;
 }
 
 /* ---- Drag-and-drop visual feedback ---- */
@@ -1227,6 +1247,71 @@
   background: color-mix(in srgb, #E74C3C 12%, transparent);
 }
 
+/* Node context menus use the compact, macOS-style blue selection treatment.
+ * Keep this scoped to the menu opened from a canvas node so the sheet and
+ * document-list menus can retain their existing hover treatment. */
+.mindmap-node-context-menu .mindmap-context-menu__item {
+  width: calc(100% - 10px);
+  min-height: 24px;
+  margin-inline: 5px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  transition: none;
+}
+
+.mindmap-node-context-menu .mindmap-context-menu__item:hover:not(:disabled),
+.mindmap-node-context-menu .mindmap-context-menu__item:focus-visible:not(:disabled) {
+  color: #fff;
+  background: #4f8bf1;
+  outline: none;
+}
+
+/* ---- Context-menu submenu (Insert) ---- */
+.mindmap-context-menu__item--submenu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mindmap-context-menu__submenu-chevron {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+.mindmap-context-menu__submenu {
+  /* Rendered via a portal to document.body with fixed viewport coordinates, so
+   * its own backdrop-filter blurs the real page behind it — matching the
+   * frosted-glass treatment of the main context menu. */
+  position: fixed;
+  z-index: 1100;
+  min-width: 168px;
+  padding: 4px;
+  background: rgba(248, 249, 250, 0.6);
+  border: 1px solid rgba(120, 134, 156, 0.16);
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08), 0 0 3px rgba(0, 0, 0, 0.06);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+  backdrop-filter: blur(8px) saturate(150%);
+  animation: mindmap-context-menu-enter 100ms ease-out;
+}
+
+:root[data-resolved-theme='dark'] .mindmap-context-menu__submenu {
+  background: rgba(31, 35, 38, 0.6);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.mindmap-context-menu__submenu .mindmap-context-menu__item {
+  white-space: nowrap;
+}
+
+.mindmap-context-menu__submenu .mindmap-context-menu__divider {
+  margin: 4px 2px;
+}
+
 /* ---- Zoom controls (floating) ---- */
 .mindmap-zoom-controls {
   display: flex;
@@ -1283,56 +1368,6 @@
 .mindmap-zoom-controls__percentage:hover {
   background: var(--accent-soft);
   color: var(--accent);
-}
-
-/* ---- Notes panel ---- */
-.mindmap-notes-panel {
-  border-top: 1px solid var(--line);
-}
-
-.mindmap-notes-panel__head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: var(--space-sm) var(--space-md);
-  border-bottom: 1px solid var(--line-muted);
-}
-
-.mindmap-notes-panel__head strong {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.mindmap-notes-panel__head span {
-  font-size: 11px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mindmap-notes-panel__input {
-  width: 100%;
-  min-height: 80px;
-  max-height: 200px;
-  padding: var(--space-sm) var(--space-md);
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text);
-  background: var(--surface);
-  border: none;
-  border-top: 1px solid var(--line-muted);
-  resize: vertical;
-  outline: none;
-}
-
-.mindmap-notes-panel__input:focus {
-  background: var(--surface-subtle);
-}
-
-.mindmap-notes-panel__input::placeholder {
-  color: var(--text-faint);
 }
 
 /* ---- Markers panel ---- */
@@ -1496,6 +1531,21 @@
   border-radius: 7px;
 }
 
+.mindmap-topic-content-panel__inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-soft);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mindmap-topic-content-panel__inline-toggle input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .mindmap-topic-content-panel__hint {
   display: block;
   margin-bottom: 4px;
@@ -1548,6 +1598,49 @@
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.mindmap-topic-content-panel__placement {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 8px;
+}
+
+.mindmap-topic-content-panel__placement-label {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.mindmap-topic-content-panel__placement-options {
+  display: flex;
+  gap: 4px;
+}
+
+.mindmap-topic-content-panel__placement-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line-muted);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mindmap-topic-content-panel__placement-option:hover {
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.mindmap-topic-content-panel__placement-option.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
 }
 
 .mindmap-topic-content-panel__link-row {
@@ -2168,6 +2261,20 @@
   display: none;
 }
 
+/* Nodes resize directly from their left or right edge—there is deliberately no
+ * visible handle. The transparent edge zones only provide the ew-resize cursor
+ * and receive the drag gesture. */
+.mindmap-node-resize-control {
+  pointer-events: all;
+}
+
+.mindmap-node-resize-hitarea {
+  fill: transparent;
+  stroke: none;
+  cursor: ew-resize;
+  pointer-events: all;
+}
+
 @media (max-width: 1180px) {
   .mindmap-view {
     grid-template-columns: 216px minmax(0, 1fr) 276px;
@@ -2255,6 +2362,59 @@
   gap: 7px;
   padding-top: 9px;
   border-top: 1px solid var(--line-muted);
+}
+
+.mindmap-canvas-options__subhead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 2px;
+  text-align: center;
+}
+
+.mindmap-canvas-options__subhead strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mindmap-default-node-style {
+  /* Match the topic-style inspector's row rhythm (`.mm-section` uses a column
+   * flex with an 8px gap) so the global-node controls aren't packed together. */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mindmap-default-node-style__reset {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+
+.mindmap-default-node-style__reset-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--line, rgba(128, 128, 128, 0.35));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mindmap-default-node-style__reset-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-strong, rgba(128, 128, 128, 0.6));
+}
+
+.mindmap-default-node-style__reset-btn:focus-visible {
+  outline: 2px solid var(--accent, #438eff);
+  outline-offset: 1px;
+}
+
+.mindmap-default-node-style__reset-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .mindmap-canvas-options__label {
@@ -2602,6 +2762,7 @@
 }
 
 .mindmap-floating-toolbar__btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2614,6 +2775,49 @@
   border-radius: 8px;
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
+}
+
+/* Native title tooltips have a browser-controlled, relatively long delay.
+ * Toolbar hints use this short, local tooltip instead. */
+.mindmap-floating-toolbar__btn[data-tooltip]::after {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  z-index: 2;
+  padding: 4px 6px;
+  color: var(--surface-solid);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+  content: attr(data-tooltip);
+  pointer-events: none;
+  visibility: hidden;
+  background: var(--text);
+  border-radius: 4px;
+  opacity: 0;
+  transform: translate(-50%, -2px);
+  transition: opacity 80ms ease 60ms, transform 80ms ease 60ms, visibility 0s linear 140ms;
+}
+
+.mindmap-floating-toolbar__btn[data-tooltip]:hover:not(:disabled)::after,
+.mindmap-floating-toolbar__btn[data-tooltip]:focus-visible::after {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition-delay: 60ms;
+}
+
+.mindmap-toolbar-glyph__badge {
+  fill: currentColor;
+  stroke: var(--surface-solid);
+  stroke-width: 1;
+}
+
+.mindmap-toolbar-glyph__badge-mark {
+  fill: none;
+  stroke: var(--surface-solid);
+  stroke-width: 1.35;
+  stroke-linecap: round;
 }
 
 .mindmap-floating-toolbar__btn:hover:not(:disabled) {
@@ -2690,6 +2894,66 @@
 }
 
 .mindmap-export-dropdown__divider {
+  height: 1px;
+  background: var(--line-muted);
+  margin: 4px 0;
+}
+
+/* ---- Insert dropdown (floating toolbar: markers/notes/formula/link) ---- */
+.mindmap-insert-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.mindmap-insert-dropdown__menu {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 10px;
+  min-width: 180px;
+  padding: 6px;
+  background: rgba(248, 249, 250, 0.6);
+  border: 1px solid rgba(120, 134, 156, 0.16);
+  border-radius: 12px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08), 0 0 3px rgba(0, 0, 0, 0.06);
+  z-index: 50;
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+  backdrop-filter: blur(8px) saturate(150%);
+}
+
+:root[data-resolved-theme='dark'] .mindmap-insert-dropdown__menu {
+  background: rgba(31, 35, 38, 0.6);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.mindmap-insert-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms ease;
+  white-space: nowrap;
+}
+
+.mindmap-insert-dropdown__item:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.mindmap-insert-dropdown__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mindmap-insert-dropdown__divider {
   height: 1px;
   background: var(--line-muted);
   margin: 4px 0;
@@ -3292,16 +3556,29 @@
   background: var(--surface-hover);
 }
 
-.mindmap-inspector-title:focus-visible,
-.mindmap-inspector-title-input:focus-visible {
+.mindmap-inspector-title:focus-visible {
   outline: 2px solid #438eff;
   outline-offset: 1px;
 }
 
 .mindmap-inspector-title-input {
+  cursor: text;
+  padding: 1px 8px 0;
+}
+
+.mindmap-inspector-title-input:not(.is-editing):hover {
+  background: var(--surface-hover);
+}
+
+.mindmap-inspector-title-input.is-editing {
   border-color: var(--line);
   background: var(--surface-solid);
-  cursor: text;
+}
+
+.mindmap-inspector-title-input:focus,
+.mindmap-inspector-title-input:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .mindmap-inspector-tab {
@@ -3449,9 +3726,19 @@
 .mm-subhead {
   margin-top: 16px;
   padding-bottom: 2px;
-  color: var(--text-soft);
-  font-size: 12px;
+  color: var(--text);
+  font-size: 13px;
   font-weight: 600;
+}
+
+/* The topic-style section starts with a subhead; drop the section's own top
+ * padding and the first subhead's margin so the panel isn't top-heavy. */
+.mindmap-topic-style {
+  padding-top: 0;
+}
+
+.mindmap-topic-style .mm-subhead:first-child {
+  margin-top: 0;
 }
 
 /* ---- rows: label left, control right ---- */
@@ -3675,34 +3962,19 @@
   height: 14px;
 }
 
-/* ---- notes / markers panels join the flat rhythm ---- */
-.mindmap-notes-panel,
+/* ---- markers panel joins the flat rhythm ---- */
 .mindmap-markers-panel {
   border-top: 1px solid var(--line-muted);
   padding: 12px 0 6px;
 }
 
-.mindmap-notes-panel__head,
 .mindmap-markers-panel__head {
   padding: 0 0 6px;
   border-bottom: none;
 }
 
-.mindmap-notes-panel__head strong,
 .mindmap-markers-panel__head strong {
   font-size: 13px;
-}
-
-.mindmap-notes-panel__input {
-  padding: 8px 10px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.mindmap-notes-panel__input:focus {
-  background: var(--surface-solid);
-  border-color: var(--accent);
 }
 
 .mindmap-markers-panel__body {
@@ -3972,6 +4244,97 @@
 
 .mindmap-home-card--renaming {
   cursor: default;
+}
+
+/* --- Home library sections (recent / all, folders, folder view) --- */
+.mindmap-home__section {
+  width: min(1032px, 100%);
+  margin: 0 auto 40px;
+}
+
+.mindmap-home__section-title {
+  margin: 0 0 18px;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* Folder cards reuse the standard mind-map card size; the folder icon sits in
+ * the card preview area so folders align with the "New map" card. */
+.mindmap-folder-card {
+  color: color-mix(in srgb, var(--text-muted) 78%, transparent);
+  background: transparent;
+  border: 0;
+}
+
+.mindmap-folder-card:hover .mindmap-home-card__preview {
+  color: var(--text-muted);
+}
+
+.mindmap-folder-card__name {
+  font-weight: 550;
+}
+
+/* Back-to-library affordance pinned to the top-left of the home page. */
+.mindmap-folder__back {
+  position: fixed;
+  top: 16px;
+  left: 18px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 14px;
+  background: color-mix(in srgb, var(--surface-solid) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line-muted) 70%, transparent);
+  border-radius: 999px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--text) 7%, transparent);
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+.mindmap-folder__back:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text-muted) 40%, var(--line-muted));
+}
+
+.mindmap-home__empty {
+  width: 100%;
+  margin: 18px 0 0;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.mindmap-rename-overlay {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  padding-top: 96px;
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.mindmap-rename-overlay__input {
+  box-sizing: border-box;
+  width: min(340px, 100%);
+  padding: 12px 14px;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  background: var(--surface-solid);
+  border: 1px solid var(--line-muted);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 18%, transparent);
+  outline: 0;
+}
+
+.mindmap-rename-overlay__input:focus {
+  border-color: var(--accent);
 }
 
 .mindmap-home-card-menu {
@@ -5524,6 +5887,10 @@
   padding: 2px;
 }
 
+.mindmap-element-style__field .mindmap-theme-color-editor__hex {
+  width: 100%;
+}
+
 .mindmap-element-style__toggle {
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -5598,6 +5965,7 @@
 .mindmap-theme-bg-picker__presets {
   display: grid;
   grid-template-columns: repeat(9, 24px);
+  grid-template-rows: repeat(2, 24px);
   gap: 5px;
 }
 
@@ -5648,15 +6016,40 @@
   min-width: 0;
 }
 
+.mindmap-theme-bg-picker__row-controls {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
 .mindmap-theme-bg-picker__row input[type='color'] {
   flex: 0 0 auto;
   width: 44px;
-  height: 28px;
+  height: 26px;
   padding: 0;
   background: transparent;
   border: 1px solid var(--line);
   border-radius: 8px;
   cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  overflow: hidden;
+}
+
+.mindmap-theme-bg-picker__row input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.mindmap-theme-bg-picker__row input[type='color']::-webkit-color-swatch {
+  border: 0;
+  border-radius: 7px;
+}
+
+.mindmap-theme-bg-picker__row input[type='color']::-moz-color-swatch {
+  border: 0;
+  border-radius: 7px;
 }
 
 .mindmap-theme-bg-picker__row .mindmap-theme-alpha-row__control {
@@ -5665,11 +6058,13 @@
 
 .mindmap-theme-bg-picker__alpha {
   display: flex;
-  flex-direction: column;
-  gap: 7px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .mindmap-theme-bg-picker__alpha-label {
+  flex: 0 0 auto;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
@@ -5868,16 +6263,16 @@
 .mindmap-theme-bg-picker__recent-colors {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 5px;
   margin-top: 7px;
 }
 
 .mindmap-theme-bg-picker__recent-colors button {
-  width: 27px;
-  height: 27px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
-  border-radius: 8px;
+  border-radius: 7px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
   cursor: pointer;
 }
@@ -6010,8 +6405,7 @@
 }
 
 .mindmap-topic-style-menu__trigger:focus-visible,
-.mindmap-topic-style-menu__option:focus-visible,
-.mindmap-topic-style-menu__custom-color input:focus-visible {
+.mindmap-topic-style-menu__option:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 48%, transparent);
   outline-offset: 1px;
 }
@@ -6093,70 +6487,54 @@
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
-.mindmap-topic-style-menu__options--colors {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.mindmap-topic-style-menu__option--color {
-  justify-content: center;
-  min-height: 31px;
-  padding: 3px;
-}
-
-.mindmap-topic-style-menu__color-preview,
-.mindmap-topic-style-menu__color-swatch {
-  display: block;
-  width: 20px;
-  height: 20px;
-  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
-  border-radius: 50%;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent);
-}
-
-.mindmap-topic-style-menu__color-preview.is-mixed {
-  background: repeating-linear-gradient(135deg, var(--surface-muted) 0 3px, var(--line-muted) 3px 6px) !important;
-}
-
-.mindmap-topic-style-menu__option--color[aria-selected='true'] .mindmap-topic-style-menu__color-swatch {
-  box-shadow: 0 0 0 2px var(--surface-solid), 0 0 0 4px var(--accent);
-}
-
-.mindmap-topic-style-menu__custom-color {
+/* Topic color pickers mirror the canvas background-color control: a compact
+ * rounded swatch that opens a portaled popover with a preset palette, native
+ * color well, opacity slider and recent colors (see mindmap-theme-bg-picker). */
+.mindmap-topic-color {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 8px;
-  padding-top: 8px;
-  color: var(--text-muted);
-  font-size: 10.5px;
-  border-top: 1px solid color-mix(in srgb, var(--line-muted) 72%, transparent);
+  gap: 10px;
+  min-width: 0;
+  min-height: 30px;
 }
 
-.mindmap-topic-style-menu__custom-color input {
-  width: 32px;
-  height: 24px;
-  padding: 2px;
-  background: transparent;
-  border: 1px solid var(--line-muted);
-  border-radius: 5px;
+.mindmap-topic-color__swatch {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  background-clip: padding-box;
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
   cursor: pointer;
 }
 
-.mindmap-topic-style-menu__custom-color input::-webkit-color-swatch-wrapper {
-  padding: 0;
+.mindmap-topic-color__swatch:hover:not(:disabled),
+.mindmap-topic-color__swatch[aria-expanded='true'] {
+  border-color: var(--accent);
 }
 
-.mindmap-topic-style-menu__custom-color input::-webkit-color-swatch {
-  border: 0;
-  border-radius: 3px;
+.mindmap-topic-color__swatch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
 }
+
+.mindmap-topic-color__swatch:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 
 .mindmap-topic-style-menu__options--patterns,
-.mindmap-topic-style-menu__options--border,
 .mindmap-topic-style-menu__options--border-width {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mindmap-topic-style-menu__options--border {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .mindmap-topic-style-menu__option--pattern,
@@ -6265,19 +6643,41 @@
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  align-items: stretch;
+  justify-content: initial;
   min-height: 0;
+  padding: 0;
+}
+
+/* The overview shell adds bottom padding for its page-level composer. The
+ * inspector supplies its own composer spacing, so keep this constrained
+ * surface flush with the panel edges. */
+.mindmap-ai-panel__conversation.overview-dialog-shell.has-conversation {
+  padding: 0;
 }
 
 .mindmap-ai-panel__thread {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 14px;
   min-height: 0;
-  padding: 14px 12px;
+  padding: 14px 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+/* Match the overview dialog's inner message column while keeping the tighter
+ * horizontal rhythm appropriate for the narrow inspector. */
+.mindmap-ai-panel__thread-inner {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0;
+  margin-inline: 0;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 12px;
 }
 
 .mindmap-ai-panel__empty {
@@ -6321,7 +6721,7 @@
   line-height: 1.55;
 }
 
-.mindmap-ai-panel__message--user {
+.mindmap-ai-panel__turn--user > .markdown-message {
   padding: 10px 12px;
   color: var(--text);
   border: 1px solid transparent;
@@ -6357,14 +6757,15 @@
   font-weight: 600;
 }
 
-.mindmap-ai-panel__message-preview {
+.mindmap-ai-panel__message--assistant > .markdown-message pre {
   max-height: 180px;
   margin: 8px 0 0;
   overflow: auto;
-  color: var(--text-soft);
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mindmap-ai-panel__message--assistant > .markdown-message pre code {
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -6438,11 +6839,19 @@
   color: var(--text-soft);
 }
 
+/* Keep the composer visually quiet while typing: the card already establishes
+ * the input boundary, so a focused textarea should not add a second ring. */
+.mindmap-inspector-tab-content--ai .mindmap-ai-panel__input:focus {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
 .mindmap-ai-panel__composer-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 40px;
+  min-height: 32px;
   gap: 16px;
 }
 
@@ -6476,8 +6885,8 @@
 
 .mindmap-ai-panel__send {
   display: inline-grid;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   padding: 0;
   place-items: center;
@@ -6487,7 +6896,7 @@
   background: #2f2f2f;
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.08),
-    0 8px 20px rgba(0, 0, 0, 0.12);
+    0 4px 10px rgba(0, 0, 0, 0.1);
   cursor: pointer;
 }
 
@@ -6496,7 +6905,7 @@
   background: #1f1f1f;
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.08),
-    0 10px 24px rgba(0, 0, 0, 0.15);
+    0 6px 14px rgba(0, 0, 0, 0.12);
   transform: translateY(-1px);
 }
 
@@ -6558,4 +6967,310 @@
   .mindmap-ai-panel {
     transition: none;
   }
+}
+
+/* ---- Floating note/topic editor ---- */
+.mindmap-note-popover {
+  --mindmap-note-card-bg: color-mix(in srgb, var(--surface-solid) 96%, #f3dede 4%);
+  width: min(360px, calc(100vw - 24px));
+  min-height: 0;
+  display: block;
+  overflow: visible;
+  padding: 12px;
+  color: var(--text);
+  background: var(--mindmap-note-card-bg);
+  border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+  border-radius: 16px;
+  box-shadow: 0 14px 32px color-mix(in srgb, var(--text) 16%, transparent),
+    0 4px 12px color-mix(in srgb, var(--text) 8%, transparent);
+  animation: mindmap-note-popover-in 140ms ease-out;
+}
+
+.mindmap-note-popover--section {
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.mindmap-note-popover::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: calc(var(--mindmap-note-caret-left, 50%) - 9px);
+  width: 18px;
+  height: 18px;
+  background: var(--mindmap-note-card-bg);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.mindmap-note-popover.is-above::before {
+  top: auto;
+  bottom: -10px;
+  transform: rotate(180deg);
+}
+
+.mindmap-note-popover__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.mindmap-note-popover__input {
+  display: block;
+  width: 100%;
+  min-height: 108px;
+  max-height: 240px;
+  margin: 0;
+  padding: 4px 2px;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  background: transparent;
+  border: 0;
+  outline: none;
+  resize: vertical;
+}
+
+.mindmap-note-popover__input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.82;
+}
+
+@keyframes mindmap-note-popover-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 640px) {
+  .mindmap-note-popover {
+    width: min(300px, calc(100vw - 24px));
+    padding: 10px;
+    border-radius: 14px;
+  }
+
+  .mindmap-note-popover__input {
+    min-height: 96px;
+    font-size: 14px;
+  }
+}
+
+/* Inline markdown topic labels use a foreignObject so rich inline elements
+ * (KaTeX, <mark>, and <strong>) can be laid out inside the same topic chip. */
+.mindmap-node-markdown-label {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 0 10px;
+  overflow: hidden;
+  color: inherit;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: none;
+  pointer-events: none;
+}
+
+.mindmap-node-markdown-label > * {
+  max-width: 100%;
+  margin: 0;
+}
+
+.mindmap-node-markdown-label mark {
+  padding: 0 0.08em;
+  color: inherit;
+  background: color-mix(in srgb, #facc15 42%, transparent);
+  border-radius: 0.16em;
+}
+
+.mindmap-node-markdown-label a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.12em;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.mindmap-node-markdown-label code {
+  padding: 0.08em 0.28em;
+  color: inherit;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.88em;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  border-radius: 0.28em;
+}
+
+.mindmap-node-markdown-label s {
+  opacity: 0.72;
+}
+
+.mindmap-node-markdown-label .markdown-math {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.mindmap-node-images-foreign {
+  pointer-events: none;
+}
+
+.mindmap-node-images {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  gap: 6px;
+  padding: 6px 10px;
+  overflow: hidden;
+}
+
+/* When the image block sits beside the text (left/right), center the stacked
+   thumbnails vertically within the side column. */
+.mindmap-node-images--left,
+.mindmap-node-images--right {
+  justify-content: center;
+  padding: 6px 6px;
+}
+
+.mindmap-node-image {
+  display: block;
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: 100%;
+  flex: 0 0 auto;
+  object-fit: contain;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 6px;
+}
+
+.mindmap-node-image--loading {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.mindmap-node-markdown-label .katex {
+  font-size: 1em;
+}
+
+.mindmap-node-markdown-label .katex-display {
+  margin: 0;
+}
+
+.mindmap-node-markdown-label .markdown-math--block {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  margin: 0.12em 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.mindmap-node-markdown-label__content {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* --- Free / attached image overlay layer --- */
+.mindmap-image-group {
+  cursor: grab;
+}
+
+.mindmap-image-group.is-dragging {
+  opacity: 0.35;
+}
+
+.mindmap-image-foreign {
+  overflow: visible;
+}
+
+.mindmap-image {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.mindmap-image--loading {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 6px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.mindmap-image-selection {
+  fill: none;
+  stroke: var(--mm-focus, #438EFF);
+  stroke-width: 2;
+}
+
+.mindmap-image-resize-handle {
+  fill: var(--surface-solid);
+  stroke: var(--mm-focus, #438EFF);
+  stroke-width: 1.5;
+  cursor: nwse-resize;
+}
+
+.mindmap-image-delete-button {
+  cursor: pointer;
+}
+
+.mindmap-image-delete-button rect {
+  fill: var(--surface-solid);
+  stroke: var(--danger, #e5484d);
+  stroke-width: 1.5;
+}
+
+.mindmap-image-delete-button svg {
+  color: var(--danger, #e5484d);
+}
+
+.mindmap-image-ghost rect {
+  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+/* 4-region drop candidates shown on a node while an image is dragged over it. */
+.mindmap-image-drop-region {
+  fill: transparent;
+  stroke: none;
+  pointer-events: none;
+}
+
+.mindmap-image-drop-region.is-active {
+  fill: color-mix(in srgb, var(--accent) 30%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.5;
 }

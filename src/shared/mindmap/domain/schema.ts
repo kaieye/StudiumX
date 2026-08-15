@@ -222,7 +222,9 @@ export const mindMapLayoutSettingsSchema = z.object({
   linePattern: z
     .enum(['solid', 'dash', 'hand-drawn-solid', 'hand-drawn-dash'])
     .optional(),
-  tapered: z.boolean().optional()
+  tapered: z.boolean().optional(),
+  defaultTopicShape: mindMapTopicShapeSchema.optional(),
+  defaultTopicStyle: mindMapTopicStyleOverrideSchema.optional()
 })
 
 export const mindMapViewportSchema = z.object({
@@ -340,7 +342,9 @@ export const mindMapBoundarySchema = mindMapElementBaseSchema.extend({
 export const mindMapSummarySchema = mindMapElementBaseSchema.extend({
   type: z.literal('summary'),
   from: z.string().min(1),
-  to: z.string().min(1)
+  to: z.string().min(1),
+  sourceTopicIds: z.array(z.string().min(1)).min(2).optional(),
+  summaryTopicId: z.string().min(1).optional()
 })
 
 export const mindMapCalloutSchema = mindMapElementBaseSchema.extend({
@@ -354,6 +358,18 @@ export const mindMapFreeTopicSchema = mindMapElementBaseSchema.extend({
   type: z.literal('free-topic'),
   topicId: z.string().min(1),
   position: mindMapPointSchema
+})
+
+export const mindMapImageElementSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal('image'),
+  label: z.string().optional(),
+  assetId: z.string().min(1),
+  width: z.number().finite().positive(),
+  height: z.number().finite().positive(),
+  position: mindMapPointSchema.optional(),
+  topicId: z.string().min(1).optional(),
+  style: mindMapElementStyleSchema.optional()
 })
 
 export const mindMapElementSchema = z.discriminatedUnion('type', [
@@ -387,6 +403,7 @@ export const mindMapTopicV2Schema: z.ZodType<
       formula: z.string().max(16_384).optional(),
       sourceRefs: z.array(mindMapSourceRefSchema).optional(),
       assetIds: z.array(z.string().min(1)).optional(),
+      imagePlacement: z.enum(['top', 'bottom', 'left', 'right']).optional(),
       planning: mindMapPlanningMetadataSchema.optional(),
       style: mindMapTopicStyleOverrideSchema.optional(),
       manualPosition: mindMapPointSchema.optional(),
@@ -399,6 +416,7 @@ export const mindMapSheetV2Schema = z.object({
   title: z.string(),
   root: mindMapTopicV2Schema,
   elements: z.array(mindMapElementSchema).default([]),
+  images: z.array(mindMapImageElementSchema).optional(),
   layout: mindMapLayoutSettingsSchema,
   viewport: mindMapViewportSchema.optional()
 })

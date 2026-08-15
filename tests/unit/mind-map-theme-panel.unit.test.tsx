@@ -163,30 +163,53 @@ describe('MindMapThemePanel', () => {
     expect(screen.queryByRole('status', { name: 'Color readability warning' })).not.toBeInTheDocument()
   })
 
-  it('shows the single-line color editor only when rainbow branches is off', () => {
+  it('always shows the single-line color editor regardless of rainbow mode', () => {
     render(<MindMapThemePanel />)
 
     const toggle = screen.getByRole('checkbox', { name: 'Rainbow branches' })
-    // Rainbow mode (default) no longer duplicates the color scheme picker.
-    expect(screen.queryByLabelText('Branch palette')).not.toBeInTheDocument()
+    // The unified line color HEX editor lives inside the color menu rather than
+    // taking up a second control in the main theme row.
+    expect(screen.queryByRole('textbox', { name: 'Branch line HEX' }))
+      .not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Single branch color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Single branch color' })
+    const lineHex = within(dialog).getByRole('textbox', { name: 'Branch line HEX' })
 
-    fireEvent.click(toggle)
-
-    const lineHex = screen.getByRole('textbox', { name: 'Branch line HEX' })
     fireEvent.change(lineHex, { target: { value: '#123456' } })
     fireEvent.keyDown(lineHex, { key: 'Enter' })
 
     expect(useMindMapViewStore.getState().current?.theme).toMatchObject({
-      rainbowBranches: false,
       lineColor: '#123456'
     })
 
+    // Toggling rainbow off keeps the editor visible and preserves the color.
     fireEvent.click(toggle)
     expect(useMindMapViewStore.getState().current?.theme).toMatchObject({
-      rainbowBranches: true,
+      rainbowBranches: false,
       lineColor: '#123456'
     })
-    expect(screen.queryByLabelText('Branch palette')).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('textbox', { name: 'Branch line HEX' })).toBeInTheDocument()
+  })
+
+  it('uses the background-color menu UI for the unified branch-line color', () => {
+    render(<MindMapThemePanel />)
+
+    const swatch = screen.getByRole('button', { name: 'Single branch color' })
+    expect(swatch).toHaveClass('mindmap-theme-bg-picker__swatch')
+    fireEvent.click(swatch)
+
+    const dialog = screen.getByRole('dialog', { name: 'Single branch color' })
+    const presets = within(dialog).getByRole('group', { name: 'Preset colors' })
+    expect(within(presets).getAllByRole('button')).toHaveLength(18)
+
+    fireEvent.click(within(presets).getByRole('button', { name: 'Preset color #A6B8A4' }))
+
+    expect(useMindMapViewStore.getState().current?.theme.lineColor).toBe('#A6B8A4')
+    expect(within(presets).getByRole('button', { name: 'Preset color #A6B8A4' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(within(dialog).getByRole('slider', { name: 'Branch line opacity' })).toBeEnabled()
+    expect(JSON.parse(localStorage.getItem('mindmap.recentLineColors') ?? '[]'))
+      .toEqual(['#A6B8A4'])
   })
 
   it('keeps an imported document font visible and warns only that it may fall back', () => {
@@ -226,21 +249,21 @@ describe('MindMapThemePanel', () => {
     fireEvent.click(swatch)
 
     const presets = screen.getByRole('group', { name: 'Preset colors' })
-    expect(within(presets).getAllByRole('button')).toHaveLength(45)
+    expect(within(presets).getAllByRole('button')).toHaveLength(18)
     expect(within(presets).getByRole('button', { name: 'Preset color #FFFFFF' }))
       .toHaveAttribute('aria-pressed', 'false')
 
-    fireEvent.click(within(presets).getByRole('button', { name: 'Preset color #86EFAC' }))
+    fireEvent.click(within(presets).getByRole('button', { name: 'Preset color #A6B8A4' }))
 
-    expect(useMindMapViewStore.getState().current?.theme.background).toBe('#86EFAC')
-    expect(within(presets).getByRole('button', { name: 'Preset color #86EFAC' }))
+    expect(useMindMapViewStore.getState().current?.theme.background).toBe('#A6B8A4')
+    expect(within(presets).getByRole('button', { name: 'Preset color #A6B8A4' }))
       .toHaveAttribute('aria-pressed', 'true')
 
     const recent = screen.getByRole('group', { name: 'Recent colors' })
-    expect(within(recent).getByRole('button', { name: 'Recent color #86EFAC' }))
+    expect(within(recent).getByRole('button', { name: 'Recent color #A6B8A4' }))
       .toHaveAttribute('aria-pressed', 'true')
     expect(JSON.parse(localStorage.getItem('mindmap.recentBackgroundColors') ?? '[]'))
-      .toEqual(['#86EFAC'])
+      .toEqual(['#A6B8A4'])
   })
 
   it('alpha slider converts the background to 8-digit hex with the new alpha', () => {
@@ -347,6 +370,125 @@ describe('MindMapThemePanel', () => {
       expect.objectContaining({ type: 'document.apply-theme' }),
       expect.anything()
     )
+  })
+
+  it('keeps recent swatches stable while previewing a custom background color', () => {
+    localStorage.setItem('mindmap.recentBackgroundColors', JSON.stringify(['#D9CEC2', '#A6B8A4']))
+    render(<MindMapThemePanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
+    const nativeColor = within(dialog).getByLabelText('Background color')
+    const recent = within(dialog).getByRole('group', { name: 'Recent colors' })
+
+    fireEvent.change(nativeColor, { target: { value: '#B5C9C7' } })
+    expect(within(recent).getAllByRole('button').map((button) => button.getAttribute('title')))
+      .toEqual(['#D9CEC2', '#A6B8A4'])
+
+    fireEvent.blur(nativeColor, { target: { value: '#B5C9C7' } })
+    expect(within(recent).getAllByRole('button').map((button) => button.getAttribute('title')))
+      .toEqual(['#B5C9C7', '#D9CEC2', '#A6B8A4'])
+  })
+
+  it('does not add opacity adjustments to recent background colors', () => {
+    localStorage.setItem('mindmap.recentBackgroundColors', JSON.stringify(['#D9CEC2', '#A6B8A4']))
+    render(<MindMapThemePanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
+    const alpha = within(dialog).getByRole('slider', { name: 'Background opacity' })
+    fireEvent.change(alpha, { target: { value: '45' } })
+
+    const recent = within(dialog).getByRole('group', { name: 'Recent colors' })
+    expect(within(recent).getAllByRole('button').map((button) => button.getAttribute('title')))
+      .toEqual(['#D9CEC2', '#A6B8A4'])
+  })
+
+  it('records an opacity-adjusted background as a new recent color on release', () => {
+    localStorage.setItem('mindmap.recentBackgroundColors', JSON.stringify(['#D9CEC2']))
+    render(<MindMapThemePanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
+    const alpha = within(dialog).getByRole('slider', { name: 'Background opacity' })
+
+    // Preview while dragging stays live but does not touch the recent row.
+    fireEvent.change(alpha, { target: { value: '50' } })
+    let recent = within(dialog).getByRole('group', { name: 'Recent colors' })
+    expect(within(recent).getAllByRole('button').map((button) => button.getAttribute('title')))
+      .toEqual(['#D9CEC2'])
+
+    // Releasing the slider commits the resulting 8-digit color as a new swatch.
+    fireEvent.pointerUp(alpha)
+    recent = within(dialog).getByRole('group', { name: 'Recent colors' })
+    expect(within(recent).getAllByRole('button').map((button) => button.getAttribute('title')))
+      .toEqual(['#10182780', '#D9CEC2'])
+    expect(within(recent).getByRole('button', { name: 'Recent color #10182780' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(JSON.parse(localStorage.getItem('mindmap.recentBackgroundColors') ?? '[]'))
+      .toEqual(['#10182780', '#D9CEC2'])
+  })
+
+  it('keeps the visible recent order while switching, but persists it for the next open', () => {
+    localStorage.setItem('mindmap.recentBackgroundColors', JSON.stringify(['#D9CEC2', '#A6B8A4']))
+    render(<MindMapThemePanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
+    const recent = within(dialog).getByRole('group', { name: 'Recent colors' })
+
+    // Switch to the second recent swatch.
+    fireEvent.click(within(recent).getByRole('button', { name: 'Recent color #A6B8A4' }))
+
+    // The visible list keeps its order while the popover stays open.
+    expect(within(recent).getAllByRole('button').map((button) => button.getAttribute('title')))
+      .toEqual(['#D9CEC2', '#A6B8A4'])
+    // The selected swatch is highlighted even though it is not moved to the front.
+    expect(within(recent).getByRole('button', { name: 'Recent color #A6B8A4' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    // The reorder is persisted so the next open shows it at the front.
+    expect(JSON.parse(localStorage.getItem('mindmap.recentBackgroundColors') ?? '[]'))
+      .toEqual(['#A6B8A4', '#D9CEC2'])
+  })
+
+  it('shows a persisted recent-swatch reorder at the front on the next open', () => {
+    localStorage.setItem('mindmap.recentBackgroundColors', JSON.stringify(['#D9CEC2', '#A6B8A4']))
+    render(<MindMapThemePanel />)
+
+    const swatch = screen.getByRole('button', { name: 'Background color' })
+    fireEvent.click(swatch)
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
+    const recent = within(dialog).getByRole('group', { name: 'Recent colors' })
+
+    // Switch to the second recent swatch; the visible list stays put.
+    fireEvent.click(within(recent).getByRole('button', { name: 'Recent color #A6B8A4' }))
+    expect(within(recent).getAllByRole('button').map((button) => button.getAttribute('title')))
+      .toEqual(['#D9CEC2', '#A6B8A4'])
+
+    // Close and reopen: the persisted reorder is now at the front.
+    fireEvent.click(swatch)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    fireEvent.click(swatch)
+    const reopened = within(screen.getByRole('dialog', { name: 'Background color' }))
+      .getByRole('group', { name: 'Recent colors' })
+    expect(within(reopened).getAllByRole('button').map((button) => button.getAttribute('title')))
+      .toEqual(['#A6B8A4', '#D9CEC2'])
+  })
+
+  it('collapses a fully-opaque alpha commit to the 6-digit recent form', () => {
+    localStorage.setItem('mindmap.recentBackgroundColors', JSON.stringify(['#D9CEC2']))
+    render(<MindMapThemePanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Background color' }))
+    const dialog = screen.getByRole('dialog', { name: 'Background color' })
+    const alpha = within(dialog).getByRole('slider', { name: 'Background opacity' })
+
+    fireEvent.change(alpha, { target: { value: '100' } })
+    fireEvent.pointerUp(alpha)
+
+    const recent = within(dialog).getByRole('group', { name: 'Recent colors' })
+    expect(within(recent).getAllByRole('button').map((button) => button.getAttribute('title')))
+      .toEqual(['#101827', '#D9CEC2'])
   })
 
   it('opens the font picker, filters by search and selects a font through the theme command', () => {

@@ -13,7 +13,7 @@ describe('MindMapTopicStyleMenu', () => {
     localStorage.clear()
   })
 
-  it('keeps color options out of the inspector until the compact trigger is requested', () => {
+  it('keeps color options out of the inspector until the compact swatch is requested', () => {
     render(
       <MindMapTopicColorPicker
         id="fill-color"
@@ -30,12 +30,11 @@ describe('MindMapTopicStyleMenu', () => {
 
     fireEvent.click(trigger)
     const dialog = screen.getByRole('dialog', { name: 'Fill Color' })
-    expect(within(dialog).getByRole('listbox', { name: 'Fill Color' })).toBeInTheDocument()
-    expect(within(dialog).getByRole('option', { name: '#123456' })).toHaveAttribute('aria-selected', 'true')
-    expect(within(dialog).getByRole('option', { name: '#4A90D9' })).toHaveAttribute('aria-selected', 'false')
+    expect(within(dialog).getByRole('button', { name: 'Preset color #123456' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(dialog).getByRole('button', { name: 'Preset color #4A90D9' })).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('keeps custom color selection in the menu and closes after it is applied', () => {
+  it('applies a custom color from the native well and keeps the panel open', () => {
     const onChange = vi.fn()
     render(
       <MindMapTopicColorPicker
@@ -55,8 +54,8 @@ describe('MindMapTopicStyleMenu', () => {
     fireEvent.change(within(dialog).getByLabelText('Custom Color'), { target: { value: '#123456' } })
 
     expect(onChange).toHaveBeenCalledWith('#123456')
-    expect(screen.queryByRole('dialog', { name: 'Text Color' })).not.toBeInTheDocument()
-    expect(trigger).toHaveFocus()
+    // Picking a color keeps the panel open so the learner can keep refining.
+    expect(screen.getByRole('dialog', { name: 'Text Color' })).toBeInTheDocument()
   })
 
   it('supports focus entry, wrapped arrow navigation, Escape, and outside dismissal', async () => {
@@ -139,9 +138,9 @@ describe('MindMapTopicStyleMenu', () => {
     expect(dialog).toHaveStyle({ maxHeight: '215px' })
   })
 
-  it('writes an option, returns focus, and clears an explicit field', async () => {
+  it('writes an option and returns focus', async () => {
     const onChange = vi.fn()
-    const { rerender } = render(
+    render(
       <MindMapTopicStyleMenu
         id="border-width"
         label="Border Width"
@@ -160,23 +159,6 @@ describe('MindMapTopicStyleMenu', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Border Width' })).getByRole('option', { name: '3' }))
     expect(onChange).toHaveBeenCalledWith(3)
     await waitFor(() => expect(trigger).toHaveFocus())
-
-    rerender(
-      <MindMapTopicStyleMenu
-        id="border-width"
-        label="Border Width"
-        value={{ state: 'concrete', value: 3 }}
-        options={[
-          { value: 1, label: '1' },
-          { value: 3, label: '3' }
-        ]}
-        onChange={onChange}
-      />
-    )
-    const selectedTrigger = screen.getByRole('button', { name: 'Border Width 3' })
-    fireEvent.click(selectedTrigger)
-    fireEvent.click(within(screen.getByRole('dialog', { name: 'Border Width' })).getByRole('button', { name: 'Clear field override' }))
-    expect(onChange).toHaveBeenLastCalledWith(undefined)
   })
 
   it('renders an alpha slider that rewrites the concrete color to 8-digit hex', () => {
@@ -276,7 +258,7 @@ describe('MindMapTopicStyleMenu', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Fill Color #4A90D9' }))
-    fireEvent.click(within(screen.getByRole('dialog', { name: 'Fill Color' })).getByRole('option', { name: '#123456' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Fill Color' })).getByRole('button', { name: 'Preset color #123456' }))
     expect(onChange).toHaveBeenCalledWith('#123456')
     unmount()
 
@@ -300,7 +282,7 @@ describe('MindMapTopicStyleMenu', () => {
     expect(onChange).toHaveBeenCalledWith('#123456')
   })
 
-  it('dedupes, caps at 8 most-recent-first, and clears recent colors', () => {
+  it('does not add recent colors while dragging opacity, but records one on release', () => {
     const onChange = vi.fn()
     render(
       <MindMapTopicColorPicker
@@ -316,22 +298,51 @@ describe('MindMapTopicStyleMenu', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fill Color #123456' }))
     const dialog = screen.getByRole('dialog', { name: 'Fill Color' })
     const slider = within(dialog).getByRole('slider', { name: 'Background opacity' })
-    // 9 distinct alpha variants -> capped to 8, most-recent-first.
-    ;[100, 90, 80, 70, 60, 50, 40, 30, 20].forEach((value) => {
+
+    // Dragging through several alpha values previews live but must not spam
+    // the recent list with one entry per tick.
+    ;[50, 30, 70, 20].forEach((value) => {
       fireEvent.change(slider, { target: { value: String(value) } })
+    })
+    expect(within(dialog).queryByRole('group', { name: 'Recent colors' })).not.toBeInTheDocument()
+
+    // Releasing commits a single recent swatch.
+    fireEvent.pointerUp(slider)
+    const group = within(dialog).getByRole('group', { name: 'Recent colors' })
+    expect(within(group).getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('caps recent colors at 8 most-recent-first, dedupes, and clears', () => {
+    const onChange = vi.fn()
+    const presets = ['#111111', '#222222', '#333333', '#444444', '#555555', '#666666', '#777777', '#888888', '#999999']
+    render(
+      <MindMapTopicColorPicker
+        id="fill-color"
+        label="Fill Color"
+        value={{ state: 'concrete', value: '#123456' }}
+        presets={presets}
+        fallback="#FFFFFF"
+        onChange={onChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fill Color #123456' }))
+    const dialog = screen.getByRole('dialog', { name: 'Fill Color' })
+    // 9 preset picks -> capped to 8, most-recent-first.
+    presets.forEach((color) => {
+      fireEvent.click(within(dialog).getByRole('button', { name: `Preset color ${color}` }))
     })
     const group = within(dialog).getByRole('group', { name: 'Recent colors' })
     const chips = within(group).getAllByRole('button')
     expect(chips).toHaveLength(8)
-    expect(chips[0]).toHaveAttribute('aria-label', 'Recent color #12345633')
-    expect(chips[7]).toHaveAttribute('aria-label', 'Recent color #123456E6')
+    expect(chips[0]).toHaveAttribute('aria-label', 'Recent color #999999')
+    expect(chips[7]).toHaveAttribute('aria-label', 'Recent color #222222')
 
-    // Applying the most-recent color again is deduped (still 8 unique).
-    fireEvent.change(slider, { target: { value: '20' } })
+    // Re-applying the most-recent preset is deduped (still 8 unique).
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Preset color #999999' }))
     expect(within(group).getAllByRole('button')).toHaveLength(8)
-    expect(within(group).getAllByRole('button')[0]).toHaveAttribute('aria-label', 'Recent color #12345633')
     expect(within(group).getAllByRole('button').filter(
-      (chip) => chip.getAttribute('aria-label') === 'Recent color #12345633'
+      (chip) => chip.getAttribute('aria-label') === 'Recent color #999999'
     )).toHaveLength(1)
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Clear recent colors' }))

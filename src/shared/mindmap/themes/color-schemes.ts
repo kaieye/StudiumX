@@ -1,16 +1,12 @@
 /**
- * Color schemes (Xmind "multi-line colors") for mind-map branch coloring.
+ * Color schemes for mind-map branch coloring.
  *
  * These are decoupled from themes: a user can pick any theme + any color scheme
- * independently (Xmind's "Dawn" palette works on any theme background).
+ * independently (a warm palette works on any theme background).
  *
- * Every palette below is verbatim from Xmind's scheme table
- * (`renderer/787.js`, enum + `const c={[l.Dawn]:[...]}`), and the display
- * names match Xmind's zh-CN locale. Xmind ships 43 schemes; we bundle the
- * subset that works as a **branch palette** — schemes whose six colors all
- * stay legible as solid chips with white text on a light canvas. Several
- * Xmind schemes lead with near-white seeds (they double as generative theme
- * inputs there) and are intentionally not bundled.
+ * Each scheme is a curated 6-color **branch palette** whose colors stay legible
+ * as solid chips with white text on a light canvas. Each palette is designed to
+ * evoke its display name (e.g. the 朝霞/dawn palette uses warm sunrise tones).
  *
  * Each scheme has 6 colors. Branch indices wrap around.
  */
@@ -31,64 +27,64 @@ export type MindMapColorScheme = {
   category: MindMapBuiltInColorSchemeCategory
 }
 
-/** Xmind "Dawn" (晨曦) — the default color scheme. */
+/** 朝霞 (dawn) — warm sunrise tones; the default color scheme. */
 export const DAWN_COLORS = [
-  '#FF6B6B',
-  '#FF9F69',
-  '#97D3B6',
-  '#88E2D7',
-  '#6FD0F9',
-  '#E18BEE'
+  '#FF8E72',
+  '#FFB199',
+  '#FF7B8A',
+  '#F4A3C1',
+  '#FFC47A',
+  '#E8764F'
 ] as const
 
-/** Xmind "Painter" palette. */
+/** 斑斓 (painter) — vibrant, multicolored. */
 export const PAINTER_COLORS = [
-  '#EE4634',
-  '#B58D26',
-  '#33A86D',
-  '#41A499',
-  '#4876EB',
-  '#535AD1'
+  '#FF5D5D',
+  '#FFA63D',
+  '#FFD43B',
+  '#69DB7C',
+  '#4DABF7',
+  '#B197FC'
 ] as const
 
-/** Xmind "Vintage" (复古) palette. */
+/** 怀旧 (vintage) — muted, nostalgic tones. */
 export const VINTAGE_COLORS = [
-  '#E9C46A',
-  '#F4A261',
-  '#DC856F',
-  '#A4705E',
-  '#2A9D8F',
-  '#264653'
+  '#C9A26D',
+  '#A97C50',
+  '#8A9A5B',
+  '#6D8A8A',
+  '#B08D57',
+  '#7A6A5B'
 ] as const
 
-/** Xmind "Fire" (壁炉) palette. */
+/** 烈焰 (fire) — blazing flame. */
 export const FIRE_COLORS = [
-  '#FDD29A',
-  '#F9A655',
-  '#FC901A',
-  '#E04B51',
-  '#A4564C',
-  '#6D3B37'
+  '#FF4D2E',
+  '#FF7A1A',
+  '#FF9E2C',
+  '#E63B2E',
+  '#C0261E',
+  '#8F1D12'
 ] as const
 
-/** Xmind "DeepSea" (海洋) palette. */
+/** 深海 (deep sea) — deep blues and teals. */
 export const DEEP_SEA_COLORS = [
-  '#B4F2FD',
-  '#6EE2FD',
-  '#3BB6E3',
-  '#135CAE',
-  '#01206A',
-  '#000D2D'
+  '#0A3D62',
+  '#1B6CA8',
+  '#2196B7',
+  '#0F5E7A',
+  '#123A5C',
+  '#63C7D9'
 ] as const
 
-/** Xmind "GreenTea" (绿茶) palette. */
+/** 翠绿 (emerald) — fresh greens. */
 export const GREEN_TEA_COLORS = [
-  '#D6D9C3',
-  '#b6ad90',
-  '#579360',
-  '#656d4a',
-  '#265834',
-  '#1F2B1D'
+  '#2E7D32',
+  '#43A047',
+  '#66BB6A',
+  '#1B5E20',
+  '#81C784',
+  '#34A853'
 ] as const
 
 /** All built-in color schemes. */

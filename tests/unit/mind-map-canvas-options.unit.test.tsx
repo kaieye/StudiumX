@@ -255,4 +255,27 @@ describe('MindMapCanvasOptionsPanel', () => {
       .toHaveAccessibleDescription('Inherited from theme')
   })
 
+  it('applies the global default node style to newly created nodes end to end', () => {
+    const store = useMindMapViewStore.getState()
+    const sheetId = 'sheet-1'
+
+    // Mirror what the global-node section dispatches when the user edits a field.
+    act(() => {
+      store.dispatchCommand(
+        { type: 'sheet.update-layout', sheetId, patch: { defaultTopicStyle: { fill: '#112233', fontSize: 20 } } },
+        { label: 'Set global default node style' }
+      )
+    })
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.defaultTopicStyle)
+      .toEqual({ fill: '#112233', fontSize: 20 })
+
+    // Creating a node through the real store action carries the default style.
+    act(() => {
+      useMindMapViewStore.getState().addChild('root')
+    })
+    const root = useMindMapViewStore.getState().current?.sheets[0]?.root
+    const child = root?.children[0]
+    expect(child?.style).toMatchObject({ fill: '#112233', fontSize: 20 })
+  })
+
 })

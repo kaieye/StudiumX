@@ -1,5 +1,6 @@
 import { ChevronDown, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { InspectorValue } from './mind-map-inspector-values'
 import {
@@ -287,15 +288,6 @@ export function MindMapTopicStyleMenu<T extends string | number>({
             role="listbox"
             aria-label={label}
           >
-            {hasLocalOverride ? (
-              <button
-                type="button"
-                className={`mindmap-topic-style-menu__option${optionClassName ? ` ${optionClassName}` : ''}`}
-                onClick={() => selectValue(undefined)}
-              >
-                <span>{t('mindmap.topicStyle.clearField')}</span>
-              </button>
-            ) : null}
             {options.map((option) => {
               const selected = concreteValue !== undefined && Object.is(option.value, concreteValue)
               return (
@@ -337,7 +329,13 @@ type MindMapTopicColorPickerProps = {
   onChange: (value: string | undefined) => void
 }
 
-/** Color picker variant that keeps the preset palette, native picker, alpha and recent colors in a glass menu. */
+/**
+ * Topic color picker styled to match the canvas background-color control: a
+ * compact rounded swatch opens a portaled popover with a preset palette,
+ * native color well, opacity slider and recent colors. Topic-specific state
+ * (inherited / mixed values and clearing the local override) is preserved
+ * alongside the canvas-style layout.
+ */
 export function MindMapTopicColorPicker({
   id,
   label,
@@ -349,135 +347,362 @@ export function MindMapTopicColorPicker({
   onChange
 }: MindMapTopicColorPickerProps) {
   const { t } = useTranslation()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const nativeColorDraftRef = useRef<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const [recentColors, setRecentColors] = useState<string[]>(loadRecentTopicColors)
+  const [hexDraft, setHexDraft] = useState(hexColorWellValue(fallback))
+  // The popover is portaled to `document.body` and fixed-positioned so it can
+  // overlay the mind-map canvas instead of being clipped by the inspector's
+  // scroll container (`mindmap-inspector-tab-content` has `overflow-y: auto`).
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null)
+
   const display = displayValue ?? value
   const concrete = display.state === 'concrete' ? display.value : undefined
-  const colors = concrete && !presets.includes(concrete) ? [...presets, concrete] : presets
-  const [recentColors, setRecentColors] = useState<string[]>(loadRecentTopicColors)
+  const mixed = display.state === 'mixed'
+  const valueLabel = mixed
+    ? t('mindmap.topicStyle.mixed')
+    : concrete ?? t('mindmap.topicStyle.inherit')
+
+  const positionPopover = useCallback((): void => {
+    const popover = popoverRef.current
+    const trigger = triggerRef.current
+    if (!popover || !trigger) return
+    // Measure the rendered popover so viewport clamping uses its true size.
+    const { width, height } = popover.getBoundingClientRect()
+    const triggerRect = trigger.getBoundingClientRect()
+    const viewportPadding = 8
+    const gap = 6
+    // Align the popover's right edge with the swatch's right edge.
+    let left = triggerRect.right - width
+    let top = triggerRect.bottom + gap
+    // Prefer opening downward; flip above the trigger on overflow.
+    if (top + height > window.innerHeight - viewportPadding) {
+      top = triggerRect.top - height - gap
+    }
+    top = Math.max(viewportPadding, top)
+    left = Math.min(
+      Math.max(left, viewportPadding),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding)
+    )
+    setPopoverStyle({
+      position: 'fixed',
+      top,
+      left,
+      right: 'auto',
+      zIndex: 1000
+    })
+  }, [])
+
+  // Position the portaled popover and keep it glued to the swatch while open.
+  useLayoutEffect(() => {
+    if (!open) return
+    positionPopover()
+    const onScroll = (event: Event): void => {
+      if (event.target instanceof Node && popoverRef.current?.contains(event.target)) return
+      positionPopover()
+    }
+    window.addEventListener('resize', positionPopover)
+    document.addEventListener('scroll', onScroll, true)
+    return () => {
+      window.removeEventListener('resize', positionPopover)
+      document.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open, positionPopover])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
+        setOpen(false)
+      }
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  // Reload the recent list from storage each time the popover opens. A reorder
+  // persisted for the next session (recent-swatch switch) should only take
+  // effect on the next open, never reshuffling the list while it is open.
+  useEffect(() => {
+    if (open) setRecentColors(loadRecentTopicColors())
+  }, [open])
+
+  // Keep the hex editor in sync with the committed color (preset / native well
+  // / recent swatch). Typing in the hex field drives `hexDraft` locally, so it
+  // is only reset here on external color changes.
+  useEffect(() => {
+    setHexDraft(hexColorWellValue(concrete ?? fallback))
+  }, [concrete, fallback])
 
   const recordRecent = (color: string): void => {
-    const next = recordRecentTopicColor(recentColors, color)
-    setRecentColors(next)
-    persistRecentTopicColors(next)
+    setRecentColors((previous) => {
+      const next = recordRecentTopicColor(previous, color)
+      if (next.length === previous.length && next.every((candidate, index) => candidate === previous[index])) {
+        return previous
+      }
+      persistRecentTopicColors(next)
+      return next
+    })
   }
 
-  /** Apply a concrete color and remember it; clearing (`undefined`) only forwards. */
-  const recordAndChange = (next: string | undefined): void => {
-    if (next !== undefined) recordRecent(next)
-    onChange(next)
+  /** Apply a concrete color choice (e.g. a preset) and record it, keeping the
+   * popover open so the learner can keep refining. */
+  const commitColor = (color: string): void => {
+    onChange(color)
+    recordRecent(color)
+  }
+
+  /** Live-preview a refinement (opacity) without recording recent colors. */
+  const applyColor = (color: string): void => {
+    onChange(color)
+  }
+
+  const previewNativeColor = (color: string): void => {
+    const normalized = color.toUpperCase()
+    nativeColorDraftRef.current = normalized
+    onChange(normalized)
+  }
+
+  const commitNativeColor = (color: string): void => {
+    const normalized = color.toUpperCase()
+    const pending = nativeColorDraftRef.current
+    nativeColorDraftRef.current = null
+    if (pending || normalized !== hexColorWellValue(concrete ?? fallback).toUpperCase()) {
+      recordRecent(pending ?? normalized)
+    }
+  }
+
+  /** Commit a finished opacity adjustment as a new recent color. */
+  const commitAlpha = (): void => {
+    recordRecent(concrete ?? fallback)
+  }
+
+  /** Apply a typed hex value, or revert the field to the effective color. */
+  const commitHexDraft = (): void => {
+    if (HEX_COLOR_PATTERN.test(hexDraft)) {
+      const normalized = hexDraft.toUpperCase()
+      setHexDraft(normalized)
+      commitColor(normalized)
+      return
+    }
+    setHexDraft(hexColorWellValue(concrete ?? fallback))
+  }
+
+  /** Apply an existing recent swatch without reshuffling the visible list. */
+  const selectRecent = (color: string): void => {
+    onChange(color)
+    persistRecentTopicColors(recordRecentTopicColor(recentColors, color))
+  }
+
+  const clearRecentColors = (): void => {
+    setRecentColors([])
+    clearRecentTopicColors()
   }
 
   const alpha = colorAlphaPercent(concrete ?? fallback)
+  const selectedPreset = mixed ? null : hexColorWellValue(concrete ?? fallback).toUpperCase()
+  const swatchStyle: CSSProperties = mixed
+    ? {
+        backgroundImage: 'repeating-linear-gradient(135deg, var(--surface-muted) 0 3px, var(--line-muted) 3px 6px)'
+      }
+    : { background: concrete ?? fallback }
 
   return (
-    <MindMapTopicStyleMenu
-      id={id}
-      label={label}
-      value={value}
-      displayValue={displayValue}
-      options={colors.map((color) => ({ value: color, label: color, ariaLabel: color }))}
-      onChange={recordAndChange}
-      disabled={disabled}
-      className="mindmap-topic-style-menu--color"
-      optionsClassName="mindmap-topic-style-menu__options--colors"
-      optionClassName="mindmap-topic-style-menu__option--color"
-      renderPreview={(selected, state) => (
-        <span
-          className={`mindmap-topic-style-menu__color-preview${state.state === 'mixed' ? ' is-mixed' : ''}`}
-          style={{ background: selected ?? fallback } as CSSProperties}
-        />
-      )}
-      renderOption={(option) => (
-        <span
-          className="mindmap-topic-style-menu__color-swatch"
-          style={{ background: option.value } as CSSProperties}
-          aria-hidden="true"
-        />
-      )}
-      footer={({ close }) => (
-        <>
-          <label className="mindmap-topic-style-menu__custom-color">
-            <span>{t('mindmap.topicStyle.customColor')}</span>
-            <input
-              type="color"
-              value={hexColorWellValue(concrete ?? fallback)}
-              aria-label={t('mindmap.topicStyle.customColor')}
-              onChange={(event) => {
-                recordAndChange(event.currentTarget.value)
-                close()
-              }}
-            />
-          </label>
-          <div className="mm-row mindmap-theme-alpha-row">
-            <label className="mm-row__label" htmlFor={`${id}-alpha`}>
-              {t('mindmap.themePanel.alpha')}
-            </label>
-            <span className="mindmap-theme-alpha-row__control">
-              <input
-                id={`${id}-alpha`}
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                aria-label={t('mindmap.themePanel.alphaLabel')}
-                title={t('mindmap.themePanel.alphaLabel')}
-                value={alpha}
-                onChange={(event) => {
-                  const next = colorWithAlpha(concrete ?? fallback, Number(event.currentTarget.value))
-                  if (next) recordAndChange(next)
-                }}
-              />
-              <output className="mindmap-theme-alpha-row__value" htmlFor={`${id}-alpha`}>
-                {alpha}%
-              </output>
-            </span>
+    <div ref={rootRef} className="mindmap-topic-color">
+      <span className="mm-row__label">{label}</span>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="mindmap-topic-color__swatch"
+        disabled={disabled}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label={`${label} ${valueLabel}`}
+        aria-description={fieldStateDescription(value.state, {
+          inherited: t('mindmap.topicStyle.stateInherited'),
+          none: t('mindmap.topicStyle.stateNone'),
+          mixed: t('mindmap.topicStyle.mixed')
+        })}
+        style={swatchStyle}
+        onClick={() => setOpen((previous) => !previous)}
+      />
+      {open ? createPortal((
+        <div
+          ref={popoverRef}
+          className="mindmap-theme-bg-picker__popover"
+          style={popoverStyle ?? undefined}
+          role="dialog"
+          aria-label={label}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              setOpen(false)
+              triggerRef.current?.focus()
+            }
+          }}
+        >
+          <div
+            className="mindmap-theme-bg-picker__presets"
+            role="group"
+            aria-label={t('mindmap.themePanel.presetColors')}
+          >
+            {presets.map((color) => {
+              const selected = selectedPreset !== null && selectedPreset === color.toUpperCase()
+              return (
+                <button
+                  key={color}
+                  type="button"
+                  className={selected ? 'is-selected' : undefined}
+                  aria-label={`${t('mindmap.themePanel.presetColor')} ${color}`}
+                  aria-pressed={selected}
+                  title={color}
+                  style={{ background: color }}
+                  onClick={() => commitColor(color)}
+                />
+              )
+            })}
           </div>
-          {recentColors.length > 0 ? (
-            <div className="mindmap-theme-recent-row">
-              <span className="mm-row__label">{t('mindmap.themePanel.recentColors')}</span>
-              <div className="mindmap-theme-recent-row__controls">
-                <div
-                  className="mindmap-theme-presets"
-                  role="group"
-                  aria-label={t('mindmap.themePanel.recentColors')}
+          <div className="mindmap-theme-bg-picker__controls">
+            <div className="mindmap-theme-bg-picker__row">
+              <label className="mm-row__label" htmlFor={`${id}-native`}>
+                {t('mindmap.topicStyle.customColor')}
+              </label>
+              <span className="mindmap-theme-bg-picker__row-controls">
+                <input
+                  id={`${id}-native`}
+                  type="color"
+                  aria-label={t('mindmap.topicStyle.customColor')}
+                  value={hexColorWellValue(concrete ?? fallback)}
+                  onChange={(event) => previewNativeColor(event.currentTarget.value)}
+                  onBlur={(event) => commitNativeColor(event.currentTarget.value)}
+                />
+                <input
+                  className="mindmap-theme-color-editor__hex"
+                  aria-label={t('mindmap.topicStyle.customColorHex')}
+                  value={hexDraft}
+                  spellCheck={false}
+                  onChange={(event) => setHexDraft(event.currentTarget.value)}
+                  onBlur={commitHexDraft}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return
+                    event.preventDefault()
+                    commitHexDraft()
+                    event.currentTarget.blur()
+                  }}
+                />
+              </span>
+            </div>
+            <div className="mindmap-theme-bg-picker__alpha">
+              <label className="mindmap-theme-bg-picker__alpha-label" htmlFor={`${id}-alpha`}>
+                {t('mindmap.themePanel.alpha')}
+              </label>
+              <span className="mindmap-theme-alpha-row__control">
+                <input
+                  id={`${id}-alpha`}
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  aria-label={t('mindmap.themePanel.alphaLabel')}
+                  title={t('mindmap.themePanel.alphaLabel')}
+                  value={alpha}
+                  style={{
+                    background: `linear-gradient(to right, var(--accent, #438eff) 0 ${alpha}%, color-mix(in srgb, var(--text) 14%, transparent) ${alpha}% 100%)`
+                  }}
+                  onChange={(event) => {
+                    const next = colorWithAlpha(concrete ?? fallback, Number(event.currentTarget.value))
+                    if (next) applyColor(next)
+                  }}
+                  onPointerUp={commitAlpha}
+                  onBlur={commitAlpha}
+                />
+                <label
+                  className="mindmap-theme-alpha-row__value"
+                  aria-label={t('mindmap.themePanel.alphaInputLabel')}
                 >
-                  {recentColors.map((color) => {
-                    const selected = concrete !== undefined && concrete.toUpperCase() === color
-                    return (
-                      <button
-                        key={color}
-                        type="button"
-                        className={selected ? 'is-selected' : ''}
-                        aria-label={interpolateRecentColorLabel(
-                          t('mindmap.themePanel.recentColor', { color }),
-                          color
-                        )}
-                        aria-pressed={selected}
-                        onClick={() => {
-                          recordAndChange(color)
-                          close()
-                        }}
-                        style={{ background: color }}
-                      />
-                    )
-                  })}
-                </div>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={5}
+                    aria-label={t('mindmap.themePanel.alphaInputLabel')}
+                    value={alpha}
+                    onChange={(event) => {
+                      if (!Number.isNaN(event.currentTarget.valueAsNumber)) {
+                        const next = colorWithAlpha(concrete ?? fallback, event.currentTarget.valueAsNumber)
+                        if (next) applyColor(next)
+                      }
+                    }}
+                    onBlur={commitAlpha}
+                  />
+                  <span aria-hidden="true">%</span>
+                </label>
+              </span>
+            </div>
+          </div>
+          <div className="mindmap-theme-bg-picker__recent">
+            <div className="mindmap-theme-bg-picker__recent-head">
+              <span>{t('mindmap.themePanel.recentColors')}</span>
+              {recentColors.length > 0 ? (
                 <button
                   type="button"
-                  className="mindmap-theme-color-editor__clear"
-                  title={t('mindmap.themePanel.clearRecent')}
+                  className="mindmap-theme-bg-picker__recent-clear"
                   aria-label={t('mindmap.themePanel.clearRecent')}
-                  onClick={() => {
-                    setRecentColors([])
-                    clearRecentTopicColors()
-                  }}
+                  title={t('mindmap.themePanel.clearRecent')}
+                  onClick={clearRecentColors}
                 >
-                  <X size={11} aria-hidden="true" />
+                  <X size={12} aria-hidden="true" />
                 </button>
-              </div>
+              ) : null}
             </div>
-          ) : null}
-        </>
-      )}
-    />
+            {recentColors.length > 0 ? (
+              <div
+                className="mindmap-theme-bg-picker__recent-colors"
+                role="group"
+                aria-label={t('mindmap.themePanel.recentColors')}
+              >
+                {recentColors.map((color) => {
+                  const selected = concrete !== undefined && concrete.toUpperCase() === color
+                  return (
+                    <button
+                      key={color}
+                      type="button"
+                      className={selected ? 'is-selected' : undefined}
+                      aria-label={interpolateRecentColorLabel(
+                        t('mindmap.themePanel.recentColor', { color }),
+                        color
+                      )}
+                      aria-pressed={selected}
+                      title={color}
+                      style={{ background: color }}
+                      onClick={() => selectRecent(color)}
+                    />
+                  )
+                })}
+              </div>
+            ) : (
+              <span className="mindmap-theme-bg-picker__recent-empty">
+                {t('mindmap.themePanel.noRecentColors')}
+              </span>
+            )}
+          </div>
+        </div>
+      ), document.body) : null}
+    </div>
   )
 }

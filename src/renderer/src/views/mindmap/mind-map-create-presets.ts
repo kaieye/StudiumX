@@ -1,5 +1,11 @@
-import type { MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
+import {
+  DEFAULT_MIND_MAP_STRUCTURE_CLASS,
+  type MindMapStructureClass
+} from '../../../../shared/mindmap/mind-map-types'
 
-/** The single radial mind-map structure used for newly created documents. */
+/**
+ * New documents must start with the same one-sided structure that represents
+ * auto-balance being disabled in the canvas settings.
+ */
 export const DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS: MindMapStructureClass =
-  'org.xmind.ui.logic.map'
+  DEFAULT_MIND_MAP_STRUCTURE_CLASS

@@ -64,7 +64,10 @@ function makeDocument(): MindMapDocumentV2 {
         title: 'Overview',
         root: { id: 'root', title: 'Root topic', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: {
+          structureClass: 'org.xmind.ui.logic.right',
+          defaultTopicShape: 'rounded-rect'
+        }
       }
     ],
     assets: []
@@ -260,6 +263,35 @@ describe('mind-map controls survive save -> reopen (L-03)', () => {
       linePattern: 'dash',
       tapered: true
     })
+  })
+
+  it('defaults auto-balance off and persists its enabled state', async () => {
+    renderPanels()
+
+    const toggle = screen.getByRole('checkbox', { name: 'Auto-balance map' })
+    expect(toggle).not.toBeChecked()
+    fireEvent.click(toggle)
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.structureClass).toBe('org.xmind.ui.logic.balanced')
+    fireEvent.click(toggle)
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.structureClass).toBe('org.xmind.ui.logic.right')
+
+    const reopened = await saveAndReopen()
+    expect(reopened.sheets[0]?.layout.structureClass).toBe('org.xmind.ui.logic.right')
+  })
+
+  it('retains the default node shape used for newly created topics after reopen', async () => {
+    renderPanels()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Default node shape Rounded Rect' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Default node shape' })).getByRole('option', { name: 'Ellipse' }))
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.defaultTopicShape).toBe('ellipse')
+    expect(screen.getByRole('button', { name: 'Default node shape Ellipse' })).toBeInTheDocument()
+
+    useMindMapViewStore.getState().addChild('root')
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.root.children[0]?.style?.shape).toBe('ellipse')
+
+    const reopened = await saveAndReopen()
+    expect(reopened.sheets[0]?.layout.defaultTopicShape).toBe('ellipse')
   })
 
   it('retains compact layout and spacing (sheet.layout.compact / spacing) after reopen', async () => {

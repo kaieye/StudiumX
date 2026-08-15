@@ -68,7 +68,9 @@ const mindMapLayoutFields = exhaustiveKeys<MindMapLayoutSettings>()(
   'lineStyle',
   'lineWidthScale',
   'linePattern',
-  'tapered'
+  'tapered',
+  'defaultTopicShape',
+  'defaultTopicStyle'
 )
 
 const mindMapTopicStyleFields = exhaustiveKeys<MindMapTopicStyleOverride>()(
@@ -654,10 +656,20 @@ describe('sheet operations', () => {
 
   it('copies a sheet with deterministic remapped ids and preserves invariants', () => {
     const doc = validDocumentV2()
-    doc.sheets[0].root = topic('r1', 'Root', [topic('a1', 'A')])
+    doc.sheets[0].root = topic('r1', 'Root', [
+      topic('a1', 'A'),
+      topic('summary-topic', 'Node summary')
+    ])
     doc.sheets[0].elements = [
       element({ id: 'e1', type: 'relationship', from: 'r1', to: 'a1' }),
-      element({ id: 'e2', type: 'boundary', topicId: 'r1', children: ['a1'] })
+      element({ id: 'e2', type: 'boundary', topicId: 'r1', children: ['a1'] }),
+      element({
+        id: 'e3',
+        type: 'summary',
+        from: 'r1',
+        to: 'a1',
+        summaryTopicId: 'summary-topic'
+      })
     ]
 
     const copied = copySheet(doc, 's1')
@@ -665,6 +677,7 @@ describe('sheet operations', () => {
     expect(copied.sheets[1].id).toBe('s1__copy')
     expect(copied.sheets[1].root.id).toBe('r1__copy')
     expect(copied.sheets[1].root.children[0].id).toBe('a1__copy')
+    expect(copied.sheets[1].root.children[1].id).toBe('summary-topic__copy')
     expect(copied.sheets[1].elements[0]).toMatchObject({
       id: 'e1__copy',
       from: 'r1__copy',
@@ -674,6 +687,12 @@ describe('sheet operations', () => {
       id: 'e2__copy',
       topicId: 'r1__copy',
       children: ['a1__copy']
+    })
+    expect(copied.sheets[1].elements[2]).toMatchObject({
+      id: 'e3__copy',
+      from: 'r1__copy',
+      to: 'a1__copy',
+      summaryTopicId: 'summary-topic__copy'
     })
 
     expect(doc.sheets).toHaveLength(1)

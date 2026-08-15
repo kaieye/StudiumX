@@ -9,7 +9,7 @@ import type {
 import type { MindMapProposalScope } from '../mindmap/commands/mind-map-proposal'
 import type { MindMapAssetRef, MindMapSourceRef } from '../mindmap/domain/types'
 import type { MindMapDocumentV2 } from '../mindmap/domain/types'
-import type { MindMapStructureClass } from '../mindmap/mind-map-types'
+import type { MindMapStructureClass, MindMapSummary } from '../mindmap/mind-map-types'
 import type { MindMapSvgExportInput } from '../mindmap/svg-export'
 import type { XmindCompatibilityReport } from '../mindmap/xmind-compatibility'
 
@@ -20,7 +20,32 @@ import type { XmindCompatibilityReport } from '../mindmap/xmind-compatibility'
  * teaching workspace identifier) plus the operation-specific inputs. The main
  * process resolves the workspace root from the registered workspace before any
  * mind-map store/file access.
+ *
+ * The home location (`~/Documents/StudiumX Workspaces/MindMaps`) is addressed
+ * with the reserved sentinel {@link HOME_MIND_MAP_WORKSPACE_ID} so the same
+ * per-document IPC lanes work unchanged for maps created directly on the home
+ * page.
  */
+
+/**
+ * Reserved workspace id addressing the global home mind-map location
+ * (`~/Documents/StudiumX Workspaces/MindMaps`), separate from any teaching
+ * workspace's per-workspace `mindmaps/` folder.
+ */
+export const HOME_MIND_MAP_WORKSPACE_ID = '__home__'
+
+/** One workspace's mind-map library entry (folder + its cards). */
+export type MindMapLibraryWorkspace = {
+  workspaceId: string
+  name: string
+  documents: MindMapSummary[]
+}
+
+/** Aggregate home-page library: home cards + one folder per workspace. */
+export type MindMapLibrary = {
+  home: MindMapSummary[]
+  workspaces: MindMapLibraryWorkspace[]
+}
 
 export type MindMapListPayload = {
   workspaceId: string

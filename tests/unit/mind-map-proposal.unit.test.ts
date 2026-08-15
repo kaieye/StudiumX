@@ -57,6 +57,59 @@ describe('mind-map AI proposal command adapter', () => {
     expect(parsed.ok).toBe(true)
   })
 
+  it('accepts an atomic node-summary transaction through strict proposal parsing', () => {
+    const parsed = parseMindMapProposalJson(JSON.stringify({
+      schemaVersion: 1,
+      proposalId: 'node-summary',
+      scope: 'sheet',
+      items: [{
+        id: 'add-node-summary',
+        command: {
+          type: 'transaction',
+          commands: [
+            {
+              type: 'topic.insert',
+              sheetId: 'sheet-1',
+              parentId: 'root-1',
+              node: { id: 'summary-topic', title: 'Node summary', children: [] }
+            },
+            {
+              type: 'element.create',
+              sheetId: 'sheet-1',
+              element: {
+                id: 'summary-1',
+                type: 'summary',
+                from: 'a',
+                to: 'b',
+                summaryTopicId: 'summary-topic'
+              }
+            }
+          ]
+        }
+      }]
+    }))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+
+    const result = applyMindMapProposal(makeDocument(), parsed.proposal.items, {
+      'add-node-summary': 'accept'
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.document.sheets[0]!.root.children).toContainEqual({
+      id: 'summary-topic',
+      title: 'Node summary',
+      children: []
+    })
+    expect(result.document.sheets[0]!.elements).toContainEqual({
+      id: 'summary-1',
+      type: 'summary',
+      from: 'a',
+      to: 'b',
+      summaryTopicId: 'summary-topic'
+    })
+  })
+
   it('accepts a numbering patch through strict proposal parsing', () => {
     const parsed = parseMindMapProposalJson(JSON.stringify({
       schemaVersion: 1,

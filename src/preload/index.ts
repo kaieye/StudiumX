@@ -178,6 +178,7 @@ const api: TeachingSystemApi = {
   readStudyPlanning: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readStudyPlanning, payload),
   applyStudyPlanning: (payload) => ipcRenderer.invoke(teachingInvokeChannels.applyStudyPlanning, payload),
   listMindMaps: (payload) => ipcRenderer.invoke(teachingInvokeChannels.listMindMaps, payload),
+  listMindMapLibrary: () => ipcRenderer.invoke(teachingInvokeChannels.listMindMapLibrary),
   createMindMap: (payload) => ipcRenderer.invoke(teachingInvokeChannels.createMindMap, payload),
   readMindMap: (payload) => ipcRenderer.invoke(teachingInvokeChannels.readMindMap, payload),
   importMindMapAsset: (payload) => ipcRenderer.invoke(teachingInvokeChannels.importMindMapAsset, payload),

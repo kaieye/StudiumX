@@ -294,7 +294,8 @@ const mindMapElementProposalSchema: z.ZodType<MindMapElement> = z.discriminatedU
     .extend({
       type: z.literal('summary'),
       from: nonEmptyIdSchema,
-      to: nonEmptyIdSchema
+      to: nonEmptyIdSchema,
+      summaryTopicId: nonEmptyIdSchema.optional()
     })
     .strict(),
   mindMapElementBaseProposalSchema
@@ -325,7 +326,9 @@ export const mindMapLayoutProposalSchema = z
     linePattern: z
       .enum(['solid', 'dash', 'hand-drawn-solid', 'hand-drawn-dash'])
       .optional(),
-    tapered: z.boolean().optional()
+    tapered: z.boolean().optional(),
+    defaultTopicShape: mindMapTopicShapeProposalSchema.optional(),
+    defaultTopicStyle: mindMapTopicStyleProposalSchema.optional()
   })
   .strict()
 
@@ -341,7 +344,9 @@ const mindMapSheetLayoutUpdatePatchProposalSchema: z.ZodType<MindMapSheetLayoutU
       .enum(['solid', 'dash', 'hand-drawn-solid', 'hand-drawn-dash'])
       .nullable()
       .optional(),
-    tapered: z.boolean().nullable().optional()
+    tapered: z.boolean().nullable().optional(),
+    defaultTopicShape: mindMapTopicShapeProposalSchema.nullable().optional(),
+    defaultTopicStyle: mindMapTopicStyleProposalSchema.nullable().optional()
   })
   .strict()
 
@@ -386,6 +391,8 @@ const mindMapElementUpdatePatchProposalSchema: z.ZodType<MindMapElementUpdatePat
     label: z.string().nullable().optional(),
     from: z.string().optional(),
     to: z.string().optional(),
+    sourceTopicIds: z.array(z.string()).nullable().optional(),
+    summaryTopicId: z.string().nullable().optional(),
     topicId: z.string().optional(),
     children: z.array(z.string()).nullable().optional(),
     text: z.string().optional(),

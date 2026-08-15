@@ -36,7 +36,10 @@ export type MindMapStructureClass =
 
 /** Structure class used when an XMind topic omits one (forward compatible). */
 export const DEFAULT_MIND_MAP_STRUCTURE_CLASS: MindMapStructureClass =
-  'org.xmind.ui.logic.balanced'
+  'org.xmind.ui.logic.right'
+
+/** Shape assigned to new topics unless a sheet selects another default. */
+export const DEFAULT_MIND_MAP_TOPIC_SHAPE = 'rounded-rect' as const
 
 export type MindMapNode = {
   id: string
