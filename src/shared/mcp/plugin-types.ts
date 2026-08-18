@@ -1,5 +1,5 @@
 /**
- * Plugin-provided MCP declaration types (ADR-0139 / Phase G).
+ * Plugin-provided MCP declaration types (ADR-0013).
  * Pure types + pure helpers — no Node FS / Electron.
  */
 
@@ -78,7 +78,7 @@ const ALLOWED_TEMPLATE = new Set(['pluginRoot', 'userHome'])
 const TEMPLATE_RE = /\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g
 const FORBIDDEN_INTERP_RE = /\$\{|\$[A-Za-z_]|`/
 
-/** Slugify then build namespaced server id (ADR-0139 §2). */
+/** Slugify then build namespaced server id (ADR-0013). */
 export function namespacePluginServerId(pluginId: string, serverId: string): string {
   const pluginSlug = slugifyIdPart(pluginId) || 'plugin'
   const serverSlug = slugifyIdPart(serverId) || 'server'

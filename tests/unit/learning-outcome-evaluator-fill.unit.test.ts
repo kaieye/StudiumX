@@ -106,7 +106,7 @@ function sidecarV2(): string {
   }, null, 2)}\n`
 }
 
-describe('fill settlement via assessment sidecar v2 (ADR-0155)', () => {
+describe('fill settlement via assessment sidecar v2 (ADR-0002)', () => {
   it('settles a correct fill attempt (accepted alternate) into established', async () => {
     const { root, digest, relativePath } = await workspaceWithSidecar(sidecarV2())
     const result = await evaluateLearningSessionOutcome({
@@ -198,7 +198,7 @@ describe('fill settlement via assessment sidecar v2 (ADR-0155)', () => {
   })
 })
 
-describe('assessment sidecar v2 rendering (ADR-0155)', () => {
+describe('assessment sidecar v2 rendering (ADR-0002)', () => {
   it('digests primary + accepted answers into fill answerIds', () => {
     const plan = sanitizePlan(lessonPlanSchema.parse({
       title: 'Fill',

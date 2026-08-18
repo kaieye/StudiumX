@@ -40,7 +40,7 @@ function noopDeps(): WorkspaceWriteDurableDependencies {
   }
 }
 
-describe('write capture permissionDecision wire (B-08 / ADR-0108)', () => {
+describe('write capture permissionDecision wire (B-08 / ADR-0005)', () => {
   it('records permissionDecision when capture is called with a known decision', async () => {
     const root = await workspaceRoot()
     const entry = await captureAndAppendWritePreImage({

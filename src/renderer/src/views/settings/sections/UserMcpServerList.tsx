@@ -33,7 +33,7 @@ type UserMcpServerListProps = {
   rootEnabled: boolean
   servers: readonly UserMcpServerPublicV1[]
   runtime: readonly McpRuntimeServerView[]
-  /** Optional multi-source winner provenance (ADR-0137); secret-free only. */
+  /** Optional multi-source winner provenance (ADR-0013); secret-free only. */
   sourceByServerId?: ReadonlyMap<string, McpEffectiveServerPublicV1>
   /** System-default rows are displayed read-only except for their enable switch. */
   systemDefaultIds?: ReadonlySet<string>
@@ -424,7 +424,7 @@ function resolveRuntimeState(
 
 /**
  * Compact remote protocol hints for display only.
- * Never confuses these with StudiumX effectClass (ADR-0132 §2.7).
+ * Never confuses these with StudiumX effectClass (ADR-0013).
  */
 function formatRemoteAnnotationHints(
   annotations: NonNullable<McpListedToolSummary['annotations']>

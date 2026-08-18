@@ -1,11 +1,11 @@
 /**
- * B-05 / ADR-0060 tools/schema session guard wrapper for agent-loop.
+ * B-05 / ADR-0005 tools/schema session guard wrapper for agent-loop.
  *
  * Thin pure-ish peel of `applyToolsSchemaGuard`: assert fingerprint stability
  * and emit status events on fail-closed expansion or audited narrowing.
  * No I/O; no retry / budget / settlement authority.
  *
- * @see ADR-0106, ADR-0060
+ * @see ADR-0004, ADR-0005
  */
 
 import type { ToolDefinition } from './provider-adapter'
@@ -24,7 +24,7 @@ export type ToolsSchemaGuardEmit = (event: {
 }) => void
 
 /**
- * B-05 / ADR-0060: fail closed on silent tools/schema expansion; audit narrows.
+ * B-05 / ADR-0005: fail closed on silent tools/schema expansion; audit narrows.
  * One-line guard so concurrent loop work can keep a single call site.
  */
 export function applyToolsSchemaGuard(

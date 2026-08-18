@@ -1,5 +1,5 @@
 /**
- * ADR-0141 / ADR-0138: default workspace-root injection for filesystem-class MCP.
+ * ADR-0013: default workspace-root injection for filesystem-class MCP.
  *
  * Detection is for UX defaults only. Runtime injection still requires
  * `workspaceRootInjection: 'granted'` (resolveInjectedStdioServer never infers).
@@ -76,7 +76,7 @@ export function resolveFilesystemInjectionDefaults(
     }
   }
 
-  // Omitted or unrecognized — default for filesystem-class servers (ADR-0141).
+  // Omitted or unrecognized — default for filesystem-class servers (ADR-0013).
   if (allowDefault && looksFs) {
     return {
       workspaceRootInjection: 'granted',

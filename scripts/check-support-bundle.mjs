@@ -32,7 +32,7 @@ assert.match(source, /export function exportSupportBundle\(/, 'exportSupportBund
 assert.match(source, /consent_required/, 'Export must fail closed with consent_required.')
 assert.match(source, /section_not_previewed/, 'Export must reject sections not present in preview.')
 assert.match(source, /exportTeachingDoctorReport/, 'Doctor section must reuse exportTeachingDoctorReport.')
-assert.match(source, /function buildMcpStatusSection/, 'MCP status section builder is required (ADR-0128 Phase E).')
+assert.match(source, /function buildMcpStatusSection/, 'MCP status section builder is required (ADR-0013).')
 assert.match(source, /mcp_status/, 'Support bundle must include mcp_status section id.')
 assert.match(unit, /packs redacted MCP status/, 'Unit must cover MCP support-bundle redaction.')
 assert.match(unit, /never packs smuggled MCP secret/, 'Unit must cover MCP secret smuggling denial.')

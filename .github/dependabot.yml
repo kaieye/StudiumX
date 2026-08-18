@@ -1,4 +1,4 @@
-# Dependabot — GitHub Actions only (A-09 / ADR-0054)
+# Dependabot — GitHub Actions only (repository CI policy)
 # Do not add npm here unless a separate ADR expands package ecosystems.
 version: 2
 updates:

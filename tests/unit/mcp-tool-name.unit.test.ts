@@ -8,7 +8,7 @@ import {
   sanitizeRawToolName
 } from '../../src/shared/mcp/tool-name'
 
-describe('MCP tool names (ADR-0128 §5.1)', () => {
+describe('MCP tool names (ADR-0013)', () => {
   it('encodes and decodes mcp__server__tool', () => {
     const name = encodeMcpToolName('demo', 'echo')
     expect(name).toBe('mcp__demo__echo')

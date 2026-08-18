@@ -1,5 +1,5 @@
 /**
- * Built-in system-default MCP servers (ADR-0137 system layer).
+ * Built-in system-default MCP servers (ADR-0013 system layer).
  *
  * These appear in every user's MCP server list but are disabled by default.
  * Users can enable them in Settings > MCP. A user-layer server with the same

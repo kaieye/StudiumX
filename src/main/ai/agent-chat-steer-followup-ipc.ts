@@ -56,7 +56,7 @@ export function noActiveAgentSessionIpcResult(): AgentChatSteerFollowUpIpcResult
 }
 
 /**
- * ADR-0168 intentionally limits first-release explicit Skill expansion to a
+ * ADR-0014 intentionally limits first-release explicit Skill expansion to a
  * new turn. Never queue a `/skill:` payload as mid-run steer/follow-up: the
  * active session has no safe resolver/prompt-overlay transaction for it.
  */

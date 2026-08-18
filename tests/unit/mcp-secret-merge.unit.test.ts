@@ -1,5 +1,5 @@
 /**
- * MCP secret materialization + redact helpers (ADR-0128).
+ * MCP secret materialization + redact helpers (ADR-0013).
  */
 import { describe, expect, it } from 'vitest'
 

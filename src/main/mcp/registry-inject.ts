@@ -1,5 +1,5 @@
 /**
- * Registry inject helpers for buildDefaultRegistry / agent run wiring (ADR-0128 §7.1).
+ * Registry inject helpers for buildDefaultRegistry / agent run wiring (ADR-0013).
  */
 
 import type { ToolRegistry } from '../ai/tools/registry'

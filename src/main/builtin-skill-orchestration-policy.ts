@@ -1,5 +1,5 @@
 /**
- * Host-owned skill orchestration registry (ADR-0151 Phase 2).
+ * Host-owned skill orchestration registry (ADR-0014).
  * Authority is host policy — not skill markdown / personal manifest hints.
  */
 
@@ -333,19 +333,19 @@ if (ENTRIES.length !== BUILTIN_SKILL_IDS.length) {
 }
 
 /**
- * Product presets (ADR-0163 §2.3) may only reference registered builtin skills.
+ * Product presets (ADR-0014) may only reference registered builtin skills.
  * A preset can never introduce an unknown, personal or custom id into planning.
  */
 for (const preset of listSkillOrchestrationPresets()) {
   for (const skillId of preset.skillIds) {
     if (!REGISTERED.has(skillId as BuiltinSkillOrchestrationEntry['skillId'])) {
       throw new Error(
-        `Preset "${preset.id}" references unregistered skill "${skillId}" (ADR-0163 §2.3).`
+        `Preset "${preset.id}" references unregistered skill "${skillId}" (ADR-0014).`
       )
     }
     if (skillId === 'teach') {
       throw new Error(
-        `Preset "${preset.id}" must not list the reserved kernel id "teach" (ADR-0151 §2.1).`
+        `Preset "${preset.id}" must not list the reserved kernel id "teach" (ADR-0014).`
       )
     }
   }

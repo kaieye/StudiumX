@@ -28,7 +28,7 @@ export const LESSON_MARKUP_CLASSES = {
 export const LESSON_MARKUP_DATA_ATTRIBUTES = {
   quizType: 'data-type',
   quizAnswer: 'data-answer',
-  /** Optional `|`-joined accepted fill alternates (ADR-0155); absent on non-fill cards. */
+  /** Optional `|`-joined accepted fill alternates (ADR-0002); absent on non-fill cards. */
   quizAccepted: 'data-accepted',
   quizChoice: 'data-choice',
   flashcardRating: 'data-rating',

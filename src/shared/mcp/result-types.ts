@@ -1,5 +1,5 @@
 /**
- * Closed, renderer-safe MCP result vocabulary (ADR-0134).
+ * Closed, renderer-safe MCP result vocabulary (ADR-0013).
  *
  * These types deliberately contain no filesystem paths, raw bytes, headers,
  * credentials, arguments, or transport errors. They describe the result after

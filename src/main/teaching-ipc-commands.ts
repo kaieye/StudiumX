@@ -41,7 +41,7 @@ import { getSkillOrchestrationPreset } from '../shared/skill-orchestration-prese
 import { isSafeSkillId } from '../shared/skill-command'
 
 // Mind map IPC parsers live in a dedicated module to respect the module-size
-// policy (ADR-0075); re-export so the gateway can import them from one place.
+// policy (AGENTS.md); re-export so the gateway can import them from one place.
 export {
   parseMindMapListPayload,
   parseMindMapCreatePayload,
@@ -230,7 +230,7 @@ export function parseAgentChatMessages(value: unknown): AgentChatMessage[] {
 const MAX_SUBMIT_CONVERSATION_TURN_TEXT_CHARS = 32 * 1024
 
 /**
- * Fail-closed transport parser for the ADR-0170 conversation-turn submit intent.
+ * Fail-closed transport parser for the ADR-0004 conversation-turn submit intent.
  *
  * It accepts one new user text plus lane/CAS observations only. Transcript,
  * messages, context, tool, provider, and secret-shaped fields are rejected
@@ -283,7 +283,7 @@ export function parseSubmitConversationTurnIntent(payload: unknown): SubmitConve
 }
 
 /**
- * Fail-closed transport parser for ADR-0170's exact-active-turn cancellation.
+ * Fail-closed transport parser for ADR-0004's exact-active-turn cancellation.
  * Only lane identity and opaque concurrency ids cross this boundary; transcript,
  * context, tool, provider, credential, and secret-shaped fields are rejected.
  */
@@ -396,7 +396,7 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
 }
 
 /**
- * Read-only orchestration preview payload (ADR-0163).
+ * Read-only orchestration preview payload (ADR-0014).
  * Selection is deduped, lowercased and capped to the same 8-id ceiling as the
  * turn path so preview and execution can never disagree on the selection.
  */
@@ -565,7 +565,7 @@ export type SteerAgentChatPayload = {
 export type FollowUpAgentChatPayload = SteerAgentChatPayload
 
 /**
- * Fail-closed parser for mid-run steer IPC (ADR-0082).
+ * Fail-closed parser for mid-run steer IPC (ADR-0004).
  * Exact keys only: streamId, text, optional conversationId / expectedRevision.
  */
 export function parseSteerAgentChatPayload(payload: unknown): SteerAgentChatPayload {
@@ -573,14 +573,14 @@ export function parseSteerAgentChatPayload(payload: unknown): SteerAgentChatPayl
 }
 
 /**
- * Fail-closed parser for mid-run follow-up IPC (ADR-0082).
+ * Fail-closed parser for mid-run follow-up IPC (ADR-0004).
  */
 export function parseFollowUpAgentChatPayload(payload: unknown): FollowUpAgentChatPayload {
   return parseSteerOrFollowUpAgentChatPayload(payload, 'follow-up')
 }
 
 /**
- * Fail-closed parser for projectAgentSessionQueue IPC (ADR-0091).
+ * Fail-closed parser for projectAgentSessionQueue IPC (ADR-0004).
  * Exact keys: streamId (required), includeTextPreview?, textPreviewMax?.
  * Read-only projection only — never drains or flips autoDrain.
  */
@@ -629,7 +629,7 @@ export function parseProjectAgentSessionQueuePayload(
 }
 
 /**
- * Fail-closed parser for product TeachingDoctor IPC (ADR-0084).
+ * Fail-closed parser for product TeachingDoctor IPC (ADR-0007).
  * Allows undefined / empty / {} / { includeProcessCrashMarker?: boolean }.
  * Rejects unknown keys and non-boolean include flag.
  */
@@ -1038,7 +1038,7 @@ export function requireWindowControlAction(value: unknown): WindowControlAction 
   throw new Error('Unsupported window control action.')
 }
 
-/** Re-export turn-review IPC parsers (ADR-0119 peel surface; see teaching-ipc-commands-turn-review). */
+/** Re-export turn-review IPC parsers (ADR-0001 peel surface; see teaching-ipc-commands-turn-review). */
 export {
   parseProjectTeachingTurnReviewPayload,
   parseDecideTeachingTurnReviewPayload,
@@ -1047,7 +1047,7 @@ export {
   parseSaveTeachingTurnReviewLastBundlePayload
 } from './teaching-ipc-commands-turn-review'
 
-/** Re-export agent-conversation IPC parsers (ADR-0120 peel surface; see teaching-ipc-commands-agent-conversation). */
+/** Re-export agent-conversation IPC parsers (ADR-0004 peel surface; see teaching-ipc-commands-agent-conversation). */
 export {
   parseSaveAgentConversationPayload,
   parseRenameAgentConversationPayload,

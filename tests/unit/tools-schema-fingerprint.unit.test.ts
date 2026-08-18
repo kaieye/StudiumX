@@ -112,7 +112,7 @@ describe('fingerprintToolDefinitions', () => {
     expect(fingerprintToolDefinitions(changed)).not.toBe(fingerprintToolDefinitions(base))
   })
 
-  it('includes MCP-style tool names in the surface fingerprint (ADR-0128 Phase C)', () => {
+  it('includes MCP-style tool names in the surface fingerprint (ADR-0013)', () => {
     const staticOnly = [tool('read_workspace_file', { ...READ_PARAMS })]
     const withMcp = [
       tool('read_workspace_file', { ...READ_PARAMS }),

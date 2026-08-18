@@ -1,5 +1,5 @@
 /**
- * V1 dual-authority demote confirm sheet (ADR-0129 / 0130 §5.1).
+ * V1 dual-authority demote confirm sheet (ADR-0011).
  * Separate from MigrationBannerSheet — erase only after explicit confirm + backup.
  */
 

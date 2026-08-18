@@ -1,5 +1,5 @@
 /**
- * Main-process OAuth authorization-code + PKCE manager (ADR-0135).
+ * Main-process OAuth authorization-code + PKCE manager (ADR-0013).
  *
  * Secret material (state, verifier, codes, tokens) stays here. Public callers
  * only receive secret-free lifecycle DTOs.

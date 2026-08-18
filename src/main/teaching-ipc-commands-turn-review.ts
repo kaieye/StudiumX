@@ -1,7 +1,7 @@
 /**
  * Fail-closed IPC parsers for teaching-turn-review product channels
- * (ADR-0087 / ADR-0110 / ADR-0114). Peeled from teaching-ipc-commands
- * by ADR-0119 (S-03 residual by-touch). Behavior byte-identical.
+ * (ADR-0001). Peeled from teaching-ipc-commands
+ * by ADR-0001 (S-03 residual by-touch). Behavior byte-identical.
  */
 import type {
   DecideTeachingTurnReviewPayload,
@@ -40,7 +40,7 @@ const TEACHING_TURN_REVIEW_DECISION_ACTIONS = new Set<TeachingTurnReviewDecision
 ])
 
 /**
- * Fail-closed parser for projectTeachingTurnReview IPC (ADR-0087).
+ * Fail-closed parser for projectTeachingTurnReview IPC (ADR-0001).
  * Exact keys: bundle (required), decision (optional).
  */
 export function parseProjectTeachingTurnReviewPayload(payload: unknown): ProjectTeachingTurnReviewPayload {
@@ -68,7 +68,7 @@ export function parseProjectTeachingTurnReviewPayload(payload: unknown): Project
 }
 
 /**
- * Fail-closed parser for decideTeachingTurnReview IPC (ADR-0087).
+ * Fail-closed parser for decideTeachingTurnReview IPC (ADR-0001).
  * Exact keys: bundle + decision (both required).
  */
 export function parseDecideTeachingTurnReviewPayload(payload: unknown): DecideTeachingTurnReviewPayload {
@@ -97,7 +97,7 @@ export function parseDecideTeachingTurnReviewPayload(payload: unknown): DecideTe
 
 
 /**
- * Fail-closed parser for projectTeachingTurnReviewHandoff IPC (ADR-0110).
+ * Fail-closed parser for projectTeachingTurnReviewHandoff IPC (ADR-0001).
  * Exactly one shape:
  *   A) { projection } — light validation (candidates[] + approvedCandidateIds[])
  *   B) { bundle, decision } — reuses bundle/decision parsers (decision required)
@@ -426,7 +426,7 @@ function parseTeachingTurnReviewCandidate(
         `IPC TeachingTurnReviewCandidate[${index}].payload must be a plain object when present.`
       )
     }
-    // Accept diagnostic payload for pure assert path; projection omits it (ADR-0085).
+    // Accept diagnostic payload for pure assert path; projection omits it (ADR-0001).
     candidate.payload = record.payload as Record<string, unknown>
   }
   return candidate
@@ -533,7 +533,7 @@ function parseTeachingTurnReviewCandidateDecision(
 }
 
 /**
- * Fail-closed parser for getTeachingTurnReviewLastBundle IPC (ADR-0114).
+ * Fail-closed parser for getTeachingTurnReviewLastBundle IPC (ADR-0001).
  * Empty / no payload only — reject unknown keys if an object is provided.
  */
 export function parseGetTeachingTurnReviewLastBundlePayload(payload: unknown): undefined {
@@ -550,7 +550,7 @@ export function parseGetTeachingTurnReviewLastBundlePayload(payload: unknown): u
 }
 
 /**
- * Fail-closed parser for saveTeachingTurnReviewLastBundle IPC (ADR-0114).
+ * Fail-closed parser for saveTeachingTurnReviewLastBundle IPC (ADR-0001).
  * Exact keys: bundle (required), decision? , source? (settings_demo|manual|unknown).
  * Never accepts autoApply / applyPlan.
  */

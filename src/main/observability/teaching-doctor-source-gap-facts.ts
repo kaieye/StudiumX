@@ -1,5 +1,5 @@
 /**
- * Fail-soft TeachingDoctor source-gap facts collector (B-11 residual / ADR-0105).
+ * Fail-soft TeachingDoctor source-gap facts collector (B-11 residual / ADR-0007).
  *
  * Thin workspace-summary projection: maps active-workspace resource counts +
  * assetsReady into `TeachingDoctorSourceGapFacts` only. Never embeds absolute
@@ -9,7 +9,7 @@
  * - not a full ResourceGrounder / GroundingPack / mission-descriptor ground
  * - no auto-repair / invent sources / persist resources
  * - no auto-upload / remote telemetry / OTEL
- * - no free-form renderer facts (IPC payload remains ADR-0084 closed)
+ * - no free-form renderer facts (IPC payload remains ADR-0007 closed)
  * - no peel of teaching-workspace.ts / resource-grounder
  */
 
@@ -40,7 +40,7 @@ export type TeachingDoctorSourceGapFactsSource = {
  * Factory for a main-side source-gap facts collector used by product TeachingDoctor.
  * Composition root / gateway injects this into runProductTeachingDoctor deps.
  *
- * Decision (ADR-0105): no active workspace / null summary → empty `{}` partial so
+ * Decision (ADR-0007): no active workspace / null summary → empty `{}` partial so
  * pure `checkSourceGap` stays `skipped` (facts not supplied). Throw → `{}`.
  */
 export function createTeachingDoctorSourceGapFactsCollector(

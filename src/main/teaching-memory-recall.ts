@@ -24,7 +24,7 @@ export type TeachingMemoryRecallInput = {
  *
  * Callers receive only records selected for their request; scope eligibility,
  * settings, ranking, limits, and injection telemetry remain local here.
- * Content is sanitized at the recall→inject boundary (ADR-0076) before return.
+ * Content is sanitized at the recall→inject boundary (ADR-0009) before return.
  */
 export class TeachingMemoryRecall {
   private lastInjectedCount = 0

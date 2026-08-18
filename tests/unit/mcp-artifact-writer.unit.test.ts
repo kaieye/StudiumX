@@ -18,7 +18,7 @@ async function temporaryRoot(): Promise<string> {
   return root
 }
 
-describe('LocalMcpArtifactWriter (ADR-0134)', () => {
+describe('LocalMcpArtifactWriter (ADR-0013)', () => {
   // POSIX permission bits are not representable on win32 (chmod is a no-op there).
   it.skipIf(process.platform === 'win32')('writes contained 0600 content-addressed artifacts and returns no filesystem path', async () => {
     const root = await temporaryRoot()

@@ -10,7 +10,7 @@ import { buildAskTimeoutAnswers, parseAskDeadlineAt, remainingAskMs } from '../.
  * pending entries for that stream so the agent loop's `isCanceled()` path
  * can take over.
  *
- * Host-stamped `deadlineAt` is authoritative (ADR-0144): a timer settles the
+ * Host-stamped `deadlineAt` is authoritative (ADR-0010): a timer settles the
  * ask to recommended/first options on timeout. Timeout never auto-approves
  * write / privileged / turn-review gates.
  */

@@ -62,7 +62,7 @@ describe('shell-command-safety (strict known-safe contract)', () => {
   })
 })
 
-describe('run_workspace_command registration and approval (ADR-0152)', () => {
+describe('run_workspace_command registration and approval (ADR-0015)', () => {
   it('classifies as privileged', () => {
     expect(classifyToolEffect(RUN_WORKSPACE_COMMAND_TOOL_NAME)).toBe('privileged')
   })

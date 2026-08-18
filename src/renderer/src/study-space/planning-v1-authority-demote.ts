@@ -1,5 +1,5 @@
 /**
- * V1 dual-authority demote / sole-authority end-state helpers (ADR-0129 / 0130 §5.1).
+ * V1 dual-authority demote / sole-authority end-state helpers (ADR-0011).
  *
  * Fail-closed: never erase localStorage without explicit userConfirmed + backupExportOk.
  * Migration commit alone must not call demote. Presence identity keys stay unless opt-in.

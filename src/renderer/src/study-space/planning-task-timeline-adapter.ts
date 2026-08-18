@@ -1,7 +1,7 @@
 /**
  * Adapter: V1 StudyTask list -> projectTaskTimeline views -> ordered StudyTask rows.
  *
- * Peel from WorkbenchTasks so the page stays thin (ADR-0075 / cutover policy).
+ * Peel from WorkbenchTasks so the page stays thin (AGENTS.md module-size policy).
  * Uses pure projectTaskTimeline (STC-302); does not write store.
  */
 import {

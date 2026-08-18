@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Blocking CI fan-in aggregator (ADOPTION S-06 / ADR-0074).
+ * Blocking CI fan-in aggregator; CI policy lives in CONTRIBUTING.md.
  *
  * Reads GitHub Actions `needs` context from NEEDS_JSON and fails unless every
  * required domain job result is exactly "success".

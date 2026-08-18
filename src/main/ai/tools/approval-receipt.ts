@@ -3,7 +3,7 @@
  *
  * File-truth (JSONL) is canonical; SQLite projection is optional and out of
  * scope for DB-P0-4. Receipts are audit evidence only — they are never
- * reusable authorization tokens (one-shot semantics, ADR-0048 / ADR-0028).
+ * reusable authorization tokens (one-shot semantics, ADR-0005 / ADR-0007).
  *
  * Covered actions:
  * - Synthetic teaching memory remember / forget (always human-approved)

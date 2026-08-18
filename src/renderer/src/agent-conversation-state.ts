@@ -367,7 +367,7 @@ export function applyAgentChatToolEventToPending({
   )
   if (existingIdx >= 0) {
     const updated = [...existing]
-    // Refresh arguments when host re-publishes (e.g. ask __deadlineAt stamp, ADR-0144).
+    // Refresh arguments when host re-publishes (e.g. ask __deadlineAt stamp, ADR-0010).
     updated[existingIdx] = {
       ...updated[existingIdx],
       arguments: event.toolCall.arguments || updated[existingIdx].arguments,
@@ -1153,7 +1153,7 @@ export type PendingAsk = {
   streamId: string
   toolCallId: string
   questions: AskQuestion[]
-  /** Host-authoritative ISO deadline (ADR-0144); null when parameters incomplete. */
+  /** Host-authoritative ISO deadline (ADR-0010); null when parameters incomplete. */
   deadlineAt: string | null
 }
 

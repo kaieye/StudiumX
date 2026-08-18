@@ -108,7 +108,7 @@ try {
   settings.generator.model = 'fake-chat-model'
   settings.generator.endpointFormat = 'chat_completions'
   settings.generator.requestTimeoutMs = 5000
-  // ADR-0171 §2.1-A: keep the output reserve small so the pre-dispatch fit check
+  // ADR-0010: keep the output reserve small so the pre-dispatch fit check
   // (framing 256 + output reserve) does not dominate the configured context window.
   settings.generator.maxOutputTokens = 512
   settings.tools.enabled = true

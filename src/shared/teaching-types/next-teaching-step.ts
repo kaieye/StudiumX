@@ -50,7 +50,7 @@ export type NextTeachingStepFacts = {
     provenanceIds: readonly string[]
   }
   /**
-   * Optional spaced-review facts (ADR-0154). Count only — never item payloads.
+   * Optional spaced-review facts (ADR-0003). Count only — never item payloads.
    * When omitted, planner behavior is byte-identical to the pre-review contract,
    * so existing callers see no change until an adapter supplies the fact.
    */
@@ -100,7 +100,7 @@ export type NextTeachingStepSafeInputSummary = {
     readiness: NextTeachingStepResourceReadiness
     availableCount: number
   }
-  /** Present only when review facts were supplied (ADR-0154); count only. */
+  /** Present only when review facts were supplied (ADR-0003); count only. */
   review?: {
     dueCount: number
   }

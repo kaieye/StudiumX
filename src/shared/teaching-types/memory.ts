@@ -118,7 +118,7 @@ export type TeachingMemoryDiagnostics = {
   lastInjectedCount: number
   legacyMigrationPreflight: TeachingMemoryLegacyMigrationPreflight
   /**
-   * Honest I/O profile for this host (ADR-0131 default pathname_default).
+   * Honest I/O profile for this host (ADR-0012 default pathname_default).
    * Historical dual-profile ids may still appear during backend migration.
    * Never renamed to strict/CAS.
    */

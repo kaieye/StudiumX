@@ -50,7 +50,7 @@ const PRIVILEGED_TOOLS = new Set([
 ])
 
 /**
- * Optional runtime MCP effect lookup (ADR-0128 §6.1).
+ * Optional runtime MCP effect lookup (ADR-0013).
  * Installed by main/mcp/tool-bridge; never workspace-authoritative.
  */
 let mcpEffectLookup: ((toolName: string) => ToolEffectClass | undefined) | null = null
@@ -66,7 +66,7 @@ export function setMcpEffectLookup(
  * Classify the side-effect class of a registered teaching tool.
  * Unknown tools fail closed as privileged so new capabilities need an explicit mapping.
  *
- * MCP tools (`mcp__…`) consult optional runtime map first (ADR-0128 §6.1).
+ * MCP tools (`mcp__…`) consult optional runtime map first (ADR-0013).
  */
 export function classifyToolEffect(
   toolName: string,

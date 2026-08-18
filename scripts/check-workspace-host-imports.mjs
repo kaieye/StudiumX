@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Light import / layer gate for src/main/workspace-host/** (ADR-0078 / ADOPTION S-02).
+ * Light import / layer gate for src/main/workspace-host/** (ADR-0005 / ADOPTION S-02).
  *
  * Fail-closed on forbidden reverse imports into agent-loop / coordinator / ledger /
  * gateway / renderer / electron. Scans source text with simple regex (no TS program).
@@ -174,7 +174,7 @@ if (!result.ok) {
   for (const v of result.violations) {
     console.error(`  ${v.file}:${v.line}  forbidden import "${v.target}" (rule: ${v.rule})`)
   }
-  console.error(`\n${result.violations.length} violation(s). See ADR-0078.`)
+  console.error(`\n${result.violations.length} violation(s). See ADR-0005.`)
   process.exit(1)
 }
 

@@ -1,5 +1,5 @@
 /**
- * Local skill orchestration plan diagnostics (ADR-0163 §2.6).
+ * Local skill orchestration plan diagnostics (ADR-0014).
  *
  * A bounded, append-only local ring of allow-listed plan facts so Doctor /
  * support-bundle inspection can answer "did the planner pick the right stage,

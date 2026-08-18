@@ -1,5 +1,5 @@
 /**
- * Zcode-compatible pairing crypto for web remote control (ADR-0143).
+ * Zcode-compatible pairing crypto for web remote control (security boundary: SECURITY.md).
  *
  * - password: 24 random bytes base64url
  * - pass_hash: SHA-256(password) → standard base64

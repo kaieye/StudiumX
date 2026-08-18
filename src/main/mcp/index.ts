@@ -1,5 +1,5 @@
 /**
- * Main-process MCP module exports (ADR-0128 + ADR-0133..0136).
+ * Main-process MCP module exports (ADR-0013).
  * Phase E–H modules (source-resolver, workspace-root-injection, …) export only when present.
  */
 
@@ -28,7 +28,7 @@ export { McpHost } from './host'
 export { registerMcpIpcGateway } from './ipc-gateway'
 export { materializeMcpServerSecrets } from './secret-merge'
 
-// Phase B — result safety / artifacts / local trace (ADR-0134)
+// Phase B — result safety / artifacts / local trace (ADR-0013)
 export { normalizeMcpToolResult } from './result-normalizer'
 export {
   LocalMcpArtifactWriter,
@@ -46,7 +46,7 @@ export {
   type McpTraceResultKind
 } from './trace-store'
 
-// Phase C — OAuth PKCE / token lifecycle (ADR-0135)
+// Phase C — OAuth PKCE / token lifecycle (ADR-0013)
 export {
   McpOAuthAuthorizationManager,
   type McpOAuthAuthorizeResult,
@@ -90,7 +90,7 @@ export {
   type McpOAuthTokenStoreOptions
 } from './oauth-token-store'
 
-// Phase E — multi-source precedence + controlled auto-connect (ADR-0137)
+// Phase E — multi-source precedence + controlled auto-connect (ADR-0013)
 export {
   loadMcpSourceLayers,
   resolveEffectiveMcpConfig,
@@ -101,7 +101,7 @@ export {
   type LoadedMcpSourceLayers
 } from './source-loaders'
 
-// Phase F — workspace-root injection (ADR-0138)
+// Phase F — workspace-root injection (ADR-0013)
 export {
   resolveInjectedStdioServer,
   canonicalizePath,
@@ -109,7 +109,7 @@ export {
   type ResolveInjectedStdioServerResult
 } from './workspace-root-injection'
 
-// Phase G — plugin MCP registry + filesystem bootstrap (ADR-0139 / ADR-0141)
+// Phase G — plugin MCP registry + filesystem bootstrap (ADR-0013)
 export {
   PluginMcpRegistry,
   type PluginMcpCleanupHooks,
@@ -126,6 +126,6 @@ export {
   type PluginMcpBootstrapResult
 } from './plugin-mcp-bootstrap'
 
-// Phase H — local marketplace store (ADR-0140)
+// Phase H — local marketplace store (ADR-0013)
 export { McpMarketplaceStore } from './marketplace-store'
 

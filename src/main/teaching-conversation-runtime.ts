@@ -119,10 +119,10 @@ export type TeachingConversationRuntimeDeps = {
   createMemory: (payload: CreateTeachingMemoryPayload) => Promise<TeachingMemoryRecord>
   deleteMemory?: (memoryId: string, workspaceRoot?: string) => Promise<void>
   loadSkillReferences: (skillIds: string[], userInput: string) => Promise<InstalledSkillReference[]>
-  /** Main-only resolver; the renderer never supplies paths or Skill content (ADR-0168). */
+  /** Main-only resolver; the renderer never supplies paths or Skill content (ADR-0014). */
   resolveExplicitSkillInvocation?: (input: string) => Promise<ExplicitSkillInvocationResolution>
   /**
-   * Optional skill catalog for orchestration readiness (ADR-0151).
+   * Optional skill catalog for orchestration readiness (ADR-0014).
    * When omitted, registered builtins are treated as ready; body load remains fail-closed.
    */
   listSkillCatalog?: () => Promise<readonly Pick<SkillSummary, 'id' | 'installed' | 'source'>[]>
@@ -140,7 +140,7 @@ export type TeachingConversationRuntimeDeps = {
     preferArtifactProfile?: boolean
   }
   /**
-   * Optional durable orchestration continuity store (ADR-0156). A rebuildable
+   * Optional durable orchestration continuity store (ADR-0014). A rebuildable
    * workflow projection only — never settlement authority. Missing/corrupt
    * state degrades to single-turn planning; save failures never fail the turn.
    */
@@ -152,7 +152,7 @@ export type TeachingConversationRuntimeDeps = {
     state: import('../shared/teaching-types/skill-orchestration').ConversationOrchestrationState
   ) => Promise<boolean>
   /**
-   * Optional local plan diagnostics sink (ADR-0163 §2.6). Allow-listed
+   * Optional local plan diagnostics sink (ADR-0014). Allow-listed
    * identifiers/enums/counts only; local-first, never phoned home, zero
    * authority. Failures never affect the teaching turn.
    */
@@ -176,13 +176,13 @@ export type TeachingConversationRuntimeDeps = {
    */
   appDataRoot?: string
   /**
-   * Optional user-configured MCP session manager (ADR-0128).
+   * Optional user-configured MCP session manager (ADR-0013).
    * Null/omitted → no MCP tools on this turn (default-off path).
    */
   mcpSessionManager?: McpSessionManager | null
   /**
    * Optional MCP host for multi-source effective config + controlled auto-connect
-   * before registry inject (ADR-0137). Preferred when present.
+   * before registry inject (ADR-0013). Preferred when present.
    */
   mcpHost?: import('./mcp/host').McpHost | null
 }
@@ -364,7 +364,7 @@ async function runTeachingConversationTurnActive(
   })
   stream.onEventBusReady?.(eventBus)
 
-  // Optional workspace tool-policy (ADR-0083 / ADR-0115 / B-08): multi-path load+merge
+  // Optional workspace tool-policy (ADR-0005 / B-08): multi-path load+merge
   // (primary + optional course overlay); fail-closed; omit field on null so registry
   // keeps DEFAULT_IN_PROCESS_TOOL_POLICY_DOCUMENT (default-equivalent). Secondary miss
   // is fail-soft and keeps primary-only behavior identical to single-file load.
@@ -425,7 +425,7 @@ async function runTeachingConversationTurnActive(
           pendingElicitationId: undefined
         }).catch(() => undefined)
       },
-      // ADR-0144: re-publish stamped ask args (incl. __deadlineAt) so all UI
+      // ADR-0010: re-publish stamped ask args (incl. __deadlineAt) so all UI
       // surfaces share the host-authoritative countdown. Does not auto-approve writes.
       publishWaiting: ({ toolCallId, argumentsJson }) => {
         eventBus.publishTool({
@@ -456,7 +456,7 @@ async function runTeachingConversationTurnActive(
   lessonTool.registerInto(baseRegistry)
 
   const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
-  // ADR-0151: pure plan() after mode/settings known, before loading skill bodies.
+  // ADR-0014: pure plan() after mode/settings known, before loading skill bodies.
   // Planner has zero settlement authority; stage-scoped bodies load active_now (+ kernel).
   const orchestrationFacts = deps.skillOrchestrationFacts
   const catalogSkills = deps.listSkillCatalog
@@ -482,7 +482,7 @@ async function runTeachingConversationTurnActive(
     selectedSkillIds: requestedSkillIds,
     catalogSkills
   })
-  // ADR-0156: prior-turn continuity (fail-soft). Corrupt/missing state → fresh plan.
+  // ADR-0014: prior-turn continuity (fail-soft). Corrupt/missing state → fresh plan.
   const orchestrationConversationId = String(payload.conversationId ?? '').trim()
   const priorOrchestrationState =
     orchestrationConversationId && deps.loadOrchestrationState
@@ -566,7 +566,7 @@ async function runTeachingConversationTurnActive(
     return {
       error: true,
       message:
-        'Teaching Kernel unavailable: reserved skill "teach" was not loaded from app-shipped builtin roots (ADR-0151).'
+        'Teaching Kernel unavailable: reserved skill "teach" was not loaded from app-shipped builtin roots (ADR-0014).'
     }
   }
   // A plan is only executable when every selected current-stage body survived
@@ -584,10 +584,10 @@ async function runTeachingConversationTurnActive(
     return {
       error: true,
       message:
-        'Skill orchestration unavailable: a required current-stage skill body was not loaded (ADR-0151).'
+        'Skill orchestration unavailable: a required current-stage skill body was not loaded (ADR-0014).'
     }
   }
-  // ADR-0163 §2.6: local, redactable counts-only diagnostics after verified
+  // ADR-0014: local, redactable counts-only diagnostics after verified
   // body loading, so prompt-budget and gate metrics describe the executable plan.
   // Fire-and-forget: observability never delays or fails the teaching turn.
   if (deps.recordOrchestrationDiagnostics) {
@@ -612,7 +612,7 @@ async function runTeachingConversationTurnActive(
   // Slice F: memory search + human-approved synthetic teaching memory (no FTS).
   // Skip registration when the durable catalog cannot open on this host so the
   // model never receives a tool that can only fail at execution time.
-  // Memory tools: write tools require durable_authority_write profile (ADR-0126).
+  // Memory tools: write tools require durable_authority_write profile (ADR-0012).
   const memoryWriteAvailable = memoryCatalogAvailable && isMemoryAuthorityWriteAvailable()
   if (
     settings.memory.enabled &&
@@ -636,7 +636,7 @@ async function runTeachingConversationTurnActive(
     }
   }
   // Project static tools through capability policy, then attach run-scoped MCP
-  // tools (ADR-0128). MCP names are dynamic and survive via allowsTool.
+  // tools (ADR-0013). MCP names are dynamic and survive via allowsTool.
   const projected = baseRegistry.project({
     allow: conversation.capabilityPolicy.allowedToolNames,
     deny: conversation.capabilityPolicy.deniedToolNames
@@ -851,7 +851,7 @@ async function runTeachingConversationTurnActive(
 
 /**
  * Loads the durable memory catalog for one chat turn via the platform capability
- * registry (ADR-0131 pathname_default). Chat hot-path class degrades to empty
+ * registry (ADR-0012 pathname_default). Chat hot-path class degrades to empty
  * when the profile is unavailable. Non-capability I/O errors still surface.
  */
 async function loadTeachingMemoryCatalogForTurn(

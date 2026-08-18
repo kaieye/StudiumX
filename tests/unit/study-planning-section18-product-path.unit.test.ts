@@ -5,7 +5,7 @@
  * IMPL-AK: bullets 8–9 honesty freeze (Wave7–10 thrash/demote/kill-9 evidence).
  *
  * Inventory + assertions for landed product-path behaviors without claiming
- * full §18 close (ADR-0130 §5). Overall residual remains **not_satisfied**.
+ * full §18 close (ADR-0011). Overall residual remains **not_satisfied**.
  *
  * Evidence style:
  * - #1–7: deterministic product-path composition of pure + presentation helpers

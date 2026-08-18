@@ -1,5 +1,5 @@
 /**
- * Pure reducer for import_migration_commit (ADR-0117 §4).
+ * Pure reducer for import_migration_commit (ADR-0011).
  *
  * Consumes dry-run MigrateStudyV1Result fields only (no localStorage / fs).
  * Fail-closed: userConfirmed required; entity validation; locked-block overlap.

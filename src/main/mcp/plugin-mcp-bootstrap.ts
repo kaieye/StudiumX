@@ -1,7 +1,7 @@
 /**
- * Filesystem bootstrap for plugin-declared MCP servers (ADR-0139 + ADR-0141).
+ * Filesystem bootstrap for plugin-declared MCP servers (ADR-0013).
  *
- * There is no runtime Extension install/uninstall pipeline yet (ADR-0042 is
+ * There is no runtime Extension install/uninstall pipeline yet (ADR-0014 is
  * types-only). This module fail-soft scans known local roots for declarative
  * manifests that include `mcpServers` and registers them into PluginMcpRegistry.
  *
@@ -34,7 +34,7 @@ export type PluginMcpBootstrapOptions = Readonly<{
   /**
    * When true (default), local (non-builtin) plugins that parse OK are elevated
    * from verified → trusted so they can enter the Phase E plugin source layer
-   * (ADR-0141 install→register policy for local filesystem plugins).
+   * (ADR-0013 install→register policy for local filesystem plugins).
    */
   autoTrustLocal?: boolean
   /** Resolve builtin pack roots; default: process.resourcesPath / cwd resources. */
@@ -122,7 +122,7 @@ async function findManifestPath(dir: string): Promise<string | null> {
 /**
  * Normalize various on-disk shapes into a PluginMcpManifestFragmentV1-like object.
  * Supports:
- * - ADR-0139 fragment: { pluginId, mcpServers }
+ * - ADR-0013 fragment: { pluginId, mcpServers }
  * - ExtensionManifest with top-level mcpServers
  * - package.json studiumx.mcpServers or mcpServers
  * - Extension contributions of kind mcpServers pointing at a relative JSON file

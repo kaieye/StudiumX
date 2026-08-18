@@ -42,7 +42,7 @@ function readDoctorBuildIdentity(env = process.env, pkg = null) {
  */
 
 /**
- * ADR-0131 platform capability projection for doctor (path-free, honest names).
+ * ADR-0012 platform capability projection for doctor (path-free, honest names).
  * Mirrors src/main/platform/platform-capability-registry.ts without importing TS.
  * Default product story is pathname_default — not dual-profile / descriptor-strict.
  */
@@ -158,7 +158,7 @@ export async function collectDoctorSnapshot(options = {}) {
     ? runSecurityChecks(normalized.checkCatalog, normalized.cwd)
     : []
 
-  // Local process crash marker (ADR-0066): read-only facts for next-start visibility.
+  // Local process crash marker (ADR-0007): read-only facts for next-start visibility.
   // Never uploads. Clearing the marker is a separate deliberate effect.
   const processCrashMarker = await readProcessCrashMarkerFacts(normalized.userDataPath)
 
@@ -256,7 +256,7 @@ export function formatDoctorReport(snapshot, format = 'text') {
     `runtime posture: approval=${snapshot.runtimePosture?.approvalMode ?? 'n/a'}; tools=${snapshot.runtimePosture?.toolsEnabled ? 'on' : 'off'}; proxy=${snapshot.runtimePosture?.proxyEnabled ? 'on' : 'off'}; keys=${snapshot.runtimePosture?.keyStorage ?? 'n/a'}; shell=${snapshot.runtimePosture?.shellExecution ?? 'n/a'}`
   ]
   if (snapshot.platformCapabilities?.consumers?.length) {
-    lines.push('platform capabilities (ADR-0131 pathname-default; not descriptor-strict default):')
+    lines.push('platform capabilities (ADR-0012 pathname-default; not descriptor-strict default):')
     for (const consumer of snapshot.platformCapabilities.consumers) {
       lines.push(
         `  - ${consumer.consumer}: profile=${consumer.profile}; available=${consumer.available}; code=${consumer.code ?? 'n/a'}`
@@ -392,7 +392,7 @@ function summarizeRuntimePosture(settings, info) {
     keyStorage: secret.keyStorage,
     safeStorage: secret.keyStorage === 'electron_safe_storage' ? 'available_or_in_use' : secret.keyStorage === 'no_stored_secrets' ? 'not_required' : 'see_keyStorage',
     settingsFilePresent: Boolean(info),
-    nativeAddonNote: 'default durable I/O is pathname_default (ADR-0131); native descriptor is not default; see platformCapabilities for booleans',
+    nativeAddonNote: 'default durable I/O is pathname_default (ADR-0012); native descriptor is not default; see platformCapabilities for booleans',
     shellExecution: 'not_productized',
     mcpMarketplace: 'not_productized'
   }

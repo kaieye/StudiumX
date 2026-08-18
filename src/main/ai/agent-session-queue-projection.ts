@@ -7,7 +7,7 @@
  * - Product path keeps autoDrain false (reported as actual façade setting).
  *
  * Privacy: free-text is omitted by default; optional short preview is hard-capped
- * (see ADR-0089). Never project full user text by default.
+ * (see ADR-0004). Never project full user text by default.
  */
 
 import type { AgentQueuedInput, AgentInputKind } from './agent-input-queue'
@@ -44,7 +44,7 @@ export type AgentSessionQueueProjection = {
   conversationId?: string
   busy: boolean
   phase: BusyInputPhase | string
-  /** Actual façade setting; product gateway forces false (ADR-0082). */
+  /** Actual façade setting; product gateway forces false (ADR-0004). */
   autoDrain: boolean
   queueDepth: number
   queueCapacity: number

@@ -40,7 +40,7 @@ export type TeachingPromptOptions = {
   temporaryContext?: TemporaryChatContext | null
   visiblePageContext?: string | null
   /**
-   * Compact orchestration plan projection for turn-tail only (ADR-0151 Phase 3).
+   * Compact orchestration plan projection for turn-tail only (ADR-0014).
    * Must not include skill bodies or secrets. Does not enter stable system prefix.
    */
   skillOrchestrationPlan?: SkillOrchestrationPlan | null
@@ -152,7 +152,7 @@ export function buildAgentChatSystemPrompt(options: TeachingPromptOptions): stri
 }
 
 /**
- * Compact plan projection for turn-tail (ADR-0151 Phase 3 / ADR-0044).
+ * Compact plan projection for turn-tail (ADR-0014 / ADR-0008).
  * Index identity stays in stable prefix; full bodies stay in teach/skill-reference slots only for active skills.
  * Router skills must not claim dynamic execution of uninstalled children.
  */

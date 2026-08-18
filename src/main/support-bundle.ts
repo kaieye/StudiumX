@@ -48,7 +48,7 @@ import type {
 /** Local hard-cap for free-text fields after shared export redaction. */
 const MAX_STRING_LENGTH = 480
 // Shared absolute-path marker must stay identical: '<redacted-absolute-path>'
-// (imported as REDACTED_ABSOLUTE_PATH from observability/redact; ADR-0107).
+// (imported as REDACTED_ABSOLUTE_PATH from observability/redact; ADR-0007).
 const MAX_FINDINGS = 40
 const MAX_CAPABILITY_ITEMS = 48
 const MAX_SOURCE_ENTRIES = 80
@@ -98,7 +98,7 @@ export type SupportBundleInput = {
   /** Aggregate-only LocalDataIndex diagnostics — never projection row bodies. */
   localDataIndex?: SupportBundleLocalDataIndexInput | null
   /**
-   * Aggregate-only user MCP status (ADR-0128 Phase E).
+   * Aggregate-only user MCP status (ADR-0013).
    * Command/args must already be redacted or will be scrubbed again here.
    * Never includes env secrets, headers, or secret storage refs.
    */
@@ -137,7 +137,7 @@ export type SupportBundleLocalDataIndexInput = {
 
 
 /**
- * Aggregate-only user MCP status for support bundles (ADR-0128 §11.4 / Phase E).
+ * Aggregate-only user MCP status for support bundles (ADR-0013).
  * Callers must not supply secret env values, secret refs, or raw unredacted command lines
  * with embedded credentials. This builder re-redacts command/args/cwd labels fail-closed.
  */
@@ -785,7 +785,7 @@ function buildEnvironmentSection(
   workspaceRoot: string | null
 ): SupportBundleSectionPreview {
   // Allowlisted product fields first; then any smuggled own-keys so deepRedactJson
-  // can deny secret-shaped values while keeping presence booleans (ADR-0148).
+  // can deny secret-shaped values while keeping presence booleans (ADR-0013).
   const payload: Record<string, unknown> = {
     platform: redactText(String(input.platform ?? '')),
     appVersion: redactText(String(input.appVersion ?? ''))
@@ -872,7 +872,7 @@ function redactStringValue(value: string, workspaceRoot: string | null): string 
   // Stable identifiers (checkId, status, snake_case codes) must not be
   // collapsed by high-entropy credential detection. Only free-text / mixed
   // prose goes through full secret scrubbing (shared observability/redact;
-  // ADR-0107). Denied-field / stable-id policy stays local.
+  // ADR-0007). Denied-field / stable-id policy stays local.
   if (looksLikeStableIdentifier(value)) {
     return compact(value, MAX_STRING_LENGTH)
   }
@@ -963,7 +963,7 @@ const DENIED_FIELD_NAMES = new Set(
     'recordbodies',
     'conversationbodies',
     'memorybodies',
-    // MCP secret material must never ship in support bundles (ADR-0128 §11.4 / ADR-0148).
+    // MCP secret material must never ship in support bundles (ADR-0013).
     'envsecrets',
     'envsecretrefs',
     'headerssecretrefs',
@@ -985,7 +985,7 @@ const DENIED_FIELD_NAMES = new Set(
 function isDeniedFieldName(name: string): boolean {
   const lower = name.toLowerCase()
   if (DENIED_FIELD_NAMES.has(lower)) return true
-  // Presence-only (ADR-0148): deny whole secret-bearing key names without
+  // Presence-only (ADR-0013): deny whole secret-bearing key names without
   // collapsing lifecycle labels like authorizationState / authorizationCode (codes only).
   // Boolean presence flags (hasApiKey, apiKeyConfigured, *SecretConfigured) must survive.
   const compact = lower.replace(/[_-]/g, '')
@@ -997,7 +997,7 @@ function isDeniedFieldName(name: string): boolean {
   ) {
     return false
   }
-  // Shared secret field detector (ADR-0148) for smuggled customApiKey etc.
+  // Shared secret field detector (ADR-0013) for smuggled customApiKey etc.
   if (isSecretFieldKey(name) || isSecretFieldKey(compact)) {
     return true
   }

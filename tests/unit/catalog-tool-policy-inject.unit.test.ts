@@ -1,5 +1,5 @@
 /**
- * Catalog/read probe tool-policy inject (ADR-0101 / ADR-0117 multi-path residual):
+ * Catalog/read probe tool-policy inject (ADR-0005 multi-path):
  * teaching-capability-catalog (option B preloaded) + connector-health-catalog (async load).
  * Pure-path composition tests - no Electron, no agent loop.
  */
@@ -86,7 +86,7 @@ function composeConnectorToolContextOptions(input: {
   }
 }
 
-describe('capability-catalog tool-policy inject decision (ADR-0101 option B / ADR-0117)', () => {
+describe('capability-catalog tool-policy inject decision (ADR-0005 option B)', () => {
   it('omits toolPolicyDocument when preloaded doc is null (default-equivalent)', () => {
     const options = composeCapabilityToolContextOptions({
       workspaceRoot: '/tmp/studiumx-capability-fixture',
@@ -213,7 +213,7 @@ describe('capability-catalog tool-policy inject decision (ADR-0101 option B / AD
   })
 })
 
-describe('connector-health-catalog tool-policy inject decision (ADR-0101 option C / ADR-0117)', () => {
+describe('connector-health-catalog tool-policy inject decision (ADR-0005 option C)', () => {
   it('omits toolPolicyDocument when workspace root is missing/empty (no FS load)', () => {
     const options = composeConnectorToolContextOptions({
       workspaceRoot: undefined,
@@ -269,7 +269,7 @@ describe('connector-health-catalog tool-policy inject decision (ADR-0101 option 
 })
 
 describe('toolPolicyDocumentOption shared semantics (catalog residual)', () => {
-  it('matches ADR-0083/0088 omit-on-null contract', () => {
+  it('matches ADR-0005 omit-on-null contract', () => {
     expect(toolPolicyDocumentOption(null)).toEqual({})
     expect(toolPolicyDocumentOption(undefined)).toEqual({})
     expect(toolPolicyDocumentOption(forbiddenWriteDoc)).toEqual({

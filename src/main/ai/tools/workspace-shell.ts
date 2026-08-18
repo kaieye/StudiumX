@@ -1,5 +1,5 @@
 /**
- * Workspace-bounded command / shell tool (ADR-0152 + ADR-0153).
+ * Workspace-bounded command / shell tool (ADR-0015).
  * Codex dual-axis: sandboxMode (FS posture) × approvalMode (AskForApproval).
  * Registered when tools.workspaceShell !== false (application-wide tools are enabled).
  * effect=privileged; path fence; not teaching Evidence.
@@ -360,7 +360,7 @@ export async function executeRunWorkspaceCommand(
     stdoutTruncated: stdout.truncated,
     stderrTruncated: stderr.truncated,
     note:
-      'Command output is not teaching Evidence or settlement authority (ADR-0152/0153).'
+      'Command output is not teaching Evidence or settlement authority (ADR-0015).'
   })
 }
 

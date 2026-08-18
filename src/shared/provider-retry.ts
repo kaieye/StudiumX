@@ -1,5 +1,5 @@
 /**
- * Bounded jittered provider retry policy (A-05 / ADR-0057).
+ * Bounded jittered provider retry policy (A-05 / ADR-0010).
  *
  * Pure planning lives in `planProviderRetry`. The small async helper
  * `withProviderRetry` only sleeps and re-invokes; call sites must still

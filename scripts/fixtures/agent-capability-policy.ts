@@ -49,7 +49,7 @@ function stubTool(name: string): ToolEntry {
 }
 
 // Temporary shares the agent surface with teaching except lesson/product writers
-// (ADR-0128 §5.4). Workspace tools still require an explicit grant.
+// (ADR-0013). Workspace tools still require an explicit grant.
 const temporary = resolveTeachingCapabilityPolicy({
   mode: 'temporary',
   toolsEnabled: true,

@@ -1,5 +1,5 @@
 /**
- * MCP doctor / support-bundle redaction (ADR-0128 §11 / ADR-0148 presence-only).
+ * MCP doctor / support-bundle redaction (ADR-0013 presence-only).
  *
  * Never returns env/header secret values — only scrubbed command/args/cwd labels.
  */

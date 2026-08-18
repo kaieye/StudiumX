@@ -1,7 +1,7 @@
 /**
  * Study planning pure domain (Phase 1 + Phase 2 lifecycle pure module).
  *
- * ADR-0094 / ADR-0117: TimerPlanV2 + ScheduleBlock + migrate dry-run
+ * ADR-0011: TimerPlanV2 + ScheduleBlock + migrate dry-run
  * (allocateTimeWindow / AllocationProposal product path removed 2026-07-22)
  * + TimerSession lifecycle pure reducers (no canonical write, no renderer wire).
  */

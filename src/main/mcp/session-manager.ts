@@ -1,5 +1,5 @@
 /**
- * MCP session manager: connection lifecycle, tools/list cache, budgets (ADR-0128 §4–§5).
+ * MCP session manager: connection lifecycle, tools/list cache, budgets (ADR-0013).
  */
 
 import { resolve } from 'node:path'
@@ -50,7 +50,7 @@ export type McpSnapshotTool = Readonly<{
   parameters: Record<string, unknown>
   /**
    * Effect is resolved from config overrides, then optional trusted remote
-   * readOnlyHint when `honorRemoteReadOnlyHint` is on (ADR-0141). Default remains
+   * readOnlyHint when `honorRemoteReadOnlyHint` is on (ADR-0013). Default remains
    * privileged (fail-closed).
    */
   effectClass: McpEffectClass
@@ -189,7 +189,7 @@ export class McpSessionManager {
     }
     for (const [id, session] of this.sessions) {
       const nextServer = enabledById.get(id)
-      // Root effect policy change must rematerialize tools (ADR-0141 honorRemoteReadOnlyHint).
+      // Root effect policy change must rematerialize tools (ADR-0013 honorRemoteReadOnlyHint).
       if (
         !nextServer ||
         !hasSameSessionDefinition(session.server, nextServer) ||

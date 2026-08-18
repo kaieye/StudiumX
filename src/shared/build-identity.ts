@@ -1,5 +1,5 @@
 /**
- * Build / source identity for local diagnostics (ADOPTION S-12 / ADR-0072).
+ * Build / source identity for local diagnostics; release policy lives in CONTRIBUTING.md.
  *
  * Pure, fail-closed, no network. Prefer build-time env injection; never phone-home.
  * Unknown → stable placeholder `"unknown"` (does not throw; no absolute paths; no secrets).

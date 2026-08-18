@@ -17,7 +17,7 @@ export type TeachingCapabilityPolicy = Readonly<{
   lessonToolEnabled: boolean
   /**
    * Allow predicate for static tools + dynamic MCP (`mcp__…`).
-   * MCP tools share temporary/teaching injection (ADR-0128 §5.4).
+   * MCP tools share temporary/teaching injection (ADR-0013).
    */
   allowsTool: (toolName: string) => boolean
 }>
@@ -47,10 +47,10 @@ const WORKSPACE_WRITE_TOOL_NAMES = [
   'remember_teaching_memory',
   'forget_teaching_memory'
 ] as const
-/** Workspace command tools; same grant path as workspace file tools (Stage A / ADR-0153). */
+/** Workspace command tools; same grant path as workspace file tools (ADR-0015). */
 const WORKSPACE_SHELL_TOOL_NAMES = ['run_workspace_command', 'shell'] as const
 const DELEGATION_TOOL_NAMES = ['delegate_task', 'read_only_task', 'parallel_tasks'] as const
-/** Teaching-product write tools — temporary chat excludes only this set (ADR-0128 §5.4). */
+/** Teaching-product write tools — temporary chat excludes only this set (ADR-0013). */
 const LESSON_TOOL_NAMES = ['generate_lesson'] as const
 
 const ALL_KNOWN_TOOL_NAMES = [
@@ -69,7 +69,7 @@ const ALL_KNOWN_TOOL_NAMES = [
  * Built-in tools use an explicit allow-list. Dynamic MCP tools (`mcp__…`) are
  * allowed whenever tools are enabled (same for temporary and teaching);
  * temporary chat differs only by excluding teaching-product write tools such as
- * `generate_lesson` (ADR-0128 §5.4).
+ * `generate_lesson` (ADR-0013).
  */
 export function resolveTeachingCapabilityPolicy(
   input: TeachingCapabilityPolicyInput

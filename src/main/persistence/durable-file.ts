@@ -43,7 +43,7 @@ export type DurablePathReplaceOptions = {
   onDirectoryBound?: () => void | Promise<void>
 }
 
-/** Pathname-only replace options (ADR-0131). Contained/directory variant removed. */
+/** Pathname-only replace options (ADR-0012). Contained/directory variant removed. */
 export type DurableReplaceOptions = DurablePathReplaceOptions
 
 export type ReplaceWithBackupOptions<T> = DurablePathReplaceOptions & {
@@ -70,7 +70,7 @@ export type ReadValidatedWithBackupOptions<T> = {
  * synced after the rename. It intentionally has no backup behavior.
  */
 /**
- * Pathname-default durable replace (ADR-0131): temp → write → optional fsync → rename.
+ * Pathname-default durable replace (ADR-0012): temp → write → optional fsync → rename.
  * On Windows, rename cannot overwrite an existing leaf; unlink-then-rename once.
  * Deliberately non-CAS; no native contained_durable_replace dependency.
  */
@@ -280,7 +280,7 @@ async function syncDirectory(
   operations: DurableFileOperations,
   warn: DurableReplaceOptions['warn']
 ): Promise<void> {
-  // Shared settlement directory-sync policy (ADR-0020 / C-4P6 Phase 1):
+  // Shared settlement directory-sync policy (ADR-0002):
   // production Windows may skip only on the default open seam; injected
   // operations remain strict so permission/I/O faults stay fatal.
   await syncSettlementDirectory({
@@ -328,7 +328,7 @@ function isErrno(error: unknown): error is NodeJS.ErrnoException {
 }
 
 /**
- * C-2C projection capability under pathname-default durable I/O (ADR-0131).
+ * C-2C projection capability under pathname-default durable I/O (ADR-0012).
  * Always available; there is no native-addon gate.
  */
 export function getC2CProjectionOutputDirectoryCapability(): { available: true } {

@@ -1,5 +1,5 @@
 /**
- * Fail-soft TeachingDoctor config facts collector (B-11 residual / ADR-0099).
+ * Fail-soft TeachingDoctor config facts collector (B-11 residual / ADR-0007).
  *
  * Loads settings via an injected adapter (typically TeachingSettingsService.load)
  * and maps them into TeachingDoctorConfigFacts only. Never embeds absolute home
@@ -8,7 +8,7 @@
  * Non-claims:
  * - no auto-repair
  * - no auto-upload / remote telemetry / OTEL
- * - no free-form renderer facts (IPC payload remains ADR-0084 closed)
+ * - no free-form renderer facts (IPC payload remains ADR-0007 closed)
  * - no session/outcome/source/catalog FS collectors
  */
 
@@ -164,7 +164,7 @@ function providerHasCredentialsOrModels(provider: unknown): boolean {
   const record = asRecord(provider)
   if (!record) return false
 
-  // Presence-only (ADR-0148): never retain or return key material.
+  // Presence-only (ADR-0006): never retain or return key material.
   if (isSecretConfigured(record.apiKey)) {
     return true
   }

@@ -57,7 +57,7 @@ async function writeTeachPack(input: {
   return directory
 }
 
-describe('core teaching kernel load (ADR-0151 Phase 1)', () => {
+describe('core teaching kernel load (ADR-0014)', () => {
   it('loads Teaching Kernel from builtin without personal install', async () => {
     const root = await createRoot()
     const builtInRoot = join(root, 'builtins')

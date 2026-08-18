@@ -8,7 +8,7 @@ import {
   resolvePlatformCapability
 } from '../../src/main/platform/platform-capability-registry'
 
-describe('platform capability registry (ADR-0131 pathname_default)', () => {
+describe('platform capability registry (ADR-0012 pathname_default)', () => {
   it('resolves Windows memory and workspace to pathname_default (non-CAS)', () => {
     const snapshot = resolvePlatformCapabilities({
       platform: 'win32',
@@ -45,7 +45,7 @@ describe('platform capability registry (ADR-0131 pathname_default)', () => {
     })
     expect(workspace.profile).toBe('pathname_default')
 
-    // ADR-0035: Windows does not claim P6 strict settlement profile.
+    // ADR-0012: Windows does not claim P6 strict settlement profile.
     const outcome = resolvePlatformCapability(PLATFORM_CAPABILITY_CONSUMERS.learningOutcomeCommitter, {
       platform: 'win32'
     })

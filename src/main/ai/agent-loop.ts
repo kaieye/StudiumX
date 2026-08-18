@@ -109,7 +109,7 @@ export type RunAgentLoopOptions = {
    * When missing, spill falls back to inline truncation.
    */
   runId?: string
-  /** Optional overrides for turn-aggregate tool result budget (B-04 / ADR-0056). */
+  /** Optional overrides for turn-aggregate tool result budget (B-04 / ADR-0005). */
   toolResultTurnBudget?: Partial<ToolResultTurnBudgetConfig>
   /** Applied only to the first normal model request; subsequent turns return to automatic tool selection. */
   initialToolChoice?: ToolChoice

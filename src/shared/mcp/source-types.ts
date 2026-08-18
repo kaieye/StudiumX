@@ -1,5 +1,5 @@
 /**
- * Multi-source MCP config provenance types (ADR-0137 Phase E).
+ * Multi-source MCP config provenance types (ADR-0013).
  * Pure types only — no Node / Electron / FS.
  */
 
@@ -72,10 +72,10 @@ export type McpShadowedServerV1 = Readonly<{
  * Does not replace UserMcpConfigV1 durable storage — user layer remains canonical for writes.
  */
 export type McpEffectiveConfigViewV1 = Readonly<{
-  /** Root gate: true only when the user (or higher) layer sets enabled true. See ADR-0137. */
+  /** Root gate: true only when the user (or higher) layer sets enabled true. See ADR-0013. */
   enabled: boolean
   /**
-   * Effective smart-connect gate from user config (ADR-0141):
+   * Effective smart-connect gate from user config (ADR-0013):
    * enabled && autoConnect !== false (omit means on when root enabled).
    */
   autoConnect: boolean

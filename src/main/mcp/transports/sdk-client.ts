@@ -104,7 +104,7 @@ export function createSdkMcpTransport(options: SdkMcpTransportOptions): McpTrans
           description: tool.description,
           inputSchema: tool.inputSchema as Record<string, unknown>,
           // Retain protocol annotations for UI/audit only. Never use them to
-          // resolve StudiumX effectClass (ADR-0132 §2.7).
+          // resolve StudiumX effectClass (ADR-0013).
           ...(tool.annotations
             ? { annotations: sanitizeRemoteToolAnnotations(tool.annotations) }
             : {})

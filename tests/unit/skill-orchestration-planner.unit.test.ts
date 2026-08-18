@@ -387,7 +387,7 @@ describe('SkillOrchestrationPlanner.plan', () => {
   })
 
   /**
-   * Evidence inequality (ADR-0151): host policy teachingImpact must never treat
+   * Evidence inequality (ADR-0014): host policy teachingImpact must never treat
    * assessor / content-audit / visual-verification as learner Evidence writers.
    * Settlement remains TeachingTurnCoordinator sole-writer path only.
    */

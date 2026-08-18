@@ -128,7 +128,7 @@ const pendingSteer: SubmitConversationTurnIntent = {
 }
 
 describe('SubmitConversationTurn public DTOs', () => {
-  it('freezes ADR-0170 §3–4 lane, intent, and learner-safe disposition protocol', () => {
+  it('freezes ADR-0004 lane, intent, and learner-safe disposition protocol', () => {
     expectTypeOf<ConversationLaneKey>().toEqualTypeOf<ExpectedConversationLaneKey>()
     expectTypeOf<SubmitConversationTurnIntent>().toEqualTypeOf<ExpectedSubmitConversationTurnIntent>()
     expectTypeOf<SubmitConversationTurnDisposition>().toEqualTypeOf<ExpectedSubmitConversationTurnDisposition>()

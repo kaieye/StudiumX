@@ -9,7 +9,7 @@ import {
 import { probeOsSandboxBackend, transformArgvWithCodexSandbox } from '../../src/main/ai/tools/codex-sandbox-transform'
 import { toCodexSandboxModeWire } from '../../src/shared/teaching-types/agent-sandbox'
 
-describe('agent-sandbox-policy (Codex dual-axis, ADR-0153)', () => {
+describe('agent-sandbox-policy (Codex dual-axis, ADR-0015)', () => {
   it('maps sandbox modes to Codex wire names', () => {
     expect(toCodexSandboxModeWire('read_only')).toBe('read-only')
     expect(toCodexSandboxModeWire('workspace_write')).toBe('workspace-write')

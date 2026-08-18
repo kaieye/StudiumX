@@ -1,5 +1,5 @@
 /**
- * Authoritative ask deadline + timeout settlement policy (ADR-0144).
+ * Authoritative ask deadline + timeout settlement policy (ADR-0010).
  *
  * Host stamps `__deadlineAt` once; all surfaces count down from that ISO timestamp.
  * Timeout settles **ask only** to the recommended option (or first option).

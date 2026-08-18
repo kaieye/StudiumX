@@ -1,5 +1,5 @@
 /**
- * Stream presentation adapter (ADOPTION B-06 / ADR-0062).
+ * Stream presentation adapter (ADOPTION B-06 / ADR-0004).
  *
  * Maps multi-shape agent stream signals (`AgentLoopEvent` and presentation
  * callbacks) into a single sink without owning timeline / EventBus storage.

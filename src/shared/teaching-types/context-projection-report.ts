@@ -1,5 +1,5 @@
 /**
- * Privacy-safe Context Projection Report (P1-6 / ADR-0013 deepen).
+ * Privacy-safe Context Projection Report (P1-6 / ADR-0003 deepen).
  *
  * Records what was included or omitted during teaching / request context
  * assembly, with budget and provenance diagnostics. Never carries raw prompt

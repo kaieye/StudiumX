@@ -1,5 +1,5 @@
 /**
- * Host-side skill orchestration seams (ADR-0151).
+ * Host-side skill orchestration seams (ADR-0014).
  * Pure helpers only — no ledger, tools, or settlement authority.
  * Runtime / workspace assemble catalog readiness + mode; planner remains pure plan().
  */
@@ -246,7 +246,7 @@ export function resolveCurrentSkillOrchestrationStage(
 }
 
 /**
- * Skill ids whose full bodies may be loaded for this turn (ADR-0151 §3.1):
+ * Skill ids whose full bodies may be loaded for this turn (ADR-0014):
  * - current-stage `active_now` bodies only
  * - kernel `advisory_only` (instant_help)
  * - teaching conversation always includes `teach`
@@ -358,7 +358,7 @@ export function buildSkillOrchestrationPlanInput(input: {
 }
 
 /**
- * Deterministic completion-gate evaluation (ADR-0156). Only gates whose facts
+ * Deterministic completion-gate evaluation (ADR-0014). Only gates whose facts
  * are derivable from allow-listed workspace artifact tokens can pass; anything
  * else stays honestly failed with an explicit checkedFact token. Verifier and
  * learner-evidence gates are never inferred here.
@@ -406,7 +406,7 @@ export function evaluateSkillOrchestrationStageGates(input: {
 }
 
 /**
- * Advance the durable conversation orchestration state after a plan (ADR-0156).
+ * Advance the durable conversation orchestration state after a plan (ADR-0014).
  * A rebuildable workflow projection: stage cursor + gate checks + artifact
  * tokens only. Conflicting or missing prior state degrades to a fresh plan.
  */
@@ -517,7 +517,7 @@ export function skillOrchestrationFactsFromAuthority(input: {
 }
 
 /**
- * Project a plan into a LOCAL, redactable diagnostics fact (ADR-0163 §2.6).
+ * Project a plan into a LOCAL, redactable diagnostics fact (ADR-0014).
  *
  * Identifiers, enums and counts only. The objective text, skill bodies,
  * workspace paths, secrets and every learner Evidence field are structurally

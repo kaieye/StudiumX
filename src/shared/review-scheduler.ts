@@ -1,5 +1,5 @@
 /**
- * Pure spaced-review scheduler projection (ADR-0154).
+ * Pure spaced-review scheduler projection (ADR-0003).
  *
  * Deterministic, dependency-free, and rebuildable: same inputs always produce
  * the same schedule. This module never reads the filesystem, never writes the
@@ -13,7 +13,7 @@ export const REVIEW_SCHEDULE_SCHEMA_VERSION = 1 as const
 /**
  * Fixed interval ladder (days) for v1. Deterministic and parameter-free by
  * design; adaptive parameters (FSRS-style) require a new ADR with reproducible
- * failure evidence, mirroring the ADR-0050 signal-triggered upgrade pattern.
+ * failure evidence and an explicit authority boundary.
  */
 export const REVIEW_INTERVAL_LADDER_DAYS: readonly number[] = [1, 3, 7, 21, 60]
 
@@ -79,7 +79,7 @@ export type DeriveReviewScheduleInput = {
 }
 
 /**
- * Rules (v1, documented in ADR-0154):
+ * Rules (v1, governed by ADR-0003):
  * - successStreak = consecutive `correct: true` entries from the latest attempt
  *   backwards; any incorrect attempt resets the streak below it.
  * - After a correct latest attempt: nextDueAt = lastObservedAt +

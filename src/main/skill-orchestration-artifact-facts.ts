@@ -1,5 +1,5 @@
 /**
- * Read-only workspace artifact fact derivation for skill orchestration (ADR-0151 / ADR-0156).
+ * Read-only workspace artifact fact derivation for skill orchestration (ADR-0014).
  *
  * Maps host-registry artifact scopes onto the workspace filesystem so the pure
  * planner can consume real `availableArtifacts` instead of placeholder facts.

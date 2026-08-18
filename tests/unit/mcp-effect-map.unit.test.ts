@@ -10,7 +10,7 @@ import {
   setMcpEffectLookup
 } from '../../src/main/ai/tools/effect-policy'
 
-describe('MCP effect map (ADR-0128 §6 / ADR-0141)', () => {
+describe('MCP effect map (ADR-0013)', () => {
   it('defaults to privileged', () => {
     expect(resolveMcpToolEffect('anything')).toBe('privileged')
     expect(resolveMcpToolEffect('x', {})).toBe('privileged')
@@ -85,7 +85,7 @@ describe('MCP effect map (ADR-0128 §6 / ADR-0141)', () => {
   })
 })
 
-describe('classifyToolEffect MCP path (ADR-0128 §6.1)', () => {
+describe('classifyToolEffect MCP path (ADR-0013)', () => {
   it('defaults mcp__ tools to privileged when no runtime map', () => {
     setMcpEffectLookup(null)
     expect(classifyToolEffect('mcp__demo__echo')).toBe('privileged')

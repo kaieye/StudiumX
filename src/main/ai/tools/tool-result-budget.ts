@@ -1,7 +1,7 @@
 /**
  * Turn-level tool result aggregation budget + spill-to-preview.
  *
- * Layering (distinct from ADR-0041):
+ * Layering (distinct from ADR-0005):
  *   1. Per-tool hard byte budget — annotations.enforceToolResultBudget (32KiB default)
  *   2. Turn aggregate char budget — this module (default 200_000 chars)
  *

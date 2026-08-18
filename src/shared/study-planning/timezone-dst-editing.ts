@@ -9,7 +9,7 @@
  * - Fail-closed on invalid ranges; no silent sub-minimum focus blocks (e.g. 3-minute pomodoros)
  *
  * Pure: no I/O, no Date.now side effects (callers supply instants), no OS hooks.
- * Not a durable wire freeze (ADR-0094 freeze #5 spirit).
+ * Not a durable wire freeze (ADR-0011).
  */
 
 

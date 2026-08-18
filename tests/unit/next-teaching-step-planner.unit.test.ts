@@ -34,7 +34,7 @@ describe('NextTeachingStepPlanner', () => {
     expect(decision.reason).toBe('needs_practice')
   })
 
-  describe('spaced review (ADR-0154)', () => {
+  describe('spaced review (ADR-0003)', () => {
     function establishedFacts(): NextTeachingStepFacts {
       const input = facts()
       input.durableOutcome = {

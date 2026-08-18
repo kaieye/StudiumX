@@ -337,7 +337,7 @@ if (!hasSingleInstanceLock) {
       await mcpHost?.setStudiumxAccessToken(token)
     })
 
-    // ADR-0135: fixed studiumx://mcp-oauth/callback only. No arbitrary deep-link routes.
+    // ADR-0013: fixed studiumx://mcp-oauth/callback only. No arbitrary deep-link routes.
     installMcpOAuthDeepLinkBridge({
       app,
       handleDeepLink: async (deepLink) => {
@@ -345,7 +345,7 @@ if (!hasSingleInstanceLock) {
         await mcpHost.handleOAuthCallback(deepLink)
       }
     })
-    // Local crash marker (ADR-0066 / B-11): next-start doctor visibility only.
+    // Local crash marker (ADR-0007 / B-11): next-start doctor visibility only.
     // No upload, OTEL, or remote telemetry.
     const crashMarkers = createCrashMarkerStore({ appDataRoot: userDataPath })
     uninstallCrashMarkerHooks = installLocalCrashMarkerHooks(crashMarkers)
@@ -471,9 +471,9 @@ if (!hasSingleInstanceLock) {
           logger,
           applyAppBehavior: (settings) => applyAppBehavior(settings, tray, logger),
           turnCoordinatorHost,
-          // B-11 / ADR-0084: product TeachingDoctor IPC reads process crash marker.
+          // B-11 / ADR-0007: product TeachingDoctor IPC reads process crash marker.
           crashMarkerStore: crashMarkers,
-          // ADR-0128 Phase E: redacted user MCP status for doctor.
+          // ADR-0013: redacted user MCP status for doctor.
           mcpFactsSource: mcpHost
             ? {
                 loadConfig: () => mcpHost!.configStore.load(),
@@ -527,7 +527,7 @@ if (!hasSingleInstanceLock) {
     // Packaged builds check the GitHub Release feed without delaying startup.
     startAppUpdateCheck()
 
-    // ADR-0129 §4: OS suspend/resume fan-out only (no main-side TimerSession pin).
+    // ADR-0011: OS suspend/resume fan-out only (no main-side TimerSession pin).
     installSystemPowerBridge()
 
     app.on('activate', () => {

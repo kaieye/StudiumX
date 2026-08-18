@@ -156,7 +156,7 @@ export class DelegationRuntime {
     let stopReason: string | undefined
     let output: ChildRunExecutionResult
     try {
-      // Optional workspace tool-policy (ADR-0088 / ADR-0117 multi-path): load when
+      // Optional workspace tool-policy (ADR-0005 multi-path): load when
       // workspaceRoot is non-empty; omit field on null (default-equivalent).
       const workspaceRoot = this.options.workspaceRoot
       const workspaceToolPolicy =

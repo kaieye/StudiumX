@@ -88,7 +88,7 @@ const api: TeachingSystemApi = {
   },
   onLessonStreamChunk: (handler) => registerIpcListener<LessonStreamChunk>(teachingEventChannels.lessonStreamChunk, handler),
   onLessonStreamStatus: (handler) => registerIpcListener<LessonStreamStatus>(teachingEventChannels.lessonStreamStatus, handler),
-  // ADR-0170 transport boundary: invoke-only. It intentionally does not subscribe
+  // ADR-0004 transport boundary: invoke-only. It intentionally does not subscribe
   // to any stream/event channel or synthesize a stream identity.
   submitConversationTurn: (intent) =>
     ipcRenderer.invoke(teachingInvokeChannels.submitConversationTurn, intent),

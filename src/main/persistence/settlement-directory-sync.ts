@@ -3,7 +3,7 @@
  *
  * Soft-unsupported errno allowlist and Windows production skip rules live here
  * so pathname durable-file and ledger can share one mapping without a module
- * cycle against replaceDurably (see ADR-0020).
+ * cycle against replaceDurably (see ADR-0002).
  */
 import { open } from 'node:fs/promises'
 

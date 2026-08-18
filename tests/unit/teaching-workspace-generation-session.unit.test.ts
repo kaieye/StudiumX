@@ -47,7 +47,7 @@ describe('TeachingWorkspaceService generation Session gate', () => {
         actionId: randomUUID(),
         prompt: 'Explain why a Session identity must be canonical.',
         messages: []
-      // ADR-0126: Windows direct-path IO landed, so the controlled ledger
+      // ADR-0012: Windows direct-path IO landed, so the controlled ledger
       // failure surfaces on every platform (no descriptor-unavailable fork).
       })).rejects.toThrow('controlled canonical session open failure')
     } finally {

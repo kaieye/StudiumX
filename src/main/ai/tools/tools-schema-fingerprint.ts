@@ -1,5 +1,5 @@
 /**
- * Tools/schema session fingerprint guard (B-05 / ADR-0060).
+ * Tools/schema session fingerprint guard (B-05 / ADR-0005).
  *
  * Within a single agent run, the offered tool surface is fingerprinted.
  * Silent expansion (new tools or parameter-schema growth/change) fails closed.

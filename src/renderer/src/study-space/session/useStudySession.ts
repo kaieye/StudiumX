@@ -228,7 +228,7 @@ type UseStudySessionOptions = {
   /** Optional Teaching workspace captured only as explicit task/session attribution. */
   workspaceId?: string
   /**
-   * Active workspace filesystem root for canonical StudyPlanning writes (ADR-0117).
+   * Active workspace filesystem root for canonical StudyPlanning writes (ADR-0011).
    * When missing, task mutations stay V1-local and dual-write is skipped (fail-closed).
    */
   workspaceRoot?: string | null
@@ -1063,7 +1063,7 @@ export function useStudySession({
 
   /**
    * Slice B: dry-run V1 local snapshot → user confirm → import_migration_commit durable.
-   * Does not erase localStorage (ADR-0117 ≥30 days / explicit erase later).
+   * Does not erase localStorage (ADR-0011 ≥30 days / explicit erase later).
    */
   const migrateV1ToCanonicalPlanning = async (options?: {
     weekAnchorMidnightMs?: number
@@ -1736,7 +1736,7 @@ export function useStudySession({
   }, [])
 
   /**
-   * ADR-0129 OS bridge: main powerMonitor suspend/resume -> existing wake path.
+   * ADR-0011 OS bridge: main powerMonitor suspend/resume -> existing wake path.
    * Thin subscribe only; pin stays renderer dual-write (no main sole-writer).
    */
   useEffect(() => {
@@ -2570,7 +2570,7 @@ export function useStudySession({
     if (!result.added) return false
     recordTaskMutation(current, result.snapshot)
     commitSnapshot(result.snapshot)
-    // Dual-write: same id into workspace canonical (ADR-0117). Fire-and-forget; V1 remains UI cache.
+    // Dual-write: same id into workspace canonical (ADR-0011). Fire-and-forget; V1 remains UI cache.
     void dualWriteCreateTask(resolvePlanningContext(), {
       id: taskId,
       title: titleInput.trim().slice(0, 80),
@@ -2716,7 +2716,7 @@ export function useStudySession({
     if (!result.updated) return false
     recordTaskMutation(current, result.snapshot)
     commitSnapshot(result.snapshot)
-    // Dual-write title/category + schedule (week-drag) to canonical (ADR-0117).
+    // Dual-write title/category + schedule (week-drag) to canonical (ADR-0011).
     // V1 remains UI cache; done→open reopen uses dualWriteReopenTask (not update_task).
     // STC-307: optional blockId targets the real ScheduleBlock (not always block:task:v1).
     void dualWriteUpdateTask(resolvePlanningContext(), {

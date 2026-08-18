@@ -25,7 +25,7 @@ afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((rootDir) => rm(rootDir, { recursive: true, force: true })))
 })
 
-describe('TeachingMemoryCatalog pathname_default (ADR-0131)', () => {
+describe('TeachingMemoryCatalog pathname_default (ADR-0012)', () => {
   it('lists and commits through trusted-root pathname persistence (non-CAS)', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'studiumx-memory-pathname-'))
     temporaryRoots.push(rootDir)

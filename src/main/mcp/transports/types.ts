@@ -1,6 +1,6 @@
 /**
  * Lifecycle-aware MCP transport interface and in-process fake for unit tests
- * (ADR-0128 §4 / §12.1; ADR-0133 §2).
+ * Transport implementations remain inside the ADR-0013 trust boundary.
  */
 
 /**
@@ -8,7 +8,7 @@
  *
  * These are display/audit/retry-hint metadata. They MUST NOT drive
  * `resolveMcpToolEffect` / effectClass — remote `readOnlyHint` must not
- * auto-downgrade privileged tools (ADR-0132 §2.7).
+ * auto-downgrade privileged tools (ADR-0013).
  */
 export type McpRemoteToolAnnotations = Readonly<{
   title?: string

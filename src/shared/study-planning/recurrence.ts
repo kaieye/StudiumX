@@ -7,7 +7,7 @@
  * Pure + deterministic for fixed inputs. Does not write store, mutate historical
  * TimerSession, or invent task identity (roadmap §3.2 / §7.3).
  *
- * Non-wire sketch: not a frozen ADR-0117 snapshot field; callers may persist
+ * Non-wire sketch: not a frozen ADR-0011 snapshot field; callers may persist
  * RecurrenceRule alongside planning data later.
  */
 

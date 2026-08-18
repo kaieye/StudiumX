@@ -1,6 +1,6 @@
 /**
  * Contained FS load/save for teaching-turn review last-bundle snapshot
- * (ADOPTION S-09 residual / ADR-0113 FS layer).
+ * (ADOPTION S-09 residual / ADR-0001 FS layer).
  *
  * Caller-supplied absolute root only (typically Electron userData).
  * Fail closed: missing / invalid / oversize / path-escape → null or { ok:false }.

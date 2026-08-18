@@ -1,5 +1,5 @@
 /**
- * Study planning category catalog (ADR-0117 section 4.5).
+ * Study planning category catalog (ADR-0011).
  *
  * Pure normalize for snapshot.categories sole-authority cutover.
  * Rules align with renderer taskCategories (color/ID/name/limit); no I/O.

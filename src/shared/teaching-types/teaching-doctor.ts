@@ -116,7 +116,7 @@ export type TeachingDoctorConfigFacts = {
   /** Optional settings schema/key path when known (e.g. `provider.apiKey`). */
   configKey?: string | null
   /**
-   * Optional agent sandbox readiness (ADR-0153 Stage E).
+   * Optional agent sandbox readiness (ADR-0015).
    * Same source as runtime resolveAgentSandboxReadiness — non-secret only.
    */
   agentSandboxMode?: string
@@ -203,7 +203,7 @@ export type TeachingDoctorMcpFacts = {
   /** Feature / implementation present in this build. */
   implementationPresent: boolean
   rootEnabled: boolean
-  /** Opt-in discovery auto-connect (ADR-0137); never implies tool approval. */
+  /** Opt-in discovery auto-connect (ADR-0013); never implies tool approval. */
   autoConnectEnabled?: boolean
   serverCount: number
   enabledServerCount: number
@@ -212,11 +212,11 @@ export type TeachingDoctorMcpFacts = {
   servers: readonly TeachingDoctorMcpServerFacts[]
   /** Logical locator only. */
   configPathLabel?: string | null
-  /** Local marketplace emergency kill-switch (ADR-0140); no catalog payload. */
+  /** Local marketplace emergency kill-switch (ADR-0013); no catalog payload. */
   marketplaceEmergencyDisabled?: boolean
   /**
    * Distinct multi-source origin kinds represented among effective winners
-   * (ADR-0137). Aggregate only — no paths or server payloads.
+   * (ADR-0013). Aggregate only — no paths or server payloads.
    */
   effectiveSourceCount?: number
   /** Count of non-secret multi-source load/parse warnings (aggregate only). */
@@ -248,7 +248,7 @@ export type TeachingDoctorFacts = {
 }
 
 /**
- * Product IPC payload for `runTeachingDoctor` (ADR-0084).
+ * Product IPC payload for `runTeachingDoctor` (ADR-0007).
  * Fail-closed: only optional includeProcessCrashMarker; no free-form facts from renderer.
  */
 export type RunTeachingDoctorPayload = {

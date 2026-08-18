@@ -1,5 +1,5 @@
 /**
- * Stable MCP tool name encode/decode (ADR-0128 §5.1).
+ * Stable MCP tool name encode/decode (ADR-0013).
  * Pure — no I/O.
  *
  * Format: mcp__{serverId}__{rawToolName}

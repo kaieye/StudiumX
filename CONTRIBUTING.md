@@ -1,10 +1,10 @@
 # Contributing to StudiumX
 
-## Mission → doctor → ADR
+## Mission → Doctor → ADR
 
-1. **Mission** — product intent and file-first teaching workspace model (`README.md`, `docs/domain-language.md`).
-2. **Doctor** — local redacted posture: `pnpm doctor -- --json` (see `runtimePosture` and `studiumx-settings.example.json`).
-3. **ADR** — durable architecture decisions live only under `docs/adr/`. Do not invent parallel “todo plan” authority once closed into ADRs.
+1. **Mission** — product intent and the file-first teaching workspace model live in `README.md` and `docs/domain-language.md`.
+2. **Doctor** — inspect local redacted posture with `pnpm doctor -- --json`.
+3. **ADR** — durable architecture decisions live only under [`docs/adr/`](docs/adr/README.md); implementation history remains in Git and PRs.
 
 ## Setup
 
@@ -14,22 +14,22 @@ pnpm install
 pnpm dev
 ```
 
-Node 22.x recommended (matches CI).
+Node 22.x is recommended to match CI.
 
 ## Checks
 
-分层含义（L0 领域保险丝 / L1 runtime / L2 packaging / L4 change-detector 债）见 `AGENTS.md` 的“改哪测哪”与 ADR-0053。**禁止**用覆盖率替换 teaching/privacy/security 领域门禁。
-
+L0 teaching/privacy/security fuses take priority over generic lint or coverage. L1 runtime, L2 packaging and L4 change-detector checks are layered on top; coverage never replaces a domain gate.
 
 | Command | When |
 | --- | --- |
-| `pnpm typecheck` | Always before PR when touching TS |
-| `pnpm run check:security` | Privacy / secrets / packaging invariants |
-| `pnpm run check:tool-contract` | Tool inventory / effect class drift |
-| `pnpm run check:prepush` | Optional local subset (typecheck + security) |
-| `pnpm run check:teaching-impact` | With PR body when sensitive paths change |
-| `pnpm run check:module-size` | Optional local size report (ADR-0075; warning-only by default; not Blocking CI) |
-| Targeted `pnpm run check:*` / vitest unit | Modules you touch |
+| `pnpm typecheck` | Any TypeScript production change |
+| `pnpm run check:security` | Paths, privacy, secrets, providers, MCP or packaging boundaries |
+| `pnpm run check:tool-contract` | Tool inventory, effect class or write-policy changes |
+| `pnpm run check:teaching-evidence` | LearningSession, Evidence, Outcome or settlement changes |
+| `pnpm run check:teaching-impact` | Prompt prefix or sensitive teaching paths, with PR body |
+| `pnpm run check:prepush` | Optional local typecheck + security subset |
+| `pnpm run check:module-size` | Optional warning-only module-size report |
+| Targeted `pnpm run check:*` / vitest | Modules touched by the change |
 
 Optional hook:
 
@@ -39,41 +39,60 @@ git config core.hooksPath .githooks
 
 ## Pull requests
 
-Use the PR template impact checklist:
-
-- Teaching-impact
-- Privacy-impact
-- Prompt-prefix-guard
-- Settlement-guard
-
-Do not burn real model API keys in default CI.
+Use the PR template impact checklist and record the commands actually run. Do not burn real model API keys in default CI. Blocking CI stays narrow and hard; full e2e and release audit remain explicit heavier checks.
 
 ## Hard red lines
 
-- LearningSessionLedger ⟂ AgentRun; TeachingTurnCoordinator remains sole writer for settlement.
-- No default-on SQLite FTS product search. Workspace shell follows ADR-0152/0153 (`workspaceShell` defaults on, dual-axis approval, path-fenced, no YOLO); MCP Settings surface is list/editor/import/OAuth (no marketplace settings page, ADR-0142).
-- Keep typed effect lattice and fail-closed capability catalog.
-- Teaching write-authority remains files; SQLite is disposable projection (list/analytics preferred read when current); do not weaken history redaction or secret-free resolved config.
-
+- `LearningSessionLedger` is separate from `AgentRun`; `TeachingTurnCoordinatorHost` remains settlement sole-writer.
+- Teaching write authority remains files; SQLite projections may be preferred reads only while current and complete.
+- No SQLite FTS or vector database user product search surface without a new ADR.
+- Workspace shell follows [ADR-0015](docs/adr/0015-shell-sandbox-dual-axis.md): default available, dual-axis approval/sandbox, path-fenced and no YOLO label.
+- MCP Settings remains list/editor/import/OAuth with no marketplace settings page; MCP calls still pass effect/approval ([ADR-0013](docs/adr/0013-mcp-runtime-trust-and-secrets.md)).
+- Public config, diagnostics, support bundles and logs remain secret-free.
 
 ## Database PR gates
 
-When a PR touches LocalDataIndex / SQLite projection / usage or approval projections / database policy:
+Apply this checklist when a PR touches LocalDataIndex, a SQLite/projection schema or migration, usage/approval/memory projections, or index-related Doctor/support-bundle output. A documentation-only typo may state `Database-gates: n/a (docs typo only)`.
 
-1. Fill the checklist in [ADR-0124](docs/adr/0124-database-layered-authority-and-pr-gates.md) §2 (six gates + PR copy block).
-2. Confirm P2 items stay out of scope unless a **new ADR** already landed — see ADR-0124 §3 (DB-P2-1…4; DB-P2-3 **won't do** for teaching/session **write** SoT; optional runtime store needs its own ADR / ADR-0123).
-3. Keep layered authority: files are write-authority for teaching assets/transcripts/ledgers; SQLite is disposable projection (preferred read for list/analytics when ready); no analytics-DB FTS product surface; no secrets/prompts in projections. See ADR-0124 §1 and [ADR-0001](docs/adr/0001-rebuildable-sqlite-projection.md).
+Every applicable gate needs concrete evidence in the PR description:
 
-Doc-contract unit: `pnpm exec vitest run --project unit tests/unit/database-pr-gates.unit.test.ts`
+- [ ] **Gate 1 — Canonical immutability:** quarantine, rebuild and migration do not modify canonical JSON/JSONL/Memory bytes except through an explicitly authorized domain writer.
+- [ ] **Gate 2 — Drift safety:** stale fingerprints/checksums never report `ready`; drift produces unavailable/rebuild/file-fallback behavior.
+- [ ] **Gate 3 — No secrets:** schemas and projections exclude API keys, raw prompts, sensitive tool args and unredacted paths; relevant redaction/security checks pass.
+- [ ] **Gate 4 — Degrade on failure:** missing native SQLite, migration conflict or unavailable index does not block the main product path; file fallback or skipped analytics remains available.
+- [ ] **Gate 5 — Policy alignment:** no user-facing analytics FTS/vector search, canonical purge, SQLite teaching/session write authority or effect-lattice bypass is introduced without a new accepted ADR.
+- [ ] **Gate 6 — Tests:** targeted unit tests run; migration changes cover checksum/conflict behavior; necessary integration evidence is recorded.
+
+PR copy block:
+
+```markdown
+### Database acceptance gates
+
+- [ ] Gate 1 Canonical immutability — evidence: …
+- [ ] Gate 2 Drift safety — evidence: …
+- [ ] Gate 3 No secrets in index — evidence: …
+- [ ] Gate 4 Degrade on failure — evidence: …
+- [ ] Gate 5 Policy alignment — evidence: …
+- [ ] Gate 6 Tests — evidence: …
+
+Boundary check:
+- [ ] SQLite remains a rebuildable projection, not teaching/session write authority
+- [ ] No user-facing SQLite FTS/vector search without a new ADR
+- [ ] No workflow/runtime database becomes an execution or settlement authority without a new ADR
+```
+
+The architecture boundary behind these gates is [ADR-0012](docs/adr/0012-file-authority-projections-and-durable-publish.md). The documentation contract is `tests/unit/database-pr-gates.unit.test.ts`.
+
+## Module size
+
+Prefer new or touched TypeScript modules below roughly 500–800 lines. Historical complex modules may remain below 1000 lines with an explained boundary. Existing giants are warning-first and peeled only when touched; module size is not a Blocking CI substitute for teaching/privacy/security checks.
 
 ## Architecture changes
 
-If you change settlement, tool effects, prompt-cache shape, or privacy boundaries, add or update an ADR under `docs/adr/` and link it from `docs/adr/README.md`.
-
-Module size targets and giant-peel discipline: `AGENTS.md` §5 and [ADR-0075](docs/adr/0075-module-size-policy-and-giant-peel.md). Prefer new/touched TS modules under ~500–800 lines; historical giants warn first and peel only when touched—do not fail Blocking CI on size.
+Changes to teaching authority, settlement, tool effects, prompt-cache shape, persistence authority, MCP trust or privacy boundaries must update or add an ADR and link it from `docs/adr/README.md`.
 
 ## Related
 
-- `AGENTS.md` — 命令图、红线、改哪测哪与 L0/L1/L2/L4 分层约定（见 ADR-0053）
-- `SECURITY.md`
-- `docs/tools/TOOL_CONTRACT.md`
+- `AGENTS.md` — command map, product floors and path-sensitive checks
+- `SECURITY.md` — trust boundaries and non-claims
+- `docs/tools/TOOL_CONTRACT.md` — tool inventory and effect contract

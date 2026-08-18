@@ -1,5 +1,5 @@
 /**
- * Pure agent sandbox policy + Codex OS readiness (ADR-0153 Phase 1–2).
+ * Pure agent sandbox policy + Codex OS readiness (ADR-0015).
  * Policy decisions have no I/O; readiness uses the shared OS probe
  * (probeOsSandboxBackend) so Doctor / tool metadata match transform applied.
  */

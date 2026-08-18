@@ -57,7 +57,7 @@ export type TeachingLoopFacts = {
     availableCount: number
     provenanceIds: readonly string[]
   }
-  /** Optional spaced-review facts (ADR-0154); adapters own derivation, count only. */
+  /** Optional spaced-review facts (ADR-0003); adapters own derivation, count only. */
   review?: {
     dueCount: number
   }

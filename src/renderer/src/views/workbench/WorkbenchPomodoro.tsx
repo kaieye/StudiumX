@@ -438,7 +438,7 @@ export function WorkbenchPomodoro({
 
   /**
    * Immediate effect on draft change — decision is pure ({@link decideLiveDraftCommit}).
-   * Running session planSnapshot stays frozen (STC-503 / ADR-0094).
+   * Running session planSnapshot stays frozen (STC-503 / ADR-0011).
    */
   const commitLiveDraft = (next: TimerPlanDraft): void => {
     const row = selectedCatalogRow

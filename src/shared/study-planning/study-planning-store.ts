@@ -1,5 +1,5 @@
 /**
- * StudyPlanningStore pure/in-memory sole-writer skeleton (ADR-0117).
+ * StudyPlanningStore pure/in-memory sole-writer skeleton (ADR-0011).
  *
  * No filesystem yet — durable publish is a later adapter. Commands, revision CAS,
  * and actionId exact-retry are enforced here so Phase 2+ can unit-test before IPC.
@@ -67,13 +67,13 @@ export type StudyPlanningPreferencesV1 = {
   /**
    * Optional sole-authority demote marker (ms since epoch).
    * When set, renderer stops treating V1 localStorage as task authority under workspace.
-   * Not a teaching field; optional wire ok (ADR-0117 optional preferences fields).
+   * Not a teaching field; optional wire ok (ADR-0011 optional preferences fields).
    */
   v1LocalAuthorityDemotedAtMs?: number
   /**
    * Optional durable recurrence rule list (STC-703).
    * Cap + fail-closed normalize on set_preferences; default empty when unset.
-   * Optional wire ok without schemaVersion bump (ADR-0117).
+   * Optional wire ok without schemaVersion bump (ADR-0011).
    */
   recurrenceRules?: RecurrenceRule[]
 }
@@ -89,7 +89,7 @@ export type StudyPlanningSnapshotV1 = {
   timerSessions: TimerSessionRecord[]
   preferences: StudyPlanningPreferencesV1
   /**
-   * Optional task category catalog (ADR-0117 section 4.5).
+   * Optional task category catalog (ADR-0011).
    * When present, sole-read authority for UI categories; omit keeps V1 localStorage cache.
    */
   categories?: StudyPlanningCategoryV1[]

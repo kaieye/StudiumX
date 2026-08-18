@@ -1,10 +1,10 @@
 /**
- * Provider context-overflow pattern library (ADAPT-P1 / ADR-0125).
+ * Provider context-overflow pattern library (ADAPT-P1 / ADR-0010).
  *
  * Pure text + usage heuristics adapted from Pi's overflow pattern catalog.
  * Does NOT import AssistantMessage / monorepo pi-ai types.
  *
- * Policy (unchanged from ADR-0052/0057):
+ * Policy (unchanged from ADR-0010):
  * - overflow is never auto-retried
  * - recovery still sets shouldCompress:true when classified as context_overflow
  */

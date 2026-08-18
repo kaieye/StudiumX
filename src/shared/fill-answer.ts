@@ -1,5 +1,5 @@
 /**
- * Fill-quiz answer normalization + digest identity (ADR-0155).
+ * Fill-quiz answer normalization + digest identity (ADR-0002).
  *
  * One algorithm, three consumers:
  * - `assets/quiz.js` grades learner input in the published lesson (plaintext compare);

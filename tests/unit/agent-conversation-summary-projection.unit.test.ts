@@ -22,7 +22,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
-describe('pathname-default durable I/O (ADR-0131)', () => {
+describe('pathname-default durable I/O (ADR-0012)', () => {
   it('does not ship a native contained_durable_replace stack on the default path', async () => {
     // Native addon directory was removed (Phase E). Default writes use durable-file pathname temp+rename.
     await expect(stat(join(process.cwd(), 'native', 'contained-durable-replace'))).rejects.toMatchObject({

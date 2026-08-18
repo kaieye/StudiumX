@@ -8,7 +8,7 @@
  * must be a non-negative safe integer.
  *
  * Kept in a dedicated module so `teaching-ipc-commands.ts` and
- * `teaching-ipc-gateway.ts` do not grow further (module-size policy ADR-0075).
+ * `teaching-ipc-gateway.ts` do not grow further (module-size policy: AGENTS.md).
  */
 import {
   mindMapDocumentV2Schema,

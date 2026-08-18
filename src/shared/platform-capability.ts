@@ -1,5 +1,5 @@
 /**
- * Platform capability profiles (ADR-0131 default; ADR-0126 historical inventory).
+ * Platform capability profiles for durable file operations (ADR-0012).
  *
  * Default product I/O model is **pathname_default** (trusted-root pathname
  * temp → write → optional fsync → rename). Dual-profile matrix
@@ -13,9 +13,9 @@
 export type PlatformIoProfileId =
   | 'pathname_default'
   | 'unavailable'
-  /** @deprecated ADR-0126 historical dual-profile; not default (ADR-0131). */
+  /** @deprecated Legacy dual-profile; not the ADR-0012 default. */
   | 'posix_descriptor_strict'
-  /** @deprecated ADR-0126 historical dual-profile; not default (ADR-0131). */
+  /** @deprecated Legacy dual-profile; not the ADR-0012 default. */
   | 'windows_direct_path_non_cas'
 
 /**
@@ -56,7 +56,7 @@ export type PlatformCapabilitySnapshot = {
   consumers: readonly ConsumerPlatformCapability[]
 }
 
-/** Supported product hosts for pathname-default durable I/O (ADR-0131). */
+/** Supported product hosts for pathname-default durable I/O (ADR-0012). */
 export function isPathnameDefaultHost(platform: NodeJS.Platform | string): boolean {
   return platform === 'win32' || platform === 'darwin' || platform === 'linux'
 }

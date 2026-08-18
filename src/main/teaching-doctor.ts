@@ -662,7 +662,7 @@ function checkMcpStatus(
           'Re-run TeachingDoctor.'
         ],
         configPath,
-        docsRef: 'adr-0128-user-configurable-mcp'
+        docsRef: 'adr-0013-mcp-runtime-trust-and-secrets'
       }
     })
   }
@@ -761,7 +761,7 @@ function checkMcpStatus(
             'Fix command/args/cwd; never paste secrets into support bundles.'
           ],
           configPath,
-          docsRef: 'adr-0128-user-configurable-mcp'
+          docsRef: 'adr-0013-mcp-runtime-trust-and-secrets'
         }
       }
     )
@@ -839,7 +839,7 @@ function checkLocalProcessCrashMarker(
           'Clear appData/observability/crash-marker.json after investigation.',
           'Do not enable remote telemetry or auto-upload of crash reports.'
         ],
-        docsRef: 'adr-0066-local-observability'
+        docsRef: 'adr-0007-local-observability-and-diagnostics'
       }
     }
   )

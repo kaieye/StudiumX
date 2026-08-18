@@ -164,12 +164,12 @@ async function projectOne(
         rootPath,
         agentConversationSummaryProjectionRelativePath(id)
       )
-      // ADR-0131 keeps pathname publication deliberately non-CAS, but every
+      // ADR-0012 keeps pathname publication deliberately non-CAS, but every
       // write must still pass the trusted-root containment gate. Validate both
       // before mkdir and immediately after the deterministic race seam so an
       // existing or swapped symlink cannot redirect this projection outside.
       await prepareWorkspaceWriteTarget(target)
-      // Pathname-default publication (ADR-0131): temp → write → optional fsync → rename.
+      // Pathname-default publication (ADR-0012): temp → write → optional fsync → rename.
       await replaceDurably({
         path: target.absolutePath,
         content: canonicalProjectionBytes(buildProjection(sources)),

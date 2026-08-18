@@ -1,5 +1,5 @@
 /**
- * UserMcpConfigV1 parse / normalize (ADR-0128 §3).
+ * UserMcpConfigV1 parse / normalize (ADR-0013).
  * Pure fail-closed validation — no FS.
  */
 
@@ -24,7 +24,7 @@ import {
 
 export { toPublicServer } from './public-projection'
 
-/** @deprecated Prefer SECRET_FIELD_KEY_RE from secret-presence (ADR-0148). */
+/** @deprecated Prefer SECRET_FIELD_KEY_RE from secret-presence (ADR-0013). */
 const SECRET_KEY_RE = SECRET_FIELD_KEY_RE
 
 export type ParseMcpConfigResult =
@@ -51,7 +51,7 @@ export function defaultUserMcpConfig(): UserMcpConfigV1 {
 }
 
 /**
- * ADR-0141 product default: when root MCP is on, omitted `autoConnect` means
+ * ADR-0013 product default: when root MCP is on, omitted `autoConnect` means
  * smart-connect is on. Explicit `false` still disables. Root off always yields false.
  *
  * `effectiveAutoConnect = config.enabled && config.autoConnect !== false`
@@ -127,7 +127,7 @@ export function parseUserMcpConfig(input: unknown): ParseMcpConfigResult {
     return { ok: false, reason: 'enabled must be boolean' }
   }
 
-  // Optional field (ADR-0137/0141): leave omitted as undefined so
+  // Optional field (ADR-0013): leave omitted as undefined so
   // effectiveAutoConnect can treat omit-as-true when enabled.
   // Present non-boolean values coerce to false (explicit off).
   let autoConnect: boolean | undefined
@@ -135,7 +135,7 @@ export function parseUserMcpConfig(input: unknown): ParseMcpConfigResult {
     autoConnect = raw.autoConnect === true
   }
 
-  // Optional ADR-0141 policy: only explicit true is stored; omit/false → omit or false.
+  // Optional ADR-0013 policy: only explicit true is stored; omit/false → omit or false.
   let honorRemoteReadOnlyHint: boolean | undefined
   if (Object.prototype.hasOwnProperty.call(raw, 'honorRemoteReadOnlyHint')) {
     honorRemoteReadOnlyHint = raw.honorRemoteReadOnlyHint === true
@@ -196,7 +196,7 @@ export function toPublicMcpConfig(config: UserMcpConfigV1): UserMcpConfigPublicV
   return {
     schemaVersion: config.schemaVersion,
     enabled: config.enabled,
-    // Project effective preference (ADR-0141): omit + enabled → true.
+    // Project effective preference (ADR-0013): omit + enabled → true.
     autoConnect: effectiveAutoConnect(config),
     honorRemoteReadOnlyHint: config.honorRemoteReadOnlyHint === true,
     fingerprint: config.fingerprint ?? fingerprintUserMcpConfig(config),

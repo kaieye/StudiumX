@@ -1,5 +1,5 @@
 /**
- * teach:mcp-* IPC handlers (ADR-0128 §8).
+ * teach:mcp-* IPC handlers (ADR-0013).
  * Thin gateway over McpHost; renderer never receives secret plaintext.
  */
 
@@ -273,7 +273,7 @@ function invalidRefreshServerResult(): McpTestServerResult {
  * transport diagnostics, or secret-bearing configuration data can cross IPC.
  *
  * Remote protocol annotations (readOnlyHint etc.) are display/audit only —
- * never effect authority (ADR-0132 §2.7). Only known boolean/title keys pass.
+ * never effect authority (ADR-0013). Only known boolean/title keys pass.
  */
 function toPublicListedToolsResult(
   result: McpTestServerResult,

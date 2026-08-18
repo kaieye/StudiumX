@@ -1,5 +1,5 @@
 /**
- * Declarative pure tool-policy evaluation (ADOPTION B-08 / ADR-0063).
+ * Declarative pure tool-policy evaluation (ADOPTION B-08 / ADR-0005).
  *
  * Layers on the effect lattice and path write-policy shape without shell argv
  * rules, prefix_rule DSL, or product YOLO / always-approve labels.
@@ -136,7 +136,7 @@ export function strictestDecision(
 }
 
 /**
- * Pure multi-document merge with most-restrictive-wins semantics (ADR-0112 / B-08 residual).
+ * Pure multi-document merge with most-restrictive-wins semantics (ADR-0005 / B-08 residual).
  *
  * - Empty input → frozen copy equivalent of `DEFAULT_IN_PROCESS_TOOL_POLICY_DOCUMENT` (fail-soft product readiness).
  * - Null/undefined entries → throw (fail-closed).
@@ -432,7 +432,7 @@ export function associatePermissionDecision<T extends Record<string, unknown>>(
  * Map registry policy gate + interactive resolution onto journal audit vocab.
  * Pure / fail-soft: unknown combinations return undefined (caller omits field).
  *
- * Stable rule (ADR-0108 / B-08 capture wire):
+ * Stable rule (ADR-0005 / B-08 capture wire):
  * - gate `deny` → `forbidden` (policy short-circuit; capture path never runs)
  * - interactive `deny` → `deny` (handler not run; capture never runs)
  * - gate `force_interactive` + allow* → `prompt`

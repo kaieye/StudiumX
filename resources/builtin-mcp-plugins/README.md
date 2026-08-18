@@ -1,6 +1,6 @@
 # Built-in MCP plugin scan roots
 
-This directory is scanned by `bootstrapPluginMcpFromFilesystem` (ADR-0139 / ADR-0141).
+This directory is scanned by `bootstrapPluginMcpFromFilesystem` (ADR-0013).
 
 - Place local plugin folders containing `plugin.json`, `.studiumx-plugin`, `mcp-plugin.json`, or `package.json` with MCP server declarations.
 - **No official remote marketplace catalog** is bundled. Optional remote catalogs are user-configured HTTPS URLs in Settings → MCP Marketplace.

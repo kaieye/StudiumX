@@ -1,10 +1,10 @@
 # StudiumX 教学闭环：实时执行待办与交付边界
 
-> **状态基线：** M5–M10 生产闭环条目仍以 `origin/main` 的 `5f5cd3217fee1de653ffe644806039461d4463d3` 为检查起点；**P0/P1 与已实施 P2** 以本地 `main` 与 [ADR 索引](docs/adr/README.md) 为准（P1→ADR-0021…0028；P2-1…5+8→ADR-0029…0034）。
+> **状态基线：** M5–M10 生产闭环条目仍以 `origin/main` 的 `5f5cd3217fee1de653ffe644806039461d4463d3` 为检查起点；**P0/P1 与已实施 P2** 以本地 `main`、[当前 ADR 索引](docs/adr/README.md) 与对应领域门禁为准。
 >
 > **用途：** 此文件是后续实现、review、集成与发布的检查清单，不是生产完成声明。Git 中已推送的提交、独立 review 记录和可复现的自动化结果才是完成证据。
 >
-> **规划对齐：** P0/P1/已实施 P2 与信号触发边界以 [ADR 索引](docs/adr/README.md) 与 [ADR-0039](docs/adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md) 为权威，勿重开为 backlog。领域不变量、TDD、全量 gate 与“缺失命令/测试即未证明”的规则见本文第 5 节。
+> **规划对齐：** 当前架构边界以 [ADR 索引](docs/adr/README.md) 为权威，实施历史由 Git 与 PR 保存；勿因历史编号变化重开已结项 backlog。领域不变量、TDD、全量 gate 与“缺失命令/测试即未证明”的规则见本文第 5 节。
 
 ---
 
@@ -139,7 +139,7 @@
               └─ M8：App/Reader snapshot + presentation 正式消费
                   └─ M9：restart/recovery reconstruction
                       └─ M10：真实 Electron Production App Golden + 全量发布审计
-                          └─ 仅信号触发的 P2-6/P2-7（见 ADR-0039；默认不排期）
+                          └─ 仅信号触发的 P2-6/P2-7（见 ADR-0002；默认不排期）
 ```
 
 - 下游只依赖**已提交并已 push 的 hash**，不依赖任何 owner 的本地 worktree、未提交修复或口头承诺。
@@ -198,44 +198,44 @@
 
 ## 7. Codex Rust 教学化借鉴：P1/P2 逐项 crosswalk
 
-**判定规则：** 下表对应已结项的教学化借鉴范围（权威见 [ADR-0039](docs/adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md)）。**已实施** 以 `docs/adr/` 与 `main` 源码/门禁为准，不可因 M5–M10 生产 Electron 闭环未完成而重开为 backlog。M5–M10 只负责把已存在的教学事实深模块接成 production IPC/UI 闭环，不得借机复制第二套领域实现。
+**判定规则：** 下表对应已结项的教学化借鉴范围；当前架构权威见 [ADR 索引](docs/adr/README.md)，实施历史见 Git 与 PR。**已实施** 以 `docs/adr/` 与 `main` 源码/门禁为准，不可因 M5–M10 生产 Electron 闭环未完成而重开为 backlog。M5–M10 只负责把已存在的教学事实深模块接成 production IPC/UI 闭环，不得借机复制第二套领域实现。
 
 ### P1（领域模块已关闭；生产接线仍归 M5–M10）
 
 | 规划包 | 准确状态 | 权威记录与边界 | 与 M5–M10 的关系 |
 |---|---|---|---|
-| **P1-1 Canonical Teaching Event Protocol** | **已实施（领域）** | [ADR-0015](docs/adr/0015-canonical-teaching-event-protocol.md)：版本化 event envelope / bus 与 legacy adapter 边界。 | M5 使用严格只读 contract；M6/M7 可继续做 snapshot/event 生产接线，不得重开 protocol core 规格。 |
-| **P1-2 Typed Tool Dispatcher 与 Effect Policy** | **已实施** | [ADR-0024](docs/adr/0024-typed-tool-dispatcher-effect-policy.md) | M5–M10 复用 effect 分类；不借机新增 shell/MCP。 |
-| **P1-3 显式 Agent Run 状态机** | **已实施** | [ADR-0021](docs/adr/0021-agent-run-state-machine-separate-from-session.md) | 不得把 teaching Session 与 Agent run 混为一体。 |
-| **P1-4 TeachingConfigResolver** | **已实施** | [ADR-0025](docs/adr/0025-teaching-config-resolver-secret-free-layers.md) | 生产侧只消费 secret-free snapshot。 |
-| **P1-5 TeachingCapabilityCatalog** | **已实施** | [ADR-0022](docs/adr/0022-teaching-capability-catalog-read-only-readiness.md) | 只读 readiness；执行仍由 effect policy 复核。 |
-| **P1-6 Context Projection Report 与预算审计** | **已实施** | [ADR-0013](docs/adr/0013-budgeted-provenance-aware-teaching-context.md) | M5/M6 只能输出 learner-safe 有限 projection。 |
-| **P1-7 Durable CourseDefinition** | **已实施** | [ADR-0026](docs/adr/0026-course-definition-durable-session-order.md) | 文件系统仍为 Lesson 发现源。 |
-| **P1-8 ResourceGrounder 深化** | **已实施** | [ADR-0013](docs/adr/0013-budgeted-provenance-aware-teaching-context.md) | 不得演化为默认 RAG/vector 平台。 |
-| **P1-9 TeachingWorkspaceInspector** | **已实施** | [ADR-0027](docs/adr/0027-read-only-teaching-doctor-and-workspace-inspector.md) | inspect 只读；repair 不自动执行。 |
-| **P1-10 结构化 Doctor 与恢复报告** | **已实施** | [ADR-0027](docs/adr/0027-read-only-teaching-doctor-and-workspace-inspector.md) | Support Bundle 不属于 P1-10，见 ADR-0034。 |
-| **P1-11 Audit Correlation 与 Provider Privacy** | **已实施** | [ADR-0028](docs/adr/0028-teaching-audit-correlation-safe-metadata.md) | M5–M10 持续 allow-list/redaction。 |
-| **P1-12 Teaching Composer Commands 与无障碍加固** | **已实施（领域/presentation）** | [ADR-0014](docs/adr/0014-learner-safe-teaching-turn-presentation.md) | M8 必须消费 snapshot 并保持 keyboard/focus/redaction。 |
-| **P1-13 Main-process TeachingTurnCoordinator 与 Blocking CI** | **已实施（host/CI 基线）** | [ADR-0023](docs/adr/0023-teaching-turn-coordinator-host-and-blocking-ci.md) | M7/M10 继续扩大 production assembly 与 Golden required checks；不得重开 coordinator 领域规格。 |
+| **P1-1 Canonical Teaching Event Protocol** | **已实施（领域）** | [ADR-0001](docs/adr/0001-teaching-authority-and-session-ledger.md)：版本化 event envelope / bus 与 legacy adapter 边界。 | M5 使用严格只读 contract；M6/M7 可继续做 snapshot/event 生产接线，不得重开 protocol core 规格。 |
+| **P1-2 Typed Tool Dispatcher 与 Effect Policy** | **已实施** | [ADR-0005](docs/adr/0005-tool-effects-approval-and-write-policy.md) | M5–M10 复用 effect 分类；不借机新增 shell/MCP。 |
+| **P1-3 显式 Agent Run 状态机** | **已实施** | [ADR-0004](docs/adr/0004-agent-run-and-conversation-serialization.md) | 不得把 teaching Session 与 Agent run 混为一体。 |
+| **P1-4 TeachingConfigResolver** | **已实施** | [ADR-0006](docs/adr/0006-secret-free-configuration.md) | 生产侧只消费 secret-free snapshot。 |
+| **P1-5 TeachingCapabilityCatalog** | **已实施** | [ADR-0003](docs/adr/0003-teaching-turn-context-and-capabilities.md) | 只读 readiness；执行仍由 effect policy 复核。 |
+| **P1-6 Context Projection Report 与预算审计** | **已实施** | [ADR-0003](docs/adr/0003-teaching-turn-context-and-capabilities.md) | M5/M6 只能输出 learner-safe 有限 projection。 |
+| **P1-7 Durable CourseDefinition** | **已实施** | [ADR-0001](docs/adr/0001-teaching-authority-and-session-ledger.md) | 文件系统仍为 Lesson 发现源。 |
+| **P1-8 ResourceGrounder 深化** | **已实施** | [ADR-0003](docs/adr/0003-teaching-turn-context-and-capabilities.md) | 不得演化为默认 RAG/vector 平台。 |
+| **P1-9 TeachingWorkspaceInspector** | **已实施** | [ADR-0007](docs/adr/0007-local-observability-and-diagnostics.md) | inspect 只读；repair 不自动执行。 |
+| **P1-10 结构化 Doctor 与恢复报告** | **已实施** | [ADR-0007](docs/adr/0007-local-observability-and-diagnostics.md) | Support Bundle 不属于 P1-10。 |
+| **P1-11 Audit Correlation 与 Provider Privacy** | **已实施** | [ADR-0007](docs/adr/0007-local-observability-and-diagnostics.md) | M5–M10 持续 allow-list/redaction。 |
+| **P1-12 Teaching Composer Commands 与无障碍加固** | **已实施（领域/presentation）** | [ADR-0003](docs/adr/0003-teaching-turn-context-and-capabilities.md) | M8 必须消费 snapshot 并保持 keyboard/focus/redaction。 |
+| **P1-13 Main-process TeachingTurnCoordinator 与 Blocking CI** | **已实施（host/CI 基线）** | [ADR-0002](docs/adr/0002-evidence-gated-outcome-settlement.md) | M7/M10 继续扩大 production assembly 与 Golden required checks；不得重开 coordinator 领域规格。 |
 
 ### P2
 
 | 规划包 | 准确状态 | 权威记录 / 触发条件 | 与 M5–M10 的关系 |
 |---|---|---|---|
-| **P2-1 Learning Branch Projection** | **已实施** | [ADR-0029](docs/adr/0029-learning-branch-projection.md)；`pnpm run check:learning-branch-projection` | 只读投影；非 M5–M10 依赖。 |
-| **P2-2 长 Session Resume Picker** | **已实施** | [ADR-0030](docs/adr/0030-session-resume-picker.md)；`pnpm run check:session-resume-picker` | 不替代 canonical recovery 正确性。 |
-| **P2-3 高级技术 Inspector** | **已实施** | [ADR-0031](docs/adr/0031-advanced-tech-inspector.md)；`pnpm run check:tech-inspector` | 默认 learner_hidden；不进学习者主路径。 |
-| **P2-4 保守的并行只读工具** | **已实施** | [ADR-0032](docs/adr/0032-conservative-parallel-read-tools.md)；`pnpm run check:parallel-read-tools` | 不得为缩短 Golden 引入非确定性。 |
-| **P2-5 Watcher/Config 乐观并发** | **已实施** | [ADR-0033](docs/adr/0033-config-optimistic-concurrency.md)；`pnpm run check:config-optimistic-concurrency` | CAS 冲突必须可见，禁止静默覆盖。 |
-| **P2-6 MCP（仅在存在真实教学 Adapter 时）** | **触发式候选** | [ADR-0039](docs/adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md)：必须同时具备真实教学场景、威胁模型与有限 typed adapter；无真实 Adapter 则永不实施；默认不排期。 | 不能作为 grounding/IPC 快捷替代。 |
-| **P2-7 Helper Isolation（仅执行不可信代码时）** | **触发式候选** | [ADR-0039](docs/adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md)：仅当产品明确需要执行不可信学习代码时立项；默认不排期。 | 普通 Lesson/grounding 不经过 helper。 |
-| **P2-8 脱敏 Support Bundle** | **已实施** | [ADR-0034](docs/adr/0034-redacted-support-bundle.md)；`pnpm run check:support-bundle` | 预览 + consent-gated；非 M5–M10 依赖。 |
+| **P2-1 Learning Branch Projection** | **已实施** | [ADR-0001](docs/adr/0001-teaching-authority-and-session-ledger.md)；`pnpm run check:learning-branch-projection` | 只读投影；非 M5–M10 依赖。 |
+| **P2-2 长 Session Resume Picker** | **已实施** | [ADR-0001](docs/adr/0001-teaching-authority-and-session-ledger.md)；`pnpm run check:session-resume-picker` | 不替代 canonical recovery 正确性。 |
+| **P2-3 高级技术 Inspector** | **已实施** | [ADR-0007](docs/adr/0007-local-observability-and-diagnostics.md)；`pnpm run check:tech-inspector` | 默认 learner_hidden；不进学习者主路径。 |
+| **P2-4 保守的并行只读工具** | **已实施** | [ADR-0004](docs/adr/0004-agent-run-and-conversation-serialization.md)；`pnpm run check:parallel-read-tools` | 不得为缩短 Golden 引入非确定性。 |
+| **P2-5 Watcher/Config 乐观并发** | **已实施** | [ADR-0006](docs/adr/0006-secret-free-configuration.md)；`pnpm run check:config-optimistic-concurrency` | CAS 冲突必须可见，禁止静默覆盖。 |
+| **P2-6 MCP** | **已实施（受限产品面）** | [ADR-0013](docs/adr/0013-mcp-runtime-trust-and-secrets.md)：动态工具、OAuth、secret 与 teaching isolation 进入统一信任边界。 | 不能作为 grounding/IPC 或 settlement 快捷替代。 |
+| **P2-7 Helper Isolation** | **按需能力** | [ADR-0015](docs/adr/0015-shell-sandbox-dual-axis.md)：可选 OS helper 必须如实报告配置状态，不能冒充 Docker/VM 级隔离。 | 普通 Lesson/grounding 不因 helper 获得额外权威。 |
+| **P2-8 脱敏 Support Bundle** | **已实施** | [ADR-0007](docs/adr/0007-local-observability-and-diagnostics.md)；`pnpm run check:support-bundle` | 预览 + consent-gated；非 M5–M10 依赖。 |
 
 ### 与当前里程碑的范围结论
 
 - M5–M10 的目标是把**已存在的教学事实深模块**接成可审计、可恢复、learner-safe 的 production Electron 闭环；它们不是把已关闭 P1/P2 重开为 backlog 的容器。
 - P1-1…P1-13 与 P2-1…P2-5、P2-8 的领域实现已沉淀至 ADR；后续只允许窄接入、design gate 修订或新 ADR，不得写成“未完成 backlog”。
-- 剩余信号触发项仅 **P2-6 MCP** 与 **P2-7 Helper Isolation**（[ADR-0039](docs/adr/0039-teaching-adoption-closeout-and-signal-triggered-p2.md)）；无真实 Adapter / 不可信代码执行需求则不排期。
+- MCP 与可选 OS helper 的当前边界分别见 [ADR-0013](docs/adr/0013-mcp-runtime-trust-and-secrets.md) 与 [ADR-0015](docs/adr/0015-shell-sandbox-dual-axis.md)；实施状态以源码、产品面和对应门禁为准。
 
 ## 8. 协作、分支事实与仓库卫生
 

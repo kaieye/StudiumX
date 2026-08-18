@@ -50,7 +50,7 @@ StudiumX 是一个以**学习工作区**为中心的桌面应用。它将 AI 辅
 - **学习计划与专注工作台**：提供任务、日程、专注计时、学习空间、进度与学习分析等配套能力，帮助把教学计划落到每天的行动中。
 - **资源与课程管理**：集中查看学习资源、课程讲义、参考资料及本地学习成果；课程产物适合保存、回顾和打印。
 - **可配置的 AI 与扩展接入**：支持配置模型提供商；MCP 连接、工作区工具和远程控制均在明确的产品与安全边界内提供。
-- **本地优先、显式授权**：不默认上传遥测数据；工作区命令按 [ADR-0153](docs/adr/0153-codex-sandbox-dual-axis-and-agent-shell.md) 默认可用、但受双轴审批与路径围栏约束；涉及写入、外部写入和特权操作的工具都要经过 effect 分类与审批策略。
+- **本地优先、显式授权**：不默认上传遥测数据；工作区命令按 [ADR-0015](docs/adr/0015-shell-sandbox-dual-axis.md) 默认可用、但受双轴审批与路径围栏约束；涉及写入、外部写入和特权操作的工具都要经过 effect 分类与审批策略。
 
 ## 技术栈
 
@@ -138,7 +138,7 @@ pnpm run check:prepush           # 类型检查 + 安全检查的本地预提交
 
 StudiumX 的教学决策遵循文件优先原则：学习目标、资源、课程、学习记录及 LearningSession ledger 构成教学事实的权威来源。SQLite 可保存索引、分析、偏好与其他本地产品状态，但不会取代教学事实的权威地位。
 
-应用不会默认开启远程遥测。工作区 shell 默认开启但受双轴审批与路径围栏约束（ADR-0153）。工具按 `read`、`workspace_write`、`external_write`、`privileged` 分类；未知工具会失败关闭，写入及高风险操作由审批策略控制。MCP 设置仅提供连接的列表、编辑、导入与 OAuth 流程，密钥和令牌不会出现在公开 DTO、Doctor 输出或支持包中。
+应用不会默认开启远程遥测。工作区 shell 默认开启但受双轴审批与路径围栏约束（ADR-0015）。工具按 `read`、`workspace_write`、`external_write`、`privileged` 分类；未知工具会失败关闭，写入及高风险操作由审批策略控制。MCP 设置仅提供连接的列表、编辑、导入与 OAuth 流程，密钥和令牌不会出现在公开 DTO、Doctor 输出或支持包中。
 
 完整的信任模型和约束请阅读 [`SECURITY.md`](SECURITY.md) 与 [`docs/tools/TOOL_CONTRACT.md`](docs/tools/TOOL_CONTRACT.md)。
 

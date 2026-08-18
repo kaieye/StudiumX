@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto'
 export type ConversationLaneScope = 'workspace' | 'temporary'
 
 /**
- * ADR-0170 §3.1 identity. Canonical and pending identities are deliberately
+ * ADR-0004 identity. Canonical and pending identities are deliberately
  * discriminated: they must never be guessed from one shared optional field.
  */
 export type ConversationLaneKey =
@@ -100,7 +100,7 @@ export type AgentConversationTurnLanesSnapshot = Readonly<{
   lanes: readonly AgentConversationTurnLaneSnapshot[]
 }>
 
-/** ADR-0170 §4.3: queued follow-ups only; an active turn is not counted. */
+/** ADR-0004: queued follow-ups only; an active turn is not counted. */
 export const AGENT_CONVERSATION_TURN_LANE_QUEUE_HARD_CAP = 32
 
 type SubmitReceipt = Readonly<{

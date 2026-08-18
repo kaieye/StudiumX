@@ -183,7 +183,7 @@ describe('McpHost OAuth authorize and revoke', () => {
   })
 })
 
-describe('McpHost start smart-connect (ADR-0141)', () => {
+describe('McpHost start smart-connect (ADR-0013)', () => {
   it('runs autoConnectNow on start when root enabled and autoConnect effective', async () => {
     const host = new McpHost({
       userDataPath: '/tmp/studiumx-mcp-host-start-ac',

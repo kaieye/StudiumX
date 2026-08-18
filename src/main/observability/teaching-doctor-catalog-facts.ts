@@ -1,5 +1,5 @@
 /**
- * Fail-soft TeachingDoctor catalog-drift facts collector (B-11 residual / ADR-0102).
+ * Fail-soft TeachingDoctor catalog-drift facts collector (B-11 residual / ADR-0007).
  *
  * Thin adapter: calls injected `loadPlan()` (typically active workspace +
  * `planLessonIndexReconciliation`) and maps the plan into
@@ -9,7 +9,7 @@
  * Non-claims:
  * - no auto-repair / persist of reconciliation plan
  * - no auto-upload / remote telemetry / OTEL
- * - no free-form renderer facts (IPC payload remains ADR-0084 closed)
+ * - no free-form renderer facts (IPC payload remains ADR-0007 closed)
  * - no session/outcome crash-window FS deep scan (still residual)
  * - no peel of teaching-workspace.ts
  */
@@ -44,7 +44,7 @@ export type TeachingDoctorCatalogFactsSource = {
  * Factory for a main-side catalog-drift facts collector used by product TeachingDoctor.
  * Composition root / gateway injects this into runProductTeachingDoctor deps.
  *
- * Decision (ADR-0102): no active workspace / null plan → empty `{}` partial so
+ * Decision (ADR-0007): no active workspace / null plan → empty `{}` partial so
  * pure `checkCatalogDrift` stays `skipped` (facts not supplied). Throw → `{}`.
  */
 export function createTeachingDoctorCatalogDriftFactsCollector(

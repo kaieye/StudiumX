@@ -1,5 +1,5 @@
 /**
- * Thin WorkspaceHost port types (ADR-0078 / ADOPTION S-02).
+ * Thin WorkspaceHost port types (ADR-0005 / ADOPTION S-02).
  *
  * Intended dependency direction:
  *   tools / agent  →  workspace-host  →  path-access / teaching-workspace-paths / teaching-workspace-access

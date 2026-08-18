@@ -1836,7 +1836,7 @@ async function syncDirectory(
   settlement: LearningSessionDurabilitySettlement
 ): Promise<void> {
   if (settlement.directorySync === 'unsupported') return
-  // Shared soft allowlist + explicit production Windows non-strict skip (ADR-0020).
+  // Shared soft allowlist + explicit production Windows non-strict skip (ADR-0002).
   // EPERM/EACCES remain fatal outside that skip so permission faults cannot
   // silently continue as sticky unsupported success on non-Windows hosts.
   const result = await syncSettlementDirectory({

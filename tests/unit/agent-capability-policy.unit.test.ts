@@ -6,7 +6,7 @@ import { toolNamesForProfile } from '../../src/main/ai/delegation-runtime'
 const SHELL_TOOL_NAMES = ['run_workspace_command', 'shell'] as const
 
 describe('teaching capability policy', () => {
-  it('shares temporary chat agent surface with teaching except generate_lesson (ADR-0128 §5.4)', () => {
+  it('shares temporary chat agent surface with teaching except generate_lesson (ADR-0013)', () => {
     const policy = resolveTeachingCapabilityPolicy({
       mode: 'temporary',
       toolsEnabled: true,

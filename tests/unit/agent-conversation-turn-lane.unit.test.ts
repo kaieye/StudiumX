@@ -51,7 +51,7 @@ function lane(): AgentConversationTurnLane {
   })
 }
 
-describe('AgentConversationTurnLane (ADR-0170)', () => {
+describe('AgentConversationTurnLane (ADR-0004)', () => {
   it('normalizes discriminated canonical/pending identities and keeps workspace, scope, and identity independent', () => {
     expect(normalizeConversationLaneKey(canonical())).toEqual({
       kind: 'canonical', workspaceId: 'workspace-a', scope: 'workspace', conversationId: 'conversation-1'

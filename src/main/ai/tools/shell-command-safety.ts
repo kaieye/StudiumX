@@ -1,7 +1,7 @@
 /**
  * Host-owned read-oriented command safelist (strict known-safe contract).
  * Used only for based_on_approval auto-allow and read_only eligibility — not a sandbox.
- * Fail-closed: may tighten, must not loosen. ADR-0152 / Stage B.
+ * Fail-closed: may tighten, must not loosen. ADR-0015.
  */
 
 function executableLookupKey(raw: string): string {

@@ -1,5 +1,5 @@
 /**
- * User MCP config store: userData/mcp/config.v1.json + .bak + CAS (ADR-0128 §3).
+ * User MCP config store: userData/mcp/config.v1.json + .bak + CAS (ADR-0013).
  */
 
 import { join } from 'node:path'

@@ -39,12 +39,12 @@ export type { WorkspaceConfigDenylistPath, WorkspaceConfigDenylistLayer } from '
  * teaching-loop fields, performs no filesystem I/O, and never surfaces
  * secrets in the ordinary resolved snapshot.
  *
- * Managed (S-11 / ADR-0086): optional school/org secret-free overlay injected
+ * Managed (S-11 / ADR-0006): optional school/org secret-free overlay injected
  * by the caller after product defaults and before user preferences. No FS
  * loader in this module — host may inject later.
  *
  * Workspace/project denylist (S-04): untrusted workspace overlays cannot set
- * provider.providers.*.baseUrl; see teaching-config-denylist.ts / ADR-0071.
+ * provider.providers.*.baseUrl; see teaching-config-denylist.ts / ADR-0006.
  * managed / user / session_override are not denylisted (trusted relative to
  * workspace endpoint policy). Secrets in any layer are still stripped.
  */

@@ -1,5 +1,5 @@
 /**
- * ADR-0136 MCP import / export / migration report + secret-free export.
+ * ADR-0013 MCP import / export / migration report + secret-free export.
  */
 import { describe, expect, it } from 'vitest'
 

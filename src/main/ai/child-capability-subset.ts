@@ -1,5 +1,5 @@
 /**
- * Child capability subset proof (ADOPTION B-10 / ADR-0065).
+ * Child capability subset proof (ADOPTION B-10 / ADR-0005).
  *
  * Pure fail-closed helpers: a child agent must never receive tools outside
  * the parent's allow-list when that parent list is provided for enforcement.

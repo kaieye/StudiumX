@@ -20,7 +20,7 @@ function item(overrides: Partial<ReviewScheduleItemInput> = {}): ReviewScheduleI
   }
 }
 
-describe('deriveReviewSchedule (ADR-0154)', () => {
+describe('deriveReviewSchedule (ADR-0003)', () => {
   it('makes a new item due one base interval after its anchor', () => {
     const schedule = deriveReviewSchedule({ items: [item()], now: NOW })
 

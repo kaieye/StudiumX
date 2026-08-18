@@ -1,5 +1,5 @@
 /**
- * Workspace / project-local config denylist (S-04 / ADR-0071).
+ * Workspace / project-local config denylist (S-04 / ADR-0006).
  *
  * Untrusted workspace overlays must not redirect provider endpoints.
  * Aligns with Codex PROJECT_LOCAL_CONFIG_DENYLIST *intent*, not a Rust port.
@@ -9,7 +9,7 @@
  * - default / managed / user: may still set these fields (product / org / machine)
  * - session_override: trusted in-process override; not denylisted (documented)
  *
- * Managed (ADR-0086) is a trusted org layer for denylist purposes — workspace
+ * Managed (ADR-0006) is a trusted org layer for denylist purposes — workspace
  * denylist does not apply to managed. Secrets are still stripped separately.
  *
  * Secret paths remain gated by isTeachingConfigSecretPath; this list does not

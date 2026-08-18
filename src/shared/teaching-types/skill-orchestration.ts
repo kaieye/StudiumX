@@ -1,5 +1,5 @@
 /**
- * Skill orchestration plan types (ADR-0151 Phase 2).
+ * Skill orchestration plan types (ADR-0014).
  * Planner is pure `plan(...)` only — never settlement / Evidence writer.
  */
 
@@ -90,7 +90,7 @@ export type SkillOrchestrationStage = {
   consumes: string[]
   produces: string[]
   completionGates: SkillOrchestrationCompletionGate[]
-  /** Present only when prior conversation state informed the plan (ADR-0156). */
+  /** Present only when prior conversation state informed the plan (ADR-0014). */
   status?: SkillOrchestrationStageStatus
 }
 
@@ -136,7 +136,7 @@ export type SkillOrchestrationPlan = {
   diagnostics: SkillOrchestrationDiagnostic[]
   /** Optional Authority Plane echoes (planId-stable; for turn-tail projection only). */
   authorityEcho?: SkillOrchestrationAuthorityEcho
-  /** First not-yet-completed stage id when prior state informed the plan (ADR-0156). */
+  /** First not-yet-completed stage id when prior state informed the plan (ADR-0014). */
   currentStageId?: string
 }
 
@@ -182,14 +182,14 @@ export type SkillOrchestrationInput = {
   /** Prefer artifact profile for kernel when true. */
   preferArtifactProfile?: boolean
   /**
-   * Prior-turn orchestration continuity facts (ADR-0156). Allow-listed
+   * Prior-turn orchestration continuity facts (ADR-0014). Allow-listed
    * projection of the durable conversation state — never a second state
    * machine: same canonical facts + same prior state → same plan.
    */
   priorState?: SkillOrchestrationPriorState
 }
 
-/** Allow-listed prior-state projection consumed by the pure planner (ADR-0156). */
+/** Allow-listed prior-state projection consumed by the pure planner (ADR-0014). */
 export type SkillOrchestrationPriorState = {
   planId: string
   planRevision: number
@@ -217,7 +217,7 @@ export type SkillOrchestrationStageProgress = {
 }
 
 /**
- * Durable per-conversation orchestration continuity state (ADR-0156).
+ * Durable per-conversation orchestration continuity state (ADR-0014).
  * A rebuildable workflow projection: it stores stage cursor + gate checks only,
  * never ledger/Evidence facts, and always yields to a fresh re-plan when
  * missing or conflicting. Zero settlement authority.
@@ -235,11 +235,11 @@ export type ConversationOrchestrationState = {
 }
 
 /**
- * Read-only orchestration preview request (ADR-0163).
+ * Read-only orchestration preview request (ADR-0014).
  *
  * Preview reuses the same host assembly + pure `plan(...)` as a real teaching
  * turn, so the previewed plan equals the executed plan for the same canonical
- * facts. It NEVER advances the ADR-0156 continuity cursor and never writes.
+ * facts. It NEVER advances the ADR-0014 continuity cursor and never writes.
  */
 export type SkillOrchestrationPreviewRequest = {
   /** Conversation whose prior continuity state should be READ (never written). */
@@ -269,7 +269,7 @@ export type SkillOrchestrationPreviewResult = {
 }
 
 /**
- * Local-only, redactable plan diagnostics fact (ADR-0163 §2.6).
+ * Local-only, redactable plan diagnostics fact (ADR-0014).
  * Identifiers, enums and counts ONLY — never objective text, skill bodies,
  * workspace paths, secrets or learner Evidence. Never phoned home.
  */

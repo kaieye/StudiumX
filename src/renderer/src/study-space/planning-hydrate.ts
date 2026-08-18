@@ -1,7 +1,7 @@
 /**
  * Sole-read hydrate: project workspace-canonical StudyPlanning into V1 UI cache.
  *
- * ADR-0117: snapshot.json is authority for tasks/blocks when present.
+ * ADR-0011: snapshot.json is authority for tasks/blocks when present.
  * localStorage remains rebuildable cache / presence host; focus clock sole-reads local TimerSession (Slice D).
  *
  * Policy:
@@ -71,7 +71,7 @@ export type HydrateStudyPlanningResult =
       simulationStartTime: string | null
       simulationEndTime: string | null
       /**
-       * Sole-read snapshot.categories (ADR-0117).
+       * Sole-read snapshot.categories (ADR-0011).
        * null when unset/invalid — host keeps V1 localStorage categories cache.
        */
       categories: StudyTaskCategory[] | null

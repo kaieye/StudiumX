@@ -1,5 +1,5 @@
 /**
- * Main-only MCP OAuth deep-link router (ADR-0135).
+ * Main-only MCP OAuth deep-link router (ADR-0013).
  *
  * Accepts only the fixed studiumx://mcp-oauth/callback path and never opens
  * arbitrary deep-link routes or executes callback payload content.

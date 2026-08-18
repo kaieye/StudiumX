@@ -1433,7 +1433,7 @@
     "autoDrain": "autoDrain",
     "autoDrainTrue": "true",
     "autoDrainFalse": "false",
-    "autoDrainExpectedFalse": "Product path expects false (ADR-0096).",
+    "autoDrainExpectedFalse": "Product path expects false (ADR-0004).",
     "queueDepth": "Queue depth / capacity",
     "closed": "Closed",
     "closedTrue": "Yes",
@@ -1443,15 +1443,15 @@
     "enqueuedAt": "Enqueued at"
   },
   "platformCapability": {
-    "pathnameDefault": "Trusted-root pathname I/O (temp → write → optional fsync → rename). Not CAS; native descriptor is not the default (ADR-0131).",
+    "pathnameDefault": "Trusted-root pathname I/O (temp → write → optional fsync → rename). Not CAS; native descriptor is not the default (ADR-0012).",
     "posixDescriptorStrict": "POSIX descriptor-relative I/O (strict containment profile).",
     "windowsDirectPathNonCas": "Windows root-constrained direct-path I/O (non-CAS; not descriptor-equivalent).",
     "windowsMemoryLimitedPersistence": "Windows memory uses limited direct-path persistence (non-CAS, not descriptor-equivalent).",
     "memoryChatDegradedEmpty": "Memory catalog is unavailable on this host; chat continues without injected memories.",
     "writeUnavailable": "Durable write capability is unavailable on this host.",
     "unavailable": "No safe platform I/O profile is available.",
-    "outcomeWindowsNotStrict": "Learning-outcome strict settlement profile is not claimed on Windows (ADR-0035).",
-    "sessionAuditWindowsLimited": "Session audit durable profile remains limited on Windows (ADR-0019/0035)."
+    "outcomeWindowsNotStrict": "Learning-outcome strict settlement profile is not claimed on Windows (ADR-0012).",
+    "sessionAuditWindowsLimited": "Session audit durable profile remains limited on Windows (ADR-0007)."
   },
   "mcp": {
     "title": "MCP servers",

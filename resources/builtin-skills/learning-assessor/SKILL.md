@@ -3,7 +3,7 @@ name: learning-assessor
 description: Provides comprehensive guidance for learning assessment including assessment creation, evaluation methods, and assessment best practices. Use when the user asks about learning assessment, needs to create assessments, evaluate learning, or implement assessment strategies.
 ---
 
-> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+> **编排契约**（host registry 为准 · [ADR-0014](../../../docs/adr/0014-teaching-kernel-and-skill-authority.md)）
 >
 > - **角色：** `teaching_strategy`
 > - **阶段：** `diagnose, elicit`

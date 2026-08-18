@@ -216,7 +216,7 @@ function assessInteraction(
   if (!quiz) return ignored('unknown_quiz')
   if (quiz.type === null) return ignored('malformed_answer_or_choice')
   if (quiz.type === 'fill') {
-    // ADR-0155: fill settles only against sidecar v2 accepted-answer digests.
+    // ADR-0002: fill settles only against sidecar v2 accepted-answer digests.
     // v1 sidecars (answerIds null) keep the conservative unsupported posture.
     if (!quiz.answerIds) return ignored('unsupported_quiz_type')
     if (!isValidFillSelection(interaction.selectedOptionIds)) {
@@ -270,7 +270,7 @@ function parseCanonicalAssessmentJson(content: string): CanonicalQuiz[] | null {
     const value: unknown = JSON.parse(content)
     if (!isRecord(value) || !hasOnlyKeys(value, ['schemaVersion', 'kind', 'quizzes'])) return null
     // v1: fill carries no answer binding (unsupported for settlement).
-    // v2 (ADR-0155): fill answerIds are normalized-answer digests (`fill-<sha256>`).
+    // v2 (ADR-0002): fill answerIds are normalized-answer digests (`fill-<sha256>`).
     const schemaVersion = value.schemaVersion
     if (schemaVersion !== 1 && schemaVersion !== 2) return null
     if (value.kind !== 'studiumx-assessment' || !Array.isArray(value.quizzes) || value.quizzes.length > 5) return null
@@ -401,7 +401,7 @@ function isStaticAssessmentCard(card: HtmlElement, itemId: string): boolean {
     'data-type': isAssessmentQuizType,
     'data-answer': () => true
   }
-  // Fill cards may carry the optional accepted-alternates attribute (ADR-0155).
+  // Fill cards may carry the optional accepted-alternates attribute (ADR-0002).
   const fillWithAccepted =
     attributeValue(card, 'data-type') === 'fill' &&
     attributeValue(card, 'data-accepted') !== undefined
@@ -555,7 +555,7 @@ function pushChildElements(stack: PendingElement[], parent: HtmlParentNode, dept
 function parseQuizCard(itemId: string, card: HtmlElement): CanonicalQuiz {
   const type = attributeValue(card, 'data-type')
   const choiceIds = parseChoiceIds(card)
-  // Fill settles only via the JSON sidecar's digest bindings (ADR-0155 v2);
+  // Fill settles only via the JSON sidecar's digest bindings (ADR-0002 v2);
   // the legacy HTML sidecar keeps its conservative unsupported posture.
   if (type === 'fill') return { itemId, type: 'fill', answerIds: null, choiceIds }
   if (type !== 'single' && type !== 'multi' && type !== 'truefalse') return malformedQuiz(itemId)
@@ -646,7 +646,7 @@ function isValidSelection(selected: string[], choices: string[], type: 'single' 
   return selected.every((value) => isSafeOptionId(value) && choices.includes(value))
 }
 
-/** Fill evidence carries exactly one normalized-answer digest id (ADR-0155). */
+/** Fill evidence carries exactly one normalized-answer digest id (ADR-0002). */
 function isValidFillSelection(selected: string[]): boolean {
   return Array.isArray(selected) && selected.length === 1 && isFillOptionId(selected[0]!)
 }

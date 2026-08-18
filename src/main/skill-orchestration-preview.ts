@@ -1,12 +1,12 @@
 /**
- * Read-only skill orchestration preview (ADR-0163 §2.2).
+ * Read-only skill orchestration preview (ADR-0014).
  *
  * Reuses the SAME host assembly and the SAME pure `plan(...)` as a real
  * teaching turn, so what the user previews is what the turn will execute for
  * identical canonical facts.
  *
  * Hard boundaries — this module:
- * - only READS the ADR-0156 continuity state; it never calls
+ * - only READS the ADR-0014 continuity state; it never calls
  *   `advanceConversationOrchestrationState` and never writes the state file,
  *   so opening a preview can never move the stage cursor;
  * - never writes the ledger, creates/commits an outcome, produces Evidence,

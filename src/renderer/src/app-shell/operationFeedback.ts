@@ -132,7 +132,7 @@ function failureNotification(
 function classifyVisibleError(error: unknown, translate: OperationFeedbackTranslator): OperationFeedbackError {
   const raw = error instanceof Error ? error.message : String(error)
 
-  // ADR-0170: branch CAS details are an implementation concern. Keep the learner
+  // ADR-0004: branch CAS details are an implementation concern. Keep the learner
   // on a safe refresh path without exposing expected/current revisions.
   if (raw.toLowerCase().includes('conversation branch revision conflict')) {
     return {
@@ -265,7 +265,7 @@ function classifyVisibleError(error: unknown, translate: OperationFeedbackTransl
     }
   }
 
-  // ADR-0126: platform capability degrade is not a provider / empty-stream error.
+  // ADR-0012: platform capability degrade is not a provider / empty-stream error.
   if (
     raw.includes('Descriptor-relative contained directory access is unavailable') ||
     raw.includes('direct-path memory write') ||

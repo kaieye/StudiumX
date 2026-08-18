@@ -1,5 +1,5 @@
 /**
- * Pure multi-source MCP config merge (ADR-0137 Phase E).
+ * Pure multi-source MCP config merge (ADR-0013).
  * No filesystem / env access — layers are provided by main loaders or tests.
  */
 
@@ -28,7 +28,7 @@ export type ResolveMcpSourcesInput = Readonly<{
 /**
  * Merge layered server maps into an effective list + shadowed entries.
  *
- * Rules (ADR-0137):
+ * Rules (ADR-0013):
  * 1. Same server id: highest precedence source (lowest rank number) wins the full record.
  * 2. Losers become shadowed with reason `id_collision` (full record retained for UI).
  * 3. Within equal kind, first layer in input order wins (stable).
@@ -102,7 +102,7 @@ export function userLayerFromConfig(config: UserMcpConfigV1): McpConfigSourceLay
 }
 
 /**
- * Root gates from durable user config (ADR-0141).
+ * Root gates from durable user config (ADR-0013).
  * autoConnect uses effective rule: enabled && autoConnect !== false
  * so omitted autoConnect counts as on when MCP root is enabled.
  */
@@ -162,7 +162,7 @@ export function autoConnectEligibleServers(
   return out
 }
 
-/** Default hard cap for concurrent auto-connect discovery (ADR-0137). */
+/** Default hard cap for concurrent auto-connect discovery (ADR-0013). */
 export const DEFAULT_MAX_AUTO_CONNECT = 4
 
 function serverMatchesWorkspaceScope(

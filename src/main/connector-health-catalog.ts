@@ -40,7 +40,7 @@ export class ConnectorHealthCatalog {
   ) {}
 
   async evaluate(settings: TeachingSettingsV1, workspace: ConnectorStatusWorkspace): Promise<ConnectorStatus[]> {
-    // ADR-0101 / ADR-0117: optional workspace tool-policy multi-path for catalog/read probes.
+    // ADR-0005: optional workspace tool-policy multi-path for catalog/read probes.
     // Non-empty root → load+merge; null doc omits field (default-equivalent).
     const workspaceRoot =
       typeof workspace?.rootPath === 'string' ? workspace.rootPath.trim() : ''

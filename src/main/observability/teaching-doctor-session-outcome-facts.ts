@@ -1,6 +1,6 @@
 /**
  * Fail-soft TeachingDoctor session + outcome crash-window facts collector
- * (B-11 residual / ADR-0104).
+ * (B-11 residual / ADR-0007).
  *
  * Thin adapter: calls injected `loadScan()` once (typically active workspace +
  * `createLearningSessionLedger(...).scan()`) and maps the scan into both
@@ -11,7 +11,7 @@
  * Non-claims:
  * - no auto-repair / clear marker / upload / remote telemetry / OTEL
  * - no LearningOutcomeCommitter.reconcile (mutates/repairs — doctor is read-only)
- * - no free-form renderer facts (IPC payload remains ADR-0084 closed)
+ * - no free-form renderer facts (IPC payload remains ADR-0007 closed)
  * - no peel of learning-session-ledger / teaching-workspace / teaching-turn-coordinator
  * - no source-gap collector (separate residual)
  */
@@ -69,7 +69,7 @@ export type LearningSessionScanResultLike = {
  * Factory for a main-side session+outcome crash-window facts collector.
  * Composition root / gateway injects this into runProductTeachingDoctor deps.
  *
- * Decision (ADR-0104): no active workspace / null scan → empty `{}` partial so
+ * Decision (ADR-0007): no active workspace / null scan → empty `{}` partial so
  * pure session/outcome checks stay `skipped`. Throw → `{}`. One scan maps both
  * fact keys (no double I/O).
  */

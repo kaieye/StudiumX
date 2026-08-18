@@ -1,4 +1,4 @@
-/** MCP IPC channels (ADR-0128 §8) — registered with teaching IPC. */
+/** MCP IPC channels (ADR-0013) — registered with teaching IPC. */
 
 import type { McpSettingsOp } from './mcp-ops'
 import type { McpSecretInputChanges } from './types'
@@ -15,14 +15,14 @@ export const mcpInvokeChannels = {
   authorizeServer: 'teach:mcp-authorize-server',
   revokeAuthorization: 'teach:mcp-revoke-authorization',
   listRuntime: 'teach:mcp-list-runtime',
-  /** Opt-in discovery auto-connect (ADR-0137); never tools/call. */
+  /** Opt-in discovery auto-connect (ADR-0013); never tools/call. */
   autoConnectNow: 'teach:mcp-auto-connect-now',
   /**
-   * Secret-free multi-source effective view (ADR-0137 / ADR-0141).
+   * Secret-free multi-source effective view (ADR-0013).
    * Optional: Settings may omit when API missing (older preload).
    */
   getEffectiveView: 'teach:mcp-get-effective-view',
-  /** Secret-free marketplace list (ADR-0140/0141). */
+  /** Secret-free marketplace list (ADR-0013). */
   marketplaceList: 'teach:mcp-marketplace-list',
   /** Install pin + merge user server; optional connect (never tool approval). */
   marketplaceInstall: 'teach:mcp-marketplace-install',
@@ -87,7 +87,7 @@ export type McpGetEffectiveViewPayload = Readonly<{
   workspaceRoot?: string | null
 }>
 
-/** Secret-free marketplace install request (ADR-0141). */
+/** Secret-free marketplace install request (ADR-0013). */
 export type McpMarketplaceInstallPayload = Readonly<{
   entryId: string
   connect?: boolean

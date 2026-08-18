@@ -1,6 +1,6 @@
 /**
  * Pure durable snapshot for the last teaching-turn review bundle
- * (ADOPTION S-09 residual / ADR-0113 pure layer).
+ * (ADOPTION S-09 residual / ADR-0001 pure layer).
  *
  * Rebuildable projection cache only — NOT settlement SoT.
  * Never auto-applies candidates; never invents skill install / memory write plans.

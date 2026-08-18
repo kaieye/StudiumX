@@ -10,7 +10,7 @@ import { projectSecretPresenceMap } from '../secret-presence'
 import type { UserMcpServerPublicV1, UserMcpServerV1 } from './types'
 
 export function toPublicServer(server: UserMcpServerV1): UserMcpServerPublicV1 {
-  // Presence-only secret maps (ADR-0148): never project ref ids or plaintext.
+  // Presence-only secret maps (ADR-0013): never project ref ids or plaintext.
   const envSecretConfigured = projectSecretPresenceMap(server.envSecretRefs)
   const headersSecretConfigured = projectSecretPresenceMap(server.headersSecretRefs)
   // Command/args may embed credentials; scrub assignment-shaped tokens on public view.

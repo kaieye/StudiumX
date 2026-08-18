@@ -39,7 +39,7 @@ function deps(overrides: Partial<SkillOrchestrationPreviewDeps> = {}): SkillOrch
   }
 }
 
-describe('skill orchestration preview (ADR-0163)', () => {
+describe('skill orchestration preview (ADR-0014)', () => {
   it('returns a plan in which every selected capability has a status and reason', async () => {
     const result = await previewSkillOrchestration(
       {
@@ -172,7 +172,7 @@ describe('skill orchestration preview (ADR-0163)', () => {
   })
 })
 
-describe('skill orchestration presets (ADR-0163 §2.3)', () => {
+describe('skill orchestration presets (ADR-0014)', () => {
   it('only references registered builtin skills and never the reserved kernel id', () => {
     const registered = new Set(listBuiltinSkillOrchestrationPolicies().map((entry) => entry.skillId))
     for (const preset of listSkillOrchestrationPresets()) {
@@ -193,7 +193,7 @@ describe('skill orchestration presets (ADR-0163 §2.3)', () => {
   })
 })
 
-describe('local plan diagnostics (ADR-0163 §2.6)', () => {
+describe('local plan diagnostics (ADR-0014)', () => {
   it('records only allow-listed identifiers, enums and counts', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'studiumx-diagnostics-'))
     const store = createSkillOrchestrationDiagnosticsStore({ workspaceRoot })

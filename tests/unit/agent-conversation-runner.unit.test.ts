@@ -131,7 +131,7 @@ async function flush(): Promise<void> {
   await Promise.resolve()
 }
 
-describe('AgentConversationTurnRunner ADR-0170 host submission', () => {
+describe('AgentConversationTurnRunner ADR-0004 host submission', () => {
   it('submits canonical continuation with the observed revision, scoped target, UUID idempotency key, skills, and follow-up delivery', async () => {
     const submit = vi.fn(async () => ({ code: 'started' as const, activeTurnId: 'turn-7', streamId: 'host-stream-7', conversationId: 'conversation-7' }))
     const harness = makeHarness({ submitConversationTurn: submit }, {

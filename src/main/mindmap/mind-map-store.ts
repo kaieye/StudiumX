@@ -1,9 +1,9 @@
 /**
- * Main-process persistence store for mind maps (ADR-0173 / docs/mindmap/design.md §3).
+ * Main-process persistence store for mind maps (see docs/mindmap/design.md §3 and ADR-0016).
  *
  * One JSON document per file at `<rootPath>/mindmaps/<id>.json`. Documents are
  * stored in the v2 schema (`MindMapDocumentV2`) with a monotonic `revision`.
- * Writes are durable (ADR-0131): write a same-directory journal + temp file,
+ * Writes are durable (ADR-0012): write a same-directory journal + temp file,
  * then rename over the target. A valid journal is used as the last legal
  * snapshot during crash recovery; the undo stack is never canonical.
  *

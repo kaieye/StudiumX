@@ -143,7 +143,7 @@ describe('TeachingCapabilityCatalog', () => {
       skills: [skill()]
     })
     expect(temporary.policyId).toBe('temporary_chat')
-    // Stage A / ADR-0128 §5.4: temporary shares agent tool surface; only lesson product writers denied.
+    // ADR-0013: temporary shares agent tool surface; only lesson product writers denied.
     expect(byId(temporary.items, 'delegation').status).toBe('available')
     expect(byId(temporary.items, 'lesson').status).toBe('denied')
     expect(byId(temporary.items, 'workspace_tools').status).toBe('available')

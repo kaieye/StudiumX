@@ -2,7 +2,7 @@
  * IMPL-P: V1 sole-authority e2e-proxy product-path cold-start evidence.
  *
  * Composes the same pure + session + hydrate modules the renderer uses on cold
- * start after demote (ADR-0094 / 0129 / 0130 §5.1). This is a deterministic
+ * start after demote (ADR-0011). This is a deterministic
  * product-path suite — not multi-process Electron e2e. Residual honesty: true
  * multi-window Electron cold-start may remain open.
  *
@@ -523,7 +523,7 @@ describe('study-planning v1 authority cold-start product-path (e2e-proxy)', () =
       expect(window.localStorage.getItem(STUDY_SPACE_STORAGE_KEY)).toContain('Must not auto-wipe')
 
       // Export surface: demote module must not expose age-based wipe entrypoints
-      // (static contract encoded for residual honesty / ADR-0130).
+      // (static contract encoded for residual honesty / ADR-0011).
       const demoteModuleContract = {
         hasAutoWipeAfter30d: false,
         eraseRequiresUserConfirmed: true,

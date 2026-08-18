@@ -19,7 +19,7 @@ export type TeachingTurnOrchestratorDeps<Command, Context, LoopResult, FinalResu
   /**
    * Optional: after successful finalize, emit review candidates for human approval only.
    * Must never auto-apply skills/profile or write settlement. Settlement already completed
-   * before this runs — hook errors are swallowed so finalize result is preserved (ADR-0080).
+   * before this runs — hook errors are swallowed so finalize result is preserved (ADR-0001).
    */
   onTeachingTurnReview?: TeachingTurnReviewFinalizeHook
   /**
@@ -38,7 +38,7 @@ export type TeachingTurnOrchestratorDeps<Command, Context, LoopResult, FinalResu
  * Thin orchestration seam. It sequences hooks only; ledger/evidence settlement remains
  * the responsibility of the injected finalizer (normally TeachingTurnCoordinator).
  *
- * Optional post-finalize review (ADR-0077 / ADR-0080) is candidates-only and never
+ * Optional post-finalize review (ADR-0001) is candidates-only and never
  * owns settlement. Default deps without a review hook keep zero behavior change.
  */
 export class TeachingTurnOrchestrator<Command, Context, LoopResult, FinalResult> {

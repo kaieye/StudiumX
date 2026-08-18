@@ -200,7 +200,7 @@ export function renderAssessmentJsonFromPlan(opts: { plan: LessonPlan }): string
   const quizzes = opts.plan.quiz.map((item, index) => {
     const itemId = `quiz-${index + 1}`
     if (item.type === 'fill') {
-      // ADR-0155 (sidecar v2): fill answers bind as normalized-answer digests so
+      // ADR-0002 (sidecar v2): fill answers bind as normalized-answer digests so
       // settlement can verify attempts without learner plaintext in evidence.
       const answerIds = fillAcceptedOptionIds(String(item.answer), item.acceptedAnswers ?? [])
       return { itemId, type: 'fill', answerIds: answerIds.length > 0 ? answerIds : null, choiceIds: null }

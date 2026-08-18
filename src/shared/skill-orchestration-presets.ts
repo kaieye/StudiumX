@@ -1,16 +1,16 @@
 /**
- * Host-owned product intent presets for skill orchestration (ADR-0163 §2.3).
+ * Host-owned product intent presets for skill orchestration (ADR-0014).
  *
  * A preset is a *selection convenience*: it expands a product intent into
  * builtin capability skill ids. It is NOT an authority — the expanded set still
  * goes through the pure `plan(...)` planner, which retains final adjudication
  * over readiness, dependencies, conflicts and budget.
  *
- * Personal / custom skills can never extend this catalog (ADR-0151 §2.2:
+ * Personal / custom skills can never extend this catalog (ADR-0014:
  * host registry is the trust authority, skill self-declaration is only a hint).
  *
  * `teach` never appears here — the Teaching Kernel is injected by the host in
- * teaching mode and never occupies a user-facing selection slot (ADR-0151 §2.1).
+ * teaching mode and never occupies a user-facing selection slot (ADR-0014).
  */
 
 export type SkillOrchestrationPresetId =

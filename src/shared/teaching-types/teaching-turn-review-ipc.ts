@@ -1,10 +1,10 @@
 /**
  * Product IPC payload / result types for teaching-turn review human projection
- * and decision submit (ADOPTION S-09 residual / ADR-0087), plus post-approve
- * handoff projection (ADR-0110), plus durable last-bundle get/save (ADR-0114).
+ * and decision submit, post-approve handoff, and durable last-bundle get/save
+ * remain non-authoritative projections under ADR-0001.
  *
  * Gateway and preload expose closed-set channels only. Main-side pure mapper
- * calls ADR-0085 / ADR-0109 / ADR-0113 APIs; never auto-applies candidates or
+ * calls ADR-0001 APIs; never auto-applies candidates or
  * mutates skill/memory/profile.
  */
 

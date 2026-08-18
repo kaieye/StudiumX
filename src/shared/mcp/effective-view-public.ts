@@ -1,5 +1,5 @@
 /**
- * Secret-free multi-source effective MCP view for Settings / IPC (ADR-0137 / ADR-0141).
+ * Secret-free multi-source effective MCP view for Settings / IPC (ADR-0013).
  * Never copies env secrets, headers, tokens, args, or command lines.
  */
 

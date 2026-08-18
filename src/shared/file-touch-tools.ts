@@ -1,6 +1,6 @@
 /**
  * Shared closed-set helpers for workspace file-touch classification + path sanitize.
- * Used by main ledger (context projection) and learner UI projection (ADR-0143).
+ * Used by main ledger (context projection) and learner UI projection (ADR-0003).
  *
  * Only product-registered single-path tools are listed. Dead aliases such as
  * apply_patch are intentionally omitted (no Shell / apply_patch product path).

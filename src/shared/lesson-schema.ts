@@ -21,7 +21,7 @@ export const lessonQuizItemSchema = z.object({
   // single/multi: 0-based indices (multi as comma string or number array);
   // truefalse: 1 = true; fill: normalized expected text.
   answer: z.union([z.number().int().min(0), z.string().max(200), z.array(z.number().int().min(0))]).default(''),
-  // fill only (ADR-0155): equivalent accepted spellings of the answer.
+  // fill only (ADR-0002): equivalent accepted spellings of the answer.
   // Settlement digests these into the assessment sidecar; ignored for other types.
   acceptedAnswers: z.array(z.string().min(1).max(200)).max(4).default([]),
   explanation: z.string().max(600).default('')

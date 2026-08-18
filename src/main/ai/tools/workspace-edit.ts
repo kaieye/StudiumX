@@ -1,5 +1,5 @@
 /**
- * Controlled workspace file edit tool (ADR-0146).
+ * Controlled workspace file edit tool (ADR-0005).
  *
  * Local string replace with Exact → EOL/BOM → trailing-whitespace → indent-tolerant
  * matching. Shares path fence, workspace_write permission, durable pathname overwrite,

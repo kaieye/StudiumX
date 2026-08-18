@@ -1,5 +1,5 @@
 /**
- * Built-in tool names that MCP tools must not collide with (ADR-0128 §5.1).
+ * Built-in tool names that MCP tools must not collide with (ADR-0013).
  * Keep in sync with agent-capability-policy / effect-policy inventories.
  */
 

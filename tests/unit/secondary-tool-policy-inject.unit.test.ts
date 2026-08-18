@@ -1,6 +1,6 @@
 /**
  * Secondary product inject for workspace tool-policy into buildToolContext
- * (ADR-0088 / ADR-0117 multi-path residual): delegation-runtime + lesson-plan-production.
+ * (ADR-0005 multi-path): delegation-runtime + lesson-plan-production.
  * Pure-path composition tests — no Electron, no agent loop.
  *
  * Product load path uses loadAndMergeToolPolicyDocumentsFromWorkspace (default
@@ -79,7 +79,7 @@ function composeLessonPlanToolContextOptions(input: {
   return toolContextOptions
 }
 
-describe('delegation-runtime tool-policy inject decision (ADR-0088 / ADR-0117)', () => {
+describe('delegation-runtime tool-policy inject decision (ADR-0005)', () => {
   it('omits toolPolicyDocument when workspaceRoot is absent (no FS load path)', () => {
     const options = composeDelegationToolContextOptions({
       workspaceRoot: undefined,
@@ -125,7 +125,7 @@ describe('delegation-runtime tool-policy inject decision (ADR-0088 / ADR-0117)',
   })
 })
 
-describe('lesson-plan-production tool-policy inject decision (ADR-0088 / ADR-0117)', () => {
+describe('lesson-plan-production tool-policy inject decision (ADR-0005)', () => {
   it('grant false: no workspaceRoot and no toolPolicyDocument (no FS load)', () => {
     const options = composeLessonPlanToolContextOptions({
       workspaceToolAccessGranted: false,

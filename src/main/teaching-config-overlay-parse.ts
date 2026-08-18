@@ -1,5 +1,5 @@
 /**
- * Pure teaching-loop overlay field parsing (S-03 peel / ADR-0090).
+ * Pure teaching-loop overlay field parsing (S-03 peel / ADR-0006).
  *
  * Strict field parsing for one config overlay layer. Invalid fields are
  * omitted and recorded as diagnostics; the layer is never half-applied as a
@@ -7,7 +7,7 @@
  *
  * This module is pure: no I/O, no resolver merge, no fingerprint. Layer order,
  * denylist product policy, and secret stripping remain in
- * teaching-config-resolver (ADR-0025 / ADR-0071 / ADR-0086).
+ * teaching-config-resolver (ADR-0006).
  */
 
 import {
@@ -90,7 +90,7 @@ export function parseTeachingLoopOverlay(
       assignEnum(section, 'approvalMode', tools, 'approvalMode', AGENT_APPROVAL_MODES, source, 'tools.approvalMode', diagnostics, overlay)
       assignBoolean(section, 'webSearch', tools, 'webSearch', source, 'tools.webSearch', diagnostics, overlay)
       assignBoolean(section, 'webFetch', tools, 'webFetch', source, 'tools.webFetch', diagnostics, overlay)
-      // ADR-0171 migration: persisted run limits are intentionally accepted then dropped.
+      // ADR-0010 migration: persisted run limits are intentionally accepted then dropped.
       // They are not settings fields and never enter the resolved runtime snapshot.
       if (Object.keys(tools).length > 0) overlay.tools = tools
     }

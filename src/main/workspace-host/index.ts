@@ -1,5 +1,5 @@
 /**
- * Public barrel for the thin WorkspaceHost port (ADR-0078 / ADOPTION S-02).
+ * Public barrel for the thin WorkspaceHost port (ADR-0005 / ADOPTION S-02).
  *
  * Dependency direction (frozen path `src/main/workspace-host/*`):
  *   tools / agent  →  workspace-host  →  path-access | teaching-workspace-paths | teaching-workspace-access

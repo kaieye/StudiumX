@@ -1,8 +1,8 @@
 /**
  * Pure main-side mapper for teaching-turn review project / decide IPC
- * (ADOPTION S-09 residual / ADR-0087) and post-approve handoff IPC (ADR-0110).
+ * Human decision and post-approve handoff IPC remain projections under ADR-0001.
  *
- * Calls only ADR-0085 / ADR-0109 pure APIs. Never installs skills, writes
+ * Calls only ADR-0001 pure APIs. Never installs skills, writes
  * memory/profile, touches settlement, or invents auto-apply semantics.
  */
 
@@ -55,7 +55,7 @@ export function runDecideTeachingTurnReviewIpc(
 
 /**
  * Project post-approve handoff intents from either an approval projection or
- * bundle + required decision (ADR-0109 pure APIs). Never applies candidates.
+ * bundle + required decision (ADR-0001 pure APIs). Never applies candidates.
  */
 export function runProjectTeachingTurnReviewHandoffIpc(
   payload: ProjectTeachingTurnReviewHandoffPayload

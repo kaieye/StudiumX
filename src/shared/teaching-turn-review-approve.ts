@@ -1,6 +1,6 @@
 /**
  * Pure human decision + approval projection for teaching-turn review candidates
- * (ADOPTION S-09 residual / ADR-0085).
+ * (ADOPTION S-09 residual / ADR-0001).
  *
  * Display-only projection and non-executable approved-id lists for future UI/IPC.
  * Never auto-applies candidates, never writes skills/profile/memory, never touches settlement.

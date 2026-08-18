@@ -4,7 +4,7 @@
  * No I/O, no IPC, no renderer wiring. planSnapshot is frozen at start/segment.
  * Identity is always TimerSession (never bare "Session").
  *
- * ADR-0094 / ADR-0117: product freezes for breakPolicy, 120min reconcile, single active.
+ * ADR-0011: product freezes for breakPolicy, 120min reconcile, single active.
  */
 
 import type { TimerPlanV2 } from './timer-plan'

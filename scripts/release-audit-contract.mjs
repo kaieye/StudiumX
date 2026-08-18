@@ -28,7 +28,7 @@ export const platformReleaseSkipBudget = {
       testsSkipped: 69,
       filesSkipped: 3,
       rationale:
-        'POSIX descriptor Memory/catalog/write suites, native macOS/Linux publish paths, FIFO, and FS case-fold capability gates (see ADR-0017 and platformReleaseSkipBudget).'
+        'POSIX descriptor Memory/catalog/write suites, native macOS/Linux publish paths, FIFO, and FS case-fold capability gates (see CONTRIBUTING.md and platformReleaseSkipBudget).'
     },
     'pnpm run test:integration': {
       testsSkipped: 1,

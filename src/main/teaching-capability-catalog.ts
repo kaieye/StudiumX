@@ -76,7 +76,7 @@ export type TeachingCapabilityCatalogRequest = Readonly<{
   hasLessonGenerator?: boolean
   workspaceRoot?: string | null
   /**
-   * Optional preloaded workspace tool-policy (ADR-0101 / option B).
+   * Optional preloaded workspace tool-policy (ADR-0005 / option B).
    * Pass a document after async FS load at the composition edge; omit or pass
    * null for default-equivalent (no field on ToolContext). Sync `snapshot`
    * never reads disk — product callers use {@link loadToolPolicyForCapabilityCatalog}.
@@ -170,7 +170,7 @@ export function snapshotTeachingCapabilities(
 
 /**
  * Async edge helper: load optional workspace tool-policy when `workspaceRoot`
- * is a non-empty string (ADR-0101). Empty/missing root → null, no FS read.
+ * is a non-empty string (ADR-0005). Empty/missing root → null, no FS read.
  * Composition roots may pass the result as `request.toolPolicyDocument` into
  * sync {@link snapshotTeachingCapabilities} / `catalog.snapshot`.
  */
@@ -179,7 +179,7 @@ export async function loadToolPolicyForCapabilityCatalog(
 ): Promise<ToolPolicyDocument | null> {
   const root = typeof workspaceRoot === 'string' ? workspaceRoot.trim() : ''
   if (!root) return null
-  // ADR-0117: multi-path (primary + course overlay) shares conversation loader.
+  // ADR-0005: multi-path (primary + course overlay) shares conversation loader.
   return loadAndMergeToolPolicyDocumentsFromWorkspace({ workspaceRoot: root })
 }
 
@@ -750,7 +750,7 @@ function buildCacheKey(request: TeachingCapabilityCatalogRequest): string {
       generatorModel: settings.generator.model,
       providers: settings.provider.providers.map((provider) => ({
         id: provider.id,
-        // Presence-only (ADR-0148): never hash or embed the key material.
+        // Presence-only (ADR-0006): never hash or embed the key material.
         hasApiKey: provider.apiKey.trim().length > 0,
         hasBaseUrl: provider.baseUrl.trim().length > 0,
         endpointFormat: provider.endpointFormat

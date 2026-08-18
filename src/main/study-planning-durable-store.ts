@@ -1,5 +1,5 @@
 /**
- * Durable StudyPlanningStore host (ADR-0117).
+ * Durable StudyPlanningStore host (ADR-0011).
  *
  * Wraps in-memory StudyPlanningStore with workspace-scoped snapshot.json + .bak.
  * Inject DurableFileOperations for unit tests (no real disk required).
@@ -320,7 +320,7 @@ export class DurableStudyPlanningStore {
   }
 
   /**
-   * ADR-0117 §4: timestamp backup of existing canonical + migration-report-latest.
+   * ADR-0011: timestamp backup of existing canonical + migration-report-latest.
    * Fail-closed: throws so applyCommand returns io_failed without committing.
    */
   private async writeMigrationSidecars(

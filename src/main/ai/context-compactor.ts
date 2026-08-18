@@ -48,7 +48,7 @@ export type ContextCompactionOutcomeCode =
   | 'summarize_error'
 
 /**
- * Documented cut-point strategy for provider-projection compaction (ADR-0045 layer A / ADR-0064).
+ * Documented cut-point strategy for provider-projection compaction (ADR-0010).
  *
  * Selection order (immutable product defaults — not a second engine):
  * 1. **System boundary** — keep a leading contiguous `system` prefix untouched.

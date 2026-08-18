@@ -1,5 +1,5 @@
 /**
- * Codex-aligned agent sandbox modes (ADR-0153).
+ * Codex-aligned agent sandbox modes (ADR-0015).
  *
  * Orthogonal to AgentApprovalMode (AskForApproval):
  * - sandboxMode  = what the process may do (FS / network posture)

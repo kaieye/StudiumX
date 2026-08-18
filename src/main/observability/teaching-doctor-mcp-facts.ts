@@ -1,13 +1,13 @@
 /**
- * Fail-soft TeachingDoctor MCP facts collector (ADR-0128 Phase E + ADR-0133/0135/0137/0140).
+ * Fail-soft TeachingDoctor MCP facts collector (ADR-0013).
  *
  * Emits aggregate-only, secret-free MCP status for doctor evidence.
  * Never includes env secrets, headers, tokens, raw command tokens beyond redacted
  * labels, generation/retry metadata, or tool names/schemas.
  *
  * Optional per-server inventory aggregates and authorizationState are secret-free
- * lifecycle categories only (ADR-0133 / ADR-0135). Optional multi-source aggregates
- * and marketplace emergency flag are counts/booleans only (ADR-0137 / ADR-0140).
+ * lifecycle categories only (ADR-0013). Optional multi-source aggregates
+ * and marketplace emergency flag are counts/booleans only (ADR-0013).
  *
  * Non-claims:
  * - no auto-repair (autoConnectEnabled is status only)

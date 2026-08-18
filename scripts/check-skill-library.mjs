@@ -48,7 +48,7 @@ try {
   assert.match(teachingSiteSkill, /StudiumX loads an installed skill only through an explicit leading slash command/)
   assert.doesNotMatch(teachingSiteSkill, /activate_skill|Claude Code:|Codex: `skill` tool/)
 
-  // ADR-0151 Phase 5: every shipped skill declares the same human-readable
+  // ADR-0014: every shipped skill declares the same human-readable
   // governance contract. The host registry remains authoritative, but these
   // declarations prevent a skill body from silently losing its role, I/O,
   // artifact boundary, completion gate, or non-responsibilities.
@@ -124,7 +124,7 @@ try {
   assert.match(teachingSiteSkill, /Do not invoke them while Stages 1–5 are still in flux/)
   assert.match(teachingSiteSkill, /Does not write any code itself — always dispatches to a sub-skill/)
 
-  // ADR-0151 Phase 1: app-shipped Teaching Kernel loader must exist and fail closed.
+  // ADR-0014: app-shipped Teaching Kernel loader must exist and fail closed.
   const coreKernel = await readFile(join(process.cwd(), 'src', 'main', 'skill-library', 'core-teaching-kernel.ts'), 'utf8')
   const skillLibrary = await readFile(join(process.cwd(), 'src', 'main', 'skill-library.ts'), 'utf8')
   const conversationRuntime = await readFile(join(process.cwd(), 'src', 'main', 'teaching-conversation-runtime.ts'), 'utf8')
@@ -135,7 +135,7 @@ try {
   assert.match(skillLibrary, /readCoreTeachingKernel/)
   assert.match(skillLibrary, /isCoreTeachingKernelId/)
   assert.match(conversationRuntime, /Teaching Kernel unavailable/)
-  assert.match(conversationRuntime, /ADR-0151/)
+  assert.match(conversationRuntime, /ADR-0014/)
 
   await build({
     absWorkingDir: process.cwd(),

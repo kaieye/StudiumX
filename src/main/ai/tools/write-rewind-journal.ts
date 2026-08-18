@@ -19,7 +19,7 @@ export type WriteRewindJournalEntry = Readonly<{
   writtenContentSha256: string
   bytes: number
   /**
-   * Optional permission audit metadata (ADR-0063 residual / C2).
+   * Optional permission audit metadata (ADR-0005 residual / C2).
    * Policy allow|prompt|forbidden, or interactive deny. Omitted when capture path
    * does not know a decision; journal does not own permission settlement.
    */

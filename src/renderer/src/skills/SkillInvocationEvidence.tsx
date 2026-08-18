@@ -5,7 +5,7 @@ import type { AgentChatTurn } from '../../../shared/teaching-types'
 type SkillInvocationPresentation = NonNullable<AgentChatTurn['metadata']>['skillInvocation']
 
 /**
- * Host-authoritative, privacy-safe projection for ADR-0168 Skill invocations.
+ * Host-authoritative, privacy-safe projection for ADR-0014 Skill invocations.
  * The invocation body and local filesystem location intentionally never reach
  * this renderer component.
  */

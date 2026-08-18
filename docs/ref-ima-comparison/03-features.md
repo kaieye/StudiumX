@@ -204,11 +204,11 @@ StudiumX 的设置能力（`src/renderer/src/views/settings/`）：
 | **学习计划** | `study-planning-*`（64 文件） | 任务/日程/计时/排程 |
 | **教学证据链** | `learning-session-ledger`, `evidence-*` | 可追溯的教学过程记录 |
 | **学习成果评估** | `learning-outcome-evaluator`, `learning-outcome-committer` | 基于证据的 outcome 结算 |
-| **间距复习** | `review-schedule-facts.ts`, ADR-0154 | 遗忘曲线驱动的复习计划 |
+| **间距复习** | `review-schedule-facts.ts`, ADR-0003 | 遗忘曲线驱动的复习计划 |
 | **学习分析** | `views/workbench/analytics/` | 学习数据可视化 |
 | **自习室/在线状态** | `study-space/presence/`（MQTT） | 多端学习状态同步 |
 | **宠物系统** | `views/pet/` | 学习陪伴宠物 |
 | **Skills 系统** | `skill-library.ts`, `skill-orchestration-*` | 可组合的教学技能 |
 | **课程样式** | `lesson-style-themes/`（12 主题） | 课程讲义视觉样式 |
-| **教学轮次审查** | ADR-0087, ADR-0110/0111/0116 | 人工审批教学结果 |
+| **教学轮次审查** | ADR-0001 | 人工审批教学结果 |
 | **上下文压缩** | `context-compactor.ts` | Agent 上下文管理 |

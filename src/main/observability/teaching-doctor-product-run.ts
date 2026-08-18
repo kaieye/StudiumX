@@ -1,5 +1,5 @@
 /**
- * Product-facing TeachingDoctor run assembler (B-11 residual / ADR-0084 + ADR-0093).
+ * Product-facing TeachingDoctor run assembler (B-11 residual / ADR-0007).
  *
  * Multi-collector pure facts assemble (optional deps.factsCollectors), then process
  * crash-marker facts from an injected store (source of truth when

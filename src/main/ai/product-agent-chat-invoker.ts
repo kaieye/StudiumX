@@ -1,6 +1,6 @@
 /**
  * Pure mapping helpers for product AgentSessionFacade → service.agentChatStream
- * (B-02 residual / ADR-0058).
+ * (B-02 residual / ADR-0004).
  *
  * Keeps Electron IPC and TeachingWorkspaceService out of the façade module while
  * giving the gateway a testable payload/result adapter.

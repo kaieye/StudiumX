@@ -222,7 +222,7 @@ async function requestResearchPlan(opts: {
   const workspaceToolOptions = opts.workspace.workspaceToolAccessGranted === true
     ? { workspaceRoot: opts.workspace.rootPath }
     : {}
-  // Optional workspace tool-policy only when grant is true (ADR-0088 / ADR-0117 multi-path).
+  // Optional workspace tool-policy only when grant is true (ADR-0005 multi-path).
   // Grant false: no FS load and no toolPolicyDocument field.
   let toolContextOptions: {
     workspaceRoot?: string

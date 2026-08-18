@@ -162,7 +162,7 @@ function cancelRefreshMessage(): string {
 }
 
 /**
- * Renderer projection for ADR-0170 host-submitted turns.
+ * Renderer projection for ADR-0004 host-submitted turns.
  *
  * The host owns execution, settlement, and FIFO draining. The renderer owns only
  * optimistic presentation and projection of host realtime events for streams it

@@ -1,6 +1,6 @@
 /**
  * Thin renderer helper for the read-only agent session queue projection IPC
- * (ADR-0091 / ADR-0098). Never drains, steers, aborts, or requests free-text.
+ * (ADR-0004). Never drains, steers, aborts, or requests free-text.
  */
 
 import type { ProjectAgentSessionQueueResult } from '../../../shared/teaching-types/agent-session-queue'

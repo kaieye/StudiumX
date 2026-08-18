@@ -1,5 +1,5 @@
 /**
- * MCP marketplace catalog types (ADR-0140 foundation + ADR-0141 product path).
+ * MCP marketplace catalog foundation types (ADR-0013).
  * Optional remote catalog URLs are user/config only — no default phone-home telemetry.
  */
 
@@ -33,7 +33,7 @@ export type McpMarketplacePermissionsPreviewV1 = Readonly<{
 export type McpMarketplaceTransportHint = 'stdio' | 'http' | 'sse' | 'unknown'
 
 /**
- * One catalog entry (local inject or remote catalog fetch, ADR-0141).
+ * One catalog entry (local inject or remote catalog fetch, ADR-0013).
  * Hash/signature fields are recorded for pin/revoke.
  */
 export type McpMarketplaceCatalogEntryV1 = Readonly<{
@@ -98,7 +98,7 @@ export type McpMarketplaceStoreDocumentV1 = Readonly<{
   /** When true, all marketplace installs are treated as disabled. */
   emergencyDisabled: boolean
   /**
-   * Optional remote catalog source URLs (ADR-0141). Default empty — no network.
+   * Optional remote catalog source URLs (ADR-0013). Default empty — no network.
    * Fetch is fail-soft; never used for product telemetry.
    */
   catalogUrls?: readonly string[]

@@ -6,7 +6,7 @@
  * interactive permission gate remain the pre-execution authority.
  *
  * Write / external_write / privileged tools always declare maxConcurrency = 1.
- * This module never opens write parallelism (ADR-0032 / ADOPTION B-07).
+ * This module never opens write parallelism (ADR-0004 / ADOPTION B-07).
  */
 
 import { classifyToolEffect } from './effect-policy'

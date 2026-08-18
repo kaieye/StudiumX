@@ -65,7 +65,7 @@ function memoryOperations(options: { failWrite?: boolean } = {}): {
   return { operations, files }
 }
 
-describe('snapshot wire (ADR-0117)', () => {
+describe('snapshot wire (ADR-0011)', () => {
   it('exports relative path layout', () => {
     expect(studyPlanningSnapshotRelativePath()).toBe('.studiumx/study-planning/snapshot.json')
   })

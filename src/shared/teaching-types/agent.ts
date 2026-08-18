@@ -5,7 +5,7 @@ export type AgentChatMode = 'temporary' | 'teaching'
 export type AgentConversationLookupScope = 'workspace' | 'temporary'
 
 /**
- * Stable main/host serialization lane identity (ADR-0170 §3.1).
+ * Stable main/host serialization lane identity (ADR-0004).
  *
  * Canonical and pending identities are deliberately discriminated: callers may
  * not overload one id field or infer identity from text, mode, or revision.
@@ -25,7 +25,7 @@ export type ConversationLaneKey =
     }
 
 /**
- * Host-submit intent for one conversation turn (ADR-0170 §4.1).
+ * Host-submit intent for one conversation turn (ADR-0004).
  *
  * This intentionally carries only new user text plus lane and concurrency
  * preconditions. It must never grow a transcript, model context, tool input,
@@ -69,7 +69,7 @@ export type SubmitConversationTurnDisposition =
 
 
 /**
- * Exact host-lane cancellation request (ADR-0170 §4.2). This is a narrow
+ * Exact host-lane cancellation request (ADR-0004). This is a narrow
  * concurrency control message only; it must never carry transcript, context,
  * tool, provider, credential, or secret data.
  */
@@ -292,7 +292,7 @@ export type AgentPersistedParentTurnProof = {
 }
 
 /**
- * Compact file-touch reference projection (ADR-0143 learner surface).
+ * Compact file-touch reference projection (ADR-0003 learner surface).
  * Not teaching-evidence; not settlement authority.
  */
 export type AgentFileTouchMetadata = {
@@ -302,7 +302,7 @@ export type AgentFileTouchMetadata = {
 
 export type AgentTurnMetadata = {
   version: 1
-  /** Host-authored, redacted audit projection for an explicit Skill invocation (ADR-0168). */
+  /** Host-authored, redacted audit projection for an explicit Skill invocation (ADR-0014). */
   skillInvocation?: import('../explicit-skill-invocation').SkillInvocationPresentation
   sources?: AgentSourceMetadata[]
   childRuns?: AgentChildRunMetadata[]
@@ -451,7 +451,7 @@ export type AgentChatStreamPayload = {
   userInput: string
 }
 
-/** Mid-run steer / follow-up against an active agent chat stream (ADR-0082). */
+/** Mid-run steer / follow-up against an active agent chat stream (ADR-0004). */
 export type SteerAgentChatStreamPayload = {
   streamId: string
   text: string
@@ -710,7 +710,7 @@ export type AgentChatStreamToolEvent = {
 }
 
 /**
- * Main-only lifecycle projection for an ADR-0170 host reservation becoming
+ * Main-only lifecycle projection for an ADR-0004 host reservation becoming
  * runnable. It deliberately contains only opaque routing/correlation ids;
  * conversation input, transcript, tool data, and secrets never travel here.
  *
@@ -729,7 +729,7 @@ export type AgentConversationTurnStartedRealtimeEvent = {
 }
 
 /**
- * Main-only lifecycle projection for an ADR-0170 pending lane that was promoted
+ * Main-only lifecycle projection for an ADR-0004 pending lane that was promoted
  * to a canonical conversation after its first successful save. It carries only
  * the opaque routing id and the saved canonical conversation id; transcript,
  * input, tool data, and secrets never travel here. `sequence: 0` keeps it out
@@ -809,7 +809,7 @@ export type ReplayAgentChatEventsPayload = {
 export type AskOption = {
   label: string
   description?: string
-  /** When true, timeout settlement prefers this option (ADR-0144). */
+  /** When true, timeout settlement prefers this option (ADR-0010). */
   recommended?: boolean
 }
 

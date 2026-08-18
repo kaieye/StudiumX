@@ -1,5 +1,5 @@
 /**
- * MCP tool bridge + registry inject (ADR-0128 §7).
+ * MCP tool bridge + registry inject (ADR-0013).
  *
  * MCP handlers never import outcome committer / ledger writer.
  * MCP does not write workspace files directly (even when effect override is workspace_write).
@@ -26,7 +26,7 @@ import {
 import type { McpSessionManager, McpSnapshotTool, McpToolsSnapshot } from './session-manager'
 
 /**
- * Runtime effect map for classifyToolEffect extension (ADR-0128 §6.1).
+ * Runtime effect map for classifyToolEffect extension (ADR-0013).
  * Populated from the run-scoped MCP snapshot; never persisted as workspace authority.
  */
 let runtimeMcpEffectMap: ReadonlyMap<string, McpEffectClass> | null = null

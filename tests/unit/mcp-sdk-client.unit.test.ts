@@ -124,7 +124,7 @@ beforeEach(() => {
   sdkMocks.transports.length = 0
 })
 
-describe('MCP SDK transport (ADR-0133)', () => {
+describe('MCP SDK transport (ADR-0013)', () => {
   it('maps one requested cursor to one SDK tools/list page', async () => {
     const transport = createSdkMcpTransport(sdkOptions())
     await transport.initialize()

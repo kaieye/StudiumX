@@ -4,7 +4,7 @@
  * Used by TimerSession lifecycle (phase_prompt events) and phase-prompt handoff UI.
  * Prefer this over re-walking longBreakEvery / custom_rhythm sequences at call sites.
  *
- * No I/O. Pure domain (ADR-0094 / STC-205 / STC-702).
+ * No I/O. Pure domain (ADR-0011 / STC-205 / STC-702).
  */
 
 import type { TimerPlanV2 } from './timer-plan'

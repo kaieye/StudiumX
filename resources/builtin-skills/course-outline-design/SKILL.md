@@ -3,7 +3,7 @@ name: course-outline-design
 description: Use this skill when starting a new course / workshop / training program and you need to design its outline before any lecture content is written. Triggers on phrases like "規劃課程", "課程大綱", "幾天怎麼排", "學習目標", "workshop outline", "syllabus design", "course outline", "learning objectives", "課程總覽", or when the user has a topic and audience but no structure yet. This skill produces the skeleton (.md files) that all downstream stages — content authoring, SPA conversion, visual assets — depend on. Always invoke this BEFORE jumping into writing lecture notes or building a site.
 ---
 
-> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+> **编排契约**（host registry 为准 · [ADR-0014](../../../docs/adr/0014-teaching-kernel-and-skill-authority.md)）
 >
 > - **角色：** `artifact_producer`
 > - **阶段：** `artifact_authoring`

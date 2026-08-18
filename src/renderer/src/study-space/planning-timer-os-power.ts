@@ -2,7 +2,7 @@
  * OS powerMonitor signal → STC-206 timer wake mapping (renderer).
  *
  * Main only broadcasts suspend/resume; durable pin / reconcile stay on the
- * existing applyTimerWakeAction path (ADR-0117 invoke CAS + ADR-0094 #5).
+ * existing applyTimerWakeAction path under ADR-0011.
  *
  * Mapping (fail-closed, no new timer engine):
  * - suspend → pagehide-like pin (best-effort wall sample, never finish)

@@ -1,5 +1,5 @@
 /**
- * MCP tool effect mapping (ADR-0128 §6, ADR-0141 optional readOnlyHint).
+ * MCP tool effect mapping with optional readOnlyHint (ADR-0013).
  * Pure — default privileged; optional per-raw-name overrides; optional remote
  * readOnlyHint when user policy honorRemoteReadOnlyHint is on.
  */
@@ -33,7 +33,7 @@ export type ResolveMcpToolEffectOptions = Readonly<{
 /**
  * Resolve effect for one MCP tool.
  * 1. Valid per-raw-name override wins.
- * 2. Else optional trusted readOnlyHint → read (ADR-0141).
+ * 2. Else optional trusted readOnlyHint → read (ADR-0013).
  * 3. Else privileged (fail-closed).
  */
 export function resolveMcpToolEffect(
@@ -93,7 +93,7 @@ export function validateToolEffectOverrides(
  *
  * Non-read MCP tools must use `workspace_write` so they enter the interactive
  * permission path in registry (non-workspace_write kinds auto-allow today).
- * MCP handlers still never write the workspace (ADR-0128 §6).
+ * MCP handlers still never write the workspace (ADR-0013).
  */
 export function permissionKindForMcpEffect(
   effect: McpEffectClass

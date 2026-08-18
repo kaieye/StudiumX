@@ -61,7 +61,7 @@ export type TeachingLoopFactSource = {
    * (scan-latest). Settlement must target the same selected session.
    */
   selectedSessionId?: string
-  /** Optional spaced-review facts (ADR-0154). Callers own derivation; count only. */
+  /** Optional spaced-review facts (ADR-0003). Callers own derivation; count only. */
   review?: {
     dueCount: number
   }

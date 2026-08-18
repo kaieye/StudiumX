@@ -466,7 +466,7 @@ function clearMissionActionId(workspaceId: string): void {
 
 
 // ================================================================
-// Direct-UI lesson actionId lifecycle (ADR-0023)
+// Direct-UI lesson actionId lifecycle (ADR-0002)
 // ================================================================
 
 const DIRECT_LESSON_ACTION_STORAGE_PREFIX = 'studiumx:direct-lesson-action:'

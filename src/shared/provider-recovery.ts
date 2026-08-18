@@ -61,7 +61,7 @@ export function classifyProviderRecovery(error: unknown): ProviderRecoveryDecisi
   const providerMessage = ux?.providerMessage ?? extractProviderMessage(raw)
   const haystack = `${raw}\n${providerMessage ?? ''}`.toLowerCase()
 
-  // Platform capability gaps (ADR-0126) are not provider transport errors.
+  // Platform capability gaps (ADR-0012) are not provider transport errors.
   // Keep them off the empty_stream / retry axes.
   if (
     haystack.includes('unsupported_platform') ||
@@ -461,7 +461,7 @@ function extractProviderMessage(raw: string): string | undefined {
 
 // Re-export for tests that want the UX kind alongside recovery.
 export type { ProviderErrorInfo, ProviderErrorKind }
-// Pure overflow helpers (ADAPT-P1 / ADR-0125)
+// Pure overflow helpers (ADAPT-P1 / ADR-0010)
 export {
   isSilentContextOverflow,
   matchOverflowErrorText,

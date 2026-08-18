@@ -1,6 +1,6 @@
 /**
  * Teaching memory tools: main-only lexical search + human-approved synthetic memory.
- * Zero-LLM hot path. Does not use SQLite FTS (ADR-0001).
+ * Zero-LLM hot path. Does not use SQLite FTS (ADR-0009).
  * Results are returned to the model as tool output only — never auto-baked into system prefix.
  */
 import type { TeachingMemoryRecord } from '../../../shared/teaching-types'
@@ -29,7 +29,7 @@ export type CreateMemoryToolsOptions = Readonly<{
   memoryStore: MemoryToolStore
   /**
    * When false, only memory_search is registered. Write tools stay unregistered
-   * under an unavailable durable_authority_write profile (ADR-0126).
+   * under an unavailable durable_authority_write profile (ADR-0012).
    */
   writeAvailable?: boolean
   /**

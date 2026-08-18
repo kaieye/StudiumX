@@ -1,5 +1,5 @@
 /**
- * Minimal LAN HTTP + WebSocket server for web remote control pairing (ADR-0143).
+ * Minimal LAN HTTP + WebSocket server for web remote control pairing (security boundary: SECURITY.md).
  * Uses Node http + optional `ws` package when available; falls back to upgrade-only
  * handshake for tests when `ws` is not installed (pair messages still over WS API inject).
  */

@@ -18,7 +18,7 @@ export type TeachingEventChannel =
   | 'mindMapStreamChunk'
   | 'mindMapStreamStatus'
 
-/** OS power fan-out payload (ADR-0129 §4 OS bridge). Signal only — not timer authority. */
+/** OS power fan-out payload (ADR-0011 OS bridge). Signal only — not timer authority. */
 export type SystemPowerEvent = {
   kind: 'suspend' | 'resume'
   atMs: number
@@ -47,7 +47,7 @@ export const teachingInvokeChannels = {
   listSkills: 'teach:list-skills',
   installSkill: 'teach:install-skill',
   uninstallSkill: 'teach:uninstall-skill',
-  /** Read-only orchestration preview (ADR-0163); never advances continuity state. */
+  /** Read-only orchestration preview (ADR-0014); never advances continuity state. */
   previewSkillOrchestration: 'teach:preview-skill-orchestration',
   generateLesson: 'teach:generate-lesson',
   getDirectLessonActionStatus: 'teach:get-direct-lesson-action-status',
@@ -64,7 +64,7 @@ export const teachingInvokeChannels = {
   listUpstreamModels: 'teach:list-upstream-models',
   generateLessonStream: 'teach:generate-lesson-stream',
   agentChatStream: 'teach:agent-chat-stream',
-  /** Narrow non-streaming ADR-0170 submit intent; host lane integration owns execution. */
+  /** Narrow non-streaming ADR-0004 submit intent; host lane integration owns execution. */
   submitConversationTurn: 'teach:submit-conversation-turn',
   cancelConversationTurn: 'teach:cancel-conversation-turn',
   listInterruptedAgentRuns: 'teach:list-interrupted-agent-runs',
@@ -144,10 +144,10 @@ export const teachingInvokeChannels = {
   exportMindMapSvg: 'teach:export-mind-map-svg',
   exportMindMapPng: 'teach:export-mind-map-png',
   mcpGetConfig: 'teach:mcp-get-config',
-  /** Live settings getter (ADR-0147); current store, not turn snapshot. */
+  /** Live settings getter (ADR-0013); current store, not turn snapshot. */
   mcpGetMcpSettings: 'teach:mcp-get-settings',
   mcpUpdateConfig: 'teach:mcp-update-config',
-  /** Id-level CAS ops write (ADR-0147). */
+  /** Id-level CAS ops write (ADR-0013). */
   mcpApplyMcpOps: 'teach:mcp-apply-ops',
   mcpTestServer: 'teach:mcp-test-server',
   mcpRefreshServer: 'teach:mcp-refresh-server',

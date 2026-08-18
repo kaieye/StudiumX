@@ -1,7 +1,7 @@
 /**
  * IMPL-AF: V1 demote UX click-path Electron e2e.
  *
- * Proves demote is **user-confirmed**, not silent (ADR-0129 / 0130):
+ * Proves demote is **user-confirmed**, not silent (ADR-0011):
  * 1. Isolated Electron + createWorkspace
  * 2. Hybrid seed: canonical sole-read on disk + non-demoted V1 task authority
  *    (triggers post_hydrate demote offer; full migrate UX not required)

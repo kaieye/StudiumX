@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Light format subset gate (ADOPTION S-06 / ADR-0074).
+ * Light format subset gate; CI policy lives in CONTRIBUTING.md.
  *
  * Honest scope: NO repo-wide Prettier/Biome config exists yet.
  * This gate only checks a small allowlist for:
@@ -97,7 +97,7 @@ export async function checkFormatSubset(opts = {}) {
 async function main() {
   const { ok, issues, checked } = await checkFormatSubset()
   console.log(
-    `check-format-subset: allowlist=${checked.length} files (full prettier TBD; see ADR-0074)`,
+    `check-format-subset: allowlist=${checked.length} files (full prettier remains a separate CI policy)`,
   )
   for (const p of checked) {
     console.log(`  checked ${p}`)

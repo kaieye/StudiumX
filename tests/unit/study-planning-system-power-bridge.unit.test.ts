@@ -1,5 +1,5 @@
 /**
- * System power bridge + OS→wake mapping (IMPL-B / ADR-0129 §4).
+ * System power bridge + OS→wake mapping (IMPL-B / ADR-0011).
  * Fake emitter only — no real OS sleep in CI.
  */
 

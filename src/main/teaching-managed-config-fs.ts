@@ -1,12 +1,12 @@
 /**
  * Caller-root-contained FS loader for optional secret-free managed teaching
- * config documents (ADOPTION S-11 residual / ADR-0092).
+ * config documents (ADOPTION S-11 residual / ADR-0006).
  *
  * Managed docs live under a **caller-supplied absolute root** (typically
  * Electron userData or a test temp dir) — **not** under untrusted workspace.
  * Fail closed: missing / invalid / oversize / path-escape → null.
  *
- * Pure resolver layer (ADR-0086) already accepts `TeachingConfigScope.managed`
+ * Pure resolver layer (ADR-0006) already accepts `TeachingConfigScope.managed`
  * and strips secrets; this module only loads raw JSON for inject helpers.
  * No MDM, no remote policy fetch, no secret storage feature.
  */

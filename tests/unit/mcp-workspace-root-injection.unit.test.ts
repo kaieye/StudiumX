@@ -1,5 +1,5 @@
 /**
- * ADR-0138 Phase F: controlled stdio workspace-root injection.
+ * ADR-0013: controlled stdio workspace-root injection.
  */
 import { describe, expect, it } from 'vitest'
 import { resolve } from 'node:path'

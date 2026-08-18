@@ -37,7 +37,7 @@ export type ScheduleBlockStatus = 'planned' | 'running' | 'completed' | 'skipped
  * Confirmed plan block (manual / migrated V1 schedule; allocator product path removed).
  * Task 1:N ScheduleBlock — a task may own many blocks; breaks/wrap-ups have taskId null.
  *
- * Authority is epoch ms (ADR-0117). Optional `timeZone` is projection metadata for wall
+ * Authority is epoch ms (ADR-0011). Optional `timeZone` is projection metadata for wall
  * clock / week chips (STC-704); omit = project with caller/host zone. Never sole authority.
  */
 export type ScheduleBlock = {

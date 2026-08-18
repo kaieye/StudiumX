@@ -1,5 +1,5 @@
 /**
- * Settlement isolation invariant (ADR-0128 / ADR-0132 / ADR-0134 / ADR-0135):
+ * Settlement isolation invariant (ADR-0013):
  * MCP modules must not import LearningSession ledger writers or outcome committer.
  * Grep-style static scan — mirrors scripts/check-workspace-host-imports.mjs pattern.
  */

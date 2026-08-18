@@ -1,4 +1,4 @@
-/** IPC channel names for web remote control (ADR-0143). Separate from TeachingSystemApi Phase 1. */
+/** IPC channel names for web remote control (security boundary: SECURITY.md). Separate from TeachingSystemApi. */
 
 export const webRemoteControlInvokeChannels = {
   start: 'teach:web-remote-start',

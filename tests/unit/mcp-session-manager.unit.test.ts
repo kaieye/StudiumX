@@ -124,7 +124,7 @@ function createPagedTransportHarness(input: Readonly<{
 }
 
 
-describe('McpSessionManager fake transport (ADR-0128)', () => {
+describe('McpSessionManager fake transport (ADR-0013)', () => {
   it('lists tools under budgets and attaches to registry', async () => {
     const secrets = createMemoryMcpSecretEnv()
     const manyTools = Array.from({ length: 3 }, (_, i) => ({
@@ -701,7 +701,7 @@ describe('McpSessionManager fake transport (ADR-0128)', () => {
       ok: false,
       code: MCP_ERROR_CODES.mcp_server_unavailable
     })
-    // ADR-0133: invalidation now enters budgeted retry_wait (disconnected is the retries-exhausted terminal state).
+    // ADR-0013: invalidation now enters budgeted retry_wait (disconnected is the retries-exhausted terminal state).
     expect(manager.getRuntimeView()[0]).toMatchObject({
       state: 'retry_wait',
       inventory: { stale: true },
@@ -788,7 +788,7 @@ describe('McpSessionManager fake transport (ADR-0128)', () => {
       ok: false,
       code: MCP_ERROR_CODES.mcp_call_failed
     })
-    // ADR-0133: transport-call failure schedules a budgeted reconnect (retry_wait), not terminal disconnected.
+    // ADR-0013: transport-call failure schedules a budgeted reconnect (retry_wait), not terminal disconnected.
     expect(manager.getRuntimeView()[0]).toMatchObject({ state: 'retry_wait' })
 
     const replacement = await manager.buildSnapshot()
@@ -904,7 +904,7 @@ describe('McpSessionManager fake transport (ADR-0128)', () => {
       ok: false,
       code: MCP_ERROR_CODES.mcp_server_unavailable
     })
-    // ADR-0133: invalidation now enters budgeted retry_wait (disconnected is the retries-exhausted terminal state).
+    // ADR-0013: invalidation now enters budgeted retry_wait (disconnected is the retries-exhausted terminal state).
     expect(manager.getRuntimeView()[0]).toMatchObject({
       state: 'retry_wait',
       inventory: { stale: true },
@@ -1144,7 +1144,7 @@ describe('MCP bridge settlement isolation', () => {
   })
 })
 
-describe('budgeted reconnect (ADR-0141)', () => {
+describe('budgeted reconnect (ADR-0013)', () => {
   it('schedules retry_wait then reconnects when autoConnect is effective', async () => {
     vi.useFakeTimers()
     try {

@@ -1,9 +1,9 @@
 /**
- * Thin teaching-only FeatureRegistry (ADOPTION S-05 / ADR-0073).
+ * Thin teaching-only FeatureRegistry (metadata only; capability authority: ADR-0003).
  *
  * Pure metadata + stage lifecycle for product features. This is **not**:
  * - a second capability / authorization system (see TeachingCapabilityCatalog)
- * - a Footprint Ladder replacement (ADR-0046)
+ * - a Footprint Ladder replacement
  * - an effect / settlement / toolsReplayed bypass
  *
  * Invariants:
@@ -12,7 +12,7 @@
  *   sole-writer (`expectedRevision`, `toolsReplayed: false`).
  * - Must not introduce shell, code_mode, remote telemetry, YOLO, or always-approve
  *   as enablement bypass keys. Local MCP marketplace may be registered as
- *   under_development metadata only (ADR-0140); it is never an authorization bypass.
+ *   under_development metadata only (ADR-0013); it is never an authorization bypass.
  * - `isFeatureEnabled` is a pure stage gate for product/doctor consumers; it does
  *   not grant tools, write policy, or network.
  */
@@ -33,7 +33,7 @@ export const FEATURE_STAGES = [
   'removed'
 ] as const satisfies readonly FeatureStage[]
 
-/** Footprint Ladder step hint (ADR-0046) — documentation only, not enforcement. */
+/** Footprint Ladder step hint — documentation only, not enforcement. */
 export type FootprintHint = 1 | 2 | 3 | 4 | 5
 
 /**
@@ -50,7 +50,7 @@ export type FeatureDefinition = Readonly<{
   since?: string
   /** Successor feature id when deprecated/removed. */
   replacedBy?: string
-  /** ADR-0046 ladder step documentation only. */
+  /** Footprint Ladder documentation only. */
   footprintHint?: FootprintHint
 }>
 
@@ -198,7 +198,7 @@ export const FEATURES: readonly FeatureDefinition[] = [
     stage: 'experimental',
     title: '用户可配置 MCP',
     summary:
-      'userData opt-in MCP servers (default off); stdio/HTTP/SSE; tools use registry/effect/approval (no YOLO); Settings = list/editor only (ADR-0142).',
+      'userData opt-in MCP servers (default off); stdio/HTTP/SSE; tools use registry/effect/approval (no YOLO); Settings = list/editor/import/OAuth (ADR-0013).',
     since: '2026-07',
     footprintHint: 4
   },
@@ -207,7 +207,7 @@ export const FEATURES: readonly FeatureDefinition[] = [
     stage: 'under_development',
     title: 'MCP Marketplace',
     summary:
-      'Main/shared marketplace catalog foundation (ADR-0140). No Settings marketplace UI (ADR-0142). Tool calls still use effect/approval. Not a YOLO bypass; secrets stay in main.',
+      'Main/shared marketplace catalog foundation only; no Settings marketplace UI (ADR-0013). Tool calls still use effect/approval. Not a YOLO bypass; secrets stay in main.',
     since: '2026-07',
     footprintHint: 3
   },
@@ -216,7 +216,7 @@ export const FEATURES: readonly FeatureDefinition[] = [
     stage: 'under_development',
     title: '移动端远程控制',
     summary:
-      'LAN default + optional self-hosted WSS relay (ADR-0143). No default cloud relay. Pairing secrets main-only; tools still use effect lattice + approval (no YOLO).',
+      'LAN default + optional self-hosted WSS relay (security boundary: SECURITY.md). No default cloud relay. Pairing secrets main-only; tools still use effect lattice + approval (no YOLO).',
     since: '2026-07',
     footprintHint: 4
   },
@@ -225,7 +225,7 @@ export const FEATURES: readonly FeatureDefinition[] = [
     stage: 'under_development',
     title: '思维导图与 AI 辅助生成',
     summary:
-      '原生导图编辑（StudiumX 文档模型：sheet→root topic→递归主题树）+ AI 辅助生成（复用 provider 基建，Zod 校验）。导图是用户内容非教学权威；durable 工作区写；支持 Markdown、OPML、SVG 与 PNG 交换；渲染器自绘 SVG。见 ADR-0172。',
+      '原生导图编辑（StudiumX 文档模型：sheet→root topic→递归主题树）+ AI 辅助生成（复用 provider 基建，Zod 校验）。导图是用户内容非教学权威；durable 工作区写；支持 Markdown、OPML、SVG 与 PNG 交换；渲染器自绘 SVG。见 ADR-0016。',
     since: '2026-08',
     footprintHint: 3
   }

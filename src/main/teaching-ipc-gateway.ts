@@ -147,7 +147,7 @@ export interface TeachingIpcRegistration {
    */
   turnCoordinatorHost?: TeachingTurnCoordinatorHost
   /**
-   * Optional local crash-marker store for product TeachingDoctor IPC (ADR-0084).
+   * Optional local crash-marker store for product TeachingDoctor IPC (ADR-0007).
    * Read-only for this channel; clear is a separate deliberate effect.
    */
   crashMarkerStore?: ProductTeachingDoctorCrashMarkerStore | null
@@ -157,7 +157,7 @@ export interface TeachingIpcRegistration {
    */
   mindMapStoreFactory?: (rootPath: string) => MindMapStore
   /**
-   * Optional user MCP status source for TeachingDoctor (ADR-0128 Phase E).
+   * Optional user MCP status source for TeachingDoctor (ADR-0013).
    * Secret-free only; collector redacts command labels further.
    */
   mcpFactsSource?: {
@@ -185,10 +185,10 @@ type GatewayContext = TeachingIpcRegistration & {
   /**
    * Optional AgentSessionFacade registry (B-02). Service layer may attach a
    * façade per streamId; cancel aborts + detaches when present. Does not replace
-   * TeachingSessionProtocol (ADR-0040).
+   * TeachingSessionProtocol (ADR-0001).
    */
   agentSessionFacades: AgentSessionFacadeRegistry
-  /** Main-only ADR-0170 lane; its snapshot deliberately contains no turn text. */
+  /** Main-only ADR-0004 lane; its snapshot deliberately contains no turn text. */
   conversationTurnLane: AgentConversationTurnLane
   /** Exact stream-to-lane bindings used to bridge the legacy cancel capability safely. */
   conversationTurnStreams: Map<string, ConversationTurnStreamBinding>
@@ -498,7 +498,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
   }
 
   /**
-   * ADR-0170 host runner. This function accepts only an already-reserved lane
+   * ADR-0004 host runner. This function accepts only an already-reserved lane
    * identity; it is deliberately not a general replacement for the legacy IPC
    * stream entry point.
    */
@@ -788,8 +788,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       channel: teachingInvokeChannels.previewSkillOrchestration,
       parser: (payload) => parsePreviewSkillOrchestrationPayload(payload),
       action: (_event, payload) => {
-        // Read-only preview (ADR-0163): reuses the turn's host assembly + pure
-        // plan(), reads the ADR-0156 continuity state but never advances or
+        // Read-only preview (ADR-0014): reuses the turn's host assembly + pure
+        // plan(), reads the ADR-0014 continuity state but never advances or
         // persists it. No ledger write, no outcome, no Evidence, no tool run.
         return service.previewSkillOrchestration(payload)
       },
@@ -938,8 +938,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         context.agentStreamSessions.set(event, senderSessions)
         // B-02: product stream is driven through AgentSessionFacade.prompt with a real
         // invoker that calls service.agentChatStream once (not a second loop).
-        // autoDrain stays false (ADR-0082): mid-run steer/follow-up IPC is available, but product
-        // multi-turn autoDrain remains off until renderer queue sync lands (ADR-0067 residual).
+        // autoDrain stays false (ADR-0004): mid-run steer/follow-up IPC is available, but product
+        // multi-turn autoDrain remains off until renderer queue sync lands (ADR-0004 residual).
         // createAbortController always returns the shared controller so cancel aborts
         // the same signal the service stream observes.
         let productStreamResult: Awaited<ReturnType<TeachingWorkspaceService['agentChatStream']>> | undefined
@@ -1074,7 +1074,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       channel: teachingInvokeChannels.steerAgentChatStream,
       parser: (payload) => parseSteerAgentChatPayload(payload),
       action: async (_event, payload) => {
-        // Host-lane streams accept only the exact ADR-0170 submit delivery:'steer'
+        // Host-lane streams accept only the exact ADR-0004 submit delivery:'steer'
         // path. Legacy APIs must not discover or drive their façade.
         if (context.conversationTurnStreams.has(payload.streamId)) return noActiveAgentSessionIpcResult()
         // Mid-run steer delegates to the attached façade (≠ abort). Product autoDrain stays false.
@@ -1117,7 +1117,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       channel: teachingInvokeChannels.projectAgentSessionQueue,
       parser: (payload) => parseProjectAgentSessionQueuePayload(payload),
       action: (_event, payload) => {
-        // Read-only queue projection (ADR-0091 / ADR-0089). Product autoDrain remains false.
+        // Read-only queue projection (ADR-0004). Product autoDrain remains false.
         // Never drains, steers, prompts, aborts, or flips autoDrain.
         const facade = context.agentSessionFacades.get(payload.streamId)
         return runProjectAgentSessionQueueIpc(payload, facade)
@@ -1468,7 +1468,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({
       channel: teachingInvokeChannels.readStudyPlanning,
       parser: (payload) => parseReadStudyPlanningPayload(payload),
-      // ADR-0117: workspace-scoped snapshot read; registered roots only.
+      // ADR-0011: workspace-scoped snapshot read; registered roots only.
       action: async (_event, payload) =>
         runReadStudyPlanningIpc(payload, async (raw) => {
           const access = await resolveGitWorkspaceRoot(raw)
@@ -1481,7 +1481,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({
       channel: teachingInvokeChannels.applyStudyPlanning,
       parser: (payload) => parseApplyStudyPlanningPayload(payload),
-      // ADR-0117: sole-writer apply with revision CAS; no silent first-task bind here.
+      // ADR-0011: sole-writer apply with revision CAS; no silent first-task bind here.
       action: async (_event, payload) =>
         runApplyStudyPlanningIpc(payload, async (raw) => {
           const access = await resolveGitWorkspaceRoot(raw)

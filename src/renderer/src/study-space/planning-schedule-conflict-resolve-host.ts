@@ -11,7 +11,7 @@
  * - Apply orchestration: sequential dual-write CAS + re-read refresh
  * - Never auto-invoked on detect/hydrate; host must call only after explicit confirm
  *
- * ADR-0130 §5.1 + roadmap STC-707: opt-in shipped; silent default banned.
+ * ADR-0011 + roadmap STC-707: opt-in shipped; silent default banned.
  */
 
 import type { ProposedBlockMove, ScheduleBlock } from '../../../shared/study-planning'

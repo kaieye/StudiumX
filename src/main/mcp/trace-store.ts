@@ -1,5 +1,5 @@
 /**
- * Process-local, bounded MCP call diagnostics (ADR-0134 Phase B).
+ * Process-local, bounded MCP call diagnostics (ADR-0013).
  *
  * This module intentionally accepts only a small allowlist of metadata. It
  * never retains arguments, result content, URLs, environment/header data,

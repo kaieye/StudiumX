@@ -1977,7 +1977,7 @@ function OverviewLessonComposer({
           <div className="overview-dialog-footer">
             <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
-              {/* ADR-0165: teaching-intent & capability trigger withdrawn from the
+              {/* ADR-0014: teaching-intent & capability trigger withdrawn from the
                   composer toolbar pending a suitable display surface. */}
               {/* {skillCapabilities.toggle} */}
               <OverviewModelPicker />
@@ -2138,7 +2138,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const activeConversationRevision = useAppStore((s) => s.activeConversationRevision)
   const activeWorkspaceForSkills = useAppStore((s) => s.appState.activeWorkspace)
-  // ADR-0163: explicit capability multi-select + read-only plan preview.
+  // ADR-0014: explicit capability multi-select + read-only plan preview.
   // Slash entry stays authoritative for backward compatibility; both merge.
   const skillCapabilities = useSkillCapabilityPicker({
     isTeachingMode,
@@ -2656,7 +2656,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           <div className="overview-dialog-footer">
             <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
-              {/* ADR-0165: teaching-intent & capability trigger withdrawn from the
+              {/* ADR-0014: teaching-intent & capability trigger withdrawn from the
                   composer toolbar pending a suitable display surface. */}
               {/* {skillCapabilities.toggle} */}
               <OverviewModelPicker />

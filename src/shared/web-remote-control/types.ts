@@ -1,5 +1,5 @@
 /**
- * Web remote control shared types (ADR-0143).
+ * Web remote control shared types (security boundary: SECURITY.md).
  * Public DTOs are secret-free: never include passHash / password / raw pairing secrets.
  */
 

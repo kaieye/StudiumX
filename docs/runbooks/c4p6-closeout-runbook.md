@@ -1,6 +1,6 @@
 # C-4P6 运维 runbook（受限 macOS/APFS profile）
 
-> **Scope:** `P6-macOS-local-APFS-strict-candidate` only（ADR-0035 结项 profile）。This runbook is Phase-4 operational material absorbed from ADR-0035; it does not claim a transaction, Windows strict support, reboot durability, or power-loss durability.
+> **Scope:** `P6-macOS-local-APFS-strict-candidate` only（ADR-0012 的受限 profile）。This operational runbook does not claim a transaction, Windows strict support, reboot durability, or power-loss durability.
 
 ## Ownership and stop conditions
 
@@ -62,4 +62,4 @@ Use only the standard main-process path. If a concurrent call cannot prove the o
 - [x] Operations, support and release owners have accepted this runbook and its escalation route.
 - [x] No schema/API/path migration was introduced; if that changes, an independent migration gate is approved first.
 - [x] Matrix evidence covers the claimed runtime-adjacent crash/restart behavior; any untested reboot/power-loss claim is removed.
-- [x] ADR-0004 and ADR-0020 are reviewed together with ADR-0035 before changing P6 status.
+- [x] ADR-0012 and ADR-0002 are reviewed together before changing P6 status.

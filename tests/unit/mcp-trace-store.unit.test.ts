@@ -25,7 +25,7 @@ function traceInput(overrides: Partial<McpTraceAppendInput> = {}): McpTraceAppen
   }
 }
 
-describe('MCP process-local trace store (ADR-0134)', () => {
+describe('MCP process-local trace store (ADR-0013)', () => {
   it('stores only the allowlisted safe metadata and ignores untyped payload fields', () => {
     const store = createMcpTraceStore()
     const secret = 'TOP_SECRET_do_not_record'

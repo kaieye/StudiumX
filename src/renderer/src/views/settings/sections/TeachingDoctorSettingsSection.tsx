@@ -106,7 +106,7 @@ function DoctorCheckCard({
 }
 
 /**
- * Thin Settings Doctor UI (ADR-0095).
+ * Thin Settings Doctor UI (ADR-0007).
  * Calls existing product IPC only; never auto-repairs, uploads, or clears markers.
  */
 export function TeachingDoctorSettingsSection() {

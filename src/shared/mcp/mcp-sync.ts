@@ -1,5 +1,5 @@
 /**
- * Pure McpSync envelope parse / conflict detection (ADR-0136 + ADR-0141).
+ * Pure McpSync envelope parse / conflict detection (ADR-0013).
  * No network — clients feed JSON text; user must confirm before CAS write.
  */
 

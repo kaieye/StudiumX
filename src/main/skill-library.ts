@@ -100,7 +100,7 @@ export class SkillLibraryService {
     }).catch(() => null)
     const existingLegacy = existingPack ? null : await readVerifiedLegacySkillFile(target, this.personalRoot)
     if (!existingPack && !existingLegacy) {
-      // Stage-then-swap (ADR-0150): build under .staging, verify, then promote so
+      // Stage-then-swap (ADR-0014): build under .staging, verify, then promote so
       // catalog readers never observe a half-built final skill tree.
       await stageThenSwapSkillPack({
         installRoot: this.personalRoot,
@@ -165,7 +165,7 @@ export class SkillLibraryService {
     return this.readReferencesFromCatalog([...explicitIds, ...inferredIds], catalog)
   }
 
-  /** Returns one verified installed Skill for an ADR-0168 explicit invocation. */
+  /** Returns one verified installed Skill for an ADR-0014 explicit invocation. */
   async readExplicitSkillInvocationSource(rawSkillId: string): Promise<ExplicitSkillInvocationSource | null> {
     const skillId = requireSkillId(rawSkillId)
     // The core Teaching Kernel is built in and must never be shadowed by a
@@ -235,7 +235,7 @@ export class SkillLibraryService {
 
   /**
    * Load the app-shipped Teaching Kernel (`teach`) from verified builtin roots.
-   * Does not require personal install; fails closed if the pack is missing or corrupt (ADR-0151).
+   * Does not require personal install; fails closed if the pack is missing or corrupt (ADR-0014).
    */
   async readCoreTeachingKernel(): Promise<InstalledSkillReference> {
     return loadCoreTeachingKernelReference({ builtInRoots: this.builtInRoots })

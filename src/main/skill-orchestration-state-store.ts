@@ -1,5 +1,5 @@
 /**
- * Durable per-conversation skill orchestration state store (ADR-0156).
+ * Durable per-conversation skill orchestration state store (ADR-0014).
  *
  * A rebuildable workflow projection with zero settlement authority: losing or
  * deleting these files only degrades the next turn to single-turn planning.

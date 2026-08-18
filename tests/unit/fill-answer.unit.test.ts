@@ -9,7 +9,7 @@ import {
   sha256HexUtf8
 } from '../../src/shared/fill-answer'
 
-describe('fill-answer identity (ADR-0155)', () => {
+describe('fill-answer identity (ADR-0002)', () => {
   it('matches node:crypto SHA-256 across padding boundaries and CJK input', () => {
     const vectors = [
       '', 'a', 'abc', 'hello world', '事件循环', '混合 mixed 123 ！',

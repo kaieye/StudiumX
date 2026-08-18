@@ -1,5 +1,5 @@
 /**
- * V1 cold-start / non-resurrection evidence after authority demote (ADR-0129 / 0130 §5.1).
+ * V1 cold-start / non-resurrection evidence after authority demote (ADR-0011).
  *
  * Proves demoted + workspace does not reassert V1 task authority via default refill
  * or task-authority co-persist. Fail-closed erase gates remain.

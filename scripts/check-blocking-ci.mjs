@@ -20,7 +20,7 @@ assert.match(workflow, /check:teaching-evidence/, 'P0 teaching evidence gate mus
 assert.match(workflow, /teaching-turn-coordinator/, 'coordinator unit coverage must be referenced')
 assert.match(workflow, /Do not upload unredacted|redact/i, 'failure artifact redaction note required')
 
-// Fan-in job: skip=fail required aggregator (ADOPTION S-06 / ADR-0074)
+// Fan-in job: skip=fail required aggregator (repository CI policy)
 assert.match(workflow, /blocking-required:/, 'fan-in job blocking-required required')
 assert.match(workflow, /if:\s*always\(\)/, 'fan-in must use if: always() so skip/cancel still runs')
 assert.match(
@@ -36,12 +36,12 @@ assert.match(workflow, /skip=fail|skip\/cancel/i, 'workflow must document skip=f
 assert.match(
   workflow,
   /actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/,
-  'Actions checkout must remain SHA-pinned (ADR-0054)',
+  'Actions checkout must remain SHA-pinned (repository CI policy)',
 )
 assert.match(
   workflow,
   /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/,
-  'Actions setup-node must remain SHA-pinned (ADR-0054)',
+  'Actions setup-node must remain SHA-pinned (repository CI policy)',
 )
 assert.match(workflow, /node-version:\s*'22\.x'/, 'Node 22.x required')
 

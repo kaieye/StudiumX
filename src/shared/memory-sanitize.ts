@@ -1,5 +1,5 @@
 /**
- * Pure sanitizers for memory text before prompt injection (ADOPTION S-10 / ADR-0076).
+ * Pure sanitizers for memory text before prompt injection (ADOPTION S-10 / ADR-0009).
  *
  * Fail-closed: bad input never throws; returns empty string or sanitized remainder.
  * Does not search, rank, persist, or change consent policy. Not FTS / vector / auto-memory.

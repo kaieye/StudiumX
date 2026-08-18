@@ -1,5 +1,5 @@
 /**
- * Composition-root MCP host: config store + session manager (ADR-0128 + ADR-0137).
+ * Composition-root MCP host: config store + session manager (ADR-0013).
  * Default-off; auto-connect only via autoConnectNow when user gate enables it.
  */
 
@@ -67,7 +67,7 @@ export type McpHostOptions = {
   /** Optional fetch override for OAuth token exchange (tests). */
   fetchImpl?: typeof fetch
   /**
-   * Extra plugin/extension roots for filesystem MCP bootstrap (ADR-0139/0141).
+   * Extra plugin/extension roots for filesystem MCP bootstrap (ADR-0013).
    * Missing paths are ignored (fail-soft).
    */
   pluginScanRoots?: readonly string[]
@@ -211,7 +211,7 @@ export class McpHost {
     await this.loadEncryptedOAuthTokenIndex()
     // Best-effort marketplace load (creates empty doc if missing).
     await this.marketplaceStore.load().catch(() => undefined)
-    // ADR-0139/0141: fail-soft scan of local/builtin plugin MCP manifests.
+    // ADR-0013: fail-soft scan of local/builtin plugin MCP manifests.
     if (this.bootstrapPluginMcpOnStart) {
       await this.bootstrapPluginMcpFromDisk().catch(() => undefined)
     }
@@ -221,7 +221,7 @@ export class McpHost {
       await this.sessionManager.applyConfig(config)
       return null
     })
-    // ADR-0141: cold-start smart-connect when effective autoConnect (no workspace root ok).
+    // ADR-0013: cold-start smart-connect when effective autoConnect (no workspace root ok).
     if (view?.enabled && view.autoConnect) {
       await this.autoConnectNow(this.lastWorkspaceRoot).catch(() => undefined)
     }
@@ -475,7 +475,7 @@ export class McpHost {
   }
 
   /**
-   * Secret-free multi-source projection for Settings (ADR-0137 / ADR-0141).
+   * Secret-free multi-source projection for Settings (ADR-0013).
    * Optionally re-resolves with workspace root; never returns secrets/commands with tokens.
    */
   async getEffectiveViewPublic(
@@ -498,7 +498,7 @@ export class McpHost {
   }
 
   /**
-   * Controlled auto-connect discovery (ADR-0137).
+   * Controlled auto-connect discovery (ADR-0013).
    * No-op when root disabled or autoConnect false.
    * Only initialize + tools/list via testServer; never tools/call.
    * No infinite retry; failures are recorded on runtime views.
@@ -533,7 +533,7 @@ export class McpHost {
   }
 
 
-  /** Secret-free marketplace list for Settings UI (ADR-0140/0141). */
+  /** Secret-free marketplace list for Settings UI (ADR-0013). */
   async marketplaceList(): Promise<McpMarketplaceListResultV1> {
     const doc = await this.marketplaceStore.load()
     return {
@@ -546,7 +546,7 @@ export class McpHost {
   }
 
   /**
-   * Pin install + merge a UserMcpServer into user config (ADR-0141).
+   * Pin install + merge a UserMcpServer into user config (ADR-0013).
    * Optional connect via testServer. Never grants tool approval / YOLO.
    */
   async marketplaceInstallAndEnable(

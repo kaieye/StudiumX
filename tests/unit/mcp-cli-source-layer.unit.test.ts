@@ -1,5 +1,5 @@
 /**
- * CLI source layer + host multi-source smoke (ADR-0137, no official catalog).
+ * CLI source layer + host multi-source smoke (ADR-0013, no official catalog).
  */
 import { describe, expect, it, vi } from 'vitest'
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises'
@@ -45,7 +45,7 @@ function server(
   }
 }
 
-describe('CLI MCP source layer (ADR-0137)', () => {
+describe('CLI MCP source layer (ADR-0013)', () => {
   it('loads STUDIUMX_MCP_CLI_JSON as highest-precedence cli layer', async () => {
     const loaded = await loadMcpSourceLayers({
       env: {

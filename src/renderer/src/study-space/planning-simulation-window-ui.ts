@@ -1,7 +1,7 @@
 /**
  * Pure simulation / allocation window labels (HH:MM).
  *
- * Active product window is a rebuildable preference (ADR-0117), not schedule history.
+ * Active product window is a rebuildable preference (ADR-0011), not schedule history.
  * Same semantics as V1 StudySnapshot.simulationStartTime/EndTime and migrate-v1 SuggestedTimeWindow.
  * No I/O, no React, no window.
  */

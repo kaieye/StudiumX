@@ -1,5 +1,5 @@
 /**
- * Pure SkillOrchestrationPlanner (ADR-0151 Phase 2).
+ * Pure SkillOrchestrationPlanner (ADR-0014).
  * No I/O, no ledger, no tools, no settlement authority.
  */
 
@@ -56,7 +56,7 @@ function uniqueSortedArtifacts(tokens: string[]): string[] {
   )
 }
 
-/** Strict allow-listed prior-state normalization (ADR-0156); invalid → undefined. */
+/** Strict allow-listed prior-state normalization (ADR-0014); invalid → undefined. */
 function normalizePriorState(
   raw: SkillOrchestrationPriorState | undefined
 ): SkillOrchestrationPriorState | undefined {
@@ -225,7 +225,7 @@ function decisionFromWork(item: WorkItem): SkillOrchestrationDecision {
 export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
   const selected = uniqueSorted(input.selectedSkillIds ?? [])
   const readiness = readinessMap(input.readiness)
-  // ADR-0156: prior-turn continuity facts are ordinary allow-listed inputs —
+  // ADR-0014: prior-turn continuity facts are ordinary allow-listed inputs —
   // merged deterministically, never a second state machine.
   const priorState = normalizePriorState(input.priorState)
   const completedStageKinds = new Set<SkillOrchestrationStageKind>(priorState?.completedStageKinds ?? [])
@@ -472,7 +472,7 @@ export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
         if (completedStageKinds.has('artifact_authoring')) {
           item.status = 'active_now'
           item.reason =
-            'Enhancer active: base artifact stage completed in prior turns (ADR-0156 continuity).'
+            'Enhancer active: base artifact stage completed in prior turns (ADR-0014 continuity).'
         } else {
           item.status = 'scheduled_later'
           item.reason = 'Enhancer runs after base artifact stage.'
@@ -509,7 +509,7 @@ export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
         ) {
           item.status = 'active_now'
           item.reason =
-            'Variant/packager active: required canonical artifacts are available and prior stages completed (ADR-0156 continuity).'
+            'Variant/packager active: required canonical artifacts are available and prior stages completed (ADR-0014 continuity).'
         } else if (
           item.userSelected &&
           missingAccepts.length > 0 &&
@@ -634,7 +634,7 @@ export function plan(input: SkillOrchestrationInput): SkillOrchestrationPlan {
   }
 
   const stages = buildStages(work, mode)
-  // Continuity annotation (ADR-0156): only when prior state informed the plan,
+  // Continuity annotation (ADR-0014): only when prior state informed the plan,
   // so priorState-free planning keeps its original byte-identical shape.
   let currentStageId: string | undefined
   if (priorState) {

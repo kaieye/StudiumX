@@ -411,7 +411,7 @@ type WorkspaceWriteDurableProtocolError = {
 
 /**
  * Internal handler seam for deterministic tests. Default production path is
- * the pathname temp+rename publisher (ADR-0131). No dual-profile branch and
+ * the pathname temp+rename publisher (ADR-0012). No dual-profile branch and
  * no CAS claims.
  */
 export type WorkspaceWriteDurableDependencies = {
@@ -534,7 +534,7 @@ export type WorkspaceWriteToolAvailability =
   | { readonly available: false; readonly code: 'containment_unavailable'; readonly message: string }
 
 export function getWorkspaceWriteToolAvailability(): WorkspaceWriteToolAvailability {
-  // Pathname-default model (ADR-0131): always available; containment is enforced
+  // Pathname-default model (ADR-0012): always available; containment is enforced
   // per write via workspace-path-target, not a platform dual-profile matrix.
   return { available: true }
 }

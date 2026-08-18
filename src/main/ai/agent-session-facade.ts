@@ -5,9 +5,9 @@
  * - Owns busy policy application, follow-up/steer FIFO, abort + cancel clear,
  *   and safe-boundary drain. Callers inject the actual loop / stream runner.
  * - Does **not** reimplement `runAgentLoop`, settlement, or Electron IPC.
- * - Does **not** replace TeachingSessionProtocol (ADR-0040) — that remains the
+ * - Does **not** replace TeachingSessionProtocol (ADR-0001) — that remains the
  *   higher-level teaching session contract; this façade is the run-scoped
- *   input/busy surface that completes B-01 drain wiring (ADR-0055).
+ *   input/busy surface that completes B-01 drain wiring (ADR-0004).
  *
  * Child runs: {@link AgentSessionFacade.createChildFacade} allocates a **new**
  * queue by default so parent steering never leaks into children.
@@ -204,7 +204,7 @@ export class AgentSessionFacade {
   /**
    * Thin projection of session + queue for future renderer sync (B-02 residual).
    * Pure mapper; does not drain, mutate, or flip autoDrain. Product path remains
-   * autoDrain false (ADR-0082 / ADR-0089).
+   * autoDrain false (ADR-0004).
    */
   projectQueue(
     options: Omit<ProjectAgentSessionQueueOptions, 'autoDrain' | 'closed'> = {}

@@ -1,5 +1,5 @@
 /**
- * Thin renderer client for StudyPlanning canonical IPC (ADR-0117).
+ * Thin renderer client for StudyPlanning canonical IPC (ADR-0011).
  *
  * Product path: workspace file via main DurableStudyPlanningStore.
  * Fail-closed when TeachingSystemApi or workspaceRoot is unavailable —

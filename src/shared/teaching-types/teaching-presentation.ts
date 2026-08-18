@@ -15,7 +15,7 @@ export type TeachingPresentationNextStep =
       description: '先比较关键差异，再用新的提示重试。'
     }>
   | Readonly<{
-      /** ADR-0154 canonical due-review recommendation; no item payload crosses IPC. */
+      /** ADR-0003 canonical due-review recommendation; no item payload crosses IPC. */
       action: 'review_due'
       label: '开始复习'
       description: '先完成一项到期复习，再继续新的学习内容。'

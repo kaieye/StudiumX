@@ -2,7 +2,7 @@
  * Fail-soft bridge: Teaching Authority Plane (loop snapshot) → skill orchestration facts.
  * Read-only; never writes settlement / Evidence / ledger.
  *
- * ADR-0151 §5.0 + ADR-0154/0156: the bridge derives *real* allow-listed facts
+ * ADR-0014: the bridge derives *real* allow-listed facts
  * (mission goal readiness, resource readiness, due-review count, available
  * artifacts) from bounded durable reads instead of placeholder seeds, so the
  * pure planner's producer/review branches stop sleeping on the chat path.

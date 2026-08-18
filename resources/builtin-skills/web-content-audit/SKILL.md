@@ -3,7 +3,7 @@ name: web-content-audit
 description: Use this skill when you need to verify cross-file data/asset consistency in a content-driven site — not "does it render?" (that's `web-visual-verification`) but "do the data, files, and references all line up?". Triggers on phrases like "盤點內容", "稽核資產", "對照 course-data 跟 markdown", "找缺圖", "task ID 有沒有重複", "quiz 編號 vs 硬編碼總數", "audit", "content audit", "content drift", "asset coverage", "three-way sync check", "cross-file consistency", "find missing illustrations", "資料一致性檢查", "找出該補插圖的地方", or any moment when the user senses divergence between source files and deployed data. Output is a human-readable markdown report, not a pass/fail. Pair with `web-visual-verification` for full pre-release coverage.
 ---
 
-> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+> **编排契约**（host registry 为准 · [ADR-0014](../../../docs/adr/0014-teaching-kernel-and-skill-authority.md)）
 >
 > - **角色：** `verifier`
 > - **阶段：** `verify`

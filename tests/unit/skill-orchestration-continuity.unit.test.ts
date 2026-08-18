@@ -36,7 +36,7 @@ function priorState(overrides: Partial<SkillOrchestrationPriorState> = {}): Skil
   }
 }
 
-describe('skill orchestration continuity (ADR-0156)', () => {
+describe('skill orchestration continuity (ADR-0014)', () => {
   it('regression: artifact tokens keep declared casing so accepts/produces match', () => {
     const result = plan({
       selectedSkillIds: ['course-content-authoring'],
@@ -176,7 +176,7 @@ describe('skill orchestration continuity (ADR-0156)', () => {
   })
 })
 
-describe('skill orchestration state store (ADR-0156)', () => {
+describe('skill orchestration state store (ADR-0014)', () => {
   function state(): ConversationOrchestrationState {
     return {
       schemaVersion: 1,

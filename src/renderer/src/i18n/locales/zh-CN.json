@@ -1433,7 +1433,7 @@
     "autoDrain": "autoDrain",
     "autoDrainTrue": "true",
     "autoDrainFalse": "false",
-    "autoDrainExpectedFalse": "产品路径期望 false（ADR-0096）。",
+    "autoDrainExpectedFalse": "产品路径期望 false（ADR-0004）。",
     "queueDepth": "队列深度 / 容量",
     "closed": "已关闭",
     "closedTrue": "是",
@@ -1443,15 +1443,15 @@
     "enqueuedAt": "入队时间"
   },
   "platformCapability": {
-    "pathnameDefault": "可信 root 内 pathname I/O（temp → write → 可选 fsync → rename）。不宣称 CAS；native descriptor 非默认（ADR-0131）。",
+    "pathnameDefault": "可信 root 内 pathname I/O（temp → write → 可选 fsync → rename）。不宣称 CAS；native descriptor 非默认（ADR-0012）。",
     "posixDescriptorStrict": "POSIX 描述符相对 I/O（严格 containment profile）。",
     "windowsDirectPathNonCas": "Windows 根约束直接路径 I/O（非 CAS；不等同于 descriptor）。",
     "windowsMemoryLimitedPersistence": "Windows 记忆使用有限直接路径持久化（非 CAS，非 descriptor 等价）。",
     "memoryChatDegradedEmpty": "此主机上记忆目录不可用；对话继续，不注入记忆。",
     "writeUnavailable": "此主机上持久写能力不可用。",
     "unavailable": "没有可用的安全平台 I/O profile。",
-    "outcomeWindowsNotStrict": "Windows 不宣称 learning-outcome 严格 settlement profile（ADR-0035）。",
-    "sessionAuditWindowsLimited": "Windows 上 session audit 持久 profile 仍受限（ADR-0019/0035）。"
+    "outcomeWindowsNotStrict": "Windows 不宣称 learning-outcome 严格 settlement profile（ADR-0012）。",
+    "sessionAuditWindowsLimited": "Windows 上 session audit 持久 profile 仍受限（ADR-0007）。"
   },
   "mcp": {
     "title": "MCP 服务器",

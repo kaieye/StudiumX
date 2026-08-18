@@ -25,7 +25,7 @@ function createFakeApp() {
   }
 }
 
-describe('MCP OAuth deep-link bridge (ADR-0135)', () => {
+describe('MCP OAuth deep-link bridge (ADR-0013)', () => {
   it('extracts only studiumx://mcp-oauth/callback candidates from argv', () => {
     expect(extractMcpOAuthDeepLink(['--flag', VALID_CALLBACK, 'other'])).toBe(VALID_CALLBACK)
     expect(extractMcpOAuthDeepLink(['studiumx://other/path', 'https://example.com'])).toBeNull()

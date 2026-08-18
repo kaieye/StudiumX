@@ -3,7 +3,7 @@ name: teaching-site
 description: Use this skill as the main entry point whenever the user wants to build, plan, or evolve an interactive teaching website / course microsite / workshop landing page — from a blank slate, from existing course materials, or any state in between. Triggers on broad phrases like "做課程網站", "做教學網頁", "做工作坊網站", "把講義變網頁", "course microsite", "workshop site", "interactive lesson page", "multi-day curriculum website", "做一套課程". This skill routes the whole teaching-site pipeline (outline → content → SPA → interactions → visuals → corporate / ebook) and identifies the specialised installed slash skill for each stage. Prefer this when the user's request is broad or unclear about which stage they're at; invoke a stage skill explicitly (for example `/course-ebook-publishing`) for a focused request.
 ---
 
-> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+> **编排契约**（host registry 为准 · [ADR-0014](../../../docs/adr/0014-teaching-kernel-and-skill-authority.md)）
 >
 > - **角色：** `workflow_router`
 > - **阶段：** `ground, artifact_authoring`

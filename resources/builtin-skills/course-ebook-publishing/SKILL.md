@@ -3,7 +3,7 @@ name: course-ebook-publishing
 description: Use this skill ONLY AFTER a teaching site is feature-complete and stable, when the user wants to produce a printable / archivable / shareable version — typically a PDF ebook with cover, page numbers, table of contents, or a DOCX for editorial review. Triggers on phrases like "做電子書", "產 PDF", "ebook", "PDF ebook", "印給學員", "課程講義 PDF", "course handbook", "DOCX deliverable", "book-style layout", "build:ebook". Do NOT invoke during early site development — this is a downstream consumer that breaks if the site changes underneath. The skill produces PDF via Playwright `page.pdf()` and DOCX via pandoc, both from a single composed markdown source.
 ---
 
-> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+> **编排契约**（host registry 为准 · [ADR-0014](../../../docs/adr/0014-teaching-kernel-and-skill-authority.md)）
 >
 > - **角色：** `packager`
 > - **阶段：** `package`

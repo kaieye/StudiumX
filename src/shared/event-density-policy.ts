@@ -20,7 +20,7 @@ export type EventLedgerClass =
   | 'runtime_teaching_event'
   | 'operational_debug'
 
-/** Closed LearningSessionLedger event kinds (ADR-0008). */
+/** Closed LearningSessionLedger event kinds (ADR-0001). */
 export const CANONICAL_LEARNING_SESSION_EVENT_KINDS = [
   'lesson_opened',
   'lesson_completed',
@@ -113,7 +113,7 @@ export const EVENT_DENSITY_BUDGETS = {
     maxEvidenceItemsPerCategory: 40,
     /** Max characters for any single string field after redaction. */
     maxTextFieldChars: 500,
-    /** Active JSONL segment rotation threshold (ADR-0002). */
+    /** Active JSONL segment rotation threshold (ADR-0012). */
     maxActiveSegmentBytes: 50 * 1024 * 1024,
     /**
      * Soft max snapshots per conversation per hour (idempotent entryId

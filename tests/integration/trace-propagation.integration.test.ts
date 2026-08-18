@@ -22,7 +22,7 @@ const runtimeScope = createVitestRuntimeScope()
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const LOWERCASE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
-// Memory catalog uses pathname-default durable I/O (ADR-0131); no descriptor-native gate.
+// Memory catalog uses pathname-default durable I/O (ADR-0012); no descriptor-native gate.
 
 describe('C-5 archive trace propagation', () => {
   it('correlates concurrent saves across canonical JSON, learning-work JSONL, and safe tagged logs', async () => {

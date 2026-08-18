@@ -1,8 +1,8 @@
 /**
  * Pure post-approve handoff intents for teaching-turn review candidates
- * (ADOPTION S-09 residual / ADR-0109).
+ * (ADOPTION S-09 residual / ADR-0001).
  *
- * After a human approve projection (ADR-0085), map approved candidate ids to
+ * After a human approve projection (ADR-0001), map approved candidate ids to
  * **non-executable** display/routing DTOs that describe which existing consent
  * surface a product UI may open next. Still no write / no install / no durable
  * review store / no auto-apply.

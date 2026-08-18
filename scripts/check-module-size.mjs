@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Module size report (ADR-0075 / AGENTS.md §5).
+ * Module size report (AGENTS.md §5).
  *
  * Default: warning-only, always exit 0.
  * MODULE_SIZE_STRICT=1: exit 1 if any non-allowlisted file > 1000 lines.
@@ -20,7 +20,7 @@ const SOFT_WARN = 800
 const HIGH_WARN = 1000
 
 /**
- * Historical giants documented in ADR-0075.
+ * Historical giants documented in AGENTS.md.
  * Paths use forward slashes relative to repo root.
  * Allowlisted files still warn but never fail STRICT on size alone.
  */
@@ -56,7 +56,7 @@ Thresholds (physical lines, including blanks/comments):
   > ${SOFT_WARN}  soft warning
   > ${HIGH_WARN} high warning
 
-Legacy giants (ADR-0075 allowlist) always warn only.
+Legacy giants (AGENTS.md allowlist) always warn only.
 
 Exit codes:
   default              0 (warning-only)
@@ -129,7 +129,7 @@ const high = rows.filter((r) => r.level === 'high')
 const giants = rows.filter((r) => r.level === 'legacy-giant')
 const strict = process.env.MODULE_SIZE_STRICT === '1' || process.env.MODULE_SIZE_STRICT === 'true'
 
-console.log('[check:module-size] ADR-0075 module size report')
+console.log('[check:module-size] AGENTS.md module size report')
 console.log(`[check:module-size] scanned ${rows.length} production .ts files under src/`)
 console.log(`[check:module-size] thresholds: soft>${SOFT_WARN} high>${HIGH_WARN} (tests excluded)`)
 console.log(`[check:module-size] mode: ${strict ? 'STRICT (MODULE_SIZE_STRICT=1)' : 'warning-only (default exit 0)'}`)

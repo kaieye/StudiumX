@@ -69,7 +69,7 @@ export function leadingSkillIdSequence(input: string, skills: SkillSummary[], li
   return found
 }
 
-/** Canonical renderer output for ADR-0168; catalog command remains display-only legacy data. */
+/** Canonical renderer output for ADR-0014; catalog command remains display-only legacy data. */
 export function skillCommandValue(skill: SkillSummary): string {
   return `/skill:${skill.id} `
 }

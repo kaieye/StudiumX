@@ -1,6 +1,6 @@
 /**
  * Product inject decision for workspace tool-policy into buildToolContext
- * (ADR-0083 / ADR-0115 / ADOPTION B-08 residual). Focused pure-path tests — no Electron.
+ * (ADR-0005 / ADOPTION B-08 residual). Focused pure-path tests — no Electron.
  * Multi-path load still funnels through toolPolicyDocumentOption; null omit semantics unchanged.
  */
 

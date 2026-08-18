@@ -410,11 +410,11 @@ type TeachingWorkspaceServiceOptions = {
   durableFileOperations?: DurableFileOperations
   /** Receives only the shared primitive's generic directory-fsync warning. */
   durableWarn?: (message: string) => void
-  /** Optional user MCP session manager for agent-run inject (ADR-0128). */
+  /** Optional user MCP session manager for agent-run inject (ADR-0013). */
   mcpSessionManager?: import('./mcp/session-manager').McpSessionManager | null
   /**
    * Optional MCP host for multi-source prepare / controlled auto-connect
-   * before agent-run inject (ADR-0137). When present, preferred over bare session manager.
+   * before agent-run inject (ADR-0013). When present, preferred over bare session manager.
    */
   mcpHost?: import('./mcp/host').McpHost | null
   /** Main-owned resolver for user, deployment, and emergency resource policy layers. */
@@ -626,7 +626,7 @@ export class TeachingWorkspaceService {
   }
 
   /**
-   * ADR-0141: when a workspace becomes active and MCP host is present,
+   * ADR-0013: when a workspace becomes active and MCP host is present,
    * prepare multi-source config + controlled auto-connect (fail-soft).
    */
   private maybePrepareMcpForActiveWorkspace(state: TeachingAppState): void {
@@ -1140,12 +1140,12 @@ export class TeachingWorkspaceService {
       isTeachingConversation && workspace
         ? await loadSkillOrchestrationAuthorityFactsForWorkspace(workspace.rootPath)
         : {}
-    // ADR-0156: durable orchestration continuity (rebuildable projection only).
+    // ADR-0014: durable orchestration continuity (rebuildable projection only).
     const skillOrchestrationStateStore =
       isTeachingConversation && workspace
         ? createSkillOrchestrationStateStore({ workspaceRoot: workspace.rootPath })
         : null
-    // ADR-0163 §2.6: local-only, allow-listed plan diagnostics (never phoned home).
+    // ADR-0014: local-only, allow-listed plan diagnostics (never phoned home).
     const skillOrchestrationDiagnosticsStore =
       isTeachingConversation && workspace
         ? createSkillOrchestrationDiagnosticsStore({ workspaceRoot: workspace.rootPath })
@@ -1167,7 +1167,7 @@ export class TeachingWorkspaceService {
           input,
           findSkill: (skillId) => this.skillLibraryService?.readExplicitSkillInvocationSource(skillId) ?? Promise.resolve(null)
         }),
-      // Catalog readiness for SkillOrchestrationPlanner (ADR-0151); never settlement authority.
+      // Catalog readiness for SkillOrchestrationPlanner (ADR-0014); never settlement authority.
       listSkillCatalog: async () => {
         if (!this.skillLibraryService) return []
         const catalog = await this.skillLibraryService.listSkills()
@@ -1530,12 +1530,12 @@ export class TeachingWorkspaceService {
   }
 
   /**
-   * Read-only skill orchestration preview (ADR-0163).
+   * Read-only skill orchestration preview (ADR-0014).
    *
    * Reuses the same host assembly + pure `plan(...)` as a real teaching turn.
    * Deliberately passes ONLY the continuity store's `load` — no `save`, and
    * never `advanceConversationOrchestrationState` — so previewing can never
-   * move the ADR-0156 stage cursor. Fully fail-soft: any failure degrades to
+   * move the ADR-0014 stage cursor. Fully fail-soft: any failure degrades to
    * "no preview" and never affects a teaching turn.
    */
   async previewSkillOrchestration(

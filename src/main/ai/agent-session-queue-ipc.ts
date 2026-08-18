@@ -1,8 +1,8 @@
 /**
  * Pure main-side mapper for read-only agent session queue projection IPC
- * (ADOPTION B-02 residual / ADR-0091).
+ * (ADOPTION B-02 residual / ADR-0004).
  *
- * Delegates to AgentSessionFacade.projectQueue (ADR-0089). Never drains,
+ * Delegates to AgentSessionFacade.projectQueue (ADR-0004). Never drains,
  * steers, prompts, aborts, or flips autoDrain.
  */
 

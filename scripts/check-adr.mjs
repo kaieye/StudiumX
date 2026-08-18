@@ -1,31 +1,28 @@
 #!/usr/bin/env node
 /**
- * ADR governance structural checker + index generator (docs/adr/).
+ * ADR governance structural checker (docs/adr/).
  *
  * Pure Node, no package deps. Runs from the repo root.
  *
  * Modes:
  *   node scripts/check-adr.mjs              structural checks (errors + warnings)
- *   node scripts/check-adr.mjs --strict     metadata completeness becomes fatal
- *   node scripts/check-adr.mjs --index      regenerate docs/adr/INDEX.md
+ *   node scripts/check-adr.mjs --strict     proposed review deadline becomes fatal
  *   node scripts/check-adr.mjs --audit      write a temporary audit report to /tmp
  *
- * Checks (see governance spec section 六/十/十一):
+ * Checks (see docs/adr/README.md 治理 section):
  *   1. H1 is `# ADR-NNNN：标题` and filename number matches title number.
- *   2. Unified metadata present: 决策状态 / 实施状态 / 日期 / 范围 / 取代 / 被取代 / 相关 / 证据.
- *   3. Status values belong to the allowed sets.
+ *   2. Minimal metadata present: 状态 / 日期 / 领域. `取代` is optional and singular.
+ *   3. Status belongs to {accepted, proposed}; proposed records governance and review metadata.
  *   4. Relative markdown links resolve to existing files.
- *   5. supersedes / superseded_by targets exist.
- *   6. README / INDEX have no drift (every ADR linked; INDEX regenerated).
- *   7. Markdown code fences are balanced.
- *   8. Line-count warnings (normal >120, complex >150).
- *   9. README contains no historical test terminal output.
+ *   5. Optional `取代` is exactly 无 or one ADR-NNNN.
+ *   6. Markdown code fences are balanced.
+ *   7. Every ADR stays within the 60-line hard limit.
+ *   8. In non-dry mode, scan the repo for references to non-existent ADR files/numbers
+ *      (dead-reference check). Run after deletions.
  *
- * The script is designed for an incremental migration: legacy `**状态：**`
- * metadata is accepted with a warning, and structural errors are fatal while
- * metadata completeness is a warning until `--strict`.
+ * Historical INDEX generation is intentionally removed: docs/adr/README.md is the
+ * single navigation entry. The current canonical set is continuously numbered.
  */
-
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,10 +30,10 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const adrDir = path.join(root, 'docs', 'adr')
 
-const DECISION_STATUSES = new Set(['proposed', 'accepted', 'superseded', 'rejected'])
-const IMPLEMENTATION_STATUSES = new Set(['not_started', 'partial', 'complete', 'not_applicable'])
-
-const REQUIRED_META = ['决策状态', '实施状态', '日期', '范围', '取代', '被取代', '相关', '证据']
+const DECISION_STATUSES = new Set(['accepted', 'proposed'])
+const REQUIRED_META = ['状态', '日期', '领域']
+const PROPOSED_META = ['Owner', '任务', '复核期限', '处置条件']
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -47,8 +44,6 @@ function walkMarkdownFiles(dir) {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
     if (statSync(full).isDirectory()) {
-      // Only recurse into evidence/ etc. subfolders under docs/adr.
-      if (entry === 'node_modules') continue
       out.push(...walkMarkdownFiles(full))
     } else if (entry.endsWith('.md')) {
       out.push(full)
@@ -58,9 +53,6 @@ function walkMarkdownFiles(dir) {
 }
 
 function parseMetaBlock(content) {
-  // Parse the metadata block immediately after the H1: lines starting with '- **X：** ...'
-  // The block ends at the first section heading after the H1 (`## ` / `# `),
-  // which is a reliable boundary even when metadata values contain bold / links.
   const meta = {}
   const lines = content.split('\n')
   for (let i = 1; i < lines.length; i++) {
@@ -71,18 +63,8 @@ function parseMetaBlock(content) {
       meta[m[1].trim()] = m[2].trim()
       continue
     }
-    // Multi-line metadata values (e.g. sub-bullets under `相关` / `证据`) are
-    // skipped; only `- **X：**` single-line keys are collected as metadata.
   }
   return meta
-}
-
-function extractStatus(meta) {
-  // New unified fields first; legacy `状态` accepted as decision status fallback.
-  return {
-    decision: meta['决策状态'] ?? meta['状态'] ?? null,
-    implementation: meta['实施状态'] ?? null,
-  }
 }
 
 function resolveAdrNumberFromTitle(h1) {
@@ -92,7 +74,6 @@ function resolveAdrNumberFromTitle(h1) {
 }
 
 function findLinks(markdown) {
-  // [text](target) — excludes autolinks and images, includes relative paths.
   const links = []
   const re = /\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
   let m
@@ -111,109 +92,30 @@ function resolveLink(baseDir, target) {
   return resolved
 }
 
-function hasTestTerminalOutput(text) {
-  // README must not contain historical test terminal output / pass counts.
-  return /(tests?\s+passed|✓\s*\d+|✔\s*\d+|\d+\s+passed\s*\/\s*\d+)/i.test(text)
-}
-
-// ---------------------------------------------------------------------------
-// Domain classification (deterministic, keyword based — navigation aid only)
-// ---------------------------------------------------------------------------
-
-function classifyDomain(adr) {
-  const hay = `${adr.filename} ${adr.title} ${adr.scope ?? ''}`.toLowerCase()
-  const rules = [
-    ['mindmap', /mind-?map|思维导图/],
-    ['mcp', /mcp/],
-    ['study-planning', /study|planning|plan|timer|排程|规划|任务清单|专注/],
-    ['memory', /memory|记忆/],
-    ['database', /sqlite|projection|database|index|rebuild|usage-ledger|analytics/],
-    ['provider', /provider|model|retry|quota|overflow|billing|headers/],
-    ['platform-shell', /platform|shell|sandbox|workspace-shell|capability-profile/],
-    ['agent-context', /agent|context|compaction|compact|busy|cancel|steer|queue|run|replay|fingerprint|child/],
-    ['tools', /tool|effect|policy|dispatcher|write|contract/],
-    ['teaching', /teaching|learning|lesson|outcome|evidence|ledger|settlement|session|review|skill|kernel|assessment/],
-    ['observability-ops', /doctor|support|observability|audit|log|crash|trace|redact|bundle/],
-    ['security-ci', /security|ci|worktree|actions|dependabot|osv|node-engines|npmrc/],
-    ['config', /config|settings|overlay|managed|denylist/],
-    ['durability', /durable|publish|migration|backup|recovery/],
-    ['adoption', /adoption|improvements|借鉴|结项/],
-    ['platform-misc', /release|mac|win|electron/],
-  ]
-  for (const [domain, re] of rules) {
-    if (re.test(hay)) return domain
-  }
-  return 'misc'
-}
-
-// ---------------------------------------------------------------------------
-// Reference scan (which files mention an ADR number or its filename)
-// ---------------------------------------------------------------------------
-
-function collectReferences(adrNumber, filename, scopeRoots) {
-  const refs = new Set()
-  for (const scope of scopeRoots) {
-    if (!existsSync(scope)) continue
-    const files = []
-    const stack = [scope]
-    while (stack.length) {
-      const dir = stack.pop()
-      let entries
-      try {
-        entries = readdirSync(dir)
-      } catch {
-        continue
-      }
-      for (const entry of entries) {
-        if (entry === 'node_modules' || entry === '.git') continue
-        const full = path.join(dir, entry)
-        let st
-        try {
-          st = statSync(full)
-        } catch {
-          continue
-        }
-        if (st.isDirectory()) {
-          if (dir.includes(`${path.sep}release${path.sep}`)) continue
-          stack.push(full)
-        } else if (/\.(ts|tsx|js|mjs|json|md|yml|yaml|sh|mjs)$/.test(entry)) {
-          try {
-            const text = readFileSync(full, 'utf8')
-            if (text.includes(`ADR-${adrNumber}`) || text.includes(filename)) {
-              const rel = path.relative(root, full).split(path.sep).join('/')
-              refs.add(rel)
-            }
-          } catch {
-            // ignore unreadable
-          }
-        }
-      }
-    }
-  }
-  return [...refs]
-}
-
 // ---------------------------------------------------------------------------
 // Per-ADR analysis
 // ---------------------------------------------------------------------------
 
-function analyzeAdr(adrFile) {
+function parseIsoDate(value) {
+  if (!ISO_DATE.test(value)) return null
+  const date = new Date(`${value}T00:00:00.000Z`)
+  return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value ? null : date
+}
+
+function analyzeAdr(adrFile, { strict }) {
   const content = readFileSync(adrFile, 'utf8')
   const filename = path.basename(adrFile)
   const rel = path.relative(root, adrFile).split(path.sep).join('/')
-  const fileNumMatch = filename.match(/^(\d{4})-/)
-  const fileNumber = fileNumMatch ? fileNumMatch[1] : null
+  const fileNumber = (filename.match(/^(\d{4})-/) || [])[1] || null
 
   const h1 = content.split('\n')[0]
   const titleMatch = resolveAdrNumberFromTitle(h1)
   const meta = parseMetaBlock(content)
-  const { decision, implementation } = extractStatus(meta)
-  const scope = meta['范围'] ?? ''
 
   const errors = []
   const warnings = []
 
-  // 1. H1 + filename number consistency
+  // 1. H1 + filename consistency
   if (!titleMatch) {
     errors.push(`H1 不是 '# ADR-NNNN：标题'：${h1}`)
   } else if (fileNumber && titleMatch.number !== fileNumber) {
@@ -223,139 +125,143 @@ function analyzeAdr(adrFile) {
   // 2. Metadata completeness
   const missing = REQUIRED_META.filter((k) => !(k in meta))
   if (missing.length) {
-    warnings.push(`缺少统一元数据：${missing.join('、')}`)
+    errors.push(`缺少元数据：${missing.join('、')}`)
   }
 
-  // 3. Status values
-  if (decision && !DECISION_STATUSES.has(decision.toLowerCase())) {
-    warnings.push(`决策状态值不在允许集合：'${decision}'`)
-  }
-  if (implementation && !IMPLEMENTATION_STATUSES.has(implementation.toLowerCase())) {
-    warnings.push(`实施状态值不在允许集合：'${implementation}'`)
-  }
-  if (!('决策状态' in meta) && decision) {
-    warnings.push('仍使用旧字段 `**状态：**`（应迁移为 `**决策状态：**`）')
+  const status = meta['状态'] ?? null
+  if (status && !DECISION_STATUSES.has(status.toLowerCase())) {
+    errors.push(`状态值不在允许集合 {accepted, proposed}：'${status}'`)
   }
 
-  // 4. Links
+  const decisionDate = meta['日期'] ? parseIsoDate(meta['日期']) : null
+  if (meta['日期'] && !decisionDate) {
+    errors.push(`日期必须是有效的 YYYY-MM-DD：'${meta['日期']}'`)
+  }
+
+  // 3. proposed governance metadata and deadline
+  const isProposed = status && status.toLowerCase() === 'proposed'
+  if (isProposed) {
+    const missingProposed = PROPOSED_META.filter((k) => !meta[k])
+    if (missingProposed.length) {
+      errors.push(`proposed ADR 缺少元数据：${missingProposed.join('、')}`)
+    }
+
+    if (meta['复核期限']) {
+      const deadline = parseIsoDate(meta['复核期限'])
+      if (!deadline) {
+        errors.push(`复核期限必须是有效的 YYYY-MM-DD：'${meta['复核期限']}'`)
+      } else if (strict && deadline < new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z')) {
+        errors.push(`proposed ADR 复核期限已过期：${meta['复核期限']}`)
+      }
+    }
+  }
+
+  // 4. Links resolve
   const baseDir = path.dirname(adrFile)
   for (const link of findLinks(content)) {
     const resolved = resolveLink(baseDir, link.target)
     if (!resolved) continue
     if (!existsSync(resolved)) {
-      warnings.push(`坏链接 [${link.text}](${link.target}) → ${path.relative(root, resolved)}`)
+      errors.push(`坏链接 [${link.text}](${link.target}) → ${path.relative(root, resolved)}`)
     }
   }
 
-  // 5. Supersession targets
-  for (const field of ['取代', '被取代']) {
-    const val = meta[field]
-    if (val && val !== '无') {
-      const nums = [...val.matchAll(/ADR-(\d{4})/g)].map((m) => m[1])
-      for (const num of nums) {
-        const target = path.join(adrDir, `${num}.md`)
-        if (!existsSync(target)) {
-          const candidates = readdirSync(adrDir).filter((f) => f.startsWith(`${num}-`))
-          if (candidates.length === 0) {
-            warnings.push(`${field} 指向不存在的 ADR-${num}`)
-          }
-        }
-      }
-    }
+  // 5. Supersession format. A deleted direct predecessor does not need a stub.
+  const supersedes = meta['取代'] ?? ''
+  if (supersedes && supersedes !== '无' && !/^ADR-\d{4}$/.test(supersedes)) {
+    errors.push(`取代 只能是单个 ADR-NNNN 或 '无'：'${supersedes}'`)
   }
 
-  // 6. Code fences balanced
+  // 6. Code fences
   const fences = (content.match(/```/g) ?? []).length
   if (fences % 2 !== 0) {
     errors.push('Markdown 代码围栏未闭合（``` 数量为奇数）')
   }
 
-  // 7. Line counts (a `> **长度说明：**` blockquote counts as justification for complex ADRs)
+  // 7. Line count
   const lineCount = content.split('\n').length
-  const hasLengthJustification = />\s*\*\*长度说明：\*\*/.test(content)
-  if (lineCount > 150 && !hasLengthJustification) {
-    warnings.push(`行数 ${lineCount} > 150（复杂 ADR 需说明理由或将证据移入 appendix）`)
-  } else if (lineCount > 120) {
-    warnings.push(`行数 ${lineCount} > 120（长度预算 warning）`)
+  if (lineCount > 60) {
+    errors.push(`行数 ${lineCount} > 60（超过硬上限）`)
   }
 
-  // 8. Implementation流水账 heuristics
-  const hasChecklist = /- \[ \]/.test(content)
-  const hasPrSequence = /建议 PR 序列|PR-[0-9]/.test(content)
-  const hasTestCount = /(tests? passed|\d+ passed|\d+ tests)/i.test(content)
-  const hasCommitLog = /`[0-9a-f]{7,40}`/.test(content)
-
-  return {
-    rel,
-    filename,
-    fileNumber,
-    h1,
-    title: titleMatch ? titleMatch.title : null,
-    decision,
-    implementation,
-    scope,
-    supersededBy: meta['被取代'] ?? '',
-    supersedes: meta['取代'] ?? '',
-    domain: classifyDomain({ filename, title: titleMatch?.title ?? '', scope }),
-    missing,
-    lineCount,
-    errors,
-    warnings,
-    hasChecklist,
-    hasPrSequence,
-    hasTestCount,
-    hasCommitLog,
-  }
+  return { rel, filename, fileNumber, h1, status, lineCount, errors, warnings }
 }
 
 // ---------------------------------------------------------------------------
-// INDEX generation
+// Dead-reference scan: code/tests/scripts/docs referencing deleted ADR paths
 // ---------------------------------------------------------------------------
 
-function generateIndex(adrs) {
-  const sorted = [...adrs].sort((a, b) => Number(a.fileNumber) - Number(b.fileNumber))
-  const lines = []
-  lines.push('# ADR 索引（机器维护）')
-  lines.push('')
-  lines.push('> 本文件由 `node scripts/check-adr.mjs --index` 从各 ADR 元数据自动生成；')
-  lines.push('> 不要手工维护。每份 ADR 一行。决策状态 / 实施状态取值见 `docs/adr/README.md`。')
-  lines.push('')
-  lines.push('| ADR | 决策状态 | 实施状态 | 领域 | 一句话决定 | 被取代 |')
-  lines.push('| --- | --- | --- | --- | --- | --- |')
-  for (const a of sorted) {
-    const num = a.fileNumber ?? '????'
-    const decision = a.decision ?? '—'
-    const impl = a.implementation ?? '—'
-    const domain = a.domain
-    const oneLiner = (a.scope || a.title || '').replace(/\s+/g, ' ').trim()
-    const supersededBy = a.supersededBy || ''
-    lines.push(`| [ADR-${num}](${a.filename}) | ${decision} | ${impl} | ${domain} | ${oneLiner} | ${supersededBy} |`)
+const SCOPE_PATHS = [
+  'src', 'tests', 'scripts', 'docs', 'shared', 'resources', '.github',
+  'AGENTS.md', 'SECURITY.md', 'CONTRIBUTING.md', 'README.md', 'todolist.md'
+]
+const REF_FILE_EXTS = /\.(ts|tsx|js|mjs|json|md|yml|yaml|sh)$/
+
+function collectLivingAdrs() {
+  const numbers = new Set()
+  const files = new Set()
+  for (const file of readdirSync(adrDir)) {
+    const match = file.match(/^(\d{4})-.*\.md$/)
+    if (!match) continue
+    numbers.add(match[1])
+    files.add(file)
   }
-  lines.push('')
-  return lines.join('\n')
+  return { numbers, files }
 }
 
-// ---------------------------------------------------------------------------
-// README drift checks
-// ---------------------------------------------------------------------------
+function deadReferenceScan(living) {
+  const refs = []
+  const seen = new Set()
+  for (const scope of SCOPE_PATHS) {
+    const start = path.join(root, scope)
+    if (!existsSync(start)) continue
+    const stack = [start]
+    while (stack.length) {
+      const current = stack.pop()
+      let currentStat
+      try { currentStat = statSync(current) } catch { continue }
+      const entries = currentStat.isDirectory() ? readdirSync(current) : [path.basename(current)]
+      const base = currentStat.isDirectory() ? current : path.dirname(current)
+      for (const entry of entries) {
+        if (['node_modules', '.git', '.studiumx', 'coverage', 'out', 'dist', 'release'].includes(entry)) continue
+        const full = path.join(base, entry)
+        let st
+        try { st = statSync(full) } catch { continue }
+        if (st.isDirectory()) {
+          stack.push(full)
+        } else if (REF_FILE_EXTS.test(entry)) {
+          const rel = path.relative(root, full).split(path.sep).join('/')
+          if (rel.includes('out/') || rel.includes('web/dist/') || rel.includes('release/')) continue
+          let text = readFileSync(full, 'utf8')
+          // The H1 declares the current ADR; it is not a cross-reference.
+          if (/^docs\/adr\/\d{4}-.*\.md$/.test(rel)) text = text.split('\n').slice(1).join('\n')
 
-function checkReadme(adrs) {
-  const readmePath = path.join(adrDir, 'README.md')
-  const readme = readFileSync(readmePath, 'utf8')
-  const errors = []
-  const warnings = []
-  if (hasTestTerminalOutput(readme)) {
-    errors.push('README 中出现疑似测试终端输出 / pass 计数')
-  }
-  // Every ADR file should be linked somewhere in README or INDEX.
-  const indexExists = existsSync(path.join(adrDir, 'INDEX.md'))
-  const indexText = indexExists ? readFileSync(path.join(adrDir, 'INDEX.md'), 'utf8') : ''
-  for (const a of adrs) {
-    if (!readme.includes(a.filename) && !indexText.includes(a.filename)) {
-      warnings.push(`README/INDEX 未链接 ${a.filename}`)
+          const deadPathNumbers = new Set()
+          const pathPattern = /(?:^|[^A-Za-z0-9._/-])((?:(?:\.\.\/)+)?(?:docs\/)?adr\/(\d{4}-[A-Za-z0-9._-]+\.md))\b/gi
+          for (const match of text.matchAll(pathPattern)) {
+            const referencedPath = match[1]
+            const basename = match[2]
+            if (living.files.has(basename)) continue
+            deadPathNumbers.add(basename.slice(0, 4))
+            const key = `${rel}:path:${referencedPath}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            refs.push({ rel, path: referencedPath })
+          }
+
+          const numbers = [...new Set(text.matchAll(/ADR-(\d{4})/gi))].map((match) => match[1])
+          for (const number of numbers) {
+            if (living.numbers.has(number) || deadPathNumbers.has(number)) continue
+            const key = `${rel}:number:${number}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            refs.push({ rel, number })
+          }
+        }
+      }
     }
   }
-  return { errors, warnings }
+  return refs
 }
 
 // ---------------------------------------------------------------------------
@@ -365,17 +271,29 @@ function checkReadme(adrs) {
 function main() {
   const args = process.argv.slice(2)
   const modeStrict = args.includes('--strict')
-  const modeIndex = args.includes('--index')
   const modeAudit = args.includes('--audit')
+  const skipDead = args.includes('--skip-dead-refs')
 
   const adrFiles = walkMarkdownFiles(adrDir)
     .filter((f) => path.basename(f).match(/^\d{4}-.*\.md$/))
     .sort()
-  const adrs = adrFiles.map(analyzeAdr)
+  const adrs = adrFiles.map((file) => analyzeAdr(file, { strict: modeStrict }))
 
   let exitCode = 0
   const report = []
   const totals = { files: adrs.length, errors: 0, warnings: 0 }
+
+  const actualNumbers = adrs.map((a) => a.fileNumber)
+  const expectedNumbers = adrs.map((_, index) => String(index + 1).padStart(4, '0'))
+  if (actualNumbers.some((number, index) => number !== expectedNumbers[index])) {
+    totals.errors += 1
+    exitCode = 1
+    report.push({
+      rel: 'docs/adr/',
+      errors: [`ADR 编号不连续：期望 ${expectedNumbers.join(', ')}，实际 ${actualNumbers.join(', ')}`],
+      warnings: []
+    })
+  }
 
   for (const a of adrs) {
     if (a.errors.length) {
@@ -389,31 +307,20 @@ function main() {
     }
   }
 
-  // README drift
-  const readmeCheck = checkReadme(adrs)
-  for (const e of readmeCheck.errors) {
-    totals.errors += 1
-    exitCode = 1
-    report.push({ rel: 'docs/adr/README.md', errors: [e], warnings: [] })
-  }
-  for (const w of readmeCheck.warnings) {
-    totals.warnings += 1
-    report.push({ rel: 'docs/adr/README.md', errors: [], warnings: [w] })
-  }
-
-  // Metadata completeness in strict mode is fatal.
-  if (modeStrict) {
-    for (const a of adrs) {
-      if (a.missing.length) {
-        exitCode = 1
+  // Dead-reference scan (unless the ADR directory is mid-deletion)
+  if (!skipDead) {
+    const living = collectLivingAdrs()
+    const dead = deadReferenceScan(living)
+    if (dead.length) {
+      totals.errors += dead.length
+      exitCode = 1
+      for (const reference of dead) {
+        const message = reference.path
+          ? `引用不存在的 ADR 路径：${reference.path}`
+          : `引用已删除的 ADR-${reference.number}`
+        report.push({ rel: reference.rel, errors: [message], warnings: [] })
       }
     }
-  }
-
-  if (modeIndex) {
-    const indexPath = path.join(adrDir, 'INDEX.md')
-    writeFileSync(indexPath, generateIndex(adrs), 'utf8')
-    console.log(`[check-adr] regenerated ${path.relative(root, indexPath)} (${adrs.length} ADRs)`)
   }
 
   if (modeAudit) {
@@ -422,14 +329,16 @@ function main() {
     console.log(`[check-adr] audit written to ${outPath}`)
   }
 
-  console.log(`[check-adr] ${totals.files} ADR files, ${totals.errors} errors, ${totals.warnings} warnings`)
+  console.log(`[check-adr] ${totals.files} ADR files, ${totals.errors} errors, ${totals.warnings} warnings (declared ${adrs.filter(a=>a.status&&a.status.toLowerCase()==='proposed').length} proposed)`)
   for (const r of report) {
     console.log(`- ${r.rel}`)
     for (const e of r.errors) console.log(`    [error] ${e}`)
     for (const w of r.warnings) console.log(`    [warn]  ${w}`)
   }
-  if (!modeAudit && !modeIndex) {
-    console.log(modeStrict ? '[check-adr] strict mode' : '[check-adr] (metadata completeness is warning-level until --strict)')
+  if (!skipDead) {
+    console.log(modeStrict ? '[check-adr] strict mode' : '[check-adr] standard mode')
+  } else {
+    console.log('[check-adr] dead-reference scan disabled')
   }
   process.exit(exitCode)
 }

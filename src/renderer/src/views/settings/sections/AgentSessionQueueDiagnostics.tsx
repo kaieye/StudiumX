@@ -1,10 +1,10 @@
 /**
  * Read-only diagnostics for main-process agent session queue projection
- * (ADOPTION B-02 residual / ADR-0098).
+ * (ADOPTION B-02 residual / ADR-0004).
  *
  * - Calls projectAgentSessionQueue with streamId only (no free-text preview)
  * - Displays export-safe fields; never drains / steers / aborts / flips autoDrain
- * - Does not replace renderer-local agentBusyFollowUpQueue (ADR-0067)
+ * - Does not replace renderer-local agentBusyFollowUpQueue (ADR-0004)
  */
 
 import { Loader2, RefreshCw } from 'lucide-react'

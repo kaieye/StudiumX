@@ -1,5 +1,5 @@
 /**
- * Pathname-default workspace write publishers (ADR-0131 / migration Phase B).
+ * Pathname-default workspace write publishers (ADR-0012).
  *
  * Single I/O path for create and overwrite: trusted-root path containment via
  * `workspace-path-target`, then `replaceDurably` (temp → write → optional fsync →

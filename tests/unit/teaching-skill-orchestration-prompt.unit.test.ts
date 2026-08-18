@@ -44,7 +44,7 @@ function activeBodyRefsFromPlan(result: SkillOrchestrationPlan) {
   return refs
 }
 
-describe('teaching skill orchestration prompt contract (ADR-0151 Phase 3)', () => {
+describe('teaching skill orchestration prompt contract (ADR-0014)', () => {
   it('injects active skill bodies and omits inactive selected skill bodies', () => {
     const orchestration = plan({
       selectedSkillIds: ['learning-assessor', 'course-ebook-publishing'],
@@ -93,7 +93,7 @@ describe('teaching skill orchestration prompt contract (ADR-0151 Phase 3)', () =
     expect(turn).toContain('do not execute uninstalled child skills')
   })
 
-  it('keeps plan projection out of stable prefix (ADR-0044)', () => {
+  it('keeps plan projection out of stable prefix (ADR-0008)', () => {
     const orchestration = plan({
       selectedSkillIds: ['learning-assessor'],
       mode: 'teaching_turn',

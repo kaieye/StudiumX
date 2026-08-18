@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Critical dependency exact-pin check (ADR-0054 § critical npm allowlist).
+ * Critical dependency exact-pin check (repository CI/dependency policy).
  *
  * Allowlist-only: native / security-sensitive packages must use exact versions
  * in package.json (no ^ / ~ / range). Optionally verifies pnpm-lock.yaml
@@ -35,7 +35,7 @@ Checks that allowlisted critical dependencies use exact versions in package.json
 checks that the importers specifier matches the package.json exact pin and that
 packages resolution includes name@version for that pin.
 
-Allowlist (ADR-0054 critical npm exact pin):
+Allowlist (repository critical npm exact-pin policy):
 ${Object.entries(CRITICAL_ALLOWLIST)
   .map(([name, note]) => `  - ${name}  # ${note}`)
   .join('\n')}
@@ -156,7 +156,7 @@ const pkg = loadPackageJson()
 const violations = []
 const notes = []
 
-console.log('[check:pinned-critical-deps] ADR-0054 critical npm exact-pin allowlist')
+console.log('[check:pinned-critical-deps] critical npm exact-pin allowlist')
 console.log(
   `[check:pinned-critical-deps] allowlist: ${Object.keys(CRITICAL_ALLOWLIST).join(', ')}`
 )

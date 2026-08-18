@@ -17,7 +17,7 @@ const tool: McpSnapshotTool = {
   effectClass: 'read'
 }
 
-describe('MCP tool bridge result boundaries (ADR-0134)', () => {
+describe('MCP tool bridge result boundaries (ADR-0013)', () => {
   it('raises a typed failure for a normalized MCP application error', async () => {
     const sessionManager = {
       callTool: async () => ({

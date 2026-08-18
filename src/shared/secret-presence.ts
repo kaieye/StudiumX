@@ -1,5 +1,5 @@
 /**
- * Presence-only secret boundary helpers (ADR-0148 / LiveAgent worth-learning §3.4).
+ * Presence-only secret boundary helpers (ADR-0006; MCP projections also follow ADR-0013).
  *
  * Public surfaces (IPC DTOs, Doctor facts, support-bundle, MCP/provider public
  * views) must only communicate that a secret **is configured** (boolean /
@@ -8,7 +8,7 @@
  *
  * Non-claims:
  * - no remote telemetry / phone-home
- * - support-bundle remains consent-gated (ADR-0034)
+ * - support-bundle remains consent-gated (ADR-0007)
  * - does not replace agent-secret text redaction for free-form prose
  */
 

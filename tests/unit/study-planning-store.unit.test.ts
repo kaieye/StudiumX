@@ -5,7 +5,7 @@ import {
   type StudyPlanningSnapshotV1
 } from '../../src/shared/study-planning'
 
-describe('StudyPlanningStore (ADR-0117 skeleton / STC-207/208)', () => {
+describe('StudyPlanningStore (ADR-0011 skeleton / STC-207/208)', () => {
   it('CAS rejects wrong expectedRevision', () => {
     const store = new StudyPlanningStore({ nowMs: () => 1000 })
     const snap = store.readSnapshot()

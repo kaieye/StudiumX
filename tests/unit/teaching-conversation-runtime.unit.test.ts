@@ -47,7 +47,7 @@ function fixtureCoreTeachingKernelReference() {
     id: 'teach' as const,
     name: 'teach',
     source: 'builtin-skills/teach/SKILL.md',
-    content: '# Teach\n\nApp-shipped Teaching Kernel fixture for runtime tests (ADR-0151).\n'
+    content: '# Teach\n\nApp-shipped Teaching Kernel fixture for runtime tests (ADR-0014).\n'
   }
 }
 
@@ -100,7 +100,7 @@ describe('temporary conversation runtime tool availability', () => {
     expect(tools?.map((tool) => tool.function.name)).toEqual(expect.arrayContaining(['web_search', 'web_fetch']))
     const toolNames = tools?.map((tool) => tool.function.name) ?? []
     // Temporary chat shares agent tools except teaching-product writers / ungranted workspace tools
-    // (ADR-0128 §5.4); delegation remains available when tools are enabled.
+    // (ADR-0013); delegation remains available when tools are enabled.
     for (const forbiddenToolName of [
       'read_workspace_file',
       'list_workspace',
@@ -648,7 +648,7 @@ describe('teaching conversation memory catalog platform degradation', () => {
 })
 
 
-describe('teaching conversation core kernel fail-closed (ADR-0151)', () => {
+describe('teaching conversation core kernel fail-closed (ADR-0014)', () => {
   it('fails closed when teaching mode skill references omit reserved teach kernel', async () => {
     const root = await mkdtemp(join(tmpdir(), 'studiumx-kernel-missing-refs-'))
     createdRoots.push(root)
@@ -789,7 +789,7 @@ describe('teaching conversation core kernel fail-closed (ADR-0151)', () => {
   })
 })
 
-describe('skill orchestration runtime evaluation (ADR-0151 / ADR-0163)', () => {
+describe('skill orchestration runtime evaluation (ADR-0014)', () => {
   it('fails closed visibly for an artifact workflow when the Teaching Kernel loader throws', async () => {
     const root = await mkdtemp(join(tmpdir(), 'studiumx-artifact-kernel-fail-'))
     createdRoots.push(root)

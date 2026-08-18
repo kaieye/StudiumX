@@ -23,7 +23,7 @@ async function createRoot(): Promise<string> {
   return root
 }
 
-describe('skill install stage-then-swap (ADR-0150)', () => {
+describe('skill install stage-then-swap (ADR-0014)', () => {
   it('promotes a staged pack so the final path appears only after success', async () => {
     const installRoot = await createRoot()
     const finalPath = join(installRoot, 'teach')

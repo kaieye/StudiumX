@@ -18,7 +18,7 @@ import type { AskAnswer, AskOption, AskQuestion } from '../../../shared/teaching
  * `arguments` field — the frontend parses it directly, so no extra stream
  * event is needed. Only the *answer* needs a reverse IPC channel.
  *
- * Host stamps authoritative `__deadlineAt` (ADR-0144) and re-publishes the
+ * Host stamps authoritative `__deadlineAt` (ADR-0010) and re-publishes the
  * tool projection so all UI surfaces share one countdown. Timeout settles
  * to recommended/first option; cancel aborts. Timeout never auto-approves
  * write / privileged / turn-review.

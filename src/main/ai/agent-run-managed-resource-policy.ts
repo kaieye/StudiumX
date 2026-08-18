@@ -1,6 +1,6 @@
 /**
  * Host-owned deployment resource policy extracted from the optional managed
- * configuration document (ADR-0092 / ADR-0171).
+ * configuration document (ADR-0006 / ADR-0010).
  *
  * This is deliberately a narrow, secret-free projection. The document is read
  * only from the main-process managed root (normally Electron userData), never

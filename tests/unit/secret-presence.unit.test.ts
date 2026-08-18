@@ -13,7 +13,7 @@ import {
 import { previewSupportBundle } from '../../src/main/support-bundle'
 import { createTeachingDoctorConfigFactsCollector } from '../../src/main/observability/teaching-doctor-config-facts'
 
-describe('secret-presence (ADR-0148)', () => {
+describe('secret-presence (ADR-0006)', () => {
   it('detects secret-bearing field keys without matching lifecycle labels loosely', () => {
     expect(isSecretFieldKey('apiKey')).toBe(true)
     expect(isSecretFieldKey('Authorization')).toBe(true)
@@ -46,7 +46,7 @@ describe('secret-presence (ADR-0148)', () => {
   })
 })
 
-describe('MCP public DTO presence-only (ADR-0148)', () => {
+describe('MCP public DTO presence-only (ADR-0013)', () => {
   it('toPublicMcpConfig never includes secret refs and scrubs credential-shaped args', () => {
     const parsed = parseUserMcpConfig({
       schemaVersion: 1,
@@ -90,7 +90,7 @@ describe('MCP public DTO presence-only (ADR-0148)', () => {
   })
 })
 
-describe('Doctor config facts presence-only (ADR-0148)', () => {
+describe('Doctor config facts presence-only (ADR-0006)', () => {
   it('collects providerConfigured without embedding raw apiKey', async () => {
     const secret = 'sk-live-doctor-must-not-leak-abcdef0123456789'
     const collector = createTeachingDoctorConfigFactsCollector({
@@ -112,7 +112,7 @@ describe('Doctor config facts presence-only (ADR-0148)', () => {
   })
 })
 
-describe('support-bundle deny secret-shaped smuggled keys (ADR-0148)', () => {
+describe('support-bundle deny secret-shaped smuggled keys (ADR-0006 / ADR-0007)', () => {
   it('redacts newly smuggled secret field names while keeping presence booleans', () => {
     const secret = 'sk-live-smuggle-presence-abcdef0123456789'
     const preview = previewSupportBundle({

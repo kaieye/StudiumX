@@ -1,4 +1,4 @@
-/* Web remote control — Zcode-inspired connection dialog (ADR-0143) */
+/* Web remote control — Zcode-inspired connection dialog (security boundary: SECURITY.md) */
 
 .icon-button.is-active-remote {
   color: var(--green, #2f9b73);

@@ -5,7 +5,7 @@
  * Never writes store, never moves locked blocks, never auto-applies.
  * Optional hard window rejects moves past window.endAtMs when hardEnd is true.
  *
- * ADR-0130 §5.1: default product path remains list/banner + user edit;
+ * ADR-0011: default product path remains list/banner + user edit;
  * silent auto-stagger is forbidden. Callers must require explicit confirm.
  */
 

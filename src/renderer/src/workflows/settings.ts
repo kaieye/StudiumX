@@ -11,7 +11,7 @@ import {
   Smartphone,
   User,
   SlidersHorizontal,
-  // ADR-0166：FileCheck2 / Stethoscope 随教学 review / doctor 导航项一并下线；
+  // ADR-0007：FileCheck2 / Stethoscope 随教学 review / doctor 导航项一并下线；
   // 重新挂载时需连同这两个图标 import 一起恢复。
   Wrench
 } from 'lucide-react'
@@ -65,7 +65,7 @@ export const settingsNavItems = [
   { id: 'workspace', icon: FolderOpen },
   { id: 'memory', icon: BrainCircuit },
   { id: 'notifications', icon: Bell },
-  // ADR-0166：教学诊断 / turn-review 展示面延期下线（暂未找到合适展示方式）。
+  // ADR-0007：教学诊断 / turn-review 展示面延期下线（暂未找到合适展示方式）。
   // 两项均无条件常驻，但 review 仅是 demo 脚手架、doctor 是小众排障工具，
   // 从导航面下线；section 渲染分支与组件逻辑、单测均保留，待未来重新挂载。
   // { id: 'doctor', icon: Stethoscope },

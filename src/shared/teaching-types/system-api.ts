@@ -258,9 +258,9 @@ export type TeachingSystemApi = {
   installSkill: (skillId: string) => Promise<SkillSummary>
   uninstallSkill: (skillId: string) => Promise<void>
   /**
-   * Read-only skill orchestration preview (ADR-0163).
+   * Read-only skill orchestration preview (ADR-0014).
    * Same host assembly + pure `plan(...)` as a real turn. Never writes the
-   * ledger, an outcome, Evidence, or the ADR-0156 continuity cursor.
+   * ledger, an outcome, Evidence, or the ADR-0014 continuity cursor.
    */
   previewSkillOrchestration: (
     request: SkillOrchestrationPreviewRequest
@@ -286,7 +286,7 @@ export type TeachingSystemApi = {
   onLessonStreamChunk: (handler: (chunk: LessonStreamChunk) => void) => () => void
   onLessonStreamStatus: (handler: (status: LessonStreamStatus) => void) => () => void
   /**
-   * Submit one conversation-turn intent to the host (ADR-0170 §4.1).
+   * Submit one conversation-turn intent to the host (ADR-0004).
    * The host validates this narrow DTO and reads canonical conversation state;
    * callers cannot submit a replacement transcript or tool-sensitive payload.
    * Host parser/validator implementation is intentionally owned by the gateway
@@ -295,7 +295,7 @@ export type TeachingSystemApi = {
   submitConversationTurn: (
     intent: SubmitConversationTurnIntent
   ) => Promise<SubmitConversationTurnDisposition>
-  /** Exact ADR-0170 host-lane cancellation; legacy stream cancellation remains compatibility-only. */
+  /** Exact ADR-0004 host-lane cancellation; legacy stream cancellation remains compatibility-only. */
   cancelConversationTurn: (
     intent: CancelConversationTurnIntent
   ) => Promise<CancelConversationTurnDisposition>
@@ -311,7 +311,7 @@ export type TeachingSystemApi = {
   listTerminalAgentRunNotices: () => Promise<AgentRunTerminalNotice[]>
   replayAgentChatEvents: (payload: ReplayAgentChatEventsPayload) => Promise<AgentEventBusReplay>
   cancelAgentChatStream: (streamId: string) => Promise<{ canceled: boolean }>
-  /** Mid-run steer on an active stream (≠ abort). Product autoDrain remains false (ADR-0082). */
+  /** Mid-run steer on an active stream (≠ abort). Product autoDrain remains false (ADR-0004). */
   steerAgentChatStream: (payload: SteerAgentChatStreamPayload) => Promise<SteerAgentChatStreamResult>
   /** Mid-run follow-up queue/inject on an active stream. */
   followUpAgentChatStream: (payload: FollowUpAgentChatStreamPayload) => Promise<FollowUpAgentChatStreamResult>
@@ -324,7 +324,7 @@ export type TeachingSystemApi = {
   onAgentChatStatus: (handler: (status: AgentChatStreamStatus) => void) => () => void
   onAgentChatTool: (handler: (event: AgentChatStreamToolEvent) => void) => () => void
   onAgentChatEvent: (handler: (event: AgentRealtimeDeliveryEvent) => void) => () => void
-  /** OS suspend/resume fan-out (ADR-0129 §4). Signal only — pin stays renderer dual-write. */
+  /** OS suspend/resume fan-out (ADR-0011). Signal only — pin stays renderer dual-write. */
   onSystemPower: (handler: (event: import('../teaching-ipc-contract').SystemPowerEvent) => void) => () => void
   saveAgentConversation: (payload: SaveAgentConversationPayload) => Promise<SaveAgentConversationResult>
   renameAgentConversation: (payload: RenameAgentConversationPayload) => Promise<RenameAgentConversationResult>
@@ -362,7 +362,7 @@ export type TeachingSystemApi = {
   deleteMemory: (memoryId: string, workspaceRoot?: string) => Promise<void>
   openLogFile: () => Promise<OpenPathResult>
   openAppDataDir: () => Promise<OpenPathResult>
-  /** Read-only TeachingDoctor: assembles process crash-marker facts + pure report (ADR-0084). */
+  /** Read-only TeachingDoctor: assembles process crash-marker facts + pure report (ADR-0007). */
   runTeachingDoctor: (payload?: RunTeachingDoctorPayload) => Promise<TeachingDoctorReport>
   /**
    * Live agent sandbox readiness for Settings (Stage E).
@@ -374,7 +374,7 @@ export type TeachingSystemApi = {
   /** Closed next-step command; host validates operation identity and revision before retry. */
   actOnTeachingPresentation: (payload: TeachingPresentationActionPayload) => Promise<TeachingPresentationActionResult>
   /**
-   * Project teaching-turn review bundle (+ optional decision) to UI-safe DTO (ADR-0087).
+   * Project teaching-turn review bundle (+ optional decision) to UI-safe DTO (ADR-0001).
    * No auto-apply; approved ids are not an apply plan.
    */
   projectTeachingTurnReview: (payload: ProjectTeachingTurnReviewPayload) => Promise<ProjectTeachingTurnReviewResult>
@@ -384,31 +384,31 @@ export type TeachingSystemApi = {
    */
   decideTeachingTurnReview: (payload: DecideTeachingTurnReviewPayload) => Promise<DecideTeachingTurnReviewResult>
   /**
-   * Project post-approve handoff intents from approval projection or bundle+decision (ADR-0110).
+   * Project post-approve handoff intents from approval projection or bundle+decision (ADR-0001).
    * Consent-gated routing DTO only — never auto-apply / installSkill / createMemory.
    */
   projectTeachingTurnReviewHandoff: (
     payload: ProjectTeachingTurnReviewHandoffPayload
   ) => Promise<ProjectTeachingTurnReviewHandoffResult>
   /**
-   * Load last durable teaching-turn review snapshot from userData (ADR-0114).
+   * Load last durable teaching-turn review snapshot from userData (ADR-0001).
    * Read-only product surface; never auto-applies.
    */
   getTeachingTurnReviewLastBundle: () => Promise<GetTeachingTurnReviewLastBundleResult>
   /**
-   * Save last durable teaching-turn review snapshot to userData (ADR-0114).
+   * Save last durable teaching-turn review snapshot to userData (ADR-0001).
    * Fail-closed payload only; durable cache only — never auto-apply.
    */
   saveTeachingTurnReviewLastBundle: (
     payload: SaveTeachingTurnReviewLastBundlePayload
   ) => Promise<SaveTeachingTurnReviewLastBundleResult>
   /**
-   * Read-only project of active agent session queue via façade.projectQueue (ADR-0091).
+   * Read-only project of active agent session queue via façade.projectQueue (ADR-0004).
    * Never drains / steers / aborts; product autoDrain remains false.
    */
   projectAgentSessionQueue: (payload: ProjectAgentSessionQueuePayload) => Promise<ProjectAgentSessionQueueResult>
   /**
-   * Read StudyPlanningSnapshotV1 for a registered workspace (ADR-0117).
+   * Read StudyPlanningSnapshotV1 for a registered workspace (ADR-0011).
    * File-backed sole-writer; not localStorage.
    */
   readStudyPlanning: (payload: {
@@ -423,7 +423,7 @@ export type TeachingSystemApi = {
     | { ok: false; error: { code: string; message: string } }
   >
   /**
-   * Apply one StudyPlanning command with expectedRevision CAS (ADR-0117).
+   * Apply one StudyPlanning command with expectedRevision CAS (ADR-0011).
    * Exact actionId retry is process-local on the durable host.
    */
   applyStudyPlanning: (payload: {
@@ -431,10 +431,10 @@ export type TeachingSystemApi = {
     expectedRevision: number
     command: import('../study-planning').StudyPlanningCommandEnvelope
   }) => Promise<import('../study-planning').ApplyResult & { path?: string }>
-  /** Secret-free user MCP config (ADR-0128). */
+  /** Secret-free user MCP config (ADR-0013). */
   mcpGetConfig: () => Promise<import('../mcp/types').McpGetConfigResult>
   /**
-   * Live Settings getter (ADR-0147): current store public projection.
+   * Live Settings getter (ADR-0013): current store public projection.
    * Same secret-free DTO as mcpGetConfig; not a turn-level snapshot.
    */
   mcpGetMcpSettings: () => Promise<import('../mcp/types').McpGetConfigResult>
@@ -445,7 +445,7 @@ export type TeachingSystemApi = {
     secretChanges?: import('../mcp/types').McpSecretInputChanges
   }) => Promise<import('../mcp/types').McpConfigUpdateResult>
   /**
-   * CAS id-level ops apply (ADR-0147). Prefer over whole-document update when
+   * CAS id-level ops apply (ADR-0013). Prefer over whole-document update when
    * mutating individual servers concurrently. Secret plaintext only via secretChanges.
    */
   mcpApplyMcpOps: (payload: {
@@ -492,7 +492,7 @@ export type TeachingSystemApi = {
     servers: readonly import('../mcp/types').McpRuntimeServerView[]
   }>
   /**
-   * Opt-in discovery auto-connect for eligible servers (ADR-0137).
+   * Opt-in discovery auto-connect for eligible servers (ADR-0013).
    * No-op unless root enabled and autoConnect true; never tools/call.
    */
   mcpAutoConnectNow: (payload?: {
@@ -502,13 +502,13 @@ export type TeachingSystemApi = {
     results: readonly import('../mcp/types').McpTestServerResult[]
   }>
   /**
-   * Secret-free multi-source effective view (ADR-0137 / ADR-0141).
+   * Secret-free multi-source effective view (ADR-0013).
    * Optional at runtime for older preload; Settings degrades when missing.
    */
   mcpGetEffectiveView: (payload?: {
     workspaceRoot?: string | null
   }) => Promise<import('../mcp/effective-view-public').McpGetEffectiveViewResult>
-  /** Secret-free marketplace catalog + installs (ADR-0140/0141). */
+  /** Secret-free marketplace catalog + installs (ADR-0013). */
   mcpMarketplaceList: () => Promise<import('../mcp/marketplace-types').McpMarketplaceListResultV1>
   /** Pin install + enable user server; optional connect; never grants tool approval. */
   mcpMarketplaceInstall: (payload: {

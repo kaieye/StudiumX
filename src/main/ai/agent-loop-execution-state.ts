@@ -164,7 +164,7 @@ export class AgentLoopExecutionState {
     if (resolved.usage.totalTokens !== undefined) {
       this.usage.totalTokens = (this.usage.totalTokens ?? 0) + resolved.usage.totalTokens
     }
-    // ADR-0171: a local arithmetic estimate is observability only. Resource
+    // ADR-0010: a local arithmetic estimate is observability only. Resource
     // governance charges the provider's explicit measured total, never a
     // synthetic total or a label that could be presented as provider quota.
     if (source === 'provider_reported' && providerUsage?.totalTokens !== undefined) {

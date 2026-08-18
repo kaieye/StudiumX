@@ -1,5 +1,5 @@
 /**
- * Shared MCP wire DTOs, error codes, and pure helpers (ADR-0128).
+ * Shared MCP wire DTOs, error codes, and pure helpers (ADR-0013).
  * Pure types only — no Node / Electron / FS.
  */
 
@@ -40,7 +40,7 @@ export type McpServerScope = 'user' | 'workspace'
 
 /**
  * Explicit user grant for appending the active workspace root to stdio args
- * (ADR-0138 / Phase F). Default is always off — never inject without grant.
+ * (ADR-0013). Default is always off — never inject without grant.
  */
 export type McpWorkspaceRootInjection = 'off' | 'granted'
 
@@ -105,7 +105,7 @@ export type UserMcpServerV1 = Readonly<{
   /** Secret-free OAuth public config; null when OAuth is not configured. */
   oauth: UserMcpServerOAuthConfigV1 | null
   /**
-   * Explicit grant to inject the active workspace root into stdio args (ADR-0138).
+   * Explicit grant to inject the active workspace root into stdio args (ADR-0013).
    * Default `'off'`. Never inferred from command/label fuzzy match.
    */
   workspaceRootInjection: McpWorkspaceRootInjection
@@ -122,7 +122,7 @@ export type UserMcpConfigV1 = Readonly<{
   schemaVersion: typeof MCP_CONFIG_SCHEMA_VERSION
   enabled: boolean
   /**
-   * Smart-connect preference (ADR-0137 / ADR-0141).
+   * Smart-connect preference (ADR-0013).
    * When omitted and `enabled` is true, effective auto-connect is true
    * (`enabled && autoConnect !== false`). Explicit `false` disables discovery.
    * Never tools/call by itself.
@@ -130,7 +130,7 @@ export type UserMcpConfigV1 = Readonly<{
   autoConnect?: boolean
   /**
    * When true, tools/list remote `readOnlyHint` (without `destructiveHint`) may
-   * map to effect `read` after explicit overrides (ADR-0141). Default/omit false.
+   * map to effect `read` after explicit overrides (ADR-0013). Default/omit false.
    * Never a YOLO / skip-permission switch.
    */
   honorRemoteReadOnlyHint?: boolean
@@ -172,7 +172,7 @@ export type UserMcpConfigPublicV1 = Readonly<{
   schemaVersion: typeof MCP_CONFIG_SCHEMA_VERSION
   enabled: boolean
   /**
-   * Projected effective preference (ADR-0141):
+   * Projected effective preference (ADR-0013):
    * `enabled && durable.autoConnect !== false` (omit means on when root enabled).
    */
   autoConnect: boolean
@@ -253,7 +253,7 @@ export type McpRuntimeRefreshDiagnostics = Readonly<{
 
 /**
  * Renderer/Doctor-safe runtime projection. All Phase A additions are optional
- * so persisted/test callers producing the ADR-0128 v1 shape remain compatible.
+ * so persisted/test callers producing the ADR-0013 v1 shape remain compatible.
  */
 export type McpRuntimeServerView = Readonly<{
   id: string
@@ -285,7 +285,7 @@ export type McpRuntimeServerView = Readonly<{
 /**
  * Secret-free MCP protocol annotations retained for UI / audit / diagnostics.
  * Independent of `effectClass` (overrides + fail-closed privileged default).
- * Remote readOnlyHint MUST NOT auto-downgrade effect (ADR-0132 §2.7).
+ * Remote readOnlyHint MUST NOT auto-downgrade effect (ADR-0013).
  */
 export type McpRemoteToolAnnotationsSummary = Readonly<{
   title?: string
@@ -334,7 +334,7 @@ export type McpGetConfigResult =
   | Readonly<{ ok: true; config: UserMcpConfigPublicV1 }>
   | McpErrorResult
 
-/** Budget defaults (ADR-0128 §5.3, ADR-0141 reconnect). */
+/** Budget and reconnect defaults (ADR-0013). */
 export const MCP_BUDGETS = {
   maxToolsPerServer: 64,
   maxGlobalTools: 128,

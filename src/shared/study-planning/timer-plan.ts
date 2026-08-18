@@ -1,7 +1,7 @@
 /**
  * Study planning pure domain — TimerPlanV2 normalize/validate (STC-101).
  *
- * Phase 1 first slice (ADR-0094 §4): pure types + validation only.
+ * Phase 1 first slice (ADR-0011): pure types + validation only.
  * No I/O, no localStorage, no canonical path freeze, no TimerSession lifecycle.
  * Numeric defaults are Phase1 seeds from the planning roadmap (§4.2), not a new durable ADR freeze.
  */

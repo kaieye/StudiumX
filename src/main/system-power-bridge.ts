@@ -1,5 +1,5 @@
 /**
- * Main-process OS powerMonitor → renderer fan-out bridge (ADR-0129 §4).
+ * Main-process OS powerMonitor → renderer fan-out bridge (ADR-0011).
  *
  * Broadcasts suspend/resume as `teachingEventChannels.systemPower` only.
  * Does NOT call DurableStudyPlanningStore / advance TimerSession —

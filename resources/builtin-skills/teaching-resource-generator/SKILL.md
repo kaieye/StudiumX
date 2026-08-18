@@ -3,7 +3,7 @@ name: teaching-resource-generator
 description: Provides comprehensive guidance for generating teaching resources including courseware, exercises, case studies, and learning guides. Use when the user asks about generating teaching materials, creating courseware, designing exercises, or developing educational content.
 ---
 
-> **编排契约**（host registry 为准 · [ADR-0151](../../../docs/adr/0151-teaching-kernel-and-skill-orchestration.md) / [ADR-0163](../../../docs/adr/0163-teaching-capability-selection-and-plan-preview.md)）
+> **编排契约**（host registry 为准 · [ADR-0014](../../../docs/adr/0014-teaching-kernel-and-skill-authority.md)）
 >
 > - **角色：** `artifact_producer`
 > - **阶段：** `artifact_authoring`

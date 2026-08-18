@@ -1,5 +1,5 @@
 /**
- * Teaching-safe post-turn review candidates (ADOPTION S-09 / ADR-0077).
+ * Teaching-safe post-turn review candidates (ADOPTION S-09 / ADR-0001).
  *
  * Pure, deterministic, conservative. Emits **candidates only** for human approval.
  * Never auto-creates skills, never rewrites learner-profile, never starts memory/dream phases.
@@ -299,7 +299,7 @@ function clip(text: string, max: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Human decision + approval projection (ADR-0085) — re-export pure seam.
+// Human decision + approval projection (ADR-0001) — re-export pure seam.
 // Prefer importing from this module or teaching-turn-review-approve.ts.
 // ---------------------------------------------------------------------------
 export {
@@ -314,7 +314,7 @@ export {
 } from './teaching-turn-review-approve'
 
 // ---------------------------------------------------------------------------
-// Post-approve handoff intents (ADR-0109) — re-export pure seam.
+// Post-approve handoff intents (ADR-0001) — re-export pure seam.
 // Prefer importing from this module or teaching-turn-review-handoff.ts.
 // ---------------------------------------------------------------------------
 export {
@@ -327,7 +327,7 @@ export {
 } from './teaching-turn-review-handoff'
 
 // ---------------------------------------------------------------------------
-// Durable last-bundle snapshot (ADR-0113) — re-export pure seam.
+// Durable last-bundle snapshot (ADR-0001) — re-export pure seam.
 // Prefer importing from this module or teaching-turn-review-last-bundle.ts.
 // ---------------------------------------------------------------------------
 export {

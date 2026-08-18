@@ -4,8 +4,8 @@
  * Pure helpers only: consume splitIntervalAtLocalMidnights / formatZonedRangeDisplay /
  * reprojectWallClockLabels. No I/O, no Date.now side effects (callers supply host zone).
  *
- * Epoch ms remains authority (ADR-0117). timeZone is projection metadata only.
- * Does not implement travel settings page or silent whole-week rezone (ADR-0130 §4).
+ * Epoch ms remains authority (ADR-0011). timeZone is projection metadata only.
+ * Does not implement travel settings page or silent whole-week rezone (ADR-0011).
  */
 
 import {

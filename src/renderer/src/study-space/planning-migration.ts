@@ -1,5 +1,5 @@
 /**
- * V1 → V2 migration commit helper (ADR-0117 §4).
+ * V1 → V2 migration commit helper (ADR-0011).
  *
  * Flow: read V1 slice → pure dry-run → (caller confirms) → import_migration_commit
  * via StudyPlanningStore durable IPC. Never writes without userConfirmed.

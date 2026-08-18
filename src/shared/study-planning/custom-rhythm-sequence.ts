@@ -3,7 +3,7 @@
  *
  * Roadmap §4.1 C: ordered sequence of focus / short_break / long_break / wrap_up.
  * V1 is NOT a freeform drag editor — only ordered steps with kind + minutes.
- * Fail-closed validation; no I/O; no path freeze beyond ADR-0117.
+ * Fail-closed validation; no I/O; no path freeze beyond ADR-0011.
  */
 
 import {

@@ -1,5 +1,5 @@
 /**
- * Pure MCP marketplace catalog helpers (ADR-0140 / ADR-0141).
+ * Pure MCP marketplace catalog helpers (ADR-0013).
  * No I/O, no network, no secrets in previews.
  */
 
@@ -36,7 +36,7 @@ export type MarketplaceInstallPreview = Readonly<{
   mayRequestOAuth: boolean
   /**
    * Pin-only path never auto-connects. installAndEnable is a separate explicit API
-   * (ADR-0141). Tool approval is never granted by install.
+   * (ADR-0013). Tool approval is never granted by install.
    */
   doesNotAutoConnect: true
   doesNotGrantToolApproval: true
@@ -76,7 +76,7 @@ function normalizePermissions(
 }
 
 /**
- * Fail-closed validation for a catalog entry (local or remote, ADR-0141).
+ * Fail-closed validation for a catalog entry (local or remote, ADR-0013).
  */
 export function validateMarketplaceCatalogEntry(value: unknown): MarketplaceValidationResult {
   if (!isRecord(value)) return { ok: false, reason: 'entry_not_object' }

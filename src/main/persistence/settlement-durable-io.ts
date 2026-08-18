@@ -5,7 +5,7 @@
  * durable settlement participants. This is not a cross-file transaction layer
  * and does not introduce pathname fallbacks after a failed capability check.
  *
- * Profile: see ADR-0020 (P6-macOS-local-APFS-strict-candidate first).
+ * Profile: see ADR-0002 (P6-macOS-local-APFS-strict-candidate first).
  * Windows production directory fsync remains an explicit non-strict skip.
  */
 import { lstat, realpath } from 'node:fs/promises'

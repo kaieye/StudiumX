@@ -1,5 +1,5 @@
 /**
- * Pure category catalog projection for sole-read hydrate (ADR-0117).
+ * Pure category catalog projection for sole-read hydrate (ADR-0011).
  * Maps StudyPlanningCategoryV1 <-> V1 StudyTaskCategory UI shape. No I/O.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Maps TeachingWorkspaceService state → secret-free remote control DTOs (ADR-0143).
+ * Maps TeachingWorkspaceService state → secret-free remote control DTOs (security boundary: SECURITY.md).
  */
 
 import type { TeachingWorkspaceService } from '../teaching-workspace'

@@ -1,5 +1,5 @@
 /**
- * Pure model for V1 → canonical migration banner / confirm sheet (ADR-0117 cutover B UX).
+ * Pure model for V1 → canonical migration banner / confirm sheet (ADR-0011 cutover B UX).
  * Host owns confirm → commit; this module only formats copy + summary.
  */
 

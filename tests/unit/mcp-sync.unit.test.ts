@@ -1,5 +1,5 @@
 /**
- * Pure McpSync envelope parse / merge preview (ADR-0136 + ADR-0141).
+ * Pure McpSync envelope parse / merge preview (ADR-0013).
  * No network; fail-closed on bad envelope; conflicts never auto-overwrite.
  */
 import { describe, expect, it } from 'vitest'

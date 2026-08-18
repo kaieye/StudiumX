@@ -82,7 +82,7 @@ export type WebSearchBackend =
 export type ParallelSearchMode = 'agentic' | 'fast' | 'one-shot'
 /** The single Agent permission mode exposed throughout the application. */
 /**
- * Agent interactive approval lattice (Codex-aligned, ADR-0152 / ADR-0153):
+ * Agent interactive approval lattice (Codex-aligned, ADR-0015):
  * - request_approval  ↔ Codex untrusted / UnlessTrusted（需批准）
  * - based_on_approval ↔ Codex on-request / OnRequest（按风险）
  * - full_access       ↔ Codex never / Never（本课放行；非 YOLO 标签）
@@ -153,7 +153,7 @@ export type TeachingModelProviderPreset = {
 
 export const TEACHING_MODEL_PROVIDER_PRESETS = TEACHING_MODEL_PROVIDER_PRESETS_FROM_CATALOG
 
-/** Ordered custom HTTP headers for provider requests (ADR-0149). */
+/** Ordered custom HTTP headers for provider requests (ADR-0006; security boundary: SECURITY.md). */
 export type TeachingProviderCustomHeader = {
   name: string
   value: string
@@ -228,7 +228,7 @@ export type TeachingSettingsV1 = {
     maxInjected: number
   }
   /**
-   * Optional user-owned per-run resource budget (ADR-0171). Disabled by
+   * Optional user-owned per-run resource budget (ADR-0010). Disabled by
    * default; when enabled it applies only to newly started runs.
    */
   resourceBudget: {
@@ -253,7 +253,7 @@ export type TeachingSettingsV1 = {
      */
     workspaceShell: boolean
     /**
-     * Codex SandboxMode dual-axis (ADR-0153):
+     * Codex SandboxMode dual-axis (ADR-0015):
      * read_only | workspace_write | full_access
      * Orthogonal to approvalMode. UI never labels full_access as YOLO.
      */
@@ -310,7 +310,7 @@ export type TeachingSettingsV1 = {
     retentionDays: number
   }
   /**
-   * Mobile web remote control (ADR-0143). Default off.
+   * Mobile web remote control (security boundary: SECURITY.md). Default off.
    * `passHash` is secret-storage protected; never put in public status DTOs.
    */
   webRemoteControl: {

@@ -391,7 +391,7 @@ export type DecideLiveDraftCommitInput = {
 
 /**
  * Pure decision for live draft commit while settings are open.
- * Running session planSnapshot stays frozen (STC-503 / ADR-0094).
+ * Running session planSnapshot stays frozen (STC-503 / ADR-0011).
  */
 export function decideLiveDraftCommit(
   input: DecideLiveDraftCommitInput

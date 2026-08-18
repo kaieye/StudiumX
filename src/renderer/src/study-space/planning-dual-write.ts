@@ -1,6 +1,6 @@
 /**
  * Dual-write helpers: keep V1 StudySnapshot UI projection while publishing
- * task mutations to workspace-canonical StudyPlanningStore (ADR-0117 cutover).
+ * task mutations to workspace-canonical StudyPlanningStore (ADR-0011 cutover).
  *
  * Canonical is authority when workspaceRoot + TeachingSystemApi are available.
  * localStorage remains the UI cache during partial cutover (not teaching authority).

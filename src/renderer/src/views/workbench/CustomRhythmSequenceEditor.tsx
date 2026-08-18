@@ -1,7 +1,7 @@
 /**
  * STC-702: ordered custom rhythm sequence editor (non-freeform).
  *
- * ADR-0130 §2: rows = kind select + minutes + up/down/delete + add.
+ * ADR-0011: rows = kind select + minutes + up/down/delete + add.
  * No freeform drag/canvas. Validation via normalizeCustomRhythmSequence.
  * Product-signal polish: fail-closed issues with clear Chinese copy;
  * a11y labels distinguish focus / short_break / long_break / wrap_up.

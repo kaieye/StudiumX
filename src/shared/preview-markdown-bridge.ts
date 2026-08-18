@@ -49,7 +49,7 @@ function markdownBridgeScript(): string {
     window.parent.postMessage({ source: ${JSON.stringify(PREVIEW_LESSON_INTERACTION_SOURCE)}, type: ${JSON.stringify(PREVIEW_LESSON_INTERACTION_MESSAGE)}, interaction }, '*');
   };
   const itemIndex = (selector, node) => Math.max(0, Array.from(document.querySelectorAll(selector)).indexOf(node)) + 1;
-  // ADR-0155: fill answers digest to safe option ids; same normalization as quiz.js.
+  // ADR-0002: fill answers digest to safe option ids; same normalization as quiz.js.
   const normalizeFill = ${String(normalizeFillAnswer)};
   const sha256Hex = ${String(sha256HexUtf8)};
   const emitFillSubmission = (card) => {

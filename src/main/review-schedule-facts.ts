@@ -1,5 +1,5 @@
 /**
- * Read-only adapter: LearningSessionLedger scan → spaced-review schedule facts (ADR-0154).
+ * Read-only adapter: LearningSessionLedger scan → spaced-review schedule facts (ADR-0003).
  *
  * Derives per-item review history from typed lesson interaction evidence that
  * already lives in canonical sessions. No writes, no settlement authority, no

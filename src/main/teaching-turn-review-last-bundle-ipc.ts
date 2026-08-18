@@ -1,8 +1,8 @@
 /**
  * Main-side mapper for teaching-turn review last-bundle get/save product IPC
- * (ADOPTION S-09 residual / ADR-0114).
+ * (ADOPTION S-09 residual / ADR-0001).
  *
- * Calls only ADR-0113 pure + FS helpers with a provided rootPath.
+ * Calls only ADR-0001 pure + FS helpers with a provided rootPath.
  * Never auto-applies, never installs skills, never writes memory/profile,
  * never touches settlement.
  */

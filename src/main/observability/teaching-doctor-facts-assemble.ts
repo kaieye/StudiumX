@@ -1,5 +1,5 @@
 /**
- * Pure multi-collector TeachingDoctor facts assembler (B-11 residual / ADR-0093).
+ * Pure multi-collector TeachingDoctor facts assembler (B-11 residual / ADR-0007).
  *
  * Merges optional base facts with ordered collector partials into a single
  * TeachingDoctorFacts object. Collectors own I/O; this module stays pure regarding
@@ -9,7 +9,7 @@
  * - no auto-repair
  * - no auto-upload / remote telemetry / OTEL
  * - no shell / MCP marketplace
- * - no free-form renderer facts (IPC payload remains ADR-0084 closed)
+ * - no free-form renderer facts (IPC payload remains ADR-0007 closed)
  */
 
 import type { TeachingDoctorFacts } from '../../shared/teaching-types/teaching-doctor'

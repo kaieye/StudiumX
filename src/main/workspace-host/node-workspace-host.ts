@@ -1,6 +1,6 @@
 /**
  * Default Node WorkspaceHostPort — pure composition over existing helpers.
- * Zero new security policy; no Electron APIs (ADR-0078).
+ * Zero new security policy; no Electron APIs (ADR-0005).
  */
 import {
   assertRealPathInsideRoot,

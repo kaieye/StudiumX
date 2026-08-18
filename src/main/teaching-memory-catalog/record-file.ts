@@ -16,7 +16,7 @@ export type TeachingMemoryRecordLayout = 'flat' | 'scoped'
 /**
  * An accepted memory source under a trusted memory root.
  * Paths are root-constrained pathname metadata; publication uses replaceDurably.
- * Not descriptor/CAS-equivalent (ADR-0131 / migration Phase C).
+ * Not descriptor/CAS-equivalent (ADR-0012).
  */
 export type TeachingMemoryRecordFileSource = {
   fileName: string

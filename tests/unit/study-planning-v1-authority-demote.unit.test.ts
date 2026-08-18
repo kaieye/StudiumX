@@ -1,5 +1,5 @@
 /**
- * V1 dual-authority demote pure helpers (ADR-0129 / 0130 §5.1 residual).
+ * V1 dual-authority demote pure helpers (ADR-0011 residual).
  * Fail-closed erase; backup-before-erase; no silent wipe on migration path.
  */
 

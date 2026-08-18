@@ -2,7 +2,7 @@
 
 > **前提声明**：以下建议均需遵守 StudiumX 的产品地板（AGENTS.md §1）和红线（§3）。
 > 任何建议不得降级教学权威、绕过 settlement sole-writer、引入默认遥测或 YOLO 标签。
-> 四源借鉴 backlog 已结项（ADR-0121），开放项须新 ADR。
+> 四源借鉴 backlog 的实施历史由 Git 与 PR 保存；开放项若改变架构边界，须新 ADR。
 
 ---
 

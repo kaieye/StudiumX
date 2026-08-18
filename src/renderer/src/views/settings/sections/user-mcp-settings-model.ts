@@ -37,7 +37,7 @@ export type DraftMcpServer = {
   toolEffectOverrides: UserMcpServerPublicV1['toolEffectOverrides']
   /** Secret-free OAuth public config; preserved across draft saves. */
   oauth: UserMcpServerOAuthConfigV1 | null
-  /** ADR-0138: explicit workspace-root injection grant (stdio only). */
+  /** ADR-0013: explicit workspace-root injection grant (stdio only). */
   workspaceRootInjection: McpWorkspaceRootInjection
   /** Optional injection identity label. */
   injectionIdentity: McpInjectionIdentity | null

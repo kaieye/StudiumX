@@ -110,7 +110,7 @@ fetch('https://galileotelemetry.tencent.com/collect', {
 - **不默认上传遥测**：`check:analytics` 是本地学习分析测试，不是远程遥测
 - **Doctor 脱敏**：`pnpm doctor -- --json` 输出脱敏诊断
 - **支持包同意**：预览后经同意才脱敏导出
-- **crash marker 本地**：ADR-0066 本地崩溃标记
+- **crash marker 本地**：ADR-0007 本地崩溃标记
 - **密钥永不外泄**：secret/token 永不进 public DTO / Doctor / 支持包
 
 **对比结论：** 在隐私方面，StudiumX **显著优于** IMA Copilot。IMA 默认远程上报错误和设备信息，文件存储在云端。StudiumX 完全本地优先，无默认遥测。
@@ -135,7 +135,7 @@ fetch('https://galileotelemetry.tencent.com/collect', {
 - `shell-env-scrub.ts`：Shell 环境变量清洗
 - `shell-hardline.ts`：Shell 硬限制
 - `tool-policy-fs.ts`：工具文件系统策略
-- ADR-0152/0153：工作区 shell + 沙箱双轴
+- ADR-0015：工作区 shell + 沙箱双轴
 
 **对比结论：** IMA 依赖 Chromium 原生沙箱（成熟但不可控），StudiumX 有自研的工具级沙箱策略（更细粒度但需要持续维护）。两者各有优势。
 

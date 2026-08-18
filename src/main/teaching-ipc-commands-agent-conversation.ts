@@ -1,7 +1,7 @@
 /**
  * Fail-closed IPC parsers for agent-conversation product channels
  * (save/rename/read/summaries/session-tree/branch/checkpoint + write-rewind
- * journal + archived history). Peeled from teaching-ipc-commands by ADR-0120
+ * journal + archived history). Peeled from teaching-ipc-commands by ADR-0004
  * (S-03 residual by-touch). Behavior byte-identical.
  */
 import type {

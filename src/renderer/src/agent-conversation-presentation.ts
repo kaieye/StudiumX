@@ -134,7 +134,7 @@ export type AgentConversationTurnPresentation = {
   answeredAsks: AgentConversationAnsweredAsk[]
   sources: AgentConversationSourceReference[]
   /**
-   * Learner-facing files-touched reference projection (ADR-0143).
+   * Learner-facing files-touched reference projection (ADR-0003).
    * Not teaching outcome evidence / settlement authority.
    */
   fileTouches?: FileTouchPresentation

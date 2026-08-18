@@ -1,5 +1,5 @@
 /**
- * MCP marketplace catalog + install records (ADR-0140 / ADR-0141).
+ * MCP marketplace catalog + install records (ADR-0013).
  * userData-backed JSON. Optional remote catalog fetch is fail-soft when catalogUrls set.
  * Install pin does not grant tool approval. installAndEnable (host) may merge config + connect.
  */

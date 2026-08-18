@@ -2,7 +2,7 @@
  * Compaction pressure ladder + single-flight mutex (Phase A / worth-learning §2.3).
  *
  * Authority split (product floor):
- * - Projection compaction remains **reference-only / non-durable** (ADR-0064).
+ * - Projection compaction remains **reference-only / non-durable** (ADR-0010).
  * - Aggregate usage is local observability only and never suppresses compaction.
  * - Concurrent pre-send / mid-stream / post-tool style triggers share one in-flight
  *   compaction; pressure escalates only when a completed compact still sits over threshold.

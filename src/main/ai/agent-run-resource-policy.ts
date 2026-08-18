@@ -49,7 +49,7 @@ export type CreateAgentRunResourcePolicyResolverOptions = Readonly<{
 }>
 
 /**
- * Compose the three ADR-0171 sources at the host boundary. There is no merge
+ * Compose the three ADR-0010 sources at the host boundary. There is no merge
  * precedence that weakens a lower layer: the governor enforces every retained
  * limit and the first boundary is the terminal reason. Invalid entries are
  * dropped rather than turning malformed renderer/config data into authority.

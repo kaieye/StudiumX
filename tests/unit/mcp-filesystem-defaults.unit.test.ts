@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { resolveFilesystemInjectionDefaults } from '../../src/shared/mcp/filesystem-mcp-defaults'
 
-describe('resolveFilesystemInjectionDefaults (ADR-0141)', () => {
+describe('resolveFilesystemInjectionDefaults (ADR-0013)', () => {
   it('defaults filesystem package args to granted', () => {
     const result = resolveFilesystemInjectionDefaults({
       transport: 'stdio',

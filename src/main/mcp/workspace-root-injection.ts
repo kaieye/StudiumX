@@ -1,5 +1,5 @@
 /**
- * Controlled stdio workspace-root injection (ADR-0138 / Phase F).
+ * Controlled stdio workspace-root injection (ADR-0013).
  * Pure path policy — no secrets, no http/sse, default off unless granted.
  */
 

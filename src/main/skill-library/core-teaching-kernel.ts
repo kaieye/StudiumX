@@ -1,5 +1,5 @@
 /**
- * App-shipped Teaching Kernel loader (ADR-0151 Phase 1).
+ * App-shipped Teaching Kernel loader (ADR-0014).
  *
  * Loads the reserved core skill id `teach` from verified builtin roots only.
  * Does not require personal install and never reads personal root for kernel body.
@@ -60,7 +60,7 @@ export async function loadCoreTeachingKernelReference(
       diagnostics: [
         message,
         `Searched ${roots.length} builtin root(s).`,
-        'Kernel load does not use personal skill installs (ADR-0151).'
+        'Kernel load does not use personal skill installs (ADR-0014).'
       ]
     })
   }
@@ -82,7 +82,7 @@ export async function loadCoreTeachingKernelReference(
         diagnostics: [
           `Teaching Kernel pack at ${candidate.directory} is corrupt or invalid.`,
           detail,
-          'Fail-closed: teaching turns must not proceed without a verified kernel (ADR-0151).'
+          'Fail-closed: teaching turns must not proceed without a verified kernel (ADR-0014).'
         ],
         cause: error
       }

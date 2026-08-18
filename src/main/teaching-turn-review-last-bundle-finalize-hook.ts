@@ -1,6 +1,6 @@
 /**
  * Composition-edge factory: optional finalize-hook save of last teaching-turn review bundle
- * (ADOPTION S-09 residual / ADR-0117).
+ * (ADOPTION S-09 residual / ADR-0001).
  *
  * Default OFF. Fail-soft. Candidates-only durable cache — never auto-applies,
  * never writes skills / profile / settlement / memory.
@@ -22,7 +22,7 @@ export type CreateSaveTeachingTurnReviewLastBundleFinalizeHookOptions = Readonly
 }>
 
 /**
- * Composition-edge factory for ADR-0117.
+ * Composition-edge factory for ADR-0001.
  * Returns a TeachingTurnReviewFinalizeHook suitable for orchestrator.onTeachingTurnReview.
  * - enabled !== true => no-op
  * - enabled => toTeachingTurnReviewLastBundleSnapshot({ bundle, source: 'finalize_hook' })

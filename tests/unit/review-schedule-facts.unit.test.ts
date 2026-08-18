@@ -34,7 +34,7 @@ function canonicalSession(events: Array<{ payload: { lessonInteraction: unknown 
   } as never
 }
 
-describe('deriveReviewScheduleFromScan (ADR-0154)', () => {
+describe('deriveReviewScheduleFromScan (ADR-0003)', () => {
   it('derives per-item history from typed quiz evidence in canonical sessions', () => {
     const scan = {
       canonicalSessions: [canonicalSession([

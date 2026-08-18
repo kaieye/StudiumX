@@ -48,7 +48,7 @@ function healthyFacts(): TeachingDoctorFacts {
     processCrashMarker: {
       present: false
     },
-    // ADR-0128/0140: default-off MCP posture is a healthy 'ok' diagnosis.
+    // ADR-0013: default-off MCP posture is a healthy 'ok' diagnosis.
     mcp: {
       implementationPresent: true,
       rootEnabled: false,

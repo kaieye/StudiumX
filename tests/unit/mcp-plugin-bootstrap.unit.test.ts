@@ -24,7 +24,7 @@ async function writePlugin(
   return pluginRoot
 }
 
-describe('plugin MCP filesystem bootstrap (ADR-0139/0141)', () => {
+describe('plugin MCP filesystem bootstrap (ADR-0013)', () => {
   it('lists candidate dirs that contain manifests', async () => {
     const root = await mkdtemp(join(tmpdir(), 'mcp-plugin-scan-'))
     await writePlugin(root, 'alpha', {

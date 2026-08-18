@@ -63,7 +63,7 @@ const forcedCompactionOptions = {
   maxSummaryTokens: 96
 }
 
-describe('runAgentLoop ADR-0171 context governance', () => {
+describe('runAgentLoop ADR-0010 context governance', () => {
   it('fails closed before provider dispatch when a normal projection is known to exceed the window', async () => {
     let fetchCalls = 0
     globalThis.fetch = (async () => {
@@ -473,7 +473,7 @@ describe('runAgentLoop ADR-0171 context governance', () => {
           index: 0,
           id: 'slow-1',
           type: 'function',
-          function: { name: 'slow_lookup', arguments: '{\"topic\":\"ADR-0171\"}' }
+          function: { name: 'slow_lookup', arguments: '{\"topic\":\"ADR-0010\"}' }
         }] } }]
       }]),
       sseResponse([{ choices: [{ delta: { content: 'I handled the tool timeout safely.' } }] }])

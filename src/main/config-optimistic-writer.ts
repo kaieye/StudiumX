@@ -9,7 +9,7 @@
  * Never persists secrets into the fingerprint surface. Detectable secret
  * paths in the write overlay are rejected before apply.
  *
- * Managed layer (ADR-0086 / ADR-0092): when baseScope / store snapshot carries
+ * Managed layer (ADR-0006): when baseScope / store snapshot carries
  * `managed`, CAS re-resolve preserves it so a user/workspace write does not
  * drop the school/org overlay. The writer does not auto-load managed from disk.
  */
@@ -108,7 +108,7 @@ export function compareAndProjectConfigWrite(
 
   const nextScope: TeachingConfigScope = {
     fallbackDefaultRoot: baseScope.fallbackDefaultRoot ?? '',
-    // Preserve managed through CAS re-resolve (S-11 residual / ADR-0092).
+    // Preserve managed through CAS re-resolve (S-11 residual / ADR-0006).
     ...(baseScope.managed !== undefined ? { managed: baseScope.managed } : {}),
     user: layer === 'user' ? input.nextOverlay : baseScope.user,
     workspace: layer === 'workspace' ? input.nextOverlay : baseScope.workspace,

@@ -1,5 +1,5 @@
 /**
- * Learner-facing file-touch projection (ADR-0143 Phase A surface).
+ * Learner-facing file-touch projection (ADR-0003 surface).
  *
  * Pure reducers that map ledger-shaped DTOs → display rows. This is
  * **reference / process transparency**, not teaching-evidence and not

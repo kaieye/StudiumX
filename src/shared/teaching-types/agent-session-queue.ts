@@ -1,6 +1,6 @@
 /**
  * Shared DTO + product IPC payload/result for agent session queue projection
- * (ADOPTION B-02 residual / ADR-0091, pure mapper ADR-0089).
+ * The projection and pure mapper follow ADR-0004.
  *
  * Renderer types against this module only — never import main façade / queue
  * modules. Free-text is omitted by default; optional preview is opt-in.

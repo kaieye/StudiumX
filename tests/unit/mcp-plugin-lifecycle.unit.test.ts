@@ -7,7 +7,7 @@ import {
 } from '../../src/shared/mcp/plugin-types'
 import { PluginMcpRegistry } from '../../src/main/mcp/plugin-mcp-registry'
 
-describe('plugin MCP pure helpers (ADR-0139)', () => {
+describe('plugin MCP pure helpers (ADR-0013)', () => {
   it('namespaces plugin server ids into durable charset', () => {
     const id = namespacePluginServerId('My.Plugin', 'fs-server')
     expect(id).toMatch(/^[a-z][a-z0-9_-]{0,63}$/)

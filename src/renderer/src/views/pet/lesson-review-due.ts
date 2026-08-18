@@ -8,7 +8,7 @@ import {
 /**
  * Real "due for review" projection for lessons.
  *
- * v2 (ADR-0154): derivation now runs through the shared spaced-review
+ * v2 (ADR-0003): derivation now runs through the shared spaced-review
  * scheduler (`deriveReviewSchedule`) instead of a local ad-hoc threshold, so
  * Pet notifications and the teaching loop share one review-timing authority.
  *

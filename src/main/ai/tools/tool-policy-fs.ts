@@ -1,10 +1,10 @@
 /**
  * Workspace-contained FS loader for declarative tool-policy documents
- * (ADOPTION B-08 residual / ADR-0079 / ADR-0083 product inject / ADR-0115 multi-path).
+ * Loads and merges workspace tool-policy documents under ADR-0005.
  *
  * Reads optional relative JSON file(s) under a registered workspace root via
  * path-access contained IO, then parses with pure `loadToolPolicyDocument`.
- * Multi-path load merges with most-restrictive-wins (ADR-0112).
+ * Multi-path load merges with most-restrictive-wins (ADR-0005).
  * Fail closed: missing / invalid / oversize / path-escape → null (per file or overall).
  *
  * Does not invent shell argv / prefix_rule policy language, and does not
@@ -25,7 +25,7 @@ import { normalizeRelativePath } from './write-policy'
 export const DEFAULT_WORKSPACE_TOOL_POLICY_RELATIVE_PATH = '.studiumx/tool-policy.json'
 
 /**
- * Optional course-layer overlay relative path (ADR-0115).
+ * Optional course-layer overlay relative path (ADR-0005).
  * Loaded after the primary workspace document when multi-path merge is used;
  * missing secondary is fail-soft and does not change single-file behavior.
  */
@@ -128,7 +128,7 @@ export async function loadToolPolicyDocumentFromWorkspace(
 }
 
 /**
- * Load multiple optional tool-policy documents and merge (ADR-0115 / ADR-0112).
+ * Load multiple optional tool-policy documents and merge (ADR-0005).
  *
  * Semantics:
  * - Each path is loaded via {@link loadToolPolicyDocumentFromWorkspace} (fail-soft null per file).
@@ -183,7 +183,7 @@ export async function loadAndMergeToolPolicyDocumentsFromWorkspace(
  * Prefer this over passing `null` into `buildToolContext` so the field is
  * **omitted** on miss/invalid and registry falls back to
  * `DEFAULT_IN_PROCESS_TOOL_POLICY_DOCUMENT` (default-equivalent lattice).
- * Product inject: ADR-0083 primary conversation path; multi-path ADR-0115.
+ * Product inject for the ADR-0005 primary and overlay paths.
  */
 export function toolPolicyDocumentOption(
   document: ToolPolicyDocument | null | undefined

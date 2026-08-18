@@ -54,7 +54,7 @@ function layer(
   return { origin: { kind, label }, servers }
 }
 
-describe('MCP source resolver (ADR-0137)', () => {
+describe('MCP source resolver (ADR-0013)', () => {
   it('prefers higher precedence sources for the same id (cli > env > user > workspace)', () => {
     const view = resolveMcpConfigSources({
       userGate: { enabled: true, autoConnect: false },
@@ -192,7 +192,7 @@ describe('MCP source resolver (ADR-0137)', () => {
   })
 })
 
-describe('UserMcpConfig autoConnect field (ADR-0141)', () => {
+describe('UserMcpConfig autoConnect field (ADR-0013)', () => {
   it('default document enables root MCP and autoConnect (Zcode-like)', () => {
     const def = defaultUserMcpConfig()
     expect(def.enabled).toBe(true)

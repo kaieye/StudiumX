@@ -76,7 +76,7 @@ try {
     capabilities: ['read-resources', 'read-shared-resources']
   })
 
-  // ADR-0151: Teaching Kernel loads from app-shipped builtin without personal install.
+  // ADR-0014: Teaching Kernel loads from app-shipped builtin without personal install.
   const preInstallKernel = await service.readCoreTeachingKernel()
   assert.equal(preInstallKernel.id, 'teach')
   assert.match(preInstallKernel.content, /Use retrieval practice/)

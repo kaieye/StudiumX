@@ -1,6 +1,6 @@
 /**
  * Settings Review section — thin project-first UI for teaching-turn review
- * candidates (ADOPTION S-09 residual / ADR-0097 + ADR-0111 + ADR-0114).
+ * candidates (ADOPTION S-09 residual / ADR-0001).
  *
  * - Primary: client-side demo bundle → projectTeachingTurnReview → render projection
  * - Optional: local approve/reject/defer + decideTeachingTurnReview → re-project

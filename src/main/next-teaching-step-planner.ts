@@ -46,7 +46,7 @@ export function planNextTeachingStep(facts: NextTeachingStepFacts): NextTeaching
     return decision('request_goal_clarification', 'insufficient_evidence', safeInputSummary)
   }
 
-  // ADR-0154: settle review debt before advancing. Fires only on an otherwise
+  // ADR-0003: settle review debt before advancing. Fires only on an otherwise
   // healthy loop (trusted outcome + verified evidence) and only when an adapter
   // supplied due-review facts — absent facts keep the legacy decision table.
   if ((facts.review?.dueCount ?? 0) > 0) {

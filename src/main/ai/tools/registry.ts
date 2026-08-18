@@ -86,13 +86,13 @@ export type ToolContext = {
   /** Abort signal for the current agent run. Tools should compose this with their own timeouts. */
   signal?: AbortSignal
   /**
-   * Optional declarative tool-policy document (ADR-0063).
+   * Optional declarative tool-policy document (ADR-0005).
    * When omitted, DEFAULT_IN_PROCESS_TOOL_POLICY_DOCUMENT is used (defaultDecision allow:
    * existing approvalMode lattice remains in charge until rules are supplied).
    */
   toolPolicyDocument?: ToolPolicyDocument | null
   /**
-   * Optional journal audit only (ADR-0063 residual / B-08 capture wire / ADR-0108).
+   * Optional journal audit only (ADR-0005).
    * Set by registry after permission resolve when a decision is known, immediately
    * before invoking the tool handler for that call.
    * Never used to re-authorize writes; capture may read and pass through.
@@ -334,7 +334,7 @@ export function buildDefaultRegistry(
       registry.register(writeWorkspaceFileTool)
       registry.register(editWorkspaceFileTool)
     }
-    // Workspace shell: default on when tools.workspaceShell !== false (ADR-0153 mainstream agent).
+    // Workspace shell: default on when tools.workspaceShell !== false (ADR-0015 mainstream agent).
     // Requires workspaceWrite session grant (same fence as file writers).
     if (settings.tools.workspaceShell !== false && options.workspaceWrite === true) {
       registry.register(runWorkspaceCommandTool)
@@ -365,7 +365,7 @@ async function resolveToolPermission(
     }
   }
 
-  // Declarative tool-policy (ADR-0063): forbidden short-circuits full_access /
+  // Declarative tool-policy (ADR-0005): forbidden short-circuits full_access /
   // based_on_approval creates auto-allow. prompt forces interactive path.
   // allow only defers to existing approvalMode — never invents YOLO bypass.
   const effectClass = classifyToolEffect(request.toolName)
@@ -392,7 +392,7 @@ async function resolveToolPermission(
   const policyAction = forceInteractive ? 'force_interactive' : 'defer_to_approval_mode'
 
   // Synthetic teaching memory mutations always require human approval
-  // (Slice F / ADR-0050). Prior run grants still apply after an explicit allow.
+  // (Slice F / ADR-0009). Prior run grants still apply after an explicit allow.
   // After the workspace_write gate above, non-read MCP tools always arrive here
   // with kind=workspace_write (permissionKindForMcpEffect). Read MCP tools
   // early-return allow and never need this flag.

@@ -1,5 +1,5 @@
 /**
- * Desktop Web Remote Control dialog + sidebar trigger (ADR-0143).
+ * Desktop Web Remote Control dialog + sidebar trigger (security boundary: SECURITY.md).
  * Desktop remote-control dialog: header · scan card · channel rail · QR · status · stop/refresh/copy.
  */
 

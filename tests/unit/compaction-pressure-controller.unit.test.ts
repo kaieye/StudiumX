@@ -223,7 +223,7 @@ describe('aggregate observability never suppresses compaction', () => {
 })
 
 describe('default compaction remains reference-only / non-durable', () => {
-  it('keeps ADR-0064 product defaults and reference-only summary markers', async () => {
+  it('keeps ADR-0010 product defaults and reference-only summary markers', async () => {
     expect(CONTEXT_COMPACTOR_CUT_POINT_STRATEGY.durableRewriteDefault).toBe(false)
     expect(CONTEXT_COMPACTOR_CUT_POINT_STRATEGY.referenceOnlySummary).toBe(true)
 

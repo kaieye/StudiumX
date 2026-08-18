@@ -23,7 +23,7 @@ function artifactWriter(): { writer: McpArtifactWriter; calls: Array<Readonly<{ 
   }
 }
 
-describe('normalizeMcpToolResult (ADR-0134)', () => {
+describe('normalizeMcpToolResult (ADR-0013)', () => {
   it('preserves bounded text and structuredContent independently', async () => {
     const result = await normalizeMcpToolResult(
       {

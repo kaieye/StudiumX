@@ -5,7 +5,7 @@
  * Workspace export defaults exclude disposable projections; opt-in include
  * is debug-only and always marked untrusted.
  *
- * File-truth remains inviolable: SQLite is never authority (ADR-0001).
+ * File-truth remains inviolable: SQLite is never authority (ADR-0012).
  */
 
 export type BackupPathClass =
@@ -38,7 +38,7 @@ export const MUST_BACKUP_WORKSPACE_PATHS: readonly BackupPathEntry[] = [
   {
     pattern: 'learning-sessions/**',
     class: 'must_backup',
-    reason: 'Canonical LearningSession ledger (ADR-0008)'
+    reason: 'Canonical LearningSession ledger (ADR-0001)'
   },
   {
     pattern: 'memory/**',
@@ -53,7 +53,7 @@ export const MUST_BACKUP_WORKSPACE_PATHS: readonly BackupPathEntry[] = [
   {
     pattern: '.studiumx/learning-work.sealed-*.jsonl',
     class: 'must_backup',
-    reason: 'Sealed learning-work segments (ADR-0002)'
+    reason: 'Sealed learning-work segments (ADR-0012)'
   },
   {
     pattern: '.studiumx/approval-receipts.jsonl',
@@ -77,7 +77,7 @@ export const MUST_BACKUP_USER_DATA_PATHS: readonly BackupPathEntry[] = [
   {
     pattern: 'studiumx-settings.json.bak',
     class: 'settings_desensitize',
-    reason: 'Verified settings predecessor backup (ADR-0003)'
+    reason: 'Verified settings predecessor backup (ADR-0012)'
   },
   {
     pattern: 'workspaces.json',
@@ -106,7 +106,7 @@ export const DISPOSABLE_PROJECTION_PATHS: readonly BackupPathEntry[] = [
   {
     pattern: 'studiumx-index.sqlite',
     class: 'disposable_projection',
-    reason: 'Rebuildable analytics projection (ADR-0001); safe to delete'
+    reason: 'Rebuildable analytics projection (ADR-0012); safe to delete'
   },
   {
     pattern: 'studiumx-index.sqlite-wal',
@@ -273,7 +273,7 @@ function classifyDisposable(relativePath: string): BackupPathEntry | null {
     return {
       pattern: base,
       class: 'disposable_projection',
-      reason: 'SQLite / index projection is rebuildable and disposable (ADR-0001)'
+      reason: 'SQLite / index projection is rebuildable and disposable (ADR-0012)'
     }
   }
   if (base.includes('quarantined') && base.includes('sqlite')) {

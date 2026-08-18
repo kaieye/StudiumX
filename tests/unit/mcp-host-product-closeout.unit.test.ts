@@ -1,5 +1,5 @@
 /**
- * Host-level multi-source + effect policy smoke (ADR-0137/0141).
+ * Host-level multi-source + effect policy smoke (ADR-0013).
  * No real network; pure config/effect path.
  */
 import { describe, expect, it, vi } from 'vitest'

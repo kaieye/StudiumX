@@ -1,5 +1,5 @@
 /**
- * Provider custom HTTP headers (ADR-0149 (LiveAgent Phase B historical research §3.5)).
+ * Provider custom HTTP headers (ADR-0006; security boundary: SECURITY.md).
  *
  * Ordered user-configured name/value pairs may be merged into outbound provider
  * requests. Reserved auth and identity keys are never overridden (case-insensitive).

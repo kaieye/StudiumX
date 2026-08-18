@@ -1,7 +1,7 @@
 /**
- * Platform capability registry (ADR-0131 / migration Phase D).
+ * Platform capability registry for durable file operations (ADR-0012).
  *
- * Shrinks the ADR-0126 dual-profile matrix to simple host booleans +
+ * Shrinks the legacy dual-profile matrix to simple host booleans +
  * pathname_default. Call sites consult this registry instead of scattering
  * process.platform branches. Doctor must not imply descriptor-strict is the
  * full-platform default.
@@ -35,11 +35,11 @@ export type ResolvePlatformCapabilitiesInput = {
    * ignored — they are no longer part of the product matrix.
    */
   pathnameAvailable?: boolean
-  /** @deprecated Ignored; dual-profile probes removed (ADR-0131 Phase D). */
+  /** @deprecated Ignored; dual-profile probes removed (ADR-0012). */
   posixDescriptorAvailable?: boolean
-  /** @deprecated Ignored; dual-profile probes removed (ADR-0131 Phase D). */
+  /** @deprecated Ignored; dual-profile probes removed (ADR-0012). */
   posixDescriptorReason?: 'unsupported_platform' | 'native_unavailable'
-  /** @deprecated Ignored; dual-profile probes removed (ADR-0131 Phase D). */
+  /** @deprecated Ignored; dual-profile probes removed (ADR-0012). */
   windowsDirectPathAvailable?: boolean
 }
 
@@ -122,7 +122,7 @@ export function isMemoryAuthorityReadAvailable(input: ResolvePlatformCapabilitie
 
 /**
  * Catalog / diagnostics I/O profile. Product path is pathname_default
- * (ADR-0131). Never returns posix_descriptor_strict as the default.
+ * (ADR-0012). Never returns posix_descriptor_strict as the default.
  */
 export function memoryIoProfile(input: ResolvePlatformCapabilitiesInput = {}): PlatformIoProfileId {
   const capability = resolvePlatformCapability(MEMORY_CONSUMER, input)
@@ -193,7 +193,7 @@ function resolveOutcomeCommitterCapability(
   platform: NodeJS.Platform,
   pathnameOk: boolean
 ): ConsumerPlatformCapability {
-  // ADR-0035: Windows does not claim P6 strict settlement profile.
+  // ADR-0012: Windows does not claim P6 strict settlement profile.
   if (platform === 'win32') {
     return cap(
       OUTCOME_COMMITTER_CONSUMER,
@@ -228,7 +228,7 @@ function resolveSessionAuditCapability(
   platform: NodeJS.Platform,
   pathnameOk: boolean
 ): ConsumerPlatformCapability {
-  // Session audit keeps existing ADR-0019/0035 boundaries; registry only
+  // Session audit keeps existing ADR-0007 boundaries; registry only
   // projects readiness for doctor. Do not auto-migrate audit writers.
   if (platform === 'win32') {
     return cap(

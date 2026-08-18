@@ -1,5 +1,5 @@
 /**
- * MCP secret env / header bridge (ADR-0128 §3.1 / §4.3).
+ * MCP secret env / header bridge (ADR-0013).
  * Secrets never enter logs; config only stores secret ref ids.
  */
 

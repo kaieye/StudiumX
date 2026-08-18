@@ -1,5 +1,5 @@
 /**
- * MCP config bulk import / export / migration report + McpSync wire (ADR-0136).
+ * MCP config bulk import / export / migration report + McpSync wire (ADR-0013).
  * Pure shared helpers — no Node FS, no Electron, no network.
  *
  * Import always produces drafts + a secret-free report. Canonical write happens
@@ -55,7 +55,7 @@ export type McpImportServerDraft = Readonly<{
   timeoutMs: number | null
   oauth: UserMcpServerOAuthConfigV1 | null
   /**
-   * ADR-0141: filesystem-class defaults to granted when omitted; explicit off preserved.
+   * ADR-0013: filesystem-class defaults to granted when omitted; explicit off preserved.
    * Optional so older callers remain type-compatible.
    */
   workspaceRootInjection?: McpWorkspaceRootInjection
@@ -179,7 +179,7 @@ export type McpSyncEnvelopeV1 = Readonly<{
   conflicts?: readonly McpSyncConflictV1[]
 }>
 
-/** @deprecated Prefer SECRET_FIELD_KEY_RE from secret-presence (ADR-0148). */
+/** @deprecated Prefer SECRET_FIELD_KEY_RE from secret-presence (ADR-0013). */
 const SECRET_KEY_RE = SECRET_FIELD_KEY_RE
 const MCP_SERVER_ID_RE = /^[a-z][a-z0-9_-]{0,63}$/
 const MAX_WARNINGS = 40

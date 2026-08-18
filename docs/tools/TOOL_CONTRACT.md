@@ -8,8 +8,8 @@ This contract is the reviewable inventory of registered teaching tools. `scripts
 | `delegate_task` | `privileged` | No child prompt/provider payload projection; expose bounded child status only | Child execution is capability-gated and budgeted. |
 | `generate_lesson` | `privileged` | No raw provider payload; project learner-safe lesson result | Lesson generation is an explicit teaching action, not a generic write grant. |
 | `parallel_tasks` | `privileged` | No snip; project bounded child status | Delegation fan-out remains privileged and budgeted. |
-| `run_workspace_command` | `privileged` | Snip bounded stdout/stderr; never treat as Evidence | Tool calling is application-wide; legacy `tools.enabled` values normalize to `true`, while `workspaceShell !== false` keeps shell available. Workspace cwd fence; argv spawn; **sandboxMode × approvalMode** dual-axis (Codex, ADR-0152/0153). [ADR-0153](../adr/0153-codex-sandbox-dual-axis-and-agent-shell.md) records A–F qualified completion; the teaching projection must continue to allowlist the tool (not registry-only), and Windows without the optional helper remains `notConfigured`. |
-| `shell` | `privileged` | Same as `run_workspace_command` | Mainstream-agent alias of `run_workspace_command` (ADR-0153). |
+| `run_workspace_command` | `privileged` | Snip bounded stdout/stderr; never treat as Evidence | Tool calling is application-wide; legacy `tools.enabled` values normalize to `true`, while `workspaceShell !== false` keeps shell available. Workspace cwd fence; argv spawn; **sandboxMode × approvalMode** dual-axis (Codex). [ADR-0015](../adr/0015-shell-sandbox-dual-axis.md) defines the stable dual-axis boundary; the teaching projection must continue to allowlist the tool (not registry-only), and Windows without the optional helper remains `notConfigured`. |
+| `shell` | `privileged` | Same as `run_workspace_command` | Mainstream-agent alias of `run_workspace_command` (ADR-0015). |
 | `read_only_task` | `read` | Snip to bounded read-only result; no write projection | Read-only delegated work may not invoke write or privileged effects. |
 | `list_workspace` | `read` | Snip bounded directory entries; omit sensitive/protected paths | Workspace containment and protected-path checks remain mandatory. |
 | `read_workspace_file` | `read` | Snip bounded line window; no unbounded file projection | Workspace containment and protected-path checks remain mandatory. |
@@ -44,7 +44,7 @@ Runtime capability discovery is implemented in `src/main/ai/tools/tool-capabilit
 | `external_write` | `false` | **`1` (hard)** | `true` |
 | `privileged` (incl. unknown) | `false` | **`1` (hard)** | `true` |
 
-**Invariant:** non-`read` tools never advertise `maxConcurrency > 1`. Declaring capability metadata does **not** open write parallelism. Bounded parallel dispatch remains limited to pure-read tools (ADR-0032).
+**Invariant:** non-`read` tools never advertise `maxConcurrency > 1`. Declaring capability metadata does **not** open write parallelism. Bounded parallel dispatch remains limited to pure-read tools (ADR-0004).
 
 Registry discovery: optional `ToolEntry.capabilities` overrides defaults; `resolveToolEntryCapabilities(entry)` falls back to `capabilitiesForTool(name)`.
 
@@ -53,7 +53,7 @@ Registry discovery: optional `ToolEntry.capabilities` overrides defaults; `resol
 The contract does not authorize execution by itself. The effect lattice remains the pre-execution gate, and the registry permission descriptor remains the interactive gate. UI copy should describe the three states as **需批准** (approval required; Codex `untrusted`), **按风险** (risk-based; Codex `on-request`), and **本课放行** (this lesson/run allows it; Codex `never`). Do not expose or label a mode as “YOLO”.
 
 
-## Dynamic MCP bridge rules (ADR-0128)
+## Dynamic MCP bridge rules (ADR-0013)
 
 User-configured MCP tools are **not** listed in the static inventory above. `scripts/check-tool-contract.mjs` continues to enforce only the closed static set.
 
@@ -63,16 +63,16 @@ Bridge rules (product invariants):
 | --- | --- |
 | Naming | Registered tool names are `mcp__{serverId}__{rawToolName}` only. |
 | Default effect | `privileged` unless an explicit per-tool override maps to `read` / `workspace_write` / `external_write` / `privileged`. |
-| Permission | Non-`read` MCP tools require interactive approval (or existing risk-based/lesson grant UX). Enabling/auto-connecting a server **lists** tools for the model; it does **not** skip effect/permission for side-effecting calls (ADR-0141). |
+| Permission | Non-`read` MCP tools require interactive approval (or existing risk-based/lesson grant UX). Enabling/auto-connecting a server **lists** tools for the model; it does **not** skip effect/permission for side-effecting calls (ADR-0013). |
 | Provenance | UI / diagnostics should surface config **source** (user settings, import, future workspace/plugin/marketplace) when multi-source lands; provenance is display + policy input, not an effect downgrade. |
 | Annotations | Remote tool annotations (`readOnlyHint`, etc.) are **display-only** metadata; they **never** downgrade registry effect or skip approval. |
-| Handler stance | MCP handlers must not write workspace files, LearningSession ledger, or teaching outcomes; MCP modules must not import ledger / outcome committer. Results are data only (ADR-0134) — **not** teaching evidence. |
-| Secrets | Resolved headers/env/OAuth tokens stay main-process only; never on renderer/preload IPC, Doctor, or support bundle (ADR-0128 / ADR-0135). |
-| Budget | Per-server / global tool and schema budgets apply at list/register time (see ADR-0128 §5.3); result normalizer applies MCP budgets before generic tool result budgets (ADR-0134). |
+| Handler stance | MCP handlers must not write workspace files, LearningSession ledger, or teaching outcomes; MCP modules must not import ledger / outcome committer. Results are data only (ADR-0013) — **not** teaching evidence. |
+| Secrets | Resolved headers/env/OAuth tokens stay main-process only; never on renderer/preload IPC, Doctor, or support bundle (ADR-0013). |
+| Budget | Per-server / global tool and schema budgets apply at list/register time; result normalizer applies MCP budgets before generic tool result budgets (ADR-0013). |
 | Settlement | MCP is orthogonal to settlement sole-writer (`TeachingTurnCoordinator` / host); fork paths keep `toolsReplayed: false`; MCP does not widen `expectedRevision`. |
-| Workspace-root | Filesystem workspace-root injection (ADR-0138 + ADR-0141) may **default on** for recognized filesystem servers (user can disable); still not a bypass of `write_workspace_file` / teaching writers. |
-| Defaults | Root switch may ship off for first-run zero-connect; once enabled, **auto-connect is a supported default** (ADR-0141). Marketplace / plugin install may connect. Tool **invocation** still uses effect lattice + approval — no YOLO. Annotations may inform UX and optional effect suggestions under policy. |
-| Fingerprint | MCP tools that are registered for a run **are** included in tools-schema fingerprint (ADR-0060). |
+| Workspace-root | Filesystem workspace-root injection (ADR-0013) may **default on** for recognized filesystem servers (user can disable); still not a bypass of `write_workspace_file` / teaching writers. |
+| Defaults | Root switch may ship off for first-run zero-connect; once enabled, **auto-connect is a supported default** (ADR-0013). Marketplace / plugin install may connect. Tool **invocation** still uses effect lattice + approval — no YOLO. Annotations may inform UX and optional effect suggestions under policy. |
+| Fingerprint | MCP tools that are registered for a run **are** included in tools-schema fingerprint (ADR-0005). |
 
 Static teaching tools remain the authoritative closed set in this document. Dynamic MCP audit snapshots may record registered names and effects without expanding this table.
 

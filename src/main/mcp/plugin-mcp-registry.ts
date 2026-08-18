@@ -1,5 +1,5 @@
 /**
- * In-memory plugin-provided MCP registry (ADR-0139 Phase G).
+ * In-memory plugin-provided MCP registry (ADR-0013).
  * Trust grant ≠ connect ≠ tool approval. No network install.
  */
 

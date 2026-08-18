@@ -1,5 +1,5 @@
 /**
- * ADR-0117 path constants + snapshot wire validation (pure; no fs).
+ * ADR-0011 path constants + snapshot wire validation (pure; no fs).
  */
 
 import {

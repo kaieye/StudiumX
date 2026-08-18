@@ -1180,7 +1180,7 @@ describe('Teaching IPC gateway', () => {
   it('registers every non-MCP Teaching invoke channel exactly once', () => {
     registerTeachingIpcGateway(registration())
 
-    // ADR-0128/0142: teach:mcp-* invoke channels are owned by the dedicated
+    // ADR-0013: teach:mcp-* invoke channels are owned by the dedicated
     // registerMcpIpcGateway registrar. The access-token channel is registered
     // in the main-process bootstrap because it configures that gateway.
     const channels = Object.values(teachingInvokeChannels)

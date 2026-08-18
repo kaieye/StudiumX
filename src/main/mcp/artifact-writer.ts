@@ -15,7 +15,7 @@ export type LocalMcpArtifactWriterOptions = Readonly<{
 }>
 
 /**
- * Content-addressed, local-only MCP artifact writer (ADR-0134).
+ * Content-addressed, local-only MCP artifact writer (ADR-0013).
  *
  * This class intentionally has no lookup/read API: a returned reference is
  * metadata only, not a capability. Future retention/read flows require their

@@ -1,5 +1,5 @@
 /**
- * Main-process MCP multi-source loaders (ADR-0137 Phase E).
+ * Main-process MCP multi-source loaders (ADR-0013).
  * Read-only: never write workspace / env source files.
  */
 
@@ -22,11 +22,11 @@ import type { UserMcpConfigV1, UserMcpServerV1 } from '../../shared/mcp/types'
 
 const SECRET_KEY_RE = /api[_-]?key|token|secret|password|authorization/i
 
-/** Env var holding optional full MCP JSON document (ADR-0137 environment layer). */
+/** Env var holding optional full MCP JSON document (ADR-0013 environment layer). */
 export const STUDIUMX_MCP_CONFIG_JSON_ENV = 'STUDIUMX_MCP_CONFIG_JSON' as const
 
 /**
- * Env var for CLI / session-override MCP JSON (ADR-0137 cli layer, highest precedence).
+ * Env var for CLI / session-override MCP JSON (ADR-0013 cli layer, highest precedence).
  * Same shapes as import/export (`mcpServers` map, nested servers, or StudiumX document).
  * Never written by the app; process parent / launcher may inject for a single session.
  */

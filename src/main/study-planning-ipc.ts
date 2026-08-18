@@ -1,5 +1,5 @@
 /**
- * Study planning product IPC parsers + durable host registry (ADR-0117).
+ * Study planning product IPC parsers + durable host registry (ADR-0011).
  * Fail-closed; workspace-root scoped sole-writer.
  */
 

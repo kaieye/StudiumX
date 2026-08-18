@@ -18,7 +18,7 @@ import { useSkillCatalog } from './skillCatalog'
 const MAX_SELECTED_SKILLS = 8
 const PREVIEW_DEBOUNCE_MS = 280
 
-/** Kernel is host-injected in teaching mode and never a selectable slot (ADR-0151 §2.1). */
+/** Kernel is host-injected in teaching mode and never a selectable slot (ADR-0014). */
 const KERNEL_SKILL_ID = 'teach'
 
 const STATUS_ORDER: SkillOrchestrationDecisionStatus[] = [
@@ -170,7 +170,7 @@ export function useSkillCapabilityPicker(options: {
     if (open) closeButtonRef.current?.focus()
   }, [open])
 
-  // Read-only preview. Never advances orchestration state (ADR-0163 §2.2).
+  // Read-only preview. Never advances orchestration state (ADR-0014).
   //
   // `userInput` is deliberately held in a ref rather than an effect dependency:
   // the authority bridge scans the ledger on every call, so re-previewing on
@@ -222,9 +222,9 @@ export function useSkillCapabilityPicker(options: {
     options.workspaceId
   ])
 
-  // ADR-0165: the always-on "教学内核已启用" chip is removed from above the
+  // ADR-0014: the always-on "教学内核已启用" chip is removed from above the
   // composer input. The teaching kernel is host-injected, fail-closed, and
-  // never a learner-selectable slot (ADR-0151 §2.1), so the chip conveyed no
+  // never a learner-selectable slot (ADR-0014), so the chip conveyed no
   // actionable state. Selected-capability chips still render when chosen.
   const chips =
     selectedSkillIds.length > 0 ? (

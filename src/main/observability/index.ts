@@ -1,5 +1,5 @@
 /**
- * Local-only observability primitives (ADOPTION B-11 / ADR-0066 / ADR-0093).
+ * Local-only observability primitives (ADOPTION B-11 / ADR-0007).
  *
  * - Turn/tool correlation ids (process-local, no network)
  * - Crash marker file for next-start doctor visibility

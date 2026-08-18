@@ -46,7 +46,7 @@ function parseServer(overrides: Record<string, unknown> = {}) {
   })
 }
 
-describe('UserMcpConfig parse (ADR-0128)', () => {
+describe('UserMcpConfig parse (ADR-0013)', () => {
   it('defaults to root off and empty servers', () => {
     const config = defaultUserMcpConfig()
     expect(config.enabled).toBe(true)

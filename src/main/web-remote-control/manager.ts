@@ -1,5 +1,5 @@
 /**
- * Web remote control manager (ADR-0143) — Phase 1 skeleton.
+ * Web remote control manager (security boundary: SECURITY.md).
  * LAN server + pairing auth + secret-free status; Control RPC comes in Phase 2.
  */
 

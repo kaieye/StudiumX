@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Clean worktree porcelain check (ADOPTION S-06 / ADR-0074).
+ * Clean worktree porcelain check; CI policy lives in CONTRIBUTING.md.
  *
  * Fails if `git status --porcelain` reports any dirty paths.
  * Intended for Blocking CI fan-in after checkout (strict).

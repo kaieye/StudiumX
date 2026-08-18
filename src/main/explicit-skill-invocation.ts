@@ -47,7 +47,7 @@ export type ExplicitSkillInvocationResolution =
   | { kind: 'resolved'; value: ResolvedExplicitSkillInvocation }
 
 /**
- * Main-only resolver for ADR-0168. Lookup must return only a previously verified
+ * Main-only resolver for ADR-0014. Lookup must return only a previously verified
  * catalogue entry; this module deliberately accepts no renderer-controlled path.
  */
 export async function resolveExplicitSkillInvocation(options: {

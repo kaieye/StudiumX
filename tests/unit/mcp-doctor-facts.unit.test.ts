@@ -1,5 +1,5 @@
 /**
- * TeachingDoctor MCP status check (ADR-0128 Phase E).
+ * TeachingDoctor MCP status check (ADR-0013).
  */
 import { describe, expect, it } from 'vitest'
 
@@ -224,7 +224,7 @@ describe('TeachingDoctor mcp_status', () => {
     const config: UserMcpConfigV1 = {
       schemaVersion: 1,
       enabled: true,
-      // omit autoConnect → effective true when root enabled (ADR-0141)
+      // omit autoConnect → effective true when root enabled (ADR-0013)
       servers: [],
       fingerprint: 'z'
     }
