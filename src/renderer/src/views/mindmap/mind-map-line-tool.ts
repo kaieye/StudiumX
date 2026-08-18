@@ -30,6 +30,11 @@ export type MindMapCanvasLineTargetRef = Pick<MindMapCanvasLineSnapTarget, 'id' 
 /** A transient endpoint used while drawing or dragging a connector. */
 export type MindMapCanvasLineEndpoint = MindMapCanvasPoint & {
   target?: MindMapCanvasLineTargetRef
+  /**
+   * Normalized border parameter (radians, ray angle from target center).
+   * Preserves the user-chosen border position across target moves/resizes.
+   */
+  borderParam?: number
 }
 
 /** The style choices owned by the line toolbar/menu. */
@@ -75,6 +80,40 @@ export const MIND_MAP_LINE_MINIMUM_LENGTH = 4
 
 export function isMindMapCurvedLineShape(shape: MindMapElementLineShape): boolean {
   return shape === 'curved' || shape === 'flexible-curved'
+}
+
+/**
+ * Whether a connector shape supports a draggable curve/midpoint that adjusts
+ * its route. Curved shapes and the flexible variants of angled/zigzag all
+ * carry a curve point so the user can drag the body to reroute them without
+ * changing their visual family.
+ */
+export function mindMapLineShapeSupportsCurvePoint(shape: MindMapElementLineShape): boolean {
+  return (
+    shape === 'curved' ||
+    shape === 'flexible-curved' ||
+    shape === 'flexible-angled' ||
+    shape === 'flexible-zigzag'
+  )
+}
+
+/**
+ * Map a base connector shape to its flexible counterpart so a body drag
+ * preserves the visual family instead of promoting everything to a curve.
+ * Shapes that are already flexible or curved pass through unchanged.
+ */
+export function toFlexibleLineShape(shape: MindMapElementLineShape): MindMapElementLineShape {
+  switch (shape) {
+    case 'angled':
+      return 'flexible-angled'
+    case 'zigzag':
+      return 'flexible-zigzag'
+    case 'straight':
+    case 'curved':
+      return 'flexible-curved'
+    default:
+      return shape
+  }
 }
 
 /** Resolve the draggable point through which a curved connector must pass. */
@@ -156,29 +195,6 @@ function targetCenter(target: MindMapCanvasLineSnapTarget): MindMapCanvasPoint {
     x: target.x + target.width / 2,
     y: target.y + target.height / 2
   }
-}
-
-function targetDirection(
-  center: MindMapCanvasPoint,
-  toward: MindMapCanvasPoint,
-  fallback: MindMapCanvasPoint
-): MindMapCanvasPoint {
-  const dx = toward.x - center.x
-  const dy = toward.y - center.y
-  if (Math.abs(dx) > Number.EPSILON || Math.abs(dy) > Number.EPSILON) {
-    return { x: dx, y: dy }
-  }
-
-  const fallbackDx = fallback.x - center.x
-  const fallbackDy = fallback.y - center.y
-  if (Math.abs(fallbackDx) > Number.EPSILON || Math.abs(fallbackDy) > Number.EPSILON) {
-    return { x: fallbackDx, y: fallbackDy }
-  }
-
-  // A connector whose two persisted points are exactly at the same centre is
-  // unusual but valid. Pick a deterministic visible boundary instead of
-  // returning a point inside the target.
-  return { x: 1, y: 0 }
 }
 
 function rectangularBorderPoint(
@@ -528,17 +544,16 @@ function resolveTarget(
 }
 
 /**
- * Return the point on a target's border facing the other endpoint. This makes
- * an attached line remain visually anchored to a node/shape boundary instead
- * of cutting through the object from its centre.
+ * Return the point on a target's border intersected by the ray from the
+ * target center toward `direction`. Shared by the parametric border model so
+ * that drawing (direction = pointer − center) and replay after a move/resize
+ * (direction = stored ray angle) use identical geometry.
  */
-function borderPointFacing(
+function borderPointFromDirection(
   target: MindMapCanvasLineSnapTarget,
-  toward: MindMapCanvasPoint,
-  fallback: MindMapCanvasPoint
+  direction: MindMapCanvasPoint
 ): MindMapCanvasPoint {
   const center = targetCenter(target)
-  const direction = targetDirection(center, toward, fallback)
   const halfWidth = Math.max(target.width / 2, Number.EPSILON)
   const halfHeight = Math.max(target.height / 2, Number.EPSILON)
 
@@ -557,17 +572,171 @@ function borderPointFacing(
   return rectangularBorderPoint(center, direction, halfWidth, halfHeight)
 }
 
-/** Resolve one raw snapped point to the actual line endpoint used for rendering/persistence. */
+/**
+ * Return the point on a target's border closest to the given pointer
+ * location. Unlike {@link closestPointOnRect} (which clamps to the bounding
+ * box and may land inside a non-rectangular outline), this walks the actual
+ * visible border so the connector endpoint follows the user's pointer.
+ *
+ * When the pointer is exactly at the target center (or numerically
+ * indistinguishable from it), there is no unique closest border point. In
+ * that degenerate case the ray toward `fallbackDirection` is used so the
+ * endpoint lands on a deterministic, visible border spot.
+ */
+function closestPointOnTargetBorder(
+  target: MindMapCanvasLineSnapTarget,
+  point: MindMapCanvasPoint,
+  fallbackDirection: MindMapCanvasPoint = { x: 1, y: 0 }
+): MindMapCanvasPoint {
+  const center = targetCenter(target)
+  const dx = point.x - center.x
+  const dy = point.y - center.y
+  const direction = Math.abs(dx) > Number.EPSILON || Math.abs(dy) > Number.EPSILON
+    ? { x: dx, y: dy }
+    : fallbackDirection
+
+  if (target.shape === 'ellipse') {
+    const halfWidth = Math.max(target.width / 2, Number.EPSILON)
+    const halfHeight = Math.max(target.height / 2, Number.EPSILON)
+    return ellipseBorderPoint(center, direction, halfWidth, halfHeight)
+  }
+
+  const vertices = shapePolygonVertices(target)
+  if (vertices) {
+    return closestPointOnPolygon(point, vertices) ?? closestPointOnRect(point, target)
+  }
+
+  if (target.shape === 'rounded-rect') {
+    return closestPointOnRoundedRect(target, point) ?? closestPointOnRect(point, target)
+  }
+
+  // Default rect: the nearest point on the four edges.
+  return closestPointOnRectBorder(target, point)
+}
+
+function closestPointOnRectBorder(
+  target: MindMapCanvasLineSnapTarget,
+  point: MindMapCanvasPoint
+): MindMapCanvasPoint {
+  const left = target.x
+  const right = target.x + target.width
+  const top = target.y
+  const bottom = target.y + target.height
+  const candidates: MindMapCanvasPoint[] = [
+    { x: clamp(point.x, left, right), y: top },    // top edge
+    { x: clamp(point.x, left, right), y: bottom },  // bottom edge
+    { x: left, y: clamp(point.y, top, bottom) },    // left edge
+    { x: right, y: clamp(point.y, top, bottom) }    // right edge
+  ]
+  let nearest = candidates[0]!
+  let nearestDistance = Number.POSITIVE_INFINITY
+  for (const candidate of candidates) {
+    const distance = (candidate.x - point.x) ** 2 + (candidate.y - point.y) ** 2
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      nearest = candidate
+    }
+  }
+  return nearest
+}
+
+function closestPointOnPolygon(
+  point: MindMapCanvasPoint,
+  vertices: readonly MindMapCanvasPoint[]
+): MindMapCanvasPoint | undefined {
+  let nearest: MindMapCanvasPoint | undefined
+  let nearestDistance = Number.POSITIVE_INFINITY
+  for (let index = 0; index < vertices.length; index += 1) {
+    const start = vertices[index]!
+    const end = vertices[(index + 1) % vertices.length]!
+    const edge = { x: end.x - start.x, y: end.y - start.y }
+    const edgeLengthSquared = edge.x * edge.x + edge.y * edge.y
+    if (edgeLengthSquared <= Number.EPSILON) continue
+    const progress = clamp(
+      ((point.x - start.x) * edge.x + (point.y - start.y) * edge.y) / edgeLengthSquared,
+      0,
+      1
+    )
+    const closest = {
+      x: start.x + edge.x * progress,
+      y: start.y + edge.y * progress
+    }
+    const distance = (closest.x - point.x) ** 2 + (closest.y - point.y) ** 2
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      nearest = closest
+    }
+  }
+  return nearest
+}
+
+function closestPointOnRoundedRect(
+  target: MindMapCanvasLineSnapTarget,
+  point: MindMapCanvasPoint
+): MindMapCanvasPoint | undefined {
+  const radius = roundedRectRadius(target)
+  if (radius <= Number.EPSILON) return undefined
+  const rectBorder = closestPointOnRectBorder(target, point)
+  const corner = roundedCornerCenter(target, rectBorder, radius)
+  if (!corner) return rectBorder
+  // If the rect-border nearest point is in the corner zone, project onto the
+  // corner arc instead of the straight edge for a tighter fit.
+  const dx = point.x - corner.x
+  const dy = point.y - corner.y
+  const distance = Math.hypot(dx, dy)
+  return distance > Number.EPSILON
+    ? { x: corner.x + (dx / distance) * radius, y: corner.y + (dy / distance) * radius }
+    : rectBorder
+}
+
+/**
+ * Ray angle (radians, from target center toward the border point) used as the
+ * normalized border parameter. This is stable across target moves/resizes: the
+ * same angle re-traces to the same relative border spot.
+ */
+function borderParamFromPoint(
+  target: MindMapCanvasLineSnapTarget,
+  point: MindMapCanvasPoint
+): number {
+  const center = targetCenter(target)
+  return Math.atan2(point.y - center.y, point.x - center.x)
+}
+
+/**
+ * Re-trace the border point from a stored ray angle and the target's current
+ * bounds. Used when rendering a persisted connector after the target moved.
+ */
+function borderPointFromParam(
+  target: MindMapCanvasLineSnapTarget,
+  param: number
+): MindMapCanvasPoint {
+  return borderPointFromDirection(target, { x: Math.cos(param), y: Math.sin(param) })
+}
+
+/**
+ * Resolve one raw snapped point to the actual line endpoint used for rendering/persistence.
+ *
+ * Magnetic snap only establishes the binding (`target`); the endpoint
+ * coordinates come from the pointer's closest border point, not from the
+ * direction toward the opposite endpoint. This keeps the endpoint where the
+ * user placed it and avoids the "single fixed line" effect where both ends
+ * always re-aimed at each other's centers.
+ *
+ * The `oppositePoint` parameter is retained for API stability but no longer
+ * influences the resolved border point.
+ */
 export function resolveMindMapLineEndpoint(
   snap: MindMapCanvasLineSnap,
-  oppositePoint: MindMapCanvasPoint,
+  _oppositePoint: MindMapCanvasPoint,
   targets: readonly MindMapCanvasLineSnapTarget[]
 ): MindMapCanvasLineEndpoint {
   const target = resolveTarget(snap.target, targets)
   if (!target) return { ...snap.point }
+  const borderPoint = closestPointOnTargetBorder(target, snap.point)
   return {
-    ...borderPointFacing(target, oppositePoint, snap.point),
-    target: targetRef(target)
+    ...borderPoint,
+    target: targetRef(target),
+    borderParam: borderParamFromPoint(target, borderPoint)
   }
 }
 
@@ -585,10 +754,14 @@ export function resolveMindMapLineEndpointOutwardNormal(
 }
 
 /**
- * Resolve both endpoints together. When both ends are bound, each endpoint
- * faces the other target's current centre rather than an old persisted pointer
- * coordinate. That keeps a connector correctly aimed after either target is
- * moved or resized.
+ * Resolve both endpoints together for rendering.
+ *
+ * Each anchored endpoint is replayed from its stored {@link borderParam} (the
+ * ray angle from the target center). When the target has moved or resized
+ * since the connector was drawn, the endpoint stays at the same relative
+ * border spot instead of jumping to wherever the opposite endpoint's center
+ * happens to point. New endpoints without a stored borderParam fall back to
+ * the closest border point of their current coordinates.
  */
 export function resolveMindMapLineEndpoints(
   from: MindMapCanvasLineEndpoint,
@@ -597,25 +770,33 @@ export function resolveMindMapLineEndpoints(
 ): { from: MindMapCanvasLineEndpoint; to: MindMapCanvasLineEndpoint } {
   const fromTarget = resolveTarget(from.target, targets)
   const toTarget = resolveTarget(to.target, targets)
-  const sameTarget = fromTarget !== undefined && toTarget !== undefined
-    && fromTarget.id === toTarget.id
-    && fromTarget.kind === toTarget.kind
-  const fromToward = toTarget && !sameTarget ? targetCenter(toTarget) : to
-  const toToward = fromTarget && !sameTarget ? targetCenter(fromTarget) : from
+
+  const resolveAnchored = (
+    endpoint: MindMapCanvasLineEndpoint,
+    target: MindMapCanvasLineSnapTarget
+  ): MindMapCanvasLineEndpoint => {
+    const point = endpoint.borderParam !== undefined
+      ? borderPointFromParam(target, endpoint.borderParam)
+      : closestPointOnTargetBorder(target, endpoint)
+    return {
+      ...point,
+      target: targetRef(target),
+      borderParam: borderParamFromPoint(target, point)
+    }
+  }
 
   return {
-    from: fromTarget
-      ? { ...borderPointFacing(fromTarget, fromToward, from), target: targetRef(fromTarget) }
-      : { x: from.x, y: from.y },
-    to: toTarget
-      ? { ...borderPointFacing(toTarget, toToward, to), target: targetRef(toTarget) }
-      : { x: to.x, y: to.y }
+    from: fromTarget ? resolveAnchored(from, fromTarget) : { x: from.x, y: from.y },
+    to: toTarget ? resolveAnchored(to, toTarget) : { x: to.x, y: to.y }
   }
 }
 
 /**
- * A connector is useful only when both ends are attached to real canvas
- * targets.  Keeping this check in the pure geometry layer means previews,
+ * A connector is useful only when it is a valid gesture: either both ends are
+ * attached to real, distinct canvas targets, or at least one end floats freely
+ * as a standalone line.  A stale binding (an endpoint that claims a target no
+ * longer present) is rejected, and a line may never connect one target to
+ * itself.  Keeping this check in the pure geometry layer means previews,
  * endpoint re-connects, and persistence all share the same rule.
  */
 export function canConnectMindMapLineEndpoints(
@@ -625,7 +806,10 @@ export function canConnectMindMapLineEndpoints(
 ): boolean {
   const fromTarget = resolveTarget(from.target, targets)
   const toTarget = resolveTarget(to.target, targets)
-  if (!fromTarget || !toTarget) return false
+  const fromBindingResolves = from.target === undefined || fromTarget !== undefined
+  const toBindingResolves = to.target === undefined || toTarget !== undefined
+  if (!fromBindingResolves || !toBindingResolves) return false
+  if (!fromTarget || !toTarget) return true
   return fromTarget.id !== toTarget.id || fromTarget.kind !== toTarget.kind
 }
 

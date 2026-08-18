@@ -1,9 +1,13 @@
 # ADR-0045：Context hygiene ladder and quality gates
 
-- **状态：** 已实施（文档与质量门）；投影阶梯代码沿用既有 projector/compactor
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
-- **范围：** request-context 投影阶梯语义、PR/CI 路径敏感门、本地 pre-push 子集、SECURITY 与测试教义入口
-- **相关：** [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、`SECURITY.md`、`AGENTS.md` / `CONTRIBUTING.md`
+- **范围：** request-context 投影阶梯语义（默认可重算；durable compaction 显式可选）与路径敏感 PR/CI 质量门。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、`SECURITY.md`、`AGENTS.md`、`CONTRIBUTING.md`
+- **证据：** `scripts/check-prepush.mjs`、`scripts/check-teaching-impact.mjs`、`.github/pull_request_template.md`、`.githooks/pre-push`、`SECURITY.md`、`AGENTS.md`、`CONTRIBUTING.md`
 
 ## 背景
 

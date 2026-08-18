@@ -1,10 +1,14 @@
 # ADR-0093：TeachingDoctor multi-collector pure facts assemble
 
-- **状态：** 已实施（纯 multi-collector assemble + product-run deps 注入；**无** Settings Doctor UI；**无** 完整 workspace FS collectors）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（纯 multi-collector assemble + product-run deps 注入；**无** Settings Doctor UI；**无** 完整 workspace FS collectors）
 - **日期：** 2026-07-21
 - **范围：** ADOPTION **B-11 residual** — 为 TeachingDoctor product run 落地纯 multi-collector facts 组装，使 main 可渐进挂接 collectors，**不**改变公开 IPC payload
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0043](0043-doctor-config-locator-and-fix-suggestion.md)、[ADR-0066](0066-local-observability-and-crash-marker.md)、[ADR-0084](0084-teaching-doctor-product-ipc.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/observability/teaching-doctor-facts-assemble.ts`（`assembleTeachingDoctorFacts` / `staticTeachingDoctorFactsCollector`）
   - `src/main/observability/teaching-doctor-product-run.ts`（`factsCollectors?` deps + assemble 后 store SoT）
   - `src/main/observability/index.ts`（导出）

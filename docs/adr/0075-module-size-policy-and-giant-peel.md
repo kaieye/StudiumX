@@ -1,15 +1,13 @@
 # ADR-0075：模块尺寸政策与巨石按触达 peel
 
-- **状态：** 已实施（ADOPTION S-03 政策切片；peel 残差仍开放）
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** 正式化 TypeScript 生产模块行数目标、放宽与历史巨石 peel 纪律；提供 **warning-only** 本地/可选检查脚本。**本 ADR 不做任何巨石拆分。**
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [AGENTS.md §5](../../AGENTS.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0046](0046-teaching-footprint-ladder.md)、[ADOPTION S-03](0121-improvements-adoption-closeout.md)
-- **证据路径：**
-  - `docs/adr/0075-module-size-policy-and-giant-peel.md`（本文件）
-  - `scripts/check-module-size.mjs`
-  - `package.json` → `check:module-size`
-  - `AGENTS.md` §5 摘要 + 本 ADR 指针
-  - `CONTRIBUTING.md` 轻量交叉引用
+- **证据：** `scripts/check-module-size.mjs`、`package.json` → `check:module-size`、`AGENTS.md` §5 摘要、`CONTRIBUTING.md` 轻量交叉引用
 
 ## 背景
 
@@ -94,7 +92,7 @@ $env:MODULE_SIZE_STRICT='1'; node scripts/check-module-size.mjs
 ## 不变量
 
 - 默认 `check:module-size` **exit 0**；尺寸不得成为 Blocking CI 失败原因。
-- 新/触达代码以 &lt;500–800 为目标；跨过 1000 须有 PR/ADR 说明，且不得静默进入 allowlist 以外的 STRICT 失败路径。
+- 新/触达代码以 &lt;500–800 为目标；跨过 1000 须在 PR 说明边界（推荐同步更新 ADR），且不得静默进入 allowlist 以外的 STRICT 失败路径。
 - Peel 不得破坏 sole-writer、ledger 权威、`expectedRevision`、`toolsReplayed: false`。
 - 本 ADR **不** 修改任何生产模块实现。
 

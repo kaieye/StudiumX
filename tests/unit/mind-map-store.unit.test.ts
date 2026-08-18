@@ -156,7 +156,9 @@ describe('createMindMapStore', () => {
     const reopened = await store.read(created.id)
 
     expect(reopened.sheets[0]!.elements.map((element) => element.id)).toEqual([
-      'connector-valid'
+      'connector-valid',
+      // A free (anchor-less) endpoint is a valid standalone line and survives.
+      'connector-half'
     ])
   })
 

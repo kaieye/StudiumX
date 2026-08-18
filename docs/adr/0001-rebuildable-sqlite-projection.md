@@ -1,9 +1,13 @@
 # ADR-0001：将 SQLite 限定为可重建投影，并采用分层权威
 
-- **状态：** 已实施；**2026-07-21 修订** — 对齐「分层权威」与 list/analytics 优选读路径；no-FTS 默认产品面仍关闭
-- **范围：** C-1 可重建 SQLite analytics / list metadata projection 及其 no-FTS 边界
-- **证据提交：** `d9de382`（`feat(data): add rebuildable SQLite analytics index`）及后续 LocalDataIndex 演进
-- **政策总闸 / 分层权威：** [ADR-0124](0124-database-layered-authority-and-pr-gates.md)
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** 将 `studiumx-index.sqlite` 限定为可重建 projection（写权威仍在文件），并采用文件写权威 + list/analytics 优选读路径的分层权威；no-FTS 默认产品面关闭。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0124](0124-database-layered-authority-and-pr-gates.md)、[ADR-0123](0123-runtime-session-store.md)
+- **证据：** `src/main/local-data-index/`、`src/shared/backup-export-policy.ts`、`tests/unit/local-data-index.unit.test.ts`、`tests/unit/backup-export-policy.unit.test.ts`；提交 `d9de382`；修订明细见 `docs/adr/evidence/ADR-0001.md`
 
 ## 决定
 

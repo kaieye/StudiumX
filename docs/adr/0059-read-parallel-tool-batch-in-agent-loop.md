@@ -1,10 +1,13 @@
 # ADR-0059：Agent loop 混合只读并行工具批处理
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** 将既有 `dispatchReadToolsInParallel` 接入生产 `runAgentLoop` 正常 turn 与 recovery 路径；非 read 仍串行
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0032](0032-conservative-parallel-read-tools.md)、[ADR-0051](0051-provider-finish-reason-and-length-tool-rejection.md)、[ADR-0056](0056-tool-result-turn-budget-and-spill.md)、[ADOPTION B-03](0121-improvements-adoption-closeout.md)
-- **证据路径：** `src/main/ai/tools/batch-dispatch.ts`、`src/main/ai/agent-loop.ts`、`tests/unit/tool-batch-dispatch.unit.test.ts`
+- **证据：** `src/main/ai/tools/batch-dispatch.ts`、`src/main/ai/agent-loop.ts`、`src/main/ai/tools/execution.ts`（可选 re-export）、`tests/unit/tool-batch-dispatch.unit.test.ts`
 
 ## 背景
 
@@ -38,13 +41,14 @@ ADR-0032 交付了 `dispatchReadToolsInParallel`（仅 `effect=read` 有界并�
 - effect 分类仍由 `classifyToolEffect` / `authorizeToolEffect` 权威；本层只做调度切分。
 - 不引入 YOLO、shell、MCP、settlement 改动。
 
-## 已实施范围与验证入口
+## 不变量
 
-- `src/main/ai/tools/batch-dispatch.ts`（新建）
-- `src/main/ai/agent-loop.ts`（主批 + recovery 接线；仅 tool-batch 区域）
-- `src/main/ai/tools/execution.ts`（可选 re-export）
-- `tests/unit/tool-batch-dispatch.unit.test.ts`
-- 既有 `tests/unit/parallel-read-tools.unit.test.ts`、`tests/unit/agent-loop-finish-length.unit.test.ts` 不得回归
+- 仅 `effect=read` 可并行；写/特权/未知串行。
+- Transcript / `tool_result` 事件顺序与模型 tool_calls 原始顺序一致。
+- length 截断批零副作用；turn budget 在 batch 之后应用。
+- Settlement sole-writer / toolsReplayed:false / effect lattice 不变。
+
+## 验证
 
 ```powershell
 pnpm exec vitest run --project unit tests/unit/tool-batch-dispatch.unit.test.ts
@@ -53,16 +57,9 @@ pnpm exec vitest run --project unit tests/unit/agent-loop-finish-length.unit.tes
 pnpm run check:parallel-read-tools
 ```
 
-## 不变量
-
-- 仅 `effect=read` 可并行；写/特权/未知串行。
-- Transcript / `tool_result` 事件顺序与模型 tool_calls 原始顺序一致。
-- length 截断批零副作用；turn budget 在 batch 之后应用。
-- Settlement sole-writer / toolsReplayed:false / effect lattice 不变。
-
-## 不包含 / non-claims
+## 非目标
 
 - 不并行 writes 或 privileged 工具。
 - 不改变 `parallel_tasks` 子代理语义。
-- 不改 provider retry catch（A-05 所有权区域）。
+- 不改 provider retry catch（A-05 所有权区域，见 [ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)）。
 - 不引入 shell / MCP / FTS / 远程 telemetry。

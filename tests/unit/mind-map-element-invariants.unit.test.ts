@@ -110,21 +110,18 @@ describe('mind map element reference invariants', () => {
     ))).toBe(true)
   })
 
-  it('rejects a connector endpoint that has no anchor', () => {
-    const malformedConnector = {
+  it('accepts a free connector endpoint that floats on blank canvas', () => {
+    const freeConnector = {
       id: 'connector-1',
       type: 'connector',
       start: { x: 20, y: 30, anchor: { targetType: 'topic', targetId: 'root-1' } },
       end: { x: 100, y: 120 }
     } as unknown as MindMapElement
     const errors = validateMindMapSheetV2(baseSheet([
-      malformedConnector
+      freeConnector
     ]))
 
-    expect(errors.some((error) => (
-      error.code === 'ELEMENT_REF_MISSING' &&
-      error.message.includes('must attach to a topic or shape')
-    ))).toBe(true)
+    expect(errors).toEqual([])
   })
 
   it('reports a connector that attaches both ends to the same target', () => {

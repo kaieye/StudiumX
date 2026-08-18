@@ -13,20 +13,20 @@ describe('MindMapShapeTool', () => {
     vi.useRealTimers()
   })
 
-  it('arms a rectangle with a normal click', () => {
+  it('arms a rounded rectangle with a normal click', () => {
     const onShapeChange = vi.fn()
     render(<MindMapShapeTool onShapeChange={onShapeChange} />)
 
     const trigger = screen.getByRole('button', { name: 'Shape' })
     fireEvent.click(trigger)
 
-    expect(onShapeChange).toHaveBeenCalledWith('rect')
-    expect(trigger).toHaveAccessibleName('Shape: Rectangle')
+    expect(onShapeChange).toHaveBeenCalledWith('rounded-rect')
+    expect(trigger).toHaveAccessibleName('Shape: Rounded Rect')
     expect(trigger).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByRole('menu', { name: 'Choose shape' })).not.toBeInTheDocument()
   })
 
-  it('opens its full palette after a long press without also arming the default rectangle', () => {
+  it('opens its full palette after a long press without also arming the default rounded rectangle', () => {
     vi.useFakeTimers()
     const onShapeChange = vi.fn()
     render(<MindMapShapeTool onShapeChange={onShapeChange} />)

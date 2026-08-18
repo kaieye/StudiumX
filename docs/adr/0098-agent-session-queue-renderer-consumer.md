@@ -1,10 +1,14 @@
 # ADR-0098：Agent session 队列只读 renderer consumer（Diagnostics）
 
-- **状态：** 已实施（Settings Doctor 内只读队列快照 UI；**无** autoDrain 翻转；**无** main / FIFO 改写）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（Settings Doctor 内只读队列快照 UI；**无** autoDrain 翻转；**无** main / FIFO 改写）
 - **日期：** 2026-07-21
 - **范围：** ADOPTION **B-02 residual** — renderer 薄只读 consumer：调用既有 `projectAgentSessionQueue` IPC，在 Teaching Doctor 诊断区展示 export-safe 队列字段
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0089](0089-agent-session-queue-projection.md)、[ADR-0091](0091-agent-session-queue-projection-ipc.md)、[ADR-0096](0096-agent-session-autodrain-product-evaluation.md)、[ADR-0095](0095-teaching-doctor-settings-ui.md)、[ADR-0067](0067-cancel-tool-pair-close-and-busy-ack.md)
-- **证据路径：**
+- **证据：** 
   - `src/renderer/src/app-shell/agent-session-queue-client.ts`
   - `src/renderer/src/views/settings/sections/AgentSessionQueueDiagnostics.tsx`
   - `src/renderer/src/views/settings/sections/TeachingDoctorSettingsSection.tsx`（底部 mount only）

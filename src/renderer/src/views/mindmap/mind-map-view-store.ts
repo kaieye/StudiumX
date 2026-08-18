@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   MindMapCommand,
   MindMapClipboardPayload,
+  MindMapElementUpdatePatch,
   MindMapExecuteOptions,
   MindMapImageUpdatePatch,
   MindMapTopicUpdatePatch
@@ -82,6 +83,13 @@ import {
 export type MindMapSelection =
   | { kind: 'topic'; topicIds: string[] }
   | { kind: 'element'; elementId: string; elementType: MindMapElementType }
+  | { kind: 'elements'; elementIds: string[] }
+  | {
+      /** A marquee that sweeps both topics and non-topic elements. */
+      kind: 'hybrid'
+      topicIds: string[]
+      elementIds: string[]
+    }
   | { kind: 'image'; imageId: string }
   | { kind: 'canvas' }
 
@@ -140,8 +148,13 @@ type MindMapViewState = {
   /** Switch the browse scope (home vs a workspace folder) and reload its cards. */
   setScope: (scope: MindMapScope) => Promise<void>
   openDocument: (id: string) => Promise<void>
-  /** Flush pending local writes and return to the document gallery. */
-  closeDocument: () => Promise<void>
+  /**
+   * Flush pending local writes and return to the document gallery.
+   * `nextScope` switches the browse scope atomically with leaving the editor
+   * (persisted before the switch, so the save lane still targets the
+   * document's owning workspace). Without it the current scope is kept.
+   */
+  closeDocument: (nextScope?: MindMapScope) => Promise<void>
   /**
    * Exit an editor whose canonical file was deleted outside StudiumX. This path
    * deliberately never persists or recreates the renderer snapshot.
@@ -166,6 +179,16 @@ type MindMapViewState = {
   selectTopic: (id: string, additive?: boolean) => void
   setTopicSelection: (topicIds: readonly string[], additive?: boolean) => void
   selectElement: (id: string, type: MindMapElementType) => void
+  /** Multi-select non-topic elements (e.g. marquee over several drawn shapes). */
+  setElementsSelection: (elementIds: readonly string[]) => void
+  /** Select a mix of topics and non-topic elements from one marquee sweep. */
+  setHybridSelection: (
+    topicIds: readonly string[],
+    elements: readonly { id: string; type: MindMapElementType }[],
+    additive?: boolean
+  ) => void
+  /** Apply one style patch to every selected element atomically. */
+  updateSelectedElementStyles: (patch: MindMapElementUpdatePatch) => void
   selectCanvas: () => void
   undo: () => void
   redo: () => void
@@ -632,7 +655,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       }
     },
 
-    closeDocument: async () => {
+    closeDocument: async (nextScope?: MindMapScope) => {
       if (!get().current) return
 
       // Returning to the gallery must not discard the 400ms local save lane.
@@ -645,6 +668,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       clipboard = null
       set({
         current: null,
+        ...(nextScope !== undefined ? { scope: nextScope } : {}),
         selection: { kind: 'canvas' },
         selectedNodeId: null,
         activeSheetId: null,
@@ -905,6 +929,145 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         editingNodeId: null,
         ...revealInspector('content')
       })
+    },
+
+    setElementsSelection: (elementIds) => {
+      const ids = [...new Set(elementIds)]
+      set((state) => {
+        if (ids.length === 0) {
+          return {
+            selection: { kind: 'canvas' as const },
+            selectedNodeId: null,
+            editingNodeId: null,
+            ...revealInspector('format')
+          }
+        }
+        if (ids.length === 1) {
+          // Preserve the element's real type so the inspector and clipboard
+          // keep showing connector/relationship/boundary fields instead of
+          // falling back to the shape default.
+          const sheet = state.current?.sheets.find((candidate) => candidate.id === state.activeSheetId)
+            ?? state.current?.sheets[0]
+          const elementType = sheet?.elements.find((element) => element.id === ids[0])?.type ?? 'shape'
+          return {
+            selection: { kind: 'element' as const, elementId: ids[0]!, elementType: elementType as MindMapElementType },
+            selectedNodeId: null,
+            editingNodeId: null,
+            ...revealInspector('content')
+          }
+        }
+        return {
+          selection: { kind: 'elements' as const, elementIds: ids },
+          selectedNodeId: null,
+          editingNodeId: null,
+          ...revealInspector('content')
+        }
+      })
+    },
+
+    setHybridSelection: (topicIds, elements, additive = false) => {
+      const topics = [...new Set(topicIds)]
+      const incomingElements = [...new Set(elements.map((entry) => entry.id))]
+      const elementTypeById = new Map(elements.map((entry) => [entry.id, entry.type]))
+      set((state) => {
+        // Resolve an element's real type from the incoming marquee results
+        // first, then fall back to the active sheet's persisted elements so
+        // additive drags and standalone canvas renders (no store document)
+        // still preserve connector/relationship/boundary identity.
+        const activeSheet = state.current?.sheets.find((candidate) => candidate.id === state.activeSheetId)
+          ?? state.current?.sheets[0]
+        const resolveElementType = (id: string): MindMapElementType =>
+          elementTypeById.get(id)
+            ?? activeSheet?.elements.find((element) => element.id === id)?.type
+            ?? 'shape'
+        // Merge into an existing hybrid/element/topic selection when the
+        // gesture is additive (Ctrl/Cmd/Shift), mirroring the topic marquee.
+        const baseTopics = additive && state.selection.kind === 'hybrid'
+          ? state.selection.topicIds
+          : additive && state.selection.kind === 'topic'
+            ? state.selection.topicIds
+            : []
+        const baseElements = additive && state.selection.kind === 'hybrid'
+          ? state.selection.elementIds
+          : additive && state.selection.kind === 'element'
+            ? [state.selection.elementId]
+            : additive && state.selection.kind === 'elements'
+              ? state.selection.elementIds
+              : []
+        const mergedTopics = [...new Set([...baseTopics, ...topics])]
+        const mergedElements = [...new Set([...baseElements, ...incomingElements])]
+        if (mergedTopics.length === 0 && mergedElements.length === 0) {
+          return {
+            selection: { kind: 'canvas' as const },
+            selectedNodeId: null,
+            editingNodeId: null,
+            ...revealInspector('format')
+          }
+        }
+        // Collapse degenerate hybrids back to the single-kind shapes the rest
+        // of the editor already understands, so a topics-only or elements-only
+        // marquee behaves exactly like before.
+        if (mergedTopics.length === 0) {
+          if (mergedElements.length === 1) {
+            return {
+              selection: {
+                kind: 'element' as const,
+                elementId: mergedElements[0]!,
+                elementType: resolveElementType(mergedElements[0]!)
+              },
+              selectedNodeId: null,
+              editingNodeId: null,
+              ...revealInspector('content')
+            }
+          }
+          return {
+            selection: { kind: 'elements' as const, elementIds: mergedElements },
+            selectedNodeId: null,
+            editingNodeId: null,
+            ...revealInspector('content')
+          }
+        }
+        if (mergedElements.length === 0) {
+          const primary = mergedTopics.at(-1) ?? null
+          return {
+            selection: { kind: 'topic' as const, topicIds: mergedTopics },
+            selectedNodeId: primary,
+            editingNodeId: null,
+            ...revealInspector('content')
+          }
+        }
+        return {
+          selection: { kind: 'hybrid' as const, topicIds: mergedTopics, elementIds: mergedElements },
+          selectedNodeId: null,
+          editingNodeId: null,
+          ...revealInspector('content')
+        }
+      })
+    },
+
+    updateSelectedElementStyles: (patch) => {
+      const state = get()
+      const sheet = state.current?.sheets.find((candidate) => candidate.id === state.activeSheetId)
+        ?? state.current?.sheets[0]
+      if (!sheet) return
+      const ids = state.selection.kind === 'element'
+        ? [state.selection.elementId]
+        : state.selection.kind === 'elements'
+          ? state.selection.elementIds
+          : state.selection.kind === 'hybrid'
+            ? state.selection.elementIds
+            : []
+      if (ids.length === 0) return
+      const commands: MindMapCommand[] = ids.map((elementId) => ({
+        type: 'element.update',
+        sheetId: sheet.id,
+        elementId,
+        patch
+      }))
+      const transaction = commands.length === 1
+        ? commands[0]!
+        : { type: 'transaction', commands } as MindMapCommand
+      dispatchCommand(transaction, { label: 'Update element styles' })
     },
 
     selectCanvas: () => {
@@ -1396,17 +1559,47 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
           : document.sheets[0]?.id ?? null
       const activeSheet = document.sheets.find((sheet) => sheet.id === activeSheetId)
       const previousSelection = state.selection
+      const isElementSelection =
+        previousSelection.kind === 'element'
+        || previousSelection.kind === 'elements'
+        || previousSelection.kind === 'hybrid'
+      const previousElementIds = previousSelection.kind === 'element'
+        ? [previousSelection.elementId]
+        : previousSelection.kind === 'elements'
+          ? previousSelection.elementIds
+          : previousSelection.kind === 'hybrid'
+            ? previousSelection.elementIds
+            : []
+      const previousTopicIds = previousSelection.kind === 'topic'
+        ? previousSelection.topicIds
+        : previousSelection.kind === 'hybrid'
+          ? previousSelection.topicIds
+          : []
+      const survivingElementIds = previousElementIds.filter((id) =>
+        activeSheet?.elements.some((element) => element.id === id) ?? false)
+      const survivingTopicIds = previousTopicIds.filter((id) =>
+        Boolean(activeSheet && findTopicInSheet(activeSheet, id)))
       const selectedElement =
-        previousSelection.kind === 'element' && activeSheet?.elements.some((element) => element.id === previousSelection.elementId)
-          ? previousSelection
+        isElementSelection && survivingElementIds.length === 1 && survivingTopicIds.length === 0
+          ? ({ kind: 'element', elementId: survivingElementIds[0]!, elementType: activeSheet?.elements.find((element) => element.id === survivingElementIds[0])?.type ?? 'shape' } as const)
+          : null
+      const selectedElements =
+        isElementSelection && survivingElementIds.length > 1 && survivingTopicIds.length === 0
+          ? ({ kind: 'elements', elementIds: survivingElementIds } as const)
+          : null
+      const selectedHybrid =
+        isElementSelection && survivingTopicIds.length > 0 && survivingElementIds.length > 0
+          ? ({ kind: 'hybrid', topicIds: survivingTopicIds, elementIds: survivingElementIds } as const)
           : null
       const selectedNodeId =
-        !selectedElement && state.selectedNodeId && activeSheet && findTopicInSheet(activeSheet, state.selectedNodeId)
+        !selectedElement && !selectedHybrid && state.selectedNodeId && activeSheet && findTopicInSheet(activeSheet, state.selectedNodeId)
           ? state.selectedNodeId
-          : selectedElement
+          : selectedElement || selectedHybrid
             ? null
             : activeSheet?.root.id ?? null
       const selection: MindMapSelection = selectedElement
+        ?? selectedElements
+        ?? selectedHybrid
         ?? (selectedNodeId ? { kind: 'topic', topicIds: [selectedNodeId] } : { kind: 'canvas' })
 
       set({

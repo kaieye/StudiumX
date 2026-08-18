@@ -1,8 +1,13 @@
 # ADR-0007：新持久化用户历史必须先经脱敏
 
-- **状态：** 已实施
-- **范围：** C-7
-- **证据提交：** `a302814` (`feat(data): redact persisted user input history`)
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** 所有新的 conversation / history projection 在持久化前经过 typed sanitizer；archive、history 与 SQLite index consumer 复用该安全边界。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0034](0034-redacted-support-bundle.md)
+- **证据：** `src/shared/agent-persisted-history.ts`、`tests/unit/agent-persisted-history.unit.test.ts`、`tests/unit/agent-secret-redaction.unit.test.ts`；提交 `a302814`
 
 ## 决定
 

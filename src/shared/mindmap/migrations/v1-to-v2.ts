@@ -99,10 +99,12 @@ function connectorTarget(
 }
 
 /**
- * Remove connectors emitted by earlier v2 canvas builds before endpoints became
- * mandatory bindings. This is deliberately narrow: malformed topics, shapes,
- * styles, and all non-connector elements still reach the regular schema and
- * invariant validation paths unchanged.
+ * Remove connectors with dangling bindings. A free connector (an endpoint
+ * without an anchor, drawn on blank canvas) is valid and is preserved; only
+ * connectors whose anchors point at missing targets or that connect one target
+ * to itself are dropped. This is deliberately narrow: malformed topics,
+ * shapes, styles, and all non-connector elements still reach the regular
+ * schema and invariant validation paths unchanged.
  */
 function removeLegacyInvalidConnectors(input: UnknownRecord): unknown {
   if (!Array.isArray(input.sheets)) return input
@@ -127,10 +129,20 @@ function removeLegacyInvalidConnectors(input: UnknownRecord): unknown {
 
       const start = connectorTarget(element.start, topicIds, shapeIds)
       const end = connectorTarget(element.end, topicIds, shapeIds)
-      return (
+      // `connectorTarget` returns null for both "no anchor" and "dangling
+      // anchor". A missing anchor is a valid free endpoint; a dangling anchor
+      // must be dropped, so inspect each raw endpoint separately.
+      const startFree = !isRecord(element.start) || !isRecord(element.start.anchor)
+      const endFree = !isRecord(element.end) || !isRecord(element.end.anchor)
+      const danglingStart = start === null && !startFree
+      const danglingEnd = end === null && !endFree
+      if (danglingStart || danglingEnd) return false
+
+      return !(
         start !== null
         && end !== null
-        && (start.targetType !== end.targetType || start.targetId !== end.targetId)
+        && start.targetType === end.targetType
+        && start.targetId === end.targetId
       )
     })
 

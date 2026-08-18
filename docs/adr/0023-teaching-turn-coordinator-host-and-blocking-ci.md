@@ -1,8 +1,13 @@
 # ADR-0023：TeachingTurnCoordinator Host 与 Blocking CI
 
-- **状态：** 已实施（P1-13；合入 main `8278dd9` / feature `8d5c057`）
-- **范围：** 多 workspace 薄 host、IPC sole-writer commit 路径、最小 blocking CI
-- **证据提交：** `8d5c057`、merge `8278dd9`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** `TeachingTurnCoordinatorHost` 薄适配层、`commitLearningOutcome` sole-writer 路径与最小 Blocking CI 门禁。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)
+- **证据：** `src/main/teaching-turn-coordinator-host.ts`、`src/main/teaching-ipc-gateway.ts`、`.github/workflows/blocking-ci.yml`、`scripts/check-blocking-ci.mjs`、`tests/unit/teaching-turn-coordinator-host.unit.test.ts`；提交 `8d5c057`、merge `8278dd9`
 
 ## 决定
 

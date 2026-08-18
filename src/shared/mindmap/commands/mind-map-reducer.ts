@@ -312,11 +312,9 @@ function elementReferenceErrors(
       ]
       for (const [name, endpoint] of endpoints) {
         if (!Number.isFinite(endpoint.x) || !Number.isFinite(endpoint.y)) errors.push(`connector "${element.id}" ${name} must contain finite coordinates`)
+        // A free connector endpoint may float on the canvas without a binding.
         const anchor = endpoint.anchor
-        if (!anchor) {
-          errors.push(`connector "${element.id}" ${name} must attach to a topic or shape`)
-          continue
-        }
+        if (!anchor) continue
         const targetSet = anchor.targetType === 'topic' ? topicIds : shapeIds
         if (!targetSet.has(anchor.targetId)) errors.push(`connector "${element.id}" references missing ${anchor.targetType} "${anchor.targetId}"`)
       }

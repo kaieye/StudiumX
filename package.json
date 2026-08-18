@@ -160,6 +160,7 @@
     "@modelcontextprotocol/sdk": "1.29.0",
     "better-sqlite3": "12.11.1",
     "electron-updater": "^6.8.9",
+    "fontkit": "^2.0.4",
     "i18next": "^26.3.3",
     "katex": "^0.17.0",
     "lucide-react": "^1.21.0",

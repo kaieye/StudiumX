@@ -1,8 +1,13 @@
 # ADR-0036：mission_update 的 actionId / private receipt 关联（mission-first）
 
-- **状态：** 已实施（限定 mission submit 首个切片）
-- **范围：** C-5H mission-first
-- **关联：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0007](0007-persisted-user-history-redaction.md)
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** mission update 首个切片：renderer 生成的 opaque `actionId`、workspace 私有 receipt 与稳定 disposal（completed/reused/conflict/indeterminate）关联。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0007](0007-persisted-user-history-redaction.md)
+- **证据：** `src/shared/teaching-types/workspace.ts`、`src/main/teaching-ipc-commands.ts`、`src/main/teaching-workspace/mission-action-receipt.ts`、`src/main/teaching-workspace.ts`、`tests/unit/teaching-workspace-mission-action.unit.test.ts`
 
 ## 背景
 

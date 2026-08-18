@@ -1,8 +1,13 @@
 # ADR-0034：脱敏 Support Bundle（预览 + 同意后导出）
 
-- **状态：** 已实施（P2-8；feature `35dde79`；merge `899aeb3`）
-- **范围：** 用户可预览、consent-gated 的支持包；默认无 raw prompt / secret / 完整绝对路径
-- **证据提交：** `35dde79`、merge `899aeb3`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 支持导出分 preview（脱敏可预览 sections）与 export（仅 `consent.accepted === true` 且 section ∈ preview ∩ 同意范围）两步；默认无 raw prompt / secret / 完整绝对路径。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0001](0001-rebuildable-sqlite-projection.md)
+- **证据：** `src/shared/teaching-types/support-bundle.ts`、`src/main/support-bundle.ts`、`scripts/check-support-bundle.mjs`、`tests/unit/support-bundle.unit.test.ts`；提交 `35dde79`、merge `899aeb3`
 
 ## 决定
 

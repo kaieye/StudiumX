@@ -38,6 +38,7 @@ function registerIpcListener<T>(
 
 const api: TeachingSystemApi = {
   platform: process.platform,
+  listSystemFonts: () => ipcRenderer.invoke(teachingInvokeChannels.listSystemFonts),
   getState: () => ipcRenderer.invoke(teachingInvokeChannels.getState),
   getLearningAnalytics: (request) => ipcRenderer.invoke(teachingInvokeChannels.getLearningAnalytics, request),
   exportLearningAnalytics: (request) => ipcRenderer.invoke(teachingInvokeChannels.exportLearningAnalytics, request),

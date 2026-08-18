@@ -6,6 +6,7 @@
  * the resulting document still satisfies the id-uniqueness invariants.
  */
 import type {
+  MindMapConnectorEndpoint,
   MindMapDocumentV2,
   MindMapElement,
   MindMapSheetV2,
@@ -158,23 +159,24 @@ function cloneElement(
         ...element,
         id: newElementId
       }
-    case 'connector':
+    case 'connector': {
+      const remapEndpoint = (endpoint: MindMapConnectorEndpoint): MindMapConnectorEndpoint => ({
+        ...endpoint,
+        ...(endpoint.anchor
+          ? {
+              anchor: endpoint.anchor.targetType === 'topic'
+                ? { ...endpoint.anchor, targetId: remap(endpoint.anchor.targetId) }
+                : { ...endpoint.anchor, targetId: remapElement(endpoint.anchor.targetId) }
+            }
+          : {})
+      })
       return {
         ...element,
         id: newElementId,
-        start: {
-          ...element.start,
-          anchor: element.start.anchor.targetType === 'topic'
-            ? { ...element.start.anchor, targetId: remap(element.start.anchor.targetId) }
-            : { ...element.start.anchor, targetId: remapElement(element.start.anchor.targetId) }
-        },
-        end: {
-          ...element.end,
-          anchor: element.end.anchor.targetType === 'topic'
-            ? { ...element.end.anchor, targetId: remap(element.end.anchor.targetId) }
-            : { ...element.end.anchor, targetId: remapElement(element.end.anchor.targetId) }
-        }
+        start: remapEndpoint(element.start),
+        end: remapEndpoint(element.end)
       }
+    }
   }
 }
 

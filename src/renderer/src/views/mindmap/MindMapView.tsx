@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   FileCode,
   FileImage,
   FileText,
@@ -86,17 +87,19 @@ import {
   MIND_MAP_IMPORT_ACCEPT,
   mindMapImportFormatForFileName
 } from './mind-map-import-format'
-import { canAddSummaryToTopics } from './mind-map-commands'
+import { buildRemoveTopicsCommand, canAddSummaryToTopics } from './mind-map-commands'
 import './mindmap.css'
 
 function toConnectorEndpoint(
   endpoint: MindMapCanvasLineEndpoint
-): MindMapConnectorEndpoint | null {
-  if (!endpoint.target) return null
+): MindMapConnectorEndpoint {
   return {
     x: endpoint.x,
     y: endpoint.y,
-    anchor: { targetType: endpoint.target.kind, targetId: endpoint.target.id }
+    ...(endpoint.target
+      ? { anchor: { targetType: endpoint.target.kind, targetId: endpoint.target.id } }
+      : {}),
+    ...(endpoint.borderParam !== undefined ? { borderParam: endpoint.borderParam } : {})
   }
 }
 
@@ -104,12 +107,11 @@ function connectsDistinctTargets(
   start: MindMapConnectorEndpoint | null,
   end: MindMapConnectorEndpoint | null
 ): boolean {
-  return start !== null
-    && end !== null
-    && start.anchor !== undefined
-    && end.anchor !== undefined
-    && (start.anchor.targetType !== end.anchor.targetType
-      || start.anchor.targetId !== end.anchor.targetId)
+  if (start === null || end === null) return false
+  // A free connector (either end unbound) is always a valid standalone line.
+  if (start.anchor === undefined || end.anchor === undefined) return true
+  return start.anchor.targetType !== end.anchor.targetType
+    || start.anchor.targetId !== end.anchor.targetId
 }
 
 /**
@@ -210,6 +212,9 @@ export function MindMapView() {
       },
       { label: 'Draw shape' }
     )
+    // After committing a shape, return to the default selection (marquee)
+    // mode instead of staying armed to draw the same shape repeatedly.
+    setDrawingShape(null)
   }, [activeSheet, dispatchCommand, previewReadOnly])
 
   // The canvas retains move/resize/text edits as local previews until the
@@ -468,6 +473,40 @@ export function MindMapView() {
             { type: 'element.remove', sheetId: activeSheetId, elementId: selection.elementId },
             { label: 'Delete element' }
           )
+          selectCanvas()
+        }
+        else if (selection.kind === 'elements' && activeSheetId !== null && selection.elementIds.length > 0) {
+          dispatchCommand(
+            {
+              type: 'transaction',
+              commands: selection.elementIds.map((elementId) =>
+                ({ type: 'element.remove', sheetId: activeSheetId, elementId }) as MindMapCommand)
+            },
+            { label: 'Delete elements' }
+          )
+          selectCanvas()
+        }
+        else if (selection.kind === 'hybrid' && activeSheetId !== null) {
+          // A marquee that swept both topics and non-topic elements. Delete
+          // the topics and elements together as one undoable transaction so
+          // the gesture reads as a single "remove selection" action. Topics
+          // go through the cascade-safe multi-remove builder so a topic and
+          // its selected descendants collapse correctly instead of
+          // generating dangling child references.
+          const commands: MindMapCommand[] = []
+          if (selection.topicIds.length > 0 && activeSheet) {
+            const topicCommand = buildRemoveTopicsCommand(activeSheet, selection.topicIds)
+            if (topicCommand) commands.push(topicCommand)
+          }
+          for (const elementId of selection.elementIds) {
+            commands.push({ type: 'element.remove', sheetId: activeSheetId, elementId })
+          }
+          if (commands.length > 0) {
+            dispatchCommand(
+              commands.length === 1 ? commands[0]! : { type: 'transaction', commands },
+              { label: 'Delete selection' }
+            )
+          }
           selectCanvas()
         }
       },
@@ -918,7 +957,23 @@ export function MindMapView() {
     toggleInspector()
   }
 
-  const returnToGallery = (): void => {
+  // Leaving the editor always lands on the mind-map home page. A map opened
+  // from a workspace folder keeps that folder's scope; without an explicit
+  // scope switch the home button would only return to that folder, which is
+  // what the separate folder-back button is for.
+  const returnHome = (): void => {
+    if (previewReadOnly) return
+    setUtilityPanel(null)
+    setExportMenuOpen(false)
+    closeContextMenu()
+    void closeDocument('home')
+  }
+
+  // "One level up" back affordance: return to wherever the current map lives —
+  // the folder that owns it when it was opened from a workspace folder, or the
+  // home page when it lives directly on the home location. `closeDocument`
+  // without a scope keeps the current (owning) scope, which is exactly that.
+  const goBack = (): void => {
     if (previewReadOnly) return
     setUtilityPanel(null)
     setExportMenuOpen(false)
@@ -960,11 +1015,21 @@ export function MindMapView() {
             type="button"
             className="mindmap-stage__home"
             disabled={previewReadOnly}
-            onClick={returnToGallery}
+            onClick={returnHome}
             title={t('mindmap.backToGallery')}
             aria-label={t('mindmap.backToGallery')}
           >
             <Home size={18} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="mindmap-stage__home"
+            disabled={previewReadOnly}
+            onClick={goBack}
+            title={t('mindmap.backToPreviousLevel')}
+            aria-label={t('mindmap.backToPreviousLevel')}
+          >
+            <ArrowLeft size={18} aria-hidden="true" />
           </button>
         </div>
         <div className="mindmap-floating-toolbar" role="toolbar" aria-label={t('mindmap.viewTitle')}>

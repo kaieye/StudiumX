@@ -10,8 +10,12 @@ import {
   type MindMapLibraryWorkspace
 } from '../../../../shared/teaching-types/mindmap'
 import { MindMapHomeCardMenu, type MindMapHomeCardMenuState } from './MindMapHomeCardMenu'
-import { branchColorForKey } from './mind-map-branch-colors'
-import { computeMindMapLayout, type MindMapLayoutResult } from './mind-map-layout'
+import { MindMapPreview } from './mind-map-preview-render'
+
+/** Render an absolute filesystem path as "Users>chos1nz>Documents>考公". */
+function formatFolderPath(path: string): string {
+  return path.split(/[\\/]+/).filter(Boolean).join('>')
+}
 
 /**
  * Home-page mind-map library (docs/mindmap/design.md §6.2).
@@ -58,6 +62,14 @@ export function MindMapHomeLibrary({
   const [cardMenu, setCardMenu] = useState<MindMapHomeCardMenuState>(null)
   const [renamingDocument, setRenamingDocument] = useState<MindMapSummary | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
+
+  // The folder being browsed resolves to its display name for the top path.
+  const folderEntry = folder
+    ? library?.workspaces.find((item) => item.workspaceId === folder)
+    : undefined
+  const folderPath = folderEntry
+    ? (folderEntry.path ? formatFolderPath(folderEntry.path) : folderEntry.name)
+    : ''
 
   // In folder mode the card set is just that folder's documents; in home mode
   // it is every card flattened (home + all workspaces).
@@ -174,6 +186,13 @@ export function MindMapHomeLibrary({
         >
           <Home size={18} aria-hidden="true" />
         </button>
+        <div
+          className="mindmap-folder__path"
+          title={folderPath}
+          aria-label={folderPath}
+        >
+          {folderPath}
+        </div>
         <MindMapCardGrid
           documents={visibleDocuments}
           previews={previews}
@@ -418,110 +437,5 @@ function MindMapCardGrid({
         )
       })}
     </div>
-  )
-}
-
-type MindMapPreviewProps = {
-  preview?: MindMapCardPreview
-  title: string
-}
-
-function MindMapPreview({ preview, title }: MindMapPreviewProps) {
-  const sheet = preview
-    ? {
-        id: 'preview-sheet',
-        title,
-        root: preview.root,
-        elements: [],
-        layout: preview.layout
-      }
-    : null
-  const layout = useMemo(() => (sheet ? computeMindMapLayout(sheet) : null), [sheet])
-  if (!layout || layout.nodes.length === 0) {
-    return <PreviewPlaceholder title={title} />
-  }
-  return <PreviewSvg preview={preview!} title={title} layout={layout} />
-}
-
-function PreviewPlaceholder({ title }: { title: string }) {
-  return (
-    <svg className="mindmap-home-card__svg" viewBox="0 0 328 204" role="img" aria-label={title}>
-      <rect x="103" y="78" width="122" height="48" rx="10" fill="#fff" stroke="#438eff" strokeWidth="2" />
-      <text x="164" y="103" textAnchor="middle" dominantBaseline="central" fill="#2854d8" fontSize="16" fontWeight="600">
-        {title || '思维导图'}
-      </text>
-    </svg>
-  )
-}
-
-function PreviewSvg({
-  preview,
-  title,
-  layout
-}: {
-  preview: MindMapCardPreview
-  title: string
-  layout: MindMapLayoutResult
-}) {
-  const nodes = layout.nodes
-  const nodeById = new Map(nodes.map((node) => [node.id, node]))
-  const minX = Math.min(...nodes.map((node) => node.x))
-  const minY = Math.min(...nodes.map((node) => node.y))
-  const maxX = Math.max(...nodes.map((node) => node.x + node.width))
-  const maxY = Math.max(...nodes.map((node) => node.y + node.height))
-  const padding = 28
-  const viewBox = `${minX - padding} ${minY - padding} ${Math.max(180, maxX - minX + padding * 2)} ${Math.max(120, maxY - minY + padding * 2)}`
-
-  return (
-    <svg className="mindmap-home-card__svg" viewBox={viewBox} role="img" aria-label={title}>
-      <g className="mindmap-home-card__edges">
-        {layout.edges.map((edge) => {
-          const from = nodeById.get(edge.from)
-          const to = nodeById.get(edge.to)
-          if (!from || !to) return null
-          return (
-            <line
-              key={`${edge.from}-${edge.to}`}
-              x1={from.x + from.width / 2}
-              y1={from.y + from.height / 2}
-              x2={to.x + to.width / 2}
-              y2={to.y + to.height / 2}
-              stroke={branchColorForKey(preview.theme, edge.branchKey) ?? '#6b82ee'}
-              strokeWidth={Math.max(1.5, 3 - edge.branchIndex * 0.25)}
-              strokeLinecap="round"
-            />
-          )
-        })}
-      </g>
-      {nodes.map((node) => {
-        const fill = node.depth === 1 ? branchColorForKey(preview.theme, node.branchKey) ?? '#3157dd' : node.depth === 0 ? '#fff' : '#f5f5f7'
-        const text = node.depth === 1 ? '#fff' : node.depth === 0 ? '#2854d8' : '#343434'
-        return (
-          <g key={node.id}>
-            <rect
-              x={node.x}
-              y={node.y}
-              width={node.width}
-              height={node.height}
-              rx={Math.min(10, node.height / 2)}
-              fill={fill}
-              stroke={node.depth === 0 ? '#438eff' : 'none'}
-              strokeWidth={node.depth === 0 ? 1.5 : 0}
-            />
-            <text
-              x={node.x + node.width / 2}
-              y={node.y + node.height / 2}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fill={text}
-              fontSize={node.depth === 0 ? 18 : node.depth === 1 ? 12 : 9}
-              fontWeight={node.depth < 2 ? 600 : 500}
-            >
-              {node.title || ' '}
-            </text>
-          </g>
-        )
-      })}
-    </svg>
   )
 }

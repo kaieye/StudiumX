@@ -1,9 +1,13 @@
 # ADR-0142：MCP 产品面收窄（Settings 仅 list/editor；marketplace UI 不落地）
 
-- **状态：** 已采纳（产品面事实记录；**收窄** ADR-0141 中 marketplace / Settings 全量 parity 的 shipping 期望，不推翻 A–H foundation 与硬安全）
-- **日期：** 2026-07-23
-- **范围：** 明确 StudiumX **当前 shipping** 的 MCP **渲染层产品面**，以及与 ADR-0140 foundation / ADR-0141 体验授权之间的关系。
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-23（修订 2026-08-18）
+- **范围：** 明确 StudiumX **当前 shipping** 的 MCP **渲染层产品面**，以及与 ADR-0140 foundation / ADR-0141 体验授权之间的关系。原「marketplace Settings UI 永久不交付 / 永久禁止」措辞已收窄为「当前 shipping 范围外的设计 non-claim，开放路径与前置条件见 §6」。硬安全（secret/settlement/effect/approval/无 YOLO）不变。
+- **取代：** 无
+- **被取代：** 无
 - **相关：** ADR-0127、ADR-0128、ADR-0132、ADR-0135、ADR-0137、ADR-0140、ADR-0141、`AGENTS.md`、`SECURITY.md`、`src/shared/features.ts`
+- **证据：** §4 实现锚点（`src/renderer/src/views/settings/sections/UserMcpServer*.tsx`、`src/shared/mcp/marketplace-*`、`src/main/mcp/marketplace-store.ts`、`src/main/mcp/host.ts`）
 
 ## 1. 背景
 
@@ -60,6 +64,19 @@ src/main/mcp/host.ts  (marketplace* methods)
 - **不**引入默认远程 phone-home catalog。
 - **不**改变 secret / settlement / effect 红线。
 
-## 6. 一句话
+## 6. Settings marketplace UI：从「永久禁止」改为「设计 non-claim + 开放路径」（2026-08-18 修订）
 
-**MCP 产品设置页 = 用户可配置 server 列表与编辑；marketplace 仅 main/shared foundation，Settings 不挂市场 UI。**
+> **修订动机：** `docs/redline-audit.md` §3 #5/#6 与 `docs/redline-checklist.md` B0142 指出，原文「marketplace 无 Settings UI / 当前不交付」在实务中被读为「永久禁止 / 不可立项」，与 ADR-0141 已放宽的 marketplace / 远程 catalog 体验政策自相矛盾，成为「工作被文档拦住」的主要来源。本修订**不**授权立即上线 Settings 市场，也**不**改变任何硬安全不变量；仅把「永久禁止」收窄为「设计 non-claim + 明确开放路径」，使产品体验优化可在满足前置条件时立项。
+
+| 维度 | 修订后语义 |
+| --- | --- |
+| 性质 | **设计 non-claim（当前不交付）**，非永久禁止 |
+| 开放路径 | 修订本 ADR §6 并新增/更新实现切片 ADR + 交付 Settings marketplace UI + 测试即可开放 |
+| 前置条件（须同时满足） | (a) 用户可禁用/撤销/紧急关闭 marketplace（与 ADR-0141 §2.2 一致）；(b) 远程 catalog URL 为用户/官方可配置源，非默认 phone-home telemetry；(c) 信任/撤销/紧急禁用 lifecycle 保留（ADR-0139/0140）；(d) 签名/哈希为 fail-soft 推荐，高风险可执行下载须明确提示；(e) install→connect 仍受 effect lattice + approval，无 YOLO |
+| 仍禁止（硬安全不变量） | secret/token 进 public DTO/Doctor/bundle；MCP 作 settlement authority；YOLO/always-approve；默认 phone-home telemetry |
+
+**对文档的即时同步：** `AGENTS.md` §3 红线 3「不要再挂 marketplace 设置页」与 `SECURITY.md`「Settings marketplace UI out of shipping surface」应读为「**当前不交付**（设计 non-claim）」而非「永久禁止」；当 Settings marketplace 实现切片经独立 ADR 落地时，须同步更新本节与上述文档。
+
+## 7. 一句话
+
+**MCP 产品设置页 = 用户可配置 server 列表与编辑；marketplace foundation 可保留；Settings 市场 UI 当前不交付（设计 non-claim，非永久禁止），满足前置条件后可经独立 ADR 开放；硬安全不变量保持不变。**

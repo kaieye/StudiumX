@@ -1,9 +1,17 @@
 # ADR-0122：Usage Ledger 作为可观测性的细粒度 canonical 账本
 
-- **状态：** 设计权威已采纳；**DB-P0-3 最小实现已落地**（JSONL writer + optional SQLite projection）；非「仅 design、未实现」
+- **决策状态：** accepted
+- **实施状态：** partial
+- **实施说明：** 设计权威已采纳；**DB-P0-3 最小实现已落地**（JSONL writer + optional SQLite projection）；非「仅 design、未实现」
 - **日期：** 2026-07-21
 - **范围：** Token / tool / turn usage 细粒度 observability ledger 的权威边界、布局、保留、脱敏与 projection 关系
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0007](0007-persisted-user-history-redaction.md)、[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0028](0028-teaching-audit-correlation-safe-metadata.md)、[ADR-0034](0034-redacted-support-bundle.md)、[ADR-0040](0040-teaching-session-protocol-facade.md)、[ADR-0041](0041-tool-annotations-and-result-budget.md)、[ADR-0124](0124-database-layered-authority-and-pr-gates.md)（DB-P0-3 / DB-P1-1 状态）
+- **证据：** `src/main/usage-ledger.ts`（JSONL writer + optional SQLite projection，DB-P0-3 最小实现）；契约测试 `tests/unit/usage-ledger-adr.unit.test.ts`；布局/保留/脱敏设计见本 ADR 正文 §1–§7。
+
+
+> **长度说明：** 本 ADR 为完整 usage ledger 设计权威，含行模型封闭集、retention/redaction 边界与 DB-P0-3 关系；关键字段与禁区由 `tests/unit/usage-ledger-adr.unit.test.ts` 锁定，无法在不削弱保护意图的前提下整体压缩。
 
 ## 背景
 

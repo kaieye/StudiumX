@@ -1,9 +1,13 @@
 # ADR-0006：按 scope 分区 Memory，并只提供 aggregate-only readonly migration preflight
 
-- **状态：** 已实施（分区与只读预检；非真实迁移）
-- **范围：** C-6、C-6A
-- **证据提交：** `26eca18`、`5803176`
-- **后续切片：** main-only readonly dry-run intent/receipt 与 destructive 延期见 [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md)。
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** Memory 按稳定 scope hash 分区写入；仅暴露来自同一次 descriptor-bound discovery snapshot 的 aggregate-only readonly migration preflight。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0038](0038-memory-readonly-migration-dry-run-and-destructive-deferral.md)、[ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)
+- **证据：** `tests/unit/teaching-memory-catalog.unit.test.ts`、`tests/unit/teaching-memory-recall.unit.test.ts`、`tests/unit/teaching-ipc-gateway.unit.test.ts`；提交 `26eca18`、`5803176`
 
 ## 决定
 

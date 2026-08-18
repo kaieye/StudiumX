@@ -1,8 +1,13 @@
 # ADR-0024：Typed ToolDispatcher、Effect Policy 与 ToolOutcome
 
-- **状态：** 已实施（P1-2；合入 main `0d99c14` / feature `b4f3c9c`）
-- **范围：** 工具调用前置 effect 分类与授权、严格参数解析、typed `ToolOutcome`
-- **证据提交：** `b4f3c9c`、merge `0d99c14`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 教学工具调用走 `ToolDispatcher`（effect 分类 → 授权 → 严格解析 → handler → 封闭 `ToolOutcome`）；未知工具 fail-closed 为 `privileged`。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0032](0032-conservative-parallel-read-tools.md)、[ADR-0041](0041-tool-annotations-and-result-budget.md)
+- **证据：** `src/main/ai/tools/dispatcher.ts`、`src/main/ai/tools/effect-policy.ts`、`src/main/ai/tools/tool-outcome.ts`、`tests/unit/tool-dispatcher.unit.test.ts`；提交 `b4f3c9c`、merge `0d99c14`
 
 ## 决定
 

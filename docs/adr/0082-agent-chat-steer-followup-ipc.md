@@ -1,10 +1,14 @@
 # ADR-0082：Agent chat mid-run steer / follow-up IPC
 
-- **状态：** 已实施（main-side invoke channels + fail-closed parsers + gateway façade delegation；product `autoDrain` 仍为 false；renderer 本地 FIFO 未改）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（main-side invoke channels + fail-closed parsers + gateway façade delegation；product `autoDrain` 仍为 false；renderer 本地 FIFO 未改）
 - **日期：** 2026-07-21
 - **范围：** B-02 residual — 对 **active** `streamId` 暴露 `steer` / `followUp` IPC，委托已 attach 的 `AgentSessionFacade`；不开启 product autoDrain；不做 main↔renderer 队列镜像
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0058](0058-agent-session-facade.md)、[ADR-0067](0067-cancel-tool-pair-close-and-busy-ack.md)、[ADR-0055](0055-busy-input-queue-and-replay-contracts.md)、[ADOPTION B-02](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-ipc-contract.ts`（`steerAgentChatStream` / `followUpAgentChatStream`）
   - `src/shared/teaching-types/agent.ts` / `system-api.ts`（payload + result）
   - `src/main/teaching-ipc-commands.ts`（`parseSteerAgentChatPayload` / `parseFollowUpAgentChatPayload`）

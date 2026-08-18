@@ -263,8 +263,19 @@ export type MindMapConnectorAnchor = {
 
 /** A connector endpoint in document (content) coordinates. */
 export type MindMapConnectorEndpoint = MindMapPoint & {
-  /** Every connector endpoint is attached to a topic or drawn shape. */
-  anchor: MindMapConnectorAnchor
+  /**
+   * Optional magnetic binding. Anchored endpoints stay attached to a topic or
+   * drawn shape; a free connector (drawn on blank canvas) omits the anchor on
+   * either or both ends so it can be positioned independently.
+   */
+  anchor?: MindMapConnectorAnchor
+  /**
+   * Normalized border parameter (radians, the ray angle from the target
+   * center to the border point). Preserves the user-chosen border position
+   * across moves/resizes of the anchored target so the connector endpoint
+   * does not jump to wherever the opposite endpoint happens to be.
+   */
+  borderParam?: number
 }
 
 /** A labelled connector between two topics. */
@@ -324,7 +335,8 @@ export type MindMapShape = MindMapElementBase & {
   height: number
 }
 
-/** A directed line or arrow between two distinct canvas targets. */
+/** A directed line or arrow between two canvas endpoints. Endpoints may bind
+ * to distinct topics/shapes, or float freely as a standalone drawn line. */
 export type MindMapConnector = MindMapElementBase & {
   type: 'connector'
   start: MindMapConnectorEndpoint

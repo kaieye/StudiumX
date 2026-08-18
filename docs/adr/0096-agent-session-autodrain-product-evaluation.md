@@ -1,10 +1,14 @@
 # ADR-0096：Product autoDrain 评估（保持 false）
 
-- **状态：** 评估结论已记录（**决策：product 继续 `autoDrain: false`**；**无** 生产行为变更；**无** 代码翻转）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 评估结论已记录（**决策：product 继续 `autoDrain: false`**；**无** 生产行为变更；**无** 代码翻转）
 - **日期：** 2026-07-21
 - **范围：** B-02 residual evaluation — 记录 product 接线现状、队列只读 IPC 能力、renderer 消费缺口，以及未来翻转 autoDrain 的显式前置条件；**不**实施 autoDrain；**不**改 gateway / façade 默认；**不**实现 renderer 队列 UI
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0055](0055-busy-input-queue-and-replay-contracts.md)、[ADR-0058](0058-agent-session-facade.md)、[ADR-0067](0067-cancel-tool-pair-close-and-busy-ack.md)、[ADR-0082](0082-agent-chat-steer-followup-ipc.md)、[ADR-0089](0089-agent-session-queue-projection.md)、[ADR-0091](0091-agent-session-queue-projection-ipc.md)、[ADOPTION B-02](0121-improvements-adoption-closeout.md)
-- **证据路径（只读）：**
+- **证据：** 
   - `src/main/teaching-ipc-gateway.ts`（product attach `autoDrain: false` + queue/steer 注释）
   - `src/main/ai/agent-session-facade.ts`（constructor 默认 vs product 强制 false；turn 后 `drain()` 门闩）
   - `src/main/ai/agent-session-queue-projection.ts` / `agent-session-queue-ipc.ts`
@@ -27,73 +31,21 @@ B-02 主切片已落地：
 
 ADOPTION B-02 仍把 **product autoDrain 评估** 标为可选 residual，且要求：**勿在无队列同步设计时翻 true**。本 ADR 只做评估与决策记录，不授权任何 product 行为变更。
 
-## 现状：product 接线（证据）
+## 现状：product 接线（证据摘要）
 
-### 1. Product 唯一强制 `autoDrain: false` 点
+评估当日（2026-07-21）product 接线快照如下；完整行号 / 路径证据见
+`docs/adr/evidence/ADR-0096.md`。
 
-`agentChatStream` gateway 在构造 façade 时**显式**关闭 autoDrain：
-
-```ts
-// src/main/teaching-ipc-gateway.ts:327–336
-// autoDrain stays false (ADR-0082): mid-run steer/follow-up IPC is available, but product
-// multi-turn autoDrain remains off until renderer queue sync lands (ADR-0067 residual).
-const facade = new AgentSessionFacade({
-  streamId,
-  conversationId: payload.conversationId,
-  createAbortController: () => controller,
-  autoDrain: false,
-  run: async (invokerInput) => { /* … */ }
-})
-```
-
-同一文件对 mid-run 与只读投影的注释再次钉死产品地板：
-
-| 行 | 语义 |
-| --- | --- |
-| `439` | steer 委托 façade；**Product autoDrain stays false** |
-| `456` | follow-up 默认入队；**does not flip autoDrain** |
-| `473–474` | `projectAgentSessionQueue` 只读；**never** drain/steer/prompt/abort/**flip autoDrain** |
-
-`src/main` 下 **唯一** `new AgentSessionFacade({ … autoDrain: … })` 产品构造即上述 gateway 路径；registry 本身不翻转该 flag。
-
-### 2. Façade 库默认 vs product 强制
-
-| 位置 | 行为 |
-| --- | --- |
-| `agent-session-facade.ts:106–110, 140` | `autoDrain?: boolean`；`this.autoDrain = options.autoDrain !== false` → **库默认 true**（便于 unit / 非 product 宿主） |
-| `agent-session-facade.ts:492–496` | turn 结算后若 `this.autoDrain && !queue.isEmpty()` 才 `void this.drain()` |
-| Product gateway | **必须**传 `autoDrain: false`，覆盖库默认 |
-
-**不变量：** product 安全依赖 gateway 显式 `false`，**不**依赖把 façade 默认改成 false。本评估 **禁止** 把 constructor 默认改成 true 以外的“产品默认翻转”戏法；未来若改默认，须独立 ADR 并重扫所有构造点。
-
-### 3. 投影 / IPC：报告 flag，从不启用 drain
-
-| 层 | 路径 | 与 autoDrain 关系 |
+| 层 | 现状 | autoDrain |
 | --- | --- | --- |
-| Pure projection | `agent-session-queue-projection.ts:130–131` | `autoDrain: options.autoDrain === true`（helper 默认报告 false） |
-| Façade thin | `agent-session-facade.ts:194–204` | `projectQueue` 传入 `this.autoDrain`；**不** mutate / flip |
-| IPC mapper | `agent-session-queue-ipc.ts` | `runProjectAgentSessionQueueIpc` → `facade.projectQueue`；无 drain |
-| Contract | `teaching-ipc-contract.ts:94` | `projectAgentSessionQueue: 'teach:project-agent-session-queue'` |
-| System API | `system-api.ts:248–252` | 文档：**Never drains / steers / aborts; product autoDrain remains false** |
-| Preload | `preload/index.ts:145` | whitelist invoke only |
+| Product gateway（`teaching-ipc-gateway.ts`） | 唯一产品构造点显式 `autoDrain: false` | **false（强制）** |
+| Façade 库默认（`agent-session-facade.ts`） | `options.autoDrain !== false` → 库默认 true（供 unit / 非 product 宿主） | 产品路径被 gateway 覆盖 |
+| 投影 / IPC / preload | `projectAgentSessionQueue` 只读报告 flag，从不 drain/steer/abort/flip | 不启用 |
+| 生产 `src/**` | **无** `autoDrain: true`（仅 unit 覆盖） | 不启用 |
+| Renderer | 仍用本地 FIFO + busy-ack（ADR-0067），未镜像 main façade 队列 | 未消费只读 IPC |
 
-### 4. `autoDrain: true` 仅出现在测试
-
-全仓生产 `src/**` **无** `autoDrain: true`。当前仅 unit：
-
-- `tests/unit/agent-session-facade.unit.test.ts`（显式 true 覆盖 drain 行为）
-- `tests/unit/agent-session-queue-projection.unit.test.ts`（报告字段）
-- `tests/unit/agent-session-queue-ipc.unit.test.ts`（mock 投影字段）
-
-### 5. Renderer 消费者
-
-| 消费者 | 是否调用 `projectAgentSessionQueue` | 现状 |
-| --- | --- | --- |
-| Preload / TeachingSystemApi | 已暴露 | 无 UI 调用链 |
-| `agent-conversation-runner.ts` | **否** | 本地 `agentBusyFollowUpQueue` + `drainBusyFollowUpQueue()`（~L173+） |
-| Pet / Overview busy-ack | **否** | 本地 FIFO + closed-copy banner（ADR-0067） |
-
-结论：**main 队列只读 IPC 已备齐；renderer 仍用本地 FIFO，未镜像 main façade 队列。** 在此双队列未统一前，开启 product autoDrain 会造成“main 自动 drain + renderer 再本地 drain”的双轨竞态风险。
+**结论：** main 队列只读 IPC 已备齐；renderer 仍用本地 FIFO。双队列未统一前开启
+product autoDrain 会造成“main 自动 drain + renderer 再本地 drain”双轨竞态风险。
 
 ## 决策
 

@@ -1,10 +1,14 @@
 # ADR-0081：非 recall 路径的记忆注入消毒（lesson prompts + memory tools）
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施
 - **日期：** 2026-07-21
 - **范围：** 将 ADR-0076 的 `sanitizeMemoryInjectionText` 接到 lesson prompt 组装与 memory tool 文档投影（模型可见文本边界）
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0076](0076-memory-injection-sanitize.md)、[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADOPTION S-10](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/memory-sanitize.ts`（既有 helper，本切片不改算法）
   - `src/main/ai/lesson-prompts.ts`（system / user 记忆列表注入前 sanitize）
   - `src/main/ai/tools/memory-tools.ts`（`memoryToDocument` + synthetic index title 投影 sanitize）

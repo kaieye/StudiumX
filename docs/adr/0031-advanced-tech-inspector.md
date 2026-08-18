@@ -1,8 +1,13 @@
 # ADR-0031：高级技术 Inspector（默认对学习者隐藏）
 
-- **状态：** 已实施（P2-3；feature `2341549`；merge `81cee1d`）
-- **范围：** 诊断模式 typed events / effects / projection report / run lifecycle / capability 视图；默认 `learner_hidden`
-- **证据提交：** `2341549`、merge `81cee1d`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** `inspectTeachingTech(input)` 组装 events / effects / projection_report / run_lifecycle / capability 诊断视图；默认 `learner_hidden`，字符串经 secret redaction。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0030](0030-session-resume-picker.md)
+- **证据：** `src/shared/teaching-types/tech-inspector.ts`、`src/main/tech-inspector.ts`、`scripts/check-tech-inspector.mjs`、`tests/unit/tech-inspector.unit.test.ts`；提交 `2341549`、merge `81cee1d`
 
 ## 决定
 

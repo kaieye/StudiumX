@@ -1,15 +1,19 @@
 # ADR-0055：Busy 输入有界队列与回放 / revision 契约
 
-- **状态：** 已实施（模块 + 契约测试 + 薄 cancel 接线）
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** `agent-input-queue` / `agent-busy-input-policy`、cancel 清空、A-08 反回归契约（`expectedRevision` 拒、`toolsReplayed:false`、无启动自动 memory）
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADOPTION.md](0121-improvements-adoption-closeout.md) A-08 / B-01、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0040](0040-teaching-session-protocol-facade.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md)、[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)
+- **证据：** `src/main/ai/agent-input-queue.ts`、`src/main/ai/agent-busy-input-policy.ts`、`src/main/teaching-ipc-gateway.ts`（registry + cancel `clearOnCancel`）、`tests/unit/agent-input-queue.unit.test.ts`、`tests/unit/agent-busy-input-policy.unit.test.ts`、`tests/unit/a08-revision-tools-memory-contracts.unit.test.ts`
 
 ## 背景
 
 渲染层在 `agentChatBusy` 时对新输入早退；main 仅有 `AbortController` 取消路径，缺少 busy 下的 follow-up / steer 有界队列与三态策略。同时 ADOPTION A-08 要求对 revision CAS、`toolsReplayed:false` 与「无启动自动 memory」做契约级反回归封口。
 
-## 决策
+## 决定
 
 ### B-01 Busy 输入
 
@@ -27,7 +31,7 @@
 3. **接线边界（本 ADR 已落地）**
    - `TeachingIpcGateway` 持有 `AgentInputQueueRegistry`
    - `cancelAgentChatStream` 在 abort 后对 `streamId` 调用 `clearOnCancel`
-   - **尚未**把 renderer busy 早退改为完整 façade drain（留给 B-02 `AgentSessionFacade`）；本切片交付模块 + 单测 + cancel 钩子
+   - **尚未**把 renderer busy 早退改为完整 façade drain（留给 B-02 `AgentSessionFacade`，见 [ADR-0058](0058-agent-session-facade.md)）；本切片交付模块 + 单测 + cancel 钩子
 
 ### A-08 契约封口
 
@@ -39,7 +43,7 @@
 | fork 不默认可执行工具历史 | `projectAgentConversationReplay` / `forkAgentConversationBranchAtRoot` 固定 `toolsReplayed:false` 且剥离 toolCalls |
 | 无启动自动 memory | `createApplicationRuntime` start 不 list/create memory；`buildSessionStablePrefix` 不含 memory body |
 
-## 已实施范围与验证入口
+## 验证
 
 ```bash
 pnpm exec vitest run --project unit \
@@ -48,9 +52,9 @@ pnpm exec vitest run --project unit \
   tests/unit/a08-revision-tools-memory-contracts.unit.test.ts
 ```
 
-## 不包含 / non-claims
+## 非目标
 
-- **不** 实施完整 AgentSessionFacade（B-02）或 renderer busy-ack banner UI 终态
+- **不** 实施完整 AgentSessionFacade（B-02，见 ADR-0058）或 renderer busy-ack banner UI 终态
 - **不** 在 agent-loop 内中途强插 provider messages（仅安全 turn 边界策略已定义）
 - **不** 改变 settlement sole-writer、effect lattice、YOLO / shell / MCP 边界
 - **不** 允许 fork 默认 `toolsReplayed:true` 或启动自动注入 memory 正文

@@ -1,8 +1,13 @@
 # ADR-0029：Learning Branch Projection（只读分支投影）
 
-- **状态：** 已实施（P2-1；feature `717a9c6`；merge `3ec6dda`）
-- **范围：** 由 planner / session / outcome 规范化 facts 派生的只读分支投影；不改变 canonical outcome 历史
-- **证据提交：** `717a9c6`、merge `3ec6dda`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 教学路径可视化使用只读 `projectLearningBranch(facts)` 投影，产出 primary path 与显式标记为 non-canonical 的 alternate branches。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0012](0012-deterministic-next-teaching-step-planner.md)、[ADR-0014](0014-learner-safe-teaching-turn-presentation.md)
+- **证据：** `src/shared/teaching-types/learning-branch-projection.ts`、`src/main/learning-branch-projection.ts`、`scripts/check-learning-branch-projection.mjs`、`tests/unit/learning-branch-projection.unit.test.ts`；提交 `717a9c6`、merge `3ec6dda`
 
 ## 决定
 

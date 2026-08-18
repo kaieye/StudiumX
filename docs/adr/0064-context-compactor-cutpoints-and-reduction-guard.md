@@ -1,10 +1,13 @@
 # ADR-0064：ContextCompactor 切点策略、不足缩减守卫与审计字段
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** 增量 hardening `ContextCompactor` 的 cut-point 文档/导出、不足缩减守卫、审计事件字段；**不**替换压缩引擎
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADOPTION B-09](0121-improvements-adoption-closeout.md)、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)（投影阶梯层 A）、[ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)（教学 context 分离）
-- **证据路径：** `src/main/ai/context-compactor.ts`、`tests/unit/context-compactor.unit.test.ts`、`docs/adr/0064-context-compactor-cutpoints-and-reduction-guard.md`
+- **证据：** `src/main/ai/context-compactor.ts`、`tests/unit/context-compactor.unit.test.ts`
 
 ## 背景
 
@@ -71,17 +74,6 @@
 - summarize throw / empty summary / insufficient reduction：**一律**保留原始 transcript，`changed: false`。
 - 压缩仅影响**本轮 provider 投影**（RequestContextProjector 路径）；本切片**不**开启 durable compaction boundary（ADR-0045 层 B）。
 
-## 已实施范围与验证入口
-
-- `src/main/ai/context-compactor.ts`（增量；引擎类保留）
-- `tests/unit/context-compactor.unit.test.ts`
-- 既有 fixture 检查仍有效：`pnpm run check:context-compactor`
-
-```powershell
-pnpm exec vitest run --project unit tests/unit/context-compactor.unit.test.ts
-pnpm run check:context-compactor
-```
-
 ## 不变量
 
 - 失败路径不得丢弃或改写调用方 transcript。
@@ -90,7 +82,14 @@ pnpm run check:context-compactor
 - 不足缩减不得当作成功 completed。
 - 不替换 ContextCompactor 引擎 / 不引入 shell / MCP / FTS / YOLO / 远程 telemetry。
 
-## 不包含 / non-claims
+## 验证
+
+```powershell
+pnpm exec vitest run --project unit tests/unit/context-compactor.unit.test.ts
+pnpm run check:context-compactor
+```
+
+## 非目标
 
 - **不**实现 ADR-0045 层 B durable compaction boundary。
 - **不**改 teaching context assembler（ADR-0013）或 prompt-cache 稳定前缀（ADR-0044）组装。

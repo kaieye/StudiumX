@@ -1,10 +1,14 @@
 # ADR-0084：TeachingDoctor product IPC（process crash-marker facts assemble + run）
 
-- **状态：** 已实施（product invoke + fail-closed parser + preload whitelist + pure assembler；**无**完整 Settings Doctor UI 面板）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（product invoke + fail-closed parser + preload whitelist + pure assembler；**无**完整 Settings Doctor UI 面板）
 - **日期：** 2026-07-21
 - **范围：** ADOPTION **B-11 residual** — 产品 IPC 组装 process crash marker 事实并运行 pure TeachingDoctor，返回 export-safe report
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0043](0043-doctor-config-locator-and-fix-suggestion.md)、[ADR-0066](0066-local-observability-and-crash-marker.md)、[ADR-0082](0082-agent-chat-steer-followup-ipc.md)（IPC 形状先例）
-- **证据路径：**
+- **证据：** 
   - `src/main/observability/teaching-doctor-product-run.ts`（`runProductTeachingDoctor`）
   - `src/main/observability/process-crash-marker-facts.ts`（collector map）
   - `src/main/teaching-doctor.ts`（pure `runTeachingDoctor` / `exportTeachingDoctorReport`）

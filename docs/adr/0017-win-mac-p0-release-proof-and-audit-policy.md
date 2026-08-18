@@ -1,8 +1,13 @@
 # ADR-0017：Win/Mac P0 发布证明与 clean-checkout audit 政策
 
-- **状态：** 已实施（Win/Mac 目标环境 P0 发布证明已关闭；不代表 Linux 产品船、完整 C-4 writer migration 或 P1/P2）
-- **范围：** clean-checkout release audit 入口、skip 分类与 Win/Mac 聚合预算、committer/recovery/read-repair runtime gate、真实 Electron longitudinal / crash-restart Golden（`--repeat-each=3`）、发布证明提交证据
-- **证据提交：** `a797f07`（skip 合同与 Win/Mac 预算政策）、`7aa205f` / `25dd44a`（交接文档沉淀，后已并入本 ADR）、此前合入的 teaching-loop e2e / gate 加固提交（含 `8a02b7a` 等）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 以可复制 clean-checkout 审计与真实 Electron 纵向证据关闭 P0 教学领域模块（ADR-0008…0016）的发布；平台/能力 skip 显式建模。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)、[ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)
+- **证据：** `scripts/release-audit-contract.mjs`、`scripts/release-audit.mjs`、`node scripts/check-learning-outcome-committer.mjs`、`node scripts/check-teaching-learning-loop.mjs`、`tests/e2e/teaching-learning-loop-longitudinal.e2e.spec.ts`、`tests/e2e/teaching-learning-loop-crash-recovery.e2e.spec.ts`；发布证明快照与 Win32 预算明细见 `docs/adr/evidence/ADR-0017.md`
 
 ## 决定
 

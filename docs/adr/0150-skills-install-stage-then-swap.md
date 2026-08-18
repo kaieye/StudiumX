@@ -1,10 +1,14 @@
 # ADR-0150：Skills 安装 stage-then-swap（LiveAgent Phase B / worth-learning §3.6）
 
-- **状态：** **已实施**（2026-07-24）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **已实施**（2026-07-24）
 - **日期：** 2026-07-24
 - **范围：** builtin allowlist 技能包向 personal root **文件系统安装**时，使用 `.staging` 构建 + rename 提升 + 目录 write guard，使读者永不看见半成品技能树。
-- **关联：** LiveAgent Phase B 历史研究项 §3.6（已结项）；[ADR-0131](0131-pathname-default-durable-io.md)；`SECURITY.md`；`Agents.md` 产品地板（无开放 marketplace / 无 YOLO；**shell 产品面另立** ADR-0152/0153，A–F 已合格完成；本 ADR 安装路径 **不**引入 shell）
-- **实现落点：** `src/main/skill-library/skill-install-stage-swap.ts`；`SkillLibraryService.installSkill`；`skill-pack-resolver` write guard；`tests/unit/skill-install-stage-swap.unit.test.ts`
+- **取代：** 无
+- **被取代：** 无
+- **相关：** LiveAgent Phase B 历史研究项 §3.6（已结项）；[ADR-0131](0131-pathname-default-durable-io.md)；`SECURITY.md`；`Agents.md` 产品地板（无开放 marketplace / 无 YOLO；**shell 产品面另立** ADR-0152/0153，A–F 已合格完成；本 ADR 安装路径 **不**引入 shell）
+- **证据：** `src/main/skill-library/skill-install-stage-swap.ts`；`SkillLibraryService.installSkill`；`skill-pack-resolver` write guard；`tests/unit/skill-install-stage-swap.unit.test.ts`
 
 ## 1. 问题
 

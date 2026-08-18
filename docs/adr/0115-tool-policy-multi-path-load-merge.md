@@ -1,10 +1,14 @@
 # ADR-0115：tool-policy 多相对路径 load + merge（课程 overlay）
 
-- **状态：** 已实施（ADOPTION B-08 residual：multi-file FS discovery / 产品注入 merged doc；Granular UI 仍 defer）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION B-08 residual：multi-file FS discovery / 产品注入 merged doc；Granular UI 仍 defer）
 - **日期：** 2026-07-21
 - **范围：** `loadAndMergeToolPolicyDocumentsFromWorkspace` 多相对路径 fail-soft 装载 + ADR-0112 pure merge；**仅** `teaching-conversation-runtime` 主对话路径改用 dual-path 默认；delegation / lesson-plan / catalog 仍单文件
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0063](0063-declarative-tool-policy.md)、[ADR-0079](0079-workspace-tool-policy-fs-loader.md)、[ADR-0083](0083-workspace-tool-policy-product-inject.md)、[ADR-0088](0088-workspace-tool-policy-secondary-inject.md)、[ADR-0101](0101-workspace-tool-policy-catalog-inject.md)、[ADR-0112](0112-tool-policy-multi-document-merge.md)、[ADOPTION B-08](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/ai/tools/tool-policy-fs.ts`（`loadAndMergeToolPolicyDocumentsFromWorkspace`、`OPTIONAL_COURSE_TOOL_POLICY_RELATIVE_PATH`）
   - `src/main/teaching-conversation-runtime.ts`（主对话 inject 改 multi-path）
   - `tests/unit/tool-policy-fs.unit.test.ts`

@@ -1,14 +1,13 @@
 # ADR-0080：Teaching-turn review finalize wire（可选 post-finalize 候选钩子）
 
-- **状态：** 已实施（ADOPTION S-09 residual — finalize wire）
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
-- **范围：** 在 `TeachingTurnOrchestrator` 可选接线 post-finalize review 候选发射；**仅人批**；**不**改 settlement sole-writer
+- **范围：** 在 `TeachingTurnOrchestrator` 可选接线 post-finalize review 候选发射，仅人批，不改 settlement sole-writer。
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0077](0077-teaching-turn-review-candidates.md)（纯候选构建）、[ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADOPTION S-09](0121-improvements-adoption-closeout.md)
-- **证据路径：**
-  - `src/main/ai/teaching-turn-orchestrator.ts`
-  - `src/shared/teaching-turn-review.ts`（ADR-0077）
-  - `tests/unit/teaching-turn-orchestrator.unit.test.ts`
-  - 本 ADR
+- **证据：** `src/main/ai/teaching-turn-orchestrator.ts`、`src/shared/teaching-turn-review.ts`（ADR-0077）、`tests/unit/teaching-turn-orchestrator.unit.test.ts`
 
 ## 背景
 

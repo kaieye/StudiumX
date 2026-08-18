@@ -1,9 +1,13 @@
 # ADR-0049：Write rewind journal（本轮工具写入撤销）
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
-- **范围：** `write_workspace_file` 首次触碰 pre-image 日志、main 恢复 API、与会话前缀检查点分离的 UI 文案
-- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0048](0048-tool-contract-and-write-policy.md)、Slice D write rewind（已结项）
+- **范围：** `write_workspace_file` 首次触碰 pre-image 日志、`restoreWriteRewindJournal` 恢复 API，以及与会话前缀检查点分离的 UI 文案。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0048](0048-tool-contract-and-write-policy.md)
+- **证据：** `src/main/ai/tools/write-rewind-journal.ts`、`src/main/ai/tools/workspace.ts`、`TeachingWorkspaceService.restoreAgentWriteRewind`、`tests/unit/write-rewind-journal.unit.test.ts`、`tests/unit/workspace-write-tool.unit.test.ts`
 
 ## 背景
 

@@ -1,8 +1,13 @@
 # ADR-0005：以 main 生成的 trace 关联已覆盖写链，并保持安全日志边界
 
-- **状态：** 已实施（限定覆盖面）
-- **范围：** C-5
-- **证据提交：** `55442ad`、`7a1ca7e`、`e849d51`、`dee70d6`、`d6a94a1`、`426eb6e`、`1bbdf7c`、`e63e051`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** main 生成并规范化的 `traceId` 关联已覆盖持久化写链；日志保持安全 tagged text，不因本 ADR 变为全局 JSON logging。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0036](0036-mission-update-action-receipt-correlation.md)、[ADR-0037](0037-direct-ui-lesson-generation-action-correlation.md)
+- **证据：** `tests/integration/trace-propagation.integration.test.ts` 及已覆盖链的各验证入口；提交 `55442ad`、`7a1ca7e`、`e849d51`、`dee70d6`、`d6a94a1`、`426eb6e`、`1bbdf7c`、`e63e051`
 
 ## 决定
 

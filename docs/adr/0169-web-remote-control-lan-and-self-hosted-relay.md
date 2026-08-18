@@ -1,9 +1,14 @@
 # ADR-0169：移动端远程控制（局域网默认 + 可选自建中继）
 
-- **状态：** 已采纳（设计 + Phase 0/1 骨架实施中；全控制业务面分阶段）
+- **决策状态：** accepted
+- **实施状态：** partial
+- **实施说明：** 已采纳（设计 + Phase 0/1 骨架实施中；全控制业务面分阶段）
 - **日期：** 2026-07-24
 - **范围：** 在 StudiumX 桌面端提供与 Zcode「Web 远程控制」**形态对齐**的手机浏览器控制面：工作区 / 会话列表、对话流、工具审批等；**传输默认局域网**，**可选用户配置的自建 WSS 中继**。
+- **取代：** 无
+- **被取代：** 无
 - **相关：** `AGENTS.md` 产品地板、`SECURITY.md`、`src/shared/features.ts`、`src/shared/web-remote-control/*`、`src/main/web-remote-control/*`；参考实现 `ref_project/Zcode`（只读）。
+- **证据：** Phase 0/1 骨架：`src/shared/web-remote-control/*`、`src/main/web-remote-control/*`、`src/shared/features.ts`；分阶段实施与验证见本 ADR §6–§7。
 
 ## 1. 背景
 

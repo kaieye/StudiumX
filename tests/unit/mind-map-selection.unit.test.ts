@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   clearMindMapSelection,
   isMindMapNodeSelected,
+  selectMindMapLinesInRectangle,
   selectMindMapNodesInRectangle,
   selectAllMindMapNodes,
   toggleMindMapNodeSelection
@@ -78,5 +79,62 @@ describe('mind-map selection helpers', () => {
       right: 45,
       bottom: 45
     })).toEqual(['first', 'edge'])
+  })
+})
+
+describe('mind-map line marquee helpers', () => {
+  it('selects lines whose segments cross the marquee in either drag direction', () => {
+    const lines = [
+      { id: 'a', points: [{ x: 0, y: 0 }, { x: 100, y: 0 }] },
+      { id: 'b', points: [{ x: 200, y: 200 }, { x: 300, y: 300 }] }
+    ]
+
+    // Drag right-to-left so left > right; the box still crosses line a.
+    expect(selectMindMapLinesInRectangle(lines, {
+      left: 60, top: -10, right: 40, bottom: 10
+    })).toEqual(['a'])
+  })
+
+  it('selects a line whose bounding box sits fully inside the marquee', () => {
+    const lines = [
+      { id: 'short', points: [{ x: 50, y: 50 }, { x: 60, y: 60 }] }
+    ]
+
+    expect(selectMindMapLinesInRectangle(lines, {
+      left: 0, top: 0, right: 100, bottom: 100
+    })).toEqual(['short'])
+  })
+
+  it('selects a curved line sampled at its curve control point', () => {
+    const lines = [
+      // Endpoints both above the box, but the curve dips through it.
+      { id: 'curve', points: [{ x: 0, y: -50 }, { x: 100, y: -50 }, { x: 50, y: 50 }] }
+    ]
+
+    expect(selectMindMapLinesInRectangle(lines, {
+      left: 40, top: 40, right: 60, bottom: 60
+    })).toEqual(['curve'])
+  })
+
+  it('rejects a line whose bounding box does not overlap the marquee', () => {
+    const lines = [
+      { id: 'far', points: [{ x: 1000, y: 1000 }, { x: 1100, y: 1100 }] }
+    ]
+
+    expect(selectMindMapLinesInRectangle(lines, {
+      left: 0, top: 0, right: 100, bottom: 100
+    })).toEqual([])
+  })
+
+  it('keeps line order and drops duplicates without mutating the input', () => {
+    const lines = [
+      { id: 'a', points: [{ x: 0, y: 0 }, { x: 100, y: 0 }] },
+      { id: 'a', points: [{ x: 0, y: 0 }, { x: 100, y: 0 }] },
+      { id: 'b', points: [{ x: 0, y: 50 }, { x: 100, y: 50 }] }
+    ]
+
+    expect(selectMindMapLinesInRectangle(lines, {
+      left: -10, top: -10, right: 110, bottom: 110
+    })).toEqual(['a', 'b'])
   })
 })

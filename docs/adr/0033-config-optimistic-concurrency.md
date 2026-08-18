@@ -1,8 +1,13 @@
 # ADR-0033：Teaching Config 乐观并发（expectedFingerprint CAS）
 
-- **状态：** 已实施（P2-5；feature `e39313a`；merge `fe648a9`）
-- **范围：** `write(expectedFingerprint, next)` 比较并投影；冲突时不应用
-- **证据提交：** `e39313a`、merge `fe648a9`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 配置写路径以 `write(expectedFingerprint, next)` 做比较并投影；冲突时不 apply，secret path patch 拒绝。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0025](0025-teaching-config-resolver-secret-free-layers.md)、[ADR-0032](0032-conservative-parallel-read-tools.md)
+- **证据：** `src/shared/teaching-types/config-optimistic-write.ts`、`src/main/config-optimistic-writer.ts`、`scripts/check-config-optimistic-concurrency.mjs`、`tests/unit/config-optimistic-writer.unit.test.ts`；提交 `e39313a`、merge `fe648a9`
 
 ## 决定
 

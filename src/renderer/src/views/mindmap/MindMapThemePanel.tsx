@@ -23,6 +23,7 @@ import {
   MindMapFontPickerProps,
   SAFE_FONTS
 } from './mind-map-font-list'
+import { useSystemFontEntries } from './mind-map-system-fonts'
 import { useMindMapViewStore } from './mind-map-view-store'
 
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i
@@ -677,9 +678,10 @@ const FONT_GROUP_CATEGORY_STYLE: CSSProperties = {
 
 /**
  * A searchable font picker with recent-use, keyboard navigation and
- * per-option font previews (checklist C-02 / C-06). Long lists scroll within
- * the popover via pure CSS (`max-height` + `overflow-y`) rather than a
- * virtualization library, which is sufficient for the curated catalogue size.
+ * per-option font previews (checklist C-02 / C-06). On desktop the catalogue
+ * also includes host-enumerated system fonts (potentially hundreds); the list
+ * scrolls within the popover via pure CSS (`max-height` + `overflow-y`) and a
+ * search box narrows it, so no virtualization library is required.
  */
 export function MindMapFontPicker({
   value,
@@ -689,6 +691,7 @@ export function MindMapFontPicker({
   systemLabel,
   showClearItem = false,
   clearLabel = 'Clear field override',
+  disabled = false,
   searchPlaceholder = 'Search fonts…',
   searchLabel = 'Search fonts',
   noResultsLabel = 'No fonts found.'
@@ -701,9 +704,16 @@ export function MindMapFontPicker({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
 
+  // Desktop-only host font probe; empty on the Web lane and until the first
+  // scan resolves, so the picker always renders the curated catalogue first.
+  const systemFontEntries = useSystemFontEntries()
+  const catalogue = systemFontEntries.length > 0
+    ? [...SAFE_FONTS, ...systemFontEntries]
+    : SAFE_FONTS
+
   const labelOf = (entry: FontCatalogueEntry): string => fontEntryLabel(entry, t)
   const normalizedQuery = query.trim().toLocaleLowerCase()
-  const matching = filterFontCatalogue(SAFE_FONTS, normalizedQuery, labelOf)
+  const matching = filterFontCatalogue(catalogue, normalizedQuery, labelOf)
 
   useEffect(() => {
     if (!open) return
@@ -793,7 +803,9 @@ export function MindMapFontPicker({
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={`${ariaLabel} ${currentLabel}`}
+        disabled={disabled}
         onClick={() => {
+          if (disabled) return
           setQuery('')
           setOpen((previous) => !previous)
         }}

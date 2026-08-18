@@ -1,10 +1,14 @@
 # ADR-0106：Agent loop applyToolsSchemaGuard pure-ish peel
 
-- **状态：** 已实施（ADOPTION S-03 residual by-touch peel）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-03 residual by-touch peel）
 - **日期：** 2026-07-21
 - **范围：** 将 `agent-loop.ts` 底部 **pure-ish** 助手 `applyToolsSchemaGuard`（`assertToolsSchemaStable` + status emit）抽到旁路模块；**不**改 schema 语义、retry、tool-result budget、provider I/O 或 budget 策略本身
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0060](0060-tools-schema-session-fingerprint.md)、[ADR-0075](0075-module-size-policy-and-giant-peel.md)、[ADR-0090](0090-teaching-config-overlay-parse-peel.md)、[ADR-0100](0100-agent-loop-fallback-peel.md)、[ADR-0103](0103-agent-loop-budget-reason-peel.md)、[ADOPTION S-03](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/ai/agent-loop-schema-guard.ts`（新）
   - `src/main/ai/agent-loop.ts`（import + 删除本地副本）
   - `tests/unit/agent-loop-schema-guard.unit.test.ts`（新；mock emit；ok / narrowed / fail 路径）

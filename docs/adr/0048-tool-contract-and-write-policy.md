@@ -1,7 +1,13 @@
-# ADR-0048: Tool contract and pure workspace-write policy
+# ADR-0048：Tool contract and pure workspace-write policy
 
-- Status: accepted and implemented
-- Scope: registered teaching-tool inventory and an advisory, pure workspace-write decision layer
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-21
+- **范围：** 已注册教学工具的在案清单（`docs/tools/TOOL_CONTRACT.md`）与 advisory、纯函数 workspace-write policy。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0041](0041-tool-annotations-and-result-budget.md)、[ADR-0049](0049-write-rewind-journal.md)
+- **证据：** `docs/tools/TOOL_CONTRACT.md`、`scripts/check-tool-contract.mjs`、`src/main/ai/tools/write-policy.ts`、`tests/unit/write-policy.unit.test.ts`
 
 ## Decision
 

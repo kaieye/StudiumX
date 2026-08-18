@@ -1,8 +1,14 @@
 # ADR-0165：教学能力触发按钮展示面延期（暂未找到合适展示方式）
 
-- **状态：** **已实施（展示面回退）**（2026-07-30）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **已实施（展示面回退）**（2026-07-30）
+- **日期：** 2026-07-30
 - **范围：** 将 `SkillCapabilityPicker` 的显式「教学意图与能力设置」触发按钮从两个 composer 工具栏中注释下线；移除输入框上方常驻的「教学内核已启用」chip。picker 逻辑（panel / preset / 只读 plan preview / slash 合并 / IPC）全部保留。
-- **关联：** [ADR-0163](0163-teaching-capability-selection-and-plan-preview.md)（本 ADR 限定其 Renderer UX 展示面）、[ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)、[ADR-0164](0164-unified-teaching-chain-and-skill-admission.md)
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0163](0163-teaching-capability-selection-and-plan-preview.md)（本 ADR 限定其 Renderer UX 展示面）、[ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)、[ADR-0164](0164-unified-teaching-chain-and-skill-admission.md)
+- **证据：** 展示面回退落点：`src/renderer/src/skills/SkillCapabilityPicker.tsx`、`src/renderer/src/App.tsx`、`src/renderer/src/styles/overview.css`；测试 `tests/unit/skill-capability-picker.unit.test.tsx`。
 - **限定：** 本 ADR 仅回退展示面，不改变 capability 选择语义、planner 纯度、IPC 合同、settlement sole-writer、effect lattice 或三态审批。
 
 ## 1. 背景

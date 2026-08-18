@@ -161,7 +161,8 @@ export const teachingInvokeChannels = {
   mcpMarketplaceUninstall: 'teach:mcp-marketplace-uninstall',
   mcpMarketplaceSetCatalogUrls: 'teach:mcp-marketplace-set-catalog-urls',
   mcpMarketplaceRefreshCatalog: 'teach:mcp-marketplace-refresh-catalog',
-  mcpSetStudiumxAccessToken: 'mcp:set-studiumx-access-token'
+  mcpSetStudiumxAccessToken: 'mcp:set-studiumx-access-token',
+  listSystemFonts: 'teach:list-system-fonts'
 } satisfies Record<TeachingInvokeCapability, string>
 
 type ExactKeySet<Actual extends PropertyKey, Expected extends PropertyKey> =

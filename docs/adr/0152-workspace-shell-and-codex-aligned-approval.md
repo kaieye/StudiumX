@@ -1,12 +1,16 @@
 # ADR-0152：工作区命令工具与 Codex 对齐的三态审批
 
-- **状态：** **部分被 ADR-0153 supersede；审批轴与命令工具形状仍有效**（Stage A–F 合格交付于 2026-07-25 完成）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **部分被 ADR-0153 supersede；审批轴与命令工具形状仍有效**（Stage A–F 合格交付于 2026-07-25 完成）
 - **日期：** 2026-07-24
-- **修订：** 2026-08-02 — `tools.enabled` 不再是产品总开关：Settings 不展示，legacy 持久化/overlay 值在解析后强制为 `true`；原有主路径、known-safe 与 Windows readiness 缺口已由 ADR-0153 的 Stage A–F 收口。
 - **范围：** 在既有效果格子（effect lattice）与 `settings.tools.approvalMode` 三态上，增加工作区命令工具 `run_workspace_command`；审批语义与 Codex CLI `AskForApproval` 三态对齐映射。**不**引入 YOLO / always-approve UI 标签；**不**声明 OS 级 sandbox 产品完备性；**不**改变 settlement sole-writer / Evidence 权威。
-- **关联：** [TOOL_CONTRACT](../tools/TOOL_CONTRACT.md)；[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)；[ADR-0063](0063-declarative-tool-policy.md)；[ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md)（双轴 + shell 默认与 OS transform 子集；**产品默认 supersede 本 ADR**）；Codex 参考 `ref_project/codex`（`AskForApproval` / `ApprovalModeCliArg`）；`Agents.md` 产品地板
+- **取代：** 无
+- **被取代：** 部分被 [ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md)（默认值/产品面；审批轴与命令工具形状仍有效）
+- **相关：** [TOOL_CONTRACT](../tools/TOOL_CONTRACT.md)；[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)；[ADR-0063](0063-declarative-tool-policy.md)；[ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md)（双轴 + shell 默认与 OS transform 子集；**产品默认 supersede 本 ADR**）；Codex 参考 `ref_project/codex`（`AskForApproval` / `ApprovalModeCliArg`）；`Agents.md` 产品地板
+- **证据：** `src/main/ai/tools/workspace-shell.ts`；`src/main/ai/tools/shell-command-safety.ts`；`effect-policy.ts` / `registry.ts` / `TOOL_CONTRACT.md`；`settings.tools.workspaceShell`；`tests/unit/workspace-shell.unit.test.ts`；`tests/unit/agent-approval-mode.unit.test.ts`（扩展）
+- **修订：** 2026-08-02 — `tools.enabled` 不再是产品总开关：Settings 不展示，legacy 持久化/overlay 值在解析后强制为 `true`；原有主路径、known-safe 与 Windows readiness 缺口已由 ADR-0153 的 Stage A–F 收口。
 - **交付关系：** 本 ADR 记录**审批轴与命令工具形状**的决策地基；主路径 shell、双轴 sandbox 与合格完成状态由 [ADR-0153](0153-codex-sandbox-dual-axis-and-agent-shell.md) 记录。
-- **实现落点：** `src/main/ai/tools/workspace-shell.ts`；`src/main/ai/tools/shell-command-safety.ts`；`effect-policy.ts` / `registry.ts` / `TOOL_CONTRACT.md`；`settings.tools.workspaceShell`；`tests/unit/workspace-shell.unit.test.ts`；`tests/unit/agent-approval-mode.unit.test.ts`（扩展）
 
 ## 0. Supersession 与已完成闭环
 

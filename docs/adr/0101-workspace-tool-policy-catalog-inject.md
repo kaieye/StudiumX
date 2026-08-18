@@ -1,10 +1,14 @@
 # ADR-0101：catalog/read 探针路径注入 workspace tool-policy
 
-- **状态：** 已实施（ADOPTION B-08 residual：capability + connector catalog/read probes）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION B-08 residual：capability + connector catalog/read probes）
 - **日期：** 2026-07-21
 - **范围：** 仅在 `teaching-capability-catalog` 与 `connector-health-catalog` 两条 catalog/read 探针路径，将 workspace 内可选 tool-policy 文档注入 `buildToolContext`；缺文件保持 default-equivalent
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0063](0063-declarative-tool-policy.md)、[ADR-0079](0079-workspace-tool-policy-fs-loader.md)、[ADR-0083](0083-workspace-tool-policy-product-inject.md)、[ADR-0088](0088-workspace-tool-policy-secondary-inject.md)、[ADOPTION B-08](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/teaching-capability-catalog.ts`（option B：preloaded `toolPolicyDocument` + `loadToolPolicyForCapabilityCatalog`）
   - `src/main/connector-health-catalog.ts`（option C：async `evaluate` 内 load + inject）
   - `src/main/ai/tools/tool-policy-fs.ts`（loader + `toolPolicyDocumentOption`；本切片无 API 语义变更）

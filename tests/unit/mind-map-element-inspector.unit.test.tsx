@@ -173,7 +173,9 @@ describe('mind map element selection and inspector', () => {
   it('shows effective values instead of an inherit placeholder and has no text box', () => {
     const current = useMindMapViewStore.getState().current
     if (!current) throw new Error('expected current document')
-    current.theme = { id: 'default', fontFamily: 'Georgia, serif' }
+    // Use a managed SAFE_FONTS stack so the inherited value surfaces by label.
+    const georgiaStack = "Georgia, 'Times New Roman', serif"
+    current.theme = { id: 'default', fontFamily: georgiaStack }
     current.sheets[0]!.elements.push({
       id: 'shape-eff-1',
       type: 'shape',
@@ -196,10 +198,10 @@ describe('mind map element selection and inspector', () => {
     const outlineShape = screen.getByRole('button', { name: 'Outline shape' })
     expect(within(outlineShape).getByText('Rounded Rectangle')).toBeInTheDocument()
 
-    // The font control shows the document theme font instead of an inherit option.
-    const font = screen.getByLabelText('Font')
-    expect(font).toHaveValue('Georgia, serif')
-    expect(within(font).getByRole('option', { selected: true })).toHaveTextContent('Serif')
+    // The font trigger shows the inherited document theme font by its
+    // managed label, with no "Inherit" placeholder for an inherited field.
+    const font = screen.getByRole('button', { name: new RegExp(`^Font ${'Georgia'}$`) })
+    expect(font).toHaveTextContent('Georgia')
     expect(screen.queryByText(/Inherit/i)).not.toBeInTheDocument()
   })
 
@@ -313,10 +315,12 @@ describe('mind map element selection and inspector', () => {
 
     for (const name of [
       'Line color', 'Fill color', 'Text color', 'Line width',
-      'Line pattern', 'Outline shape', 'Font', 'Font size'
+      'Line pattern', 'Outline shape', 'Font size'
     ]) {
       expect(screen.getByLabelText(name)).toBeDisabled()
     }
+    // The font control is a popover trigger button; assert it is disabled too.
+    expect(screen.getByRole('button', { name: /^Font / })).toBeDisabled()
     expect(screen.getByText('Free-node styling is unavailable until free-node canvas rendering is enabled.')).toBeInTheDocument()
   })
   it('renders every persisted boundary style field and defaults an unspecified boundary to solid', () => {

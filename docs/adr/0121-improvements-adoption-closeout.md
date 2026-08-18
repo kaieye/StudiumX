@@ -1,8 +1,14 @@
 # ADR-0121：四源改进借鉴 ADOPTION 结项与信号触发 residual
 
-- **状态：** 已采纳（2026-07-21）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已采纳（2026-07-21）
+- **日期：** 2026-07-21
 - **范围：** 结项原 `docs/improvements/`（`ADOPTION.md` + `pi.md` / `codex.md` / `grok.md` / `hermes.md`）中仍具长期效力的 backlog 裁定、命名冻结、明确不采纳与信号触发 residual；**不**新增运行时实现切片，**不**重开已以 ADR-0051–0120 记录的已实施范围。
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0039](0039-teaching-adoption-closeout-and-signal-triggered-p2.md)（Codex Rust 教学化结项先例）、[ADR-0051](0051-provider-finish-reason-and-length-tool-rejection.md)–[ADR-0067](0067-cancel-tool-pair-close-and-busy-ack.md)（Phase 0–1）、[ADR-0070](0070-agent-runtime-wire-shared-protocol.md)–[ADR-0120](0120-teaching-ipc-commands-agent-conversation-peel.md)（Phase 2 与 residual peels）、[AGENTS.md](../../AGENTS.md)、[`SECURITY.md`](../../SECURITY.md)、[`docs/tools/TOOL_CONTRACT.md`](../tools/TOOL_CONTRACT.md)
+- **证据：** 结项事实源：本 ADR 正文（`docs/improvements/` 已清空，见 §1）；各切片实施证据由 ADR-0051–0120 各自 `证据` 承担；`docs/tools/TOOL_CONTRACT.md`、`AGENTS.md`、`SECURITY.md` 为持续产品边界。
 
 ## 背景
 

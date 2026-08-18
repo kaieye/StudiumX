@@ -74,7 +74,7 @@ export function AddSummaryIcon(props: ToolbarIconProps) {
       <rect x="1.75" y="12" width="7" height="5" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
       <path
         className="mindmap-toolbar-summary-icon__brace"
-        d="M16.5 2.75C14.35 2.75 13.25 3.75 13.25 5.75V7.25C13.25 8.55 12.55 9.4 11.25 10C12.55 10.6 13.25 11.45 13.25 12.75V14.25C13.25 16.25 14.35 17.25 16.5 17.25"
+        d="M11.25 2.75C13.5 2.75 14.5 3.75 14.5 5.75V7.25C14.5 8.55 15.2 9.4 16.5 10C15.2 10.6 14.5 11.45 14.5 12.75V14.25C14.5 16.25 13.5 17.25 11.25 17.25"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"

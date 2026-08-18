@@ -1,10 +1,14 @@
 # ADR-0085：Teaching-turn review 人批决策 + 只读投影（无 auto-apply）
 
-- **状态：** 已实施（ADOPTION S-09 residual — pure human-approve decision model）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-09 residual — pure human-approve decision model）
 - **日期：** 2026-07-21
 - **范围：** 纯函数人批决策校验 + UI 安全投影 DTO；**不**接线 IPC / 产品 UI；**不** auto-apply；**不**改 settlement
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0077](0077-teaching-turn-review-candidates.md)（纯候选）、[ADR-0080](0080-teaching-turn-review-finalize-wire.md)（可选 finalize 钩子）、[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADOPTION S-09](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-turn-review-approve.ts`
   - `src/shared/teaching-turn-review.ts`（re-export）
   - `tests/unit/teaching-turn-review-approve.unit.test.ts`

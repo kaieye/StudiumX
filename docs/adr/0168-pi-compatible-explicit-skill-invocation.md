@@ -1,8 +1,14 @@
 # ADR-0168：Pi 兼容的显式 Skill 调用
 
-- **状态：** 已采纳（2026-08-01）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已采纳（2026-08-01）
+- **日期：** 2026-08-01
 - **范围：** 用户显式 `/skill:<id> [args]` 调用的解析、主进程展开、审计投影和 renderer 菜单语义
-- **关联：** [ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)、[ADR-0163](0163-teaching-capability-selection-and-plan-preview.md)、[ADR-0164](0164-unified-teaching-chain-and-skill-admission.md)、[ADR-0167](0167-teaching-authority-and-syncable-user-state.md)
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)、[ADR-0163](0163-teaching-capability-selection-and-plan-preview.md)、[ADR-0164](0164-unified-teaching-chain-and-skill-admission.md)、[ADR-0167](0167-teaching-authority-and-syncable-user-state.md)
+- **证据：** `src/shared/explicit-skill-invocation.ts`、`src/main/explicit-skill-invocation.ts`（parser/resolver）、`src/main/teaching-conversation-runtime.ts`（overlay 注入）；测试见本 ADR「验证」节。
 
 ## 决定
 

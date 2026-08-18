@@ -1,10 +1,14 @@
 # ADR-0087：Teaching-turn review 人批投影 + 决策 product IPC（无 auto-apply）
 
-- **状态：** 已实施（product invoke + fail-closed parser + pure mapper + preload whitelist；**无**完整 Settings Review UI 面板）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（product invoke + fail-closed parser + pure mapper + preload whitelist；**无**完整 Settings Review UI 面板）
 - **日期：** 2026-07-21
 - **范围：** ADOPTION **S-09 residual** — 暴露闭集 product IPC：只读投影 + 人批决策提交；**仅**调用 ADR-0085 纯 API
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0077](0077-teaching-turn-review-candidates.md)（纯候选）、[ADR-0080](0080-teaching-turn-review-finalize-wire.md)（finalize 钩子）、[ADR-0085](0085-teaching-turn-review-human-approve-projection.md)（纯决策 + 投影）、[ADR-0082](0082-agent-chat-steer-followup-ipc.md) / [ADR-0084](0084-teaching-doctor-product-ipc.md)（IPC 形状先例）、[ADOPTION S-09](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-types/teaching-turn-review-ipc.ts`（payload / result）
   - `src/shared/teaching-types/system-api.ts` / `teaching-ipc-contract.ts`
   - `src/main/teaching-ipc-commands.ts`（fail-closed parsers）

@@ -1,8 +1,13 @@
 # ADR-0022：TeachingCapabilityCatalog 只读就绪快照
 
-- **状态：** 已实施（P1-5；合入 main `cd33836` / feature `262c2b9`）
-- **范围：** provider / search / skill 等能力的 readiness 只读投影
-- **证据提交：** `262c2b9`、merge `cd33836`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** `TeachingCapabilityCatalog.snapshot()` 从既有 registry / settings 派生可用性的只读就绪投影（available/disabled/unconfigured/denied/degraded）。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0046](0046-teaching-footprint-ladder.md)
+- **证据：** `src/main/teaching-capability-catalog.ts`、`scripts/check-teaching-capability-catalog.mjs`、`tests/unit/teaching-capability-catalog.unit.test.ts`；提交 `262c2b9`、merge `cd33836`
 
 ## 决定
 

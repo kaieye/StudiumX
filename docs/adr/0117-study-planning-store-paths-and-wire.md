@@ -1,31 +1,23 @@
 # ADR-0117：StudyPlanningStore 路径、wire schema 与 V1→V2 迁移落地冻结
 
-- **状态：** 已采纳（实现 gate；**授权**后续 sole-writer / 迁移实现，本 ADR 本身**无**生产写路径变更）
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
-- **范围：** 学习规划 / 任务 / ScheduleBlock / TimerPlan / TimerSession 事实的 **canonical 路径布局、备份文件名、wire schema 版本、StudyPlanningStore 命令信封、错误码、V1→V2 迁移与 localStorage 擦除策略**
-- **相关：**
-  - Phase 0 产品与架构冻结：[ADR-0094](0094-study-task-timer-planning-design-gate.md)
-  - 关键 JSON 备份精神：[ADR-0003](0003-critical-json-backups-and-verified-recovery.md)
-  - sole-writer / revision 精神：[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)
-  - TimerSession 命名消歧：[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)
-  - 模块尺寸：[ADR-0075](0075-module-size-policy-and-giant-peel.md)
-- **证据提交：** 本 ADR（决策记录）；生产 store / IPC 须后续提交单独落地
+- **范围：** 学习规划 / 任务 / ScheduleBlock / TimerPlan / TimerSession 事实的 **canonical 路径布局、备份文件名、wire schema 版本、StudyPlanningStore 命令信封、错误码、V1→V2 迁移与 localStorage 擦除策略**。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0094](0094-study-task-timer-planning-design-gate.md)、[ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md)、[ADR-0130](0130-study-planning-phase7-and-completion-residual.md)、[ADR-0003](0003-critical-json-backups-and-verified-recovery.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0075](0075-module-size-policy-and-giant-peel.md)、[ADR-0167](0167-teaching-authority-and-syncable-user-state.md)
+- **证据：** `src/shared/study-planning/snapshot-wire.ts`（`STUDY_PLANNING_DIR_SEGMENTS` / `snapshot.json`）、`src/main/study-planning-durable-store.ts`、`src/renderer/src/study-space/planning-client.ts`；测试 `tests/unit/study-planning-*.unit.test.*`；renderer cutover 落地见 [ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md)。
 
 ## 背景
 
-ADR-0094 **原则**已冻结（教学决策事实的文件真相源、StudyPlanningStore、expectedRevision + action id、dry-run 迁移、备份 ≥30 天或用户确认擦除）；其中“文件真相源”不禁止任务、规划、等级/XP 等非教学产品状态依独立 wire 多端同步（ADR-0167）。但本 ADR **明确不冻结**具体路径、wire schema 版本号与备份文件名。Phase 1 纯函数切片（STC-101..108）已落地于 `src/shared/study-planning/`，**禁止**在无实现 ADR 的情况下写 canonical 生产路径。
-
-本 ADR 关闭该实现门，使 Phase 2+ 可立项 `StudyPlanningStore` 与迁移，而不重开 Phase 0 产品十项冻结。
+[ADR-0094](0094-study-task-timer-planning-design-gate.md) 已冻结原则（教学决策事实的文件真相源、StudyPlanningStore、expectedRevision + action id、dry-run 迁移、备份 ≥30 天或用户确认擦除），但**明确不冻结**具体路径、wire schema 版本号与备份文件名。Phase 1 纯函数切片已落地于 `src/shared/study-planning/`；本 ADR 关闭该实现门，使 Phase 2+ 可立项 `StudyPlanningStore` 与迁移，而不重开 Phase 0 产品十项冻结。
 
 ## 决定
 
 ### 1. Canonical 路径布局（工作区相对）
 
-根目录固定为工作区下的：
-
-```text
-.studiumx/study-planning/
-```
+根目录固定为工作区下 `.studiumx/study-planning/`：
 
 | 相对路径 | 内容 | 说明 |
 | --- | --- | --- |
@@ -35,13 +27,7 @@ ADR-0094 **原则**已冻结（教学决策事实的文件真相源、StudyPlann
 | `migration-report-latest.json` | 最近一次 V1→V2（或 schema bump）迁移报告 | 可重建；非任务权威 |
 | `tmp/` | 写入中转（atomic rename 源） | 不得被 UI 当作权威读取 |
 
-**论证（相对其它候选）：**
-
-- 与现有 workspace 约定 `.studiumx/`（tool-policy 等）一致，避免散落 userData 根导致多窗口路径歧义。
-- 规划数据与教学 LearningSession ledger **物理分离**，降低误写教学 settlement 的 blast radius。
-- `userData` 全局副本**不**作为多 workspace 权威；若未来做只读 export，须另 ADR。
-
-**禁止：** 将 `localStorage` key `studiumx:study-space:v1` / `studiumx:study-task-categories:v1` 继续当作长期任务/排程权威；迁移完成后仅允许 UI 草稿/偏好类 key。
+论证：与 workspace 约定 `.studiumx/` 一致；规划数据与教学 LearningSession ledger **物理分离**，降低误写教学 settlement 的 blast radius；`userData` 全局副本**不**作为多 workspace 权威（只读 export 须另 ADR）。**禁止**将 `localStorage` key `studiumx:study-space:v1` / `studiumx:study-task-categories:v1` 继续当作长期任务/排程权威；迁移完成后仅允许 UI 草稿/偏好类 key。
 
 ### 2. Wire schema
 
@@ -53,7 +39,7 @@ ADR-0094 **原则**已冻结（教学决策事实的文件真相源、StudyPlann
 | 修订 | 顶层 `revision: number`（≥1，单调）；实体可有 `revision` 供诊断，CAS 以顶层为准 |
 | 标识 | 字符串 id；TimerSession **永不**裸称 `session` 字段指计时 |
 
-**`snapshot.json` 顶层形状（v1，非 exhaustive 字段列表——实现可加 optional，不得删 required）：**
+`snapshot.json` 顶层形状（v1，实现可加 optional，不得删 required）：
 
 ```ts
 type StudyPlanningSnapshotV1 = {
@@ -64,17 +50,13 @@ type StudyPlanningSnapshotV1 = {
   tasks: PlanningTask[]
   scheduleBlocks: ScheduleBlock[]
   timerPlans: TimerPlanV2[]
-  /** At most one running personal TimerSession in a user space. */
-  timerSessions: TimerSessionRecord[]
+  timerSessions: TimerSessionRecord[] // At most one running personal TimerSession
   preferences?: StudyPlanningPreferencesV1
-  /** Rebuildable; not remote telemetry. */
-  localAnalyticsHints?: Record<string, unknown>
+  localAnalyticsHints?: Record<string, unknown> // Rebuildable; not remote telemetry
 }
 ```
 
-`PlanningTask` / `ScheduleBlock` / `TimerPlanV2` 语义对齐 `src/shared/study-planning/` 与路线图 §13；**TimerSessionRecord** 字段在 Phase 2 实现时扩展，但必须含：`id`、`status`（含 `needs_reconcile`）、`clockMode`、`planSnapshot`、`taskId | null`、`startedAtMs`、累计专注/休息分项、`actionId` 幂等键引用。
-
-序列化：UTF-8 JSON，stable key order **不**强制；写入经 durable replace（write temp → fsync 策略服从现有 `durable-file` 原语）→ rename → 更新 `.bak`。
+`TimerSessionRecord` 字段 Phase 2 实现时扩展，但必须含：`id`、`status`（含 `needs_reconcile`）、`clockMode`、`planSnapshot`、`taskId | null`、`startedAtMs`、累计专注/休息分项、`actionId` 幂等键引用。序列化：UTF-8 JSON，stable key order **不**强制；写入经 durable replace（temp → 服从 `durable-file` 原语）→ rename → 更新 `.bak`。
 
 ### 3. StudyPlanningStore 合同
 
@@ -83,91 +65,55 @@ type StudyPlanningSnapshotV1 = {
 | `readSnapshot(): Promise<StudyPlanningSnapshotV1>` | 只读；verified recovery 可读 `.bak` 仅当 canonical 不可用 |
 | `applyCommand(command, expectedRevision): Promise<ApplyResult>` | 唯一写入口；CAS 失败不部分提交 |
 
-**命令信封（v1）：**
+命令信封（v1）：`{ actionId, operationId?, type, payload, clientIssuedAtMs? }`；`ApplyResult = { ok: true; revision; snapshot; effects } | { ok: false; error; revision }`。
 
-```ts
-type StudyPlanningCommandEnvelope = {
-  actionId: string
-  operationId?: string
-  type: StudyPlanningCommandType
-  payload: unknown
-  clientIssuedAtMs?: number
-}
+命令闭集（可增不可偷换语义；`apply_allocation_proposal` **已于 2026-07-22 随 allocation 产品路径移除**）：`create_task` · `update_task` · `complete_task` · `save_timer_plan` · `start_timer_session` · `pause_timer_session` · `resume_timer_session` · `finish_timer_session` · `switch_session_task` · `reconcile_stale_session` · `quick_start` · `set_preferences` · `import_migration_commit`（仅迁移确认后）。
 
-type ApplyResult =
-  | { ok: true; revision: number; snapshot: StudyPlanningSnapshotV1; effects: StudyPlanningEffect[] }
-  | { ok: false; error: StudyPlanningError; revision: number }
-```
+错误码（稳定字符串）：`revision_conflict`（expectedRevision 不匹配）· `duplicate_action`（同 actionId exact retry → 返回首次成功，不重复创建）· `invalid_command` · `invariant_violation`（如第二 running TimerSession、locked 重叠写入）· `not_found` · `migration_required` · `io_failed`（磁盘错误，fail-closed 不半写）。
 
-**命令闭集（可增不可偷换语义；与路线图 §14.2 对齐）：**
-
-> **Product decision (2026-07-22):** `apply_allocation_proposal` command **removed** with the allocation-proposal product path (no 按时钟方案生成排程提案).
-
-`create_task` · `update_task` · `complete_task` · `save_timer_plan` · `start_timer_session` · `pause_timer_session` · `resume_timer_session` · `finish_timer_session` · `switch_session_task` · `reconcile_stale_session` · `quick_start` · `set_preferences` · `import_migration_commit`（仅迁移确认后）
-
-**错误码（稳定字符串）：**
-
-| code | 含义 |
-| --- | --- |
-| `revision_conflict` | `expectedRevision` 不匹配 |
-| `duplicate_action` | 同 `actionId` exact retry → 返回首次成功结果（**不**重复创建） |
-| `invalid_command` | 未知 type / payload 校验失败 |
-| `invariant_violation` | 如第二 running TimerSession、locked 重叠写入 |
-| `not_found` | 目标 task/session/plan 不存在 |
-| `migration_required` | schema 不匹配且未迁移 |
-| `io_failed` | 磁盘错误（fail-closed，不半写） |
-
-**effects（给 UI/IPC 的旁路信号，非第二权威）：**  
-如 `timer_session_started`、`classification_prompt_suggested`、`reconcile_required`、`future_blocks_need_decision`。
+**effects**（给 UI/IPC 的旁路信号，非第二权威）：如 `timer_session_started`、`classification_prompt_suggested`、`reconcile_required`、`future_blocks_need_decision`。
 
 ### 4. V1 → V2 迁移
 
-1. **Dry-run 强制：** 使用纯函数 `migrateStudyV1ToPlanning`（已存在）生成 `MigrateStudyV1Result` + 报告；**不写盘**。
+1. **Dry-run 强制：** 纯函数 `migrateStudyV1ToPlanning`（已存在）生成 `MigrateStudyV1Result` + 报告；**不写盘**。
 2. **真迁移 fail-closed：** 任一步 IO/校验失败 → 保留 V1 localStorage 与未写坏的 canonical；不删除源。
-3. **步骤顺序：**  
-   a. 读 V1 keys → dry-run 报告展示用户；  
-   b. 写 `backups/snapshot-…`（若已有 v2）与/或导出 V1 JSON 到 `backups/`；  
-   c. `import_migration_commit` 经 store 写入 `snapshot.json`；  
-   d. 仅在用户确认或 ≥30 天策略后，才允许擦除 localStorage 权威 keys（偏好 key 可保留）。
-4. **映射规则（冻结）：**  
-   - 任务保留 `id` / `title` / done→status / category；无 category → `categoryId: null` + `inbox: true`（冻结 #2）；  
-   - 单 `schedule` → **一个** locked `ScheduleBlock`（Task 1:N 模型起点）；  
-   - `StudyTimerPlan` → `TimerPlanV2`，长休息默认写入报告 `plan_long_break_defaulted`；  
-   - `simulationStart/End` → **suggested window only**，非历史日程；  
-   - 不可靠 active timer → 迁移后 `needs_reconcile`，禁止静默计入专注。
+3. **步骤顺序：** 读 V1 keys → dry-run 报告展示用户 → 写 `backups/snapshot-…`（若已有 v2）与/或导出 V1 JSON → `import_migration_commit` 经 store 写 `snapshot.json` → 仅在用户确认或 ≥30 天策略后，才允许擦除 localStorage 权威 keys（偏好 key 可保留）。
+4. **映射规则（冻结）：** 任务保留 `id` / `title` / done→status / category；无 category → `categoryId: null` + `inbox: true`（冻结 #2）；单 `schedule` → **一个** locked `ScheduleBlock`；`StudyTimerPlan` → `TimerPlanV2`（长休息默认写报告 `plan_long_break_defaulted`）；`simulationStart/End` → **suggested window only**，非历史日程；不可靠 active timer → 迁移后 `needs_reconcile`，禁止静默计入专注。
 5. **类别 key** `studiumx:study-task-categories:v1`：迁入 snapshot 时去重保色保 ID；冲突记入 report。
 
 ### 5. localStorage 策略
 
-| Key | 迁移后角色 |
-| --- | --- |
-| `studiumx:study-space:v1` | 源数据；commit 成功后降级为可删备份提示，**非**权威 |
-| `studiumx:study-task-categories:v1` | 同上 |
-| UI 偏好（empty-start、声音开关等） | 可留 localStorage **或** `preferences` 字段；不得单独持有任务列表 |
+`studiumx:study-space:v1` 与 `studiumx:study-task-categories:v1` 为迁移源数据，commit 成功后降级为可删备份提示、**非**权威；UI 偏好（empty-start、声音开关等）可留 localStorage **或** `preferences` 字段，但不得单独持有任务列表。
 
 ### 6. 与教学 / 产品地板边界
 
-- **不**改写 `TeachingTurnCoordinator` / LearningSession settlement。
+- **不**改写 `TeachingTurnCoordinator` / LearningSession settlement；expectedRevision / toolsReplayed 不变。
 - **不**默认远程 telemetry；`localAnalyticsHints` 仅本地可重建。
-- **无** shell / YOLO / MCP marketplace / 产品 FTS。
-- 计时标识永远 **TimerSession**。
+- **无** shell / YOLO / MCP marketplace / 产品 FTS；计时标识永远 **TimerSession**。
 
-## 明确不包含 / non-claims
+## 不变量（ADR-0117 专用）
+
+- `StudyPlanningStore.applyCommand` 是唯一写入口；renderer 不得直接写 `snapshot.json`。
+- 所有写路径带 `expectedRevision`（CAS 顶层 revision）+ `actionId`；exact retry 幂等，CAS 失败不部分提交。
+- 同一用户空间至多一个 `running` 个人 TimerSession；TimerSession 永不裸称 `session`。
+- 迁移强制 dry-run + fail-closed；**永不**静默自动擦除 localStorage 权威 key。
+
+## 后果
+
+- 生产写路径必须经 `StudyPlanningStore.applyCommand`；renderer 不得直接写 `snapshot.json`。
+- schemaVersion bump 须新 ADR 或本 ADR 修订节 + 迁移测试；IPC channel 落地 PR 用 `studyPlanning:*` 前缀并登记 teaching-ipc 合同。
+- 模块遵守 ADR-0075；禁止继续胀大 `WorkbenchPomodoro.tsx` / `useStudySession.ts` / `StudyTaskSchedulePage.tsx`。
+
+## 验证
+
+- 触及 writer / 路径 / IPC：`pnpm run check:security`、`pnpm run check:teaching-ipc-contract`、`pnpm run check:blocking-ci` + 相关 unit（`tests/unit/study-planning-*.unit.test.*`）。
+- Cutover 与 recovery 验证入口见 [ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md)。
+
+## 非目标
 
 本 ADR **不**：
 
 - 实现 store / IPC / UI（仅冻结合同与路径）；
-- 授权 Phase 7 全部高级排程一次做完；
-- 冻结具体 IPC channel 字符串（可在落地 PR 用 `studyPlanning:*` 前缀，列入 teaching-ipc 合同时再登记）；
+- 授权 Phase 7 全部高级排程一次做完（见 [ADR-0130](0130-study-planning-phase7-and-completion-residual.md)）；
+- 冻结具体 IPC channel 字符串；
 - 改变 ADR-0094 十项产品冻结值。
-
-## 后续工作约束
-
-1. 生产写路径必须经 `StudyPlanningStore.applyCommand`；renderer 不得直接写 `snapshot.json`。
-2. schemaVersion bump 须新 ADR 或本 ADR 修订节 + 迁移测试。
-3. 模块遵守 ADR-0075；禁止继续胀大 `WorkbenchPomodoro.tsx` / `useStudySession.ts` / `StudyTaskSchedulePage.tsx`。
-4. 门禁：触及 writer/路径/IPC 时叠加 `check:security`、`check:teaching-ipc-contract`、`check:blocking-ci`。
-
----
-
-**一句话：** 规划权威落在工作区 `.studiumx/study-planning/snapshot.json`（schema v1 + revision CAS）；迁移 dry-run 后 fail-closed 提交；localStorage 不再是任务真相源。

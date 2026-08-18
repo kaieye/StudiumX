@@ -1,9 +1,13 @@
 # ADR-0057：Provider 有界 jittered retry 与局部重试边界
 
-- **状态：** 已实施；其中“共享 run budget”政策已由 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md) 于 2026-08-04 取代，运行时代码迁移已完成。
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** 纯策略 `provider-retry.ts` + `agent-loop` 对 provider 调用失败路径的有界自动重试接线
-- **相关：** [ADR-0052](0052-provider-error-and-recovery-taxonomy.md)（A-04 flags）、[ADOPTION A-05](0121-improvements-adoption-closeout.md)
+- **取代：** 无
+- **被取代：** 部分被 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md)（共享 run budget 政策）
+- **相关：** [ADR-0052](0052-provider-error-and-recovery-taxonomy.md)（A-04 flags）、[ADOPTION A-05](0121-improvements-adoption-closeout.md)、[ADR-0171](0171-continuous-agent-runs-and-context-governance.md)
+- **证据：** `src/shared/provider-retry.ts`、`src/main/ai/agent-loop.ts`、`src/main/ai/agent-loop-execution-state.ts`、`tests/unit/provider-retry.unit.test.ts`、`tests/unit/agent-loop-provider-retry.unit.test.ts`
 
 ## 背景
 
@@ -25,7 +29,7 @@ A-04 已提供双轴中的 recovery flags（`classifyProviderRecovery` → `retr
 
 | 边界 | 权威 | 作用 |
 | --- | --- | --- |
-| 全局 run 配额 | **无** | 正常学习 / agent run 不以累计 token、provider 调用次数或运行时长终止；不得以 `budget_exhausted` 阻断后续模型或工具调用。 |
+| 全局 run 配额 | **无**（默认） | 正常学习 / agent run 默认不以累计 token、provider 调用次数或运行时长终止；透明可审计的高位 emergency fuse、用户显式资源预算与部署/组织策略见 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md)，触发时报告 `resource_limit` / `suspended`，不得伪装为 provider quota 或学习成功。 |
 | Retry attempt cap | `ProviderRetryBudget.maxAttempts`（默认 3） | 仅限制同一逻辑 provider 调用的 transport 重试次数；耗尽后把本次 provider failure 正常交回调用路径。 |
 
 局部重试耗尽不创建累计 run budget，也不构成学习额度耗尽。

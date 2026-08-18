@@ -1,10 +1,14 @@
 # ADR-0143：确定性 context file-touch ledger（LiveAgent Phase A）
 
-- **状态：** **已实施**（core ledger，2026-07-24）：`src/main/ai/context-file-ledger.ts` 已接线 agent-loop / request-context-projection；learner 透明 UI 仍可后续消费同一结构（非本条阻塞）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **已实施**（core ledger，2026-07-24）：`src/main/ai/context-file-ledger.ts` 已接线 agent-loop / request-context-projection；learner 透明 UI 仍可后续消费同一结构（非本条阻塞）
 - **日期：** 2026-07-23
 - **范围：** 为 agent 运行中单路径 workspace 工具触碰建立**可合并、路径消毒**的 file-touch 账本，并作为 teaching/context **投影数据（data not instructions）**注入；**不**进入 summarizer payload；**不**成为 teaching-evidence 或 settlement 权威。
+- **取代：** 无
+- **被取代：** 无
 - **相关：** LiveAgent 历史研究清单（已结项） §2.1、[ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)、[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0121](0121-improvements-adoption-closeout.md)、`AGENTS.md`、`SECURITY.md`、`docs/tools/TOOL_CONTRACT.md`
-- **实现落点：** `src/main/ai/context-file-ledger.ts`；挂钩 tool dispatch / `agent-loop`；注入 `request-context-projection`（及压缩 resume 路径若需要）
+- **证据：** `src/main/ai/context-file-ledger.ts`；挂钩 tool dispatch / `agent-loop`；注入 `request-context-projection`（及压缩 resume 路径若需要）
 
 ## 1. 背景
 

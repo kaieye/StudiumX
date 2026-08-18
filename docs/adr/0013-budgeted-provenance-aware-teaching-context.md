@@ -1,8 +1,13 @@
 # ADR-0013：按可信来源和预算装配教学上下文与资源 grounding
 
-- **状态：** 已实施（P0 最小 ContextAssembler / ResourceGrounder；P1-6 ProjectionReport 与 P1-8 multi-adapter grounder 已合入）
-- **范围：** `TeachingContextAssembler`、`ResourceGrounder` / `GroundingSourceAdapter`、trusted descriptor、provenance allowlist、预算与 resource-gap、隐私安全 Context ProjectionReport
-- **证据提交：** P0 `0f4caa9`、`d4fe782`；P1-6 feature `3966e0d` / merge `2a00286`；P1-8 feature `768d7d6` / merge `7c83525`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** `TeachingContextAssembler` / `ResourceGrounder` 装配有来源、受预算限制的 typed context；隐私安全 `ContextProjectionReport` 与 multi-adapter grounding。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0012](0012-deterministic-next-teaching-step-planner.md)、[ADR-0014](0014-learner-safe-teaching-turn-presentation.md)、[ADR-0022](0022-teaching-capability-catalog-read-only-readiness.md)
+- **证据：** `tests/unit/teaching-context-assembler.unit.test.ts`、`tests/unit/context-projection-report.unit.test.ts`、`tests/unit/resource-grounder-deepen.unit.test.ts`；提交 `0f4caa9`、`d4fe782`、`3966e0d`、`2a00286`、`768d7d6`、`7c83525`
 
 ## 决定
 

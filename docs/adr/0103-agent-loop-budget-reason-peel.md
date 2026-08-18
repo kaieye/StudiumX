@@ -1,10 +1,14 @@
 # ADR-0103：Agent loop budgetStopReasonFromError 纯助手 peel
 
-- **状态：** 已实施（ADOPTION S-03 residual by-touch peel）；其中 run-budget stop reason 的产品政策已由 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md) 于 2026-08-04 取代，映射代码待后续切片删除。
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-03 residual by-touch peel）；其中 run-budget stop reason 的产品政策已由 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md) 于 2026-08-04 取代，映射代码待后续切片删除。
 - **日期：** 2026-07-21
 - **范围：** 将 `agent-loop.ts` 底部**纯**错误映射助手 `budgetStopReasonFromError` 抽到旁路模块；**不**改 retry、schema guard、tool-result budget、provider I/O 或 budget 策略本身
+- **取代：** 无
+- **被取代：** 部分被 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md)（run-budget stop reason 政策；映射代码待后续切片删除）
 - **相关：** [ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)、[ADR-0075](0075-module-size-policy-and-giant-peel.md)、[ADR-0090](0090-teaching-config-overlay-parse-peel.md)、[ADR-0100](0100-agent-loop-fallback-peel.md)、[ADOPTION S-03](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/ai/agent-loop-budget-reason.ts`（新）
   - `src/main/ai/agent-loop.ts`（import + 删除本地副本）
   - `tests/unit/agent-loop-budget-reason.unit.test.ts`（新；纯助手行为）

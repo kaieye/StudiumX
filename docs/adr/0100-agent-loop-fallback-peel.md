@@ -1,10 +1,14 @@
 # ADR-0100：Agent loop fallback / legacy request 纯助手 peel
 
-- **状态：** 已实施（ADOPTION S-03 residual by-touch peel）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-03 residual by-touch peel）
 - **日期：** 2026-07-21
 - **范围：** 将 `agent-loop.ts` 底部**纯** message-shaping 助手 `safeFallbackText` / `legacyRequestFromMessages` 抽到旁路模块；**不**改 retry、budget、schema guard、tool batch 或 provider I/O
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)、[ADR-0059](0059-read-parallel-tool-batch-in-agent-loop.md)、[ADR-0060](0060-tools-schema-session-fingerprint.md)、[ADR-0075](0075-module-size-policy-and-giant-peel.md)、[ADR-0090](0090-teaching-config-overlay-parse-peel.md)、[ADOPTION S-03](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/ai/agent-loop-fallback.ts`（新）
   - `src/main/ai/agent-loop.ts`（import + 删除本地副本）
   - `tests/unit/agent-loop-fallback.unit.test.ts`（新；纯助手行为）

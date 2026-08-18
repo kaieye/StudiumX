@@ -46,6 +46,19 @@ export type MindMapTopicFontContext = {
  */
 const MANAGED_FONT_FAMILIES = new Set(SAFE_FONT_STACKS)
 
+/**
+ * Extend the managed set with host-enumerated system font stacks. Desktop
+ * fonts come straight from the OS via fontkit, so they are genuinely
+ * installed and must NOT be flagged as "may fall back". Safe to call many
+ * times; the set grows idempotently.
+ */
+export function registerManagedSystemFontStacks(stacks: readonly string[]): void {
+  for (const stack of stacks) {
+    const normalized = normalizedFontFamily(stack)
+    if (normalized) MANAGED_FONT_FAMILIES.add(normalized)
+  }
+}
+
 function normalizedFontFamily(fontFamily: string | undefined): string | undefined {
   const normalized = fontFamily?.trim()
   return normalized || undefined

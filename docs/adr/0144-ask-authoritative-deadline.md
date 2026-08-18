@@ -1,9 +1,14 @@
 # ADR-0144：Ask 权威截止时间戳与超时落定
 
-- **状态：** **已实施**（2026-07-23；Phase A item 2 — Ask deadline）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **已实施**（2026-07-23；Phase A item 2 — Ask deadline）
 - **日期：** 2026-07-23
 - **范围：** `ask` 工具与 `ask-pending` 的权威 deadline、超时结算、UI 同源倒计时；**不**扩展到 write / privileged / turn-review 自动批准
+- **取代：** 无
+- **被取代：** 无
 - **相关：** LiveAgent 历史研究项 §2.2（已结项）、`docs/tools/TOOL_CONTRACT.md`（`ask`）、`AGENTS.md` 产品地板、effect lattice
+- **证据：** `src/shared/ask-deadline.ts`、`src/main/ai/tools/ask.ts`、`src/main/ai/ask-pending.ts`；合同见 `docs/tools/TOOL_CONTRACT.md`（`ask`）。
 
 ## 1. 决策
 

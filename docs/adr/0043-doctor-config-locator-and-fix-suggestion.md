@@ -1,8 +1,13 @@
 # ADR-0043：TeachingDoctor 配置定位路径与结构化修复建议
 
-- **状态：** 已实施（ZCode 借鉴 Phase A）
-- **范围：** configPath / fixSuggestion 结构化输出；autoRepair 仍禁用
-- **证据路径：** `src/shared/teaching-types/teaching-doctor.ts`、`src/main/teaching-doctor.ts`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-21
+- **范围：** TeachingDoctor 增加 `configPath` 与结构化 `TeachingDoctorFixSuggestion`（code/title/steps/configPath/docsRef）；v1 autoRepair 仍恒为 disabled。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0034](0034-redacted-support-bundle.md)
+- **证据：** `src/shared/teaching-types/teaching-doctor.ts`、`src/main/teaching-doctor.ts`、`tests/unit/teaching-doctor.unit.test.ts`
 
 ## 决定
 

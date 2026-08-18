@@ -1,9 +1,13 @@
 # ADR-0054：Actions SHA pin + dependabot(actions) + OSV fail-open
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** GitHub Actions 外部 `uses:` 的 commit SHA 钉死、Dependabot 仅 `github-actions` 生态、OSV 依赖扫描 **fail-open** 可见报告；以及 **allowlist 式 critical npm exact pin**（`better-sqlite3` 等，可选 `check:pinned-critical-deps`，不进 Blocking CI）
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[ADR-0121](0121-improvements-adoption-closeout.md) **A-09**
+- **证据：** `.github/workflows/blocking-ci.yml`、`.github/workflows/contained-durable-replace-linux.yml`、`.github/workflows/main-release-audit.yml`、`.github/workflows/release_dispatch.yml`（SHA 钉死）、`.github/workflows/osv-scan.yml`（fail-open）、`.github/dependabot.yml`（仅 github-actions）、`scripts/check-pinned-critical-deps.mjs`
 
 ## 背景
 
@@ -15,7 +19,7 @@ Hermes 工程纪律要求外部 Actions 使用 **full commit SHA**（标签可�
 - 无 `.github/dependabot.yml`
 - 无 OSV / 供应链扫描 workflow
 
-## 决策
+## 决定
 
 ### 1. 外部 Actions 钉 SHA
 
@@ -57,91 +61,41 @@ Hermes 工程纪律要求外部 Actions 使用 **full commit SHA**（标签可�
 - 不调用 `fail-on-vuln` 阻塞路径；不加入 required checks
 - **明确不** 修改 `blocking-ci.yml` 的 typecheck / security-privacy / teaching-evidence-p0 门
 
-## 已实施范围与验证入口
+### 4. Critical npm exact pin（allowlist，ADAPT-P2）
 
-- `.github/workflows/blocking-ci.yml` — 外部 `uses:` 钉 SHA（门禁步骤未改）
-- `.github/workflows/contained-durable-replace-linux.yml` — 同上
-- `.github/workflows/main-release-audit.yml` — 同上
-- `.github/workflows/release_dispatch.yml` — 同上
-- `.github/workflows/osv-scan.yml` — 新增 fail-open OSV
-- `.github/dependabot.yml` — 仅 github-actions
+Selective supply-chain hardening for **native / security-sensitive** direct dependencies only——不做全仓 exact pin、不引入 npm-shrinkwrap 双锁 SoT、不开启 npm Dependabot 洪水：
 
-本地核验：
+1. **Allowlist**（非全部 UI 依赖）：`better-sqlite3`（native binding；Electron/Node ABI rebuild 敏感）与 `@types/better-sqlite3`。
+2. **Exact versions in `package.json`** 仅限 allowlist 名称：`"better-sqlite3": "12.11.1"`、`"@types/better-sqlite3": "7.6.13"`（无 `^`）；bump 须 PR 说明 native 版本 / rebuild 理由。
+3. **可选 checker**（同 `check:module-size` 一类，非 Blocking CI）：`scripts/check-pinned-critical-deps.mjs` + `pnpm run check:pinned-critical-deps`；要求 exact pin（无 `^` / `~` / ranges）；有 `pnpm-lock.yaml` 时 importers `specifier` 须匹配且 `packages` 含 `name@version`；违规 exit 非零并打印修复提示；**不进** Blocking CI / teaching gates / required jobs。
+
+详细验证与安装文化边界（`--ignore-scripts` 非 universal，`better-sqlite3` 需 native rebuild scripts）见 [evidence/ADR-0054.md](evidence/ADR-0054.md)。
+
+## 验证
 
 ```bash
 # 无浮动 major tag 的外部 uses
-# PowerShell:
 Select-String -Path .github/workflows/*.yml -Pattern 'uses:\s+[^@\s]+@v[0-9]'
 # 期望：无匹配（或仅注释）
 
 # 所有 uses 带 40 字符 SHA
 Select-String -Path .github/workflows/*.yml -Pattern 'uses:'
-```
 
-## 不包含 / non-claims
-
-- **不** 用 OSV 或 Dependabot 替换 teaching / privacy / security blocking 门（ADR-0023）。
-- **不** 开启 npm Dependabot 或自动合并。
-- **不** 默认上传 SARIF 到 GitHub Code Scanning（避免 security-events 权限与私有仓库摩擦；JSON artifact 足够 fail-open 可见）。
-- **不** 保证 OSV 覆盖所有传递依赖或零误报；结果是供应链信号，不是发布 blocker。
-
-- **不** 用 critical npm exact-pin check 替换 check:security / teaching gates；**不** 全仓 exact-pin UI 依赖。
-
-## 4. Critical npm exact pin (allowlist) — ADAPT-P2
-
-**Status:** implemented (optional check; not Blocking CI).
-
-Selective supply-chain hardening for **native / security-sensitive** direct dependencies only. Inspired by Pi-style exact pins + `check-pinned-deps`, **without** full-repo exact pin, npm-shrinkwrap dual SoT, or npm Dependabot flood.
-
-### Decision
-
-1. **Allowlist** (not all UI deps):
-   - `better-sqlite3` — native binding; Electron/Node ABI rebuild sensitive
-   - `@types/better-sqlite3` — types paired with the native package
-
-2. **Exact versions in `package.json`** for allowlisted names only:
-   - `"better-sqlite3": "12.11.1"` (not `^12.11.1`)
-   - `"@types/better-sqlite3": "7.6.13"` (not `^7.6.13`)
-   - Bumps require intentional PR text (why this native version / rebuild notes)
-
-3. **Optional checker** (same class as `check:module-size`):
-   - Script: `scripts/check-pinned-critical-deps.mjs`
-   - Script entry: `pnpm run check:pinned-critical-deps`
-   - Requires exact pin (no `^` / `~` / ranges)
-   - When `pnpm-lock.yaml` exists: importers `specifier` must match the exact pin and `packages` must contain `name@version`
-   - Exit non-zero on violation; print fix message
-   - **Not** added to Blocking CI / teaching gates / required jobs
-
-4. **Install culture boundary** (document only; not enforced by this check):
-   - Prefer `pnpm install --ignore-scripts` for pure JS supply-chain hygiene when scripts are unnecessary
-   - **Exception:** `better-sqlite3` needs native rebuild / lifecycle scripts (`rebuild:better-sqlite3:node`, `rebuild:better-sqlite3:electron`, pretest rebuild). Do not treat `--ignore-scripts` as universal for this native dep.
-
-### Verification
-
-```bash
+# critical npm exact pin 可选检查
 pnpm run check:pinned-critical-deps
-# or
-node scripts/check-pinned-critical-deps.mjs
-node scripts/check-pinned-critical-deps.mjs --help
 ```
-
-Expect exit 0 after exact pins. Intentionally setting `"better-sqlite3": "^12.11.1"` must exit 1.
-
-### Non-claims / does not replace
-
-- **Does not** replace `check:security`, path/tool/provider-privacy gates, or teaching-evidence Blocking CI (ADR-0023).
-- **Does not** replace Actions SHA pin, Dependabot(actions), or OSV fail-open (§1–3 of this ADR).
-- **Does not** exact-pin electron / all UI deps.
-- **Does not** introduce npm-shrinkwrap as a second lockfile SoT (pnpm-lock remains sole lock).
-- **Does not** open npm Dependabot by default.
-
-### Related
-
-- 历史 Pi 对照审查 ADAPT-P2（对照文档已删除；以本 ADR §4 与 `check:pinned-critical-deps` 为准）
-- `scripts/check-module-size.mjs` — style template for optional non-Blocking checks
-
 
 ## 后果
 
 - 供应链基线：Actions 不可变引用 + 周更 Dependabot PR + 可见 OSV 报告。
 - Blocking CI 仍窄而硬；教学产品的 merge gate 不被漏洞扫描噪声绑架。
+
+## 非目标
+
+- **不** 用 OSV 或 Dependabot 替换 teaching / privacy / security blocking 门（ADR-0023）。
+- **不** 开启 npm Dependabot 或自动合并。
+- **不** 默认上传 SARIF 到 GitHub Code Scanning（避免 security-events 权限与私有仓库摩擦；JSON artifact 足够 fail-open 可见）。
+- **不** 保证 OSV 覆盖所有传递依赖或零误报；结果是供应链信号，不是发布 blocker。
+- **不** 用 critical npm exact-pin check 替换 check:security / teaching gates；**不** 全仓 exact-pin UI 依赖。
+- **不** 引入 npm-shrinkwrap 作为第二 lockfile SoT；`pnpm-lock` 仍是唯一锁文件。
+- **不** exact-pin electron / 全部 UI 依赖；**不** 改变 Actions pin / Dependabot(actions) / OSV fail-open（§1–3）。

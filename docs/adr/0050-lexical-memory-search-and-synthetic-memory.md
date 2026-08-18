@@ -1,9 +1,13 @@
 # ADR-0050：词法记忆检索与教学合成记忆工具
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
-- **范围：** main-only 词法检索、`memory_search` / `remember_teaching_memory` / `forget_teaching_memory`、合成记忆索引进 turn-tail、人批门控
-- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADR-0046](0046-teaching-footprint-ladder.md)、[ADR-0048](0048-tool-contract-and-write-policy.md)、Slice F lexical memory（已结项）
+- **范围：** main-only 词法 / BM25 类检索、`memory_search` / `remember_teaching_memory` / `forget_teaching_memory`、合成记忆索引进 turn-tail 与人批门控。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADR-0046](0046-teaching-footprint-ladder.md)、[ADR-0048](0048-tool-contract-and-write-policy.md)
+- **证据：** `src/main/ai/teaching-lexical-search.ts`、`src/main/ai/tools/memory-tools.ts`、`tests/unit/teaching-lexical-search.unit.test.ts`、`tests/unit/memory-tools.unit.test.ts`、`tests/unit/agent-capability-policy.unit.test.ts`；`check-tool-contract`
 
 ## 背景
 

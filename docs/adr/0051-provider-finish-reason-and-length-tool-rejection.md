@@ -1,9 +1,13 @@
 # ADR-0051：Provider finish/stop 信号透传与 length 截断拒 tool 执行
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** `ChatAdapterResult.finishReason`、adapter SSE/JSON 解析、`recordProviderUsage` 真实 stop、agent-loop 对 `length` 整批拒绝 tool 执行
-- **相关：** [ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md)、ADOPTION A-01 / A-02
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md)、[ADOPTION A-01 / A-02](0121-improvements-adoption-closeout.md)
+- **证据：** `src/main/ai/provider-adapter.ts`、`src/main/ai/provider-adapter/response-parser.ts`、`src/main/ai/provider-adapter/sse-parser.ts`、`src/main/ai/provider-adapter/invocation.ts`、`src/main/ai/agent-loop-execution-state.ts`、`src/main/ai/agent-loop.ts`、`tests/unit/provider-finish-reason.unit.test.ts`、`tests/unit/agent-loop-finish-length.unit.test.ts`
 
 ## 背景
 
@@ -15,7 +19,7 @@ Provider 响应（chat completions `finish_reason`、messages `stop_reason`、re
 
 ADOPTION A-01 / A-02 与 pi/grok 运行时正确性要求：透传 finish 信号，并在 length 时整批拒绝 tool 副作用。
 
-## 决策
+## 决定
 
 ### 1. Adapter 结果携带可选 finishReason
 
@@ -49,20 +53,13 @@ ADOPTION A-01 / A-02 与 pi/grok 运行时正确性要求：透传 finish 信号
 - `finishReason` 为 `stop` / `tool_calls`（或其它非 length）且有 toolCalls：行为不变，正常执行
 - 纯 length 且无 toolCalls：仍可作为文本终答结束（不强制 error）
 
-### 5. 不变量
+## 不变量
 
 - 不改变 LearningSession / outcome settlement sole-writer
 - 不引入自动 retry、YOLO、凭证轮换、默认 shell / MCP marketplace / 远程 telemetry
 - 空串 args→`{}` 的既有 `parseToolArguments` 行为保持；本切片不依赖改 tool-arguments
 
-## 已实施范围与验证入口
-
-- `src/main/ai/provider-adapter.ts` — `ChatAdapterResult.finishReason`
-- `src/main/ai/provider-adapter/response-parser.ts` — `extractFinishReason`
-- `src/main/ai/provider-adapter/sse-parser.ts` — stream `finishReason`
-- `src/main/ai/provider-adapter/invocation.ts` — 填充结果
-- `src/main/ai/agent-loop-execution-state.ts` — 真实 stop reason
-- `src/main/ai/agent-loop.ts` — length 整批拒 tool（主循环 + recovery）
+## 验证
 
 ```bash
 pnpm exec vitest run --project unit \
@@ -73,7 +70,7 @@ pnpm exec vitest run --project unit \
   tests/unit/provider-sse-dsml.unit.test.ts
 ```
 
-## 不包含 / non-claims
+## 非目标
 
 - **不** 实现 A-03–A-05 的自动 retry / 恢复 wiring（仅 finish 字段 + length gate）
 - **不** 在 length 时自动重试 provider 或自动提高 max_tokens

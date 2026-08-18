@@ -1,10 +1,13 @@
 # ADR-0060：Tools/schema 会话指纹守卫（单 run 内静默扩 schema fail-closed）
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** 单次 `runAgentLoop` / agent run 内，对每轮（含 recovery）提供给 provider 的 `ToolDefinition[]` 做确定性指纹与过渡判定
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADOPTION B-05](0121-improvements-adoption-closeout.md)、[ADR-0040](0040-teaching-session-protocol-facade.md)（会话门面稳定前缀）、[ADR-0044](0044-teaching-prompt-cache-contract.md)（prompt cache 稳定面）、[ADR-0048](0048-tool-contract-and-write-policy.md)（工具合同）
-- **证据路径：** `src/main/ai/tools/tools-schema-fingerprint.ts`、`src/main/ai/agent-loop.ts`（`assertToolsSchemaStable` 一行钩子）、`tests/unit/tools-schema-fingerprint.unit.test.ts`、`docs/adr/0060-tools-schema-session-fingerprint.md`
+- **证据：** `src/main/ai/tools/tools-schema-fingerprint.ts`、`src/main/ai/agent-loop.ts`（`assertToolsSchemaStable` 一行钩子）、`tests/unit/tools-schema-fingerprint.unit.test.ts`
 
 ## 背景
 
@@ -58,16 +61,6 @@
 - **不**承担跨 run / 跨 session 的 schema 版本管理。
 - Finalization `tools: []` 路径不经过本守卫（空工具收尾是既有「停止提供工具」语义，不是 silent expansion）。
 
-## 已实施范围与验证入口
-
-- `src/main/ai/tools/tools-schema-fingerprint.ts`（新建）
-- `src/main/ai/agent-loop.ts`（`toolsSchemaGuard` + `applyToolsSchemaGuard`）
-- `tests/unit/tools-schema-fingerprint.unit.test.ts`
-
-```powershell
-pnpm exec vitest run --project unit tests/unit/tools-schema-fingerprint.unit.test.ts
-```
-
 ## 不变量
 
 - 同一 run 内，相对首次指纹的 **schema expansion 与 parameter 变更一律 fail closed**。
@@ -75,7 +68,13 @@ pnpm exec vitest run --project unit tests/unit/tools-schema-fingerprint.unit.tes
 - 指纹对 tool 顺序与 parameters 键顺序稳定。
 - 不引入 shell / MCP marketplace / FTS / YOLO / 远程 telemetry。
 
-## 不包含 / non-claims
+## 验证
+
+```powershell
+pnpm exec vitest run --project unit tests/unit/tools-schema-fingerprint.unit.test.ts
+```
+
+## 非目标
 
 - 不是完整 capability system 重写（B-07 / B-10 等另轨）。
 - 不声明跨 session 的 tool registry 版本锁定或 skill-pack schema 签名。

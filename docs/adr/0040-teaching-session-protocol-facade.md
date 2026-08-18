@@ -1,8 +1,13 @@
 # ADR-0040：TeachingSessionProtocol 进程内会话门面
 
-- **状态：** 已实施（ZCode 借鉴 Phase A）
-- **范围：** 稳定内部会话协议 create/resume/send/cancel/compact/fork/steer/checkpoint/usage
-- **证据路径：** `src/shared/teaching-types/teaching-session-protocol.ts`、`src/main/ai/teaching-session-runtime.ts`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-21
+- **范围：** `TeachingSessionProtocol` 作为教学 agent 会话的稳定内部契约，并以进程内 `createTeachingSessionRuntime` 适配既有 conversation + agent-run 机制。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)
+- **证据：** `src/shared/teaching-types/teaching-session-protocol.ts`、`src/main/ai/teaching-session-runtime.ts`、`tests/unit/teaching-session-protocol.unit.test.ts`
 
 ## 决定
 

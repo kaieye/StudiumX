@@ -1,15 +1,13 @@
 # ADR-0058：AgentSessionFacade 有状态门面与 B-01 drain 接线
 
-- **状态：** 部分实施（主进程 façade + 单测 + gateway product invoker 经 `facade.prompt` 驱动 live `agentChatStream`；autoDrain 仍关；mid-run steer/follow-up IPC 与 main/renderer 队列同步 residual）
+- **决策状态：** accepted
+- **实施状态：** partial
 - **日期：** 2026-07-21
-- **范围：** run 作用域 `AgentSessionFacade`（prompt / steer / followUp / abort / snapshot / drain）、与 B-01 队列/策略的完整 drain 语义、gateway 可选 registry 钩子、**product stream invoker 适配**
-- **相关：** [ADOPTION B-02](0121-improvements-adoption-closeout.md)、[ADR-0055](0055-busy-input-queue-and-replay-contracts.md)（B-01 模块）、[ADR-0040](0040-teaching-session-protocol-facade.md)（TeachingSessionProtocol，**不**被本 ADR 替换）、[ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md)、[ADR-0067](0067-cancel-tool-pair-close-and-busy-ack.md)
-- **证据路径：**
-  - `src/main/ai/agent-session-facade.ts`
-  - `src/main/ai/product-agent-chat-invoker.ts`（纯 payload/result 映射）
-  - `src/main/teaching-ipc-gateway.ts`（product invoker + `facade.prompt`）
-  - `tests/unit/agent-session-facade.unit.test.ts`
-  - `tests/unit/product-agent-chat-invoker.unit.test.ts`
+- **范围：** run 作用域 `AgentSessionFacade`（prompt / steer / followUp / abort / snapshot / drain）、与 B-01 队列/策略的完整 drain 语义、gateway 可选 registry 钩子、**product stream invoker 适配**；`autoDrain` 仍关闭
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADOPTION B-02](0121-improvements-adoption-closeout.md)、[ADR-0055](0055-busy-input-queue-and-replay-contracts.md)（B-01 模块）、[ADR-0040](0040-teaching-session-protocol-facade.md)（TeachingSessionProtocol，**不**被本 ADR 替换）、[ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md)、[ADR-0067](0067-cancel-tool-pair-close-and-busy-ack.md)、[ADR-0082](0082-agent-chat-steer-followup-ipc.md)
+- **证据：** `src/main/ai/agent-session-facade.ts`、`src/main/ai/product-agent-chat-invoker.ts`、`src/main/teaching-ipc-gateway.ts`（product invoker + `facade.prompt`）、`tests/unit/agent-session-facade.unit.test.ts`、`tests/unit/product-agent-chat-invoker.unit.test.ts`；ADOPTION 措辞快照见 `docs/adr/evidence/ADR-0058.md`。
 
 ## 背景
 
@@ -19,7 +17,7 @@ TeachingSessionProtocol（ADR-0040）仍是更高层教学会话契约（create/
 
 早期切片仅 attach registry + cancel abort；product turn 仍 bare `service.agentChatStream`，invoker no-op。本 residual 将 **首次 user 消息** 改走 `facade.prompt`，并由注入 invoker 调用既有 `service.agentChatStream`（**不**第二 loop、不改 settlement）。
 
-## 决策
+## 决定
 
 ### 1. 冻结模块与 API
 
@@ -72,7 +70,15 @@ TeachingSessionProtocol（ADR-0040）仍是更高层教学会话契约（create/
 
 禁止用 façade 替换 protocol 或绕过 settlement sole-writer。
 
-## 已实施范围与验证入口
+## 不变量
+
+- 无 Electron IPC import 进入 façade / pure mapper 模块
+- 无 YOLO / always-approve / shell / MCP marketplace
+- 不改 `toolsReplayed`、settlement sole-writer、`expectedRevision` CAS
+- 子 façade 默认隔离队列
+- 不重写 `runAgentLoop` / `teaching-conversation-runtime` / settlement
+
+## 验证
 
 ```powershell
 pnpm exec vitest run --project unit `
@@ -84,22 +90,9 @@ pnpm exec vitest run --project unit `
   tests/unit/close-open-tool-calls.unit.test.ts
 ```
 
-## 不变量
+## 非目标 / residual
 
-- 无 Electron IPC import 进入 façade / pure mapper 模块
-- 无 YOLO / always-approve / shell / MCP marketplace
-- 不改 `toolsReplayed`、settlement sole-writer、`expectedRevision` CAS
-- 子 façade 默认隔离队列
-- 不重写 `runAgentLoop` / `teaching-conversation-runtime` / settlement
-
-## 不包含 / residual
-
-- **autoDrain 未开**：产品多 turn 需 mid-run steer/follow-up IPC + renderer 同步后再评估开启
-- **mid-run steer/follow-up IPC 已落地（ADR-0082）**；product `autoDrain` 仍关；renderer 仍本地 FIFO + busy-ack（ADR-0067），main↔renderer 队列同步 residual
-- main/renderer queue 同步（可选后续切片）
-- 不接线 A-05 provider retry、B-03 并行 tool batch（若仍开放见 ADOPTION）
-
-## ADOPTION 措辞建议（勿直接改 ADOPTION.md 除非主线批准）
-
-- B-02：主进程 façade + drain + 单测 + gateway product invoker 经 `facade.prompt` → **基本完成（ADR-0058）**；residual = autoDrain 关 + mid-run steer IPC + main/renderer 队列同步
-- B-01 residual drain 由 B-02 façade 收口；UI banner 仍可标 B-12（ADR-0067）
+- **已落地：** 主进程 façade + drain + 单测 + gateway product invoker 经 `facade.prompt` 驱动 live `agentChatStream`（ADR-0055 B-01 residual 收口）。
+- **autoDrain 未开**：产品多 turn 需 mid-run steer/follow-up IPC + renderer 同步后再评估开启。
+- **mid-run steer/follow-up IPC 已落地（ADR-0082）**；product `autoDrain` 仍关；renderer 仍本地 FIFO + busy-ack（ADR-0067），main↔renderer 队列同步 residual。
+- 不接线 A-05 provider retry、B-03 并行 tool batch（若仍开放见 ADOPTION）。

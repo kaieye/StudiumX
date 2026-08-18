@@ -1,8 +1,13 @@
 # ADR-0038：Memory 只读迁移 dry-run 切片与 destructive migration 延期
 
-- **状态：**已采纳（2026-07-20）
-- **范围：**C-6 阶段 2（main-only readonly dry-run intent/receipt preview）结项；明确 **不** 批准 destructive/controlled migration 实现。
-- **相关：**[ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)（分区 + aggregate preflight）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 采纳 main-only readonly 迁移 dry-run 作为 C-6 当前唯一可实现切片；destructive / controlled migration 保持未批准、未实现且延期。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)
+- **证据：** `src/main/teaching-memory-catalog/migration-dry-run.ts`、`tests/unit/teaching-memory-migration-dry-run.unit.test.ts`、`tests/unit/teaching-memory-catalog.unit.test.ts`、`tests/unit/teaching-memory-recall.unit.test.ts`、`tests/unit/teaching-ipc-gateway.unit.test.ts`
 
 ## 决定
 

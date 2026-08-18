@@ -1,10 +1,13 @@
 # ADR-0145：压缩 pressure / 单飞 / mid-run 保护（LiveAgent Phase A）
 
-- **状态：** **已实施**（2026-07-24）：`compaction-pressure-controller.ts` + `context-compactor.ts` 接线；pre_send / post_tool / **mid_stream 触发标签** + 单飞 join + pressure ladder。**修订（2026-08-04）：** [ADR-0171](0171-continuous-agent-runs-and-context-governance.md) 已移除“硬 run budget 优先”的产品政策；运行时代码迁移另行实施。**说明：** 当前 `mid_stream` 是 call-site **标签**，不是真正的 mid-token overflow 拦截；并发调用 **join 复用第一次 flight 结果**。
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-23
 - **范围：** 在既有 `ContextCompactor`（[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)）之上，冻结 **多触发点**、**单飞互斥** 与 **pressure ladder**（压完仍超阈时加强 prune）；默认仍 **reference-only / 非 durable rewrite**；上下文压力应通过压缩、续接或明确错误处理，而非全局 run-token 停机。
-- **相关：** LiveAgent 历史研究清单（已结项） §2.3、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)、[ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)、[ADR-0100](0100-agent-loop-fallback-peel.md)、[ADR-0103](0103-agent-loop-budget-reason-peel.md)、[ADR-0121](0121-improvements-adoption-closeout.md) §6.14、[ADR-0143](0143-context-file-touch-ledger.md)
-- **实现落点：** `src/main/ai/compaction-pressure-controller.ts`；`src/main/ai/context-compactor.ts`；`agent-loop` / request-context projector / teaching conversation runtime 调用点
+- **取代：** 无
+- **被取代：** 部分被 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md)（全局硬 run budget 优先规则；运行时代码迁移另行实施）
+- **相关：** [ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[ADR-0064](0064-context-compactor-cutpoints-and-reduction-guard.md)、[ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)、[ADR-0100](0100-agent-loop-fallback-peel.md)、[ADR-0103](0103-agent-loop-budget-reason-peel.md)、[ADR-0121](0121-improvements-adoption-closeout.md) §6.14、[ADR-0143](0143-context-file-touch-ledger.md)、[ADR-0171](0171-continuous-agent-runs-and-context-governance.md)
+- **证据：** `src/main/ai/compaction-pressure-controller.ts`；`src/main/ai/context-compactor.ts`；`agent-loop` / request-context projector / teaching conversation runtime 调用点；实现落点见正文 §3
 
 ## 1. 背景
 
@@ -14,7 +17,7 @@ ADR-0064 已 hardening 切点、不足缩减守卫与审计字段；产品路径
 - 并发多次 compact 浪费资源并竞态改写投影；
 - 压完仍超阈时缺少 **阶梯加强**，易硬死或无脑连压。
 
-LiveAgent 以 multi-trigger + single-flight + pressure ladder 处理同类问题。采纳时必须服从 StudiumX：**默认不 durable rewrite 会话正文**；上下文压力优先由 compaction 处理，不得以累计 run-token 作为终止理由。
+LiveAgent 以 multi-trigger + single-flight + pressure ladder 处理同类问题。采纳时必须服从 StudiumX：**默认不 durable rewrite 会话正文**；上下文压力优先由 compaction 处理，不得以**不透明、低位、默认的**累计 run-token 作为终止理由——透明可审计的高位 emergency fuse 与用户显式资源预算见 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md)。
 
 ## 2. 决策
 

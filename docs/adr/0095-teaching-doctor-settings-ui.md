@@ -1,10 +1,14 @@
 # ADR-0095：TeachingDoctor Settings 只读 UI 面板
 
-- **状态：** 已实施（Settings thin Doctor UI；**无** auto-repair / upload / clear marker / free-form facts）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（Settings thin Doctor UI；**无** auto-repair / upload / clear marker / free-form facts）
 - **日期：** 2026-07-21
 - **范围：** ADOPTION **B-11 residual** — Settings 导航与只读 Doctor 面板接入既有 product IPC
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0043](0043-doctor-config-locator-and-fix-suggestion.md)、[ADR-0066](0066-local-observability-and-crash-marker.md)、[ADR-0084](0084-teaching-doctor-product-ipc.md)、[ADR-0093](0093-teaching-doctor-multi-collector-facts.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-types/settings.ts`（`SettingsSection` 含 `doctor`）
   - `src/renderer/src/workflows/settings.ts`（nav：`doctor` + Stethoscope）
   - `src/renderer/src/views/settings/sections/TeachingDoctorSettingsSection.tsx`

@@ -1,10 +1,14 @@
 # ADR-0091：Agent session 队列只读投影 product IPC
 
-- **状态：** 已实施（shared DTO + fail-closed parser + pure IPC mapper + gateway register + preload whitelist + unit tests；**无** product autoDrain flip；**无** renderer FIFO 改写）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（shared DTO + fail-closed parser + pure IPC mapper + gateway register + preload whitelist + unit tests；**无** product autoDrain flip；**无** renderer FIFO 改写）
 - **日期：** 2026-07-21
 - **范围：** B-02 residual — 暴露 **一条** 只读 product invoke channel，将 active `AgentSessionFacade` 队列经 ADR-0089 `projectQueue()` 投影给 renderer；不 drain、不 steer、不 abort、不翻转 autoDrain
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0058](0058-agent-session-facade.md)、[ADR-0082](0082-agent-chat-steer-followup-ipc.md)、[ADR-0089](0089-agent-session-queue-projection.md)、[ADOPTION B-02](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-types/agent-session-queue.ts`（shared DTO + payload/result）
   - `src/shared/teaching-types/system-api.ts` / `src/shared/teaching-ipc-contract.ts`
   - `src/main/teaching-ipc-commands.ts`（`parseProjectAgentSessionQueuePayload`）

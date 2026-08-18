@@ -1,9 +1,14 @@
 # ADR-0158：Model-assisted GradingCandidate——解释性证据的受限结算路径
 
-- **状态：** Proposed（设计草案,未实施 — 2026-07-26）
+- **决策状态：** proposed
+- **实施状态：** not_started
+- **实施说明：** Proposed（设计草案,未实施 — 2026-07-26）
 - **日期：** 2026-07-26
 - **范围：** 为对话中的解释/应用类学习者响应（既有 `learner_response_recorded` / `conversation_evidence_recorded` 通道）设计 model-assisted **GradingCandidate**：模型按 sidecar 预置 rubric 产出的结构化评分候选,作为**辅助证据**参与结算。**不**改变 committer 确定性核心、sole-writer、assessment 信任边界或任何生产行为。
-- **关联：** [ADR-0009](0009-typed-lesson-interaction-evidence.md)；[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)；[ADR-0014](0014-learner-safe-teaching-turn-presentation.md)（`show_source`）；[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)；[ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)；[ADR-0077](0077-teaching-turn-review-candidates.md)（候选须人可见的同构哲学）；[ADR-0157](0157-learning-outcome-strength-and-consolidation.md)；ADR-0154（复习排期,同批设计草案）
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0009](0009-typed-lesson-interaction-evidence.md)；[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)；[ADR-0014](0014-learner-safe-teaching-turn-presentation.md)（`show_source`）；[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)；[ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)；[ADR-0077](0077-teaching-turn-review-candidates.md)（候选须人可见的同构哲学）；[ADR-0157](0157-learning-outcome-strength-and-consolidation.md)；ADR-0154（复习排期,同批设计草案）
+- **证据：** 未实施（Proposed，2026-07-26 设计草案）；GradingCandidate 设计与约束见本 ADR 正文。
 
 ## 1. 问题
 

@@ -1,8 +1,13 @@
 # ADR-0044：Teaching prompt cache contract
 
-- **状态：** 已实施（2026-07-27 修订）
-- **范围：** 教学与临时会话的 agent chat prompt 组装
-- **相关：** [ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)、[ADR-0163](0163-teaching-capability-selection-and-plan-preview.md)
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-21
+- **范围：** 教学与临时会话的 agent chat prompt 组装：稳定 `system` 前缀与动态 turn-tail 分离的 prompt cache contract。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)、[ADR-0163](0163-teaching-capability-selection-and-plan-preview.md)、[ADR-0046](0046-teaching-footprint-ladder.md)
+- **证据：** `src/main/teaching-conversation-prompt.ts`、`src/main/teaching-conversation-runtime.ts`、`tests/unit/teaching-prompt-cache.unit.test.ts`、`tests/unit/teaching-skill-orchestration-prompt.unit.test.ts`
 
 ## 决定
 

@@ -26,28 +26,13 @@ import {
   OutlineShapeIcon
 } from './mind-map-shape-icons'
 import { MindMapTopicColorPicker, MindMapTopicStyleMenu } from './MindMapTopicStyleMenu'
+import { MindMapFontPicker } from './MindMapThemePanel'
+import { fontEntryLabel, SAFE_FONTS, type FontCatalogueEntry } from './mind-map-font-list'
+import { isManagedMindMapFontFamily } from './mind-map-font-provenance'
 
 export { ELEMENT_STYLE_CAPABILITIES } from './mind-map-inspector-capabilities'
 
 const MIXED_VALUE = '__mixed__'
-
-// Managed font stacks offered by the element font control. There is no
-// "inherit" entry: the control always shows the effective stack the canvas
-// will render (element override > document theme > application default).
-const FONT_OPTIONS = [
-  { value: 'system-ui, sans-serif', key: 'fontSystem' },
-  { value: 'Inter, system-ui, sans-serif', key: 'fontSans' },
-  {
-    value: '"Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif',
-    key: 'fontCjkSans'
-  },
-  {
-    value: '"Noto Serif CJK SC", "Songti SC", SimSun, serif',
-    key: 'fontCjkSerif'
-  },
-  { value: 'Georgia, serif', key: 'fontSerif' },
-  { value: 'ui-monospace, SFMono-Regular, monospace', key: 'fontMono' }
-] as const
 
 /** Font stack the canvas uses when neither the element nor the theme sets one. */
 const ELEMENT_DEFAULT_FONT = 'system-ui, sans-serif'
@@ -90,10 +75,10 @@ export const MIND_MAP_ELEMENT_OUTLINE_SHAPES: readonly MindMapElementOutlineShap
 // Fallback values shown while a field is inherited (unspecified) so controls
 // stay usable without inventing a persisted override.
 const FALLBACK = {
-  stroke: '#438EFF',
+  stroke: '#1f1f1f',
   fill: '#FFFFFF',
   textColor: '#333333',
-  strokeWidth: 1.5,
+  strokeWidth: 2,
   fontSize: 11
 } as const
 
@@ -129,11 +114,11 @@ const CLEAR_BUTTON_STYLE: React.CSSProperties = {
 }
 
 // The fields each inspector renders (and therefore reports as unsupported when
-// the selected element type cannot consume them). Relationship elements get
-// line/arrow fields; boxed elements (shape/boundary/summary/callout/free-topic)
-// get a line pattern and outline shape; connectors get line/arrow fields only.
+// the selected element type cannot consume them). Relationship/connector lines
+// carry no editable text of their own, so they intentionally omit the
+// textColor/fontFamily/fontSize fields — only boxed elements (shape/boundary/
+// summary/callout/free-topic) expose text styling.
 const RELATIONSHIP_INSPECTOR_FIELDS = [
-  'textColor', 'fontFamily', 'fontSize',
   'stroke', 'strokeWidth', 'fill', 'lineShape', 'beginArrow', 'endArrow', 'linePattern'
 ] as const satisfies readonly MindMapElementInspectorField[]
 
@@ -143,7 +128,6 @@ const BOXED_ELEMENT_INSPECTOR_FIELDS = [
 ] as const satisfies readonly MindMapElementInspectorField[]
 
 const CONNECTOR_INSPECTOR_FIELDS = [
-  'textColor', 'fontFamily', 'fontSize',
   'stroke', 'strokeWidth', 'lineShape', 'beginArrow', 'endArrow', 'linePattern'
 ] as const satisfies readonly MindMapElementInspectorField[]
 
@@ -160,9 +144,24 @@ export function MindMapElementStyleInspector() {
   const dispatchCommand = useMindMapViewStore((state) => state.dispatchCommand)
 
   const activeSheet = current?.sheets.find((sheet) => sheet.id === activeSheetId) ?? current?.sheets[0]
-  const element = selection.kind === 'element'
-    ? activeSheet?.elements.find((candidate) => candidate.id === selection.elementId)
-    : undefined
+  // Collect every selected element for the current selection kind. A hybrid
+  // marquee (nodes + shapes + lines) and a multi-element selection both
+  // resolve to the same element list so the inspector can batch-edit them.
+  const elements = (() => {
+    if (!activeSheet) return []
+    if (selection.kind === 'element') {
+      return activeSheet.elements.filter((candidate) => candidate.id === selection.elementId)
+    }
+    if (selection.kind === 'elements') {
+      return activeSheet.elements.filter((candidate) => selection.elementIds.includes(candidate.id))
+    }
+    if (selection.kind === 'hybrid') {
+      return activeSheet.elements.filter((candidate) => selection.elementIds.includes(candidate.id))
+    }
+    return []
+  })()
+  const element = elements[0]
+  const styles = elements.map((candidate) => candidate?.style)
   const style = element?.style ?? {}
 
   if (!activeSheet || !element) return null
@@ -184,19 +183,28 @@ export function MindMapElementStyleInspector() {
   const describeField = (field: MindMapElementInspectorField): string | undefined =>
     fieldCapability(field).disabled ? capabilityNoteId : undefined
   const updateStyle = (patch: Partial<MindMapElementStyle>): void => {
-    const next = { ...style, ...patch }
-    for (const key of Object.keys(next) as (keyof MindMapElementStyle)[]) {
-      if (next[key] === undefined) delete next[key]
+    // A single selected element commits one element.update command directly so
+    // the existing per-field undo cadence is preserved. A multi-element /
+    // hybrid selection funnels every change through the store's
+    // `updateSelectedElementStyles`, which batches element.update commands
+    // into one transaction and applies the same patch to each element.
+    if (elements.length <= 1) {
+      const next = { ...style, ...patch }
+      for (const key of Object.keys(next) as (keyof MindMapElementStyle)[]) {
+        if (next[key] === undefined) delete next[key]
+      }
+      dispatchCommand({
+        type: 'element.update',
+        sheetId: activeSheet.id,
+        elementId: element.id,
+        patch: { style: Object.keys(next).length ? next : null }
+      }, { label: 'Update element style' })
+      return
     }
-    dispatchCommand({
-      type: 'element.update',
-      sheetId: activeSheet.id,
-      elementId: element.id,
-      patch: { style: Object.keys(next).length ? next : null }
-    }, { label: 'Update element style' })
+    useMindMapViewStore.getState().updateSelectedElementStyles({ style: patch })
   }
   const fieldValue = <K extends keyof MindMapElementStyle>(field: K) =>
-    resolveElementStyleField(style, field)
+    resolveElementStyleField(styles, field)
   const inheritedLabel = t('mindmap.elementStyle.stateInherited')
   const mixedLabel = t('mindmap.elementStyle.mixed')
 
@@ -348,26 +356,26 @@ export function MindMapElementStyleInspector() {
     : fontFamilyValue.state === 'concrete'
       ? String(fontFamilyValue.value)
       : current?.theme.fontFamily ?? ELEMENT_DEFAULT_FONT
-  const fontOptions = [
-    ...(fontFamilyValue.state !== 'mixed' &&
-      !FONT_OPTIONS.some((option) => option.value === effectiveFontFamily)
-      ? [{
-        value: effectiveFontFamily,
-        key: `effective-${effectiveFontFamily}`,
-        label: t('mindmap.topicStyle.importedFont', { font: effectiveFontFamily })
-      }]
-      : []),
-    // Only meaningful while an explicit override is set: reset the field back
-    // to following the document theme (never labeled "default").
-    ...(fontFamilyValue.state === 'concrete'
-      ? [{ value: '', key: 'follow-theme', label: t('mindmap.elementStyle.inherit') }]
-      : []),
-    ...FONT_OPTIONS.map((option) => ({
-      value: option.value,
-      key: option.key,
-      label: t(`mindmap.topicStyle.${option.key}`)
-    }))
-  ]
+  // Mirror the topic inspector: surface the managed label for a known stack,
+  // otherwise the verbatim stack as a "requested/imported" value. A mixed
+  // selection shows the shared mixed label.
+  const managedFontEntry = (stack: string): FontCatalogueEntry | undefined =>
+    SAFE_FONTS.find((entry) => entry.stack === stack)
+  const effectiveFontFamilyLabel = fontFamilyValue.state === 'mixed'
+    ? t('mindmap.elementStyle.mixed')
+    : fontFamilyValue.state === 'concrete'
+      ? (managedFontEntry(effectiveFontFamily)
+        ? fontEntryLabel(managedFontEntry(effectiveFontFamily)!, t)
+        : t('mindmap.topicStyle.importedFont', { font: effectiveFontFamily }))
+      : (managedFontEntry(effectiveFontFamily)
+        ? fontEntryLabel(managedFontEntry(effectiveFontFamily)!, t)
+        : t('mindmap.topicStyle.importedFont', { font: effectiveFontFamily }))
+  // Conservative provenance flag: an unmanaged stack may fall back per CSS
+  // rules; the inspector never claims OS font detection (see
+  // mind-map-font-provenance.ts).
+  const fontMayFallback = fontFamilyValue.state !== 'mixed'
+    && effectiveFontFamily !== MIXED_VALUE
+    && !isManagedMindMapFontFamily(effectiveFontFamily)
 
   const renderLineAndArrowFields = () => (
     <>
@@ -421,52 +429,61 @@ export function MindMapElementStyleInspector() {
       className="mindmap-element-style mm-section"
       aria-label={t(`mindmap.elementStyle.types.${element.type}`)}
     >
-      <div
-        className="mindmap-element-style__subsection"
-        role="group"
-        aria-labelledby="mindmap-element-style-text-title"
-      >
-        <strong id="mindmap-element-style-text-title" className="mindmap-element-style__subsection-title">
-          {t('mindmap.elementStyle.textSection')}
-        </strong>
-        {renderColorField('textColor')}
-        <label className="mindmap-element-style__field">
-          <span>{t('mindmap.elementStyle.fontFamily')}</span>
-          <select
-            value={effectiveFontFamily}
-            disabled={fieldCapability('fontFamily').disabled}
-            aria-label={labelFor('mindmap.elementStyle.fontFamily', fontFamilyValue)}
-            aria-describedby={describeField('fontFamily')}
-            onChange={(event) => {
-              const next = event.currentTarget.value
-              if (next === MIXED_VALUE) return
-              updateStyle({ fontFamily: next || undefined })
-            }}
-          >
-            {fontFamilyValue.state === 'mixed' ? (
-              <option value={MIXED_VALUE} disabled>{mixedLabel}</option>
-            ) : null}
-            {fontOptions.map((option) => <option key={option.key} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
-        <label className="mindmap-element-style__field">
-          <span>{t('mindmap.elementStyle.fontSize')}</span>
-          <span style={ROW_STYLE}>
-            <input
-              type="number"
-              min="8"
-              max="72"
-              value={concreteValue(fieldValue('fontSize')) ?? FALLBACK.fontSize}
-              style={{ flex: '1 1 0', minWidth: 0 }}
-              disabled={fieldCapability('fontSize').disabled}
-              aria-label={labelFor('mindmap.elementStyle.fontSize', fieldValue('fontSize'))}
-              aria-describedby={describeField('fontSize')}
-              onChange={(event) => updateStyle({ fontSize: Number(event.currentTarget.value) })}
+      {/* Text styling only applies to boxed elements that carry a label;
+       * relationship/connector lines have no editable text of their own. */}
+      {isConnector || isRelationship ? null : (
+        <div
+          className="mindmap-element-style__subsection"
+          role="group"
+          aria-labelledby="mindmap-element-style-text-title"
+        >
+          <strong id="mindmap-element-style-text-title" className="mindmap-element-style__subsection-title">
+            {t('mindmap.elementStyle.textSection')}
+          </strong>
+          {renderColorField('textColor')}
+          <div className="mindmap-element-style__field mindmap-element-style__picker-row">
+            <span className="mindmap-element-style__field-label">
+              {t('mindmap.elementStyle.fontFamily')}
+            </span>
+            <MindMapFontPicker
+              value={fontFamilyValue.state === 'concrete' ? fontFamilyValue.value : undefined}
+              currentLabel={effectiveFontFamilyLabel}
+              ariaLabel={labelFor('mindmap.elementStyle.fontFamily', fontFamilyValue)}
+              disabled={fieldCapability('fontFamily').disabled}
+              onSelect={(stack) => updateStyle({ fontFamily: stack || undefined })}
+              searchPlaceholder="Search fonts…"
+              searchLabel="Search fonts"
+              noResultsLabel="No fonts found."
             />
-            {clearButton('fontSize', fieldValue('fontSize'), 'mindmap.elementStyle.fontSize')}
-          </span>
-        </label>
-      </div>
+            {fontMayFallback ? (
+              <span
+                id="mindmap-element-style-font-fallback"
+                className="mindmap-element-style__font-warning"
+                role="status"
+              >
+                {t('mindmap.topicStyle.fontMayFallback')}
+              </span>
+            ) : null}
+          </div>
+          <label className="mindmap-element-style__field">
+            <span>{t('mindmap.elementStyle.fontSize')}</span>
+            <span style={ROW_STYLE}>
+              <input
+                type="number"
+                min="8"
+                max="72"
+                value={concreteValue(fieldValue('fontSize')) ?? FALLBACK.fontSize}
+                style={{ flex: '1 1 0', minWidth: 0 }}
+                disabled={fieldCapability('fontSize').disabled}
+                aria-label={labelFor('mindmap.elementStyle.fontSize', fieldValue('fontSize'))}
+                aria-describedby={describeField('fontSize')}
+                onChange={(event) => updateStyle({ fontSize: Number(event.currentTarget.value) })}
+              />
+              {clearButton('fontSize', fieldValue('fontSize'), 'mindmap.elementStyle.fontSize')}
+            </span>
+          </label>
+        </div>
+      )}
 
       <div
         className="mindmap-element-style__subsection"

@@ -1,10 +1,14 @@
 # ADR-0116：Teaching-turn review finalize hook 可选 save last-bundle
 
-- **状态：** 已实施（ADOPTION S-09 residual — finalize_hook → durable last-bundle product wire；默认 off；fail-soft；无 auto-apply）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-09 residual — finalize_hook → durable last-bundle product wire；默认 off；fail-soft；无 auto-apply）
 - **日期：** 2026-07-21
 - **范围：** composition-edge 工厂：返回 `TeachingTurnReviewFinalizeHook`，在 opt-in 时将 finalize 后的 review bundle 以 `source: 'finalize_hook'` 写入 caller-root last-bundle 缓存；**不** settlement SoT；**不** auto-apply；**不** 新 IPC / Settings Apply / 强制 coordinator 接线
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0077](0077-teaching-turn-review-candidates.md)、[ADR-0080](0080-teaching-turn-review-finalize-wire.md)、[ADR-0085](0085-teaching-turn-review-human-approve-projection.md)、[ADR-0087](0087-teaching-turn-review-human-approve-ipc.md)、[ADR-0097](0097-teaching-turn-review-settings-ui.md)、[ADR-0113](0113-teaching-turn-review-last-bundle-store.md)、[ADR-0114](0114-teaching-turn-review-last-bundle-ipc.md)、[ADOPTION S-09](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/teaching-turn-review-last-bundle-finalize-hook.ts`（新）
   - `src/main/teaching-turn-review-last-bundle-fs.ts` / `src/shared/teaching-turn-review-last-bundle.ts`（ADR-0113）
   - `src/main/ai/teaching-turn-orchestrator.ts`（ADR-0080 hook 面；本切片不改 orchestrator 本体）

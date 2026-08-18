@@ -12,7 +12,7 @@ import { DEFAULT_TOPIC_FONT_FAMILY } from './mind-map-topic-display-style'
  * `mind-map-font-provenance.ts` for the "may fall back" contract).
  */
 
-export type FontCategory = 'system' | 'sans' | 'serif' | 'mono' | 'cjk'
+export type FontCategory = 'system' | 'sans' | 'serif' | 'mono' | 'cjk' | 'handwritten' | 'system-installed'
 
 export type FontCatalogueEntry = {
   /** Stable id used for React keys and for equality in the managed set. */
@@ -140,6 +140,12 @@ export const SAFE_FONTS: readonly FontCatalogueEntry[] = [
     stack: "Consolas, 'Andale Mono', monospace",
     label: 'Consolas',
     category: 'mono'
+  },
+  {
+    id: 'shantell-sans',
+    stack: "'Shantell Sans', 'Segoe UI', sans-serif",
+    label: 'Shantell Sans',
+    category: 'handwritten'
   }
 ]
 
@@ -191,6 +197,8 @@ export type MindMapFontPickerProps = {
   /** When true, show a "clear override" entry that calls onSelect(undefined). */
   showClearItem?: boolean
   clearLabel?: string
+  /** When true, the trigger is disabled and the popover cannot open. */
+  disabled?: boolean
   searchPlaceholder?: string
   searchLabel?: string
   noResultsLabel?: string

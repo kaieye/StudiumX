@@ -1,10 +1,14 @@
 # ADR-0119：teaching-ipc-commands turn-review IPC parser peel
 
-- **状态：** 已实施（ADOPTION S-03 residual by-touch peel）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-03 residual by-touch peel）
 - **日期：** 2026-07-21
 - **范围：** 将 `teaching-ipc-commands.ts` 内 **teaching-turn-review** 相关 IPC fail-closed 解析簇（project / decide / handoff / last-bundle get+save 及私有 bundle/decision/projection light helpers）抽到旁路模块；**不**改 parser 语义、source allowlist、caps、settlement 或 auto-apply
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0075](0075-module-size-policy-and-giant-peel.md)、[ADR-0087](0087-teaching-turn-review-human-approve-ipc.md)、[ADR-0110](0110-teaching-turn-review-handoff-ipc.md)、[ADR-0114](0114-teaching-turn-review-last-bundle-ipc.md)、[ADR-0100](0100-agent-loop-fallback-peel.md)、[ADR-0103](0103-agent-loop-budget-reason-peel.md)、[ADR-0106](0106-agent-loop-schema-guard-peel.md)、[ADOPTION S-03](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/teaching-ipc-commands-turn-review.ts`（新）
   - `src/main/teaching-ipc-commands.ts`（删除本地副本 + 兼容 re-export）
   - 既有 unit：`tests/unit/teaching-turn-review-ipc.unit.test.ts`、`teaching-turn-review-handoff-ipc.unit.test.ts`、`teaching-turn-review-last-bundle-ipc.unit.test.ts`、`teaching-ipc-commands.unit.test.ts`

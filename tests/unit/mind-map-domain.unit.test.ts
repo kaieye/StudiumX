@@ -583,7 +583,7 @@ describe('v1 → v2 migration', () => {
     expect(twice.value).toEqual(once.value)
   })
 
-  it('removes only legacy connectors that cannot attach two distinct existing targets', () => {
+  it('removes only legacy connectors with dangling or self bindings', () => {
     const input = {
       ...validDocumentV2(),
       sheets: [
@@ -653,7 +653,9 @@ describe('v1 → v2 migration', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value.sheets[0]!.elements.map((element) => element.id)).toEqual([
-      'connector-valid'
+      'connector-valid',
+      // A free (anchor-less) endpoint is a valid standalone line and survives.
+      'connector-half'
     ])
     expect(input).toEqual(snapshot)
 

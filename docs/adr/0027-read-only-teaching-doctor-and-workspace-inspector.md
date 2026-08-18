@@ -1,8 +1,13 @@
 # ADR-0027：只读 TeachingDoctor 与 Workspace Inspector（诊断 ≠ 修复）
 
-- **状态：** 已实施（P1-9 / P1-10；合入 main `9ebc933` / `85dd33a`；feature `cf6a070` / `8bd3c97`）
-- **范围：** 结构化只读诊断报告、repair recommendation 元数据、不阻断只读打开
-- **证据提交：** `cf6a070`、`8bd3c97`；merge `9ebc933`、`85dd33a`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 教学诊断分两层只读缝（`TeachingWorkspaceInspector` + `TeachingDoctor.run(facts)`）；repair 与诊断分离、`autoRepairAllowed` 恒为 `false`。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0031](0031-advanced-tech-inspector.md)、[ADR-0034](0034-redacted-support-bundle.md)
+- **证据：** `src/main/teaching-workspace-inspector.ts`、`src/main/teaching-doctor.ts`、`src/shared/teaching-types/teaching-doctor.ts`、`tests/unit/teaching-doctor.unit.test.ts`；提交 `cf6a070`、`8bd3c97`、merge `9ebc933`、`85dd33a`
 
 ## 决定
 

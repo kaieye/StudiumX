@@ -1,10 +1,14 @@
 # ADR-0070：Agent runtime wire 迁入 shared/protocol
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施
 - **日期：** 2026-07-21
 - **范围：** ADOPTION S-01（Phase 2 main structure）— 将纯 transport/wire 类型与序列化从 `src/main/ai` 迁到 `src/shared/protocol/*`，main 路径仅兼容 re-export
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md)、[ADOPTION S-01](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/protocol/agent-runtime-wire.ts`（canonical types + pure serializers）
   - `src/shared/protocol/index.ts`（protocol 公共 re-export 面）
   - `src/main/ai/agent-runtime-wire.ts`（兼容 re-export only）

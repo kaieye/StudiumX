@@ -1,10 +1,14 @@
 # ADR-0108：write capture 路径接线 permissionDecision 审计字段
 
-- **状态：** 已实施（ADOPTION B-08 residual：write capture 调用点传入 journal `permissionDecision`）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION B-08 residual：write capture 调用点传入 journal `permissionDecision`）
 - **日期：** 2026-07-21
 - **范围：** 仅在 registry 权限结算之后、write handler / first-touch pre-image capture 之前，将 **已知** 的 journal 审计词汇写入 `ToolContext` 槽位，并由 `workspace.ts` 捕获路径可选透传；**不**改变 permission settlement 权威
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0049](0049-write-rewind-journal.md)、[ADR-0063](0063-declarative-tool-policy.md)、[ADR-0079](0079-workspace-tool-policy-fs-loader.md)、[ADR-0101](0101-workspace-tool-policy-catalog-inject.md)、[ADOPTION B-08](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/ai/tools/registry.ts`（`ToolContext.lastJournalPermissionDecision` + resolve 后 per-call 设置）
   - `src/main/ai/tools/workspace.ts`（`captureAndAppendWritePreImage` 透传）
   - `src/main/ai/tools/tool-policy.ts`（纯 `journalPermissionDecisionFromGateAndResolution`）

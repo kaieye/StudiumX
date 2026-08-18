@@ -15,7 +15,8 @@ describe('ADR-0122 usage-ledger-as-canonical-observability (DB-P1-1)', () => {
   it('exists as the next free ADR after 0050 with design authority + P0-3 implemented status', () => {
     expect(adr).toMatch(/^# ADR-0122：Usage Ledger/)
     // Honest status: design authority adopted; minimal DB-P0-3 implementation landed (not design-only).
-    expect(adr).toMatch(/\*\*状态：\*\*.*(设计权威|已设计|已采纳)/)
+    expect(adr).toMatch(/\*\*决策状态：\*\*\s*accepted/)
+    expect(adr).toMatch(/\*\*实施说明：\*\*.*(设计权威|已设计|已采纳)/)
     expect(adr).toMatch(/DB-P0-3|最小实现|已落地/)
     expect(adr).toMatch(/usage-ledger-as-canonical-observability|Usage Ledger 作为可观测性/)
   })

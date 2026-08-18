@@ -224,7 +224,16 @@ export const mindMapConnectorAnchorSchema = z.object({
 })
 
 export const mindMapConnectorEndpointSchema = mindMapPointSchema.extend({
-  anchor: mindMapConnectorAnchorSchema
+  anchor: mindMapConnectorAnchorSchema.optional(),
+  /**
+   * Normalized border parameter (radians, the ray angle from the target
+   * center to the border point). When an endpoint is anchored to a topic or
+   * drawn shape, this preserves the user-chosen border position across
+   * subsequent moves and resizes of the target, so the connector stays
+   * attached at a stable relative spot instead of jumping to the border
+   * point that faces the opposite endpoint.
+   */
+  borderParam: z.number().finite().optional()
 })
 
 export const mindMapElementStyleSchema = z.object({

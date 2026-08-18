@@ -1,9 +1,14 @@
 # ADR-0139：MCP Plugin-provided servers lifecycle foundation — Phase G 实现合同
 
-- **状态：** 已实施 foundation；**插件安装后自动注册/连接由 [ADR-0141](0141-mcp-product-experience-parity-policy.md) 允许**；仍无 jiti/code-mode
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施 foundation；**插件安装后自动注册/连接由 [ADR-0141](0141-mcp-product-experience-parity-policy.md) 允许**；仍无 jiti/code-mode
 - **日期：** 2026-07-23
 - **范围：** plugin manifest 可声明的 MCP servers、稳定 namespace id、allowlist 模板展开、in-memory plugin MCP registry（trust 分层）、卸载/撤销清理钩子。
+- **取代：** 无
+- **被取代：** 部分被 [ADR-0141](0141-mcp-product-experience-parity-policy.md)（插件安装后自动注册/连接体验政策）
 - **相关：** ADR-0042、ADR-0127、ADR-0128、ADR-0132 §2.6 / Phase G、ADR-0137（plugin 层可作只读 source）、ADR-0140、`SECURITY.md`。
+- **证据：** `src/shared/mcp/plugin-types.ts`、`src/main/mcp/plugin-mcp-registry.ts`、`src/main/mcp/plugin-mcp-bootstrap.ts`；测试 `tests/unit/mcp-plugin-lifecycle.unit.test.ts`、`tests/unit/mcp-plugin-bootstrap.unit.test.ts`。
 
 ## 1. 决定与非目标
 

@@ -133,7 +133,7 @@ export function MindMapShapeTool({
       suppressNextClickRef.current = false
       return
     }
-    chooseShape('rect')
+    chooseShape('rounded-rect')
   }
 
   const handleTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {

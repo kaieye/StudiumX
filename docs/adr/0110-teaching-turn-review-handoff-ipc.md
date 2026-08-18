@@ -1,10 +1,14 @@
 # ADR-0110：Teaching-turn review post-approve handoff product IPC（闭集投影 only）
 
-- **状态：** 已实施（ADOPTION S-09 residual — handoff 投影 product IPC wire）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-09 residual — handoff 投影 product IPC wire）
 - **日期：** 2026-07-21
 - **范围：** 闭集 product IPC：将人批投影或 bundle+decision 映射为 **非可执行** handoff intents；**不** durable store；**不** auto-apply；**不** Settings UI（UI 为 sibling residual [ADR-0111](0111-teaching-turn-review-settings-handoff-ui.md)）；**不**改 settlement
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0077](0077-teaching-turn-review-candidates.md)、[ADR-0080](0080-teaching-turn-review-finalize-wire.md)、[ADR-0085](0085-teaching-turn-review-human-approve-projection.md)、[ADR-0087](0087-teaching-turn-review-human-approve-ipc.md)、[ADR-0097](0097-teaching-turn-review-settings-ui.md)、[ADR-0109](0109-teaching-turn-review-post-approve-handoff.md)（pure handoff）、[ADR-0111](0111-teaching-turn-review-settings-handoff-ui.md)（Settings 展示）、[ADOPTION S-09](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-types/teaching-turn-review-ipc.ts`（handoff payload / result）
   - `src/shared/teaching-types/system-api.ts` / `src/shared/teaching-ipc-contract.ts`
   - `src/main/teaching-turn-review-ipc.ts`（`runProjectTeachingTurnReviewHandoffIpc`）

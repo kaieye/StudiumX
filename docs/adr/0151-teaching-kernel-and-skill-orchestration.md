@@ -1,9 +1,14 @@
 # ADR-0151：Teaching Kernel 与 Skill 编排权威边界
 
-- **状态：** **已实施**（2026-07-27；Phase 0–6 closeout）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **已实施**（2026-07-27；Phase 0–6 closeout）
 - **日期：** 2026-07-24；2026-07-27 完成修订
 - **范围：** `teach` app-shipped Teaching Kernel、Teaching Authority Plane / Skill Capability Plane、host-owned registry、纯 planner、stage-scoped runtime、预算与评估边界
-- **关联：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADR-0156](0156-skill-orchestration-conversation-continuity.md)、[ADR-0163](0163-teaching-capability-selection-and-plan-preview.md)
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADR-0156](0156-skill-orchestration-conversation-continuity.md)、[ADR-0163](0163-teaching-capability-selection-and-plan-preview.md)
+- **证据：** `src/main/skill-library/core-teaching-kernel.ts`、`src/main/builtin-skill-orchestration-policy.ts`、`src/shared/teaching-types/skill-orchestration.ts`；测试 `tests/unit/core-teaching-kernel.unit.test.ts`、`tests/unit/skill-orchestration-*.unit.test.ts`。
 
 ## 1. 决策：双平面
 

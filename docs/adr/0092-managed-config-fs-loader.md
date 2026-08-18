@@ -1,10 +1,14 @@
 # ADR-0092：Managed 配置 fail-closed FS loader 与产品 re-resolve 保真
 
-- **状态：** 已实施（ADOPTION S-11 residual：FS loader + optimistic-writer preserve）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-11 residual：FS loader + optimistic-writer preserve）
 - **日期：** 2026-07-21
 - **范围：** 在调用方供给的绝对根（典型为 Electron `userData` 或测试 temp）下，通过 contained / bounded IO 可选读取 secret-free managed 配置 JSON；提供薄 inject helper；修复 config optimistic writer 在 CAS 重解析时丢弃 `managed` 的 residual bug
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0086](0086-managed-config-overlay-layer.md)、[ADR-0033](0033-config-optimistic-concurrency.md)、[ADR-0071](0071-workspace-config-denylist.md)、[ADR-0079](0079-workspace-tool-policy-fs-loader.md)、[ADR-0090](0090-teaching-config-overlay-parse-peel.md)、[ADOPTION S-11](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/teaching-managed-config-fs.ts`（新）
   - `src/main/config-optimistic-writer.ts`（preserve `managed`）
   - `src/shared/teaching-types/config-optimistic-write.ts`（store snapshot 可选 `managed`）

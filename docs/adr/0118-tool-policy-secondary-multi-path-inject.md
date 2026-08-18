@@ -1,10 +1,14 @@
 # ADR-0118：次级路径 tool-policy multi-path inject
 
-- **状态：** 已实施（ADOPTION B-08 residual：次级 inject 接 multi-path；Granular UI 仍 defer）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION B-08 residual：次级 inject 接 multi-path；Granular UI 仍 defer）
 - **日期：** 2026-07-21
 - **范围：** 将 `loadAndMergeToolPolicyDocumentsFromWorkspace`（默认 primary + course overlay）接到全部次级产品 inject 点；grant/omit 门禁与 default-equivalent 语义不变；**不**引入 Granular UI
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0063](0063-declarative-tool-policy.md)、[ADR-0079](0079-workspace-tool-policy-fs-loader.md)、[ADR-0083](0083-workspace-tool-policy-product-inject.md)、[ADR-0088](0088-workspace-tool-policy-secondary-inject.md)、[ADR-0101](0101-workspace-tool-policy-catalog-inject.md)、[ADR-0112](0112-tool-policy-multi-document-merge.md)、[ADR-0115](0115-tool-policy-multi-path-load-merge.md)、[ADOPTION B-08](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/ai/delegation-runtime.ts`（child run inject → multi-path）
   - `src/main/lesson-plan-production.ts`（grant-gated inject → multi-path）
   - `src/main/connector-health-catalog.ts`（evaluate inject → multi-path）

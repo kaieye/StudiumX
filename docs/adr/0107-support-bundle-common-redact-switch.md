@@ -1,10 +1,14 @@
 # ADR-0107：Support-bundle 共用 observability/redact 切换
 
-- **状态：** 已实施（ADOPTION B-11 residual — support-bundle common redact switch）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION B-11 residual — support-bundle common redact switch）
 - **日期：** 2026-07-21
 - **范围：** 将 `support-bundle.ts` 中与路径/密钥相关的**通用**脱敏逻辑切换到共享 `src/main/observability/redact.ts` 原语；**保留** bundle 本地 deep JSON / denied-field / stable-identifier 策略；**不**引入 auto-repair / auto-upload / 远程 telemetry
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0007](0007-persisted-user-history-redaction.md)、[ADR-0034](0034-redacted-support-bundle.md)、[ADR-0066](0066-local-observability-and-crash-marker.md)、[ADR-0084](0084-teaching-doctor-product-ipc.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/support-bundle.ts`（import 共享 `REDACTED_ABSOLUTE_PATH` / `redactPath` / `redactExportString`；删除本地 `scrubAbsolutePaths` / `tryWorkspaceRelative` / `looksLikeAbsolutePath` 等重复实现；薄 wrapper + 本地 deep JSON 策略）
   - `src/main/observability/redact.ts`（既有共享原语；本切片**不**扩展 API）
   - `src/main/observability/bootstrap-residual.ts`（residual 注释：common redact residual 关闭）

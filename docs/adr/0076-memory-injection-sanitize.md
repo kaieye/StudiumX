@@ -1,10 +1,14 @@
 # ADR-0076：记忆注入消毒（prompt injection sanitize）
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施
 - **日期：** 2026-07-21
 - **范围：** 纯共享 `memory-sanitize` 模块；recall→inject 边界对 memory content 做轻量消毒
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0006](0006-scoped-memory-partition-and-readonly-migration-preflight.md)、[ADR-0007](0007-persisted-user-history-redaction.md)、[ADR-0044](0044-teaching-prompt-cache-contract.md)、[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)、[ADR-0055](0055-busy-input-queue-and-replay-contracts.md)、[ADOPTION S-10](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/memory-sanitize.ts`
   - `src/main/teaching-memory-recall.ts`（`retrieve` 返回前 sanitize content）
   - `tests/unit/memory-sanitize.unit.test.ts`

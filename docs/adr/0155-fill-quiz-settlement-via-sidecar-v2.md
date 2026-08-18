@@ -1,10 +1,14 @@
 # ADR-0155：fill 题结算——assessment sidecar v2 与归一化答案 digest
 
-- **状态：** **已实施**（2026-07-26）：schema、渲染、证据桥、evaluator、quiz.js 全链;HTML sidecar 变体的 fill 保持保守 unsupported（见 §2.4）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **已实施**（2026-07-26）：schema、渲染、证据桥、evaluator、quiz.js 全链;HTML sidecar 变体的 fill 保持保守 unsupported（见 §2.4）
 - **日期：** 2026-07-26
 - **范围：** 让 `fill`（填空）题的学习者作答进入 evidence-gated settlement。此前 lesson schema 鼓励生成 fill 题,但 evaluator 一律 `unsupported_quiz_type` 忽略,且预览证据桥把 fill 提交记录成 `selectedOptionIds: ['submit']` 的永假证据——被鼓励的题型永远不算数。
-- **关联：** [ADR-0009](0009-typed-lesson-interaction-evidence.md);[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md);[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)（静态无歧义文法约束——本 ADR 以 digest 扩展而非放宽）
-- **实现落点：** `src/shared/fill-answer.ts`（归一化 + 自包含同步 SHA-256 + `fill-<sha256>` 身份;函数刻意自包含以便 `String(fn)` 注入浏览器脚本,保证各表面逐位一致）;`src/shared/lesson-schema.ts`（fill 可选 `acceptedAnswers` ≤4,sanitize 按归一化去重）;`src/main/ai/lesson-renderer.ts`（sidecar **schemaVersion 2**:fill `answerIds` = 归一化答案 digest;lesson 卡片可选 `data-accepted` JSON 数组）;`src/shared/lesson-style-themes/contract.ts`（`quizAccepted`）;`src/shared/preview-markdown-bridge.ts`（fill 提交 → 归一化 → digest → `selectedOptionIds: ['fill-<sha256>']`,含 Enter 提交;不再产出 `['submit']` 垃圾证据）;`src/main/learning-outcome-evaluator.ts`(接受 sidecar v1/v2;v2 fill 按 digest 成员判定;非 digest 选择 → `malformed_answer_or_choice`);`assets/quiz.js`（接受 `data-accepted` 备选,归一化算法逐字不变）;测试 `tests/unit/fill-answer.unit.test.ts`、`tests/unit/learning-outcome-evaluator-fill.unit.test.ts`
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0009](0009-typed-lesson-interaction-evidence.md);[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md);[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)（静态无歧义文法约束——本 ADR 以 digest 扩展而非放宽）
+- **证据：** `src/shared/fill-answer.ts`（归一化 + 自包含同步 SHA-256 + `fill-<sha256>` 身份;函数刻意自包含以便 `String(fn)` 注入浏览器脚本,保证各表面逐位一致）;`src/shared/lesson-schema.ts`（fill 可选 `acceptedAnswers` ≤4,sanitize 按归一化去重）;`src/main/ai/lesson-renderer.ts`（sidecar **schemaVersion 2**:fill `answerIds` = 归一化答案 digest;lesson 卡片可选 `data-accepted` JSON 数组）;`src/shared/lesson-style-themes/contract.ts`（`quizAccepted`）;`src/shared/preview-markdown-bridge.ts`（fill 提交 → 归一化 → digest → `selectedOptionIds: ['fill-<sha256>']`,含 Enter 提交;不再产出 `['submit']` 垃圾证据）;`src/main/learning-outcome-evaluator.ts`(接受 sidecar v1/v2;v2 fill 按 digest 成员判定;非 digest 选择 → `malformed_answer_or_choice`);`assets/quiz.js`（接受 `data-accepted` 备选,归一化算法逐字不变）;测试 `tests/unit/fill-answer.unit.test.ts`、`tests/unit/learning-outcome-evaluator-fill.unit.test.ts`
 
 ## 1. 决策
 

@@ -87,7 +87,9 @@ function remapConnectorEndpoint(
   references: ClipboardReferenceSets
 ): MindMapConnectorEndpoint | null {
   const { anchor, ...point } = endpoint
-  if (!anchor) return null
+  // A free connector endpoint travels as a plain point; only bound endpoints
+  // require their targets to be part of the same clipboard payload.
+  if (!anchor) return point
 
   const ids = anchor.targetType === 'topic' ? references.topicIds : references.shapeIds
   // Both anchored targets must travel with a copied connector.

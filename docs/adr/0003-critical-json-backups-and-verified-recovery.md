@@ -1,8 +1,13 @@
 # ADR-0003：关键 JSON 使用 `.bak` 备份与已验证恢复
 
-- **状态：** 已实施
-- **范围：** C-3
-- **证据提交：** `ca73537` (`feat(data): add durable critical JSON backups`)
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** 对 settings、workspace registry 与 workspace index 等关键 JSON，在 durable replace 路径维护 `.bak` 并在读取时进行 verified recovery。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)
+- **证据：** `src/main/persistence/durable-file.ts`、`tests/unit/durable-file.unit.test.ts`、`tests/unit/teaching-durable-state.unit.test.ts`、`tests/unit/teaching-memory-catalog.unit.test.ts`；提交 `ca73537`
 
 ## 决定
 

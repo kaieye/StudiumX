@@ -1,8 +1,13 @@
 # ADR-0030：长 Session Resume Picker（ledger 只读候选）
 
-- **状态：** 已实施（P2-2；feature `669e3a2`；merge `cac87b0`）
-- **范围：** 对 `LearningSessionScanResult` 的排名 resume 候选投影；调用方拥有 ledger.scan I/O
-- **证据提交：** `669e3a2`、merge `cac87b0`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 消费 `LearningSessionScanResult` 经纯函数 `buildSessionResumeCandidates` 产出的只读 resume 候选投影；调用方拥有 ledger.scan I/O。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0031](0031-advanced-tech-inspector.md)
+- **证据：** `src/shared/teaching-types/session-resume-picker.ts`、`src/main/session-resume-picker.ts`、`scripts/check-session-resume-picker.mjs`、`tests/unit/session-resume-picker.unit.test.ts`；提交 `669e3a2`、merge `cac87b0`
 
 ## 决定
 

@@ -753,7 +753,7 @@ export function MindMapAiPanel({
                 role="tab"
                 aria-selected={inspectorTab === 'content'}
                 className={`mindmap-inspector-tab${inspectorTab === 'content' ? ' is-active' : ''}`}
-                disabled={selection.kind !== 'topic' && selection.kind !== 'element'}
+                disabled={selection.kind !== 'topic' && selection.kind !== 'element' && selection.kind !== 'elements'}
                 onClick={() => setInspectorTab('content')}
               >
                 {t('mindmap.inspector.content')}
@@ -778,7 +778,7 @@ export function MindMapAiPanel({
             <div className="mindmap-inspector-tab-content mindmap-inspector-tab-content--content">
               {selection.kind === 'topic' ? (
                 <MindMapTopicStyleInspector />
-              ) : selection.kind === 'element' ? (
+              ) : selection.kind === 'element' || selection.kind === 'elements' || selection.kind === 'hybrid' ? (
                 <MindMapElementStyleInspector />
               ) : (
                 <div className="mindmap-inspector-empty" role="status">

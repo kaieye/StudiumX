@@ -1,14 +1,13 @@
 # ADR-0079：Workspace-contained tool-policy FS loader
 
-- **状态：** 已实施（ADOPTION B-08 residual：FS / course policy loader）
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
-- **范围：** 在已注册工作区根下，通过 contained IO 可选读取相对路径的声明式 tool-policy JSON；解析复用纯 `loadToolPolicyDocument`；失败闭包为 `null`
+- **范围：** 在已注册工作区根下，通过 contained IO 可选读取相对路径的声明式 tool-policy JSON，解析复用纯 `loadToolPolicyDocument`，失败一律闭包为 `null`。
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0063](0063-declarative-tool-policy.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0048](0048-tool-contract-and-write-policy.md)、[ADOPTION B-08](0121-improvements-adoption-closeout.md)
-- **证据路径：**
-  - `src/main/ai/tools/tool-policy-fs.ts`（新）
-  - `src/main/ai/tools/tool-policy.ts`（纯 loader / evaluate，未改行为）
-  - `src/main/path-access.ts`（`readContainedRegularFileBounded`）
-  - `tests/unit/tool-policy-fs.unit.test.ts`
+- **证据：** `src/main/ai/tools/tool-policy-fs.ts`（新）、`src/main/ai/tools/tool-policy.ts`（纯 loader / evaluate，未改行为）、`src/main/path-access.ts`（`readContainedRegularFileBounded`）、`tests/unit/tool-policy-fs.unit.test.ts`
 
 ## 背景
 

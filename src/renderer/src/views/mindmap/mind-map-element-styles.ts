@@ -26,6 +26,10 @@ export type RelationshipElementPathOptions = Readonly<{
   toTangent?: ElementPathPoint
   /** Draggable point through which a curved connector must pass. */
   curvePoint?: ElementPathPoint
+  /** Marker rendered at the path start. */
+  beginArrow?: MindMapElementArrowShape
+  /** Marker rendered at the path end. */
+  endArrow?: MindMapElementArrowShape
 }>
 
 function unitVector(vector: ElementPathPoint | undefined, fallback: ElementPathPoint): ElementPathPoint {
@@ -58,6 +62,132 @@ function offsetPoint(point: ElementPathPoint, direction: ElementPathPoint, dista
     x: point.x + direction.x * distance,
     y: point.y + direction.y * distance
   }
+}
+
+function nonZeroUnitVector(
+  vector: ElementPathPoint,
+  fallback: ElementPathPoint
+): ElementPathPoint {
+  return Math.hypot(vector.x, vector.y) <= Number.EPSILON
+    ? unitVector(fallback, { x: 1, y: 0 })
+    : unitVector(vector, fallback)
+}
+
+/**
+ * Return the directions used by SVG markers at the actual path endpoints.
+ *
+ * Anchored connector endpoints expose a target-border normal, but that normal
+ * is not always the same as the terminal segment of the selected line shape.
+ * In particular, a straight diagonal can end on a vertical target edge: the
+ * path still points diagonally while the border normal points horizontally.
+ * Marker insets must follow the rendered terminal segment, otherwise the
+ * marker tip and the editable endpoint handle drift apart.
+ */
+function relationshipPathEndpointDirections(
+  from: ElementPathPoint,
+  to: ElementPathPoint,
+  shape: MindMapElementLineShape,
+  options: RelationshipElementPathOptions | undefined
+): { from: ElementPathPoint; to: ElementPathPoint } {
+  const delta = { x: to.x - from.x, y: to.y - from.y }
+
+  // A straight path always uses its chord. Do not replace it with an anchor
+  // normal: SVG marker orientation is derived from this exact segment.
+  if (shape === 'straight') {
+    const direction = nonZeroUnitVector(delta, { x: 1, y: 0 })
+    return { from: direction, to: direction }
+  }
+
+  const explicitFrom = options?.fromTangent
+  const explicitTo = options?.toTangent
+  if (explicitFrom !== undefined || explicitTo !== undefined) {
+    return {
+      from: unitVector(explicitFrom, delta),
+      to: unitVector(explicitTo, delta)
+    }
+  }
+
+  const curvePoint = options?.curvePoint
+  if (curvePoint !== undefined && (shape === 'curved' || shape === 'flexible-curved')) {
+    // The quadratic route uses the solved control point below. Its endpoint
+    // tangents are control - from and to - control respectively.
+    const midpoint = {
+      x: (from.x + to.x) / 2,
+      y: (from.y + to.y) / 2
+    }
+    const control = {
+      x: 2 * curvePoint.x - midpoint.x,
+      y: 2 * curvePoint.y - midpoint.y
+    }
+    return {
+      from: nonZeroUnitVector(
+        { x: control.x - from.x, y: control.y - from.y },
+        delta
+      ),
+      to: nonZeroUnitVector(
+        { x: to.x - control.x, y: to.y - control.y },
+        delta
+      )
+    }
+  }
+
+  if (curvePoint !== undefined && shape === 'flexible-angled') {
+    return {
+      from: nonZeroUnitVector({ x: curvePoint.x - from.x, y: 0 }, delta),
+      to: nonZeroUnitVector({ x: to.x - curvePoint.x, y: 0 }, delta)
+    }
+  }
+
+  if (curvePoint !== undefined && shape === 'flexible-zigzag') {
+    const segments = 4
+    const firstSaw = -Math.abs(to.y - from.y) * 0.22
+    const lastSaw = -Math.abs(to.y - from.y) * 0.22
+    const first = {
+      x: from.x + (curvePoint.x - from.x) / segments,
+      y: from.y + (curvePoint.y - from.y) / segments + firstSaw
+    }
+    const previous = {
+      x: curvePoint.x + (to.x - curvePoint.x) * ((segments - 1) / segments),
+      y: curvePoint.y + (to.y - curvePoint.y) * ((segments - 1) / segments) + lastSaw
+    }
+    return {
+      from: nonZeroUnitVector({ x: first.x - from.x, y: first.y - from.y }, delta),
+      to: nonZeroUnitVector({ x: to.x - previous.x, y: to.y - previous.y }, delta)
+    }
+  }
+
+  // The default angled route ends with a horizontal segment.
+  if (shape === 'angled' || shape === 'flexible-angled') {
+    const halfDx = (to.x - from.x) / 2
+    const direction = nonZeroUnitVector({ x: halfDx, y: 0 }, delta)
+    return { from: direction, to: direction }
+  }
+
+  // The default cubic curved route has horizontal endpoint controls.
+  if (shape === 'curved' || shape === 'flexible-curved') {
+    const direction = nonZeroUnitVector({ x: to.x - from.x, y: 0 }, delta)
+    return { from: direction, to: direction }
+  }
+
+  if (shape === 'zigzag' || shape === 'flexible-zigzag') {
+    const dy = Math.abs(to.y - from.y)
+    const segments = 4
+    const first = {
+      x: from.x + (to.x - from.x) / segments,
+      y: from.y + (to.y - from.y) / segments - dy * 0.22
+    }
+    const previous = {
+      x: from.x + (to.x - from.x) * ((segments - 1) / segments),
+      y: from.y + (to.y - from.y) * ((segments - 1) / segments) - dy * 0.22
+    }
+    return {
+      from: nonZeroUnitVector({ x: first.x - from.x, y: first.y - from.y }, delta),
+      to: nonZeroUnitVector({ x: to.x - previous.x, y: to.y - previous.y }, delta)
+    }
+  }
+
+  const direction = nonZeroUnitVector(delta, { x: 1, y: 0 })
+  return { from: direction, to: direction }
 }
 
 function anchoredZigzagPath(
@@ -115,6 +245,14 @@ function quadraticPathThroughPoint(
  * but cannot independently control its start/end direction; that made arrow
  * markers point sideways at snapped shapes. Two smooth cubic segments keep
  * both arrow directions tied to their target borders.
+ *
+ * The endpoint handle length is scaled by how closely the curve's actual
+ * approach direction aligns with the desired tangent. When a dragged curve
+ * point pulls the path sideways (perpendicular to the target-facing tangent),
+ * a long forced handle creates an abrupt vertical "kink" just before the
+ * arrowhead — the arrow looks like it ignores the line's approach direction.
+ * A shorter handle in that case makes the tangent transition gradual and
+ * keeps the arrow visibly continuous with the curve.
  */
 function anchoredCurvedPathThroughPoint(
   from: ElementPathPoint,
@@ -126,7 +264,6 @@ function anchoredCurvedPathThroughPoint(
   const fromDistance = Math.hypot(curvePoint.x - from.x, curvePoint.y - from.y)
   const toDistance = Math.hypot(to.x - curvePoint.x, to.y - curvePoint.y)
   const fromHandle = Math.min(72, Math.max(4, fromDistance * 0.34))
-  const toHandle = Math.min(72, Math.max(4, toDistance * 0.34))
   const incomingDirection = unitVector(
     { x: curvePoint.x - from.x, y: curvePoint.y - from.y },
     { x: to.x - from.x, y: to.y - from.y }
@@ -143,6 +280,21 @@ function anchoredCurvedPathThroughPoint(
     { x: to.x - from.x, y: to.y - from.y }
   )
   const joinHandle = Math.min(32, Math.max(4, Math.min(fromDistance, toDistance) * 0.16))
+
+  // Scale the endpoint handle by the dot product of the curve's actual approach
+  // direction and the desired tangent. When the curve approaches head-on
+  // (dot ≈ 1), the full handle length produces a smooth, natural entry. When
+  // the curve approaches from the side (dot ≈ 0), the handle shrinks so the
+  // forced tangent transition occupies only a few pixels. Use the square root
+  // rather than a linear scale for the middle ground: a moderately diagonal
+  // curve still needs a long enough handle to turn into the target tangent
+  // gradually, otherwise the last part of the curve kinks underneath the
+  // arrowhead and makes the arrow look detached from the line.
+  const approachAlignment = Math.max(0,
+    outgoingDirection.x * toDirection.x + outgoingDirection.y * toDirection.y)
+  const toHandle = Math.min(72, Math.max(4, toDistance * 0.34))
+    * (0.2 + 0.8 * Math.sqrt(approachAlignment))
+
   const c1 = offsetPoint(from, fromDirection, fromHandle)
   const c2 = offsetPoint(curvePoint, { x: -joinDirection.x, y: -joinDirection.y }, joinHandle)
   const c3 = offsetPoint(curvePoint, joinDirection, joinHandle)
@@ -156,7 +308,8 @@ function anchoredCurvedPathThroughPoint(
 
 /**
  * Relationship connector path for one of the StudiumX relationship shapes.
- * All shapes keep their endpoints on the topic borders.
+ * Semantic endpoints stay on their targets; markers may inset the visible
+ * shaft so the marker tip, rather than the path stroke, owns that endpoint.
  */
 export function relationshipElementPath(
   from: ElementPathPoint,
@@ -164,6 +317,32 @@ export function relationshipElementPath(
   shape: MindMapElementLineShape = 'curved',
   options?: RelationshipElementPathOptions
 ): string {
+  const beginInset = relationshipArrowMarkerMetrics(options?.beginArrow)?.pathInset ?? 0
+  const endInset = relationshipArrowMarkerMetrics(options?.endArrow)?.pathInset ?? 0
+  if (beginInset > 0 || endInset > 0) {
+    const delta = { x: to.x - from.x, y: to.y - from.y }
+    const distance = Math.hypot(delta.x, delta.y)
+    const totalInset = beginInset + endInset
+    // Never let opposing markers cross on a very short connector.
+    const insetScale = totalInset > 0
+      ? Math.min(1, Math.max(0, distance - 0.01) / totalInset)
+      : 1
+    const { from: fromDirection, to: toDirection } = relationshipPathEndpointDirections(
+      from,
+      to,
+      shape,
+      options
+    )
+    const pathFrom = offsetPoint(from, fromDirection, beginInset * insetScale)
+    const pathTo = offsetPoint(to, toDirection, -endInset * insetScale)
+    const {
+      beginArrow: _beginArrow,
+      endArrow: _endArrow,
+      ...pathOptions
+    } = options ?? {}
+    return relationshipElementPath(pathFrom, pathTo, shape, pathOptions)
+  }
+
   const toRight = to.x >= from.x
   const midX = from.x + (to.x - from.x) / 2
   const dx = Math.abs(to.x - from.x)
@@ -185,6 +364,42 @@ export function relationshipElementPath(
       )
     }
     return quadraticPathThroughPoint(from, to, options.curvePoint)
+  }
+
+  // Flexible angled/zigzag with a curve point: route through the dragged
+  // point while keeping the shape's visual family. The angled variant uses
+  // the curve point as its elbow pivot; the zigzag variant oscillates around
+  // the line from the curve point to each endpoint.
+  if (options?.curvePoint !== undefined && (shape === 'flexible-angled' || shape === 'flexible-zigzag')) {
+    const cp = options.curvePoint
+    if (shape === 'flexible-angled') {
+      return [
+        `M ${from.x} ${from.y}`,
+        `L ${cp.x} ${from.y}`,
+        `L ${cp.x} ${to.y}`,
+        `L ${to.x} ${to.y}`
+      ].join(' ')
+    }
+    // flexible-zigzag: oscillate perpendicular to the from->curvePoint and
+    // curvePoint->to segments, keeping the family's sawtooth character.
+    const segments = 4
+    const points: string[] = [`M ${from.x} ${from.y}`]
+    for (let i = 1; i <= segments; i += 1) {
+      const t = i / segments
+      const px = from.x + (cp.x - from.x) * t
+      const saw = i % 2 === 0 ? dy * 0.22 : -dy * 0.22
+      const py = i === segments ? cp.y : from.y + (cp.y - from.y) * t + saw
+      points.push(`L ${px} ${py}`)
+    }
+    for (let i = 1; i <= segments; i += 1) {
+      const t = i / segments
+      const px = cp.x + (to.x - cp.x) * t
+      const saw = i % 2 === 0 ? dy * 0.22 : -dy * 0.22
+      const py = i === segments ? to.y : cp.y + (to.y - cp.y) * t + saw
+      points.push(`L ${px} ${py}`)
+    }
+    points.push(`L ${to.x} ${to.y}`)
+    return points.join(' ')
   }
 
   // A marker follows the path tangent, not the vector between its endpoints.
@@ -269,8 +484,8 @@ export function relationshipArrowMarkerPath(
       return 'M 2 5 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0'
     case 'triangle':
       // A full, balanced triangle remains legible at the canvas's default
-      // connector width. Its tip sits on the positive marker axis so refX can
-      // keep it visibly attached when the target is painted above the line.
+      // connector width. Its base and tip coordinates also define the matching
+      // path inset returned by relationshipArrowMarkerMetrics below.
       return 'M 1 1.2 L 9.7 5 L 1 8.8 Z'
     case 'spearhead':
       return 'M 1.25 1.35 L 9.5 5 L 1.25 8.65'
@@ -297,12 +512,11 @@ export function relationshipArrowMarkerPath(
 /**
  * SVG positioning metrics for endpoint markers.
  *
- * Connector endpoints are projected directly onto the border of a snapped
- * target. The connector layer intentionally sits beneath nodes and free
- * shapes, so a marker whose visual front extends past that endpoint is hidden
- * by the target fill. Keep every marker's forward-most ink one marker unit
- * outside of the endpoint. This preserves border attachment while giving the
- * target stroke enough clearance not to anti-alias over the arrow tip.
+ * `pathInset` shortens the visible connector before marker placement. Filled
+ * triangles anchor at their base instead of their tip, so the shaft cannot
+ * occupy the taper and leave a rectangular stub after the apparent point. The
+ * marker tip still lands on the original semantic endpoint because the path is
+ * inset by the marker's base-to-tip distance.
  */
 export function relationshipArrowMarkerMetrics(
   arrow: MindMapElementArrowShape | undefined
@@ -310,6 +524,8 @@ export function relationshipArrowMarkerMetrics(
   refX: number
   markerWidth?: number
   markerHeight?: number
+  /** User-space distance removed from the path before placing this marker. */
+  pathInset?: number
   overflow?: 'visible'
   open?: true
 }> | undefined {
@@ -317,10 +533,11 @@ export function relationshipArrowMarkerMetrics(
     case 'dot':
       return { refX: 9 }
     case 'triangle':
-      // The connector layer sits beneath topics/shapes. Give the default arrow
-      // enough visual weight, but keep its tip just outside the target border
-      // so the fill cannot blunt it.
-      return { refX: 10.45, markerWidth: 12, markerHeight: 12 }
+      // Anchor at the triangle base (x=1) and pull the path endpoint back by
+      // the scaled base-to-tip distance: (9.7 - 1) × 8 / 10 = 6.96. The marker
+      // therefore owns the entire taper while its tip remains at the semantic
+      // endpoint selected by the user or target-border snap.
+      return { refX: 1, markerWidth: 8, markerHeight: 8, pathInset: 6.96 }
     case 'spearhead':
       return { refX: 9, open: true }
     case 'diamond':

@@ -37,6 +37,8 @@ export const HOME_MIND_MAP_WORKSPACE_ID = '__home__'
 export type MindMapLibraryWorkspace = {
   workspaceId: string
   name: string
+  /** Absolute path of the workspace folder on disk (rendered as the folder path). */
+  path: string
   documents: MindMapSummary[]
 }
 

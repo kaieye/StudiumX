@@ -269,15 +269,9 @@ export function validateMindMapSheetV2(sheet: MindMapSheetV2): MindMapInvariantE
             path: [...path, endpointName]
           })
         }
+        // A free connector endpoint may float on the canvas without a binding.
         const anchor = endpoint.anchor
-        if (!anchor) {
-          errors.push({
-            code: 'ELEMENT_REF_MISSING',
-            message: `Connector "${element.id}" ${endpointName} must attach to a topic or shape`,
-            path: [...path, endpointName, 'anchor']
-          })
-          continue
-        }
+        if (!anchor) continue
         const targetExists = anchor.targetType === 'topic'
           ? topicIds.has(anchor.targetId)
           : shapeIds.has(anchor.targetId)

@@ -1,9 +1,13 @@
 # ADR-0052：Provider 错误 UX 与 recovery taxonomy 双轴
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** `classifyProviderError` 修正 quota/billing 与 `rate_limit` 混淆；新增纯函数 `classifyProviderRecovery`（flags only，**未**接线 auto-retry）
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADOPTION A-03 / A-04](0121-improvements-adoption-closeout.md)、后续 A-05（有界 retry，不在本 ADR）
+- **证据：** `src/shared/provider-error.ts`、`src/shared/provider-recovery.ts`、`src/renderer/src/app-shell/operationFeedback.ts`、i18n（`zh-CN.json` / `en-US.json`）、`scripts/check-provider-errors.mjs`、`tests/unit/provider-error.unit.test.ts`、`tests/unit/provider-recovery.unit.test.ts`、`tests/unit/operation-feedback.unit.test.ts`
 
 ## 背景
 
@@ -14,12 +18,12 @@ StudiumX 原先只有 UX 四类 `ProviderErrorKind`：
 `classifyProviderError` 将 `/rate limit|too many requests|quota exceeded/` 一并映射到 `rate_limit`。  
 这会把 **配额/计费耗尽** 误标成 **节流**，造成：
 
-1. 用户文案错误（提示“稍后重试”而实际需要充值/提配额）；  
+1. 用户文案错误（提示"稍后重试"而实际需要充值/提配额）；  
 2. 未来 A-05 auto-retry 的脚枪：对 billing 盲目重试烧钱/无意义。
 
 来源证据：historical `pi` review (see ADR-0121)（NON_RETRYABLE 含 `quota exceeded`）、`hermes.md`（recovery flags 与 UX 解耦）。
 
-## 决策
+## 决定
 
 ### 1. UX 轴保持 4 类（A-03）
 
@@ -64,14 +68,7 @@ classifyProviderRecovery(error) → {
 - `lesson-plan-production` `providerErrorReason` 使用更新后的文案。  
 - **不**改 agent-loop / hooks 重试策略。
 
-## 已实施范围与验证入口
-
-- `src/shared/provider-error.ts`
-- `src/shared/provider-recovery.ts`（新建）
-- `src/renderer/src/app-shell/operationFeedback.ts`（既有 switch 兼容）
-- i18n：`zh-CN.json` / `en-US.json` provider 文案
-- `scripts/check-provider-errors.mjs`
-- 单测：`tests/unit/provider-error.unit.test.ts`、`provider-recovery.unit.test.ts`、`operation-feedback.unit.test.ts`
+## 验证
 
 ```bash
 pnpm run check:provider-errors
@@ -81,9 +78,9 @@ pnpm exec vitest run --project unit \
   tests/unit/operation-feedback.unit.test.ts
 ```
 
-## 不包含 / non-claims
+## 非目标
 
-- **不**实施有界 jittered retry、Retry-After、共享 retry budget、circuit breaker（A-05）。  
+- **不**实施有界 jittered retry、Retry-After、共享 retry budget、circuit breaker（A-05，见 [ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)）。  
 - **不**实施 credential rotation 或未配置聚合器的自动 failover。  
 - **不**把 recovery flags 写入 wire/journal 事件（留给 A-05）。  
 - **不**保证覆盖所有上游方言错误码；分类为 best-effort 模式匹配，未知默认 `unknown` 且 `retryable: false`。

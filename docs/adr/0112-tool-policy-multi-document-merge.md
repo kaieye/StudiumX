@@ -1,10 +1,14 @@
 # ADR-0112：tool-policy 多文档 pure merge（most-restrictive-wins）
 
-- **状态：** 已实施（ADOPTION B-08 residual：pure multi-document merge only）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION B-08 residual：pure multi-document merge only）
 - **日期：** 2026-07-21
 - **范围：** 纯函数 `mergeToolPolicyDocuments`：将多个 `ToolPolicyDocument` 合并为单一文档，**most-restrictive-wins**；**不**接线产品注入、**不**多文件 FS 自动发现、**不** Granular UI
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0063](0063-declarative-tool-policy.md)、[ADR-0079](0079-workspace-tool-policy-fs-loader.md)、[ADR-0083](0083-workspace-tool-policy-product-inject.md)、[ADR-0088](0088-workspace-tool-policy-secondary-inject.md)、[ADR-0101](0101-workspace-tool-policy-catalog-inject.md)、[ADR-0108](0108-write-capture-permission-decision-wire.md)、[ADOPTION B-08](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/ai/tools/tool-policy.ts`（`mergeToolPolicyDocuments`）
   - `tests/unit/tool-policy.unit.test.ts`（merge 语义与 evaluate 一致性）
   - `docs/adr/0112-tool-policy-multi-document-merge.md`（本文件）

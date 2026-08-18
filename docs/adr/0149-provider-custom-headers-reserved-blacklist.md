@@ -1,10 +1,14 @@
 # ADR-0149：Provider custom headers + 保留键黑名单（LiveAgent Phase B）
 
-- **状态：** **已实施**（2026-07-24）：`src/shared/provider-custom-headers.ts` + settings normalize + `request-builder` / probe 接线
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **已实施**（2026-07-24）：`src/shared/provider-custom-headers.ts` + settings normalize + `request-builder` / probe 接线
 - **日期：** 2026-07-24
 - **范围：** 用户可配置 **有序** custom HTTP headers 注入 provider 请求；**禁止**覆盖保留认证头（Authorization、x-api-key 等闭集）；**诚实 User-Agent**；**拒绝** CLI 身份伪装头包；日志对 secret-looking 值脱敏。
+- **取代：** 无
+- **被取代：** 无
 - **相关：** LiveAgent 历史研究清单（已结项） §3.5 / Phase B、[ADR-0051](0051-provider-finish-reason-and-length-tool-rejection.md)、[ADR-0052](0052-provider-error-and-recovery-taxonomy.md)、[ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)、[ADR-0125](0125-provider-overflow-patterns-and-silent-heuristics.md)、[ADR-0148](0148-presence-only-secret-boundary-sweep.md)、[ADR-0121](0121-improvements-adoption-closeout.md)、`AGENTS.md`、`SECURITY.md`
-- **实现落点：** `src/shared/provider-custom-headers.ts`；`src/shared/teaching-types/settings.ts`（`customHeaders`）；`src/shared/teaching-settings-schema.ts`；`src/main/ai/provider-adapter/request-builder.ts`；`src/main/provider-connection.ts`（probe）；`src/main/teaching-ipc-commands.ts`（parse）；unit：`tests/unit/provider-custom-headers.unit.test.ts`
+- **证据：** `src/shared/provider-custom-headers.ts`；`src/shared/teaching-types/settings.ts`（`customHeaders`）；`src/shared/teaching-settings-schema.ts`；`src/main/ai/provider-adapter/request-builder.ts`；`src/main/provider-connection.ts`（probe）；`src/main/teaching-ipc-commands.ts`（parse）；unit：`tests/unit/provider-custom-headers.unit.test.ts`
 
 ## 1. 背景
 

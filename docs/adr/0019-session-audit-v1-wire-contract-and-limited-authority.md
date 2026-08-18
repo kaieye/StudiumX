@@ -1,8 +1,13 @@
 # ADR-0019：Session-audit V1 wire contract 与有限 authority
 
-- **状态：** 已实施（audit 专用 V1 wire / identity / exact-retry append；fixed-file C-4P9 scope 已按 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 结项；不授权 generic JSONL 或其它扩张）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
 - **范围：** per-conversation session audit JSONL 的 V1 header/entry contract、identity 与 ordering、exact-retry missing-row append、有限 authority 边界
-- **证据提交：** `4b30220`、`d6a94a1`；后续 S3…S45 为 tests-only historical evidence（见 [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)）
+- **取代：** 无
+- **被取代：** 无（fixed-file C-4P9 scope 已按 [ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md) 结项；本 ADR 不授权 generic JSONL 或其它扩张）
+- **相关：** [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0003](0003-critical-json-backups-and-verified-recovery.md)、[ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0007](0007-persisted-user-history-redaction.md)、[ADR-0035](0035-c4-p6-p8-p9-closeout-scope-decisions.md)
+- **证据：** `src/main/agent-conversation-session-audit.ts`、`src/main/agent-conversation-archive.ts`、`tests/unit/agent-conversation-session-audit.unit.test.ts`、`tests/unit/agent-conversation-archive-durable.unit.test.ts`；提交 `4b30220`、`d6a94a1`
 
 ## 决定
 

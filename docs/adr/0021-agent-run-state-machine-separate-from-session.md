@@ -1,8 +1,13 @@
 # ADR-0021：Agent Run 状态机与 Teaching Session 分离
 
-- **状态：** 已实施（P1-3；合入 main `fb02469` / feature `8a0fd64`）
-- **范围：** Agent run lifecycle 状态转换、与 LearningSessionLedger 的边界
-- **证据提交：** `8a0fd64`、merge `fb02469`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 显式 `AgentRunStateMachine`（waiting/running/awaiting_user/cancelling/completed/failed/interrupted）与 `LearningSession` 分离，仅以 ID 关联。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)
+- **证据：** `src/main/agent-run-state-machine.ts`、`src/main/ai/agent-run-store.ts`、`tests/unit/agent-run-state-machine.unit.test.ts`；提交 `8a0fd64`、merge `fb02469`
 
 ## 决定
 

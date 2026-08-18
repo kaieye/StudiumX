@@ -1,10 +1,14 @@
 # ADR-0111：Teaching-turn review Settings handoff intents UI（纯客户端展示 only）
 
-- **状态：** 已实施（Settings Review 在成功 project/decide 后展示 pure handoff intents；**无** 真实 consent 导航 / **无** auto-apply / **无** durable store）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（Settings Review 在成功 project/decide 后展示 pure handoff intents；**无** 真实 consent 导航 / **无** auto-apply / **无** durable store）
 - **日期：** 2026-07-21
 - **范围：** ADOPTION **S-09 residual** — renderer Settings 薄面板在人批投影之上，用客户端纯函数 `projectTeachingTurnReviewHandoff` 渲染 **非可执行** handoff intents（display chips/rows only）
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0077](0077-teaching-turn-review-candidates.md)、[ADR-0080](0080-teaching-turn-review-finalize-wire.md)、[ADR-0085](0085-teaching-turn-review-human-approve-projection.md)、[ADR-0087](0087-teaching-turn-review-human-approve-ipc.md)、[ADR-0097](0097-teaching-turn-review-settings-ui.md)、[ADR-0109](0109-teaching-turn-review-post-approve-handoff.md)、[ADOPTION S-09](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-turn-review-handoff.ts`（pure；ADR-0109）
   - `src/renderer/src/views/settings/sections/TeachingTurnReviewSettingsSection.tsx`
   - `src/renderer/src/i18n/locales/zh-CN.json` / `en-US.json`（`review.handoff*`）

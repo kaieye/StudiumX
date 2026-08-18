@@ -11,12 +11,12 @@ import type {
   MindMapConnector,
   MindMapDocumentV2,
   MindMapDrawingShape,
+  MindMapElementType,
   MindMapImageElement,
   MindMapImagePlacement,
   MindMapMarker,
   MindMapSheetV2,
-  MindMapTopicV2,
-  MindMapElementLineShape
+  MindMapTopicV2
 } from '../../../../shared/mindmap/domain/types'
 import type { MindMapCommand } from '../../../../shared/mindmap/commands'
 import { classifyExternalDestination } from '../../../../shared/external-destination'
@@ -57,6 +57,7 @@ import {
   buildMindMapCanvasLineDraft,
   canConnectMindMapLineEndpoints,
   isMindMapCurvedLineShape,
+  mindMapLineShapeSupportsCurvePoint,
   mindMapLineCurveControlOffset,
   MIND_MAP_LINE_MINIMUM_LENGTH,
   resolveMindMapLineEndpoints,
@@ -93,7 +94,10 @@ import { useMindMapViewStore } from './mind-map-view-store'
 import { useAppStore } from '../../app-shell/appStore'
 import { hasMindMapTopicMarkdown, renderMarkdownInlineHtml } from '../../markdown-preview'
 import { computeAllTopicNumbers } from './mind-map-numbering'
-import { selectMindMapNodesInRectangle } from '../../../../shared/mindmap/domain/selection'
+import {
+  selectMindMapLinesInRectangle,
+  selectMindMapNodesInRectangle
+} from '../../../../shared/mindmap/domain/selection'
 import {
   MIND_MAP_NODE_ACTION_OFFSET,
   MIND_MAP_NODE_ACTION_RADIUS,
@@ -111,6 +115,19 @@ import {
  */
 
 type Vec2 = { x: number; y: number }
+
+/**
+ * Rounded SVG caps extend half the stroke width beyond a path endpoint. That
+ * overhang is desirable for plain connectors, but it becomes a visible stub
+ * in front of an arrow marker whose tip is aligned with the same endpoint.
+ */
+function arrowedLineCapStyle(
+  style: Pick<MindMapCanvasLineStyle, 'beginArrow' | 'endArrow'>
+): CSSProperties {
+  const hasArrow = (style.beginArrow !== undefined && style.beginArrow !== 'none')
+    || (style.endArrow !== undefined && style.endArrow !== 'none')
+  return hasArrow ? { strokeLinecap: 'butt' } : {}
+}
 
 /** Convert the shared connector element into the renderer's line-tool shape.
  * Anchors are resolved against the current layout on every render, so moving a
@@ -135,6 +152,9 @@ function connectorToCanvasLine(connector: MindMapConnector): MindMapCanvasLine {
       y: connector.start.y,
       ...(connector.start.anchor
         ? { target: { id: connector.start.anchor.targetId, kind: connector.start.anchor.targetType } }
+        : {}),
+      ...(connector.start.borderParam !== undefined
+        ? { borderParam: connector.start.borderParam }
         : {})
     },
     to: {
@@ -142,6 +162,9 @@ function connectorToCanvasLine(connector: MindMapConnector): MindMapCanvasLine {
       y: connector.end.y,
       ...(connector.end.anchor
         ? { target: { id: connector.end.anchor.targetId, kind: connector.end.anchor.targetType } }
+        : {}),
+      ...(connector.end.borderParam !== undefined
+        ? { borderParam: connector.end.borderParam }
         : {})
     },
     style
@@ -277,6 +300,26 @@ const MIND_MAP_SHAPE_RESIZE_HANDLES: readonly MindMapShapeResizeHandle[] = [
 ]
 /** Invisible hit-zone thickness for shape edge resizing (document pixels). */
 const MIND_MAP_SHAPE_RESIZE_EDGE_HIT_SIZE = 10
+
+/**
+ * Default visual properties for a free-drawn shape that carries no explicit
+ * style override. These follow the tldraw geo-shape default philosophy — a
+ * transparent fill so the canvas shows through (the learner adds a fill via
+ * the element-style inspector when they want one) and a clearly visible,
+ * theme-aware stroke at a comfortable weight.
+ *
+ *  - fill:   transparent (tldraw `fill: 'none'`)
+ *  - stroke: the mind-map theme line colour, falling back to `--text` — a
+ *            high-contrast ink colour (near-black in light theme, near-white
+ *            in dark) mirroring tldraw's default `color: 'black'` rather
+ *            than the accent blue or the near-invisible `--line-muted`
+ *            divider token
+ *  - width:  2 px — between tldraw's medium (`2 × 1.75 = 3.5` after theme
+ *            scaling) and StudiumX's old 1.4 px, readable without dominating
+ */
+const DEFAULT_SHAPE_STROKE = 'var(--mindmap-theme-line, var(--text))'
+const DEFAULT_SHAPE_FILL = 'transparent'
+const DEFAULT_SHAPE_STROKE_WIDTH = 2
 /**
  * Screen-space gap between a selected element's bounds and its dashed
  * selection ring (drawn shapes and topic nodes). Keeping the ring outside the
@@ -690,8 +733,8 @@ export function MindMapCanvas({
   const selection = useMindMapViewStore((s) => s.selection)
   const selectedNodeId = useMindMapViewStore((s) => s.selectedNodeId)
   const selectTopic = useMindMapViewStore((s) => s.selectTopic)
-  const setTopicSelection = useMindMapViewStore((s) => s.setTopicSelection)
   const selectElement = useMindMapViewStore((s) => s.selectElement)
+  const setHybridSelection = useMindMapViewStore((s) => s.setHybridSelection)
   const selectCanvas = useMindMapViewStore((s) => s.selectCanvas)
   const editingNodeId = useMindMapViewStore((s) => s.editingNodeId)
   const setEditingNodeId = useMindMapViewStore((s) => s.setEditingNodeId)
@@ -1048,17 +1091,27 @@ export function MindMapCanvas({
     initial: MindMapCanvasLineEndpoint
     current: MindMapCanvasLineSnapState
   } | null>(null)
-  /** Local curve-point preview for a selected curved connector. */
-  const [lineControlInteraction, setLineControlInteraction] = useState<{
-    lineId: string
-    initial: Vec2
-    current: Vec2
-    /** Keeps the grabbed point under the pointer when dragging the line body. */
-    pointerOffset: Vec2
-    /** Body dragging promotes non-curved connectors to an editable curve. */
-    lineShape: MindMapElementLineShape
-    persistLineShape: boolean
-  } | null>(null)
+ /** Local curve-point preview for a selected curved connector. */
+ const [lineControlInteraction, setLineControlInteraction] = useState<{
+   lineId: string
+   initial: Vec2
+   current: Vec2
+   /** Keeps the grabbed point under the pointer when dragging the line body. */
+   pointerOffset: Vec2
+ } | null>(null)
+ /** Body-drag state: moves both endpoints together without changing shape. */
+ const [lineBodyInteraction, setLineBodyInteraction] = useState<{
+   lineId: string
+   /** Pointer offset from the initial grab to the midpoint of from/to. */
+   pointerOffset: Vec2
+   /** Endpoint positions at drag start. */
+   initialFrom: MindMapCanvasLineEndpoint
+   initialTo: MindMapCanvasLineEndpoint
+   /** Current pointer-derived midpoint (updated on every move). */
+   currentMidpoint: Vec2
+   /** Whether the pointer has actually moved since the drag started. */
+   moved: boolean
+ } | null>(null)
   const lineInteractionCaptureRef = useRef<SVGElement | null>(null)
   const [shapeDrawState, setShapeDrawState] = useState<{
     shape: MindMapDrawingShape
@@ -1375,17 +1428,19 @@ export function MindMapCanvas({
       return
     }
 
-    const endpoint = (value: MindMapCanvasLineEndpoint) => {
-      if (!value.target) return null
-      return {
-        x: value.x,
-        y: value.y,
-        anchor: {
-          targetType: value.target.kind,
-          targetId: value.target.id
-        }
-      }
-    }
+    const endpoint = (value: MindMapCanvasLineEndpoint) => ({
+      x: value.x,
+      y: value.y,
+      ...(value.target
+        ? {
+            anchor: {
+              targetType: value.target.kind,
+              targetId: value.target.id
+            }
+          }
+        : {}),
+      ...(value.borderParam !== undefined ? { borderParam: value.borderParam } : {})
+    })
     const nextStart = update.from ? endpoint(update.from) : null
     const nextEnd = update.to ? endpoint(update.to) : null
     if ((update.from && !nextStart) || (update.to && !nextEnd)) return
@@ -1440,6 +1495,7 @@ export function MindMapCanvas({
     )
     const initial = endpoint === 'from' ? resolved.from : resolved.to
     setLineControlInteraction(null)
+    setLineBodyInteraction(null)
     setLineInteraction({
       lineId: line.id,
       endpoint,
@@ -1467,13 +1523,12 @@ export function MindMapCanvas({
     lastNodePointerDownRef.current = null
     selectElement(line.id, 'connector')
     setLineInteraction(null)
+    setLineBodyInteraction(null)
     setLineControlInteraction({
       lineId: line.id,
       initial: controlPoint,
       current: controlPoint,
-      pointerOffset: { x: 0, y: 0 },
-      lineShape: line.style.lineShape,
-      persistLineShape: false
+      pointerOffset: { x: 0, y: 0 }
     })
     try {
       event.currentTarget.setPointerCapture(event.pointerId)
@@ -1484,9 +1539,10 @@ export function MindMapCanvas({
   }
 
   /**
-   * Dragging a connector body adjusts its route without detaching either end.
-   * Straight/elbow/zigzag connectors become a flexible curve on first drag,
-   * while an existing curve keeps its selected control point behavior.
+   * Dragging a connector body moves both endpoints together so the whole line
+   * translates without changing its shape or detaching either end. The line
+   * shape is never promoted — only the curve control point (for curved lines)
+   * can adjust the route.
    */
   const startLineBodyInteraction = (
     line: MindMapCanvasLine,
@@ -1505,22 +1561,20 @@ export function MindMapCanvas({
       line.to,
       availableLineSnapTargets
     )
-    const isCurved = isMindMapCurvedLineShape(line.style.lineShape)
-    const initial = isCurved
-      ? resolveMindMapLineCurvePoint(from, to, line.curveControlOffset)
-      : resolveMindMapLineCurvePoint(from, to)
     const pointer = contentPointFromClientPosition(event.clientX, event.clientY)
+    const midpoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }
     setLineInteraction(null)
-    setLineControlInteraction({
+    setLineControlInteraction(null)
+    setLineBodyInteraction({
       lineId: line.id,
-      initial,
-      current: initial,
       pointerOffset: {
-        x: initial.x - pointer.x,
-        y: initial.y - pointer.y
+        x: midpoint.x - pointer.x,
+        y: midpoint.y - pointer.y
       },
-      lineShape: isCurved ? line.style.lineShape : 'flexible-curved',
-      persistLineShape: !isCurved
+      initialFrom: from,
+      initialTo: to,
+      currentMidpoint: midpoint,
+      moved: false
     })
     try {
       event.currentTarget.setPointerCapture(event.pointerId)
@@ -1553,9 +1607,10 @@ export function MindMapCanvas({
   }
 
   const cancelLineInteraction = (event: ReactPointerEvent<SVGSVGElement>): void => {
-    if (!lineInteraction && !lineControlInteraction) return
+    if (!lineInteraction && !lineControlInteraction && !lineBodyInteraction) return
     setLineInteraction(null)
     setLineControlInteraction(null)
+    setLineBodyInteraction(null)
     releaseLineInteractionCapture(event.pointerId)
   }
 
@@ -1692,10 +1747,9 @@ export function MindMapCanvas({
     }
     if (lineTool?.active && isPrimaryButton) {
       const start = snapLinePointFromPointer(event)
-      // A connector can only begin from an existing node/shape.  This also
-      // prevents a blank-canvas press from showing a misleading free-line
-      // preview before the final validation rejects it.
-      if (!start.target) return
+      // A free line may begin on blank canvas and only snap when the pointer
+      // starts near a node/shape. The live preview follows every move, and the
+      // gesture is committed (or rejected for too-short travel) on release.
       dragRef.current = null
       setSelectionBox(null)
       setLineDrawState({
@@ -1753,6 +1807,26 @@ export function MindMapCanvas({
         || current.y !== lineControlInteraction.current.y
       ) {
         setLineControlInteraction({ ...lineControlInteraction, current })
+      }
+      return
+    }
+    if (lineBodyInteraction) {
+      const pointer = contentPointFromSvgPointer(event)
+      const midpoint = {
+        x: pointer.x + lineBodyInteraction.pointerOffset.x,
+        y: pointer.y + lineBodyInteraction.pointerOffset.y
+      }
+      const initialMidpoint = {
+        x: (lineBodyInteraction.initialFrom.x + lineBodyInteraction.initialTo.x) / 2,
+        y: (lineBodyInteraction.initialFrom.y + lineBodyInteraction.initialTo.y) / 2
+      }
+      const moved = Math.abs(midpoint.x - initialMidpoint.x) >= 0.01
+        || Math.abs(midpoint.y - initialMidpoint.y) >= 0.01
+      if (midpoint.x !== lineBodyInteraction.currentMidpoint.x
+        || midpoint.y !== lineBodyInteraction.currentMidpoint.y
+        || moved !== lineBodyInteraction.moved
+      ) {
+        setLineBodyInteraction({ ...lineBodyInteraction, currentMidpoint: midpoint, moved })
       }
       return
     }
@@ -1814,6 +1888,35 @@ export function MindMapCanvas({
   }
 
   const endPointerDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (lineBodyInteraction) {
+      const line = renderedLines.find((candidate) => candidate.id === lineBodyInteraction.lineId)
+      const initialMidpoint = {
+        x: (lineBodyInteraction.initialFrom.x + lineBodyInteraction.initialTo.x) / 2,
+        y: (lineBodyInteraction.initialFrom.y + lineBodyInteraction.initialTo.y) / 2
+      }
+      if (
+        line
+        && (Math.abs(lineBodyInteraction.currentMidpoint.x - initialMidpoint.x) >= 0.01
+          || Math.abs(lineBodyInteraction.currentMidpoint.y - initialMidpoint.y) >= 0.01)
+      ) {
+        const dx = lineBodyInteraction.currentMidpoint.x - initialMidpoint.x
+        const dy = lineBodyInteraction.currentMidpoint.y - initialMidpoint.y
+        // Detach both endpoints from their targets so the line moves freely
+        // as a whole. A body drag is a translation, not a re-anchoring.
+        const nextFrom: MindMapCanvasLineEndpoint = {
+          x: lineBodyInteraction.initialFrom.x + dx,
+          y: lineBodyInteraction.initialFrom.y + dy
+        }
+        const nextTo: MindMapCanvasLineEndpoint = {
+          x: lineBodyInteraction.initialTo.x + dx,
+          y: lineBodyInteraction.initialTo.y + dy
+        }
+        persistLineUpdate(line.id, { from: nextFrom, to: nextTo }, 'Move connector')
+      }
+      setLineBodyInteraction(null)
+      releaseLineInteractionCapture(event.pointerId)
+      return
+    }
     if (lineControlInteraction) {
       const line = renderedLines.find((candidate) => candidate.id === lineControlInteraction.lineId)
       const pointer = contentPointFromSvgPointer(event)
@@ -1834,14 +1937,9 @@ export function MindMapCanvas({
         persistLineUpdate(
           line.id,
           {
-            curveControlOffset: mindMapLineCurveControlOffset(current, from, to),
-            ...(lineControlInteraction.persistLineShape
-              ? { style: { lineShape: lineControlInteraction.lineShape } }
-              : {})
+            curveControlOffset: mindMapLineCurveControlOffset(current, from, to)
           },
-          lineControlInteraction.persistLineShape
-            ? 'Move connector'
-            : 'Adjust connector curve'
+          'Adjust connector curve'
         )
       }
       setLineControlInteraction(null)
@@ -1947,7 +2045,8 @@ export function MindMapCanvas({
       const top = Math.min(drag.startSvg.y, endSvg.y)
       const right = Math.max(drag.startSvg.x, endSvg.x)
       const bottom = Math.max(drag.startSvg.y, endSvg.y)
-      const ids = selectMindMapNodesInRectangle(
+      const rect = { left, top, right, bottom }
+      const topicIds = selectMindMapNodesInRectangle(
         layout.nodes.map((node) => ({
           id: node.id,
           x: pan.x + node.x * zoom,
@@ -1955,9 +2054,58 @@ export function MindMapCanvas({
           width: node.width * zoom,
           height: node.height * zoom
         })),
-        { left, top, right, bottom }
+        rect
       )
-      setTopicSelection(ids, drag.additive)
+      // The marquee also sweeps freely drawn shapes. Shapes share the same
+      // screen-space transform as topics (translate(pan) scale(zoom)), so
+      // reuse the marquee hit test against their rendered rectangles.
+      const shapeIds = selectMindMapNodesInRectangle(
+        renderedShapes.map(({ shape, rect: shapeRect }) => ({
+          id: shape.id,
+          x: pan.x + shapeRect.x * zoom,
+          y: pan.y + shapeRect.y * zoom,
+          width: shapeRect.width * zoom,
+          height: shapeRect.height * zoom
+        })),
+        rect
+      )
+      // The marquee also sweeps freely drawn lines (connectors). A connector's
+      // rendered path is sampled at its endpoints and curve control point
+      // (when present), then transformed into the same screen space as topics
+      // and shapes. Any segment crossing the box, or a path whose bounding box
+      // sits fully inside the box, marks the line as swept. This lets a single
+      // drag catch nodes, shapes, and lines together as one hybrid selection.
+      const lineIds = selectMindMapLinesInRectangle(
+        renderedLineGeometries.map(({ line, from, to, curvePoint }) => ({
+          id: line.id,
+          points: [
+            { x: pan.x + from.x * zoom, y: pan.y + from.y * zoom },
+            { x: pan.x + to.x * zoom, y: pan.y + to.y * zoom },
+            ...(curvePoint ? [{ x: pan.x + curvePoint.x * zoom, y: pan.y + curvePoint.y * zoom }] : [])
+          ]
+        })),
+        rect
+      )
+      const elementEntries = [
+        ...shapeIds.map((id) => ({ id, type: 'shape' as MindMapElementType })),
+        ...lineIds.map((id) => ({ id, type: 'connector' as MindMapElementType }))
+      ]
+      // Topics, shapes, and lines can all be swept by the same marquee. A
+      // drag that catches more than one kind becomes a hybrid selection so
+      // the inspector, context menu, and keyboard delete treat them as one
+      // group. Degenerate single-kind results collapse back to the existing
+      // topic / element / elements shapes inside the store action.
+      if (drag.additive) {
+        if (topicIds.length > 0 || elementEntries.length > 0) {
+          setHybridSelection(topicIds, elementEntries, true)
+        } else {
+          selectCanvas()
+        }
+      } else if (topicIds.length > 0 || elementEntries.length > 0) {
+        setHybridSelection(topicIds, elementEntries, false)
+      } else {
+        selectCanvas()
+      }
     } else if (drag && !drag.moved && isBackground) {
       // Treat a click on the background as a selection clear.
       selectCanvas()
@@ -2386,7 +2534,8 @@ export function MindMapCanvas({
   const connectorPathOptions = (
     from: MindMapCanvasLineEndpoint,
     to: MindMapCanvasLineEndpoint,
-    curvePoint?: Vec2
+    curvePoint?: Vec2,
+    style?: Pick<MindMapCanvasLineStyle, 'beginArrow' | 'endArrow'>
   ) => {
     const fromNormal = resolveMindMapLineEndpointOutwardNormal(from, availableLineSnapTargets)
     const toNormal = resolveMindMapLineEndpointOutwardNormal(to, availableLineSnapTargets)
@@ -2395,7 +2544,9 @@ export function MindMapCanvas({
       // The target normal points outward. A path ending at that border must
       // arrive in the opposite direction so its marker points into the target.
       ...(toNormal ? { toTangent: { x: -toNormal.x, y: -toNormal.y } } : {}),
-      ...(curvePoint ? { curvePoint } : {})
+      ...(curvePoint ? { curvePoint } : {}),
+      ...(style?.beginArrow ? { beginArrow: style.beginArrow } : {}),
+      ...(style?.endArrow ? { endArrow: style.endArrow } : {})
     }
   }
   const renderedLineGeometries = renderedLines.map((line) => {
@@ -2403,6 +2554,23 @@ export function MindMapCanvas({
     const controlInteraction = lineControlInteraction?.lineId === line.id
       ? lineControlInteraction
       : null
+    const bodyInteraction = lineBodyInteraction?.lineId === line.id
+      ? lineBodyInteraction
+      : null
+    // Body drag: translate both endpoints by the same delta, detaching from
+    // their targets so the whole line moves together.
+    const bodyDelta = bodyInteraction?.moved
+      ? (() => {
+          const initialMidpoint = {
+            x: (bodyInteraction.initialFrom.x + bodyInteraction.initialTo.x) / 2,
+            y: (bodyInteraction.initialFrom.y + bodyInteraction.initialTo.y) / 2
+          }
+          return {
+            x: bodyInteraction.currentMidpoint.x - initialMidpoint.x,
+            y: bodyInteraction.currentMidpoint.y - initialMidpoint.y
+          }
+        })()
+      : undefined
     const interactiveLine = {
       ...line,
       ...(interaction
@@ -2410,21 +2578,23 @@ export function MindMapCanvas({
           ? { from: lineSnapStateToEndpoint(interaction.current) }
           : { to: lineSnapStateToEndpoint(interaction.current) })
         : {}),
-      ...(controlInteraction
+      ...(bodyDelta
         ? {
-            style: {
-              ...line.style,
-              lineShape: controlInteraction.lineShape
-            }
+            from: { x: bodyInteraction!.initialFrom.x + bodyDelta.x, y: bodyInteraction!.initialFrom.y + bodyDelta.y },
+            to: { x: bodyInteraction!.initialTo.x + bodyDelta.x, y: bodyInteraction!.initialTo.y + bodyDelta.y }
           }
         : {})
     }
-    const { from, to } = resolveMindMapLineEndpoints(
-      interactiveLine.from,
-      interactiveLine.to,
-      availableLineSnapTargets
-    )
-    const curvePoint = isMindMapCurvedLineShape(interactiveLine.style.lineShape)
+    // Endpoints are already resolved if body-dragging (detached); otherwise
+    // resolve from targets as before.
+    const { from, to } = bodyDelta
+      ? { from: interactiveLine.from, to: interactiveLine.to }
+      : resolveMindMapLineEndpoints(
+          interactiveLine.from,
+          interactiveLine.to,
+          availableLineSnapTargets
+        )
+    const curvePoint = mindMapLineShapeSupportsCurvePoint(interactiveLine.style.lineShape)
       ? controlInteraction?.current
         ?? resolveMindMapLineCurvePoint(from, to, interactiveLine.curveControlOffset)
       : undefined
@@ -2432,6 +2602,7 @@ export function MindMapCanvas({
       line,
       interaction,
       controlInteraction,
+      bodyInteraction,
       interactiveLine,
       from,
       to,
@@ -2443,7 +2614,8 @@ export function MindMapCanvas({
         connectorPathOptions(
           from,
           to,
-          curvePoint
+          curvePoint,
+          interactiveLine.style
         )
       )
     }
@@ -2527,7 +2699,7 @@ export function MindMapCanvas({
             && lineInteractionCaptureRef.current.hasPointerCapture(e.pointerId)
           const captured = rootCaptured || shapeCaptured || lineCaptured
           if (captured) return
-          if (lineInteraction || lineControlInteraction) cancelLineInteraction(e)
+          if (lineInteraction || lineControlInteraction || lineBodyInteraction) cancelLineInteraction(e)
           else if (lineDrawState || shapeDrawState) cancelLineDraw(e)
           else if (shapeInteraction) cancelShapeInteraction(e)
           else endPointerDrag(e)
@@ -2537,7 +2709,7 @@ export function MindMapCanvas({
           endImageResize()
         }}
         onPointerCancel={readOnly ? undefined : (e) => {
-          if (lineInteraction || lineControlInteraction) cancelLineInteraction(e)
+          if (lineInteraction || lineControlInteraction || lineBodyInteraction) cancelLineInteraction(e)
           else if (lineDrawState || shapeDrawState) cancelLineDraw(e)
           else if (shapeInteraction) cancelShapeInteraction(e)
           else endPointerDrag(e)
@@ -2639,9 +2811,16 @@ export function MindMapCanvas({
               return (
                 <path
                   key={edge.to}
-                  className={`mindmap-edge mindmap-edge--tapered${isNewEdge ? ' is-generation-new' : ''}`}
+                  className={`mindmap-edge--tapered${isNewEdge ? ' is-generation-new' : ''}`}
                   d={taperedEdgePath(from, to, strokeWidth, childWidth, edge.axis)}
-                  style={color ? { fill: color } : {}}
+                  // The taper is a filled polygon. A stroke would draw a
+                  // coloured halo around the polygon outline, so it is left
+                  // unset (fill-only) — distinct from the stroked `.mindmap-edge`
+                  // tree branches, which carry the line colour on their stroke.
+                  style={{
+                    fill: color ?? 'var(--mindmap-theme-line, var(--accent))',
+                    stroke: 'none'
+                  }}
                 />
               )
             }
@@ -2656,7 +2835,8 @@ export function MindMapCanvas({
           })}
 
           {renderedLineGeometries.map(({ line, interaction, controlInteraction, interactiveLine, path }) => {
-            const isSelected = selection.kind === 'element' && selection.elementId === line.id
+            const isSelected = (selection.kind === 'element' && selection.elementId === line.id)
+              || (selection.kind === 'hybrid' && selection.elementIds.includes(line.id))
             const canEdit = !readOnly && !lineTool?.active && !drawingShape
             const endpointLabel = line.label || t('mindmap.elementStyle.types.connector', { defaultValue: 'Connector' })
             return (
@@ -2692,6 +2872,7 @@ export function MindMapCanvas({
                     ? `url(#mindmap-rel-arrow-${interactiveLine.style.endArrow})`
                     : undefined}
                   style={{
+                    ...arrowedLineCapStyle(interactiveLine.style),
                     ...(interactiveLine.style.stroke ? { stroke: interactiveLine.style.stroke } : {}),
                     ...(interactiveLine.style.strokeWidth !== undefined ? { strokeWidth: interactiveLine.style.strokeWidth } : {}),
                     ...(interactiveLine.style.linePattern !== undefined
@@ -2717,11 +2898,13 @@ export function MindMapCanvas({
           })}
 
           {renderedShapes.map(({ shape, rect }) => {
-            const isSelected = selection.kind === 'element' && selection.elementId === shape.id
+            const isSelected = (selection.kind === 'element' && selection.elementId === shape.id)
+              || (selection.kind === 'elements' && selection.elementIds.includes(shape.id))
+              || (selection.kind === 'hybrid' && selection.elementIds.includes(shape.id))
             const isTextEditing = shapeTextEditing?.shapeId === shape.id
             const shapeLabel = shape.label || t(`mindmap.topicStyle.${shape.shape === 'rounded-rect' ? 'shapeRoundedRect' : shape.shape === 'rect' ? 'shapeRect' : shape.shape === 'ellipse' ? 'shapeEllipse' : shape.shape === 'diamond' ? 'shapeDiamond' : shape.shape === 'parallelogram' ? 'shapeParallelogram' : 'shapeHexagon'}`, { defaultValue: t('mindmap.topicStyle.shapeLabel') })
-            const stroke = shape.style?.stroke ?? 'var(--mindmap-theme-line, var(--line-muted))'
-            const fill = shape.style?.fill ?? 'var(--surface-muted)'
+            const stroke = shape.style?.stroke ?? DEFAULT_SHAPE_STROKE
+            const fill = shape.style?.fill ?? DEFAULT_SHAPE_FILL
             const labelInset = Math.min(
               MIND_MAP_SHAPE_LABEL_PADDING,
               Math.max(1, Math.min(rect.width, rect.height) / 4)
@@ -2782,7 +2965,7 @@ export function MindMapCanvas({
                   style={{
                     fill,
                     stroke,
-                    ...(shape.style?.strokeWidth !== undefined ? { strokeWidth: shape.style.strokeWidth } : {}),
+                    strokeWidth: shape.style?.strokeWidth ?? DEFAULT_SHAPE_STROKE_WIDTH,
                     ...(shape.style?.linePattern !== undefined
                       ? { strokeDasharray: elementLineDashArray(shape.style.linePattern) ?? 'none' }
                       : shape.style?.dashed === false
@@ -2902,11 +3085,11 @@ export function MindMapCanvas({
             return (
               <g
                 key={relationship.id}
-                className={`mindmap-relationship-group${selection.kind === 'element' && selection.elementId === relationship.id ? ' is-selected' : ''}`}
+                className={`mindmap-relationship-group${(selection.kind === 'element' && selection.elementId === relationship.id) || (selection.kind === 'hybrid' && selection.elementIds.includes(relationship.id)) ? ' is-selected' : ''}`}
                 role="button"
                 tabIndex={readOnly ? -1 : (selection.kind === 'element' && selection.elementId === relationship.id ? 0 : -1)}
                 aria-disabled={readOnly || undefined}
-                aria-pressed={selection.kind === 'element' && selection.elementId === relationship.id}
+                aria-pressed={(selection.kind === 'element' && selection.elementId === relationship.id) || (selection.kind === 'hybrid' && selection.elementIds.includes(relationship.id))}
                 aria-label={relationship.label || endpointLabel}
                 onPointerDown={(event) => {
                   if (readOnly) return
@@ -2918,7 +3101,19 @@ export function MindMapCanvas({
               >
                 <path
                   className="mindmap-relationship"
-                  d={relationshipElementPath(from, to, relationship.style?.lineShape)}
+                  d={relationshipElementPath(
+                    from,
+                    to,
+                    relationship.style?.lineShape,
+                    {
+                      ...(relationship.style?.beginArrow
+                        ? { beginArrow: relationship.style.beginArrow }
+                        : {}),
+                      ...(relationship.style?.endArrow
+                        ? { endArrow: relationship.style.endArrow }
+                        : {})
+                    }
+                  )}
                   markerStart={relationship.style?.beginArrow && relationship.style.beginArrow !== 'none'
                     ? `url(#mindmap-rel-arrow-${relationship.style.beginArrow})`
                     : undefined}
@@ -2926,6 +3121,7 @@ export function MindMapCanvas({
                     ? `url(#mindmap-rel-arrow-${relationship.style.endArrow})`
                     : undefined}
                   style={{
+                    ...arrowedLineCapStyle(relationship.style ?? {}),
                     ...(relationship.style?.stroke ? { stroke: relationship.style.stroke } : {}),
                     ...(relationship.style?.strokeWidth !== undefined ? { strokeWidth: relationship.style.strokeWidth } : {}),
                     ...(relationship.style?.linePattern !== undefined
@@ -2975,11 +3171,11 @@ export function MindMapCanvas({
           {calloutRects.map((rect) => (
             <g
               key={rect.callout.id}
-              className={`mindmap-callout-group${selection.kind === 'element' && selection.elementId === rect.callout.id ? ' is-selected' : ''}`}
+              className={`mindmap-callout-group${(selection.kind === 'element' && selection.elementId === rect.callout.id) || (selection.kind === 'hybrid' && selection.elementIds.includes(rect.callout.id)) ? ' is-selected' : ''}`}
               role="button"
               tabIndex={readOnly ? -1 : (selection.kind === 'element' && selection.elementId === rect.callout.id ? 0 : -1)}
               aria-disabled={readOnly || undefined}
-              aria-pressed={selection.kind === 'element' && selection.elementId === rect.callout.id}
+              aria-pressed={(selection.kind === 'element' && selection.elementId === rect.callout.id) || (selection.kind === 'hybrid' && selection.elementIds.includes(rect.callout.id))}
               onPointerDown={(event) => {
                 if (readOnly) return
                 event.stopPropagation()
@@ -3070,12 +3266,12 @@ export function MindMapCanvas({
             return (
               <g
                 key={bracket.summary.id}
-                className={`mindmap-summary-group${selection.kind === 'element' && selection.elementId === bracket.summary.id ? ' is-selected' : ''}`}
+                className={`mindmap-summary-group${(selection.kind === 'element' && selection.elementId === bracket.summary.id) || (selection.kind === 'hybrid' && selection.elementIds.includes(bracket.summary.id)) ? ' is-selected' : ''}`}
                 data-summary-side={bracket.side}
                 role="button"
                 tabIndex={readOnly ? -1 : (selection.kind === 'element' && selection.elementId === bracket.summary.id ? 0 : -1)}
                 aria-disabled={readOnly || undefined}
-                aria-pressed={selection.kind === 'element' && selection.elementId === bracket.summary.id}
+                aria-pressed={(selection.kind === 'element' && selection.elementId === bracket.summary.id) || (selection.kind === 'hybrid' && selection.elementIds.includes(bracket.summary.id))}
                 onPointerDown={(event) => {
                   if (readOnly) return
                   event.stopPropagation()
@@ -3123,11 +3319,11 @@ export function MindMapCanvas({
             return (
               <g
                 key={boundary.id}
-                className={`mindmap-boundary-group${selection.kind === 'element' && selection.elementId === boundary.id ? ' is-selected' : ''}`}
+                className={`mindmap-boundary-group${(selection.kind === 'element' && selection.elementId === boundary.id) || (selection.kind === 'hybrid' && selection.elementIds.includes(boundary.id)) ? ' is-selected' : ''}`}
                 role="button"
                 tabIndex={readOnly ? -1 : (selection.kind === 'element' && selection.elementId === boundary.id ? 0 : -1)}
                 aria-disabled={readOnly || undefined}
-                aria-pressed={selection.kind === 'element' && selection.elementId === boundary.id}
+                aria-pressed={(selection.kind === 'element' && selection.elementId === boundary.id) || (selection.kind === 'hybrid' && selection.elementIds.includes(boundary.id))}
                 aria-label={boundary.label || t('mindmap.elementStyle.types.boundary')}
                 onPointerDown={(event) => {
                   if (readOnly) return
@@ -3179,7 +3375,8 @@ export function MindMapCanvas({
 
           {layout.nodes.map((node) => {
             const rootNode = layout.nodes[0] ?? node
-            const isSelected = selection.kind === 'topic' && selection.topicIds.includes(node.id)
+            const isSelected = (selection.kind === 'topic' && selection.topicIds.includes(node.id))
+              || (selection.kind === 'hybrid' && selection.topicIds.includes(node.id))
             const isPrimarySelection = node.id === selectedNodeId
             const isEditing = node.id === editingNodeId
             const selectionGap = MIND_MAP_SELECTION_RING_GAP / Math.max(zoom, 0.01)
@@ -3904,7 +4101,8 @@ export function MindMapCanvas({
             to,
             curvePoint
           }) => {
-            const isSelected = selection.kind === 'element' && selection.elementId === line.id
+            const isSelected = (selection.kind === 'element' && selection.elementId === line.id)
+              || (selection.kind === 'hybrid' && selection.elementIds.includes(line.id))
             const canEdit = !readOnly && !lineTool?.active && !drawingShape
             if (!isSelected || !canEdit) return null
 
@@ -4044,7 +4242,8 @@ export function MindMapCanvas({
                     connectorPathOptions(
                       linePreview.from,
                       linePreview.to,
-                      linePreviewCurvePoint
+                      linePreviewCurvePoint,
+                      linePreview.style
                     )
                   )}
                   markerStart={linePreview.style.beginArrow && linePreview.style.beginArrow !== 'none'
@@ -4053,9 +4252,12 @@ export function MindMapCanvas({
                   markerEnd={linePreview.style.endArrow && linePreview.style.endArrow !== 'none'
                     ? `url(#mindmap-rel-arrow-${linePreview.style.endArrow})`
                     : undefined}
-                  style={linePreview.style.linePattern
-                    ? { strokeDasharray: elementLineDashArray(linePreview.style.linePattern) ?? 'none' }
-                    : undefined}
+                  style={{
+                    ...arrowedLineCapStyle(linePreview.style),
+                    ...(linePreview.style.linePattern
+                      ? { strokeDasharray: elementLineDashArray(linePreview.style.linePattern) ?? 'none' }
+                      : {})
+                  }}
                 />
               </g>
             )

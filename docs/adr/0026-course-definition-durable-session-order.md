@@ -1,8 +1,13 @@
 # ADR-0026：CourseDefinition 持久化与 Session 顺序权威
 
-- **状态：** 已实施（P1-7；合入 main `2f83389` / feature `ef8b326`）
-- **范围：** 每 Course 的 `course-definition.json`、lazy materialize、安全 repair、catalog Session 顺序
-- **证据提交：** `ef8b326`、merge `2f83389`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 每 Course 的 `course-definition.json` 记录稳定 courseId、Mission 链接、goals 与有序 Session 槽位；文件系统布局仍是 Lesson 发现真相源。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)
+- **证据：** `src/main/course-definition-store.ts`、`src/main/teaching-workspace-catalog.ts`、`scripts/check-course-definition-store.mjs`、`tests/unit/course-definition-store.unit.test.ts`；提交 `ef8b326`、merge `2f83389`
 
 ## 决定
 

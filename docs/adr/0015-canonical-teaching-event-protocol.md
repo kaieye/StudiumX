@@ -1,8 +1,13 @@
 # ADR-0015：使用封闭的 Canonical Teaching Event Protocol 传递教学运行事件
 
-- **状态：** 已实施（协议、event bus 与定向自动化；不代表 P1 runtime / CI 全部完成）
-- **范围：** `TeachingEventEnvelope`、schema version 1、封闭 payload、event bus、legacy adapter 边界
-- **证据提交：** `cef8f86`、`fbc0b63`、`5f5cd32`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** 教学运行事件经版本化、封闭的 `TeachingEventEnvelope` 传递；未知类型或不符合 schema 的 payload 被拒绝。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0014](0014-learner-safe-teaching-turn-presentation.md)
+- **证据：** `tests/unit/teaching-events.unit.test.ts`、`tests/unit/teaching-turn-event-bus.unit.test.ts`、`tests/integration/teaching-event-protocol-core.integration.test.ts`；提交 `cef8f86`、`fbc0b63`、`5f5cd32`
 
 ## 决定
 

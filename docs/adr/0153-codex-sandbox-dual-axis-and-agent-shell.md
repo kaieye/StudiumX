@@ -1,10 +1,15 @@
 # ADR-0153：Codex 双轴 Sandbox 迁移与主流 Agent Shell
 
-- **状态：** **已实施（合格交付，2026-07-25；不含 Windows OS helper）**
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **已实施（合格交付，2026-07-25；不含 Windows OS helper）**
 - **日期：** 2026-07-24
-- **修订：** 2026-08-02 — 基于实际教学对话体验，移除 `tools.enabled` 产品总开关：Settings 不展示该选项，legacy 持久化/overlay 值仅为兼容接受且加载/解析后强制为 `true`。审批、工作区信任、沙箱、路径围栏与局部技术边界不变；全局 run-token 预算政策见 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md)。2026-07-25 — Stage A–F 已完成并通过合格交付验证；将完成态、边界和验证入口收口至本 ADR。
 - **范围：** 将 Codex 的 **SandboxMode × AskForApproval** 双轴模型迁入 StudiumX TypeScript 策略与设置面；把工作区命令/`shell` 定义为 **主流 Agent 一等工具**（工具调用应用级启用，`workspaceShell` 默认可用）。**不**整仓 vendoring `codex-rs` 的 Windows RestrictedToken / Linux bwrap / macOS Seatbelt 原生 helper 二进制（Windows OS helper 为可选 Stage G，**不阻塞** A–F 合格）。**不**改变 settlement sole-writer / Evidence 权威。
-- **关联：** [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md)（审批轴与命令工具形状；**默认值由本 ADR supersede**）；[ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)（平台能力诚实分层；**不**承担 shell 产品面）；Codex `SandboxMode` / `SandboxPolicy` / `sandboxing` crate；`TOOL_CONTRACT.md`
+- **取代：** 部分 [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md)（workspaceShell 默认与双轴产品面）
+- **被取代：** 无
+- **相关：** [ADR-0152](0152-workspace-shell-and-codex-aligned-approval.md)（审批轴与命令工具形状；**默认值由本 ADR supersede**）；[ADR-0126](0126-codex-style-platform-capability-profiles-and-consumer-migration.md)（平台能力诚实分层；**不**承担 shell 产品面）；Codex `SandboxMode` / `SandboxPolicy` / `sandboxing` crate；`TOOL_CONTRACT.md`
+- **证据：** `src/shared/teaching-types/agent-sandbox.ts`、`src/main/ai/tools/agent-sandbox-policy.ts`、`codex-sandbox-transform.ts`、`workspace-shell.ts`、`agent-shell-resolve.ts`、`shell-command-safety.ts`、`settings.tools.sandboxMode`/`workspaceShell`；测试 `tests/unit/agent-sandbox-policy.unit.test.ts`、`tests/unit/codex-sandbox-transform.unit.test.ts`、`tests/unit/workspace-shell.unit.test.ts`、`tests/unit/agent-shell-and-sandbox-gaps.unit.test.ts`。
+- **修订：** 2026-08-02 — 基于实际教学对话体验，移除 `tools.enabled` 产品总开关：Settings 不展示该选项，legacy 持久化/overlay 值仅为兼容接受且加载/解析后强制为 `true`。审批、工作区信任、沙箱、路径围栏与局部技术边界不变；全局 run-token 预算政策见 [ADR-0171](0171-continuous-agent-runs-and-context-governance.md)。2026-07-25 — Stage A–F 已完成并通过合格交付验证；将完成态、边界和验证入口收口至本 ADR。
 - **完成记录：** Stage A–F 已于 2026-07-25 完成；Stage G（Windows RestrictedToken helper）是可选延期项，不阻塞合格交付。
 - **实现落点（子集，非完成证明）：** `src/shared/teaching-types/agent-sandbox.ts`；`src/main/ai/tools/agent-sandbox-policy.ts`；`codex-sandbox-transform.ts`；`workspace-shell.ts`（`run_workspace_command` + `shell`）；`agent-shell-resolve.ts`；`shell-command-safety.ts`；`settings.tools.sandboxMode` / `workspaceShell`；Settings UI 控件与已完成的 readiness 闭环；相关 unit tests
 

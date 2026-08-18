@@ -1,8 +1,13 @@
 # ADR-0010：Learning record 必须证据门控，并切断 Lesson 生成自动写入
 
-- **状态：** 已实施（语义 cutover；完整 outcome / record settlement 的 authority 见 ADR-0011）
-- **范围：** Lesson 生成、`learningRecordNote` 降级、renderer 自动写入移除
-- **证据提交：** `1710743`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** 切断 Lesson 生成自动写 Learning record 的语义 cutover；`learningRecordNote` 降级为待验证 expected evidence / rubric 文本。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0009](0009-typed-lesson-interaction-evidence.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md)
+- **证据：** `tests/unit/lesson-outcome-cutover.unit.test.ts`、`tests/integration/teaching-lesson-artifacts.integration.test.ts`；提交 `1710743`
 
 ## 决定
 

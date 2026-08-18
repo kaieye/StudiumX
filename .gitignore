@@ -64,3 +64,6 @@ _new_task_block.txt
 # Throwaway local screenshot/tool scripts
 shot-tools.tmp.js
 vision-test.png
+
+# Local agent vision-toolkit working dir (tmp pasted images / artifacts)
+/.dsh-vision-toolkit/

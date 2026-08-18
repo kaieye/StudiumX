@@ -1,9 +1,13 @@
 # ADR-0053：根 AGENTS.md、security suite 闭环与测试教条分层
 
-- **状态：** 已实施（文档 + 安全套件清单）
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** 根级 `AGENTS.md`；`SECURITY_CHECKS` 纳入 external-content boundary；`AGENTS.md` / `CONTRIBUTING.md` 的 L0/L1/L2/L4 分层约定；CONTRIBUTING 交叉引用
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0045](0045-context-hygiene-ladder-and-quality-gates.md)、[`SECURITY.md`](../../SECURITY.md)、[`docs/tools/TOOL_CONTRACT.md`](../tools/TOOL_CONTRACT.md)、[ADR-0121](0121-improvements-adoption-closeout.md) **A-06 / A-07 / A-10**
+- **证据：** `scripts/security-checks.mjs`（`SECURITY_CHECKS` 含 external-content boundary）、根 `AGENTS.md`、`CONTRIBUTING.md`（L0/L1/L2/L4 交叉链接）
 
 ## 背景
 
@@ -13,7 +17,7 @@ ADOPTION Phase 0 要求三条低成本、高杠杆的门禁与文档闭环：
 2. **A-07** — 仓库缺根级 `AGENTS.md`：贡献者与 coding agent 缺少「命令图 + 红线 + 改哪测哪 + 模块尺寸」单页入口；ADR 与 CONTRIBUTING 仍是权威，但入口过散。
 3. **A-10** — 百余 `check-*.mjs` 需要 L0 领域保险丝 / L1 runtime / L2 packaging / L4 change-detector 债的正式分层，避免正确重构被源码正则锁死，同时 **禁止一刀切删除** 既有门禁。
 
-## 决策
+## 决定
 
 ### 1. Security suite 纳入 external-content boundary（A-06）
 
@@ -45,7 +49,7 @@ scripts/check-agent-external-content-boundary.mjs
 
 ### 3. 测试教条分层（A-10）
 
-`AGENTS.md` 的“改哪测哪”与 `CONTRIBUTING.md` 共同定义：
+`AGENTS.md` 的"改哪测哪"与 `CONTRIBUTING.md` 共同定义：
 
 | 层 | 含义 |
 | --- | --- |
@@ -56,15 +60,7 @@ scripts/check-agent-external-content-boundary.mjs
 
 **禁止** 用覆盖率或泛型 CI **替换** 领域门禁；只能叠加。CONTRIBUTING 增加指向本教条与 `AGENTS.md` 的交叉链接。
 
-## 已实施范围与验证入口
-
-| 路径 | 角色 |
-| --- | --- |
-| `scripts/security-checks.mjs` | `SECURITY_CHECKS` 含 external-content boundary |
-| `AGENTS.md` | 根级代理/贡献者速查 |
-| `AGENTS.md` / `CONTRIBUTING.md` | L0/L1/L2/L4 分层约定 |
-| `CONTRIBUTING.md` | Related 交叉链接 |
-| 本 ADR + `docs/adr/README.md` 索引 | 决策记录 |
+## 验证
 
 ```bash
 # 语法 / 清单
@@ -75,7 +71,7 @@ pnpm run check:security
 pnpm run check:prepush
 ```
 
-## 不包含 / non-claims
+## 非目标
 
 - 不改变 effect lattice、settlement sole-writer、LearningSession 权威或 AgentRun 状态机。  
 - 不引入 shell、MCP marketplace、自动 remote telemetry、YOLO、FTS 产品搜索或自动 memory。  

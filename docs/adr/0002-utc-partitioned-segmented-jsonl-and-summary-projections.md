@@ -1,8 +1,13 @@
 # ADR-0002：UTC 分区、无损 JSONL 分段、显式摘要 projection 与 canonical 永久保留边界
 
-- **状态：** 已实施（C-2A / C-2B / C-2C）；C-2 physical retention / recovery 已关闭为“不批准”
-- **范围：** C-2A、C-2B、C-2C，以及 canonical teaching data 的永久保留政策和相邻删除路径的收敛
-- **证据提交：** `d23b272`、`549f4f8`、`07dfbfb`、`3e9cdb1`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** canonical local teaching data 无限期保留；UTC 月分区、无损 JSONL 分段与显式摘要 projection；物理 retention/recovery 不获批准。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0015](0015-canonical-teaching-event-protocol.md)
+- **证据：** `src/shared/event-density-policy.ts`、`tests/unit/durable-jsonl.unit.test.ts`、`tests/unit/learning-work-ledger.unit.test.ts`、`tests/unit/agent-conversation-summary-projection.unit.test.ts`；提交 `d23b272`、`549f4f8`、`07dfbfb`、`3e9cdb1`
 
 ## 决定
 

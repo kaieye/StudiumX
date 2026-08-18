@@ -1,10 +1,14 @@
 # ADR-0156：Skill 编排跨轮续航——durable 会话编排状态与 priorState 规划输入
 
-- **状态：** **已实施（核心）**（2026-07-26）：durable 状态存储、确定性 gate 判定、planner priorState 输入、runtime 接线、bridge 真实 artifact 事实;多选 chip / 计划预览 UI 仍属 [ADR-0151](0151-teaching-kernel-and-skill-orchestration.md) Phase 4 residual
+- **决策状态：** accepted
+- **实施状态：** partial
+- **实施说明：** **已实施（核心）**（2026-07-26）：durable 状态存储、确定性 gate 判定、planner priorState 输入、runtime 接线、bridge 真实 artifact 事实;多选 chip / 计划预览 UI 仍属 [ADR-0151](0151-teaching-kernel-and-skill-orchestration.md) Phase 4 residual
 - **日期：** 2026-07-26
 - **范围：** 解决 0151 Phase 3 后的核心缺口:**计划是单轮快照,而编排对象（教学、产物工作流）是多轮过程**——`scheduled_later` 永不兑现、stage 不跨轮、gate 不判定、authority bridge 喂占位事实使 producer/预算分支休眠。
-- **关联：** [ADR-0151](0151-teaching-kernel-and-skill-orchestration.md);[ADR-0044](0044-teaching-prompt-cache-contract.md)(投影仍走 turn-tail);[ADR-0154](0154-spaced-review-scheduler-and-review-due-planner-action.md)(bridge review 事实同批接线)
-- **实现落点：** `src/shared/teaching-types/skill-orchestration.ts`（`ConversationOrchestrationState`、`SkillOrchestrationPriorState`、stage `status`、plan `currentStageId`）;`src/main/skill-orchestration-planner.ts`（priorState 消费;**附带修复 artifact token 被 id 归一化小写化导致 accepts/produces 永不匹配的休眠 bug**）;`src/main/skill-orchestration-host.ts`（`evaluateSkillOrchestrationStageGates` / `advanceConversationOrchestrationState` / `priorStateFromConversationOrchestrationState`）;`src/main/skill-orchestration-state-store.ts`（`.agent-sessions/skill-orchestration/<conversationId>.json`,原子替换,严格 normalize,损坏→null）;`src/main/skill-orchestration-artifact-facts.ts`（registry scope → workspace 文件的只读 artifact 事实派生,受限 glob、深度/条目上限、拒绝 symlink）;`src/main/skill-orchestration-authority-bridge.ts`（真实 mission/resource/artifact/review 事实,替换占位 seed）;`src/main/teaching-conversation-runtime.ts`+`teaching-workspace.ts`（load→plan(priorState)→gate→advance→save,全程 fail-soft）;`src/main/teaching-conversation-prompt.ts`（turn-tail 投影 currentStage/status/consumes/produces/gates）;测试 `tests/unit/skill-orchestration-continuity.unit.test.ts`
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0151](0151-teaching-kernel-and-skill-orchestration.md);[ADR-0044](0044-teaching-prompt-cache-contract.md)(投影仍走 turn-tail);[ADR-0154](0154-spaced-review-scheduler-and-review-due-planner-action.md)(bridge review 事实同批接线)
+- **证据：** `src/shared/teaching-types/skill-orchestration.ts`（`ConversationOrchestrationState`、`SkillOrchestrationPriorState`、stage `status`、plan `currentStageId`）;`src/main/skill-orchestration-planner.ts`（priorState 消费;**附带修复 artifact token 被 id 归一化小写化导致 accepts/produces 永不匹配的休眠 bug**）;`src/main/skill-orchestration-host.ts`（`evaluateSkillOrchestrationStageGates` / `advanceConversationOrchestrationState` / `priorStateFromConversationOrchestrationState`）;`src/main/skill-orchestration-state-store.ts`（`.agent-sessions/skill-orchestration/<conversationId>.json`,原子替换,严格 normalize,损坏→null）;`src/main/skill-orchestration-artifact-facts.ts`（registry scope → workspace 文件的只读 artifact 事实派生,受限 glob、深度/条目上限、拒绝 symlink）;`src/main/skill-orchestration-authority-bridge.ts`（真实 mission/resource/artifact/review 事实,替换占位 seed）;`src/main/teaching-conversation-runtime.ts`+`teaching-workspace.ts`（load→plan(priorState)→gate→advance→save,全程 fail-soft）;`src/main/teaching-conversation-prompt.ts`（turn-tail 投影 currentStage/status/consumes/produces/gates）;测试 `tests/unit/skill-orchestration-continuity.unit.test.ts`
 
 ## 1. 决策
 

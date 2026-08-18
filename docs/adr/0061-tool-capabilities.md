@@ -1,10 +1,13 @@
 # ADR-0061：ToolCapabilities 元数据叠加 TOOL_CONTRACT
 
-- **状态：** 已实施（ADOPTION B-07）
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** 工具能力元数据（`isReadOnly` / `maxConcurrency` / `supportsCancel` / `effectClass`）声明与合同文档；**不**放开写并行
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0032](0032-conservative-parallel-read-tools.md)、[ADR-0041](0041-tool-annotations-and-result-budget.md)、[ADR-0048](0048-tool-contract-and-write-policy.md)、[ADOPTION B-07](0121-improvements-adoption-closeout.md)
-- **证据路径：** `src/main/ai/tools/tool-capabilities.ts`、`src/main/ai/tools/registry.ts`、`docs/tools/TOOL_CONTRACT.md`、`tests/unit/tool-capabilities.unit.test.ts`
+- **证据：** `src/main/ai/tools/tool-capabilities.ts`、`src/main/ai/tools/registry.ts`、`docs/tools/TOOL_CONTRACT.md`、`tests/unit/tool-capabilities.unit.test.ts`
 
 ## 背景
 
@@ -22,7 +25,13 @@ effect lattice（ADR-0024）与 risk annotations（ADR-0041）已回答「副作
 
 Capabilities **是元数据**，不替代 effect authorization、permission gate 或 capability catalog。
 
-## 已实施范围与验证入口
+## 不变量
+
+- 未知工具 fail-closed 为 privileged / concurrency 1。
+- 写类工具 `maxConcurrency` 永不为 >1。
+- 不改变 parallel-read dispatcher 的「仅 read 可并行」规则。
+
+## 验证
 
 ```powershell
 CI=true node ./node_modules/vitest/vitest.mjs run --project unit tests/unit/tool-capabilities.unit.test.ts
@@ -30,13 +39,7 @@ node scripts/check-tool-contract.mjs
 pnpm run check:tool-dispatcher
 ```
 
-## 不变量
-
-- 未知工具 fail-closed 为 privileged / concurrency 1。
-- 写类工具 `maxConcurrency` 永不为 >1。
-- 不改变 parallel-read dispatcher 的「仅 read 可并行」规则。
-
-## 不包含 / non-claims
+## 非目标
 
 - **不**启用 write / external_write / privileged 并行执行。
 - **不**引入 shell / MCP / YOLO 标签。

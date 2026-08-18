@@ -1,10 +1,14 @@
 # ADR-0089：Agent session 队列只读投影（纯 main-side snapshot）
 
-- **状态：** 已实施（pure projection helper + unit tests + 可选 façade thin method；**无** IPC；**无** product autoDrain flip）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（pure projection helper + unit tests + 可选 façade thin method；**无** IPC；**无** product autoDrain flip）
 - **日期：** 2026-07-21
 - **范围：** B-02 residual — 提供 main 侧**纯**队列投影 DTO，供未来 renderer 同步消费；**不**开启 product `autoDrain`；**不**改 renderer FIFO；**不**接线 gateway/preload/contract（避免与 S-09 文件所有权冲突）
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0055](0055-busy-input-queue-and-replay-contracts.md)、[ADR-0058](0058-agent-session-facade.md)、[ADR-0082](0082-agent-chat-steer-followup-ipc.md)、[ADOPTION B-02](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/ai/agent-session-queue-projection.ts`
   - `src/main/ai/agent-session-facade.ts`（`projectQueue()` thin wrapper only）
   - `tests/unit/agent-session-queue-projection.unit.test.ts`

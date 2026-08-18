@@ -1,9 +1,13 @@
 # ADR-0172：原生思维导图与 AI 辅助生成
 
-- **状态：** 已批准（设计见 [docs/mindmap/design.md](../mindmap/design.md)）
+- **决策状态：** accepted
+- **实施状态：** partial
 - **日期：** 2026-08-09
-- **范围：** 在 StudiumX 提供独立设计、原生实现的思维导图编辑与 AI 辅助生成。
-- **相关：** [ADR-0131](0131-pathname-default-durable-io.md)（durable 写）、[ADR-0167](0167-teaching-authority-and-syncable-user-state.md)（教学权威边界）、[ADR-0075](0075-module-size-policy-and-giant-peel.md)（模块尺寸）、[ADR-0044](0044-teaching-prompt-cache-contract.md)（prompt-cache 纪律）。
+- **范围：** 在 StudiumX 提供独立设计、原生实现的思维导图编辑与 AI 辅助生成。设计文档位于 `docs/mindmap/design.md`（设计资料，非 ADR；未随仓库提交）。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0131](0131-pathname-default-durable-io.md)（durable 写）、[ADR-0167](0167-teaching-authority-and-syncable-user-state.md)（教学权威边界）、[ADR-0075](0075-module-size-policy-and-giant-peel.md)（模块尺寸）、[ADR-0044](0044-teaching-prompt-cache-contract.md)（prompt-cache 纪律）
+- **证据：** `src/shared/mindmap/`、`src/main/mindmap/`、`src/renderer/src/views/mindmap/`、`pnpm run check:mindmap`、`tests/unit/mind-map-*.unit.test.ts*`
 
 ## 1. 背景与问题边界
 

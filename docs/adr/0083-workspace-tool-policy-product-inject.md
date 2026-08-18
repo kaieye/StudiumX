@@ -1,10 +1,14 @@
 # ADR-0083：产品路径注入 workspace tool-policy
 
-- **状态：** 已实施（ADOPTION B-08 residual：primary conversation path 可选注入）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION B-08 residual：primary conversation path 可选注入）
 - **日期：** 2026-07-21
 - **范围：** 仅在 `teaching-conversation-runtime` 主对话路径将 workspace 内可选 tool-policy 文档注入 `buildToolContext`；缺文件保持 default-equivalent
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0063](0063-declarative-tool-policy.md)、[ADR-0079](0079-workspace-tool-policy-fs-loader.md)、[ADOPTION B-08](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/teaching-conversation-runtime.ts`（`runTeachingConversationTurnActive` 注入点）
   - `src/main/ai/tools/tool-policy-fs.ts`（`toolPolicyDocumentOption` 纯 helper；loader 语义不变）
   - `tests/unit/tool-policy-fs.unit.test.ts`

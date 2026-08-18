@@ -1,10 +1,14 @@
 # ADR-0072：Node engines / .nvmrc 与 SOURCE_REV 构建身份
 
-- **状态：** 已实施（ADOPTION S-12）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-12）
 - **日期：** 2026-07-21
 - **范围：** 声明 Node 运行时主线、纯本地 `SOURCE_REV` 构建身份，以及 doctor 非阻塞展示
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0034](0034-redacted-support-bundle.md)、[ADR-0066](0066-local-observability-and-crash-marker.md)、[ADOPTION S-12](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `.nvmrc`
   - `package.json`（`engines.node`）
   - `src/shared/build-identity.ts`

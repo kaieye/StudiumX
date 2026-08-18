@@ -1,8 +1,13 @@
 # ADR-0011：通过受控 Outcome Committer 结算学习结果
 
-- **状态：** 已实施（模块、窄 IPC 与定向自动化已落地；Win/Mac P0 发布证明见 ADR-0017）
-- **范围：** `LearningOutcomeCommitter`、证据门控、canonical outcome / Learning record 的有序发布、reconcile、窄 IPC sole-writer cutover
-- **证据提交：** `0acaaa4`、`061df11`、`0692732`、`7292bf4`、`e02a086`、`734314e`、`c9c9005`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** `LearningOutcomeCommitter` 以 Evidence 为基础结算 outcome / Learning record；受限窄 IPC sole-writer cutover；reconcile 与失败关闭。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0009](0009-typed-lesson-interaction-evidence.md)、[ADR-0010](0010-evidence-gated-learning-record-cutover.md)、[ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md)、[ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)
+- **证据：** `src/main/learning-outcome-committer.ts`、`tests/unit/learning-outcome-committer.unit.test.ts`、`node scripts/check-learning-record-evidence-gate.mjs`、`node scripts/check-teaching-app-commit-cutover.mjs`；提交 `0acaaa4`、`061df11`、`0692732`、`7292bf4`、`e02a086`、`734314e`、`c9c9005`
 
 ## 决定
 

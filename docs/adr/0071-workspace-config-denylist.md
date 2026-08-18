@@ -1,10 +1,14 @@
 # ADR-0071：Workspace/project 配置 denylist（baseUrl 等敏感 endpoint）
 
-- **状态：** 已实施（ADOPTION S-04）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-04）
 - **日期：** 2026-07-21
 - **范围：** 不可信 workspace overlay 不得覆盖敏感 provider endpoint 字段；字段级 provenance 诚实；诊断可观测
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0025](0025-teaching-config-resolver-secret-free-layers.md)、[ADR-0033](0033-config-optimistic-concurrency.md)、[ADOPTION S-04](0121-improvements-adoption-closeout.md)、Codex D2 denylist 意图（historical `codex` review (see ADR-0121)）
-- **证据路径：**
+- **证据：** 
   - `src/main/teaching-config-denylist.ts`
   - `src/main/teaching-config-resolver.ts`
   - `tests/unit/teaching-config-resolver.unit.test.ts`

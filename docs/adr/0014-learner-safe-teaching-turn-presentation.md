@@ -1,8 +1,13 @@
 # ADR-0014：将教学运行事实投影为学习者安全的 TeachingTurnPresentation
 
-- **状态：** 已实施（投影器、Reader 接口、P0 canonical snapshot IPC → 默认 App 接线、`contrast_and_retry` / `review_due` 受控动作、定向 UI/Electron 自动化；P1-12 封闭 TeachingCommand 与 composer a11y residual 已合入）
-- **范围：** `TeachingTurnPresentation`、P0 canonical learner-safe snapshot、`contrast_and_retry` / `review_due` 受控入口、四阶段 learner projection、redaction、a11y 语义、保存态显示、封闭 `TeachingCommand` composer 目录
-- **证据提交：** `840d566`、`f71f211`、`0ce39c9`、`963d9b2`、`ef983f9`；P1-12 feature `8cc956b` / merge `f6257cc`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** 学习者界面消费从教学事实与受限诊断投影出的 `TeachingTurnPresentation`；封闭 `TeachingCommand` composer；reasoning 过程与结算隔离。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、[ADR-0154](0154-spaced-review-scheduler-and-review-due-planner-action.md)
+- **证据：** `tests/unit/teaching-turn-presentation.unit.test.ts`、`tests/unit/teaching-command.unit.test.ts`、`node scripts/check-teaching-turn-presentation.mjs`、`node scripts/check-teaching-presentation-redaction.mjs`；提交 `840d566`、`f71f211`、`0ce39c9`、`963d9b2`、`ef983f9`、`8cc956b`、`f6257cc`
 
 ## 决定
 

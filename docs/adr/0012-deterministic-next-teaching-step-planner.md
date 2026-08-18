@@ -1,8 +1,13 @@
 # ADR-0012：以确定性 NextTeachingStepPlanner 决定后续教学动作
 
-- **状态：** 已实施（深模块及定向自动化；Win/Mac 发布证明见 ADR-0017）
-- **范围：** `NextTeachingStepPlanner`、受限 next-step union、evidence-backed learner explanation
-- **证据提交：** `eda17c3`、`e7445e2`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** `NextTeachingStepPlanner` 从已结算 outcome、Evidence 与教学上下文导出受限 typed decision；不拥有 durable writer、provider 调用或 UI 状态。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0013](0013-budgeted-provenance-aware-teaching-context.md)
+- **证据：** `tests/unit/next-teaching-step-planner.unit.test.ts`、`node scripts/check-next-teaching-step-planner.mjs`；提交 `eda17c3`、`e7445e2`
 
 ## 决定
 

@@ -1,4 +1,5 @@
 import type {
+  MindMapElement,
   MindMapLayoutSettings,
   MindMapTheme,
   MindMapTopicV2
@@ -112,9 +113,15 @@ export type MindMapSummary = {
   preview?: MindMapCardPreview
 }
 
-/** Data required to render a card without opening the canonical document. */
+/** Data required to render a card without opening the canonical document.
+ *
+ * `elements` carries the first sheet's drawing/relationship/summary/
+ * boundary/callout elements so the home-page preview can mirror the canvas
+ * (shapes, free connectors, braces, …) instead of only the topic tree. Asset
+ * images stay behind the canonical read boundary and are not projected. */
 export type MindMapCardPreview = {
   theme: MindMapTheme
   root: MindMapTopicV2
   layout: MindMapLayoutSettings
+  elements?: MindMapElement[]
 }

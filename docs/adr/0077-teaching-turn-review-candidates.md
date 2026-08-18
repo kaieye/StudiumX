@@ -1,10 +1,14 @@
 # ADR-0077：Teaching-safe post-turn review candidates（人批门控）
 
-- **状态：** 已实施（ADOPTION S-09 light）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-09 light）
 - **日期：** 2026-07-21
 - **范围：** 纯函数候选构建器 + 人批不变量；**不**接线自动 apply、**不**改 settlement
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0047](0047-agent-runtime-wire-and-turn-orchestrator.md)、[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)、learner-profile consent（`learner-profile-record-policy`）、[ADOPTION S-09](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-turn-review.ts`
   - `tests/unit/teaching-turn-review.unit.test.ts`
   - 本 ADR

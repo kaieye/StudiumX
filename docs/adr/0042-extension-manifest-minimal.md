@@ -1,8 +1,13 @@
 # ADR-0042：最小 ExtensionManifest（本地安装优先）
 
-- **状态：** 已实施（ZCode 借鉴 Phase A 类型面）
-- **范围：** 声明式 extension/plugin manifest 类型 + 本地校验；不授权 marketplace
-- **证据路径：** `src/shared/teaching-types/extension-manifest.ts`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-21
+- **范围：** 声明式 extension/plugin manifest 类型（schemaVersion=1）+ 本地 fail-closed 校验；local-install first，无 marketplace / 远程 auto-trust。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0046](0046-teaching-footprint-ladder.md)、[ADR-0040](0040-teaching-session-protocol-facade.md)
+- **证据：** `src/shared/teaching-types/extension-manifest.ts`、`tests/unit/teaching-session-protocol.unit.test.ts`（manifest guard）
 
 ## 决定
 

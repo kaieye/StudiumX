@@ -323,7 +323,7 @@ describe('MindMapView create flow', () => {
     const listMindMaps = vi.fn(async () => [summary])
     const listMindMapLibrary = vi.fn(async () => ({
       home: [],
-      workspaces: [{ workspaceId: 'workspace-1', name: 'Test workspace', documents: [summary] }]
+      workspaces: [{ workspaceId: 'workspace-1', name: 'Test workspace', path: '/Users/chos1nz/Documents/Test workspace', documents: [summary] }]
     }))
     const readMindMap = vi.fn(async ({ id }: { id: string }) =>
       id === copied.id ? copied : source
@@ -443,7 +443,7 @@ describe('MindMapView create flow', () => {
         listMindMaps: vi.fn(async () => []),
         listMindMapLibrary: vi.fn(async () => ({
           home: [],
-          workspaces: [{ workspaceId: 'workspace-1', name: 'Test workspace', documents: [summary] }]
+          workspaces: [{ workspaceId: 'workspace-1', name: 'Test workspace', path: '/Users/chos1nz/Documents/Test workspace', documents: [summary] }]
         })),
         readMindMap
       } as Partial<TeachingSystemApi>

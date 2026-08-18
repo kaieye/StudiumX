@@ -1,8 +1,13 @@
 # ADR-0009：将 Lesson 互动记录为可追溯的 typed Evidence
 
-- **状态：** 已实施（P0 教学事实基线；outcome/record 见 ADR-0010/0011；发布证明见 ADR-0017）
-- **范围：** LessonInteraction、EvidenceReceipt、原子写入、幂等重放、preview 与 canonical Session 绑定
-- **证据提交：** `17343d3`、`4d4e39b`、`c45d444`、`6521cb8`、`216e6fa`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** `LessonInteraction` / Evidence 的 typed 记录、原子写入、幂等重放与 canonical Session 绑定；`LessonInteractionRecorder` 为写入边界。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0010](0010-evidence-gated-learning-record-cutover.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md)
+- **证据：** `tests/unit/lesson-interaction-recorder.unit.test.tsx`、`tests/integration/lesson-interaction-recorder.integration.test.ts`；提交 `17343d3`、`4d4e39b`、`c45d444`、`6521cb8`、`216e6fa`
 
 ## 决定
 

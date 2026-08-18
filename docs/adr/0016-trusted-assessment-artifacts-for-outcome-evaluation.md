@@ -1,8 +1,13 @@
 # ADR-0016：以绑定且校验过的 assessment artifact 作为 OutcomeEvaluator 的唯一评分来源
 
-- **状态：** 已实施（evaluator trust boundary 与定向自动化；outcome 提交见 ADR-0011；Win/Mac 发布证明见 ADR-0017）
-- **范围：** `LearningOutcomeEvaluator`、assessment artifact binding / digest、safe path access、静态 assessment grammar、保守失败分类
-- **证据提交：** `863d8ed`、`225ec0c`、`d449094`、`1408239`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** `LearningOutcomeEvaluator` 只能从与 canonical Session / Lesson 绑定、由 publisher 产生且通过 digest 校验的 assessment sidecar 读取评分依据。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0014](0014-learner-safe-teaching-turn-presentation.md)、[ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md)
+- **证据：** `src/main/learning-outcome-evaluator.ts`、`tests/unit/learning-outcome-evaluator.unit.test.ts`；提交 `863d8ed`、`225ec0c`、`d449094`、`1408239`
 
 ## 决定
 

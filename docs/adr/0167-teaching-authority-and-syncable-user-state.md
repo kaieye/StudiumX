@@ -1,8 +1,14 @@
 # ADR-0167：教学权威与可同步用户状态边界
 
-- **状态：** **已采纳（2026-07-31）**
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **已采纳（2026-07-31）**
+- **日期：** 2026-07-31
 - **范围：** “文件是教学真相源 / teaching authority / local-wins / 本地优先”术语的精确定义；用户账户、等级经验、偏好、规划和分析摘要的同步边界
-- **关联：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0094](0094-study-task-timer-planning-design-gate.md)、[ADR-0117](0117-study-planning-store-paths-and-wire.md)、[ADR-0162](0162-local-learning-effectiveness-analytics.md)
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0094](0094-study-task-timer-planning-design-gate.md)、[ADR-0117](0117-study-planning-store-paths-and-wire.md)、[ADR-0162](0162-local-learning-effectiveness-analytics.md)
+- **证据：** 术语与边界定义见本 ADR 正文；落地由引用它的 ADR（ADR-0008、0094、0117、0162 等）与 `AGENTS.md` 产品地板承担。
 
 ## 1. 背景
 

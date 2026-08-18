@@ -1,10 +1,14 @@
 # ADR-0113：Teaching-turn review last-bundle durable 投影缓存（caller-root FS）
 
-- **状态：** 已实施（ADOPTION S-09 residual — durable last snapshot pure DTO + contained FS）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-09 residual — durable last snapshot pure DTO + contained FS）
 - **日期：** 2026-07-21
 - **范围：** 纯序列化/校验 DTO + main 侧 **调用方供给绝对根**（典型 Electron `userData`）下 contained/bounded 读写 last review bundle 快照；**不** settlement SoT；**不** auto-apply；**不**本切片 IPC / Settings / gateway
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0077](0077-teaching-turn-review-candidates.md)、[ADR-0080](0080-teaching-turn-review-finalize-wire.md)、[ADR-0085](0085-teaching-turn-review-human-approve-projection.md)、[ADR-0087](0087-teaching-turn-review-human-approve-ipc.md)、[ADR-0092](0092-managed-config-fs-loader.md)、[ADR-0097](0097-teaching-turn-review-settings-ui.md)、[ADR-0109](0109-teaching-turn-review-post-approve-handoff.md)、[ADR-0110](0110-teaching-turn-review-handoff-ipc.md)、[ADR-0111](0111-teaching-turn-review-settings-handoff-ui.md)、[ADOPTION S-09](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-turn-review-last-bundle.ts`（新）
   - `src/shared/teaching-turn-review.ts`（re-export）
   - `src/main/teaching-turn-review-last-bundle-fs.ts`（新）

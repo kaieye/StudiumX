@@ -209,9 +209,27 @@ export type AppUpdateState =
 /** User actions a renderer dialog can request from the main-process updater. */
 export type AppUpdateAction = 'download' | 'restart' | 'retry' | 'dismiss' | 'check'
 
+/**
+ * One installed system font family reported by the host (desktop only).
+ * `value` is CSS-ready (quoted when the bare name needs it); the Web lane
+ * returns no entries so the renderer falls back to the curated catalogue.
+ */
+export type SystemFontFamily = {
+  /** Bare family name, e.g. "Georgia", ".SF NS". */
+  family: string
+  /** CSS-safe value for a `font-family` list, e.g. `"\".SF NS\""`. */
+  value: string
+}
+
 export type TeachingSystemApi = {
   /** Native Electron platform, or the browser adapter's explicit web target. */
   platform: NodeJS.Platform | 'web'
+  /**
+   * Installed system font families (desktop only). Web returns an empty list;
+   * the renderer then falls back to the curated web-safe catalogue. The
+   * returned `value` is CSS-ready (quoted when needed) for a `font-family`.
+   */
+  listSystemFonts: () => Promise<readonly SystemFontFamily[]>
   getState: () => Promise<TeachingAppState>
   getLearningAnalytics: (request: LearningAnalyticsRequest) => Promise<LearningAnalyticsBundle>
   exportLearningAnalytics: (request: AnalyticsExportRequest) => Promise<AnalyticsExportResult>

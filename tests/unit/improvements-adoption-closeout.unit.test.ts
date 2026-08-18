@@ -47,7 +47,8 @@ describe('ADR-0121 improvements-adoption closeout contract', () => {
     const closeout = readRepo(closeoutPath)
     const index = readRepo('docs/adr/README.md')
 
-    expect(closeout).toMatch(/状态[^\n]*已采纳/)
+    expect(closeout).toMatch(/决策状态[^\n]*accepted/)
+    expect(closeout).toMatch(/实施说明[^\n]*已采纳/)
     expect(closeout).toContain('`docs/improvements/` 清空')
     expect(closeout).toContain('Phase 0–2')
     expect(closeout).toMatch(/新的上游借鉴[\s\S]*新建 ADR/)

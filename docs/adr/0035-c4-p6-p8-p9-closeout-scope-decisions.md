@@ -1,7 +1,13 @@
 # ADR-0035：C-4 P6 / P8 / P9 的范围结项决定
 
-- **状态：**已采纳（2026-07-20）
-- **范围：**只结项本 ADR 明确列出的 C-4P6、C-4P8 Windows strict proposal 与 C-4P9 durable-extension 工作线；不扩张任何现有 writer、wire、IPC、schema 或 canonical authority。
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 只结项本 ADR 明确列出的 C-4P6、C-4P8 Windows strict proposal 与 C-4P9 durable-extension 工作线；不扩张任何现有 writer、wire、IPC、schema 或 canonical authority。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0019](0019-session-audit-v1-wire-contract-and-limited-authority.md)、[ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md)
+- **证据：** `node scripts/verify-c4p6-host-native.mjs`、`tests/integration/learning-outcome-committer-process.integration.test.ts`；运维 runbook 见 `docs/runbooks/c4p6-closeout-runbook.md`。
 
 ## 决定
 
@@ -17,7 +23,7 @@ pnpm exec vitest run --project integration \
 
 该结项只适用于 verifier 输出的本机 internal APFS repository 与 fixture volume。它不宣称跨文件 transaction、共同原子性、Windows strict、网络/可移动存储、reboot durability 或 power-loss durability。未知 publish 后状态仍按既有 `reconciliation_required` / `review_required` fail closed；不新增 public IPC result。
 
-已结项 profile 的权威范围以本 ADR、[ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) 为准；运维步骤见下文「C-4P6 运维 runbook」。若要扩大到新的 OS、filesystem、durability claim、writer 或 public result，必须新建 ADR，并重新提供匹配声明的 host-native/operations evidence。
+已结项 profile 的权威范围以本 ADR、[ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md) 与 [ADR-0020](0020-c4p6-phase0-platform-profile-and-failure-matrix.md) 为准；运维步骤见 `docs/runbooks/c4p6-closeout-runbook.md`。若要扩大到新的 OS、filesystem、durability claim、writer 或 public result，必须新建 ADR，并重新提供匹配声明的 host-native/operations evidence。
 
 ### C-4P8：Windows strict proposal 以“不支持”结项
 
@@ -33,74 +39,24 @@ C-4P9 的 V1 fixed-file audit scope 以 [ADR-0019](0019-session-audit-v1-wire-co
 
 若产品需要上述任何扩张，必须由新的 ADR 先定义 profile、single-/multi-writer protocol、failure/recovery matrix、archive caller disposition、privacy/operations owner 和所声明 profile 的 host-native evidence；不得把本结项解释为这些能力已经实现。
 
-## 后果
+## 不变量
 
-1. 当前无开放 local-data 实现切片；P6、P8、P9 不再作为可分派实现工作（本 ADR 结项边界为准）。
+1. 当前无开放 local-data 实现切片；P6、P8、P9 不再作为可分派实现工作（以本 ADR 结项边界为准）。
 2. 已结项 plan / capability audit / standalone operations 文档删除；长期有效决定、边界与运维步骤仅以本 ADR 及相关 ADR 为准。
 3. 已有实现不因本 ADR 获得任何更强的 durability、transaction、CAS、recovery、retention 或 public API 声明。
 
-## C-4P6 运维 runbook
+## 后果
 
-> **Scope:** `P6-macOS-local-APFS-strict-candidate` only. This runbook is Phase-4 operational material absorbed into this ADR; it does not claim a transaction, Windows strict support, reboot durability, or power-loss durability.
+- 当前无开放 local-data 实现切片。
+- 结项证据与运维步骤从正文移出，长期价值保留于 `docs/runbooks/c4p6-closeout-runbook.md`（Scope: `P6-macOS-local-APFS-strict-candidate` only；不宣称 transaction、Windows strict、reboot 或 power-loss durability）。
 
-### Ownership and stop conditions
+## 验证
 
-| Responsibility | Required owner action |
-| --- | --- |
-| Release owner | Runs the host-native verifier before a release that claims the candidate profile. Captures its one-line JSON profile record with the release evidence. |
-| Operations owner | Accepts the incident/recovery steps below and records the escalation contact before any close-out review. |
-| Support owner | Collects only stable status/stage/error category; never collect assessment content, record text, operation/outcome IDs, paths, hashes, or raw error messages. |
+- `node scripts/verify-c4p6-host-native.mjs`（拒绝非 macOS / 非 APFS / 非 internal volumes；输出 profile JSON 随 release 证据存档）
+- `pnpm exec vitest run --project integration tests/integration/learning-outcome-committer-process.integration.test.ts`
+- 安装 / 升级 / 降级、incident playbooks 与 close-out checklist：`docs/runbooks/c4p6-closeout-runbook.md`
 
-Stop automatic processing and retain all existing canonical files whenever the outcome is `reconciliation_required`, `review_required`, an identity conflict, a path/regular-file failure, an unknown I/O outcome, a lock/permission failure, or a corrupt residual. Do **not** retry with a new identity, overwrite an immutable record, delete canonical files, or claim success from final-file presence.
+## 非目标
 
-### Pre-release host-native evidence
-
-On the release candidate machine, from the repository root with dependencies installed:
-
-```sh
-pnpm run build:contained-durable-replace
-node scripts/verify-c4p6-host-native.mjs
-```
-
-The verifier refuses non-macOS, non-APFS, and non-internal volumes. It reports the OS release, architecture, Node, Electron, filesystem and storage classification, then runs the fresh-process crash/restart matrix under Electron's embedded Node runtime. Archive its JSON output and the command result with the release record.
-
-The verifier covers an intentional process termination after stage flush and after immutable-record publish, then a fresh process reconcile/replay. It does **not** simulate reboot, device removal, filesystem corruption, or power loss. Those claims remain prohibited unless separately approved and evidenced.
-
-### Installation, upgrade and downgrade
-
-1. **Fresh install:** create/open the workspace using the normal main-process flow; do not seed settlement markers, ledgers, records, or stage files manually.
-2. **Upgrade:** deploy the release normally. The current Phase-1/2 changes add no public IPC/schema/path migration; no migration action is required. Existing settlement state must be reconciled by the owned committer rather than rewritten.
-3. **Downgrade:** do not use a downgrade as a recovery mechanism. If an older build cannot interpret observed state, stop and escalate; preserve the workspace and record the version boundary without copying content into diagnostics.
-
-### Incident playbooks
-
-#### Crash or restart during settlement
-
-1. Restart the application; do not delete `.learning-outcome-committer-stage` residuals.
-2. Let the normal committer/reconcile path inspect the immutable record and marker authority.
-3. If it returns `pending`, retain residuals and retry only the same user operation through the normal UI/main flow. If it returns `repaired`, verify only the stable state and continue. If it returns `review_required` or `reconciliation_required`, stop and escalate.
-4. Never create a new operation/outcome ID to force a retry, and never promote a stage file manually.
-
-#### Disk full, permission denied, sharing/lock failure
-
-1. Return/record a stable failure category; do not infer whether a post-publish write succeeded.
-2. Restore capacity or access outside the application. Do not remove records, markers, ledger entries, or stage files to make space.
-3. Retry only after the prerequisite is resolved and only with the original operation identity. Any unknown post-publish result stays in review/reconciliation.
-
-#### Corrupt residual, identity conflict, or catalog mismatch
-
-1. Preserve the workspace in place and stop automatic settlement for the affected session.
-2. Capture data-minimal incident facts: release version, profile class, stable state/result, and event time. Exclude user data and filesystem locators.
-3. Escalate to the operations owner for authority-guided manual review. The catalog is observe-only; it must not be used to synthesize a record, outcome, marker, or repair.
-
-#### Concurrent retry
-
-Use only the standard main-process path. If a concurrent call cannot prove the original identity or reports an unavailable writer/lock, stop rather than requeueing an altered request. No cross-process transaction or lock guarantee is asserted by this runbook.
-
-### Close-out checklist
-
-- [x] Host-native verifier output is recorded for every profile claimed as supported.
-- [x] Operations, support and release owners have accepted this runbook and its escalation route.
-- [x] No schema/API/path migration was introduced; if that changes, an independent migration gate is approved first.
-- [x] Matrix evidence covers the claimed runtime-adjacent crash/restart behavior; any untested reboot/power-loss claim is removed.
-- [x] ADR-0004 and ADR-0020 are reviewed together with this ADR before changing P6 status.
+- 不扩张任何 writer、wire、IPC、schema 或 canonical authority；不提供跨文件 transaction、Windows strict、网络/可移动存储、reboot 或 power-loss durability 声明。
+- 不把 directory-sync warning、tests-only residual 或 final-file presence 解释为 strict / power-loss proof。

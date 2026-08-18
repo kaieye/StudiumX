@@ -1,8 +1,13 @@
 # ADR-0039：Codex Rust 教学化借鉴结项与信号触发 P2 边界
 
-- **状态：**已采纳（2026-07-20）
-- **范围：**结项原 `docs/plans/codex-rust-v0.144.4-teaching-adoption-plan.md` 中仍具长期效力的产品/架构边界；不新增实现切片，不重开已关闭的 P0/P1/P2 已实施规格。
-- **相关：**[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)–[0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)（P0 领域）、[ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md)（发布证明）、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)–[0028](0028-teaching-audit-correlation-safe-metadata.md)（P1）、[ADR-0029](0029-learning-branch-projection.md)–[0034](0034-redacted-support-bundle.md)（已实施 P2）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 结项原 codex-rust 教学化借鉴 plan 中仍具长期效力的产品/架构边界；P2-6（MCP）/P2-7（Helper Isolation）为默认不排期的信号触发项。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)…[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)、[ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)…[ADR-0028](0028-teaching-audit-correlation-safe-metadata.md)、[ADR-0029](0029-learning-branch-projection.md)…[ADR-0034](0034-redacted-support-bundle.md)
+- **证据：** 各已实施领域的权威 ADR 与其门禁/验收入口（见「相关」与正文表格）；`tests/e2e/teaching-learning-loop-longitudinal.e2e.spec.ts`、`tests/e2e/teaching-learning-loop-crash-recovery.e2e.spec.ts`、`tests/e2e/teaching-turn-presentation.a11y.e2e.spec.ts`
 
 ## 决定
 

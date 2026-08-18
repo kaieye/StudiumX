@@ -1,10 +1,14 @@
 # ADR-0114：Teaching-turn review last-bundle product IPC + Settings load/save
 
-- **状态：** 已实施（ADOPTION S-09 residual — durable last-bundle 闭集 product IPC + Settings 演示往返）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-09 residual — durable last-bundle 闭集 product IPC + Settings 演示往返）
 - **日期：** 2026-07-21
 - **范围：** 闭集 product IPC 读写 last durable review snapshot（userData 缓存）；Settings「加载上次 / 保存当前为上次（演示）」；**不** auto-apply；**不** skill install / memory write / settlement；**不** 把 last-bundle 提升为 teaching SoT
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0077](0077-teaching-turn-review-candidates.md)、[ADR-0080](0080-teaching-turn-review-finalize-wire.md)、[ADR-0085](0085-teaching-turn-review-human-approve-projection.md)、[ADR-0087](0087-teaching-turn-review-human-approve-ipc.md)、[ADR-0092](0092-managed-config-fs-loader.md)、[ADR-0097](0097-teaching-turn-review-settings-ui.md)、[ADR-0109](0109-teaching-turn-review-post-approve-handoff.md)、[ADR-0110](0110-teaching-turn-review-handoff-ipc.md)、[ADR-0111](0111-teaching-turn-review-settings-handoff-ui.md)、[ADR-0113](0113-teaching-turn-review-last-bundle-store.md)（pure + FS）、[ADOPTION S-09](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-types/teaching-turn-review-ipc.ts`（get/save payload + result）
   - `src/shared/teaching-types/system-api.ts` / `src/shared/teaching-ipc-contract.ts`
   - `src/main/teaching-turn-review-last-bundle-ipc.ts`（mapper）

@@ -1,10 +1,14 @@
 # ADR-0067：Cancel tool-pair close + renderer busy-ack queue
 
-- **状态：** 已实施（主进程 pair-close + gateway façade 生命周期 + renderer 本地 busy 队列/ack banner；product stream 已经 façade.prompt + invoker；autoDrain/steer IPC residual 见 ADR-0058）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（主进程 pair-close + gateway façade 生命周期 + renderer 本地 busy 队列/ack banner；product stream 已经 façade.prompt + invoker；autoDrain/steer IPC residual 见 ADR-0058）
 - **日期：** 2026-07-21
 - **范围：** B-12 / B-02 residual — cancel 时 transcript tool_call 成对闭合；renderer busy 默认入队 + 闭口 copy banner；gateway `AgentSessionFacade` registry attach
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0055](0055-busy-input-queue-and-replay-contracts.md)、[ADR-0058](0058-agent-session-facade.md)、[ADOPTION B-12 / B-02](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/ai/close-open-tool-calls.ts`
   - `src/main/ai/agent-loop.ts`（`canceledResult`）
   - `src/shared/agent-session-busy-ack.ts`

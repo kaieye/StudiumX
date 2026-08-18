@@ -1,0 +1,39 @@
+/* ================================================================
+   Bundled web fonts
+   ================================================================
+   Shantell Sans (Informal) — the hand-drawn typeface used by tldraw for
+   its default "draw" font style. Licensed under the SIL Open Font License 1.1.
+   Source: https://github.com/arrowtype/shantell-sans
+   ================================================================ */
+
+@font-face {
+  font-family: 'Shantell Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../assets/fonts/ShantellSans-Informal-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Shantell Sans';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../assets/fonts/ShantellSans-Informal-RegularItalic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Shantell Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../assets/fonts/ShantellSans-Informal-Bold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Shantell Sans';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../assets/fonts/ShantellSans-Informal-BoldItalic.woff2') format('woff2');
+}

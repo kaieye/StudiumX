@@ -1,9 +1,14 @@
 # ADR-0160：教学行为合同（Turn Shape 检查、Kernel 版本化与 Mastery Policy 治理）
 
-- **状态：** Proposed（设计草案,未实施 — 2026-07-26）
+- **决策状态：** proposed
+- **实施状态：** not_started
+- **实施说明：** Proposed（设计草案,未实施 — 2026-07-26）
 - **日期：** 2026-07-26
 - **范围：** teaching_turn 模式下对模型输出的确定性后置 Turn Shape 检查与软纠偏；`teach/SKILL.md` 内核版本化与本地教学回归命令；evaluator 掌握判据（Mastery Policy）的 ADR 化治理。**不**引入任何输出阻断、durable 写者或 CI 真实 API key 消耗。
-- **关联：** [ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)；[ADR-0012](0012-deterministic-next-teaching-step-planner.md)；[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)；[ADR-0044](0044-teaching-prompt-cache-contract.md)；[ADR-0077](0077-teaching-turn-review-candidates.md)；[ADR-0093](0093-teaching-doctor-multi-collector-facts.md)（本地诊断落点）；[ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)（kernel fail-closed / 反 shadow）；[ADR-0157](0157-learning-outcome-strength-and-consolidation.md)；`AGENTS.md` 产品地板（PR 默认 CI 不烧真实 API key）
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)；[ADR-0012](0012-deterministic-next-teaching-step-planner.md)；[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)；[ADR-0044](0044-teaching-prompt-cache-contract.md)；[ADR-0077](0077-teaching-turn-review-candidates.md)；[ADR-0093](0093-teaching-doctor-multi-collector-facts.md)（本地诊断落点）；[ADR-0151](0151-teaching-kernel-and-skill-orchestration.md)（kernel fail-closed / 反 shadow）；[ADR-0157](0157-learning-outcome-strength-and-consolidation.md)；`AGENTS.md` 产品地板（PR 默认 CI 不烧真实 API key）
+- **证据：** 未实施（Proposed，2026-07-26 设计草案）；Turn Shape 检查与 Mastery Policy 设计见本 ADR 正文。
 
 ## 1. 问题
 

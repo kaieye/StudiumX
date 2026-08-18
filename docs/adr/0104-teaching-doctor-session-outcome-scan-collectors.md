@@ -1,10 +1,14 @@
 # ADR-0104：TeachingDoctor session/outcome crash-window scan collectors（product gateway 注入）
 
-- **状态：** 已实施（session + outcome crash-window scan-derived collectors + gateway inject；source-gap residual 由其它切片负责）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（session + outcome crash-window scan-derived collectors + gateway inject；source-gap residual 由其它切片负责）
 - **日期：** 2026-07-21
 - **范围：** ADOPTION **B-11 residual** — product TeachingDoctor 路径注入真实 session/outcome crash-window facts collector（active workspace + `createLearningSessionLedger(...).scan()` 一次加载 + pure maps），使 `p0_session_event_manifest_crash_window` 与 `p0_outcome_publication_crash_window` 在有工作区时不再默认 skipped
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0084](0084-teaching-doctor-product-ipc.md)、[ADR-0093](0093-teaching-doctor-multi-collector-facts.md)、[ADR-0095](0095-teaching-doctor-settings-ui.md)、[ADR-0099](0099-teaching-doctor-config-facts-collector.md)、[ADR-0102](0102-teaching-doctor-catalog-drift-collector.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/observability/teaching-doctor-session-outcome-facts.ts`（`createTeachingDoctorSessionOutcomeScanFactsCollector` + pure mappers）
   - `src/main/observability/index.ts`（导出）
   - `src/main/teaching-ipc-gateway.ts`（doctor action `factsCollectors` 注入 session-outcome 与既有 config / catalog / source-gap）

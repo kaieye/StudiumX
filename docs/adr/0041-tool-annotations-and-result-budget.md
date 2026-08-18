@@ -1,8 +1,13 @@
 # ADR-0041：工具 Risk Annotations 与结果字节预算
 
-- **状态：** 已实施（ZCode 借鉴 Phase A）
-- **范围：** tool risk annotations（readonly/destructive/network/privileged）+ hard result byte budget
-- **证据路径：** `src/main/ai/tools/annotations.ts`、dispatcher/registry 接线
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-21
+- **范围：** 工具定义补齐 risk annotations（readonly/destructive/network/privileged）与硬结果字节预算（默认 32 KiB，超限截断并标记）。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0048](0048-tool-contract-and-write-policy.md)
+- **证据：** `src/main/ai/tools/annotations.ts`、`src/main/ai/tools/dispatcher.ts`、`src/main/ai/tools/registry.ts`、`tests/unit/tool-annotations.unit.test.ts`
 
 ## 决定
 

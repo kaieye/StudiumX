@@ -1,16 +1,23 @@
 # ADR-0130：Study planning Phase 7 高级排程决策 + §18 residual 诚实政策
 
-- **状态：** 已采纳（**决策 / residual 政策冻结**；本 ADR **不**宣称 STC-702..704 或 §18 产品已完整交付；实现切片须另立项并以代码 + 测试证据为准）
+- **决策状态：** accepted
+- **实施状态：** not_started
+- **实施说明：** 已采纳（**决策 / residual 政策冻结**；本 ADR **不**宣称 STC-702..704 或 §18 产品已完整交付；实现切片须另立项并以代码 + 测试证据为准）
 - **日期：** 2026-07-22
 - **范围：** 路线图 Phase 7 高级项（**STC-702** 自定义节奏序列、**STC-703** 重复任务/重复时间块、**STC-704** 跨日 / 时区 / DST 高级编辑）的**产品与架构决策**；以及路线图 **§18 完成定义** 在「规划文档可关闭」与「产品完整交付」之间的 **residual 诚实政策**。
-- **相关：**
+- **取代：** 无
+- **被取代：** 无
+- **相关：** 
   - Phase 0 产品与架构冻结：[ADR-0094](0094-study-task-timer-planning-design-gate.md)
   - 路径 / wire / Store 合同：[ADR-0117](0117-study-planning-store-paths-and-wire.md)
   - Renderer cutover / sole-authority 沉淀：[ADR-0129](0129-study-planning-renderer-cutover-and-sole-authority.md)（cutover 事实与 non-claims；本 ADR **不**重开 dual-write 细节）
   - 模块尺寸：[ADR-0075](0075-module-size-policy-and-giant-peel.md)
   - sole-writer / revision 精神：[ADR-0023](0023-teaching-turn-coordinator-host-and-blocking-ci.md)
   - TimerSession 命名消歧：[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)
-- **证据提交：** 本 ADR（决策记录）。Phase 7 pure 实现、renderer wire 与 §18 关闭须各自 PR / 测试 / cutover 证据；**不得**仅因本 ADR 存在而勾选产品完成。
+- **证据：** 本 ADR（决策记录）。Phase 7 pure 实现、renderer wire 与 §18 关闭须各自 PR / 测试 / cutover 证据；**不得**仅因本 ADR 存在而勾选产品完成。
+
+
+> **长度说明：** 本 ADR 的 §5/§5.1/§5.3 是 §18/STC residual 的诚实状态与 product-close 政策本体（11 条状态表 + 逐条关闭触发），属于不可压缩的治理内容；历史 IMPL 记录已移至 `docs/adr/evidence/ADR-0130.md`。
 
 ## 背景
 
@@ -106,31 +113,9 @@
 | 10 | 无默认远程 telemetry；不绕过 sole-writer / revision | **满足（纪律）** | 产品地板未放宽；须持续门禁，**不是** §18 其他条的替代 |
 | 11 | 领域 / 生命周期 / 迁移 / IPC / 关键 UI 测试 | **partial** | 大量 unit 绿；**不等于** §18 全产品 e2e 或 release-audit |
 
-> **IMPL-Z (2026-07-22) product-path evidence (bullets 1–7 only):** deterministic suite `tests/unit/study-planning-section18-product-path.unit.test.ts` freezes landed product-path behaviors with file anchors; roadmap §3.1 rows 1–7 expanded with concrete residual notes. **Statuses remain partial / partial-stronger — none flipped to satisfied; §18 overall still not satisfied.**
->
-> **IMPL-AA (2026-07-22) thrash honesty (bullet 8 residual only):** same-process concurrent IPC thrash Electron e2e landed (`tests/e2e/study-planning-timer-thrash.e2e.spec.ts` Path A; layered on IMPL-W kill-9 + IMPL-Q e2e-proxy). **Dual-window product surface N/A** (no study multi-window API). Path B later landed by IMPL-AE (below). **§18 #8 not closed; §18 overall still `not satisfied`.**
->
-> **IMPL-AE (2026-07-22) dual-process Path B thrash honesty (bullet 8 residual only):** true dual-process shared-disk thrash Electron e2e landed (`tests/e2e/study-planning-timer-thrash-dual-process.e2e.spec.ts`; different userData + product `importWorkspacePath`; concurrent advance → one ok / one `revision_conflict`; production reload-before-apply + real-disk exclusive apply lock). **Dual-window product surface still N/A.** **≠ bullet 8 full close / ≠ §18.**
->
-> **IMPL-AF (2026-07-22) demote UX e2e honesty (bullet 9 residual only):** V1 demote click-path Electron e2e landed (`tests/e2e/study-planning-v1-demote-ux.e2e.spec.ts`; confirm label `归档并停止本地权威` → marker + presence-only + kill/relaunch sole-read; dismiss `关闭` does not write marker). Cold-start e2e remains separate (seed-marker). Auto ≥30d silent wipe still banned. **§18 #9 not closed; §18 overall still `not satisfied`.**
->
-> **IMPL-AG (2026-07-22; historical — travel product later **removed**, see IMPL-PRODUCT-REMOVE-ALLOC-TRAVEL)** STC-704 defaultTimeZone honesty (residual only):** durable optional `preferences.defaultTimeZone` + store normalize (IANA / null clear / invalid fail-closed drop; never invent zone) + host-missing Intl fallback (display/stamp only) + travel settings sheet control API landed. **No silent whole-week rezone. STC-704 not landed-complete; ≠ §18.**
->
-> **IMPL-AI (2026-07-22; historical — travel product later **removed**, see IMPL-PRODUCT-REMOVE-ALLOC-TRAVEL)** STC-704 host wire honesty (residual only):** sole-read hydrate `defaultTimeZone` + `useStudySession` mirror + OfficeWorkbench props + schedule travel sheet set/clear CTA dual-write **landed** (`tests/unit/study-planning-default-timezone-host-wire.unit.test.ts`). **No silent whole-week rezone. Month polish residual still open. STC-704 not landed-complete; ≠ §18.**
->
-> **IMPL-AJ (2026-07-22; historical — travel product later **removed**, see IMPL-PRODUCT-REMOVE-ALLOC-TRAVEL)** STC-704 custom date-range filter honesty (residual only):** rezone preview range **all | week | custom civil dates** landed (`resolveCustomCivilDateRangeMs` + sheet `type=date` fields; half-open host-zone midnights; fail-closed invalid; **preview filter only — never auto-applies rezone**). **Historical snapshot only** (then partial closer); post-removal STC-704 = **removed**, not a partial product residual; **≠ §18**.
->
-> **IMPL-AK (2026-07-22) §18 #8–9 honesty refresh:** suite `tests/unit/study-planning-section18-product-path.unit.test.ts` extends bullets **8–9** with importable pure/unit contracts + e2e **file path anchors** (IMPL-W kill-9 / AA Path A thrash / AE Path B dual-process thrash / AF demote UX + cold-start). #8 freezes recovery wake map + rehydrate fail-closed + long-gap `needs_reconcile` + thrash CAS serialization; dual-window product surface **N/A**. #9 freezes demote confirm+backup + cold-start non-resurrection gates; auto ≥30d silent wipe **banned**. Roadmap §3.1 rows 8–9 residual text refreshed. **#8 remains open/improved partial; #9 remains partial closer — none flipped to satisfied; overall §18 still `not_satisfied`.**
->
-> **IMPL-AN (2026-07-22; historical — travel product later **removed**, see IMPL-PRODUCT-REMOVE-ALLOC-TRAVEL)** Wave12 residual honesty hygiene only:** re-audited roadmap §1 / §2 / §3.1 / document-status against orchestrator-wave11 residual table. No product evidence invented. **§18 overall remains `not satisfied`** — bullets 1–9 stay partial / open / improved partial; only #10 discipline satisfied. Engineering residual freeze: mostly **polish / peel hygiene / product-close policy**; thrash pack + demote UX + host wire **≠** §18 complete; dual-window product surface **N/A**. STC-704: optional **ADR-0075** peel residual on `planning-travel-zone-ui.ts` (~1100+ lines) remains **open** (IMPL-AL peel **not landed** at audit time; peel = engineering hygiene only, **≠** product closer). **Does not** flip §18 / STC-704 landed-complete.
->
-> **IMPL-AL (2026-07-22; historical — travel product later **removed**, see IMPL-PRODUCT-REMOVE-ALLOC-TRAVEL)** STC-704 travel-ui peel hygiene only:** behavior-preserving peel of planning-travel-zone-ui.ts (**1113 → 349** facade) into planning-travel-zone-range / planning-travel-deep-link / planning-travel-rezone-preview + stable barrel re-exports; **no product UX change**; units 63 green + typecheck. **Engineering hygiene only — ≠ STC-704 landed-complete / ≠ §18.**
->
-> **IMPL-AO (2026-07-22) §18 product-close evidence policy freeze (docs only):** adds **§5.3 product-close evidence policy** — freezes, for still-open residuals / §18 bullets **1–9 and 11**, (a) product evidence required to flip status, (b) currently landed evidence that is **insufficient** alone (thrash pack / suite green / peel hygiene / demote e2e alone). Dual-window product surface remains **N/A** (do not invent multi-window UI). Auto >=30d V1 wipe remains **banned** unless future explicit confirm UX lands. Engineering residual for study planning roadmap is **converged to polish + product-close policy**; inventing more features solely to force §18 complete is **out of scope**. **§18 overall still `not satisfied`** — bullets 1-9 stay partial / open / improved partial; only #10 discipline satisfied. （历史 impl 报告目录 `docs/_agent-work/` 已于 2026-07-22 清理；政策以本 ADR §5.3 为准）。
-
-> **IMPL-PRODUCT-REMOVE-ALLOC-TRAVEL (2026-07-22) product surface removal (code + residual honesty):** User product decision removes (1) **按时钟方案生成排程提案** — `allocateTimeWindow` / multi-window day / utilization-compare / AllocationProposal preview UI / `apply_allocation_proposal` dual-write / store command; (2) **旅行时区** — travel settings sheet / rezone dual-write / prefs deep-link / durable `preferences.defaultTimeZone` / host wire. **Kept:** TimerPlan catalog, conflict detect/resolve (STC-707), estimate suggestion, timezone-DST/overnight projection helpers, optional block `timeZone` + `confirmOverwriteTimeZone` write policy (no product UI). **§18 overall remains `not satisfied`** — bullet #2 status becomes **partial weaker** (template-only residual; do **not** flip to satisfied because a feature was removed).
->
-> **IMPL-AQ (2026-07-22) post-removal residual honesty freeze (docs only):** re-audited roadmap §1 / §2 / §3.1 / document-status + this ADR §5 / §5.1 / §5.3 against product-removal reality. **STC-704 = removed** (not partial closer / not open deliverable). **Allocation product removed** remains in §5 / §5.3 bullet #2 insufficient-evidence wording. Engineering residual freeze: **702 polish (freeze landed) + 703 honest skip + product-close policy (§5.3) + V1 sole-authority end-state policy + sleep/crash product-close** (thrash pack ≠ full close; dual-window **N/A**). **Do not re-open** travel/allocate as product residual. **§18 overall still `not satisfied`** — bullets 1–9 not flipped; only #10 discipline. （历史 impl 报告目录 `docs/_agent-work/` 已于 2026-07-22 清理；政策以本 ADR §5 / §5.3 为准）。
+> 后续 IMPL-* 历史合入记录（IMPL-Z … IMPL-AQ、IMPL-PRODUCT-REMOVE-ALLOC-TRAVEL）
+> 已归档至 `docs/adr/evidence/ADR-0130.md`。这些实现记录**不单独关闭** §18
+> bullet；关闭政策见 §5.3。
 
 #### 5.1 明确仍开放的 residual（默认不因 roadmap close 而消失）
 

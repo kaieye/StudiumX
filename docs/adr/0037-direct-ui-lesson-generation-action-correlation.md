@@ -1,8 +1,13 @@
 # ADR-0037：Direct-UI lesson generation 用户动作关联（首个切片）
 
-- **状态：** 已采纳 / 已实施（限定首个切片）
-- **范围：** C-5I direct-UI `generateLesson` / `generateLessonStream` only
-- **证据提交：** 见本分支 `agent/c5i-lesson` 关闭提交；验证入口见文末
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** direct-UI `generateLesson` / `generateLessonStream` 首个切片：caller `actionId`、private receipt 与 provider-boundary 前的 durable `accepted`/`provider_started`。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0036](0036-mission-update-action-receipt-correlation.md)
+- **证据：** `src/main/direct-lesson-action.ts`、`src/main/teaching-workspace.ts`（direct path only）、`src/main/teaching-ipc-commands.ts`、`tests/unit/direct-lesson-action-receipt.unit.test.ts`、`tests/unit/direct-lesson-action-coordinator.unit.test.ts`、`tests/unit/teaching-ipc-generate-lesson-action.unit.test.ts`
 
 ## 背景
 

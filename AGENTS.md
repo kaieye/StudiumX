@@ -17,7 +17,7 @@
 | effect lattice + TOOL_CONTRACT | `read` / `workspace_write` / `external_write` / `privileged` 三态审批；**禁止 YOLO / always-approve 标签** |
 | Settlement sole-writer | `TeachingTurnCoordinator` / host 为 outcome settlement 唯一写入路径；IPC 须 `expectedRevision`；fork 路径保持 `toolsReplayed: false` |
 | 持续运行与上下文治理 | 反对不透明、低位、默认的累计 token / provider 调用次数 / 工具调用次数 / 运行时长 / iteration quota；允许可审计的高位 emergency fuse、用户显式资源预算与部署/组织策略，触发时仅报告 `resource_limit` / `suspended`，不得伪装为 provider quota 或学习成功。优先通过上下文压缩、续接与用户可取消的运行处理压力；模型上下文上限、工具超时和工具输出截断属于局部技术边界。教学 authority、settlement sole-writer、`expectedRevision`、`toolsReplayed:false`、审批/effect 与恢复不自动重放工具不变。详见 [ADR-0171](docs/adr/0171-continuous-agent-runs-and-context-governance.md)。 |
-| 同意门控 memory | 无人批不自动注入 / 不启动自动 memory phase；**禁止 FTS5 / 向量库作产品搜索** |
+| 同意门控 memory | 无人批不自动注入 / 不启动自动 memory phase；**禁止 FTS5 / 向量库作面向用户的产品搜索面**（教学内部词法检索如 `memory_search` 不受此限，见 [ADR-0050](docs/adr/0050-lexical-memory-search-and-synthetic-memory.md)；重开 FTS 产品面须独立 disposable 索引 + 新 ADR，见 [ADR-0124](docs/adr/0124-database-layered-authority-and-pr-gates.md) DB-P2-2） |
 | Blocking 领域门禁优先 | teaching / privacy / security 领域门禁 **优先于** 泛型 lint 与覆盖率时尚 |
 
 `pnpm run check:analytics` 是 **本地 study analytics 测试地基检查**，**不是** 远程 telemetry / phone-home。
@@ -53,9 +53,9 @@ git config core.hooksPath .githooks
 
 1. **不要**增加、恢复或信任 `tools.enabled` 总开关；工具执行仍须经过具体 capability、工作区信任、审批、路径围栏、沙箱与局部技术边界。不要用 YOLO / DangerFullAccess / always-approve 标签；不要宣称 Docker/VM 级 OS sandbox 完备（ADR-0152/0153）。
 2. **不要** 加 YOLO / DangerFullAccess / always-approve 默认或 UI 标签（`full_access` 仅称「本课放行 / 宽松策略」）。
-3. **MCP 产品面**以 [ADR-0142](docs/adr/0142-mcp-product-surface-settings-only.md) 为准：Settings **仅** list/editor/import/OAuth；**不要**再挂 marketplace 设置页或半成品市场入口。host/foundation（ADR-0140 store/IPC）可保留。所有 MCP tools 仍必须入 effect lattice 与 approval；禁止 YOLO 标签、jiti 全权限扩展、code-mode 执行不可信代码或 shell-escalation 旁路；secret 永不进 public DTO / Doctor / support bundle。
+3. **MCP 产品面**以 [ADR-0142](docs/adr/0142-mcp-product-surface-settings-only.md) 为准：Settings **仅** list/editor/import/OAuth；**不要**再挂 marketplace 设置页或半成品市场入口（注：marketplace Settings UI 当前不交付为**设计 non-claim，非永久禁止**；开放路径与前置条件见 ADR-0142 §6）。host/foundation（ADR-0140 store/IPC）可保留。所有 MCP tools 仍必须入 effect lattice 与 approval；禁止 YOLO 标签、jiti 全权限扩展、code-mode 执行不可信代码或 shell-escalation 旁路；secret 永不进 public DTO / Doctor / support bundle。
 4. **不要** 默认远程 OTEL / phone-home；本地 doctor / support-bundle 须脱敏与同意。
-5. **不要** 用 SQLite FTS 或向量库做产品搜索面。
+5. **不要** 用 SQLite FTS 或向量库做**面向用户的产品搜索面**；教学内部词法检索（`memory_search`）不受此限；重开 FTS 产品面须走独立 disposable 索引 + 新 ADR（DB-P2-2，ADR-0124）。
 6. **不要** 启动自动 memories / dream / 静默改 learner-profile 或自动 skill 创建。
 7. **不要** 绕过 settlement sole-writer、放宽 `expectedRevision`、或让 fork 默认可执行工具历史（破坏 `toolsReplayed:false`）。
 8. **不要** 用覆盖率或泛型 CI **替换** teaching / privacy / security 领域门禁；只能叠加。

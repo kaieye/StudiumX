@@ -25,6 +25,7 @@ import {
 } from './ai/product-agent-chat-invoker'
 import { openExternalHttpUrl } from './external-links'
 import { actOnAppUpdate, checkForAppUpdates, openAppUpdateDialog } from './app-updater'
+import { listSystemFonts } from './system-fonts'
 import type { Logger } from './logger'
 import { isPathInsideConfiguredRoot, isRealPathInsideRoot } from './path-access'
 import { fetchUpstreamModels, probeModelProvider } from './provider-connection'
@@ -1515,6 +1516,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           state.workspaces.map(async (workspace) => ({
             workspaceId: workspace.id,
             name: workspace.name,
+            path: workspace.rootPath,
             documents: await getMindMapStore(workspace.rootPath).list()
           }))
         )
@@ -2170,6 +2172,12 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           getMindMapSvgExportDimensions(p.input)
         )
       },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.listSystemFonts,
+      parser: () => undefined,
+      action: async () => listSystemFonts(),
       reply: identityReply, streamCleanup: noStreamCleanup
     })
   ]

@@ -1,9 +1,14 @@
 # ADR-0123：可选 Runtime Session Store（仅设计；未实施）
 
-- **状态：** Proposed / **未实施**（DB-OPT-6 设计 gate only）
+- **决策状态：** proposed
+- **实施状态：** not_started
+- **实施说明：** Proposed / **未实施**（DB-OPT-6 设计 gate only）
 - **日期：** 2026-07-21
 - **范围：** 高 churn 运行时会话中间态的 **可选 disposable SQLite 缓存** 形状、硬门槛与 non-claims
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)、[ADR-0040](0040-teaching-session-protocol-facade.md)、[ADR-0124](0124-database-layered-authority-and-pr-gates.md)（分层权威 / **DB-P2-3** / DB-OPT-6）
+- **证据：** 未实施（Proposed，DB-OPT-6 设计 gate only）；设计与约束见本 ADR 正文。
 
 ## 背景
 

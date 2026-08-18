@@ -1,8 +1,14 @@
 # ADR-0166：教学诊断 / turn-review 设置导航延期下线（暂未找到合适展示方式）
 
-- **状态：** **已实施（展示面回退）**（2026-07-31）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** **已实施（展示面回退）**（2026-07-31）
+- **日期：** 2026-07-31
 - **范围：** 将 Settings 左侧导航 `settingsNavItems` 中的「诊断（`doctor`）」与「复核（`review`）」两项注释下线，并移除随之失用的 `Stethoscope` / `FileCheck2` 图标 import。`SettingsView` 中 `section === 'doctor'` / `section === 'review'` 的渲染分支、`TeachingDoctorSettingsSection` / `TeachingTurnReviewSettingsSection` 组件逻辑，以及对应单测全部保留。
-- **关联：** [ADR-0165](0165-teaching-capability-trigger-surface-deferral.md)（同类展示面延期先例）、[ADR-0163](0163-teaching-capability-selection-and-plan-preview.md)、[ADR-0164](0164-unified-teaching-chain-and-skill-admission.md)、[ADR-0095](0095-teaching-doctor-settings-ui.md)（doctor Settings UI / IPC 合同）
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0165](0165-teaching-capability-trigger-surface-deferral.md)（同类展示面延期先例）、[ADR-0163](0163-teaching-capability-selection-and-plan-preview.md)、[ADR-0164](0164-unified-teaching-chain-and-skill-admission.md)、[ADR-0095](0095-teaching-doctor-settings-ui.md)（doctor Settings UI / IPC 合同）
+- **证据：** 展示面回退落点：`src/renderer/src/workflows/settings.ts`（`settingsNavItems` 注释下线）；保留测试 `tests/unit/teaching-doctor-settings-section.unit.test.tsx`、`tests/unit/teaching-turn-review-settings-section.unit.test.tsx`。
 - **限定：** 本 ADR 仅回退 Settings 导航展示面，不改变 doctor 检查语义、turn-review 投影 / 决策语义、IPC 合同、settlement sole-writer、effect lattice 或三态审批。
 
 ## 1. 背景

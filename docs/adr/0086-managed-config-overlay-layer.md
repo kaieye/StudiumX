@@ -1,10 +1,14 @@
 # ADR-0086：Managed 校/团 secret-free 配置 overlay 层
 
-- **状态：** 已实施（ADOPTION S-11 纯层切片）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-11 纯层切片）
 - **日期：** 2026-07-21
 - **范围：** TeachingConfigResolver 增加可选 `managed` 层；调用方注入 raw 文档；保持 secret-free 投影与 fingerprint CAS 语义
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0025](0025-teaching-config-resolver-secret-free-layers.md)、[ADR-0033](0033-config-optimistic-concurrency.md)、[ADR-0071](0071-workspace-config-denylist.md)、[ADOPTION S-11](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/teaching-config-resolver.ts`
   - `src/main/teaching-config-denylist.ts`（层策略注释）
   - `tests/unit/teaching-config-resolver.unit.test.ts`

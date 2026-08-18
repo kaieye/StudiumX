@@ -1,8 +1,13 @@
 # ADR-0028：Teaching Audit Correlation 与安全元数据边界
 
-- **状态：** 已实施（P1-11；合入 main `0391ba8` / feature `f1a7f3d`）
-- **范围：** 教学回合 correlation 缝、allowlist 安全元数据、导出脱敏
-- **证据提交：** `f1a7f3d`、merge `0391ba8`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 教学审计 correlation 使用封闭 `AuditCorrelation` 与 allowlisted `TeachingAuditSafeMetadata`；默认不投影 provider payload / secret / learner answer / raw reasoning / 完整绝对路径。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0021](0021-agent-run-state-machine-separate-from-session.md)
+- **证据：** `src/main/teaching-audit-correlation.ts`、`scripts/check-teaching-audit-correlation.mjs`、`tests/unit/teaching-audit-correlation.unit.test.ts`；提交 `f1a7f3d`、merge `0391ba8`
 
 ## 决定
 

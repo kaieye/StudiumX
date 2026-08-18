@@ -1,8 +1,13 @@
 # ADR-0008：将 LearningSession 作为独立教学过程，并由 LearningSessionLedger 持久化
 
-- **状态：** 已实施（P0 教学事实基线；Win/Mac 发布证明见 ADR-0017）
-- **范围：** LearningSession 身份、canonical ledger、legacy projection、恢复与幂等 append receipt
-- **证据提交：** `20ae4e9`、`1052aa2`、`f4f7e40`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-19
+- **范围：** `LearningSession` 作为独立 canonical 教学过程，由 `LearningSessionLedger` 持久化；catalog / UI / 旧 Lesson 视图为可修复 projection。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0001](0001-rebuildable-sqlite-projection.md)、[ADR-0002](0002-utc-partitioned-segmented-jsonl-and-summary-projections.md)、[ADR-0017](0017-win-mac-p0-release-proof-and-audit-policy.md)、[ADR-0018](0018-recordless-learning-outcome-marker-only-settlement-authority.md)
+- **证据：** `src/main/learning-session-ledger.ts`、`tests/unit/learning-session-ledger.unit.test.ts`；提交 `20ae4e9`、`1052aa2`、`f4f7e40`
 
 ## 决定
 

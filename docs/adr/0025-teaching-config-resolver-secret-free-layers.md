@@ -1,8 +1,13 @@
 # ADR-0025：TeachingConfigResolver 分层无密钥快照
 
-- **状态：** 已实施（P1-4；合入 main `a6072a1` / feature `a21de1b`）
-- **范围：** 教学闭环配置分层解析、字段级来源、密钥剥离与可解释诊断
-- **证据提交：** `a21de1b`、merge `a6072a1`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 教学闭环配置由 `TeachingConfigResolver` 按 default < user < workspace < session_override 分层投影为 secret-free `ResolvedTeachingConfig`。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0033](0033-config-optimistic-concurrency.md)
+- **证据：** `src/main/teaching-config-resolver.ts`、`tests/unit/teaching-config-resolver.unit.test.ts`；提交 `a21de1b`、merge `a6072a1`
 
 ## 决定
 

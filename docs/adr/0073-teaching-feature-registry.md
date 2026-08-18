@@ -1,10 +1,14 @@
 # ADR-0073：教学 FeatureRegistry（薄元数据 + stage 生命周期）
 
-- **状态：** 已实施（ADOPTION S-05）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-05）
 - **日期：** 2026-07-21
 - **范围：** 纯共享 `src/shared/features.ts` 教学产品功能元数据表与 stage 门控；**不是**第二套授权/能力系统
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0022](0022-teaching-capability-catalog-read-only-readiness.md)、[ADR-0046](0046-teaching-footprint-ladder.md)、[ADR-0048](0048-tool-contract-and-write-policy.md)、[ADR-0055](0055-busy-input-queue-and-replay-contracts.md)、[ADOPTION S-05](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/features.ts`
   - `tests/unit/features.unit.test.ts`
 

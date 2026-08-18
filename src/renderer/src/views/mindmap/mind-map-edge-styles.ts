@@ -376,6 +376,12 @@ export function resolveLinePatternWithReport(
  * Tapered (StudiumX "线条渐细") edge rendered as a closed polygon whose width
  * shrinks from the parent anchor toward the child anchor. Produces a true
  * width taper that a uniform `stroke-width` cannot express.
+ *
+ * The polygon shoulders follow the same capped cubic-bezier tangents as
+ * {@link curveEdgePath} so a tapered branch still reads as the smooth,
+ * StudiumX-style fold — not a flat straight wedge — and the polygon is filled
+ * (never stroked) by the caller, which keeps the taper colour inside the
+ * shape instead of bleeding a halo around it.
  */
 export function taperedEdgePath(
   from: MindMapLayoutNode,
@@ -388,9 +394,35 @@ export function taperedEdgePath(
   const w1 = Math.max(0.5, startWidth)
   const w2 = Math.max(0.5, endWidth)
   if (edge.axis === 'vertical') {
-    return `M ${edge.x1 - w1 / 2} ${edge.y1} L ${edge.x1 + w1 / 2} ${edge.y1} L ${edge.x2 + w2 / 2} ${edge.y2} L ${edge.x2 - w2 / 2} ${edge.y2} Z`
+    const dy = Math.max(24, Math.abs(edge.y2 - edge.y1))
+    const control = Math.min(36, dy / 2)
+    const turn = edge.direction
+    const topStart = edge.x1 - w1 / 2
+    const topEnd = edge.x2 - w2 / 2
+    const bottomStart = edge.x1 + w1 / 2
+    const bottomEnd = edge.x2 + w2 / 2
+    return (
+      `M ${topStart} ${edge.y1} ` +
+      `C ${topStart} ${edge.y1 + turn * control}, ${topEnd} ${edge.y2 - turn * control}, ${topEnd} ${edge.y2} ` +
+      `L ${bottomEnd} ${edge.y2} ` +
+      `C ${bottomEnd} ${edge.y2 - turn * control}, ${bottomStart} ${edge.y1 + turn * control}, ${bottomStart} ${edge.y1} ` +
+      'Z'
+    )
   }
-  return `M ${edge.x1} ${edge.y1 - w1 / 2} L ${edge.x1} ${edge.y1 + w1 / 2} L ${edge.x2} ${edge.y2 + w2 / 2} L ${edge.x2} ${edge.y2 - w2 / 2} Z`
+  const dx = Math.max(24, Math.abs(edge.x2 - edge.x1))
+  const control = Math.min(36, dx / 2)
+  const dir = edge.direction
+  const topStart = edge.y1 - w1 / 2
+  const topEnd = edge.y2 - w2 / 2
+  const bottomStart = edge.y1 + w1 / 2
+  const bottomEnd = edge.y2 + w2 / 2
+  return (
+    `M ${edge.x1} ${topStart} ` +
+    `C ${edge.x1 + dir * control} ${topStart}, ${edge.x2 - dir * control} ${topEnd}, ${edge.x2} ${topEnd} ` +
+    `L ${edge.x2} ${bottomEnd} ` +
+    `C ${edge.x2 - dir * control} ${bottomEnd}, ${edge.x1 + dir * control} ${bottomStart}, ${edge.x1} ${bottomStart} ` +
+    'Z'
+  )
 }
 
 type ConnectorPathStyle = MindMapConnectorStyle | 'straight'

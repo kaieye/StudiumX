@@ -30,6 +30,24 @@ describe('mind map element style geometry helpers', () => {
       )
     })
 
+    it('routes flexible-angled through its curve point as the elbow pivot', () => {
+      const path = relationshipElementPath(from, to, 'flexible-angled', {
+        curvePoint: { x: 80, y: 40 }
+      })
+      // The curve point x becomes the elbow; y is ignored for the pivot.
+      expect(path).toBe('M 0 0 L 80 0 L 80 80 L 200 80')
+    })
+
+    it('routes flexible-zigzag through its curve point with oscillation', () => {
+      const path = relationshipElementPath(from, to, 'flexible-zigzag', {
+        curvePoint: { x: 100, y: 40 }
+      })
+      // The path must start at from, end at to, and pass through the curve point.
+      expect(path.startsWith('M 0 0')).toBe(true)
+      expect(path.endsWith('L 200 80')).toBe(true)
+      expect(path).toContain('100 40')
+    })
+
     it('renders one quadratic arc through its draggable middle point', () => {
       const path = relationshipElementPath(from, to, 'curved', {
         curvePoint: { x: 100, y: 36 }
@@ -114,6 +132,89 @@ describe('mind map element style geometry helpers', () => {
       expect(d.startsWith('M 200 0')).toBe(true)
       expect(d).toContain('C 70.4 0')
     })
+
+    it('shrinks the endpoint handle when a dragged curve approaches sideways', () => {
+      // A curve point far to the side of a vertical connector pulls the path
+      // perpendicular to the target-facing tangent. The endpoint handle must
+      // shrink so the forced tangent transition is gradual, not a visible kink.
+      const from = { x: 0, y: 0 }
+      const to = { x: 0, y: 200 }
+      const curvePoint = { x: 120, y: 100 }
+      const path = relationshipElementPath(from, to, 'curved', {
+        curvePoint,
+        fromTangent: { x: 0, y: 1 },
+        toTangent: { x: 0, y: 1 }
+      })
+      const segments = path.split(' C ')
+      if (segments.length !== 3) throw new Error('expected two cubic curve segments')
+      const numbers = (segment: string) => (
+        segment.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? []
+      )
+      const last = numbers(segments[2]!)
+      // c4 = to - toDirection * toHandle. Since toDirection is (0, 1) and
+      // to = (0, 200), c4 = (0, 200 - toHandle). The outgoing direction from
+      // curvePoint to to is (-0.6, 0.8), and toDirection is (0, 1), so the
+      // dot product is 0.8 — a partial alignment. The handle should be shorter
+      // than the unscaled value but still meaningful.
+      const c4y = last[3]!
+      const toHandle = 200 - c4y
+      expect(toHandle).toBeGreaterThan(0)
+      // Unscaled handle would be min(72, max(4, ~120 * 0.34)) = ~40.8.
+      // With alignment 0.8, factor = 0.2 + 0.8*0.8 = 0.84.
+      // Scaled: ~34.3. Should be less than the unscaled 40.8.
+      const toDistance = Math.hypot(to.x - curvePoint.x, to.y - curvePoint.y)
+      const unscaledHandle = Math.min(72, Math.max(4, toDistance * 0.34))
+      expect(toHandle).toBeLessThan(unscaledHandle)
+    })
+
+    it('uses a minimal endpoint handle when the curve approaches perpendicular to the tangent', () => {
+      // When curvePoint is directly to the side at the same y as the target,
+      // the outgoing direction is horizontal while toDirection is vertical —
+      // dot product is 0. The handle shrinks to 20% of its unscaled length.
+      const from = { x: 0, y: 0 }
+      const to = { x: 0, y: 100 }
+      const curvePoint = { x: 100, y: 100 }
+      const path = relationshipElementPath(from, to, 'curved', {
+        curvePoint,
+        fromTangent: { x: 0, y: 1 },
+        toTangent: { x: 0, y: 1 }
+      })
+      const segments = path.split(' C ')
+      if (segments.length !== 3) throw new Error('expected two cubic curve segments')
+      const numbers = (segment: string) => (
+        segment.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? []
+      )
+      const last = numbers(segments[2]!)
+      // c4 = (0, 100 - toHandle). toHandle should be ~20% of unscaled.
+      const toHandle = 100 - last[3]!
+      const toDistance = Math.hypot(to.x - curvePoint.x, to.y - curvePoint.y)
+      const unscaledHandle = Math.min(72, Math.max(4, toDistance * 0.34))
+      expect(toHandle).toBeLessThan(unscaledHandle * 0.3)
+    })
+
+    it('keeps a moderately diagonal approach smooth before the arrowhead', () => {
+      const from = { x: 0, y: 0 }
+      const to = { x: 460, y: 500 }
+      const curvePoint = { x: 217, y: 359 }
+      const path = relationshipElementPath(from, to, 'curved', {
+        curvePoint,
+        fromTangent: { x: 1, y: 0 },
+        toTangent: { x: 0, y: 1 }
+      })
+      const segments = path.split(' C ')
+      if (segments.length !== 3) throw new Error('expected two cubic curve segments')
+      const values = segments[2]!.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? []
+      if (values.length !== 6) throw new Error('expected terminal cubic control points')
+
+      const toHandle = to.y - values[3]!
+      const unscaledHandle = Math.min(72, Math.max(4, Math.hypot(to.x - curvePoint.x, to.y - curvePoint.y) * 0.34))
+
+      // A diagonal approach still needs most of the available handle length to
+      // turn smoothly into the target-facing tangent. A linear alignment scale
+      // made this transition too short and produced the kink shown in the UI.
+      expect(toHandle).toBeGreaterThan(unscaledHandle * 0.75)
+      expect(toHandle).toBeLessThan(unscaledHandle)
+    })
   })
 
   describe('relationshipArrowMarkerPath', () => {
@@ -145,9 +246,10 @@ describe('mind map element style geometry helpers', () => {
       expect(relationshipArrowMarkerMetrics('none')).toBeUndefined()
       expect(relationshipArrowMarkerMetrics('dot')).toEqual({ refX: 9 })
       expect(relationshipArrowMarkerMetrics('triangle')).toEqual({
-        refX: 10.45,
-        markerWidth: 12,
-        markerHeight: 12
+        refX: 1,
+        markerWidth: 8,
+        markerHeight: 8,
+        pathInset: 6.96
       })
       expect(relationshipArrowMarkerMetrics('spearhead')).toEqual({ refX: 9, open: true })
       expect(relationshipArrowMarkerMetrics('square')).toEqual({ refX: 10 })
@@ -155,10 +257,40 @@ describe('mind map element style geometry helpers', () => {
       expect(relationshipArrowMarkerMetrics('herringbone')).toEqual({ refX: 12, overflow: 'visible', open: true })
       expect(relationshipArrowMarkerMetrics('attached')).toEqual({ refX: 13, overflow: 'visible', open: true })
 
-      const triangle = relationshipArrowMarkerMetrics('triangle')
-      if (!triangle) throw new Error('expected triangle metrics')
-      const visibleTipOffset = (9.7 - triangle.refX) * (triangle.markerWidth ?? 8) / 10
-      expect(visibleTipOffset).toBeLessThan(0)
+      // Anchor the marker at the triangle base and shorten the visible path by
+      // the same amount. The shaft then stops before the taper while the sharp
+      // marker tip still lands on the user's semantic endpoint.
+      const trianglePath = relationshipElementPath(
+        { x: 0, y: 0 },
+        { x: 0, y: 100 },
+        'straight',
+        { endArrow: 'triangle' }
+      )
+      expect(trianglePath).toBe('M 0 0 L 0 93.04')
+    })
+
+    it('insets a diagonal straight arrow along the rendered line, not the anchor normal', () => {
+      const path = relationshipElementPath(
+        { x: 0, y: 0 },
+        { x: 100, y: 100 },
+        'straight',
+        { toTangent: { x: 1, y: 0 }, endArrow: 'triangle' }
+      )
+      const inset = 6.96 / Math.SQRT2
+      expect(path).toBe(`M 0 0 L ${100 - inset} ${100 - inset}`)
+    })
+
+    it('uses a curved path terminal tangent when placing a triangle marker', () => {
+      const path = relationshipElementPath(
+        { x: 0, y: 0 },
+        { x: 200, y: 80 },
+        'curved',
+        { endArrow: 'triangle' }
+      )
+      // The default cubic approaches its endpoint horizontally. The marker
+      // inset must therefore stop at y=80, rather than moving diagonally along
+      // the endpoint chord and leaving its tip away from the edit handle.
+      expect(path).toBe('M 0 0 C 96.52 0, 96.52 80, 193.04 80')
     })
   })
 

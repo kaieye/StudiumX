@@ -1,8 +1,13 @@
 # ADR-0018：Recordless Learning Outcome 仅以 marker 为 settlement authority
 
-- **状态：** 已实施（recordless marker-only settlement 与定向自动化；不代表 C-4P6 durability close-out 或 P0 发布闭环完成）
-- **范围：** `needs_practice` / `not_evidenced` 的 settlement authority、`outcome-settlement.json` marker-only 路径、restart/retry 的 marker 校验与 public result
-- **证据提交：** `0acaaa4`、`0692732`、`7292bf4`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** `needs_practice` / `not_evidenced` 为 recordless outcome kind，仅以 matching `outcome-settlement.json`（`record: null`）作为 durable settlement authority。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0004](0004-shared-durable-publish-and-partial-consumer-migration.md)、[ADR-0008](0008-learning-session-ledger-as-canonical-teaching-process.md)、[ADR-0010](0010-evidence-gated-learning-record-cutover.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADR-0016](0016-trusted-assessment-artifacts-for-outcome-evaluation.md)
+- **证据：** `src/main/learning-outcome-committer.ts`（`writesLearningRecord`、recordless `commit()`、无 record 时 `reconcileLocked()` marker-only 路径）、`tests/unit/learning-outcome-committer.unit.test.ts`；提交 `0acaaa4`、`0692732`、`7292bf4`
 
 ## 决定
 

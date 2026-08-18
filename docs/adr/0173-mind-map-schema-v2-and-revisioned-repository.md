@@ -1,9 +1,13 @@
 # ADR-0173：思维导图 schema v2、revisioned repository 与统一命令
 
-- **状态：** 已批准（M0 基线契约，按切片实施）
+- **决策状态：** accepted
+- **实施状态：** partial
 - **日期：** 2026-08-10
 - **范围：** StudiumX 原生思维导图的数据模型 v2、revision / `expectedRevision` 持久化和 IPC 契约、统一命令入口与 undo / redo，以及来源锚点和教学投影边界。
-- **相关：** [ADR-0172](0172-mind-map-and-ai-assist.md)、[ADR-0131](0131-pathname-default-durable-io.md)、[ADR-0167](0167-teaching-authority-and-syncable-user-state.md)、[ADR-0075](0075-module-size-policy-and-giant-peel.md)。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0172](0172-mind-map-and-ai-assist.md)、[ADR-0131](0131-pathname-default-durable-io.md)、[ADR-0167](0167-teaching-authority-and-syncable-user-state.md)、[ADR-0075](0075-module-size-policy-and-giant-peel.md)
+- **证据：** `src/shared/mindmap/`、`src/main/mindmap/`、`src/renderer/src/views/mindmap/`、`pnpm run check:mindmap`、`tests/unit/mind-map-*.unit.test.ts*`
 
 ## 1. 背景
 

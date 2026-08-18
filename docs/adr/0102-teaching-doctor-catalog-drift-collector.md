@@ -1,10 +1,14 @@
 # ADR-0102：TeachingDoctor catalog drift facts collector（product gateway 注入）
 
-- **状态：** 已实施（catalog drift collector + gateway inject；session/outcome residual）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（catalog drift collector + gateway inject；session/outcome residual）
 - **日期：** 2026-07-21
 - **范围：** ADOPTION **B-11 residual** — product TeachingDoctor 路径注入真实 catalog drift facts collector（active workspace + `planLessonIndexReconciliation` 适配），使 `catalog_drift` 在有工作区时不再默认 skipped
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0084](0084-teaching-doctor-product-ipc.md)、[ADR-0093](0093-teaching-doctor-multi-collector-facts.md)、[ADR-0095](0095-teaching-doctor-settings-ui.md)、[ADR-0099](0099-teaching-doctor-config-facts-collector.md)
-- **证据路径：**
+- **证据：** 
   - `src/main/observability/teaching-doctor-catalog-facts.ts`（`createTeachingDoctorCatalogDriftFactsCollector`）
   - `src/main/observability/index.ts`（导出）
   - `src/main/teaching-ipc-gateway.ts`（doctor action `factsCollectors` 注入 catalog 与既有 config）

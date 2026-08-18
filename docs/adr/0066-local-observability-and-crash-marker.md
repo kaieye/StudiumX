@@ -1,10 +1,13 @@
 # ADR-0066：本地可观测性（turn/tool 相关 + crash marker + 导出 fail-closed 脱敏）
 
-- **状态：** 已实施（ADOPTION B-11）
+- **决策状态：** accepted
+- **实施状态：** complete
 - **日期：** 2026-07-21
 - **范围：** 进程内 turn/tool 相关 ID、appData crash marker、导出字符串 fail-closed 脱敏；**无**默认远程 telemetry
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0005](0005-main-owned-trace-correlation-and-safe-logs.md)、[ADR-0027](0027-read-only-teaching-doctor-and-workspace-inspector.md)、[ADR-0028](0028-teaching-audit-correlation-safe-metadata.md)、[ADR-0034](0034-redacted-support-bundle.md)、[ADOPTION B-11](0121-improvements-adoption-closeout.md)
-- **证据路径：** `src/main/observability/*`、`src/main/index.ts`（hook install）、`scripts/lib/doctor-snapshot.mjs`（CLI facts）、`src/main/teaching-doctor.ts`、`src/shared/teaching-types/teaching-doctor.ts`、`tests/unit/local-observability.unit.test.ts`、`tests/unit/teaching-doctor.unit.test.ts`
+- **证据：** `src/main/observability/*`、`src/main/index.ts`（hook install）、`scripts/lib/doctor-snapshot.mjs`（CLI facts）、`src/main/teaching-doctor.ts`、`src/shared/teaching-types/teaching-doctor.ts`、`tests/unit/local-observability.unit.test.ts`、`tests/unit/teaching-doctor.unit.test.ts`
 
 ## 背景
 
@@ -34,14 +37,6 @@
    - CLI collector：`scripts/lib/doctor-snapshot.mjs` 读取 `userData/observability/crash-marker.json` 写入 `snapshot.processCrashMarker`（只读，不 clear）。  
    - **残差：** 产品 IPC/UI 尚未自动 assemble TeachingDoctorFacts 并展示；support-bundle 仍接已生成的 doctor report，不直接扫 marker。
 
-## 已实施范围与验证入口
-
-```powershell
-pnpm exec vitest run --project unit tests/unit/local-observability.unit.test.ts
-pnpm exec vitest run --project unit tests/unit/teaching-doctor.unit.test.ts
-node scripts/check-teaching-doctor.mjs
-```
-
 ## 不变量
 
 - 无默认远程 telemetry / crash auto-upload。  
@@ -49,7 +44,15 @@ node scripts/check-teaching-doctor.mjs
 - Doctor 保持只读；clear marker 是独立 effect。  
 - 未知 / 畸形 marker → 视为 absent 或 `unknown`，不抛出敏感原文。
 
-## 不包含 / non-claims
+## 验证
+
+```powershell
+pnpm exec vitest run --project unit tests/unit/local-observability.unit.test.ts
+pnpm exec vitest run --project unit tests/unit/teaching-doctor.unit.test.ts
+node scripts/check-teaching-doctor.mjs
+```
+
+## 非目标
 
 - **不**引入 OTEL、Statsig、Mixpanel 或默认 phone-home。  
 - **不**自动上传 crash report 或 support bundle。  

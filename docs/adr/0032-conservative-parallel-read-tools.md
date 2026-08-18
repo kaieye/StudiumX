@@ -1,8 +1,13 @@
 # ADR-0032：保守的并行只读工具调度
 
-- **状态：** 已实施（P2-4；feature `f87209b`；merge `1854e28`）
-- **范围：** 仅 `effect=read` 工具可并行；write / external_write / privileged fail-closed 为 denied
-- **证据提交：** `f87209b`、merge `1854e28`
+- **决策状态：** accepted
+- **实施状态：** complete
+- **日期：** 2026-07-20
+- **范围：** 仅 `effect=read` 工具可并行；write / external_write / privileged 在并行批次中 fail-closed 为 denied。
+- **取代：** 无
+- **被取代：** 无
+- **相关：** [ADR-0024](0024-typed-tool-dispatcher-effect-policy.md)、[ADR-0033](0033-config-optimistic-concurrency.md)
+- **证据：** `src/main/ai/tools/parallel-read-dispatcher.ts`、`scripts/check-parallel-read-tools.mjs`、`tests/unit/parallel-read-tools.unit.test.ts`；提交 `f87209b`、merge `1854e28`
 
 ## 决定
 

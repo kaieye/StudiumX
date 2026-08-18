@@ -1,10 +1,14 @@
 # ADR-0109：Teaching-turn review post-approve handoff 投影（consent-gated intents only）
 
-- **状态：** 已实施（ADOPTION S-09 residual — pure post-approve handoff projection）
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施（ADOPTION S-09 residual — pure post-approve handoff projection）
 - **日期：** 2026-07-21
 - **范围：** 纯函数将人批投影映射为**非可执行** handoff intents（路由/展示 DTO）；**不** durable store；**不** IPC；**不** auto-apply；**不**改 settlement
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0077](0077-teaching-turn-review-candidates.md)（纯候选）、[ADR-0080](0080-teaching-turn-review-finalize-wire.md)（可选 finalize 钩子）、[ADR-0085](0085-teaching-turn-review-human-approve-projection.md)（人批投影）、[ADR-0087](0087-teaching-turn-review-human-approve-ipc.md)（project/decide IPC）、[ADR-0097](0097-teaching-turn-review-settings-ui.md)（Settings 薄面板）、[ADR-0050](0050-lexical-memory-search-and-synthetic-memory.md)、[ADR-0011](0011-evidence-gated-learning-outcome-settlement.md)、[ADOPTION S-09](0121-improvements-adoption-closeout.md)
-- **证据路径：**
+- **证据：** 
   - `src/shared/teaching-turn-review-handoff.ts`
   - `src/shared/teaching-turn-review.ts`（re-export）
   - `tests/unit/teaching-turn-review-handoff.unit.test.ts`

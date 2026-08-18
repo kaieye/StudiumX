@@ -57,7 +57,14 @@ export function mindMapDrawingShapePath(
     case 'rect':
       return `M ${x} ${y} H ${right} V ${bottom} H ${x} Z`
     case 'rounded-rect': {
-      const radius = Math.min(width, height, 18) * 0.18
+      // A visibly rounded corner rather than a barely-perceptible chamfer.
+      // tldraw's default geo leans on `stroke-linejoin: round` plus a thick
+      // (~3.5px) stroke for its soft-corner look; StudiumX uses a thinner
+      // stroke, so the rounding must live in the geometry itself to read as
+      // intentionally rounded. Cap at 14px so large boxes keep crisp-ish
+      // corners instead of becoming pills, and keep it proportional for tiny
+      // shapes so a dragged chip still shows a clear arc.
+      const radius = Math.min(width, height, 14) * 0.5
       return `M ${x + radius} ${y} H ${right - radius} Q ${right} ${y} ${right} ${y + radius} V ${bottom - radius} Q ${right} ${bottom} ${right - radius} ${bottom} H ${x + radius} Q ${x} ${bottom} ${x} ${bottom - radius} V ${y + radius} Q ${x} ${y} ${x + radius} ${y} Z`
     }
     case 'ellipse': {

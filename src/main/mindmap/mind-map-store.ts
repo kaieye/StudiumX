@@ -376,12 +376,18 @@ export function createMindMapStore(rootPath: string, dirName: string = MIND_MAPS
             updatedAt: doc.updatedAt,
             sheetCount: doc.sheets.length,
             // Card previews need only the first tree and its layout settings;
-            // elements/assets stay behind the canonical read boundary.
+            // sheet elements (shapes/connectors/relationships/summaries/
+            // boundaries/callouts) are projected too so the home-page preview
+            // can mirror the canvas. Asset images stay behind the canonical
+            // read boundary.
             preview: doc.sheets[0]
               ? {
                   theme: doc.theme,
                   root: doc.sheets[0].root,
-                  layout: doc.sheets[0].layout
+                  layout: doc.sheets[0].layout,
+                  ...(doc.sheets[0].elements && doc.sheets[0].elements.length > 0
+                    ? { elements: doc.sheets[0].elements }
+                    : {})
                 }
               : undefined
           })

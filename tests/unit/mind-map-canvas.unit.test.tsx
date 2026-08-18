@@ -37,6 +37,28 @@ function makeDocument(): MindMapDocumentV2 {
   }
 }
 
+function makeDocumentWithDrawnShape(): MindMapDocumentV2 {
+  const document = makeDocument()
+  document.sheets[0]!.elements = [{
+    id: 'shape-1',
+    type: 'shape',
+    shape: 'rect',
+    position: { x: 600, y: 220 },
+    width: 120,
+    height: 80
+  }]
+  return document
+}
+
+function makeDocumentWithEditableDrawnShape(): MindMapDocumentV2 {
+  const document = makeDocumentWithDrawnShape()
+  document.sheets[0]!.elements[0] = {
+    ...document.sheets[0]!.elements[0]!,
+    label: 'Initial label'
+  }
+  return document
+}
+
 function renderCanvas(document = makeDocument()) {
   return render(
     <MindMapCanvas
@@ -431,6 +453,31 @@ describe('MindMapCanvas accessibility', () => {
       + Number(editorRegion?.getAttribute('height')) / 2
     expect(editorCenterY).toBe(labelY)
     expect(screen.getByDisplayValue('Child')).toBeInTheDocument()
+  })
+
+  it('renders a tapered edge as a curved taper, not a straight line, with fill and no stroke halo', () => {
+    const document = makeDocument()
+    document.sheets[0]!.layout = { structureClass: 'studiumx.layout.logic.right', tapered: true }
+
+    const layout = computeMindMapLayout(document.sheets[0]!)
+    const fromNode = layout.nodes.find((node) => node.id === 'root')!
+    const toNode = layout.nodes.find((node) => node.id === 'child')!
+
+    const { container } = renderCanvas(document)
+    const taperedPath = container.querySelector<SVGPathElement>('.mindmap-edge--tapered')
+    expect(taperedPath).not.toBeNull()
+
+    const d = taperedPath!.getAttribute('d') ?? ''
+    // A curved taper uses a cubic bezier segment (C), not a flat polyline (only L/Z).
+    expect(d).toMatch(/C/)
+    expect(d).not.toMatch(/^M [^ ]+ [^ ]+ L [^ ]+ [^ ]+ L [^ ]+ [^ ]+ L [^ ]+ [^ ]+ Z$/)
+
+    // No colour halo: the taper uses fill, and stroke must be explicitly cleared
+    // so the inherited `.mindmap-edge` line colour does not bleed around it.
+    expect(taperedPath!.style.fill).not.toBe('')
+    expect(taperedPath!.style.stroke).toBe('none')
+    expect(taperedPath!.style.strokeWidth).toBe('')
+    expect(taperedPath!.getAttribute('stroke')).toBeNull()
   })
 
   it('does not replace an underline topic branch color with the selection highlight', () => {
@@ -1014,6 +1061,124 @@ describe('MindMapCanvas accessibility', () => {
     const transform = container.querySelector('.mindmap-svg > g')?.getAttribute('transform')
     expect(transform).toMatch(/scale\(1\.1\)$/)
   })
+
+  it('marquee-selects drawn shapes that intersect the box in box-selection mode', () => {
+    const document = makeDocument()
+    document.sheets[0]!.elements = [
+      {
+        id: 'shape-1',
+        type: 'shape',
+        shape: 'rect',
+        position: { x: 600, y: 220 },
+        width: 120,
+        height: 80
+      },
+      {
+        id: 'shape-2',
+        type: 'shape',
+        shape: 'ellipse',
+        position: { x: 600, y: 340 },
+        width: 120,
+        height: 80
+      }
+    ]
+    const { container } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        panMode={false}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+    // The fixture shapes sit at y: 220 and y: 340 (document coords). With pan
+    // 0:0 and zoom 1, sweep a marquee that fully encloses both shapes but no
+    // topic, so the drag becomes a multi-element selection.
+    fireEvent.pointerDown(svg, { button: 0, pointerId: 1, clientX: 590, clientY: 210 })
+    fireEvent.pointerMove(svg, { pointerId: 1, clientX: 730, clientY: 430 })
+    fireEvent.pointerUp(svg, { pointerId: 1, clientX: 730, clientY: 430 })
+
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'elements',
+      elementIds: ['shape-1', 'shape-2']
+    })
+  })
+
+  it('marquee-selects a connector that crosses the box in box-selection mode', () => {
+    const document = makeDocument()
+    document.sheets[0]!.elements = [{
+      id: 'connector-1',
+      type: 'connector',
+      start: { x: 600, y: 220 },
+      end: { x: 740, y: 360 },
+      style: { lineShape: 'straight', endArrow: 'triangle' }
+    }]
+    const { container } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        panMode={false}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+    // The connector runs from (600,220) to (740,360). A marquee that crosses
+    // its midsegment but encloses no topic or shape selects it as an element.
+    fireEvent.pointerDown(svg, { button: 0, pointerId: 1, clientX: 650, clientY: 280 })
+    fireEvent.pointerMove(svg, { pointerId: 1, clientX: 700, clientY: 320 })
+    fireEvent.pointerUp(svg, { pointerId: 1, clientX: 700, clientY: 320 })
+
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'element',
+      elementId: 'connector-1',
+      elementType: 'connector'
+    })
+  })
+
+  it('marquee-selects a topic, a shape, and a connector together as a hybrid selection', () => {
+    const document = makeDocument()
+    document.sheets[0]!.elements = [
+      {
+        id: 'shape-1',
+        type: 'shape',
+        shape: 'rect',
+        position: { x: 600, y: 220 },
+        width: 120,
+        height: 80
+      },
+      {
+        id: 'connector-1',
+        type: 'connector',
+        start: { x: 600, y: 220 },
+        end: { x: 760, y: 380 },
+        style: { lineShape: 'straight', endArrow: 'triangle' }
+      }
+    ]
+    const { container } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        panMode={false}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+    // Sweep a wide marquee starting on the canvas (left of the root) that
+    // fully encloses the shape and the connector's path while also covering
+    // the root topic, so all three kinds are caught by one drag.
+    fireEvent.pointerDown(svg, { button: 0, pointerId: 1, clientX: 40, clientY: 40 })
+    fireEvent.pointerMove(svg, { pointerId: 1, clientX: 780, clientY: 420 })
+    fireEvent.pointerUp(svg, { pointerId: 1, clientX: 780, clientY: 420 })
+
+    const selection = useMindMapViewStore.getState().selection
+    expect(selection.kind).toBe('hybrid')
+    if (selection.kind !== 'hybrid') throw new Error('expected hybrid selection')
+    expect(selection.elementIds).toEqual(expect.arrayContaining(['shape-1', 'connector-1']))
+    expect(selection.topicIds.length).toBeGreaterThan(0)
+  })
 })
 
 describe('MindMapCanvas drawing tools', () => {
@@ -1033,28 +1198,6 @@ describe('MindMapCanvas drawing tools', () => {
       editingNodeId: null
     })
   })
-
-  function makeDocumentWithDrawnShape(): MindMapDocumentV2 {
-    const document = makeDocument()
-    document.sheets[0]!.elements = [{
-      id: 'shape-1',
-      type: 'shape',
-      shape: 'rect',
-      position: { x: 600, y: 220 },
-      width: 120,
-      height: 80
-    }]
-    return document
-  }
-
-  function makeDocumentWithEditableDrawnShape(): MindMapDocumentV2 {
-    const document = makeDocumentWithDrawnShape()
-    document.sheets[0]!.elements[0] = {
-      ...document.sheets[0]!.elements[0]!,
-      label: 'Initial label'
-    }
-    return document
-  }
 
   function targetBounds(target: SVGRectElement): { x: number; y: number; width: number; height: number } {
     const value = (name: 'x' | 'y' | 'width' | 'height'): number => {
@@ -1218,7 +1361,7 @@ describe('MindMapCanvas drawing tools', () => {
     expect(isOnTargetBorder(draft.to, topicBounds)).toBe(true)
   })
 
-  it('does not start a connector gesture on the empty canvas', () => {
+  it('starts a free connector gesture on the empty canvas with a live preview', () => {
     const onCreateLine = vi.fn()
     const { container } = render(
       <MindMapCanvas
@@ -1235,11 +1378,18 @@ describe('MindMapCanvas drawing tools', () => {
     fireEvent.pointerDown(svg, { button: 0, pointerId: 24, clientX: 720, clientY: 420 })
     fireEvent.pointerMove(svg, { pointerId: 24, clientX: 900, clientY: 520 })
 
-    expect(container.querySelector('.mindmap-line-draft')).not.toBeInTheDocument()
+    // The free line is previewed live while the gesture is open.
+    expect(container.querySelector('.mindmap-line-draft')).toBeInTheDocument()
 
     fireEvent.pointerUp(svg, { pointerId: 24, clientX: 900, clientY: 520 })
 
-    expect(onCreateLine).not.toHaveBeenCalled()
+    // One standalone connector is committed with free (anchor-less) endpoints.
+    expect(onCreateLine).toHaveBeenCalledTimes(1)
+    expect(onCreateLine).toHaveBeenCalledWith(expect.objectContaining({
+      from: { x: 720, y: 420 },
+      to: { x: 900, y: 520 },
+      style: expect.objectContaining({ lineShape: 'straight' })
+    }))
   })
 
   it('previews a free-shape move locally and persists one update on release', () => {
@@ -1321,6 +1471,10 @@ describe('MindMapCanvas drawing tools', () => {
   })
 
   it('keeps snapped connector arrows outside their target and does not clip wide marker styles', () => {
+    useMindMapViewStore.setState({
+      selection: { kind: 'element', elementId: 'connector-marker-1', elementType: 'connector' },
+      selectedNodeId: null
+    })
     const document = makeDocumentWithDrawnShape()
     document.sheets[0]!.elements.push({
       id: 'connector-marker-1',
@@ -1337,15 +1491,37 @@ describe('MindMapCanvas drawing tools', () => {
     const attached = container.querySelector<SVGMarkerElement>('#mindmap-rel-arrow-attached')
 
     expect(line).toHaveAttribute('marker-end', 'url(#mindmap-rel-arrow-triangle)')
-    // The target paints after connector paths. A larger default marker keeps
-    // the arrow readable, while refX positions its tip just outside the fill.
-    expect(triangle).toHaveAttribute('refX', '10.45')
-    expect(triangle).toHaveAttribute('markerWidth', '12')
-    expect(triangle).toHaveAttribute('markerHeight', '12')
+    // The marker anchors at its broad base while the visible path is inset by
+    // the same base-to-tip distance. The shaft cannot occupy the taper, so the
+    // silhouette ends in a clean point at the snapped target border.
+    expect(triangle).toHaveAttribute('refX', '1')
+    expect(triangle).toHaveAttribute('markerWidth', '8')
+    expect(triangle).toHaveAttribute('markerHeight', '8')
     expect(herringbone).toHaveAttribute('overflow', 'visible')
     expect(attached).toHaveAttribute('overflow', 'visible')
     expect(herringbone?.querySelector('path')).toHaveAttribute('fill', 'none')
     expect(herringbone?.querySelector('path')).toHaveAttribute('stroke', 'context-stroke')
+
+    const endpoint = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-endpoint="to"][data-mindmap-line-id="connector-marker-1"]'
+    )
+    const pathValues = line?.getAttribute('d')?.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? []
+    if (!endpoint || pathValues.length !== 4) {
+      throw new Error('expected a selected straight connector and its endpoint handle')
+    }
+    const pathFrom = { x: pathValues[0]!, y: pathValues[1]! }
+    const markerBase = { x: pathValues[2]!, y: pathValues[3]! }
+    const length = Math.hypot(markerBase.x - pathFrom.x, markerBase.y - pathFrom.y)
+    const arrowTip = {
+      x: markerBase.x + ((markerBase.x - pathFrom.x) / length) * 6.96,
+      y: markerBase.y + ((markerBase.y - pathFrom.y) / length) * 6.96
+    }
+
+    // The triangle marker follows the diagonal line tangent. Its visual tip
+    // must land on the exact same semantic point as the draggable edit handle,
+    // even though the snapped target exposes a horizontal border normal.
+    expect(arrowTip.x).toBeCloseTo(Number(endpoint.getAttribute('cx')), 6)
+    expect(arrowTip.y).toBeCloseTo(Number(endpoint.getAttribute('cy')), 6)
   })
 
   it('keeps a curved connector end tangent aimed into its target border', () => {
@@ -1371,11 +1547,33 @@ describe('MindMapCanvas drawing tools', () => {
     const terminalControl = { x: values[2]!, y: values[3]! }
     const endpoint = { x: values[4]!, y: values[5]! }
 
-    // This target sits to the right of the root, so the connector reaches its
-    // left edge while travelling right. The final cubic control must stay to
-    // the left of that endpoint, making the arrow point into the shape.
-    expect(endpoint.x).toBeCloseTo(600)
+    // This target sits to the right of the root. The visible shaft stops at
+    // the triangle base, 6.96 px before the border, while the marker tip still
+    // reaches x=600. The final cubic control remains behind that base so the
+    // arrow continues to point into the shape.
+    expect(endpoint.x).toBeCloseTo(600 - 6.96)
+    expect(endpoint.x + 6.96).toBeCloseTo(600)
     expect(terminalControl.x).toBeLessThan(endpoint.x)
+  })
+
+  it('does not let a rounded curve cap protrude past an end arrow', () => {
+    const document = makeDocumentWithDrawnShape()
+    document.sheets[0]!.elements.push({
+      id: 'connector-curved-cap-1',
+      type: 'connector',
+      start: { x: 360, y: 120 },
+      end: { x: 360, y: 420 },
+      style: { lineShape: 'curved', endArrow: 'triangle', strokeWidth: 10 }
+    })
+
+    const { container } = renderCanvas(document)
+    const line = container.querySelector<SVGPathElement>('.mindmap-drawn-line')
+    if (!line) throw new Error('expected a curved connector with an end arrow')
+
+    // A round cap extends half the stroke width beyond the path endpoint,
+    // leaving a visible stub in front of the marker tip. Arrowed connectors
+    // must use a butt cap so the painted stroke stops exactly at the endpoint.
+    expect(line.style.strokeLinecap).toBe('butt')
   })
 
   it('gives persisted connectors a wide invisible stroke hit target so they can be selected and removed', () => {
@@ -1405,7 +1603,7 @@ describe('MindMapCanvas drawing tools', () => {
     })
   })
 
-  it('moves a persisted straight connector as a flexible curve without detaching either endpoint', () => {
+  it('translates both endpoints when dragging a straight connector body without changing its shape', () => {
     const document = makeDocumentWithDrawnShape()
     document.sheets[0]!.elements.push({
       id: 'connector-body-drag-1',
@@ -1427,6 +1625,7 @@ describe('MindMapCanvas drawing tools', () => {
     const lineHit = container.querySelector<SVGPathElement>('.mindmap-drawn-line-hit')
     if (!svg || !lineHit) throw new Error('expected connector hit target and SVG')
 
+    // Clicking (pointerDown) must not immediately change the line shape.
     const grab = { x: 320, y: 180 }
     fireEvent.pointerDown(lineHit, {
       button: 0,
@@ -1435,27 +1634,12 @@ describe('MindMapCanvas drawing tools', () => {
       clientY: grab.y
     })
 
-    const control = container.querySelector<SVGCircleElement>(
+    // A straight line never shows a curve control point, even when selected.
+    let controlBeforeMove = container.querySelector<SVGCircleElement>(
       '[data-mindmap-line-control="connector-body-drag-1"]'
     )
-    const fromEndpoint = container.querySelector<SVGCircleElement>(
-      '[data-mindmap-line-endpoint="from"][data-mindmap-line-id="connector-body-drag-1"]'
-    )
-    const toEndpoint = container.querySelector<SVGCircleElement>(
-      '[data-mindmap-line-endpoint="to"][data-mindmap-line-id="connector-body-drag-1"]'
-    )
-    if (!control || !fromEndpoint || !toEndpoint) {
-      throw new Error('expected connector control and endpoint handles')
-    }
+    expect(controlBeforeMove).toBeNull()
 
-    const initialControl = {
-      x: Number(control.getAttribute('cx')),
-      y: Number(control.getAttribute('cy'))
-    }
-    const endpointMidpoint = {
-      x: (Number(fromEndpoint.getAttribute('cx')) + Number(toEndpoint.getAttribute('cx'))) / 2,
-      y: (Number(fromEndpoint.getAttribute('cy')) + Number(toEndpoint.getAttribute('cy'))) / 2
-    }
     const delta = { x: 48, y: -36 }
     const dragged = {
       x: grab.x + delta.x,
@@ -1469,6 +1653,12 @@ describe('MindMapCanvas drawing tools', () => {
     })
     expect(onUpdateLine).not.toHaveBeenCalled()
 
+    // The straight line still has no curve control point after a body drag.
+    const controlAfterMove = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-control="connector-body-drag-1"]'
+    )
+    expect(controlAfterMove).toBeNull()
+
     fireEvent.pointerUp(svg, {
       pointerId: 58,
       clientX: dragged.x,
@@ -1476,20 +1666,82 @@ describe('MindMapCanvas drawing tools', () => {
     })
 
     expect(onUpdateLine).toHaveBeenCalledTimes(1)
-    expect(onUpdateLine).toHaveBeenCalledWith('connector-body-drag-1', {
-      curveControlOffset: {
-        x: initialControl.x + delta.x - endpointMidpoint.x,
-        y: initialControl.y + delta.y - endpointMidpoint.y
-      },
-      style: { lineShape: 'flexible-curved' }
+    // The update translates both endpoints (detached from anchors) without
+    // changing the line shape. No `style` patch is emitted.
+    const [lineId, patch] = onUpdateLine.mock.calls[0]!
+    expect(lineId).toBe('connector-body-drag-1')
+    expect(patch).not.toHaveProperty('style')
+    expect(patch.from).toBeDefined()
+    expect(patch.to).toBeDefined()
+    // Both endpoints are now floating (no anchor) since the body drag
+    // detaches them from their targets to translate freely.
+    expect(patch.from).not.toHaveProperty('target')
+    expect(patch.to).not.toHaveProperty('target')
+  })
+
+  it('translates both endpoints when dragging an angled connector body without changing its shape', () => {
+    const document = makeDocumentWithDrawnShape()
+    document.sheets[0]!.elements.push({
+      id: 'connector-angled-drag-1',
+      type: 'connector',
+      start: { x: 100, y: 120, anchor: { targetType: 'topic', targetId: 'root' } },
+      end: { x: 520, y: 220, anchor: { targetType: 'shape', targetId: 'shape-1' } },
+      style: { lineShape: 'angled', endArrow: 'triangle' }
     })
-    const connector = document.sheets[0]!.elements.find(
-      (element) => element.id === 'connector-body-drag-1'
+    const onUpdateLine = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateLine={onUpdateLine}
+      />
     )
-    expect(connector).toMatchObject({
-      start: { anchor: { targetType: 'topic', targetId: 'root' } },
-      end: { anchor: { targetType: 'shape', targetId: 'shape-1' } }
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const lineHit = container.querySelector<SVGPathElement>('.mindmap-drawn-line-hit')
+    if (!svg || !lineHit) throw new Error('expected connector hit target and SVG')
+
+    const grab = { x: 320, y: 180 }
+    fireEvent.pointerDown(lineHit, {
+      button: 0,
+      pointerId: 59,
+      clientX: grab.x,
+      clientY: grab.y
     })
+
+    // An angled line has no curve control point.
+    let controlBeforeMove = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-control="connector-angled-drag-1"]'
+    )
+    expect(controlBeforeMove).toBeNull()
+
+    const delta = { x: 48, y: -36 }
+    const dragged = {
+      x: grab.x + delta.x,
+      y: grab.y + delta.y
+    }
+
+    fireEvent.pointerMove(svg, {
+      pointerId: 59,
+      clientX: dragged.x,
+      clientY: dragged.y
+    })
+    fireEvent.pointerUp(svg, {
+      pointerId: 59,
+      clientX: dragged.x,
+      clientY: dragged.y
+    })
+
+    expect(onUpdateLine).toHaveBeenCalledTimes(1)
+    // The update translates both endpoints (detached from anchors) without
+    // changing the line shape. No `style` patch is emitted.
+    const [lineId, patch] = onUpdateLine.mock.calls[0]!
+    expect(lineId).toBe('connector-angled-drag-1')
+    expect(patch).not.toHaveProperty('style')
+    expect(patch.from).toBeDefined()
+    expect(patch.to).toBeDefined()
+    expect(patch.from).not.toHaveProperty('target')
+    expect(patch.to).not.toHaveProperty('target')
   })
 
   it('shows a draggable middle point that adjusts and persists a curved connector', () => {

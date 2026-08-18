@@ -171,6 +171,67 @@ function renderPanels(): void {
 }
 
 describe('mind-map controls survive save -> reopen (L-03)', () => {
+  it('draws a standalone free line on blank canvas with a live preview and persists it', async () => {
+    const { container } = render(<MindMapView />)
+    const lineButton = screen.getByRole('button', { name: 'Line' })
+    fireEvent.click(lineButton)
+    expect(lineButton).toHaveAttribute('aria-pressed', 'true')
+
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const rootTarget = container.querySelector<SVGRectElement>(
+      'rect[data-mindmap-line-snap-target="topic:root"]'
+    )
+    if (!svg || !rootTarget) throw new Error('expected the svg and root snap target')
+
+    // Blank-canvas points below-right of the single root topic: far enough to
+    // avoid magnetic snapping, but inside the 800×600 test viewport.
+    const rootX = Number(rootTarget.getAttribute('x'))
+    const rootY = Number(rootTarget.getAttribute('y'))
+    const rootW = Number(rootTarget.getAttribute('width'))
+    const rootH = Number(rootTarget.getAttribute('height'))
+    const start = { x: rootX + rootW + 80, y: rootY + rootH + 80 }
+    const end = { x: rootX + rootW + 220, y: rootY + rootH + 80 }
+
+    fireEvent.pointerDown(svg, {
+      button: 0,
+      pointerId: 72,
+      clientX: start.x,
+      clientY: start.y
+    })
+    fireEvent.pointerMove(svg, {
+      pointerId: 72,
+      clientX: end.x,
+      clientY: end.y
+    })
+    // The live draft preview follows the pointer while the gesture is open.
+    const draft = container.querySelector('.mindmap-line-draft')
+    expect(draft).toBeInTheDocument()
+    expect(draft?.getAttribute('d')).toMatch(/^M /)
+    fireEvent.pointerUp(svg, {
+      pointerId: 72,
+      clientX: end.x,
+      clientY: end.y
+    })
+    expect(useMindMapViewStore.getState().error).toBeNull()
+
+    // The gesture exits line mode and persists one standalone connector.
+    expect(lineButton).toHaveAttribute('aria-pressed', 'false')
+    const connector = useMindMapViewStore.getState().current?.sheets[0]?.elements.find(
+      (element) => element.type === 'connector'
+    )
+    if (!connector || connector.type !== 'connector') throw new Error('expected a persisted connector')
+    expect(connector.start.anchor).toBeUndefined()
+    expect(connector.end.anchor).toBeUndefined()
+
+    const reopened = await saveAndReopen()
+    expect(reopened.sheets[0]?.elements).toContainEqual(expect.objectContaining({
+      id: connector.id,
+      type: 'connector',
+      start: { x: start.x, y: start.y },
+      end: { x: end.x, y: end.y }
+    }))
+  })
+
   it('creates and persists a connector between two topics through the real toolbar and canvas', async () => {
     useMindMapViewStore.getState().addChild('root')
     const childId = useMindMapViewStore.getState().current?.sheets[0]?.root.children[0]?.id

@@ -1,9 +1,14 @@
 # ADR-0125：Provider overflow 模式库与静默 overflow 启发式
 
-- **状态：** 已实施
+- **决策状态：** accepted
+- **实施状态：** complete
+- **实施说明：** 已实施
 - **日期：** 2026-07-21
 - **范围：** 将 Pi 风格的多 provider context-overflow 文本模式 + NON_OVERFLOW 排除 + 静默 usage 启发式，落地为 recovery 旁 pure 模块，并接入 `classifyProviderRecovery`
+- **取代：** 无
+- **被取代：** 无
 - **相关：** [ADR-0052](0052-provider-error-and-recovery-taxonomy.md)、[ADR-0057](0057-provider-bounded-retry-and-shared-budget.md)、[ADR-0121](0121-improvements-adoption-closeout.md)；本切片对应历史 Pi 对照审查 ADAPT-P1
+- **证据：** `src/shared/provider-overflow-patterns.ts`、`src/shared/provider-recovery.ts`、`src/utils/overflow.ts`；测试 `tests/unit/provider-overflow-patterns.unit.test.ts`、`tests/unit/provider-recovery.unit.test.ts`。
 
 ## 背景
 
