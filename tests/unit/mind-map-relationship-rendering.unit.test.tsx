@@ -47,7 +47,7 @@ function makeDocument(withRelationship = true, styled = false): MindMapDocumentV
               } : {})
             }]
           : [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []

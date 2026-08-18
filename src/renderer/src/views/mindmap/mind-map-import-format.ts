@@ -1,5 +1,5 @@
 /** Formats accepted by the native mind-map import boundary. */
-export type MindMapImportFormat = 'xmind' | 'markdown' | 'opml'
+export type MindMapImportFormat = 'markdown' | 'opml'
 
 /**
  * Resolve a selected file name to the matching import contract.
@@ -14,8 +14,6 @@ export function mindMapImportFormatForFileName(
   if (!fileName) return null
   const extension = fileName.trim().toLowerCase().match(/\.([a-z0-9]+)$/)?.[1]
   switch (extension) {
-    case 'xmind':
-      return 'xmind'
     case 'md':
     case 'markdown':
       return 'markdown'
@@ -27,4 +25,4 @@ export function mindMapImportFormatForFileName(
 }
 
 /** Native file-input filter for all supported mind-map imports. */
-export const MIND_MAP_IMPORT_ACCEPT = '.xmind,.md,.markdown,.opml'
+export const MIND_MAP_IMPORT_ACCEPT = '.md,.markdown,.opml'

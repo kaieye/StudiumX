@@ -1,8 +1,10 @@
 import { Plus, Search, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { MindMapDocumentV2 } from '../../../../shared/mindmap/domain/types'
-import type { MindMapSummary } from '../../../../shared/mindmap/mind-map-types'
+import type {
+  MindMapCardPreview,
+  MindMapSummary
+} from '../../../../shared/mindmap/mind-map-types'
 import {
   MindMapHomeCardMenu,
   type MindMapHomeCardMenuState
@@ -23,13 +25,12 @@ type MindMapHomeGalleryProps = {
 }
 
 /**
- * XMind-like home surface shown while no map is open.  The list endpoint only
- * returns summaries, so previews are loaded independently and never mutate the
- * editor's currently-open document.
+ * Legacy gallery surface shown while no map is open. Card previews come from
+ * the list projection and never mutate the editor's currently-open document.
  */
 export function MindMapHomeGallery({
   documents,
-  workspaceId,
+  workspaceId: _workspaceId,
   creating,
   createError,
   onCreate,
@@ -39,7 +40,6 @@ export function MindMapHomeGallery({
   onCopyDocument
 }: MindMapHomeGalleryProps) {
   const { t } = useTranslation()
-  const [previews, setPreviews] = useState<Record<string, MindMapDocumentV2>>({})
   const [query, setQuery] = useState('')
   const [cardMenu, setCardMenu] = useState<MindMapHomeCardMenuState>(null)
   const [renamingDocument, setRenamingDocument] = useState<MindMapSummary | null>(null)
@@ -55,34 +55,12 @@ export function MindMapHomeGallery({
     )
   }, [documents, query, t])
 
-  useEffect(() => {
-    let cancelled = false
-    const load = async (): Promise<void> => {
-      const entries = await Promise.all(
-        documents.map(async (summary) => {
-          try {
-            const document = await window.teachingSystem?.readMindMap({
-              workspaceId,
-              id: summary.id
-            })
-            return document ? ([summary.id, document] as const) : null
-          } catch {
-            return null
-          }
-        })
-      )
-      if (cancelled) return
-      const next: Record<string, MindMapDocumentV2> = {}
-      for (const entry of entries) {
-        if (entry) next[entry[0]] = entry[1]
-      }
-      setPreviews(next)
-    }
-    void load()
-    return () => {
-      cancelled = true
-    }
-  }, [documents, workspaceId])
+  const previews = useMemo<Record<string, MindMapCardPreview>>(
+    () => Object.fromEntries(
+      documents.flatMap((summary) => summary.preview ? [[summary.id, summary.preview] as const] : [])
+    ),
+    [documents]
+  )
 
   const startRename = (summary: MindMapSummary): void => {
     setCardMenu(null)
@@ -187,7 +165,7 @@ export function MindMapHomeGallery({
                 aria-label={title}
               >
                 <span className="mindmap-home-card__preview">
-                  <MindMapPreview document={previews[summary.id]} title={title} />
+                  <MindMapPreview preview={previews[summary.id]} title={title} />
                 </span>
               </button>
               <div className="mindmap-home-card__title-slot">
@@ -238,17 +216,25 @@ export function MindMapHomeGallery({
 }
 
 type MindMapPreviewProps = {
-  document?: MindMapDocumentV2
+  preview?: MindMapCardPreview
   title: string
 }
 
-function MindMapPreview({ document, title }: MindMapPreviewProps) {
-  const sheet = document?.sheets[0]
+function MindMapPreview({ preview, title }: MindMapPreviewProps) {
+  const sheet = preview
+    ? {
+        id: 'preview-sheet',
+        title,
+        root: preview.root,
+        elements: [],
+        layout: preview.layout
+      }
+    : null
   const layout = useMemo(() => (sheet ? computeMindMapLayout(sheet) : null), [sheet])
   if (!layout || layout.nodes.length === 0) {
     return <PreviewPlaceholder title={title} />
   }
-  return <PreviewSvg document={document!} layout={layout} />
+  return <PreviewSvg preview={preview!} title={title} layout={layout} />
 }
 
 function PreviewPlaceholder({ title }: { title: string }) {
@@ -262,7 +248,15 @@ function PreviewPlaceholder({ title }: { title: string }) {
   )
 }
 
-function PreviewSvg({ document, layout }: { document: MindMapDocumentV2; layout: MindMapLayoutResult }) {
+function PreviewSvg({
+  preview,
+  title,
+  layout
+}: {
+  preview: MindMapCardPreview
+  title: string
+  layout: MindMapLayoutResult
+}) {
   const nodes = layout.nodes
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   const minX = Math.min(...nodes.map((node) => node.x))
@@ -273,7 +267,7 @@ function PreviewSvg({ document, layout }: { document: MindMapDocumentV2; layout:
   const viewBox = `${minX - padding} ${minY - padding} ${Math.max(180, maxX - minX + padding * 2)} ${Math.max(120, maxY - minY + padding * 2)}`
 
   return (
-    <svg className="mindmap-home-card__svg" viewBox={viewBox} role="img" aria-label={document.title}>
+    <svg className="mindmap-home-card__svg" viewBox={viewBox} role="img" aria-label={title}>
       <g className="mindmap-home-card__edges">
         {layout.edges.map((edge) => {
           const from = nodeById.get(edge.from)
@@ -286,7 +280,7 @@ function PreviewSvg({ document, layout }: { document: MindMapDocumentV2; layout:
               y1={from.y + from.height / 2}
               x2={to.x + to.width / 2}
               y2={to.y + to.height / 2}
-              stroke={branchColorForKey(document.theme, edge.branchKey) ?? '#6b82ee'}
+              stroke={branchColorForKey(preview.theme, edge.branchKey) ?? '#6b82ee'}
               strokeWidth={Math.max(1.5, 3 - edge.branchIndex * 0.25)}
               strokeLinecap="round"
             />
@@ -294,7 +288,7 @@ function PreviewSvg({ document, layout }: { document: MindMapDocumentV2; layout:
         })}
       </g>
       {nodes.map((node) => {
-        const fill = node.depth === 1 ? branchColorForKey(document.theme, node.branchKey) ?? '#3157dd' : node.depth === 0 ? '#fff' : '#f5f5f7'
+        const fill = node.depth === 1 ? branchColorForKey(preview.theme, node.branchKey) ?? '#3157dd' : node.depth === 0 ? '#fff' : '#f5f5f7'
         const text = node.depth === 1 ? '#fff' : node.depth === 0 ? '#2854d8' : '#343434'
         return (
           <g key={node.id}>

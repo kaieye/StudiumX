@@ -716,15 +716,27 @@ export class AgentConversationTurnRunner<TError> {
   private projectRealtimeEvent(active: ActiveHostStream, event: AgentRealtimeEvent): void {
     if (this.activeHostStream?.streamId !== active.streamId) return
     if (event.kind === 'chunk') {
-      this.applyChunk(active.assistantId, { ...event.payload, streamId: active.pendingConversationId })
+      this.applyChunk(
+        active.assistantId,
+        { ...event.payload, streamId: active.pendingConversationId },
+        event
+      )
       return
     }
     if (event.kind === 'status') {
-      this.applyStatus(active.assistantId, { ...event.payload, streamId: active.pendingConversationId })
+      this.applyStatus(
+        active.assistantId,
+        { ...event.payload, streamId: active.pendingConversationId },
+        event
+      )
       return
     }
     if (event.kind === 'tool') {
-      this.applyToolEvent(active.assistantId, { ...event.payload, streamId: active.pendingConversationId })
+      this.applyToolEvent(
+        active.assistantId,
+        { ...event.payload, streamId: active.pendingConversationId },
+        event
+      )
       return
     }
     if (active.settling) return
@@ -877,21 +889,51 @@ export class AgentConversationTurnRunner<TError> {
     this.dependencies.setState(cancelPendingAgentConversation({ pending, activeConversationId: state.activeConversationId }))
   }
 
-  private applyChunk(assistantId: string, chunk: AgentChatStreamChunk): void {
+  private applyChunk(
+    assistantId: string,
+    chunk: AgentChatStreamChunk,
+    realtimeEvent: Pick<AgentRealtimeEvent, 'sequence' | 'createdAt'>
+  ): void {
     const state = this.dependencies.getState()
-    const patch = applyAgentChatChunkToPending({ pending: state.pendingAgentConversation, activeConversationId: state.activeConversationId, assistantId, chunk })
+    const patch = applyAgentChatChunkToPending({
+      pending: state.pendingAgentConversation,
+      activeConversationId: state.activeConversationId,
+      assistantId,
+      chunk,
+      realtimeEvent
+    })
     if (patch) this.dependencies.setState(patch)
   }
 
-  private applyStatus(assistantId: string, status: AgentChatStreamStatus): void {
+  private applyStatus(
+    assistantId: string,
+    status: AgentChatStreamStatus,
+    realtimeEvent: Pick<AgentRealtimeEvent, 'sequence' | 'createdAt'>
+  ): void {
     const state = this.dependencies.getState()
-    const patch = applyAgentChatStatusToPending({ pending: state.pendingAgentConversation, activeConversationId: state.activeConversationId, assistantId, status })
+    const patch = applyAgentChatStatusToPending({
+      pending: state.pendingAgentConversation,
+      activeConversationId: state.activeConversationId,
+      assistantId,
+      status,
+      realtimeEvent
+    })
     if (patch) this.dependencies.setState(patch)
   }
 
-  private applyToolEvent(assistantId: string, event: AgentChatStreamToolEvent): void {
+  private applyToolEvent(
+    assistantId: string,
+    event: AgentChatStreamToolEvent,
+    realtimeEvent: Pick<AgentRealtimeEvent, 'sequence' | 'createdAt'>
+  ): void {
     const state = this.dependencies.getState()
-    const patch = applyAgentChatToolEventToPending({ pending: state.pendingAgentConversation, activeConversationId: state.activeConversationId, assistantId, event })
+    const patch = applyAgentChatToolEventToPending({
+      pending: state.pendingAgentConversation,
+      activeConversationId: state.activeConversationId,
+      assistantId,
+      event,
+      realtimeEvent
+    })
     if (patch) this.dependencies.setState(patch)
   }
 

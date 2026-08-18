@@ -1,5 +1,4 @@
 import {
-  Download,
   FileCode,
   FileImage,
   FileText,
@@ -16,39 +15,61 @@ import {
   Share2,
   Sigma,
   StickyNote,
+  SquareDashedMousePointer,
   Tag,
   Undo2,
   Upload,
-  X,
-  Braces
+  X
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../../app-shell/appStore'
 import { MindMapAiPanel } from './MindMapAiPanel'
-import { MindMapCanvas, type MindMapCanvasViewportAction } from './MindMapCanvas'
+import {
+  MindMapCanvas,
+  type MindMapCanvasLineUpdate,
+  type MindMapCanvasShapeUpdate,
+  type MindMapCanvasViewportAction
+} from './MindMapCanvas'
 import { MindMapHomeLibrary } from './MindMapHomeLibrary'
 import {
   MindMapExportFeedback,
   type MindMapExportFeedbackState,
   type MindMapExportFormat
 } from './MindMapExportFeedback'
-import { MindMapImportCompatibilityReport } from './MindMapImportCompatibilityReport'
 import { MindMapSheetTabs } from './MindMapSheetTabs'
 import { MindMapUtilityPanel, type MindMapUtilityPanelKind } from './MindMapUtilityPanel'
 import { MindMapContextMenu } from './MindMapContextMenu'
+import {
+  MindMapConnectorContextMenu,
+  type MindMapConnectorContextMenuState
+} from './MindMapConnectorContextMenu'
+import {
+  MindMapShapeContextMenu,
+  type MindMapShapeContextMenuState
+} from './MindMapShapeContextMenu'
 import { MindMapTopicPopover, type MindMapTopicPopoverSection } from './MindMapTopicPopover'
 import {
   AddChildTopicIcon,
   AddSiblingTopicIcon,
+  AddSummaryIcon,
   CollapseAllTopicsIcon,
   ExpandAllTopicsIcon
 } from './MindMapToolbarIcons'
 import { MindMapZoomControls } from './MindMapZoomControls'
+import { MindMapShapeTool, type MindMapDrawingShape } from './MindMapShapeTool'
+import { MindMapLineTool } from './MindMapLineTool'
+import type {
+  MindMapCanvasLineDraft,
+  MindMapCanvasLineEndpoint,
+  MindMapCanvasLineTool
+} from './mind-map-line-tool'
 import { useMindMapContextMenu } from './mind-map-context-menu-hook'
-import type { MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
+import type {
+  MindMapConnectorEndpoint,
+  MindMapTopicV2
+} from '../../../../shared/mindmap/domain/types'
 import type { MindMapCommand } from '../../../../shared/mindmap/commands'
-import type { XmindCompatibilityReport } from '../../../../shared/mindmap/xmind-compatibility'
 import { useMindMapKeyboard } from './mind-map-keyboard'
 import { DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS } from './mind-map-create-presets'
 import type { MindMapFocusDirection } from './mind-map-keyboard-navigation'
@@ -68,6 +89,29 @@ import {
 import { canAddSummaryToTopics } from './mind-map-commands'
 import './mindmap.css'
 
+function toConnectorEndpoint(
+  endpoint: MindMapCanvasLineEndpoint
+): MindMapConnectorEndpoint | null {
+  if (!endpoint.target) return null
+  return {
+    x: endpoint.x,
+    y: endpoint.y,
+    anchor: { targetType: endpoint.target.kind, targetId: endpoint.target.id }
+  }
+}
+
+function connectsDistinctTargets(
+  start: MindMapConnectorEndpoint | null,
+  end: MindMapConnectorEndpoint | null
+): boolean {
+  return start !== null
+    && end !== null
+    && start.anchor !== undefined
+    && end.anchor !== undefined
+    && (start.anchor.targetType !== end.anchor.targetType
+      || start.anchor.targetId !== end.anchor.targetId)
+}
+
 /**
  * Mind-map view entry (docs/mindmap/design.md §6.2).
  *
@@ -80,6 +124,9 @@ export function MindMapView() {
   const library = useMindMapViewStore((s) => s.library)
   const scope = useMindMapViewStore((s) => s.scope)
   const current = useMindMapViewStore((s) => s.current)
+  const generationPreview = useMindMapViewStore((s) => s.generationPreview)
+  const previewReadOnly = generationPreview !== null
+  const mindMapError = useMindMapViewStore((s) => s.error)
   const selectedNodeId = useMindMapViewStore((s) => s.selectedNodeId)
   const activeSheetId = useMindMapViewStore((s) => s.activeSheetId)
   const editingNodeId = useMindMapViewStore((s) => s.editingNodeId)
@@ -113,6 +160,7 @@ export function MindMapView() {
   const pasteNode = useMindMapViewStore((s) => s.pasteNode)
   const duplicateNode = useMindMapViewStore((s) => s.duplicateNode)
   const selection = useMindMapViewStore((s) => s.selection)
+  const selectCanvas = useMindMapViewStore((s) => s.selectCanvas)
   const copyTopicStyle = useMindMapViewStore((s) => s.copyTopicStyle)
   const pasteTopicStyle = useMindMapViewStore((s) => s.pasteTopicStyle)
   const resetTopicStyle = useMindMapViewStore((s) => s.resetTopicStyle)
@@ -128,29 +176,206 @@ export function MindMapView() {
 
   const activeSheet = current?.sheets.find((sheet) => sheet.id === activeSheetId) ?? current?.sheets[0]
 
+  const handleShapeToolChange = useCallback((shape: MindMapDrawingShape): void => {
+    if (previewReadOnly) return
+    setDrawingShape(shape)
+    setDrawingLine(null)
+  }, [previewReadOnly])
+
+  const handleLineToolChange = useCallback((tool: MindMapCanvasLineTool | null): void => {
+    if (previewReadOnly) return
+    setDrawingLine(tool)
+    if (tool?.active) setDrawingShape(null)
+  }, [previewReadOnly])
+
+  const handleCreateShape = useCallback((draft: {
+    shape: MindMapDrawingShape
+    position: { x: number; y: number }
+    width: number
+    height: number
+  }): void => {
+    if (previewReadOnly || !activeSheet) return
+    dispatchCommand(
+      {
+        type: 'element.create',
+        sheetId: activeSheet.id,
+        element: {
+          id: crypto.randomUUID(),
+          type: 'shape',
+          shape: draft.shape,
+          position: draft.position,
+          width: draft.width,
+          height: draft.height
+        }
+      },
+      { label: 'Draw shape' }
+    )
+  }, [activeSheet, dispatchCommand, previewReadOnly])
+
+  // The canvas retains move/resize/text edits as local previews until the
+  // gesture completes. Persist the resulting patch through the same command
+  // entry point as every other document edit so it remains a single undo step.
+  const handleUpdateShape = useCallback((
+    shapeId: string,
+    patch: MindMapCanvasShapeUpdate
+  ): void => {
+    if (!activeSheet) return
+    dispatchCommand(
+      {
+        type: 'element.update',
+        sheetId: activeSheet.id,
+        elementId: shapeId,
+        patch
+      },
+      { label: patch.label !== undefined ? 'Edit shape text' : 'Update shape' }
+    )
+  }, [activeSheet, dispatchCommand])
+
+  const handleCreateLine = useCallback((draft: MindMapCanvasLineDraft): void => {
+    if (previewReadOnly || !activeSheet) return
+    const start = toConnectorEndpoint(draft.from)
+    const end = toConnectorEndpoint(draft.to)
+    if (!start || !end || !connectsDistinctTargets(start, end)) return
+    const style = {
+      lineShape: draft.style.lineShape,
+      ...(draft.style.beginArrow !== undefined ? { beginArrow: draft.style.beginArrow } : {}),
+      ...(draft.style.endArrow !== undefined ? { endArrow: draft.style.endArrow } : {}),
+      ...(draft.style.linePattern !== undefined ? { linePattern: draft.style.linePattern } : {}),
+      ...(draft.style.stroke !== undefined ? { stroke: draft.style.stroke } : {}),
+      ...(draft.style.strokeWidth !== undefined ? { strokeWidth: draft.style.strokeWidth } : {})
+    }
+    dispatchCommand(
+      {
+        type: 'element.create',
+        sheetId: activeSheet.id,
+        element: {
+          id: crypto.randomUUID(),
+          type: 'connector',
+          start,
+          end,
+          style
+        }
+      },
+      { label: 'Draw connector' }
+    )
+    setDrawingLine(null)
+  }, [activeSheet, dispatchCommand, previewReadOnly])
+
+  const handleUpdateLine = useCallback((
+    lineId: string,
+    patch: MindMapCanvasLineUpdate
+  ): void => {
+    if (previewReadOnly || !activeSheet) return
+    if (!patch.from && !patch.to && patch.curveControlOffset === undefined) return
+    const connector = activeSheet.elements.find((element) => (
+      element.id === lineId && element.type === 'connector'
+    ))
+    if (!connector || connector.type !== 'connector') return
+
+    const start = patch.from ? toConnectorEndpoint(patch.from) : connector.start
+    const end = patch.to ? toConnectorEndpoint(patch.to) : connector.end
+    if (!start || !end || !connectsDistinctTargets(start, end)) return
+
+    dispatchCommand(
+      {
+        type: 'element.update',
+        sheetId: activeSheet.id,
+        elementId: lineId,
+        patch: {
+          ...(patch.from ? { start } : {}),
+          ...(patch.to ? { end } : {}),
+          ...(patch.curveControlOffset
+            ? { curveControlOffset: { ...patch.curveControlOffset } }
+            : {}),
+          ...(patch.style
+            ? { style: { ...connector.style, ...patch.style } }
+            : {})
+        }
+      },
+      {
+        label: patch.style?.lineShape
+          ? 'Move connector'
+          : patch.curveControlOffset
+            ? 'Adjust connector curve'
+            : 'Move connector endpoint'
+      }
+    )
+  }, [activeSheet, dispatchCommand, previewReadOnly])
+
+  const handleDeleteLine = useCallback((lineId: string): void => {
+    if (previewReadOnly || !activeSheet) return
+    dispatchCommand(
+      { type: 'element.remove', sheetId: activeSheet.id, elementId: lineId },
+      { label: 'Delete connector' }
+    )
+    selectCanvas()
+  }, [activeSheet, dispatchCommand, previewReadOnly, selectCanvas])
+
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [exportFeedback, setExportFeedback] = useState<MindMapExportFeedbackState | null>(null)
-  const [importCompatibilityReport, setImportCompatibilityReport] =
-    useState<XmindCompatibilityReport | null>(null)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [insertMenuOpen, setInsertMenuOpen] = useState(false)
   const [utilityPanel, setUtilityPanel] = useState<MindMapUtilityPanelKind | null>(null)
   const [viewportAction, setViewportAction] = useState<MindMapCanvasViewportAction | null>(null)
   const viewportActionIdRef = useRef(0)
   const [zoomLevel, setZoomLevel] = useState(1)
+  const [panMode, setPanMode] = useState(true)
+  const [drawingShape, setDrawingShape] = useState<MindMapDrawingShape | null>(null)
+  const [drawingLine, setDrawingLine] = useState<MindMapCanvasLineTool | null>(null)
+  const [connectorContextMenu, setConnectorContextMenu] = useState<MindMapConnectorContextMenuState>(null)
+  const [shapeContextMenu, setShapeContextMenu] = useState<MindMapShapeContextMenuState>(null)
   const [canvasViewportRevision, setCanvasViewportRevision] = useState(0)
   const [topicPopover, setTopicPopover] = useState<{ nodeId: string; section: MindMapTopicPopoverSection } | null>(null)
+
+  // The selection/pan mode is a distinct canvas gesture. Explicitly leaving
+  // either drawing tool avoids two toolbar controls looking active at once and
+  // makes the next background drag unambiguously pan or marquee-select.
+  const togglePanMode = useCallback((): void => {
+    if (previewReadOnly) return
+    setDrawingShape(null)
+    setDrawingLine(null)
+    setPanMode((enabled) => !enabled)
+  }, [previewReadOnly])
+
   const handleCanvasViewportChange = useCallback(() => {
     setCanvasViewportRevision((value) => value + 1)
   }, [])
+
+  const openConnectorContextMenu = useCallback((connectorId: string, x: number, y: number): void => {
+    if (previewReadOnly) return
+    setConnectorContextMenu({ connectorId, x, y })
+  }, [previewReadOnly])
+
+  const closeConnectorContextMenu = useCallback((): void => {
+    setConnectorContextMenu(null)
+  }, [])
+
+  const openShapeContextMenu = useCallback((shapeId: string, x: number, y: number): void => {
+    if (previewReadOnly) return
+    setShapeContextMenu({ shapeId, x, y })
+  }, [previewReadOnly])
+
+  const closeShapeContextMenu = useCallback((): void => {
+    setShapeContextMenu(null)
+  }, [])
+
+  const handleDeleteShape = useCallback((shapeId: string): void => {
+    if (previewReadOnly || !activeSheet) return
+    dispatchCommand(
+      { type: 'element.remove', sheetId: activeSheet.id, elementId: shapeId },
+      { label: 'Delete shape' }
+    )
+    selectCanvas()
+  }, [activeSheet, dispatchCommand, previewReadOnly, selectCanvas])
 
   // Markers, notes, formulas and links are edited in a canvas-adjacent
   // floating popover so each insert action opens a focused card next to the
   // target node instead of sending the user to the side inspector.
   const openTopicPopover = (section: MindMapTopicPopoverSection, nodeId: string | null = selectedNodeId): void => {
+    if (previewReadOnly) return
     setUtilityPanel(null)
     if (nodeId) setTopicPopover({ nodeId, section })
   }
@@ -159,7 +384,7 @@ export function MindMapView() {
   // the chosen asset to the target topic — no intermediate panel. Images are
   // managed (removed / repositioned) directly on the canvas once placed.
   const handleInsertImage = async (nodeId: string | null = selectedNodeId): Promise<void> => {
-    if (!current || !nodeId || !activeWorkspace) return
+    if (previewReadOnly || !current || !nodeId || !activeWorkspace) return
     try {
       const result = await window.teachingSystem?.importMindMapAsset({
         workspaceId: activeWorkspace.id,
@@ -190,6 +415,19 @@ export function MindMapView() {
     insertLink: (nodeId) => openTopicPopover('link', nodeId),
     insertImage: (nodeId) => void handleInsertImage(nodeId)
   })
+
+  // Preview nodes are derived from a temporary document. Close any mutable
+  // surfaces that were opened just before generation so they cannot target a
+  // transient id while the canonical editor is read-only.
+  useEffect(() => {
+    if (!previewReadOnly) return
+    setDrawingShape(null)
+    setDrawingLine(null)
+    setInsertMenuOpen(false)
+    setTopicPopover(null)
+    closeContextMenu()
+    closeConnectorContextMenu()
+  }, [closeConnectorContextMenu, closeContextMenu, previewReadOnly])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const creatingRef = useRef(false)
   const exportMenuRef = useRef<HTMLDivElement | null>(null)
@@ -203,7 +441,7 @@ export function MindMapView() {
   }
 
   useMindMapKeyboard(
-    current !== null,
+    current !== null && !previewReadOnly,
     editingNodeId !== null,
     {
       insertChild: () => {
@@ -225,6 +463,13 @@ export function MindMapView() {
       remove: () => {
         if (selection.kind === 'topic' && selection.topicIds.length > 1) deleteNodes(selection.topicIds)
         else if (selectedNodeId !== null) deleteNode(selectedNodeId)
+        else if (selection.kind === 'element' && activeSheetId !== null) {
+          dispatchCommand(
+            { type: 'element.remove', sheetId: activeSheetId, elementId: selection.elementId },
+            { label: 'Delete element' }
+          )
+          selectCanvas()
+        }
       },
       edit: () => {
         if (selectedNodeId !== null) setEditingNodeId(selectedNodeId)
@@ -264,7 +509,6 @@ export function MindMapView() {
 
   useEffect(() => {
     setNotice(null)
-    setImportCompatibilityReport(null)
     void loadDocuments()
     void loadLibrary()
   }, [loadDocuments, loadLibrary, activeWorkspace?.id])
@@ -313,7 +557,7 @@ export function MindMapView() {
         t('mindmap.newDocument'),
         DEFAULT_NEW_MIND_MAP_STRUCTURE_CLASS
       )
-      // XMind starts a new map in an editable root topic. Keep the same low
+      // StudiumX starts a new map in an editable root topic. Keep the same low
       // friction flow while still creating a valid, persisted document first.
       const root = created.sheets[0]?.root
       if (root) {
@@ -347,7 +591,6 @@ export function MindMapView() {
       return
     }
     setNotice(null)
-    setImportCompatibilityReport(null)
     setExportFeedback(null)
     setBusy(true)
     try {
@@ -355,17 +598,10 @@ export function MindMapView() {
       const doc =
         format === 'markdown'
           ? await window.teachingSystem?.importMindMapMarkdown(payload)
-          : format === 'opml'
-            ? await window.teachingSystem?.importMindMapOpml(payload)
-            : await window.teachingSystem?.importMindMapXmind(payload)
+          : await window.teachingSystem?.importMindMapOpml(payload)
       if (doc) {
         await openDocument(doc.id)
         await loadDocuments()
-        const importedReport =
-          format === 'xmind' && 'compatibilityReport' in doc ? doc.compatibilityReport : null
-        setImportCompatibilityReport(
-          isXmindCompatibilityReport(importedReport) ? importedReport : null
-        )
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
@@ -411,33 +647,8 @@ export function MindMapView() {
     return picked.path
   }
 
-  const handleExport = async (): Promise<void> => {
-    if (!current) return
-    const format: MindMapExportFormat = 'xmind'
-    startExport(format)
-    try {
-      const destinationDirectory = await pickExportDirectory(format)
-      if (!destinationDirectory) return
-      const snapshot = await flushForExport()
-      if (!snapshot) {
-        failExport(format, t('mindmap.exportNotReady'))
-        return
-      }
-      const result = await window.teachingSystem?.exportMindMapXmind({
-        workspaceId: activeWorkspace.id,
-        destinationDirectory,
-        ...snapshot
-      })
-      completeExport(format, result?.path)
-    } catch (error) {
-      failExport(format, error)
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const handleMarkdownExport = async (): Promise<void> => {
-    if (!current) return
+    if (!current || previewReadOnly) return
     const format: MindMapExportFormat = 'markdown'
     startExport(format)
     try {
@@ -462,7 +673,7 @@ export function MindMapView() {
   }
 
   const handleOpmlExport = async (): Promise<void> => {
-    if (!current) return
+    if (!current || previewReadOnly) return
     const format: MindMapExportFormat = 'opml'
     startExport(format)
     try {
@@ -487,7 +698,7 @@ export function MindMapView() {
   }
 
   const handleSvgExport = async (): Promise<void> => {
-    if (!current) return
+    if (!current || previewReadOnly) return
     const format: MindMapExportFormat = 'svg'
     startExport(format)
     try {
@@ -531,7 +742,7 @@ export function MindMapView() {
   }
 
   const handlePngExport = async (): Promise<void> => {
-    if (!current) return
+    if (!current || previewReadOnly) return
     const format: MindMapExportFormat = 'png'
     startExport(format)
     try {
@@ -575,7 +786,7 @@ export function MindMapView() {
   }
 
   const handleMoveNode = (topicId: string, toParentId: string): void => {
-    if (!activeSheet) return
+    if (previewReadOnly || !activeSheet) return
     dispatchCommand(
       { type: 'topic.move', sheetId: activeSheet.id, topicId, toParentId },
       { label: 'Drag-reparent topic' }
@@ -583,6 +794,7 @@ export function MindMapView() {
   }
 
   const activateSheet = (sheetId: string): void => {
+    if (previewReadOnly) return
     const sheet = current?.sheets.find((candidate) => candidate.id === sheetId)
     if (!sheet) return
     // A selection belongs to a sheet. Reset it to the new root so the outline,
@@ -592,7 +804,7 @@ export function MindMapView() {
   }
 
   const selectAndRevealMindMapNode = (nodeId: string): void => {
-    if (!activeSheet) return
+    if (previewReadOnly || !activeSheet) return
     const path = findMindMapTopicPath(activeSheet.root, nodeId)
     if (!path) return
     const commands: MindMapCommand[] = path
@@ -614,7 +826,7 @@ export function MindMapView() {
   }
 
   const replaceMindMapText = (nodeId: string, query: string, replacement: string): void => {
-    if (!activeSheet) return
+    if (previewReadOnly || !activeSheet) return
     const topic = findMindMapTopic(activeSheet.root, nodeId)
     const patch = topic ? buildMindMapTextReplacementPatch(topic, query, replacement) : null
     if (!patch) return
@@ -625,7 +837,7 @@ export function MindMapView() {
   }
 
   const replaceAllMindMapText = (nodeIds: string[], query: string, replacement: string): void => {
-    if (!activeSheet) return
+    if (previewReadOnly || !activeSheet) return
     const commands = nodeIds
       .map((nodeId): MindMapCommand | null => {
         const topic = findMindMapTopic(activeSheet.root, nodeId)
@@ -643,6 +855,7 @@ export function MindMapView() {
   }
 
   const handleAddChild = (): void => {
+    if (previewReadOnly) return
     if (selectedNodeId) {
       addChild(selectedNodeId)
       return
@@ -651,6 +864,7 @@ export function MindMapView() {
   }
 
   const handleAddSibling = (): void => {
+    if (previewReadOnly) return
     if (selectedNodeId) addSibling(selectedNodeId)
   }
 
@@ -665,6 +879,7 @@ export function MindMapView() {
     canAddSummaryToTopics(activeSheet, selection.topicIds)
 
   const handleAddSummary = (): void => {
+    if (previewReadOnly) return
     if (selection.kind === 'topic' && selection.topicIds.length > 0) {
       addSummary(selection.topicIds, t('mindmap.addSummary'))
     }
@@ -704,6 +919,7 @@ export function MindMapView() {
   }
 
   const returnToGallery = (): void => {
+    if (previewReadOnly) return
     setUtilityPanel(null)
     setExportMenuOpen(false)
     closeContextMenu()
@@ -719,7 +935,7 @@ export function MindMapView() {
           library={library}
           folder={folder}
           creating={creating}
-          createError={createError}
+          createError={createError ?? mindMapError}
           onCreate={handleCreate}
           onOpenDocument={openDocument}
           onOpenFolder={setScope}
@@ -732,6 +948,8 @@ export function MindMapView() {
     )
   }
 
+  const displayedDocument = generationPreview?.document ?? current
+
   return (
     <div className="mindmap-view mindmap-view--editor">
       <div className="mindmap-stage">
@@ -741,6 +959,7 @@ export function MindMapView() {
           <button
             type="button"
             className="mindmap-stage__home"
+            disabled={previewReadOnly}
             onClick={returnToGallery}
             title={t('mindmap.backToGallery')}
             aria-label={t('mindmap.backToGallery')}
@@ -751,8 +970,30 @@ export function MindMapView() {
         <div className="mindmap-floating-toolbar" role="toolbar" aria-label={t('mindmap.viewTitle')}>
           <button
             type="button"
+            className={`mindmap-floating-toolbar__btn${!panMode ? ' is-active' : ''}`}
+            disabled={!current || previewReadOnly}
+            onClick={togglePanMode}
+            data-tooltip={t('mindmap.toolbar.boxSelect')}
+            aria-label={t('mindmap.toolbar.boxSelect')}
+            aria-pressed={!panMode}
+          >
+            <SquareDashedMousePointer size={16} />
+          </button>
+          <MindMapShapeTool
+            disabled={!current || previewReadOnly}
+            activeShape={drawingShape}
+            onShapeChange={handleShapeToolChange}
+          />
+          <MindMapLineTool
+            disabled={!current || previewReadOnly}
+            activeTool={drawingLine}
+            onToolChange={handleLineToolChange}
+          />
+          <span className="mindmap-floating-toolbar__divider" aria-hidden="true" />
+          <button
+            type="button"
             className="mindmap-floating-toolbar__btn"
-            disabled={!current}
+            disabled={!current || previewReadOnly}
             onClick={undo}
             data-tooltip={t('mindmap.toolbar.undo')}
             aria-label={t('mindmap.undo')}
@@ -762,7 +1003,7 @@ export function MindMapView() {
           <button
             type="button"
             className="mindmap-floating-toolbar__btn"
-            disabled={!current}
+            disabled={!current || previewReadOnly}
             onClick={redo}
             data-tooltip={t('mindmap.toolbar.redo')}
             aria-label={t('mindmap.redo')}
@@ -773,7 +1014,7 @@ export function MindMapView() {
           <button
             type="button"
             className="mindmap-floating-toolbar__btn mindmap-floating-toolbar__btn--structure"
-            disabled={!current}
+            disabled={!current || previewReadOnly}
             onClick={collapseAll}
             data-tooltip={t('mindmap.toolbar.collapseLevel')}
             aria-label={t('mindmap.collapseLastLevel')}
@@ -783,7 +1024,7 @@ export function MindMapView() {
           <button
             type="button"
             className="mindmap-floating-toolbar__btn mindmap-floating-toolbar__btn--structure"
-            disabled={!current}
+            disabled={!current || previewReadOnly}
             onClick={expandAll}
             data-tooltip={t('mindmap.toolbar.expandLevel')}
             aria-label={t('mindmap.expandNextLevel')}
@@ -794,7 +1035,7 @@ export function MindMapView() {
           <button
             type="button"
             className="mindmap-floating-toolbar__btn mindmap-floating-toolbar__btn--node-action"
-            disabled={!current || !selectedNodeId}
+            disabled={!current || previewReadOnly || !selectedNodeId}
             onClick={handleAddTopicFromCanvas}
             data-tooltip={t('mindmap.toolbar.addChild')}
             aria-label={t('mindmap.addChild')}
@@ -804,7 +1045,7 @@ export function MindMapView() {
           <button
             type="button"
             className="mindmap-floating-toolbar__btn mindmap-floating-toolbar__btn--node-action"
-            disabled={!current || !selectedNodeId}
+            disabled={!current || previewReadOnly || !selectedNodeId}
             onClick={handleAddSibling}
             data-tooltip={t('mindmap.toolbar.addSibling')}
             aria-label={t('mindmap.addSibling')}
@@ -814,19 +1055,19 @@ export function MindMapView() {
           <button
             type="button"
             className="mindmap-floating-toolbar__btn mindmap-floating-toolbar__btn--node-action"
-            disabled={!current || !canAddSummary}
+            disabled={!current || previewReadOnly || !canAddSummary}
             onClick={handleAddSummary}
             data-tooltip={t('mindmap.toolbar.addSummary')}
             aria-label={t('mindmap.addSummary')}
           >
-            <Braces size={16} />
+            <AddSummaryIcon size={16} />
           </button>
           <span className="mindmap-floating-toolbar__divider" aria-hidden="true" />
           <div ref={insertMenuRef} className="mindmap-insert-dropdown">
             <button
               type="button"
               className="mindmap-floating-toolbar__btn"
-              disabled={!current || !selectedNodeId}
+              disabled={!current || previewReadOnly || !selectedNodeId}
               onClick={() => setInsertMenuOpen((value) => !value)}
               data-tooltip={t('mindmap.toolbar.addContent')}
               aria-label={t('mindmap.addToTopic')}
@@ -914,18 +1155,25 @@ export function MindMapView() {
           />
         ) : null}
 
-        {importCompatibilityReport ? (
-          <MindMapImportCompatibilityReport
-            report={importCompatibilityReport}
-            onDismiss={() => setImportCompatibilityReport(null)}
-          />
-        ) : null}
 
         <>
             <MindMapCanvas
-              document={current}
-              activeSheetIndex={Math.max(0, current.sheets.findIndex((s) => s.id === activeSheetId))}
+              document={displayedDocument}
+              activeSheetIndex={Math.max(0, displayedDocument.sheets.findIndex((s) => s.id === activeSheetId))}
               onActiveSheetChange={() => undefined}
+              readOnly={previewReadOnly}
+              generationPreviewRevision={generationPreview?.revision}
+              newlyRevealedNodeIds={generationPreview?.latestNodeIds}
+              panMode={panMode}
+              drawingShape={drawingShape}
+              onCreateShape={handleCreateShape}
+              onUpdateShape={handleUpdateShape}
+              lineTool={drawingLine}
+              onCreateLine={handleCreateLine}
+              onUpdateLine={handleUpdateLine}
+              onDeleteLine={handleDeleteLine}
+              onLineContextMenu={openConnectorContextMenu}
+              onShapeContextMenu={openShapeContextMenu}
               viewportAction={viewportAction}
               onZoomChange={setZoomLevel}
               onViewportChange={handleCanvasViewportChange}
@@ -934,24 +1182,24 @@ export function MindMapView() {
               onOpenNote={(nodeId) => setTopicPopover({ nodeId, section: 'note' })}
             />
             <MindMapTopicPopover
-              nodeId={topicPopover?.nodeId ?? null}
+              nodeId={previewReadOnly ? null : topicPopover?.nodeId ?? null}
               section={topicPopover?.section ?? 'note'}
               positionRevision={canvasViewportRevision}
               onClose={() => setTopicPopover(null)}
             />
             <div className="mindmap-sheet-dock">
               <MindMapSheetTabs
-                document={current}
+                document={displayedDocument}
                 activeSheetId={activeSheetId}
-                onActivate={activateSheet}
-                onRename={renameSheet}
-                onDuplicate={duplicateSheet}
-                onRemove={removeSheet}
+                onActivate={(sheetId) => { if (!previewReadOnly) activateSheet(sheetId) }}
+                onRename={(sheetId, title) => { if (!previewReadOnly) renameSheet(sheetId, title) }}
+                onDuplicate={(sheetId) => { if (!previewReadOnly) duplicateSheet(sheetId) }}
+                onRemove={(sheetId) => { if (!previewReadOnly) removeSheet(sheetId) }}
               />
               <button
                 type="button"
                 className="mindmap-sheet-dock__add"
-                disabled={!current}
+                disabled={!current || previewReadOnly}
                 onClick={newSheet}
                 title={t('mindmap.newSheet')}
                 aria-label={t('mindmap.newSheet')}
@@ -961,7 +1209,7 @@ export function MindMapView() {
             </div>
             <div className="mindmap-status-bar">
               <span className="mindmap-status-bar__count">
-                {t('mindmap.topicCount', { count: computeMindMapLayout(current.sheets.find((s) => s.id === activeSheetId) ?? current.sheets[0]).nodes.length })}
+                {t('mindmap.topicCount', { count: computeMindMapLayout(displayedDocument.sheets.find((s) => s.id === activeSheetId) ?? displayedDocument.sheets[0]).nodes.length })}
               </span>
               <span className="mindmap-status-bar__divider" aria-hidden="true" />
               <MindMapZoomControls
@@ -990,13 +1238,24 @@ export function MindMapView() {
               isRoot={contextMenu.isRoot ?? false}
               onClose={closeContextMenu}
             />
+            <MindMapConnectorContextMenu
+              state={connectorContextMenu}
+              onClose={closeConnectorContextMenu}
+              onDelete={handleDeleteLine}
+            />
+            <MindMapShapeContextMenu
+              state={shapeContextMenu}
+              onClose={closeShapeContextMenu}
+              onDelete={handleDeleteShape}
+            />
         </>
       </div>
 
       <MindMapAiPanel
         open={inspectorOpen || utilityPanel !== null}
+        readOnly={previewReadOnly}
         onToggle={toggleInspectorPanel}
-        documentTitle={current.title}
+        documentTitle={displayedDocument.title}
         onRenameDocument={renameDocument}
         utilityControl={(
           <div className="mindmap-inspector-utility" role="toolbar" aria-label={t('mindmap.viewTitle')}>
@@ -1069,9 +1328,6 @@ export function MindMapView() {
                   <Upload size={14} /> {t('mindmap.import')}
                 </button>
                 <div className="mindmap-export-dropdown__divider" />
-                <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleExport(); setExportMenuOpen(false) }}>
-                  <Download size={14} /> {t('mindmap.exportXmind')}
-                </button>
                 <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleMarkdownExport(); setExportMenuOpen(false) }}>
                   <FileText size={14} /> {t('mindmap.exportMarkdown')}
                 </button>
@@ -1110,12 +1366,4 @@ function findMindMapTopic(node: MindMapTopicV2, id: string): MindMapTopicV2 | nu
     if (found) return found
   }
   return null
-}
-
-function isXmindCompatibilityReport(value: unknown): value is XmindCompatibilityReport {
-  if (typeof value !== 'object' || value === null) return false
-  const record = value as Record<string, unknown>
-  return ['preserved', 'approximated', 'dropped', 'warnings'].every((key) =>
-    Array.isArray(record[key])
-  )
 }

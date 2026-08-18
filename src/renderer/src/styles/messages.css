@@ -148,219 +148,499 @@
 }.markdown-message--user th,
 .markdown-message--user td {
   border-color: var(--line);
-}.agent-process-panel {
+}/* Conversation process rows: matching the chat's quiet Think/tool flow. The
+   process transcript stays a record of runtime activity, rather than a card
+   competing with the assistant answer. */
+.agent-process-panel {
   width: 100%;
-  min-width: min(100%, 280px);
-  overflow: hidden;
-  border: 1px solid var(--lg-line-soft);
-  border-radius: 12px;
-  background:
-    var(--lg-sheen),
-    var(--lg-glass-fill);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   color: var(--text);
-  box-shadow: var(--lg-shadow);
-  backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--lg-blur-soft)) saturate(140%);
   user-select: text;
   -webkit-user-select: text;
   app-region: no-drag;
   -webkit-app-region: no-drag;
-}.agent-process-panel.is-compact {
-  border-radius: 11px;
-  box-shadow: none;
-}.agent-process-header {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--lg-line-soft);
-  color: var(--text-muted);
+}
+.agent-process-panel.is-compact {
   font-size: 12px;
-  font-weight: 700;
-}.agent-process-header svg {
-  color: var(--accent);
-  flex: 0 0 auto;
-}.agent-process-header span {
-  margin-left: auto;
-  color: var(--text-soft);
-  font-size: 11px;
-  font-weight: 650;
-}.agent-process-header strong {
-  font-size: 11px;
-  line-height: 1.2;
-}.agent-process-header--toggle {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}.agent-process-header--toggle:hover {
-  background: var(--surface-hover);
-}.agent-process-header--toggle:focus-visible {
-  position: relative;
-  z-index: 1;
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}.agent-process-header--toggle > svg:last-child {
-  margin-left: 2px;
-  color: var(--text-soft);
-  transition: transform 180ms ease;
-}.agent-process-header--toggle > svg:last-child.is-open {
+}
+/* Tool calls in the reference chat retain their quiet transcript treatment
+   after interaction: a mouse click must not leave a bright selected ring
+   around the full row. The dedicated, smaller history toggle remains
+   keyboard-discoverable without changing the tool-row chrome. */
+.agent-process-disclosure-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text-soft) 65%, transparent);
+  outline-offset: 2px;
+}
+.agent-process-reasoning-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text-soft) 65%, transparent);
+  outline-offset: 2px;
+}
+.agent-process-reasoning-toggle svg.is-open {
   transform: rotate(180deg);
-}.agent-process-content {
+}
+.agent-process-list {
   display: grid;
-  grid-template-rows: 1fr;
-  overflow: hidden;
-  transition: grid-template-rows 220ms ease;
-}.agent-process-content > * {
-  min-height: 0;
-  overflow: hidden;
-}.agent-process-panel.is-collapsed .agent-process-content {
-  grid-template-rows: 0fr;
-}.agent-process-list {
+  gap: 4px;
+  padding: 0;
+}
+.agent-process-outcome {
   display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  min-height: 24px;
+  align-items: center;
   gap: 6px;
-  padding: 8px 10px 10px;
-  opacity: 1;
-  transform: translateY(0);
-  transition: opacity 160ms ease, transform 220ms ease, padding 220ms ease;
-}.agent-process-panel.is-collapsed .agent-process-list {
-  gap: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-  transform: translateY(-4px);
+  color: var(--rose);
+}
+.agent-process-outcome-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+}
+.agent-process-outcome-copy strong,
+.agent-process-outcome-copy span {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-process-outcome-copy strong {
+  flex: 0 1 auto;
+  color: currentColor;
+}
+.agent-process-outcome-copy span {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 8px;
+  color: var(--text-soft);
+}
+.agent-process-outcome-copy span::before {
+  display: inline-block;
+  width: 2px;
+  height: 2px;
+  margin: 0 8px 3px 0;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+  opacity: 0.65;
 }
 .agent-process-event {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-}.agent-process-event-icon {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 7px;
-  background: var(--surface-muted);
+  position: relative;
+  min-width: 0;
   color: var(--text-muted);
-}.agent-process-event.is-active .agent-process-event-icon {
-  color: var(--accent);
-  background: var(--accent-soft);
-}.agent-process-event.is-error .agent-process-event-icon {
-  color: var(--rose);
-  background: var(--rose-soft);
-}.agent-process-event-copy {
-  min-width: 0;
-}.agent-process-event-copy strong {
-  display: block;
-  color: var(--text);
-  font-size: 12.5px;
-  line-height: 1.35;
-}.agent-process-event-title {
-  display: flex;
-  align-items: center;
+}
+.agent-process-event:not(.agent-process-event--reasoning):not(.agent-process-event--tool) {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
   gap: 6px;
-}.agent-process-event-title strong {
-  min-width: 0;
-}.agent-process-reasoning-toggle {
+  min-height: 24px;
+  padding: 0;
+}
+.agent-process-event-icon {
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  border-radius: 50%;
+  color: var(--text-soft);
+}
+.agent-process-event.is-active .agent-process-event-icon {
+  color: var(--accent);
+}
+.agent-process-event.is-error .agent-process-event-icon,
+.agent-process-event.is-attention .agent-process-event-icon {
+  color: var(--rose);
+}
+.agent-process-event-copy {
+  min-width: 0;
+}
+.agent-process-event-copy strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-process-event-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+.agent-process-event-title strong {
+  min-width: 0;
+}
+.agent-process-event-copy small {
+  display: block;
+  overflow: hidden;
+  margin-top: 0;
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-process-event--child-run {
+  margin-left: 22px;
+  padding-left: 8px !important;
+  border-left: 1px solid var(--line);
+}
+.agent-process-disclosure-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  align-items: center;
   padding: 0;
+  overflow: hidden;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
-}.agent-process-reasoning-toggle:hover {
-  background: var(--surface-hover);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.agent-process-disclosure-row:hover {
   color: var(--text);
-}.agent-process-reasoning-toggle svg {
-  transition: transform 160ms ease;
-}.agent-process-reasoning-toggle svg.is-open {
-  transform: rotate(180deg);
-}.agent-process-rollup-viewport {
+}
+.agent-process-disclosure-row--static {
+  cursor: default;
+}
+.agent-process-disclosure-row--static:hover {
+  color: var(--text-muted);
+}
+.agent-process-disclosure-row .agent-process-event-icon {
+  margin-top: 0;
+  margin-right: 6px;
+}
+.agent-process-disclosure-row:hover .agent-process-event-icon,
+.agent-process-disclosure-row:hover .agent-process-disclosure-copy strong {
+  color: currentColor;
+}
+/* DeepSeek's disclosure chrome deliberately reuses the leading 16px slot:
+   the quiet tool/Think icon rests there, then a chevron replaces it only on
+   hover or while expanded. This keeps compact calls transcript-like instead
+   of turning every row into a far-right settings disclosure. */
+.agent-process-disclosure-leading {
   position: relative;
-  display: block;
-  height: 16.675px;
-  margin-top: 2px;
-  overflow: hidden;
-}.agent-process-event-copy small.agent-process-rollup-line {
-  overflow: hidden;
-  margin-top: 2px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}.agent-process-rollup-viewport small.agent-process-rollup-line {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin-right: 6px;
+  place-items: center;
+  color: var(--text-soft);
+}
+.agent-process-disclosure-icon-idle {
+  display: inline-flex;
+  opacity: 1;
+  transition: opacity 100ms ease;
+}
+.agent-process-disclosure-chevron {
   position: absolute;
   inset: 0;
-  margin-top: 0;
-  will-change: transform, opacity;
-}.agent-process-rollup-line.is-leaving {
-  animation: agent-process-roll-out 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
-}.agent-process-rollup-line.is-entering {
-  animation: agent-process-roll-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}.agent-process-rollup-history {
+  margin: auto;
+  opacity: 0;
+  color: var(--text-soft);
+  transition: opacity 100ms ease, color 120ms ease;
+}
+.agent-process-disclosure-row:hover .agent-process-disclosure-icon-idle,
+.agent-process-event.is-expanded .agent-process-disclosure-icon-idle {
+  opacity: 0;
+}
+.agent-process-disclosure-row:hover .agent-process-disclosure-chevron,
+.agent-process-event.is-expanded .agent-process-disclosure-chevron {
+  opacity: 1;
+}
+.agent-process-disclosure-row:hover .agent-process-disclosure-leading,
+.agent-process-disclosure-row:hover .agent-process-disclosure-chevron {
+  color: currentColor;
+}
+.agent-process-event.is-active .agent-process-disclosure-leading {
+  color: var(--accent);
+}
+.agent-process-event.is-error .agent-process-disclosure-leading,
+.agent-process-event.is-attention .agent-process-disclosure-leading {
+  color: var(--rose);
+}
+.agent-process-disclosure-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+}
+.agent-process-disclosure-copy strong {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-process-disclosure-separator {
+  flex: 0 0 auto;
+  width: 2px;
+  height: 2px;
+  margin: 0 8px;
+  border-radius: 50%;
+  background: var(--text-soft);
+  opacity: 0.65;
+}
+.agent-process-disclosure-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-process-event.is-error .agent-process-disclosure-summary,
+.agent-process-event.is-attention .agent-process-disclosure-summary {
+  color: var(--rose);
+}
+.agent-process-disclosure-content {
   display: grid;
-  max-height: 220px;
-  gap: 4px;
-  margin-top: 4px;
-  padding-left: 9px;
-  overflow-y: auto;
-  border-left: 2px solid var(--line);
-}.agent-process-rollup-history small {
-  margin-top: 0;
-}.agent-process-rollup-history small:last-child {
-  color: #52617a;
-}.agent-process-event-copy small {
-  display: block;
-  margin-top: 2px;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  transition: grid-template-rows 180ms ease;
+}
+.agent-process-disclosure-content > * {
+  min-height: 0;
+  overflow: hidden;
+}
+.agent-process-event.is-expanded .agent-process-disclosure-content {
+  grid-template-rows: 1fr;
+}
+.agent-process-reasoning-content p {
+  margin: 0;
+  padding: 4px 0 4px 22px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 24px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--text-muted);
-  font-size: 11.5px;
-  line-height: 1.45;
-}.agent-process-event-copy small.has-height-transition {
+}
+
+/* A collapsed Think must leave no trace: the `0fr` disclosure track stays at
+   zero only when the body carries no padding, so a hidden reasoning body drops
+   its vertical padding (the 22px left indent stays for the reopen animation).
+   Without this the collapsed row is 8px taller than a tool row and the process
+   list spacing looks uneven. */
+.agent-process-reasoning-content[aria-hidden="true"] p {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.agent-process-tool-io-card {
+  display: flex;
+  flex-direction: column;
+  margin: 4px 0 4px 4px;
   overflow: hidden;
-  transition: max-height 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: max-height;
-}.agent-process-event-copy small.has-height-transition.is-collapsed {
-  position: relative;
-  padding-right: 12px;
-}.agent-process-event-copy small.has-height-transition.is-collapsed.has-overflow::after {
-  content: '…';
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  padding-left: 8px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0), #fff 42%);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-solid);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 18px;
+}
+.agent-process-tool-io-section {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 14px;
+  align-items: baseline;
+  max-height: 150px;
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+.agent-process-tool-io-section::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
+}
+.agent-process-tool-io-section::-webkit-scrollbar-track {
+  margin: 6px 0;
+}
+.agent-process-tool-io-label {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  color: var(--text-soft);
+}
+.agent-process-tool-io-divider {
+  flex: none;
+  height: 1px;
+  background: var(--line);
+}
+.agent-process-tool-io-text {
+  min-width: 0;
+  margin: 0;
   color: var(--text-muted);
-}.agent-process-tool-detail {
-  margin-top: 5px;
-}.agent-process-tool-detail-trigger {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-process-disclosure-summary[data-follow-end] {
+  text-overflow: clip;
+}
+.agent-process-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.agent-process-event.is-error .agent-process-tool-io-card,
+.agent-process-event.is-attention .agent-process-tool-io-card {
+  border-color: color-mix(in srgb, var(--rose) 35%, var(--line));
+}
+.agent-process-tool-io-text[data-error] {
+  color: var(--rose);
+}
+/* Compatibility disclosure trigger used by persisted/legacy process rows.
+   Native buttons otherwise fall back to black in dark mode. */
+.agent-process-tool-detail-trigger {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   min-height: 24px;
-  padding: 3px 7px;
-  border: 1px solid #e5ebf4;
-  border-radius: 7px;
-  background: var(--surface-subtle);
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 720;
-}.agent-process-tool-detail-trigger:hover {
-  border-color: var(--line);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.agent-process-tool-detail-trigger:hover {
   color: var(--text);
-  background: var(--surface-muted);
-}.agent-process-tool-detail-trigger svg {
+}
+.agent-process-tool-detail-trigger svg {
+  flex: 0 0 auto;
+  color: currentColor;
+}
+.agent-process-reasoning-toggle {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+.agent-process-reasoning-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.agent-process-reasoning-toggle svg {
+  transition: transform 160ms ease;
+}
+.agent-process-rollup-viewport {
+  position: relative;
+  display: block;
+  height: 18px;
+  margin-top: 1px;
+  overflow: hidden;
+}
+.agent-process-event-copy small.agent-process-rollup-line {
+  overflow: hidden;
+  margin-top: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-process-rollup-viewport small.agent-process-rollup-line {
+  position: absolute;
+  inset: 0;
+  margin-top: 0;
+  will-change: transform, opacity;
+}
+.agent-process-rollup-line.is-leaving {
+  animation: agent-process-roll-out 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.agent-process-rollup-line.is-entering {
+  animation: agent-process-roll-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.agent-process-rollup-history {
+  display: grid;
+  max-height: 180px;
+  gap: 3px;
+  margin-top: 4px;
+  padding-left: 8px;
+  overflow-y: auto;
+  border-left: 1px solid var(--line);
+}
+.agent-process-rollup-history small {
+  margin-top: 0;
+}
+.agent-process-rollup-history small:last-child {
   color: var(--text-muted);
-}.agent-process-tool-detail-trigger .is-open {
-  transform: rotate(180deg);
-}.tool-call-card {
+}
+/* Compatibility for persisted/older process-detail projections. */
+.agent-process-event-copy small.has-height-transition {
+  overflow: hidden;
+  transition: max-height 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: max-height;
+}
+.agent-process-event-copy small.has-height-transition.is-collapsed {
+  position: relative;
+  padding-right: 12px;
+}
+@keyframes agent-process-sweep {
+  0% { left: -300px; }
+  90%, 100% { left: 100%; }
+}
+.agent-process-event.is-active:not(.agent-process-event--reasoning):not(.agent-process-event--tool)::after,
+.agent-process-event.is-active .agent-process-disclosure-row::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 300px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--surface-solid) 60%, transparent) 55%,
+    transparent 100%
+  );
+  content: '';
+  pointer-events: none;
+  animation: agent-process-sweep 2.6s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-process-disclosure-content,
+  .agent-process-disclosure-row > svg,
+  .agent-process-reasoning-toggle svg {
+    transition-duration: 1ms;
+  }
+  .agent-process-event.is-active:not(.agent-process-event--reasoning):not(.agent-process-event--tool)::after,
+  .agent-process-event.is-active .agent-process-disclosure-row::after,
+  .agent-process-rollup-line.is-leaving,
+  .agent-process-rollup-line.is-entering {
+    animation: none;
+  }
+}
+.tool-call-card {
   width: 100%;
   overflow: hidden;
   border: 1px solid var(--lg-line-soft);
@@ -953,9 +1233,10 @@
   .agent-process-rollup-line.is-entering {
     animation-duration: 1ms;
   }
-  .agent-process-content,
-  .agent-process-list,
-  .agent-process-header--toggle > svg:last-child {
+  .agent-process-rollup-viewport,
+  .agent-process-disclosure-content,
+  .agent-process-disclosure-row > svg,
+  .agent-process-reasoning-toggle svg {
     transition-duration: 1ms;
   }
 }

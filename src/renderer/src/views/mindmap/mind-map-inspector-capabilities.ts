@@ -45,6 +45,12 @@ const SUMMARY_FIELDS: readonly MindMapElementStyleField[] = [
 const CALLOUT_FIELDS: readonly MindMapElementStyleField[] = [
   ...COMMON_ELEMENT_FIELDS, 'fill', 'dashed', 'linePattern', 'outlineShape'
 ]
+const SHAPE_FIELDS: readonly MindMapElementStyleField[] = [
+  ...COMMON_ELEMENT_FIELDS, 'fill', 'dashed', 'linePattern', 'outlineShape'
+]
+const CONNECTOR_FIELDS: readonly MindMapElementStyleField[] = [
+  ...COMMON_ELEMENT_FIELDS, 'lineShape', 'beginArrow', 'endArrow', 'linePattern'
+]
 
 /** The native element-style fields each renderer element can consume today. */
 export const ELEMENT_STYLE_CAPABILITIES: Readonly<Record<
@@ -55,7 +61,9 @@ export const ELEMENT_STYLE_CAPABILITIES: Readonly<Record<
   boundary: new Set(BOUNDARY_FIELDS),
   summary: new Set(SUMMARY_FIELDS),
   callout: new Set(CALLOUT_FIELDS),
-  'free-topic': new Set()
+  'free-topic': new Set(),
+  shape: new Set(SHAPE_FIELDS),
+  connector: new Set(CONNECTOR_FIELDS)
 }
 
 /** Resolve capability for one topic field without collapsing other fields. */
@@ -74,7 +82,7 @@ export function getCanvasInspectorFieldCapability(
   field: MindMapCanvasInspectorField,
   structureClass: MindMapStructureClass
 ): MindMapInspectorFieldCapability {
-  if (field === 'autoBalance' && !structureClass.startsWith('org.xmind.ui.logic.')) {
+  if (field === 'autoBalance' && !structureClass.startsWith('studiumx.layout.logic.')) {
     return { supported: false, disabled: true, reasonKey: 'balancedMapUnavailable' }
   }
   return ENABLED

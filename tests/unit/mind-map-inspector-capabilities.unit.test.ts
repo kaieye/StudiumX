@@ -16,10 +16,10 @@ describe('mind-map inspector field capabilities', () => {
   })
 
   it('limits auto-balance to logic-chart structures without disabling other canvas fields', () => {
-    expect(getCanvasInspectorFieldCapability('autoBalance', 'org.xmind.ui.org-chart.down')).toMatchObject({
+    expect(getCanvasInspectorFieldCapability('autoBalance', 'studiumx.layout.org-chart.down')).toMatchObject({
       supported: false, disabled: true, reasonKey: 'balancedMapUnavailable'
     })
-    expect(getCanvasInspectorFieldCapability('compact', 'org.xmind.ui.org-chart.down')).toMatchObject({
+    expect(getCanvasInspectorFieldCapability('compact', 'studiumx.layout.org-chart.down')).toMatchObject({
       supported: true, disabled: false
     })
   })

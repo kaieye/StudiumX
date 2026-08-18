@@ -2,7 +2,7 @@ import { Minus, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 /**
- * Floating zoom controls for the mind-map canvas (Xmind-style).
+ * Floating zoom controls for the mind-map canvas (StudiumX-style).
  *
  * Shows zoom percentage and +/- buttons, plus fit-to-screen.
  */

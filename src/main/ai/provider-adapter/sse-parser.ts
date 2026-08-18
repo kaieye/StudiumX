@@ -224,10 +224,12 @@ function extractResponsesChatDelta(event: unknown): {
       return typeof record.delta === 'string' ? { reasoning: record.delta } : {}
     case 'response.output_item.added': {
       const item = record.item && typeof record.item === 'object'
-        ? (record.item as { type?: string; id?: string; name?: string })
+        ? (record.item as { type?: string; id?: string; call_id?: string; name?: string })
         : undefined
       if (item?.type === 'function_call' && item.name) {
-        return { toolCalls: [{ index, id: item.id, name: item.name }] }
+        // `call_id`, not the output item's `id`, is required when sending a
+        // matching function_call_output in the next Responses request.
+        return { toolCalls: [{ index, id: item.call_id || item.id, name: item.name }] }
       }
       return {}
     }

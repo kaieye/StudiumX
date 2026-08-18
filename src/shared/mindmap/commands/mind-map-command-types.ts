@@ -16,6 +16,8 @@ import type {
   MindMapLayoutSettings,
   MindMapAssetRef,
   MindMapElement,
+  MindMapConnectorEndpoint,
+  MindMapDrawingShape,
   MindMapElementStyle,
   MindMapImageElement,
   MindMapImagePlacement,
@@ -83,6 +85,13 @@ export type MindMapElementUpdatePatch = {
   children?: string[] | null
   text?: string
   position?: MindMapPoint | null
+  shape?: MindMapDrawingShape
+  width?: number
+  height?: number
+  start?: MindMapConnectorEndpoint
+  end?: MindMapConnectorEndpoint
+  /** Curve control point offset from the connector's current endpoint midpoint. */
+  curveControlOffset?: MindMapPoint | null
   style?: MindMapElementStyle | null
 }
 

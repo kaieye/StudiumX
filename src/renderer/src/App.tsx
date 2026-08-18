@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowDown,
   ArrowLeft,
   ArrowUpRight,
   BookCopy,
@@ -116,6 +117,7 @@ import {
 } from './agent-conversation-state'
 import { buildAgentConversationPresentation } from './agent-conversation-presentation'
 import { AgentConversationReader } from './views/agent-conversation/AgentConversationReader'
+import { AgentConversationTurnFlow } from './views/agent-conversation/AgentConversationTurnFlow'
 import { buildTeachingTurnPresentationFromSnapshot, type TeachingTurnAction } from './teaching-turn-presentation'
 import { ConversationInterruptionDock } from './views/agent-conversation/ConversationInterruptionDock'
 import { AgentMessageActions, AgentMessageEditor } from './views/agent-conversation/AgentSessionTreePanel'
@@ -134,7 +136,7 @@ import {
   type LearningOutcomeCommitUiStatus
 } from './teaching/learning-outcome-commit-client'
 import { LearningOutcomeCommitStatusBanner } from './teaching/learning-outcome-commit-status-banner'
-import { sanitizeAgentTurnContent } from '../../shared/agent-conversation-turns'
+import { sanitizeAgentPresentationText } from '../../shared/agent-conversation-turns'
 import { formatAskRemainingLabel } from '../../shared/ask-deadline'
 import {
   type AgentChatTurn,
@@ -932,6 +934,7 @@ function MainArea() {
     setView,
     setSidebarCollapsed,
     openSettings,
+    closeSettings,
     closeResourceHtmlPreview,
     pickDefaultRoot,
     initialize,
@@ -1194,7 +1197,7 @@ function MainArea() {
           section={settingsSection}
           settings={settings}
           activeWorkspace={active}
-          onClose={() => setView('overview')}
+          onClose={closeSettings}
           onSectionChange={(section) => openSettings(section)}
           onUpdateSettings={updateSettings}
           onPickDefaultRoot={pickDefaultRoot}
@@ -2020,8 +2023,29 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const inputValue = agentInput
   const busy = isTeachingMode ? generating || agentChatBusy : agentChatBusy
   const hasConversation = agentTurns.length > 0
+  const visibleAgentStatus = sanitizeAgentPresentationText(agentStatus)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const threadContentRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const followThreadRef = useRef(true)
+  const [threadAtBottom, setThreadAtBottom] = useState(true)
+  const scrollThreadToBottom = useCallback((): void => {
+    const node = scrollRef.current
+    if (!node) return
+    followThreadRef.current = true
+    setThreadAtBottom(true)
+    // A direct assignment is intentional for streaming updates and the
+    // return-to-latest action: it keeps a pinned reader steady while content
+    // grows, instead of queuing a new smooth animation for every token.
+    node.scrollTop = node.scrollHeight
+  }, [])
+  const updateThreadAtBottom = useCallback((): void => {
+    const node = scrollRef.current
+    if (!node) return
+    const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight <= 24
+    followThreadRef.current = atBottom
+    setThreadAtBottom((current) => current === atBottom ? current : atBottom)
+  }, [])
   const skillSlash = useSkillSlashInput({
     value: inputValue,
     onChange: setAgentInput,
@@ -2226,6 +2250,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     setInputHistoryIndex(null)
     setInputHistoryDraft('')
     setAgentInput('')
+    scrollThreadToBottom()
     // One brain: the teaching conversation owns clarification AND generation
     // (via its generate_lesson tool). No parallel pipeline hand-off here.
     void agentChat(prompt, { mode: 'teaching', skillIds: mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt)) })
@@ -2236,6 +2261,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     rememberAgentInput(prompt)
     setInputHistoryIndex(null)
     setInputHistoryDraft('')
+    scrollThreadToBottom()
     void agentChat(prompt, { mode: 'temporary', skillIds: mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt)) })
   }
   const submitCurrentMode = (rawInput = inputValue): void => {
@@ -2423,6 +2449,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       }
       setEditingTurnId(null)
       const mode = isTeachingMode ? 'teaching' as const : 'temporary' as const
+      scrollThreadToBottom()
       void agentChat(content, { mode })
     } finally {
       setMessageActionBusy(false)
@@ -2434,29 +2461,44 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   }, [activeConversationId])
 
   useEffect(() => {
+    followThreadRef.current = true
+    setThreadAtBottom(true)
+  }, [activeConversationId, hasConversation])
+
+  useEffect(() => {
+    if (!hasConversation) return
     const node = scrollRef.current
-    if (!node) return
-    node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
-  }, [agentTurns, agentStatus, pendingAsk, pendingPermission])
+    const content = threadContentRef.current
+    if (!node || !content) return
+    const keepPinnedToThreadEnd = (): void => {
+      if (followThreadRef.current) scrollThreadToBottom()
+    }
+    keepPinnedToThreadEnd()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(keepPinnedToThreadEnd)
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [hasConversation, scrollThreadToBottom])
+
+  useEffect(() => {
+    if (followThreadRef.current) scrollThreadToBottom()
+  }, [agentTurns, agentStatus, pendingAsk, pendingPermission, scrollThreadToBottom])
   return (
     <section
       className={`overview-dialog-shell${hasConversation ? ' has-conversation' : ''}`}
       aria-label={t('overview.aria')}
     >
       {hasConversation && (
-        <div ref={scrollRef} className="overview-dialog-thread">
-          <div className="overview-dialog-thread-inner">
+        <div ref={scrollRef} className="overview-dialog-thread" onScroll={updateThreadAtBottom}>
+          <div ref={threadContentRef} className="overview-dialog-thread-inner">
           {agentTurns.map((turn) => {
             const turnPresentation = conversationPresentation.turns.find((item) => item.turnId === turn.id)
             const isBusyTurn = activeAssistantTurnId === turn.id
-            // Assistant text emitted before a tool call is an internal planning
-            // preamble. The same work is already represented by the single
-            // “规划中” card; rendering it here creates duplicated, split prose.
-            // Durable assistant turns keep toolCalls alongside the final reply after a run
-            // is collapsed. Hide only empty/internal content; never suppress the answer
-            // just because tools were used.
+            // `flow` owns all projected assistant prose and process rows in
+            // arrival order. Keep the canonical fallback below only for legacy
+            // turns that do not yet carry a presentation timeline.
             const visibleContent = turn.role === 'assistant'
-              ? sanitizeAgentTurnContent(turn.content)
+              ? sanitizeAgentPresentationText(turn.content)
               : turn.content
             const content = visibleContent || (turn.role === 'assistant' && isBusyTurn && !turnPresentation?.items.length ? '正在准备回复…' : '')
             const sourceReferences = turn.role === 'assistant' ? (turnPresentation?.sources ?? []) : []
@@ -2475,8 +2517,23 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
                   />
                 ) : (
                   <>
-                    {turn.role === 'assistant' ? <AgentConversationReader presentation={turnPresentation} teachingPresentation={turn.id === [...agentTurns].reverse().find((item) => item.role === 'assistant')?.id ? teachingPresentation : undefined} onTeachingAction={(action) => { void runTeachingAction(action) }} compact /> : null}
-                    {content ? <MarkdownMessage content={content} tone={turn.role} compact /> : null}
+                    {turn.role === 'assistant' && turnPresentation?.flow?.length ? (
+                      <AgentConversationTurnFlow flow={turnPresentation.flow} />
+                    ) : null}
+                    {turn.role === 'assistant' ? (
+                      <AgentConversationReader
+                        presentation={turnPresentation}
+                        teachingPresentation={turn.id === [...agentTurns].reverse().find((item) => item.role === 'assistant')?.id ? teachingPresentation : undefined}
+                        onTeachingAction={(action) => { void runTeachingAction(action) }}
+                        omitProcessItemIds={turnPresentation?.flow
+                          ?.filter((item) => item.kind === 'process')
+                          .map((item) => item.item.id)}
+                        compact
+                      />
+                    ) : null}
+                    {content && !(turn.role === 'assistant' && turnPresentation?.flow?.length)
+                      ? <MarkdownMessage content={content} tone={turn.role} compact />
+                      : null}
                     {turn.role === 'user' && turn.metadata?.skillInvocation ? (
                       <SkillInvocationEvidence presentation={turn.metadata.skillInvocation} />
                     ) : null}
@@ -2490,7 +2547,11 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
                       disabled={messageActionBusy || agentChatBusy}
                       onFork={(turnId) => { void forkFromTurn(turnId) }}
                       onEdit={(editableTurn) => setEditingTurnId(editableTurn.id)}
-                      onCopy={copyTurnContent}
+                      onCopy={(copyableContent) => copyTurnContent(
+                        turn.role === 'assistant'
+                          ? sanitizeAgentPresentationText(copyableContent)
+                          : copyableContent
+                      )}
                       branchNavigation={branchNavigation}
                     />
                   </>
@@ -2499,6 +2560,19 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             )
           })}
           </div>
+          {!threadAtBottom ? (
+            <div className="overview-dialog-to-bottom-slot">
+              <button
+                type="button"
+                className="overview-dialog-to-bottom"
+                aria-label="回到最新消息"
+                title="回到最新消息"
+                onClick={() => scrollThreadToBottom()}
+              >
+                <ArrowDown size={17} aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -2615,7 +2689,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           </div>
           <div className="overview-dialog-status-group">
             {isTeachingMode && generating ? <span className="overview-dialog-status-text">{t('lessons.composerTitle')}</span> : null}
-            {!isTeachingMode && agentStatus ? <span className="overview-dialog-status-text">{agentStatus}</span> : null}
+            {!isTeachingMode && visibleAgentStatus ? <span className="overview-dialog-status-text">{visibleAgentStatus}</span> : null}
             {agentBusyAckMessage ? (
               <span className="overview-dialog-status-text overview-dialog-busy-ack" role="status" aria-live="polite">
                 {agentBusyAckMessage}

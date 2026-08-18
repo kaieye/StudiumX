@@ -1,7 +1,7 @@
 import { AlertCircle, CheckCircle2, Loader2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-export type MindMapExportFormat = 'xmind' | 'markdown' | 'opml' | 'svg' | 'png'
+export type MindMapExportFormat = 'markdown' | 'opml' | 'svg' | 'png'
 
 export type MindMapExportFeedbackState =
   | { status: 'exporting'; format: MindMapExportFormat }

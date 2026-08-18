@@ -51,14 +51,14 @@ function documentV2(): MindMapDocumentV2 {
           ]
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       },
       {
         id: 'sheet-2',
         title: 'Sheet 2',
         root: { id: 'root-2', title: 'Other root', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []

@@ -10,11 +10,13 @@ import {
   GitFork,
   Loader2,
   MessageSquare,
+  PenLine,
   Search,
   Sparkles,
+  Terminal,
   Wrench
 } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type {
   AgentConversationProvenanceItem,
   AgentConversationTurnPresentation
@@ -24,6 +26,7 @@ import type {
   TeachingTurnPresentation
 } from '../../teaching-turn-presentation'
 import { redactAgentSecretText } from '../../../../shared/agent-secret-redaction'
+import { AgentToolContent } from './AgentToolContent'
 
 /**
  * Older renderer fixtures and partial projections predate the structured status.
@@ -43,7 +46,8 @@ export function AgentConversationReader({
   teachingPresentation,
   onTeachingAction,
   openTeachingSourcesKey = null,
-  compact = false
+  compact = false,
+  omitProcessItemIds
 }: {
   presentation: AgentConversationReaderPresentation | undefined
   teachingPresentation?: TeachingTurnPresentation | undefined
@@ -51,9 +55,25 @@ export function AgentConversationReader({
   /** When this key changes, expand the trusted-sources disclosure (show_source command). */
   openTeachingSourcesKey?: string | number | null
   compact?: boolean
+  /** Process rows already rendered by an ordered Think/tool/text flow. */
+  omitProcessItemIds?: readonly string[]
 }) {
-  const process = presentation && (presentation.items.length > 0 || presentation.answeredAsks.length > 0)
-    ? <AgentProcessReader presentation={presentation} compact={compact} />
+  const omitted = omitProcessItemIds?.length ? new Set(omitProcessItemIds) : null
+  const hasOrderedFlow = Boolean(presentation?.flow?.length)
+  const processPresentation = presentation && (omitted || hasOrderedFlow)
+    ? {
+        ...presentation,
+        items: presentation.items.filter((item) =>
+          (!omitted || !omitted.has(item.id)) &&
+          // The ordered Think/text/tool flow already represents normal progress.
+          // Keep pending approvals/questions and all terminal attention states in
+          // the process reader so no action or recovery boundary is hidden.
+          (!hasOrderedFlow || !isOrdinaryResidualStatus(item))
+        )
+      }
+    : presentation
+  const process = processPresentation && (processPresentation.items.length > 0 || processPresentation.answeredAsks.length > 0)
+    ? <AgentProcessReader presentation={processPresentation} compact={compact} />
     : null
   if (!teachingPresentation) return process
   return (
@@ -112,11 +132,10 @@ function TeachingTurnReader({ presentation, onAction, openSourcesKey, compact }:
         <p
           id={yourTurnId}
           className="teaching-turn-panel__status teaching-turn-panel__your-turn"
-          // A saved announcement is a second, dedicated live region below. Keep the
-          // current-phase description as a note in that state so assistive tech does
-          // not announce two near-identical status updates for one learner action.
-          role={needsYou && !liveAnnouncement ? 'status' : 'note'}
-          aria-live={needsYou && !liveAnnouncement ? 'polite' : 'off'}
+          // Keep the current learner-turn boundary as a polite status. The saved
+          // announcement below is an additional, short-lived confirmation.
+          role={needsYou ? 'status' : 'note'}
+          aria-live={needsYou ? 'polite' : 'off'}
           aria-atomic="true"
           aria-label={presentation.accessibleNames.currentPhase}
           data-phase-state={activePhase.state}
@@ -167,85 +186,83 @@ function AgentProcessReader({ presentation, compact }: {
   compact: boolean
 }) {
   // Reasoning activity is intentionally visible alongside tool and status events.
-  // Its provider title and detail are rendered without process-level redaction.
+  // All learner-visible labels and details have already passed the presentation
+  // sanitizer; raw provider payloads are never rendered here.
   const rows = groupRepeatedProcessDescriptions(presentation.items)
-  const header = processHeaderFor(presentation.status?.kind, presentation.active)
-  const canCollapse = header.title === '思考结束' && !presentation.active
-  const [expanded, setExpanded] = useState(() => !canCollapse)
-  const previous = useRef({ turnId: presentation.turnId, canCollapse })
-  const contentId = `agent-process-content-${presentation.turnId}`
-
-  useEffect(() => {
-    if (previous.current.turnId !== presentation.turnId) {
-      setExpanded(!canCollapse)
-    } else if (!previous.current.canCollapse && canCollapse) {
-      // The active thinking panel stays open until the turn settles, then folds away.
-      setExpanded(false)
-    } else if (previous.current.canCollapse && !canCollapse) {
-      setExpanded(true)
-    }
-    previous.current = { turnId: presentation.turnId, canCollapse }
-  }, [canCollapse, presentation.turnId])
+  const isActive = presentation.active || presentation.status?.kind === 'active'
+  const outcome = processOutcomeFor(presentation.status?.kind)
 
   return (
     <section
-      className={`agent-process-panel${compact ? ' is-compact' : ''}${canCollapse && !expanded ? ' is-collapsed' : ''}`}
+      className={`agent-process-panel${compact ? ' is-compact' : ''}${isActive ? ' is-active' : ''}`}
       aria-label="AI 处理过程"
     >
-      {canCollapse ? (
-        <button
-          type="button"
-          className="agent-process-header agent-process-header--toggle"
-          aria-expanded={expanded}
-          aria-controls={contentId}
-          aria-label={expanded ? '收起思考过程' : '展开思考过程'}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          <BrainCircuit size={compact ? 13 : 14} />
-          <strong>{header.title}</strong>
-          <span>{header.label}</span>
-          <ChevronDown className={expanded ? 'is-open' : undefined} size={15} aria-hidden="true" />
-        </button>
-      ) : (
-        <header className="agent-process-header">
-          {header.icon === 'attention' ? <Bell size={compact ? 13 : 14} /> : <BrainCircuit size={compact ? 13 : 14} />}
-          <strong>{header.title}</strong>
-          <span>{header.label}</span>
-        </header>
-      )}
-      <div
-        id={contentId}
-        className="agent-process-content"
-        aria-hidden={canCollapse && !expanded ? true : undefined}
-        inert={canCollapse && !expanded ? true : undefined}
-      >
-        <div className="agent-process-list" aria-live="polite">
-          {rows.map((row) => row.type === 'rollup'
-            ? <RepeatedProcessRow key={`${presentation.turnId}:${row.id}`} items={row.items} />
-            : <AgentProcessRow key={row.id} item={row.item} />)}
-        </div>
+      {outcome ? <ProcessOutcomeRow outcome={outcome} compact={compact} /> : null}
+      <div className="agent-process-list" aria-live={isActive ? 'polite' : undefined}>
+        {rows.map((row) => row.type === 'rollup'
+          ? <RepeatedProcessRow key={`${presentation.turnId}:${row.id}`} items={row.items} />
+          : <AgentProcessRow key={row.id} item={row.item} />)}
       </div>
     </section>
   )
 }
-function processHeaderFor(status: unknown, active: boolean): {
+
+/**
+ * A normal completed/running turn is represented by its Think/tool rows, like
+ * the reference chat flow. Only terminal attention states need an extra row;
+ * otherwise a generic "thinking finished" banner would make every answer look
+ * like a separate card.
+ */
+/**
+ * A draft starts with a generic `thinking` status and terminal persistence can
+ * leave a completed status behind. Once an ordered flow owns Think/text/tool
+ * placement, those generic rows would otherwise reappear after the transcript.
+ * Do not suppress pending requests or terminal states: they carry actionable
+ * approval/question and recovery information outside the transcript itself.
+ */
+function isOrdinaryResidualStatus(item: AgentConversationProvenanceItem): boolean {
+  return item.kind === 'status' && (item.state === 'active' || item.state === 'complete')
+}
+
+function processOutcomeFor(status: unknown): {
   title: string
   label: string
-  icon?: 'attention'
-} {
+  tone: 'error' | 'attention'
+} | null {
   switch (status) {
-    case 'active': return { title: '思考中', label: '进行中' }
-    case 'completed': return { title: '思考结束', label: '已完成' }
-    case 'failed': return { title: '处理失败', label: '发生错误' }
-    case 'canceled': return { title: '处理已取消', label: '已取消' }
-    case 'interrupted': return { title: '运行中断', label: '需确认', icon: 'attention' }
-    case 'resource_limit': return { title: '已达到资源边界', label: '需要调整资源', icon: 'attention' }
-    case 'suspended': return { title: '运行已暂停', label: '紧急保护已触发', icon: 'attention' }
-    case 'context_unrecoverable': return { title: '上下文无法继续', label: '请开始新的明确对话', icon: 'attention' }
-    case 'no_progress': return { title: '未检测到安全进展', label: '未自动重试或重放', icon: 'attention' }
-    case 'retry_exhausted': return { title: '重试已用尽', label: '未自动重试或重放', icon: 'attention' }
-    default: return { title: active ? '思考中' : '思考结束', label: active ? '进行中' : '已完成' }
+    case 'failed': return { title: '处理失败', label: '发生错误', tone: 'error' }
+    case 'canceled': return { title: '处理已取消', label: '已取消', tone: 'attention' }
+    case 'interrupted': return { title: '运行中断', label: '需确认', tone: 'attention' }
+    case 'resource_limit': return { title: '已达到资源边界', label: '需要调整资源', tone: 'attention' }
+    case 'suspended': return { title: '运行已暂停', label: '紧急保护已触发', tone: 'attention' }
+    case 'context_unrecoverable': return { title: '上下文无法继续', label: '请开始新的明确对话', tone: 'attention' }
+    case 'no_progress': return { title: '未检测到安全进展', label: '未自动重试或重放', tone: 'attention' }
+    case 'retry_exhausted': return { title: '重试已用尽', label: '未自动重试或重放', tone: 'attention' }
+    default: return null
   }
+}
+
+function ProcessOutcomeRow({ outcome, compact }: {
+  outcome: NonNullable<ReturnType<typeof processOutcomeFor>>
+  compact: boolean
+}) {
+  return (
+    <div
+      className={`agent-process-outcome is-${outcome.tone}`}
+      data-state={outcome.tone}
+      role="status"
+    >
+      <span className="agent-process-event-icon">
+        {outcome.tone === 'error'
+          ? <AlertCircle size={compact ? 13 : 14} />
+          : <Bell size={compact ? 13 : 14} />}
+      </span>
+      <span className="agent-process-outcome-copy">
+        <strong>{outcome.title}</strong>
+        <span>{outcome.label}</span>
+      </span>
+    </div>
+  )
 }
 
 function groupRepeatedProcessDescriptions(items: AgentConversationProvenanceItem[]): AgentProcessDisplayRow[] {
@@ -283,7 +300,7 @@ function RepeatedProcessRow({ items }: { items: AgentConversationProvenanceItem[
   const [expanded, setExpanded] = useState(false)
   const hasHistory = items.length > 1
   return (
-    <div className={`agent-process-event${latest.state === 'error' ? ' is-error' : ''}${latest.state === 'active' ? ' is-active' : ''}`}>
+    <div className={`${processEventClassName(latest)} agent-process-event--rollup`}>
       <span className="agent-process-event-icon"><ProcessIcon item={latest} /></span>
       <div className="agent-process-event-copy">
         <div className="agent-process-event-title">
@@ -372,7 +389,16 @@ function processDescription(item: AgentConversationProvenanceItem): string {
  * not guessed here; that remains an upstream typed-title contract follow-up.
  */
 function processPrimaryLabel(item: AgentConversationProvenanceItem): string {
-  if (item.kind === 'reasoning') return item.label || '思考过程'
+  // Match the reference UI and avoid turning provider-facing titles into a
+  // learner-visible reasoning label. The body remains separately safety-gated.
+  if (item.kind === 'reasoning') return 'Think'
+  // Tool names are runtime-facing identifiers. The presentation projector
+  // already maps them to this small reviewed vocabulary; keep the DOM
+  // fail-closed as well so a stale/crafted projection cannot turn a tool title
+  // into learner-facing provider text.
+  if (item.kind === 'tool_call' || item.kind === 'tool_result') {
+    return safeToolDisplayLabel(item.label)
+  }
   const candidate = item.label.replace(/\s+/g, ' ').trim()
   if (!candidate) return safeDiagnosticLabel(item.kind)
   const redacted = redactAgentSecretText(candidate)
@@ -383,10 +409,231 @@ function processPrimaryLabel(item: AgentConversationProvenanceItem): string {
   return candidate
 }
 
-function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
+function safeToolDisplayLabel(value: string): 'Bash' | 'READ' | 'Search' | 'Write' | 'Edit' | 'Tool call' {
+  switch (value.trim()) {
+    case 'Bash':
+    case 'READ':
+    case 'Search':
+    case 'Write':
+    case 'Edit':
+    case 'Tool call':
+      return value.trim() as 'Bash' | 'READ' | 'Search' | 'Write' | 'Edit' | 'Tool call'
+    default:
+      return 'Tool call'
+  }
+}
+
+/** Atomic row used by the ordered chat flow as well as legacy process panels. */
+export function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
+  if (item.kind === 'reasoning') return <ReasoningProcessRow item={item} />
+  if (item.kind === 'tool_call' || item.kind === 'tool_result') return <ToolProcessRow item={item} />
+  return <ActivityProcessRow item={item} />
+}
+
+/**
+ * A Think-style disclosure. The expanded body deliberately uses only the
+ * existing learner-facing reasoning projection; it never reads provider
+ * payloads or the raw turn content.
+ */
+function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
+  const primaryLabel = processPrimaryLabel(item)
+  const secondary = safeProcessSecondaryText(item)
+  const running = item.state === 'active'
+  const summary = secondary ? reasoningSummary(secondary, running) : ''
+  const [expanded, setExpanded] = useState(false)
+  const summaryRef = useRef<HTMLSpanElement>(null)
+  const contentId = `agent-process-reasoning-${item.id}`
+
+  // During a streaming Think block, follow the newest line so the summary
+  // behaves like the reference UI instead of repeatedly showing its prefix.
+  useLayoutEffect(() => {
+    const node = summaryRef.current
+    if (!node) return
+    node.scrollLeft = running ? node.scrollWidth - node.clientWidth : 0
+  }, [running, summary])
+
+  return (
+    <div
+      className={`${processEventClassName(item)} agent-process-event--reasoning${expanded ? ' is-expanded' : ''}`}
+      data-variant="think"
+      data-state={running ? 'running' : 'ok'}
+    >
+      {running ? <span className="agent-process-visually-hidden">思考正在进行</span> : null}
+      <button
+        type="button"
+        className="agent-process-disclosure-row"
+        aria-expanded={expanded}
+        aria-controls={contentId}
+        aria-label={expanded ? '收起思考内容' : '展开思考内容'}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <DisclosureLeading icon={<BrainCircuit size={13} />} expanded={expanded} />
+        <span className="agent-process-disclosure-copy">
+          <strong>{primaryLabel}</strong>
+          {secondary ? (
+            <>
+              <span className="agent-process-disclosure-separator" aria-hidden="true" />
+              <span
+                ref={summaryRef}
+                className="agent-process-disclosure-summary"
+                data-follow-end={running || undefined}
+              >
+                {summary}
+              </span>
+            </>
+          ) : null}
+        </span>
+      </button>
+      <div
+        id={contentId}
+        className="agent-process-disclosure-content agent-process-reasoning-content"
+        aria-hidden={!expanded}
+        inert={!expanded ? true : undefined}
+      >
+        {secondary ? <p>{secondary}</p> : null}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The reference disclosure uses the 16px leading slot for both the resting
+ * tool/Think icon and the hover/open chevron. Keeping it out of the far-right
+ * edge prevents a run of tools from reading like a settings list.
+ */
+function DisclosureLeading({ icon, expanded }: { icon: ReactNode; expanded: boolean }) {
+  return (
+    <span className="agent-process-disclosure-leading" aria-hidden="true">
+      <span className="agent-process-disclosure-icon-idle">{icon}</span>
+      <ChevronDown
+        className="agent-process-disclosure-chevron"
+        data-expanded={expanded || undefined}
+        size={14}
+      />
+    </span>
+  )
+}
+
+/** Tool calls mirror the compact, row-first tool chrome from the reference
+ * conversation UI. The presentation layer supplies only a bounded, redacted
+ * text projection; this component never reaches back to raw tool data. */
+function ToolProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
+  const primaryLabel = processPrimaryLabel(item)
+  const secondary = safeProcessSecondaryText(item)
+  const toolCompleted = item.state !== 'active' && item.state !== 'pending'
+  const hasStructuredDisclosure = Boolean(item.disclosure)
+  // `detail` remains a compatibility fallback for older projections. New
+  // rows arrive with structured `disclosure`, so safe input and output are
+  // readable after expansion instead of being replaced with a placeholder.
+  // Keep the reader as a second safety boundary: durable/stale projections
+  // can be rendered directly in tests or recovery paths, so never trust a
+  // supplied disclosure field merely because its producer intended it to be
+  // pre-sanitized.
+  const disclosureInput = safeToolDisclosureText(item.disclosure?.arguments)
+  const disclosureResult = safeToolDisclosureText(item.disclosure?.result)
+  const disclosureNotice = safeToolDisclosureText(item.disclosure?.notice)
+  const disclosureLabel = safeToolDisclosureText(item.disclosure?.label)
+  const inputText = disclosureInput ?? (!hasStructuredDisclosure && item.kind === 'tool_call' ? secondary : undefined)
+  const resultText = disclosureResult ?? (!hasStructuredDisclosure && item.kind === 'tool_result' ? secondary : undefined)
+  const notice = disclosureNotice
+  const noticeAsOutput = Boolean(notice && toolCompleted && !resultText)
+  const outputText = resultText ?? (noticeAsOutput ? notice : undefined)
+  const infoText = noticeAsOutput ? undefined : notice
+  const disclosureText = item.state === 'error' && resultText
+    ? firstProcessLine(resultText)
+    : disclosureLabel ?? secondary ?? toolStateLabel(item)
+  const expandable = Boolean(inputText || resultText || notice)
+  const [expanded, setExpanded] = useState(false)
+  const contentId = `agent-process-tool-${item.id}`
+  const stateLabel = toolStateLabel(item)
+  const state = item.state === 'active' ? 'running' : item.state === 'error' ? 'error' : 'ok'
+  const rowContent = (
+    <>
+      <DisclosureLeading icon={<ProcessIcon item={item} />} expanded={expanded} />
+      <span className="agent-process-disclosure-copy">
+        <strong>{primaryLabel}</strong>
+        {disclosureText ? (
+          <>
+            <span className="agent-process-disclosure-separator" aria-hidden="true" />
+            <span className="agent-process-disclosure-summary">{disclosureText}</span>
+          </>
+        ) : null}
+      </span>
+    </>
+  )
+
+  if (!expandable) {
+    return (
+      <div
+        className={`${processEventClassName(item)} agent-process-event--tool`}
+        data-variant="tool"
+        data-state={state}
+      >
+        <span className="agent-process-visually-hidden">{stateLabel}</span>
+        <div className="agent-process-disclosure-row agent-process-disclosure-row--static">
+          <span className="agent-process-event-icon"><ProcessIcon item={item} /></span>
+          <span className="agent-process-disclosure-copy">
+            <strong>{primaryLabel}</strong>
+            {disclosureText ? (
+              <>
+                <span className="agent-process-disclosure-separator" aria-hidden="true" />
+                <span className="agent-process-disclosure-summary">{disclosureText}</span>
+              </>
+            ) : null}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className={`${processEventClassName(item)} agent-process-event--tool${expanded ? ' is-expanded' : ''}`}
+      data-variant="tool"
+      data-state={state}
+    >
+      <span className="agent-process-visually-hidden">{stateLabel}</span>
+      <button
+        type="button"
+        className="agent-process-disclosure-row"
+        aria-expanded={expanded}
+        aria-controls={contentId}
+        aria-label={expanded ? `收起${primaryLabel}详情` : `展开${primaryLabel}详情`}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        {rowContent}
+      </button>
+      <div
+        id={contentId}
+        className="agent-process-disclosure-content agent-process-tool-content"
+        aria-hidden={!expanded}
+        inert={!expanded ? true : undefined}
+      >
+        {expanded ? (
+          <AgentToolContent
+            content={item.disclosure?.content}
+            inputText={inputText}
+            outputText={outputText}
+            infoText={infoText}
+            error={item.state === 'error' || isAttentionState(item.state)}
+            label={primaryLabel}
+          />
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function ActivityProcessRow({
+  item,
+  className = ''
+}: {
+  item: AgentConversationProvenanceItem
+  className?: string
+}) {
   const secondary = safeProcessSecondaryText(item)
   return (
-    <div className={`agent-process-event${item.state === 'error' ? ' is-error' : ''}${item.state === 'active' ? ' is-active' : ''}${item.state === 'resource_limit' || item.state === 'suspended' || item.state === 'no_progress' || item.state === 'context_unrecoverable' || item.state === 'retry_exhausted' ? ' is-attention' : ''}`}>
+    <div className={`${processEventClassName(item)} ${className}`.trim()}>
       <span className="agent-process-event-icon"><ProcessIcon item={item} /></span>
       <div className="agent-process-event-copy">
         <strong>{processPrimaryLabel(item)}</strong>
@@ -396,6 +643,58 @@ function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
   )
 }
 
+function processEventClassName(item: AgentConversationProvenanceItem): string {
+  const classes = ['agent-process-event']
+  if (item.state === 'error') classes.push('is-error')
+  if (item.state === 'active') classes.push('is-active')
+  if (isAttentionState(item.state)) classes.push('is-attention')
+  if (item.kind === 'child_run') classes.push('agent-process-event--child-run')
+  return classes.join(' ')
+}
+
+function isAttentionState(state: AgentConversationProvenanceItem['state']): boolean {
+  return state === 'interrupted'
+    || state === 'resource_limit'
+    || state === 'suspended'
+    || state === 'no_progress'
+    || state === 'context_unrecoverable'
+    || state === 'retry_exhausted'
+}
+
+function reasoningSummary(value: string, running: boolean): string {
+  const lines = value.trimEnd().split('\n')
+  return running ? lines[lines.length - 1] || value : lines[0] || value
+}
+
+/**
+ * A projection may normally be constructed only by the presentation adapter,
+ * but the reader is also used by recovery and fixture paths. Apply the same
+ * fail-closed secret/provider/path guard to every expandable tool field so a
+ * crafted renderer object cannot bypass the learner-facing trace boundary.
+ */
+function safeToolDisclosureText(value: string | undefined): string | undefined {
+  const candidate = value?.trim()
+  if (!candidate) return undefined
+  const redacted = redactAgentSecretText(candidate)
+  if (redacted !== candidate || containsRedactionRemnant(redacted) || isUnsafeDiagnosticText(candidate)) {
+    return undefined
+  }
+  return candidate
+}
+
+function toolStateLabel(item: AgentConversationProvenanceItem): string {
+  if (item.state === 'active') return '进行中'
+  if (item.state === 'error') return '失败'
+  if (isAttentionState(item.state)) return '需注意'
+  if (item.state === 'pending') return '等待中'
+  if (item.state === 'canceled') return '已取消'
+  return item.kind === 'tool_result' ? '已返回' : '已完成'
+}
+
+function firstProcessLine(value: string): string {
+  return value.split(/\r?\n/, 1)[0]?.trim() || value
+}
+
 /**
  * Typed diagnostic adapter for process secondary text. Raw provenance detail is
  * read only here, then redacted and rejected when it looks like secrets, paths,
@@ -403,12 +702,16 @@ function AgentProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
  * remnants fail closed the same way as primary labels.
  */
 function safeProcessSecondaryText(item: AgentConversationProvenanceItem): string | undefined {
-  if (item.kind === 'reasoning') return item.detail || reasoningProgressSummary(item.state)
-  const candidate = item.detail?.replace(/\s+/g, ' ').trim()
-  if (!candidate) return undefined
+  // Reasoning needs its line breaks intact: while active, its summary is the
+  // latest line; after completion, it is the first line. Every path still goes
+  // through the same fail-closed redaction/diagnostic policy as other rows.
+  const candidate = item.kind === 'reasoning'
+    ? item.detail?.trim()
+    : item.detail?.replace(/\s+/g, ' ').trim()
+  if (!candidate) return item.kind === 'reasoning' ? reasoningProgressSummary(item.state) : undefined
   const redacted = redactAgentSecretText(candidate)
   if (redacted !== candidate || containsRedactionRemnant(redacted) || isUnsafeDiagnosticText(candidate)) {
-    return safeDiagnosticState(item.state)
+    return item.kind === 'reasoning' ? '已隐藏不安全的分析内容。' : safeDiagnosticState(item.state)
   }
   return candidate
 }
@@ -436,7 +739,7 @@ function isUnsafeDiagnosticText(value: string): boolean {
   if (!value || containsRedactionRemnant(value)) return true
   if (/(?:secret|token|password|api[_-]?key|sk-[A-Za-z0-9]{8,}|BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY)/i.test(value)) return true
   if (containsAbsoluteOrHomePath(value)) return true
-  if (/(?:RAW-(?:ANSWER|PROMPT)|CHAIN-OF-THOUGHT|provider\s*payload|system\s*prompt)/i.test(value)) return true
+  if (/(?:RAW-(?:ANSWER|PROMPT)|CHAIN-OF-THOUGHT|provider(?:[\s_-]*)payload|system(?:[\s_-]*)prompt)/i.test(value)) return true
   if (/^\{[\s\S]*\}$/.test(value) && /"(?:prompt|answer|arguments|apiKey|token)"/.test(value)) return true
   return false
 }
@@ -514,7 +817,16 @@ function ProcessIcon({ item }: { item: AgentConversationProvenanceItem }) {
   if (item.kind === 'child_run') return <GitFork size={13} />
   if (item.kind === 'compaction') return <Archive size={13} />
   if (item.kind === 'source') return <FileText size={13} />
-  if (item.kind === 'tool_call') return <Search size={13} />
+  if (item.kind === 'tool_call') {
+    switch (processPrimaryLabel(item)) {
+      case 'Bash': return <Terminal size={13} />
+      case 'READ': return <FileText size={13} />
+      case 'Write':
+      case 'Edit': return <PenLine size={13} />
+      case 'Search': return <Search size={13} />
+      default: return <Wrench size={13} />
+    }
+  }
   if (item.state === 'complete') return <CheckCircle2 size={13} />
   if (item.kind === 'status') return <Sparkles size={13} />
   if (item.state === 'pending') return <Wrench size={13} />

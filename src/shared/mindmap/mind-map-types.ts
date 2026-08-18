@@ -1,42 +1,47 @@
+import type {
+  MindMapLayoutSettings,
+  MindMapTheme,
+  MindMapTopicV2
+} from './domain/types'
+
 /**
- * Mind map data model — mirrors XMind's content structure (sheet → rootTopic →
- * recursive topic tree) so `.xmind` interop needs only ZIP codec + field
- * mapping, not structural translation. See docs/mindmap/design.md §2.
+ * Native StudiumX mind-map data model: sheets, root topics, and recursive topic trees.
+ * See docs/mindmap/design.md §2.
  */
 
 /** Current document schema version (see `MindMapDocument.schemaVersion`). */
 export const MIND_MAP_DOCUMENT_SCHEMA_VERSION = 1
 
 /**
- * Layout structure class, values aligned with XMind's `structureClass`
- * (`org.xmind.ui.logic.*`).
+ * Layout structure class, values aligned with StudiumX's `structureClass`
+ * (`studiumx.layout.logic.*`).
  */
 export type MindMapStructureClass =
-  | 'org.xmind.ui.logic.right' // 右侧逻辑图
-  | 'org.xmind.ui.logic.balanced' // 两侧均衡
-  | 'org.xmind.ui.logic.left' // 左侧逻辑图
-  | 'org.xmind.ui.logic.map' // 思维导图（双向发散）
-  | 'org.xmind.ui.logic.down' // 向下组织图
-  | 'org.xmind.ui.logic.up' // 向上组织图
-  | 'org.xmind.ui.map' // 思维导图（Xmind 原生结构类）
-  | 'org.xmind.ui.map.clockwise' // 思维导图（顺时针）
-  | 'org.xmind.ui.map.anticlockwise' // 思维导图（逆时针）
-  | 'org.xmind.ui.org-chart.down' // 组织结构图（向下）
-  | 'org.xmind.ui.org-chart.up' // 组织结构图（向上）
-  | 'org.xmind.ui.tree.right' // 树形图（向右）
-  | 'org.xmind.ui.tree.left' // 树形图（向左）
-  | 'org.xmind.ui.brace.right' // 括号图（向右）
-  | 'org.xmind.ui.brace.left' // 括号图（向左）
-  | 'org.xmind.ui.timeline.horizontal' // 时间轴（水平）
-  | 'org.xmind.ui.timeline.vertical' // 时间轴（垂直）
-  | 'org.xmind.ui.spreadsheet' // 矩阵图（行）
-  | 'org.xmind.ui.spreadsheet.column' // 矩阵图（列）
-  | 'org.xmind.ui.fishbone.rightHeaded' // 鱼骨图（头向右）
-  | 'org.xmind.ui.fishbone.leftHeaded' // 鱼骨图（头向左）
+  | 'studiumx.layout.logic.right' // 右侧逻辑图
+  | 'studiumx.layout.logic.balanced' // 两侧均衡
+  | 'studiumx.layout.logic.left' // 左侧逻辑图
+  | 'studiumx.layout.logic.map' // 思维导图（双向发散）
+  | 'studiumx.layout.logic.down' // 向下组织图
+  | 'studiumx.layout.logic.up' // 向上组织图
+  | 'studiumx.layout.map' // 思维导图（StudiumX 原生结构类）
+  | 'studiumx.layout.map.clockwise' // 思维导图（顺时针）
+  | 'studiumx.layout.map.anticlockwise' // 思维导图（逆时针）
+  | 'studiumx.layout.org-chart.down' // 组织结构图（向下）
+  | 'studiumx.layout.org-chart.up' // 组织结构图（向上）
+  | 'studiumx.layout.tree.right' // 树形图（向右）
+  | 'studiumx.layout.tree.left' // 树形图（向左）
+  | 'studiumx.layout.brace.right' // 括号图（向右）
+  | 'studiumx.layout.brace.left' // 括号图（向左）
+  | 'studiumx.layout.timeline.horizontal' // 时间轴（水平）
+  | 'studiumx.layout.timeline.vertical' // 时间轴（垂直）
+  | 'studiumx.layout.spreadsheet' // 矩阵图（行）
+  | 'studiumx.layout.spreadsheet.column' // 矩阵图（列）
+  | 'studiumx.layout.fishbone.rightHeaded' // 鱼骨图（头向右）
+  | 'studiumx.layout.fishbone.leftHeaded' // 鱼骨图（头向左）
 
-/** Structure class used when an XMind topic omits one (forward compatible). */
+/** Structure class used when a topic omits one (forward compatible). */
 export const DEFAULT_MIND_MAP_STRUCTURE_CLASS: MindMapStructureClass =
-  'org.xmind.ui.logic.right'
+  'studiumx.layout.logic.right'
 
 /** Shape assigned to new topics unless a sheet selects another default. */
 export const DEFAULT_MIND_MAP_TOPIC_SHAPE = 'rounded-rect' as const
@@ -50,12 +55,11 @@ export type MindMapNode = {
   collapsed?: boolean
   /** 子树局部布局覆盖（可选，默认继承 sheet）。 */
   structureClass?: MindMapStructureClass
-  /** Stable workspace asset ids attached to this topic (interop-only in v1). */
+  /** Stable workspace asset ids attached to this topic. */
   assetIds?: string[]
   /**
-   * Topic numbering metadata carried across the XMind import boundary and
-   * migrated into the v2 topic. Interop-only in v1: the native canvas
-   * numbering feature lives on the v2 model.
+   * Topic numbering metadata preserved by the native document model. The v2
+   * canvas provides the corresponding numbering controls.
    */
   numbering?: {
     pattern?: 'none' | 'arabic' | 'uppercase' | 'lowercase' | 'roman'
@@ -66,12 +70,12 @@ export type MindMapNode = {
   children: MindMapNode[]
 }
 
-/** A relationship connector represented by XMind's sheet-level relationship list. */
+/** A relationship connector represented by a sheet-level relationship list. */
 export type MindMapRelationship = {
   id: string
   from: string
   to: string
-  /** XMind relationship title, projected to the v2 element label. */
+  /** Optional relationship title. */
   label?: string
 }
 
@@ -81,7 +85,7 @@ export type MindMapSheet = {
   structureClass: MindMapStructureClass
   /** 中心主题（rootTopic）。 */
   root: MindMapNode
-  /** Sheet-level relationship connectors retained for XMind/v2 interop. */
+  /** Sheet-level relationship connectors. */
   relationships?: MindMapRelationship[]
 }
 
@@ -95,10 +99,22 @@ export type MindMapDocument = {
   sheets: MindMapSheet[]
 }
 
-/** 列表投影：一个文档一行，不含完整 sheet 内容。 */
+/** 列表投影：一个文档一行，仅带首个 sheet 的卡片预览投影。 */
 export type MindMapSummary = {
   id: string
   title: string
   updatedAt: string
   sheetCount: number
+  /**
+   * Lightweight first-sheet projection used by the library cards. It keeps
+   * previews on the list response without shipping sheet elements or assets.
+   */
+  preview?: MindMapCardPreview
+}
+
+/** Data required to render a card without opening the canonical document. */
+export type MindMapCardPreview = {
+  theme: MindMapTheme
+  root: MindMapTopicV2
+  layout: MindMapLayoutSettings
 }

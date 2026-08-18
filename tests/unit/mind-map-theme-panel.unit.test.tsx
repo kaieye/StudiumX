@@ -65,7 +65,7 @@ function makeDocument(): MindMapDocumentV2 {
         title: 'Overview',
         root: { id: 'root', title: 'Root topic', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []
@@ -215,12 +215,12 @@ describe('MindMapThemePanel', () => {
   it('keeps an imported document font visible and warns only that it may fall back', () => {
     const current = useMindMapViewStore.getState().current
     if (!current) throw new Error('expected current document')
-    current.theme.fontFamily = 'Imported XMind Font, sans-serif'
+    current.theme.fontFamily = 'Imported native Font, sans-serif'
     useMindMapViewStore.setState({ current: structuredClone(current) })
 
     render(<MindMapThemePanel />)
 
-    expect(screen.getByRole('button', { name: /Imported XMind Font/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Imported native Font/ })).toBeInTheDocument()
     expect(screen.getByText('Requested imported or custom font may fall back in this app.')).toBeInTheDocument()
   })
 

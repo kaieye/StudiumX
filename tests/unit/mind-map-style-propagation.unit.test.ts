@@ -32,7 +32,7 @@ function documentFixture(): MindMapDocumentV2 {
           ]
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []

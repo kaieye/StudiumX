@@ -15,7 +15,7 @@ const topic = (id: string, shape?: string): MindMapTopicV2 => ({
 })
 
 const layout = (overrides: Partial<MindMapLayoutSettings> = {}): MindMapLayoutSettings => ({
-  structureClass: 'org.xmind.ui.logic.right',
+  structureClass: 'studiumx.layout.logic.right',
   ...overrides
 })
 

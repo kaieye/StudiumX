@@ -92,7 +92,7 @@ IMA 知识库扩展（`nkohmbngmopdajidckglcoehlaeepeoi`）的架构：
 - 网页链接（`colorful-web-link.svg`）
 - 微信文件（`colorful-wechat.svg`）
 - PPT/Office 文件（`colorful-ppt-file.svg`）
-- XMind/脑图文件（`colorful-xmind-file.svg`）
+- 脑图文件（`colorful-mindmap-file.svg`）
 - AI 对话内容（`colorful-ai-chat.svg`）
 - 笔记（`colorful-note.svg`）
 

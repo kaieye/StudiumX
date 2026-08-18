@@ -1,7 +1,7 @@
 /**
  * Mind map data model v2 — native StudiumX domain model.
  *
- * v2 moves away from mirroring XMind's content structure directly:
+ * v2 moves away from mirroring StudiumX's content structure directly:
  * - each sheet owns a topic tree plus a flat `elements` collection whose
  *   items reference stable topic ids (relationships, boundaries, summaries,
  *   callouts, free topics) instead of being crammed into `children`;
@@ -32,7 +32,7 @@ export type MindMapTheme = {
   rainbowBranches?: boolean
   /** P4: Color scheme identifier (e.g. 'dawn', 'freshness'). Decoupled from theme. */
   colorSchemeId?: string
-  /** P4: Layered default topic styles (Xmind core feature). Priority: node style > topicStyles[depth] > CSS default. */
+  /** P4: Layered default topic styles (StudiumX core feature). Priority: node style > topicStyles[depth] > CSS default. */
   topicStyles?: {
     central?: MindMapTopicStyleOverride
     main?: MindMapTopicStyleOverride
@@ -56,15 +56,8 @@ export type MindMapAssetRef = {
   createdAt?: string
 }
 
-/** Optional interop baggage kept at the document boundary (e.g. XMind). */
+/** Optional migration metadata kept at the document boundary. */
 export type MindMapInteropMetadata = {
-  xmind?: {
-    sourcePath?: string
-    sourceVersion?: string
-    importedAt?: string
-    /** Size-bounded, non-executable extension bag from foreign formats. */
-    extensions?: Record<string, unknown>
-  }
   /** Records the schema version this document was migrated from. */
   migratedFrom?: {
     schemaVersion: number
@@ -161,7 +154,7 @@ export type MindMapTopicStyleOverride = {
   fontSize?: number
   fontWeight?: string
   fontStyle?: 'normal' | 'italic'
-  /** Independent underline/strikethrough flags serialized as a stable CSS/XMind token. */
+  /** Independent underline/strikethrough flags serialized as a stable CSS/StudiumX token. */
   textDecoration?: 'none' | 'underline' | 'line-through' | 'line-through underline'
   /** Visual casing only; it never changes the canonical topic title text. */
   textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize'
@@ -175,7 +168,7 @@ export type MindMapTopicStyleOverride = {
   /** Fixed node width in SVG/CSS pixels, used only when widthMode is fixed. */
   width?: number
   /**
-   * v1 compat: XMind structure-class override carried over from the v1 node
+   * v1 compat: StudiumX structure-class override carried over from the v1 node
    * model so migration does not silently drop per-node layout overrides.
    */
   structureClass?: MindMapStructureClass
@@ -209,17 +202,17 @@ export type MindMapTopicV2 = {
   /** Manual (free) position override for the topic. */
   manualPosition?: MindMapPoint
   /**
-   * Topic numbering (XMind "Numbering"). Applies to this topic's children.
+   * Topic numbering (StudiumX "Numbering"). Applies to this topic's children.
    * The topic itself is numbered by its parent's/ancestor's rule, not its own.
    */
   numbering?: MindMapTopicNumbering
 }
 
-/** Number pattern for a topic's children, mirroring XMind numbering tokens. */
+/** Number pattern for a topic's children, mirroring StudiumX numbering tokens. */
 export type MindMapNumberingPattern = 'none' | 'arabic' | 'uppercase' | 'lowercase' | 'roman'
 
 /**
- * Topic numbering metadata (XMind "Numbering").
+ * Topic numbering metadata (StudiumX "Numbering").
  *
  * A topic with `pattern` set enables numbering for its children; `none`
  * cancels inherited numbering for descendants. `tiered` prepends ancestor
@@ -248,6 +241,31 @@ export type MindMapElementType =
   | 'summary'
   | 'callout'
   | 'free-topic'
+  /** A freely positioned visual shape drawn on the map canvas. */
+  | 'shape'
+  /** A free connector whose endpoints may snap to topics or drawn shapes. */
+  | 'connector'
+
+/** Shapes offered by the canvas drawing tool. */
+export type MindMapDrawingShape =
+  | 'rect'
+  | 'rounded-rect'
+  | 'ellipse'
+  | 'diamond'
+  | 'parallelogram'
+  | 'hexagon'
+
+/** A stable target to which a connector endpoint is magnetically attached. */
+export type MindMapConnectorAnchor = {
+  targetType: 'topic' | 'shape'
+  targetId: string
+}
+
+/** A connector endpoint in document (content) coordinates. */
+export type MindMapConnectorEndpoint = MindMapPoint & {
+  /** Every connector endpoint is attached to a topic or drawn shape. */
+  anchor: MindMapConnectorAnchor
+}
 
 /** A labelled connector between two topics. */
 export type MindMapRelationship = MindMapElementBase & {
@@ -297,13 +315,33 @@ export type MindMapFreeTopic = MindMapElementBase & {
   position: MindMapPoint
 }
 
-/** Discriminated union of sheet elements. All id refs point to stable node ids. */
+/** A freely drawn, resizable shape in document (content) coordinates. */
+export type MindMapShape = MindMapElementBase & {
+  type: 'shape'
+  shape: MindMapDrawingShape
+  position: MindMapPoint
+  width: number
+  height: number
+}
+
+/** A directed line or arrow between two distinct canvas targets. */
+export type MindMapConnector = MindMapElementBase & {
+  type: 'connector'
+  start: MindMapConnectorEndpoint
+  end: MindMapConnectorEndpoint
+  /** Draggable curve point expressed relative to the current endpoint midpoint. */
+  curveControlOffset?: MindMapPoint
+}
+
+/** Discriminated union of sheet elements. Topic-specific refs point to stable node ids. */
 export type MindMapElement =
   | MindMapRelationship
   | MindMapBoundary
   | MindMapSummary
   | MindMapCallout
   | MindMapFreeTopic
+  | MindMapShape
+  | MindMapConnector
 
 /**
  * A draggable, resizable image on the sheet. An image either sits inside a
@@ -333,7 +371,7 @@ export type MindMapImageElement = {
   topicId?: string
 }
 
-/** Relationship endpoint arrow token (XMind `org.xmind.arrowShape.*`). */
+/** Relationship endpoint arrow token (StudiumX `studiumx.arrow.*`). */
 export type MindMapElementArrowShape =
   | 'none'
   | 'dot'
@@ -347,7 +385,7 @@ export type MindMapElementArrowShape =
   | 'attached'
   | 'hook'
 
-/** Relationship connector shape token (XMind `org.xmind.relationshipShape.*`). */
+/** Relationship connector shape token (StudiumX `studiumx.relationship.*`). */
 export type MindMapElementLineShape =
   | 'curved'
   | 'straight'
@@ -357,7 +395,7 @@ export type MindMapElementLineShape =
   | 'flexible-angled'
   | 'flexible-zigzag'
 
-/** Element stroke pattern token (XMind line-pattern `solid/dash/dot/dash-dot/dash-dot-dot`). */
+/** Element stroke pattern token (StudiumX line-pattern `solid/dash/dot/dash-dot/dash-dot-dot`). */
 export type MindMapElementLinePattern =
   | 'solid'
   | 'dash'

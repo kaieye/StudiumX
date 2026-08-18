@@ -11,7 +11,6 @@ import type { MindMapAssetRef, MindMapSourceRef } from '../mindmap/domain/types'
 import type { MindMapDocumentV2 } from '../mindmap/domain/types'
 import type { MindMapStructureClass, MindMapSummary } from '../mindmap/mind-map-types'
 import type { MindMapSvgExportInput } from '../mindmap/svg-export'
-import type { XmindCompatibilityReport } from '../mindmap/xmind-compatibility'
 
 /**
  * Mind map IPC payloads (docs/mindmap/design.md §4).
@@ -54,7 +53,7 @@ export type MindMapListPayload = {
 export type MindMapCreatePayload = {
   workspaceId: string
   title: string
-  /** Optional initial XMind-compatible layout for the first sheet. */
+  /** Optional initial StudiumX-compatible layout for the first sheet. */
   structureClass?: MindMapStructureClass
 }
 
@@ -321,20 +320,6 @@ export type MindMapStreamStatus = {
   message?: string
 }
 
-export type MindMapImportPayload = {
-  workspaceId: string
-  sourcePath: string
-}
-
-/**
- * XMind import response.  It intentionally keeps the converted document's
- * top-level fields intact for legacy callers while exposing the structured
- * compatibility audit as an additional, non-canonical response field.
- */
-export type MindMapXmindImportResult = MindMapDocumentV2 & {
-  compatibilityReport: XmindCompatibilityReport
-}
-
 /** Import the tree/notes Markdown subset emitted by StudiumX. */
 export type MindMapMarkdownImportPayload = {
   workspaceId: string
@@ -345,17 +330,6 @@ export type MindMapMarkdownImportPayload = {
 export type MindMapOpmlImportPayload = {
   workspaceId: string
   sourcePath: string
-}
-
-/** XMind export request carrying the renderer readiness proof. */
-export type MindMapExportPayload = {
-  workspaceId: string
-  id: string
-  destinationDirectory: string
-  snapshotRevision: number
-  expectedRevision: number
-  pendingWrites: boolean
-  dirty: boolean
 }
 
 /**
@@ -373,8 +347,8 @@ export type MindMapMarkdownExportSnapshot = {
   dirty: boolean
 }
 
-/** Markdown export request.  Unlike the legacy XMind envelope, this carries
- * the renderer readiness proof required by the fail-closed export boundary. */
+/** Markdown export request carrying the renderer readiness proof required by the
+ * fail-closed export boundary. */
 export type MindMapMarkdownExportPayload = {
   workspaceId: string
   id: string

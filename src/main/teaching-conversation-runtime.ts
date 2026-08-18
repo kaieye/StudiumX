@@ -4,6 +4,7 @@ import { parseExplicitSkillInvocation } from '../shared/explicit-skill-invocatio
 import type { ExplicitSkillInvocationResolution } from './explicit-skill-invocation'
 import { createAgentEventBus, type AgentEventBus } from './ai/agent-event-bus'
 import { attachAgentRunAuditMetadata } from './ai/agent-run-audit'
+import { attachAgentConversationRuntimeTimeline } from './ai/agent-run-presentation'
 import { resolveActiveProvider, type ChatMessage } from './ai/provider-adapter'
 import { buildDefaultRegistry, buildToolContext } from './ai/tools/registry'
 import { injectMcpToolsIntoRegistry } from './mcp/registry-inject'
@@ -822,8 +823,8 @@ async function runTeachingConversationTurnActive(
   const generatedLessons = lessonTool.generatedLessons()
   // Durable history must hash the staged parent-turn userInput (raw composer text),
   // not the provider-only teaching-context packet composed for this model turn.
-  return {
-    turns: attachAgentRunAuditMetadata(
+  const durableTurns = attachAgentConversationRuntimeTimeline(
+    attachAgentRunAuditMetadata(
       attachExplicitSkillInvocationPresentation(
         toAgentTurns(withDurableUserInput(memoryOutcome.messages, userInput)),
         explicitInvocation?.presentation
@@ -831,6 +832,12 @@ async function runTeachingConversationTurnActive(
       runEvents,
       result.usage
     ),
+    runEvents,
+    { streamId: stream.streamId }
+  )
+
+  return {
+    turns: durableTurns,
     finalText: memoryOutcome.finalText,
     iterations: result.iterations,
     toolsSupported: result.toolsSupported,

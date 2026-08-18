@@ -9,6 +9,7 @@ import {
   buildRemoveTopicsCommand,
   canAddSummaryToTopics
 } from '../../src/renderer/src/views/mindmap/mind-map-commands'
+import { computeMindMapLayout } from '../../src/renderer/src/views/mindmap/mind-map-layout'
 
 const NOW = '2026-08-15T00:00:00.000Z'
 
@@ -35,7 +36,7 @@ function makeDocument(): MindMapDocumentV2 {
           ]
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []
@@ -126,6 +127,87 @@ describe('buildAddSummaryCommand', () => {
       id: built!.summaryTopicId,
       title: '跨分支总结'
     }))
+  })
+
+  it('keeps a newly added child outward from a left-side cross-branch summary', () => {
+    const document = makeDocument()
+    const mindMap = document.sheets[0]!
+    mindMap.layout = { structureClass: 'studiumx.layout.logic.balanced' }
+    mindMap.root.children = [
+      { id: 'right-a', title: 'Right A', children: [] },
+      { id: 'left-a', title: 'Left A', children: [{ id: 'first', title: 'First', children: [] }] },
+      { id: 'right-b', title: 'Right B', children: [] },
+      { id: 'left-b', title: 'Left B', children: [{ id: 'second', title: 'Second', children: [] }] }
+    ]
+
+    const built = buildAddSummaryCommand(mindMap, ['first', 'second'], '节点总结')
+    expect(built).not.toBeNull()
+    const summarized = applyMindMapCommand(document, built!.command)
+    expect(summarized.ok).toBe(true)
+    if (!summarized.ok) return
+
+    const withDetail = applyMindMapCommand(summarized.document, {
+      type: 'topic.insert',
+      sheetId: mindMap.id,
+      parentId: built!.summaryTopicId,
+      node: { id: 'summary-detail', title: 'Detail', children: [] }
+    })
+    expect(withDetail.ok).toBe(true)
+    if (!withDetail.ok) return
+
+    const layout = computeMindMapLayout(withDetail.document.sheets[0]!)
+    const byId = new Map(layout.nodes.map((node) => [node.id, node]))
+    const output = byId.get(built!.summaryTopicId)!
+    const detail = byId.get('summary-detail')!
+
+    expect(layout.summaries).toEqual([
+      expect.objectContaining({ summaryTopicId: built!.summaryTopicId, side: 'left' })
+    ])
+    expect(detail.x + detail.width).toBeLessThanOrEqual(output.x)
+  })
+
+  it('keeps balanced branches on their own sides after a cross-branch summary', () => {
+    // Regression for the "summary splits the balanced map" bug: inserting the
+    // summary output as a mid-list root child used to re-index the later left
+    // branch onto the right side. The output must not participate in the
+    // balanced side alternation, so existing branches keep their sides and
+    // both side groups stay vertically centred on the root.
+    const document = makeDocument()
+    const mindMap = document.sheets[0]!
+    mindMap.layout = { structureClass: 'studiumx.layout.logic.balanced' }
+    mindMap.root.children = [
+      { id: 'r1', title: 'R1', children: [{ id: 'a', title: 'A', children: [] }] },
+      { id: 'l1', title: 'L1', children: [] },
+      { id: 'r2', title: 'R2', children: [{ id: 'c', title: 'C', children: [] }] },
+      { id: 'l2', title: 'L2', children: [] },
+      { id: 'r3', title: 'R3', children: [{ id: 'e', title: 'E', children: [] }] },
+      { id: 'l3', title: 'L3', children: [{ id: 'f', title: 'F', children: [] }] }
+    ]
+
+    const built = buildAddSummaryCommand(mindMap, ['a', 'c', 'e'], '节点总结')
+    expect(built).not.toBeNull()
+    const summarized = applyMindMapCommand(document, built!.command)
+    expect(summarized.ok).toBe(true)
+    if (!summarized.ok) return
+
+    const layout = computeMindMapLayout(summarized.document.sheets[0]!)
+    const byId = new Map(layout.nodes.map((node) => [node.id, node]))
+    const rootNode = byId.get('root')!
+    const l3 = byId.get('l3')!
+    const r3 = byId.get('r3')!
+
+    expect(l3.x + l3.width / 2).toBeLessThan(0)
+    expect(r3.x + r3.width / 2).toBeGreaterThan(0)
+
+    const depth1 = layout.nodes.filter((node) => node.depth === 1)
+    const rootCenterY = rootNode.y + rootNode.height / 2
+    const rightGroup = depth1.filter((node) => node.x + node.width / 2 > 0)
+    const leftGroup = depth1.filter((node) => node.x + node.width / 2 < 0)
+    for (const group of [leftGroup, rightGroup]) {
+      const minY = Math.min(...group.map((node) => node.y))
+      const maxY = Math.max(...group.map((node) => node.y + node.height))
+      expect((minY + maxY) / 2).toBeCloseTo(rootCenterY, 5)
+    }
   })
 
   it('creates a multi-branch summary from a marquee selection that also intersects the root', () => {

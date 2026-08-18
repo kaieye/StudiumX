@@ -330,6 +330,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     emit({ type: 'status', status: 'answering', message: '当前端点格式不支持工具调用，已降级为纯文本生成。' })
     try {
       let answerStarted = false
+      const visibleText = createLearnerVisibleTokenStream(emit)
       const result = await invokeWithContextOverflowRecovery({
         prepare: (forceCompaction) => prepareMessagesForProvider(transcript, [], {
           compactionTriggerPoint: 'pre_send',
@@ -353,7 +354,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
                       answerStarted = true
                       emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
                     }
-                    emit({ type: 'token', delta })
+                    visibleText.push(delta)
                   }
                 },
                 signal: runSignal,
@@ -365,6 +366,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       if (execution.isResourceTerminated) return execution.resourceStopped(transcript, false, degradedReason)
       if (execution.isCanceled) return canceledResult(false)
       const cleanedText = stripDsmlToolCallBlocks(result.text)
+      visibleText.complete(cleanedText)
       const assistantMsg: ChatMessage = { role: 'assistant', content: cleanedText }
       transcript.push(assistantMsg)
       emit({ type: 'assistant_message', message: assistantMsg })
@@ -402,6 +404,10 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     emit({ type: 'status', status: 'thinking' })
     let result: ChatAdapterResult
     const bufferedAnswerDeltas: string[] = []
+    // Native tool responses can contain ordinary prose before their call. Keep
+    // that prose live in the transcript while conservatively withholding any
+    // incomplete raw tool-protocol marker.
+    const visibleText = createLearnerVisibleTokenStream(emit)
     try {
       // Pre-send compaction belongs to an already-authorized logical request. An
       // overflow retry keeps the logical request claimed by its original attempt.
@@ -442,7 +448,10 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
             },
             callbacks: {
               onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-              onToken: (delta) => bufferedAnswerDeltas.push(delta)
+              onToken: (delta) => {
+                bufferedAnswerDeltas.push(delta)
+                visibleText.push(delta)
+              }
             },
             signal: runSignal,
             beforeTransportDispatch: () => execution.startProviderCall()
@@ -479,7 +488,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     if (execution.isCanceled) return canceledResult(true)
     degradedReason ??= result.degradedReason
 
-    const cleanedAssistantText = stripDsmlToolCallBlocks(result.text || '')
+    // Providers do not all populate `result.text` identically when a response
+    // combines prose with native tool calls. Prefer its completed text, but
+    // retain the buffered stream as a safe fallback so the learner-visible
+    // prose is not lost before the tool row.
+    const cleanedAssistantText = stripDsmlToolCallBlocks(result.text || bufferedAnswerDeltas.join(''))
     if (result.toolCalls.length === 0) {
       let answerText = cleanedAssistantText || stripDsmlToolCallBlocks(bufferedAnswerDeltas.join(''))
       if (!answerText.trim()) return execution.failed(transcript, true, degradedReason, '模型返回了空答复。')
@@ -495,7 +508,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       // not an iteration quota and is kept separate from normal learning runs.
       if (opts.iterationLimitRecovery?.shouldAttempt() === true) break
       emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
-      emit({ type: 'token', delta: answerText })
+      visibleText.complete(answerText)
       return execution.completed(transcript, {
         finalText: answerText,
         toolsSupported: true,
@@ -503,6 +516,9 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         stopReason: 'final_answer'
       })
     }
+    // Flush any prose withheld while an XML/DSML tool protocol was still
+    // incomplete before the stable tool row is emitted.
+    visibleText.complete(cleanedAssistantText)
     const assistantMsg: ChatMessage = {
       role: 'assistant',
       content: cleanedAssistantText || null,
@@ -510,7 +526,6 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     }
     transcript.push(assistantMsg)
     emit({ type: 'assistant_message', message: assistantMsg })
-
     if (result.finishReason === 'length') {
       const rejectedCount = result.toolCalls.length
       emit({ type: 'status', status: 'error', message: `输出因长度截断，已拒绝执行 ${rejectedCount} 个工具调用，避免不完整参数导致副作用。` })
@@ -793,6 +808,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     let final: ChatAdapterResult | null = null
     if (durableFinalizationRequested && opts.finalizationTools && opts.finalizationTools.length > 0) {
       const maintenanceTools = opts.finalizationTools
+      const maintenanceVisibleText = createLearnerVisibleTokenStream(emit)
       const maintenance = await invokeWithContextOverflowRecovery({
         prepare: (forceCompaction) => prepareMessagesForProvider(transcript, maintenanceTools, {
           compactionTriggerPoint: 'mid_stream',
@@ -811,9 +827,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
                 request: { messages, tools: maintenanceTools, toolChoice: 'auto', jsonMode: opts.jsonMode === true },
                 callbacks: {
                   onReasoning: (delta) => emit({ type: 'reasoning', delta }),
-                  // Maintenance prose is not user-facing until it becomes the final
-                  // answer; only the no-tool round streams tokens as they arrive.
-                  onToken: () => undefined
+                  onToken: (delta) => maintenanceVisibleText.push(delta)
                 },
                 signal: runSignal,
                 beforeTransportDispatch: () => execution.startProviderCall()
@@ -824,13 +838,14 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       if (execution.isResourceTerminated) return execution.resourceStopped(transcript, true, degradedReason)
       if (execution.isCanceled) return canceledResult(true)
       degradedReason ??= maintenance.degradedReason
+      const maintenanceText = stripDsmlToolCallBlocks(maintenance.text || '')
+      maintenanceVisibleText.complete(maintenanceText)
 
       if (maintenance.toolCalls.length === 0) {
-        const directText = stripDsmlToolCallBlocks(maintenance.text || '')
+        const directText = maintenanceText
         if (directText.trim()) {
           finalText = directText
           emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
-          emit({ type: 'token', delta: directText })
         }
       } else {
         // Keep the maintenance assistant tool_calls message in the transcript so the
@@ -839,7 +854,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         // "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'".
         const maintenanceAssistant: ChatMessage = {
           role: 'assistant',
-          content: stripDsmlToolCallBlocks(maintenance.text || '') || null,
+          content: maintenanceText || null,
           tool_calls: maintenance.toolCalls
         }
         transcript.push(maintenanceAssistant)
@@ -892,8 +907,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
 
     // No-tool final answer round. Skipped when the maintenance round already
     // produced direct final prose.
+    let finalVisibleText: LearnerVisibleTokenStream | undefined
     if (!finalText) {
       let answerStarted = false
+      const activeFinalVisibleText = createLearnerVisibleTokenStream(emit)
+      finalVisibleText = activeFinalVisibleText
       final = await invokeWithContextOverflowRecovery({
         prepare: (forceCompaction) => prepareMessagesForProvider(transcript, [], {
           compactionTriggerPoint: 'mid_stream',
@@ -917,7 +935,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
                       answerStarted = true
                       emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
                     }
-                    emit({ type: 'token', delta })
+                    activeFinalVisibleText.push(delta)
                   }
                 },
                 signal: runSignal,
@@ -964,6 +982,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
         return execution.failed(transcript, true, degradedReason, '模型返回了空答复。')
       }
     }
+    finalVisibleText?.complete(finalText)
     const assistantMsg: ChatMessage = { role: 'assistant', content: finalText }
     transcript.push(assistantMsg)
     emit({ type: 'assistant_message', message: assistantMsg })
@@ -987,6 +1006,76 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
   }
 }
 
+
+
+/**
+ * Incrementally emits only the stable learner-visible prefix of a response.
+ * Raw XML/DSML tool protocol can arrive across multiple SSE chunks; once an
+ * opening marker begins, the remainder is withheld until the adapter returns
+ * its protocol-stripped final text. This preserves live prose without exposing
+ * a tool name, arguments, or partial protocol in a transient frame.
+ */
+type LearnerVisibleTokenStream = {
+  push(delta: string): void
+  complete(finalText: string): void
+}
+
+function createLearnerVisibleTokenStream(emit: (event: AgentLoopEvent) => void): LearnerVisibleTokenStream {
+  let raw = ''
+  let emitted = ''
+  const publish = (candidate: string): void => {
+    if (!candidate || candidate === emitted || !candidate.startsWith(emitted)) return
+    const delta = candidate.slice(emitted.length)
+    if (!delta) return
+    emitted = candidate
+    emit({ type: 'token', delta })
+  }
+  return {
+    push(delta) {
+      if (!delta) return
+      raw += delta
+      publish(stableLearnerVisibleStreamPrefix(raw))
+    },
+    complete(finalText) {
+      // `finalText` is supplied by the adapter after its DSML parser has
+      // extracted calls. Still run the prefix gate so malformed/incomplete raw
+      // markup remains fail-closed.
+      publish(stableLearnerVisibleStreamPrefix(finalText || raw))
+    }
+  }
+}
+
+function stableLearnerVisibleStreamPrefix(raw: string): string {
+  const cutoff = unfinishedRawToolProtocolOffset(raw)
+  return stripDsmlToolCallBlocks(cutoff === undefined ? raw : raw.slice(0, cutoff))
+}
+
+function unfinishedRawToolProtocolOffset(raw: string): number | undefined {
+  const markers = [
+    { open: '<｜｜DSML｜｜', close: '</｜｜DSML｜｜tool_calls>' },
+    { open: '<tool_call>', close: '</tool_call>' }
+  ]
+  const offsets: number[] = []
+  const lower = raw.toLowerCase()
+  for (const marker of markers) {
+    const haystack = marker.open === '<tool_call>' ? lower : raw
+    const open = marker.open === '<tool_call>' ? marker.open : marker.open
+    const index = haystack.lastIndexOf(open)
+    if (index >= 0 && haystack.indexOf(marker.close, index + open.length) < 0) offsets.push(index)
+    const partial = partialProtocolMarkerSuffixLength(raw, marker.open)
+    if (partial > 0) offsets.push(raw.length - partial)
+  }
+  return offsets.length ? Math.min(...offsets) : undefined
+}
+
+function partialProtocolMarkerSuffixLength(raw: string, marker: string): number {
+  for (let length = Math.min(marker.length - 1, raw.length); length > 0; length -= 1) {
+    const suffix = raw.slice(-length)
+    const prefix = marker.slice(0, length)
+    if (marker === '<tool_call>' ? suffix.toLowerCase() === prefix : suffix === prefix) return length
+  }
+  return 0
+}
 
 
 async function invokeProviderWithRetry<T>(opts: {
@@ -1053,7 +1142,6 @@ async function applyTurnToolResultBudget(
     isError: entry.isError === true
   }))
 }
-
 
 
 

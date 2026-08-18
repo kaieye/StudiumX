@@ -14,7 +14,7 @@ const document: MindMapDocumentV2 = {
   sheets: [{
     id: 'sheet',
     title: 'Sheet',
-    layout: { structureClass: 'org.xmind.ui.logic.right' },
+    layout: { structureClass: 'studiumx.layout.logic.right' },
     root: {
       id: 'root',
       title: 'Root',

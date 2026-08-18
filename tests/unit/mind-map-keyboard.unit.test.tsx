@@ -1,6 +1,12 @@
 import { render } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useMindMapKeyboard, type MindMapKeyboardHandlers } from '../../src/renderer/src/views/mindmap/mind-map-keyboard'
+
+const realGetSelection = window.getSelection
+
+afterEach(() => {
+  window.getSelection = realGetSelection
+})
 
 function makeHandlers(): MindMapKeyboardHandlers & { moveFocus: ReturnType<typeof vi.fn> } {
   return {
@@ -117,5 +123,40 @@ describe('useMindMapKeyboard topic style clipboard', () => {
 
     expect(event.defaultPrevented).toBe(true)
     expect(handlers.resetStyle).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useMindMapKeyboard text selection copy/cut', () => {
+  function mockTextSelection(text: string): void {
+    const toString = vi.fn(() => text)
+    window.getSelection = vi.fn(() => ({
+      isCollapsed: text.length === 0,
+      rangeCount: text.length === 0 ? 0 : 1,
+      toString
+    }) as unknown as Selection)
+  }
+
+  it.each(['c', 'x'] as const)('leaves Cmd/Ctrl+%s to the browser when text is selected', (key) => {
+    const handlers = makeHandlers()
+    mockTextSelection('selected sentence in the AI panel')
+    render(<Harness handlers={handlers} />)
+
+    const event = new KeyboardEvent('keydown', { key, metaKey: true, cancelable: true })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(false)
+    expect(key === 'c' ? handlers.copy : handlers.cut).not.toHaveBeenCalled()
+  })
+
+  it('still copies the mind-map node when there is no text selection', () => {
+    const handlers = makeHandlers()
+    mockTextSelection('')
+    render(<Harness handlers={handlers} />)
+
+    const event = new KeyboardEvent('keydown', { key: 'c', metaKey: true, cancelable: true })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(handlers.copy).toHaveBeenCalledTimes(1)
   })
 })

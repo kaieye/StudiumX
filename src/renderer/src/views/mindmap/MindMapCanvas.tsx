@@ -1,9 +1,23 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
-import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  WheelEvent as ReactWheelEvent
+} from 'react'
 import { StickyNote, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { MindMapDocumentV2, MindMapImageElement, MindMapImagePlacement, MindMapMarker, MindMapSheetV2, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
+import type {
+  MindMapConnector,
+  MindMapDocumentV2,
+  MindMapDrawingShape,
+  MindMapImageElement,
+  MindMapImagePlacement,
+  MindMapMarker,
+  MindMapSheetV2,
+  MindMapTopicV2,
+  MindMapElementLineShape
+} from '../../../../shared/mindmap/domain/types'
 import type { MindMapCommand } from '../../../../shared/mindmap/commands'
 import { classifyExternalDestination } from '../../../../shared/external-destination'
 import { MARKER_DEFS } from './mind-map-marker-icons'
@@ -35,9 +49,38 @@ import { resolveEdgePath, edgeStrokeWidth, lineDashPattern, taperedEdgePath } fr
 import {
   elementLineDashArray,
   elementOutlinePath,
+  relationshipArrowMarkerMetrics,
   relationshipArrowMarkerPath,
   relationshipElementPath
 } from './mind-map-element-styles'
+import {
+  buildMindMapCanvasLineDraft,
+  canConnectMindMapLineEndpoints,
+  isMindMapCurvedLineShape,
+  mindMapLineCurveControlOffset,
+  MIND_MAP_LINE_MINIMUM_LENGTH,
+  resolveMindMapLineEndpoints,
+  resolveMindMapLineCurvePoint,
+  resolveMindMapLineEndpointOutwardNormal,
+  snapMindMapLinePoint,
+  type MindMapCanvasLine,
+  type MindMapCanvasLineDraft,
+  type MindMapCanvasLineEndpoint,
+  type MindMapCanvasLineSnapState,
+  type MindMapCanvasLineSnapTarget,
+  type MindMapCanvasLineTool,
+  type MindMapCanvasLineStyle
+} from './mind-map-line-tool'
+import {
+  mindMapDrawingShapePath,
+  mindMapShapeBounds,
+  MIND_MAP_SHAPE_MINIMUM_SIZE,
+  normalizeMindMapDrawRect,
+  resizeMindMapDrawRect,
+  translateMindMapDrawRect,
+  type MindMapDrawRect,
+  type MindMapShapeResizeHandle
+} from './mind-map-drawing-geometry'
 import { resolveShape, shapeElement } from './mind-map-node-shapes'
 import {
   centerMindMapViewport,
@@ -69,6 +112,72 @@ import {
 
 type Vec2 = { x: number; y: number }
 
+/** Convert the shared connector element into the renderer's line-tool shape.
+ * Anchors are resolved against the current layout on every render, so moving a
+ * topic or shape keeps the line attached to its visible border. */
+function connectorToCanvasLine(connector: MindMapConnector): MindMapCanvasLine {
+  const style: MindMapCanvasLineStyle = {
+    lineShape: connector.style?.lineShape ?? 'straight',
+    beginArrow: connector.style?.beginArrow,
+    endArrow: connector.style?.endArrow ?? 'triangle',
+    linePattern: connector.style?.linePattern,
+    stroke: connector.style?.stroke,
+    strokeWidth: connector.style?.strokeWidth
+  }
+  return {
+    id: connector.id,
+    ...(connector.label ? { label: connector.label } : {}),
+    ...(connector.curveControlOffset
+      ? { curveControlOffset: { ...connector.curveControlOffset } }
+      : {}),
+    from: {
+      x: connector.start.x,
+      y: connector.start.y,
+      ...(connector.start.anchor
+        ? { target: { id: connector.start.anchor.targetId, kind: connector.start.anchor.targetType } }
+        : {})
+    },
+    to: {
+      x: connector.end.x,
+      y: connector.end.y,
+      ...(connector.end.anchor
+        ? { target: { id: connector.end.anchor.targetId, kind: connector.end.anchor.targetType } }
+        : {})
+    },
+    style
+  }
+}
+
+/** A single endpoint update produced by dragging a persisted connector. */
+export type MindMapCanvasLineUpdate = {
+  from?: MindMapCanvasLineEndpoint
+  to?: MindMapCanvasLineEndpoint
+  curveControlOffset?: Vec2
+  style?: Pick<NonNullable<MindMapConnector['style']>, 'lineShape'>
+}
+
+function lineEndpointToSnapState(endpoint: MindMapCanvasLineEndpoint): MindMapCanvasLineSnapState {
+  return {
+    point: { x: endpoint.x, y: endpoint.y },
+    ...(endpoint.target ? { target: endpoint.target } : {})
+  }
+}
+
+function lineSnapStateToEndpoint(state: MindMapCanvasLineSnapState): MindMapCanvasLineEndpoint {
+  return {
+    x: state.point.x,
+    y: state.point.y,
+    ...(state.target ? { target: state.target } : {})
+  }
+}
+
+function lineEndpointEquals(a: MindMapCanvasLineEndpoint, b: MindMapCanvasLineEndpoint): boolean {
+  return Math.abs(a.x - b.x) < 0.01
+    && Math.abs(a.y - b.y) < 0.01
+    && a.target?.id === b.target?.id
+    && a.target?.kind === b.target?.kind
+}
+
 export type MindMapCanvasViewportAction = {
   id: number
   type: 'fit' | 'actual' | 'center' | 'zoom-in' | 'zoom-out'
@@ -80,14 +189,62 @@ export type MindMapCanvasViewportAction = {
   y: number
 }
 
+export type MindMapCanvasShapeDraft = {
+  shape: MindMapDrawingShape
+  position: Vec2
+  width: number
+  height: number
+}
+
+/** A single persisted update produced by a direct free-shape interaction. */
+export type MindMapCanvasShapeUpdate = {
+  position?: Vec2
+  width?: number
+  height?: number
+  label?: string | null
+}
+
 type CanvasProps = {
   document: MindMapDocumentV2
   activeSheetIndex: number
   onActiveSheetChange: (index: number) => void
+  /** Temporary AI projection: navigation remains available but edits are blocked. */
+  readOnly?: boolean
+  /** Monotonic temporary-preview revision used to minimally reveal the newest topic. */
+  generationPreviewRevision?: number
+  /** Topics inserted by the latest temporary-preview step. */
+  newlyRevealedNodeIds?: readonly string[]
+  /** A primary background drag pans the viewport instead of marquee-selecting. Defaults to true. */
+  panMode?: boolean
+  /** Controlled shape-drawing mode chosen by the toolbar. */
+  drawingShape?: MindMapDrawingShape | null
+  /** Receives a completed shape gesture; the host owns IDs and persistence. */
+  onCreateShape?: (draft: {
+    shape: MindMapDrawingShape
+    position: { x: number; y: number }
+    width: number
+    height: number
+  }) => void
+  /** Receives one committed shape move, resize, or text edit. */
+  onUpdateShape?: (shapeId: string, patch: MindMapCanvasShapeUpdate) => void
+  /** Controlled line-drawing mode chosen by the toolbar. */
+  lineTool?: MindMapCanvasLineTool | null
+  /** Additional targets (normally free shapes) that endpoints can magnetically bind to. */
+  lineSnapTargets?: readonly MindMapCanvasLineSnapTarget[]
+  /** Persisted free-form connectors supplied by the document host. */
+  lines?: readonly MindMapCanvasLine[]
+  /** Receives a completed connector gesture; the host owns IDs and persistence. */
+  onCreateLine?: (draft: MindMapCanvasLineDraft) => void
+  /** Receives one committed connector endpoint move. */
+  onUpdateLine?: (lineId: string, patch: MindMapCanvasLineUpdate) => void
+  /** Receives a connector deletion requested from the canvas. */
+  onDeleteLine?: (lineId: string) => void
   viewportAction?: MindMapCanvasViewportAction | null
   onZoomChange?: (zoom: number) => void
   onViewportChange?: (viewport: { x: number; y: number; width: number; height: number }) => void
   onContextMenu?: (nodeId: string, x: number, y: number) => void
+  onLineContextMenu?: (lineId: string, x: number, y: number) => void
+  onShapeContextMenu?: (shapeId: string, x: number, y: number) => void
   onMoveNode?: (topicId: string, toParentId: string) => void
   onOpenNote?: (nodeId: string) => void
 }
@@ -114,6 +271,54 @@ const NODE_DOUBLE_POINTER_DISTANCE_PX = 8
 const IMAGE_DRAG_THRESHOLD_PX = 4
 /** Invisible horizontal edge hit target for direct node-width resizing. */
 const MIND_MAP_NODE_RESIZE_EDGE_HIT_SIZE = 8
+const MIND_MAP_SHAPE_LABEL_PADDING = 8
+const MIND_MAP_SHAPE_RESIZE_HANDLES: readonly MindMapShapeResizeHandle[] = [
+  'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'
+]
+/** Invisible hit-zone thickness for shape edge resizing (document pixels). */
+const MIND_MAP_SHAPE_RESIZE_EDGE_HIT_SIZE = 10
+/**
+ * Screen-space gap between a selected element's bounds and its dashed
+ * selection ring (drawn shapes and topic nodes). Keeping the ring outside the
+ * border (instead of on top of it) leaves the element's real stroke colour
+ * and width fully visible while the element/topic-style inspector edits them.
+ */
+const MIND_MAP_SELECTION_RING_GAP = 5
+
+/**
+ * Return a transparent, screen-sized hit zone for one side/corner of a shape.
+ * The zone deliberately spans the complete edge rather than just placing a
+ * handle at its midpoint, so the resize cursor appears wherever the pointer
+ * reaches the boundary. Corners win over sides where their zones overlap.
+ */
+function shapeResizeHitRect(
+  rect: MindMapDrawRect,
+  handle: MindMapShapeResizeHandle,
+  size: number
+): MindMapDrawRect {
+  const half = size / 2
+  const width = Math.max(size, rect.width)
+  const height = Math.max(size, rect.height)
+  const horizontalSpan = Math.max(1, rect.width - size)
+  const verticalSpan = Math.max(1, rect.height - size)
+
+  switch (handle) {
+    case 'nw': return { x: rect.x - half, y: rect.y - half, width: size, height: size }
+    case 'n': return { x: rect.x + half, y: rect.y - half, width: horizontalSpan, height: size }
+    case 'ne': return { x: rect.x + rect.width - half, y: rect.y - half, width: size, height: size }
+    case 'e': return { x: rect.x + rect.width - half, y: rect.y + half, width: size, height: verticalSpan }
+    case 'se': return { x: rect.x + rect.width - half, y: rect.y + rect.height - half, width: size, height: size }
+    case 's': return { x: rect.x + half, y: rect.y + rect.height - half, width: horizontalSpan, height: size }
+    case 'sw': return { x: rect.x - half, y: rect.y + rect.height - half, width: size, height: size }
+    case 'w': return { x: rect.x - half, y: rect.y + half, width: size, height: verticalSpan }
+    default: return { x: rect.x, y: rect.y, width, height }
+  }
+}
+
+function sameDrawRect(left: MindMapDrawRect, right: MindMapDrawRect): boolean {
+  return left.x === right.x && left.y === right.y &&
+    left.width === right.width && left.height === right.height
+}
 function topicLabelGeometry(
   regionX: number,
   regionWidth: number,
@@ -231,6 +436,7 @@ function markerIconFor(marker: MindMapMarker): ReactElement | null {
 
 type MindMapSummaryBracket = {
   summary: MindMapLayoutSummary
+  side: MindMapLayoutSummary['side']
   from: MindMapLayoutNode
   to: MindMapLayoutNode
   sourceTopics: readonly MindMapLayoutNode[]
@@ -250,14 +456,20 @@ function summaryBracket(
 ): MindMapSummaryBracket {
   const from = sourceTopics[0]!
   const to = sourceTopics.at(-1)!
-  // A summary brace spans the centres of every covered source topic, rather
-  // than their outer bounds, matching the visual rhythm of branch lines.
-  const y = Math.min(...sourceTopics.map((topic) => topic.y + topic.height / 2))
-  const bottom = Math.max(...sourceTopics.map((topic) => topic.y + topic.height / 2))
-  const x = Math.max(...sourceTopics.map((topic) => topic.x + topic.width))
-    + MIND_MAP_SUMMARY_RANGE_GAP
+  // The brace encloses the full visible covered range: its tips align with the
+  // topmost and bottommost topic edges, including descendants added later.
+  const y = summary.coveredTopY ?? Math.min(...sourceTopics.map((topic) => topic.y))
+  const bottom = summary.coveredBottomY
+    ?? Math.max(...sourceTopics.map((topic) => topic.y + topic.height))
+  const coveredEdgeX = summary.coveredEdgeX ?? (summary.side === 'left'
+    ? Math.min(...sourceTopics.map((topic) => topic.x))
+    : Math.max(...sourceTopics.map((topic) => topic.x + topic.width)))
+  const x = summary.side === 'left'
+    ? coveredEdgeX - MIND_MAP_SUMMARY_RANGE_GAP
+    : coveredEdgeX + MIND_MAP_SUMMARY_RANGE_GAP
   return {
     summary,
+    side: summary.side,
     from,
     to,
     sourceTopics,
@@ -265,7 +477,7 @@ function summaryBracket(
     x,
     y,
     bottom,
-    labelX: x + SUMMARY_LABEL_GAP,
+    labelX: summary.side === 'left' ? x - SUMMARY_LABEL_GAP : x + SUMMARY_LABEL_GAP,
     labelY: (y + bottom) / 2
   }
 }
@@ -279,14 +491,15 @@ function summaryBraceGeometry(bracket: MindMapSummaryBracket): {
   lowerY: number
 } {
   const height = Math.max(16, bracket.bottom - bracket.y)
-  const shoulderX = bracket.x + MIND_MAP_SUMMARY_BRACE_WIDTH * 0.62
+  const horizontalDirection = bracket.side === 'left' ? -1 : 1
+  const shoulderX = bracket.x + horizontalDirection * MIND_MAP_SUMMARY_BRACE_WIDTH * 0.62
   return {
     height,
     middle: bracket.y + height / 2,
     shoulderX,
     // Keep the acute point inside the brace envelope. It should read as a
     // compact flower-brace point, never as a separate oversized connector.
-    pointX: bracket.x + MIND_MAP_SUMMARY_BRACE_WIDTH,
+    pointX: bracket.x + horizontalDirection * MIND_MAP_SUMMARY_BRACE_WIDTH,
     upperY: bracket.y + height * 0.24,
     lowerY: bracket.bottom - height * 0.24
   }
@@ -295,14 +508,15 @@ function summaryBraceGeometry(bracket: MindMapSummaryBracket): {
 function summaryPath(bracket: MindMapSummaryBracket): string {
   const { height, middle, shoulderX, pointX, upperY, lowerY } = summaryBraceGeometry(bracket)
   const pointControlY = Math.max(6, height * 0.13)
+  const horizontalDirection = bracket.side === 'left' ? -1 : 1
   return [
     `M ${bracket.x} ${bracket.y}`,
-    `C ${bracket.x + MIND_MAP_SUMMARY_BRACE_WIDTH * 0.5} ${bracket.y}, ${shoulderX} ${bracket.y + height * 0.08}, ${shoulderX} ${upperY}`,
+    `C ${bracket.x + horizontalDirection * MIND_MAP_SUMMARY_BRACE_WIDTH * 0.5} ${bracket.y}, ${shoulderX} ${bracket.y + height * 0.08}, ${shoulderX} ${upperY}`,
     // Different incoming/outgoing tangents make the centre a deliberate sharp
     // point while keeping the two brace arms gently curved.
-    `C ${shoulderX} ${bracket.y + height * 0.4}, ${pointX - MIND_MAP_SUMMARY_BRACE_WIDTH * 0.35} ${middle - pointControlY}, ${pointX} ${middle}`,
-    `C ${pointX - MIND_MAP_SUMMARY_BRACE_WIDTH * 0.35} ${middle + pointControlY}, ${shoulderX} ${bracket.bottom - height * 0.4}, ${shoulderX} ${lowerY}`,
-    `C ${shoulderX} ${bracket.bottom - height * 0.08}, ${bracket.x + MIND_MAP_SUMMARY_BRACE_WIDTH * 0.5} ${bracket.bottom}, ${bracket.x} ${bracket.bottom}`
+    `C ${shoulderX} ${bracket.y + height * 0.4}, ${pointX - horizontalDirection * MIND_MAP_SUMMARY_BRACE_WIDTH * 0.35} ${middle - pointControlY}, ${pointX} ${middle}`,
+    `C ${pointX - horizontalDirection * MIND_MAP_SUMMARY_BRACE_WIDTH * 0.35} ${middle + pointControlY}, ${shoulderX} ${bracket.bottom - height * 0.4}, ${shoulderX} ${lowerY}`,
+    `C ${shoulderX} ${bracket.bottom - height * 0.08}, ${bracket.x + horizontalDirection * MIND_MAP_SUMMARY_BRACE_WIDTH * 0.5} ${bracket.bottom}, ${bracket.x} ${bracket.bottom}`
   ].join(' ')
 }
 
@@ -445,7 +659,31 @@ function computeImageRects(
   return rects
 }
 
-export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZoomChange, onViewportChange, onContextMenu, onMoveNode, onOpenNote }: CanvasProps) {
+export function MindMapCanvas({
+  document,
+  activeSheetIndex,
+  readOnly = false,
+  generationPreviewRevision,
+  newlyRevealedNodeIds = [],
+  panMode = true,
+  drawingShape = null,
+  onCreateShape,
+  onUpdateShape,
+  lineTool = null,
+  lineSnapTargets: externalLineSnapTargets = [],
+  lines,
+  onCreateLine,
+  onUpdateLine,
+  onDeleteLine,
+  viewportAction,
+  onZoomChange,
+  onViewportChange,
+  onContextMenu,
+  onLineContextMenu,
+  onShapeContextMenu,
+  onMoveNode,
+  onOpenNote
+}: CanvasProps) {
   const { t } = useTranslation()
   const openExternal = useAppStore((state) => state.openExternal)
   const workspaceId = useAppStore((state) => state.appState?.activeWorkspace?.id ?? null)
@@ -497,6 +735,30 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     startWidth: number
     startHeight: number
   } | null>(null)
+  // Free-shape gestures are intentionally local previews. Like tldraw's
+  // translating/resizing states, this avoids appending a history command for
+  // every pointermove and lets all anchored connectors follow the same draft.
+  const [shapeInteraction, setShapeInteraction] = useState<{
+    kind: 'move' | 'resize'
+    shapeId: string
+    startPointer: Vec2
+    initialRect: MindMapDrawRect
+    currentRect: MindMapDrawRect
+    handle?: MindMapShapeResizeHandle
+  } | null>(null)
+  const [shapeTextEditing, setShapeTextEditing] = useState<{
+    shapeId: string
+    value: string
+  } | null>(null)
+  // A blur follows a keyboard submit when React removes the textarea. Retain a
+  // tiny explicit session guard so that blur cannot turn one edit into two
+  // undoable commands.
+  const shapeTextEditingSessionRef = useRef<string | null>(null)
+  // Keep shape pointer capture on the originating SVG element. Capturing it on
+  // the root SVG retargets the browser's follow-up click/dblclick events and
+  // prevents the shape group's in-place text editor from opening.
+  const shapeInteractionCaptureRef = useRef<SVGElement | null>(null)
+  const shapeTextEditorRef = useRef<HTMLTextAreaElement | null>(null)
 
   // Edit and resize previews stay local until commit so typing does not create
   // one undoable topic.update command per keypress. The pure layout still sees
@@ -567,7 +829,97 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     return map
   }, [layout.nodes])
 
-  // XMind numbering prefixes (2.1.3). Purely derived from the sheet tree and
+  const drawnShapes = useMemo(
+    () => (sheet?.elements ?? []).filter((element): element is Extract<typeof element, { type: 'shape' }> => element.type === 'shape'),
+    [sheet]
+  )
+
+  // One transient shape rectangle is shared by rendering, bounds, snapping, and
+  // connector endpoint resolution. This is the important tldraw-style detail:
+  // a line anchored to a shape moves with its local drag preview, rather than
+  // visibly lagging until the pointer is released and the document updates.
+  const renderedShapes = useMemo(() => drawnShapes.map((shape) => ({
+    shape,
+    rect: shapeInteraction?.shapeId === shape.id
+      ? shapeInteraction.currentRect
+      : mindMapShapeBounds(shape.position, shape.width, shape.height)
+  })), [drawnShapes, shapeInteraction])
+
+  // A textarea has no native vertical-align property. Keep its intrinsic
+  // content height centered inside the shape while it grows for multi-line
+  // input, so the first caret starts in the same visual centre as the label.
+  useLayoutEffect(() => {
+    const editor = shapeTextEditorRef.current
+    if (!editor || !shapeTextEditing) return
+    const host = editor.parentElement
+    if (!host) return
+    editor.style.height = 'auto'
+    const hostHeight = host.getBoundingClientRect().height
+    const contentHeight = Math.min(
+      Math.max(editor.scrollHeight, 1),
+      hostHeight > 0 ? hostHeight : Number.POSITIVE_INFINITY
+    )
+    editor.style.height = `${contentHeight}px`
+  }, [shapeTextEditing, renderedShapes])
+
+  const documentLines = useMemo(
+    () => (sheet?.elements ?? [])
+      .filter((element): element is MindMapConnector => element.type === 'connector')
+      .map(connectorToCanvasLine),
+    [sheet]
+  )
+  // Hosts may provide a projected line list (for example while a command is
+  // optimistic). When omitted, render the persisted connector elements from the
+  // active sheet directly so the canvas remains useful as a standalone view.
+  const renderedLines = lines ?? documentLines
+
+  // Topic bounds are always available from the layout. The independent shape
+  // tool supplies its own bounds through `lineSnapTargets`, letting the line
+  // interaction bind to either kind without taking ownership of shape storage.
+  const availableLineSnapTargets = useMemo(() => {
+    const targets: MindMapCanvasLineSnapTarget[] = []
+    const keys = new Set<string>()
+    const addTarget = (target: MindMapCanvasLineSnapTarget): void => {
+      if (!Number.isFinite(target.x) || !Number.isFinite(target.y) ||
+        !Number.isFinite(target.width) || !Number.isFinite(target.height) ||
+        target.width <= 0 || target.height <= 0) return
+      const key = `${target.kind}:${target.id}`
+      if (keys.has(key)) return
+      keys.add(key)
+      targets.push(target)
+    }
+    for (const node of layout.nodes) {
+      addTarget({
+        id: node.id,
+        kind: 'topic',
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+        shape: resolveShape(node.shape)
+      })
+    }
+    for (const { shape, rect } of renderedShapes) {
+      addTarget({
+        id: shape.id,
+        kind: 'shape',
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        shape: shape.shape
+      })
+    }
+    for (const target of externalLineSnapTargets) addTarget(target)
+    return targets
+  }, [externalLineSnapTargets, layout.nodes, renderedShapes])
+
+  const lineSnapTargetByKey = useMemo(
+    () => new Map(availableLineSnapTargets.map((target) => [`${target.kind}:${target.id}`, target])),
+    [availableLineSnapTargets]
+  )
+
+  // StudiumX numbering prefixes (2.1.3). Purely derived from the sheet tree and
   // recomputed when the tree changes; only the static label shows the number,
   // the inline editor and accessible name keep the raw title.
   const topicNumbers = useMemo(
@@ -609,9 +961,10 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
 
   // Container-pixel coordinate system: 1 SVG unit = 1 CSS pixel.
   // ResizeObserver tracks the actual rendered container so the viewBox always
-  // matches the on-screen pixel dimensions (Xmind model).  This prevents the
+  // matches the on-screen pixel dimensions (StudiumX model).  This prevents the
   // old behaviour where a single-node map was stretched to fill the viewport.
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const svgRef = useRef<SVGSVGElement | null>(null)
   const [containerSize, setContainerSize] = useState<{ cw: number; ch: number }>({ cw: 800, ch: 600 })
   const [hasMeasuredContainer, setHasMeasuredContainer] = useState(false)
 
@@ -683,6 +1036,59 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     /** Dashed ghost rect where the dragged topic will land (content space). */
     ghost: MindMapMovedTopicPreview | null
   } | null>(null)
+  const [lineDrawState, setLineDrawState] = useState<{
+    start: MindMapCanvasLineSnapState
+    current: MindMapCanvasLineSnapState
+    startPointer: Vec2
+  } | null>(null)
+  /** Local endpoint preview for a selected connector. Persist only on release. */
+  const [lineInteraction, setLineInteraction] = useState<{
+    lineId: string
+    endpoint: 'from' | 'to'
+    initial: MindMapCanvasLineEndpoint
+    current: MindMapCanvasLineSnapState
+  } | null>(null)
+  /** Local curve-point preview for a selected curved connector. */
+  const [lineControlInteraction, setLineControlInteraction] = useState<{
+    lineId: string
+    initial: Vec2
+    current: Vec2
+    /** Keeps the grabbed point under the pointer when dragging the line body. */
+    pointerOffset: Vec2
+    /** Body dragging promotes non-curved connectors to an editable curve. */
+    lineShape: MindMapElementLineShape
+    persistLineShape: boolean
+  } | null>(null)
+  const lineInteractionCaptureRef = useRef<SVGElement | null>(null)
+  const [shapeDrawState, setShapeDrawState] = useState<{
+    shape: MindMapDrawingShape
+    start: Vec2
+    current: Vec2
+    startPointer: Vec2
+  } | null>(null)
+
+  // A preview can begin while a node or free-shape editor still owns focus.
+  // Drop every local edit gesture before the read-only shield takes over so a
+  // subsequent blur or keypress cannot commit to the canonical document.
+  useEffect(() => {
+    if (!readOnly) return
+    dragRef.current = null
+    lastNodePointerDownRef.current = null
+    shapeTextEditingSessionRef.current = null
+    setEditingNodeId(null)
+    setNodeResizeState(null)
+    setNodeDragState(null)
+    setImageDragState(null)
+    setImageResizeState(null)
+    setShapeInteraction(null)
+    setShapeTextEditing(null)
+    setLineDrawState(null)
+    setLineInteraction(null)
+    setLineControlInteraction(null)
+    lineInteractionCaptureRef.current = null
+    setShapeDrawState(null)
+    setSelectionBox(null)
+  }, [readOnly, setEditingNodeId])
 
   // When the store's editing node changes (e.g. F2 from the keyboard), seed the
   // local edit buffer with that node's current title.
@@ -706,6 +1112,18 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
       right = Math.max(right, node.x + node.width)
       bottom = Math.max(bottom, node.y + node.height)
     }
+    for (const { rect } of renderedShapes) {
+      left = Math.min(left, rect.x)
+      top = Math.min(top, rect.y)
+      right = Math.max(right, rect.x + rect.width)
+      bottom = Math.max(bottom, rect.y + rect.height)
+    }
+    for (const line of renderedLines) {
+      left = Math.min(left, line.from.x, line.to.x)
+      top = Math.min(top, line.from.y, line.to.y)
+      right = Math.max(right, line.from.x, line.to.x)
+      bottom = Math.max(bottom, line.from.y, line.to.y)
+    }
     for (const callout of calloutRects) {
       left = Math.min(left, callout.x)
       top = Math.min(top, callout.y)
@@ -714,16 +1132,20 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     }
     for (const summary of summaryBrackets) {
       const { pointX } = summaryBraceGeometry(summary)
-      left = Math.min(left, summary.x)
+      left = Math.min(left, summary.x, pointX)
       top = Math.min(top, summary.y)
-      right = Math.max(right, pointX)
+      right = Math.max(right, summary.x, pointX)
       bottom = Math.max(bottom, summary.bottom)
       if (!summary.outputTopic) {
-        right = Math.max(right, summary.labelX + SUMMARY_LABEL_WIDTH)
+        if (summary.side === 'left') {
+          left = Math.min(left, summary.labelX - SUMMARY_LABEL_WIDTH)
+        } else {
+          right = Math.max(right, summary.labelX + SUMMARY_LABEL_WIDTH)
+        }
       }
     }
     return { left, top, right, bottom }
-  }, [calloutRects, layout.nodes, summaryBrackets])
+  }, [calloutRects, layout.nodes, renderedLines, renderedShapes, summaryBrackets])
 
   // viewBox follows the container's pixel dimensions so 1 SVG unit = 1 CSS px.
   const viewBox = `0 0 ${containerSize.cw} ${containerSize.ch}`
@@ -737,7 +1159,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     [containerSize]
   )
 
-  // Xmind keeps a freshly created / edited topic on screen: when inline editing
+  // StudiumX keeps a freshly created / edited topic on screen: when inline editing
   // starts on a node that sits outside the viewport, pan minimally to reveal it.
   const revealedEditRef = useRef<string | null>(null)
   useEffect(() => {
@@ -811,7 +1233,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   }, [bounds, pan, viewportAction, viewportSize, zoom])
 
   // Fit the content on mount and when the document changes.
-  // Xmind opens a map with its content visible and centred; fit only ever
+  // StudiumX opens a map with its content visible and centred; fit only ever
   // shrinks (zoom caps at 100%), so a fresh single-node map still opens at 1:1.
   const documentId = document.id
   const centeredDocRef = useRef<string | null>(null)
@@ -823,6 +1245,35 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     setPan(next.pan)
     setZoom(next.zoom)
   }, [documentId, hasMeasuredContainer, sheet, layout.nodes, bounds, viewportSize])
+
+  // A preview uses the canonical document id, so the initial-document fit
+  // effect above must not run for every inserted branch. Instead, move only as
+  // far as necessary to keep the newest node inside a comfortable viewport
+  // margin. This preserves a learner's orientation while the tree grows.
+  const revealedPreviewRevisionRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!readOnly || generationPreviewRevision === undefined) return
+    if (revealedPreviewRevisionRef.current === generationPreviewRevision) return
+    revealedPreviewRevisionRef.current = generationPreviewRevision
+    const newestId = newlyRevealedNodeIds.at(-1)
+    if (!newestId) return
+    const node = layout.nodes.find((candidate) => candidate.id === newestId)
+    if (!node) return
+    const margin = 64
+    setPan((previous) => {
+      const left = previous.x + node.x * zoom
+      const top = previous.y + node.y * zoom
+      const right = left + node.width * zoom
+      const bottom = top + node.height * zoom
+      let dx = 0
+      let dy = 0
+      if (left < margin) dx = margin - left
+      else if (right > viewportSize.width - margin) dx = viewportSize.width - margin - right
+      if (top < margin) dy = margin - top
+      else if (bottom > viewportSize.height - margin) dy = viewportSize.height - margin - bottom
+      return dx === 0 && dy === 0 ? previous : { x: previous.x + dx, y: previous.y + dy }
+    })
+  }, [generationPreviewRevision, layout.nodes, newlyRevealedNodeIds, readOnly, viewportSize, zoom])
 
   useEffect(() => {
     if (!onViewportChange || zoom <= 0) return
@@ -839,20 +1290,431 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     onZoomChange?.(zoom)
   }, [zoom, onZoomChange])
 
+  const svgPointFromClientPosition = (clientX: number, clientY: number): Vec2 => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    return rect
+      ? { x: clientX - rect.left, y: clientY - rect.top }
+      : { x: clientX, y: clientY }
+  }
+
   const svgPointFromPointer = (event: ReactPointerEvent<SVGSVGElement>): Vec2 => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+    return svgPointFromClientPosition(event.clientX, event.clientY)
+  }
+
+  const contentPointFromClientPosition = (clientX: number, clientY: number): Vec2 => {
+    const point = svgPointFromClientPosition(clientX, clientY)
+    return {
+      x: (point.x - pan.x) / Math.max(zoom, 0.01),
+      y: (point.y - pan.y) / Math.max(zoom, 0.01)
+    }
+  }
+
+  const contentPointFromSvgPointer = (event: ReactPointerEvent<SVGSVGElement>): Vec2 => {
+    return contentPointFromClientPosition(event.clientX, event.clientY)
+  }
+
+  const lineTargetFromPointerEvent = (
+    event: ReactPointerEvent<SVGSVGElement>
+  ): MindMapCanvasLineSnapTarget | undefined => {
+    const target = event.target as Element | null
+    const key = target?.closest?.('[data-mindmap-line-snap-target]')?.getAttribute('data-mindmap-line-snap-target')
+    if (key) return lineSnapTargetByKey.get(key)
+
+    // Endpoint handles use pointer capture, so the browser keeps dispatching
+    // events to the circle even after the pointer has entered a topic/shape.
+    // Fall back to a geometric hit test in that case instead of relying only
+    // on the transparent snap-target rectangles being the event target.
+    const point = contentPointFromSvgPointer(event)
+    return availableLineSnapTargets.find((candidate) =>
+      point.x >= candidate.x
+      && point.x <= candidate.x + candidate.width
+      && point.y >= candidate.y
+      && point.y <= candidate.y + candidate.height
+    )
+  }
+
+  const snapLinePointFromPointer = (
+    event: ReactPointerEvent<SVGSVGElement>
+  ): MindMapCanvasLineSnapState => {
+    const preferredTarget = lineTargetFromPointerEvent(event)
+    return snapMindMapLinePoint(
+      contentPointFromSvgPointer(event),
+      availableLineSnapTargets,
+      undefined,
+      preferredTarget && { id: preferredTarget.id, kind: preferredTarget.kind }
+    )
+  }
+
+  const resolveLineEndpointsForInteraction = (
+    line: MindMapCanvasLine,
+    endpoint: 'from' | 'to',
+    current: MindMapCanvasLineSnapState
+  ): { from: MindMapCanvasLineEndpoint; to: MindMapCanvasLineEndpoint } => {
+    const nextEndpoint = lineSnapStateToEndpoint(current)
+    return resolveMindMapLineEndpoints(
+      endpoint === 'from' ? nextEndpoint : line.from,
+      endpoint === 'to' ? nextEndpoint : line.to,
+      availableLineSnapTargets
+    )
+  }
+
+  const persistLineUpdate = (
+    lineId: string,
+    update: MindMapCanvasLineUpdate,
+    label = 'Move connector endpoint'
+  ): void => {
+    if (readOnly) return
+    const line = renderedLines.find((candidate) => candidate.id === lineId)
+    if (!line) return
+    const from = update.from ?? line.from
+    const to = update.to ?? line.to
+    if (!canConnectMindMapLineEndpoints(from, to, availableLineSnapTargets)) return
+
+    if (onUpdateLine) {
+      onUpdateLine(lineId, update)
+      return
+    }
+
+    const endpoint = (value: MindMapCanvasLineEndpoint) => {
+      if (!value.target) return null
+      return {
+        x: value.x,
+        y: value.y,
+        anchor: {
+          targetType: value.target.kind,
+          targetId: value.target.id
+        }
+      }
+    }
+    const nextStart = update.from ? endpoint(update.from) : null
+    const nextEnd = update.to ? endpoint(update.to) : null
+    if ((update.from && !nextStart) || (update.to && !nextEnd)) return
+    const patch = {
+      ...(nextStart ? { start: nextStart } : {}),
+      ...(nextEnd ? { end: nextEnd } : {}),
+      ...(update.curveControlOffset
+        ? { curveControlOffset: { ...update.curveControlOffset } }
+        : {}),
+      ...(update.style ? { style: { ...update.style } } : {})
+    }
+    if (Object.keys(patch).length === 0 || !sheet) return
+    dispatchCommand(
+      { type: 'element.update', sheetId: sheet.id, elementId: lineId, patch },
+      { label }
+    )
+  }
+
+  const releaseLineInteractionCapture = (pointerId: number): void => {
+    const capturedElement = lineInteractionCaptureRef.current
+    lineInteractionCaptureRef.current = null
+    try {
+      if (capturedElement?.hasPointerCapture(pointerId)) {
+        capturedElement.releasePointerCapture(pointerId)
+      }
+    } catch {
+      // Pointer capture is best-effort in test/webview shims and is released
+      // automatically by the browser after pointerup in normal operation.
+    }
+  }
+
+  const startLineEndpointInteraction = (
+    line: MindMapCanvasLine,
+    endpoint: 'from' | 'to',
+    event: ReactPointerEvent<SVGElement>
+  ): void => {
+    if (readOnly || drawingShape || lineTool?.active || editingNodeId || nodeResizeState || shapeTextEditing) return
+    // Keep a secondary click (context menu) from bubbling to the SVG root,
+    // whose right-button pan gesture captures the pointer and swallows the
+    // subsequent contextmenu event.
+    event.stopPropagation()
+    if (event.button !== 0 && event.button !== undefined) return
+    event.preventDefault()
+    dragRef.current = null
+    lastNodePointerDownRef.current = null
+    selectElement(line.id, 'connector')
+
+    const resolved = resolveMindMapLineEndpoints(
+      line.from,
+      line.to,
+      availableLineSnapTargets
+    )
+    const initial = endpoint === 'from' ? resolved.from : resolved.to
+    setLineControlInteraction(null)
+    setLineInteraction({
+      lineId: line.id,
+      endpoint,
+      initial,
+      current: lineEndpointToSnapState(initial)
+    })
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+      lineInteractionCaptureRef.current = event.currentTarget
+    } catch {
+      // Pointer capture is not available in a few test/webview shims.
+    }
+  }
+
+  const startLineControlInteraction = (
+    line: MindMapCanvasLine,
+    controlPoint: Vec2,
+    event: ReactPointerEvent<SVGElement>
+  ): void => {
+    if (readOnly || drawingShape || lineTool?.active || editingNodeId || nodeResizeState || shapeTextEditing) return
+    event.stopPropagation()
+    if (event.button !== 0 && event.button !== undefined) return
+    event.preventDefault()
+    dragRef.current = null
+    lastNodePointerDownRef.current = null
+    selectElement(line.id, 'connector')
+    setLineInteraction(null)
+    setLineControlInteraction({
+      lineId: line.id,
+      initial: controlPoint,
+      current: controlPoint,
+      pointerOffset: { x: 0, y: 0 },
+      lineShape: line.style.lineShape,
+      persistLineShape: false
+    })
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+      lineInteractionCaptureRef.current = event.currentTarget
+    } catch {
+      // Pointer capture is not available in a few test/webview shims.
+    }
+  }
+
+  /**
+   * Dragging a connector body adjusts its route without detaching either end.
+   * Straight/elbow/zigzag connectors become a flexible curve on first drag,
+   * while an existing curve keeps its selected control point behavior.
+   */
+  const startLineBodyInteraction = (
+    line: MindMapCanvasLine,
+    event: ReactPointerEvent<SVGElement>
+  ): void => {
+    if (readOnly || drawingShape || lineTool?.active || editingNodeId || nodeResizeState || shapeTextEditing) return
+    event.stopPropagation()
+    if (event.button !== 0 && event.button !== undefined) return
+    event.preventDefault()
+    dragRef.current = null
+    lastNodePointerDownRef.current = null
+    selectElement(line.id, 'connector')
+
+    const { from, to } = resolveMindMapLineEndpoints(
+      line.from,
+      line.to,
+      availableLineSnapTargets
+    )
+    const isCurved = isMindMapCurvedLineShape(line.style.lineShape)
+    const initial = isCurved
+      ? resolveMindMapLineCurvePoint(from, to, line.curveControlOffset)
+      : resolveMindMapLineCurvePoint(from, to)
+    const pointer = contentPointFromClientPosition(event.clientX, event.clientY)
+    setLineInteraction(null)
+    setLineControlInteraction({
+      lineId: line.id,
+      initial,
+      current: initial,
+      pointerOffset: {
+        x: initial.x - pointer.x,
+        y: initial.y - pointer.y
+      },
+      lineShape: isCurved ? line.style.lineShape : 'flexible-curved',
+      persistLineShape: !isCurved
+    })
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+      lineInteractionCaptureRef.current = event.currentTarget
+    } catch {
+      // Pointer capture is not available in a few test/webview shims.
+    }
+  }
+
+  const openLineContextMenu = (
+    lineId: string,
+    event: ReactMouseEvent<SVGElement>
+  ): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (readOnly || lineTool?.active || drawingShape) return
+    selectElement(lineId, 'connector')
+    onLineContextMenu?.(lineId, event.clientX, event.clientY)
+  }
+
+  const openShapeContextMenu = (
+    shapeId: string,
+    event: ReactMouseEvent<SVGElement>
+  ): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (readOnly || lineTool?.active || drawingShape || shapeTextEditing) return
+    selectElement(shapeId, 'shape')
+    onShapeContextMenu?.(shapeId, event.clientX, event.clientY)
+  }
+
+  const cancelLineInteraction = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (!lineInteraction && !lineControlInteraction) return
+    setLineInteraction(null)
+    setLineControlInteraction(null)
+    releaseLineInteractionCapture(event.pointerId)
+  }
+
+  const persistShapeUpdate = (
+    shapeId: string,
+    patch: MindMapCanvasShapeUpdate,
+    label: string
+  ): void => {
+    if (readOnly) return
+    if (onUpdateShape) {
+      onUpdateShape(shapeId, patch)
+      return
+    }
+    // The canvas is also used by a few standalone previews. Keep their direct
+    // store fallback functional, while the editor host remains the normal
+    // owner of persisted shape updates through `onUpdateShape`.
+    if (!sheet) return
+    dispatchCommand(
+      { type: 'element.update', sheetId: sheet.id, elementId: shapeId, patch },
+      { label }
+    )
+  }
+
+  const shapeInteractionRectAtPointer = (
+    interaction: NonNullable<typeof shapeInteraction>,
+    event: ReactPointerEvent<SVGSVGElement>
+  ): MindMapDrawRect => {
+    const delta = {
+      x: (event.clientX - interaction.startPointer.x) / Math.max(zoom, 0.01),
+      y: (event.clientY - interaction.startPointer.y) / Math.max(zoom, 0.01)
+    }
+    return interaction.kind === 'move'
+      ? translateMindMapDrawRect(interaction.initialRect, delta)
+      : resizeMindMapDrawRect(interaction.initialRect, interaction.handle ?? 'se', delta)
+  }
+
+  const startShapeTextEditing = (shapeId: string, initialValue: string): void => {
+    if (readOnly) return
+    selectElement(shapeId, 'shape')
+    setShapeInteraction(null)
+    shapeTextEditingSessionRef.current = shapeId
+    setShapeTextEditing({ shapeId, value: initialValue })
+  }
+
+  const commitShapeTextEditing = (shapeId: string, value: string): void => {
+    if (shapeTextEditingSessionRef.current !== shapeId) return
+    if (readOnly) {
+      shapeTextEditingSessionRef.current = null
+      setShapeTextEditing(null)
+      return
+    }
+    shapeTextEditingSessionRef.current = null
+    const nextLabel = value === '' ? null : value
+    const currentLabel = drawnShapes.find((shape) => shape.id === shapeId)?.label ?? null
+    if (nextLabel !== currentLabel) {
+      persistShapeUpdate(shapeId, { label: nextLabel }, 'Edit shape text')
+    }
+    setShapeTextEditing(null)
+  }
+
+  const cancelShapeTextEditing = (shapeId: string): void => {
+    if (shapeTextEditingSessionRef.current !== shapeId) return
+    shapeTextEditingSessionRef.current = null
+    setShapeTextEditing(null)
+  }
+
+  const releaseShapeInteractionCapture = (pointerId: number): void => {
+    const capturedElement = shapeInteractionCaptureRef.current
+    shapeInteractionCaptureRef.current = null
+    try {
+      if (capturedElement?.hasPointerCapture(pointerId)) {
+        capturedElement.releasePointerCapture(pointerId)
+      }
+    } catch {
+      // Pointer capture is best-effort in test/webview shims and is released
+      // automatically by the browser after pointerup in normal operation.
+    }
+  }
+
+  const startShapeInteraction = (
+    shapeId: string,
+    initialRect: MindMapDrawRect,
+    kind: 'move' | 'resize',
+    event: ReactPointerEvent<SVGElement>,
+    handle?: MindMapShapeResizeHandle
+  ): void => {
+    if (readOnly || drawingShape || lineTool?.active || editingNodeId || nodeResizeState || shapeTextEditing) return
+    if (event.button !== 0 && event.button !== undefined) return
+    event.stopPropagation()
+    event.preventDefault()
+    dragRef.current = null
+    lastNodePointerDownRef.current = null
+    selectElement(shapeId, 'shape')
+    setShapeInteraction({
+      kind,
+      shapeId,
+      startPointer: { x: event.clientX, y: event.clientY },
+      initialRect,
+      currentRect: initialRect,
+      ...(handle ? { handle } : {})
+    })
+    try {
+      // Keep the captured pointer on this group/handle rather than the root
+      // SVG. Chromium dispatches the compatible click/dblclick events to the
+      // capture target, so root capture would make a free shape impossible to
+      // double-click into text-editing mode.
+      event.currentTarget.setPointerCapture(event.pointerId)
+      shapeInteractionCaptureRef.current = event.currentTarget
+    } catch {
+      // Pointer capture is not available in a few test/webview shims.
+    }
   }
 
   const startPointerDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (editingNodeId || nodeResizeState) return
     lastNodePointerDownRef.current = null
+    const isPrimaryButton = event.button === 0 || event.button === undefined
+    if (drawingShape && isPrimaryButton) {
+      const start = contentPointFromSvgPointer(event)
+      dragRef.current = null
+      setSelectionBox(null)
+      setShapeDrawState({
+        shape: drawingShape,
+        start,
+        current: start,
+        startPointer: { x: event.clientX, y: event.clientY }
+      })
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } catch {
+        // Pointer capture is not available in a few test/webview shims.
+      }
+      return
+    }
+    if (lineTool?.active && isPrimaryButton) {
+      const start = snapLinePointFromPointer(event)
+      // A connector can only begin from an existing node/shape.  This also
+      // prevents a blank-canvas press from showing a misleading free-line
+      // preview before the final validation rejects it.
+      if (!start.target) return
+      dragRef.current = null
+      setSelectionBox(null)
+      setLineDrawState({
+        start,
+        current: start,
+        startPointer: { x: event.clientX, y: event.clientY }
+      })
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } catch {
+        // Pointer capture is not available in a few test/webview shims.
+      }
+      return
+    }
     const startSvg = svgPointFromPointer(event)
-    // A primary-button drag on the empty canvas is a marquee selection.  Keep
-    // middle-button (and other non-primary pointers) as the existing pan
-    // gesture so users can still move the viewport without changing the
-    // current selection.
-    const kind = event.button === 0 || event.button === undefined ? 'box' : 'pan'
+    // A primary background drag pans the viewport by default. The toolbar's
+    // box-selection mode opts into marquee selection instead. Non-primary
+    // pointers always remain a pan gesture in either mode.
+    const kind = panMode || !isPrimaryButton ? 'pan' : 'box'
     dragRef.current = {
       kind,
       startPointer: { x: event.clientX, y: event.clientY },
@@ -870,7 +1732,74 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     }
   }
 
+  /** Capture-phase entry point used to prevent node controls from stealing a
+   * drawing gesture when the pointer starts over an existing topic/shape. */
+  const startDrawingPointerCapture = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if ((!drawingShape && !lineTool?.active) || (event.button !== 0 && event.button !== undefined)) return
+    event.preventDefault()
+    event.stopPropagation()
+    startPointerDrag(event)
+  }
+
   const onPointerMove = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (lineControlInteraction) {
+      const pointer = contentPointFromSvgPointer(event)
+      const current = {
+        x: pointer.x + lineControlInteraction.pointerOffset.x,
+        y: pointer.y + lineControlInteraction.pointerOffset.y
+      }
+      if (
+        current.x !== lineControlInteraction.current.x
+        || current.y !== lineControlInteraction.current.y
+      ) {
+        setLineControlInteraction({ ...lineControlInteraction, current })
+      }
+      return
+    }
+    if (lineInteraction) {
+      const current = snapLinePointFromPointer(event)
+      const line = renderedLines.find((candidate) => candidate.id === lineInteraction.lineId)
+      if (!line) return
+      const canConnect = lineInteraction.endpoint === 'from'
+        ? canConnectMindMapLineEndpoints(current, line.to, availableLineSnapTargets)
+        : canConnectMindMapLineEndpoints(line.from, current, availableLineSnapTargets)
+      if (!canConnect) return
+      if (
+        current.point.x !== lineInteraction.current.point.x
+        || current.point.y !== lineInteraction.current.point.y
+        || current.target?.id !== lineInteraction.current.target?.id
+        || current.target?.kind !== lineInteraction.current.target?.kind
+      ) {
+        setLineInteraction({ ...lineInteraction, current })
+      }
+      return
+    }
+    if (shapeInteraction) {
+      const currentRect = shapeInteractionRectAtPointer(shapeInteraction, event)
+      if (!sameDrawRect(currentRect, shapeInteraction.currentRect)) {
+        setShapeInteraction({ ...shapeInteraction, currentRect })
+      }
+      return
+    }
+    if (shapeDrawState) {
+      const current = contentPointFromSvgPointer(event)
+      if (current.x !== shapeDrawState.current.x || current.y !== shapeDrawState.current.y) {
+        setShapeDrawState({ ...shapeDrawState, current })
+      }
+      return
+    }
+    if (lineDrawState) {
+      const current = snapLinePointFromPointer(event)
+      if (
+        current.point.x !== lineDrawState.current.point.x ||
+        current.point.y !== lineDrawState.current.point.y ||
+        current.target?.id !== lineDrawState.current.target?.id ||
+        current.target?.kind !== lineDrawState.current.target?.kind
+      ) {
+        setLineDrawState({ ...lineDrawState, current })
+      }
+      return
+    }
     if (nodeResizeState) return
     const drag = dragRef.current
     if (!drag) return
@@ -885,6 +1814,131 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   }
 
   const endPointerDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (lineControlInteraction) {
+      const line = renderedLines.find((candidate) => candidate.id === lineControlInteraction.lineId)
+      const pointer = contentPointFromSvgPointer(event)
+      const current = {
+        x: pointer.x + lineControlInteraction.pointerOffset.x,
+        y: pointer.y + lineControlInteraction.pointerOffset.y
+      }
+      if (
+        line
+        && (Math.abs(current.x - lineControlInteraction.initial.x) >= 0.01
+          || Math.abs(current.y - lineControlInteraction.initial.y) >= 0.01)
+      ) {
+        const { from, to } = resolveMindMapLineEndpoints(
+          line.from,
+          line.to,
+          availableLineSnapTargets
+        )
+        persistLineUpdate(
+          line.id,
+          {
+            curveControlOffset: mindMapLineCurveControlOffset(current, from, to),
+            ...(lineControlInteraction.persistLineShape
+              ? { style: { lineShape: lineControlInteraction.lineShape } }
+              : {})
+          },
+          lineControlInteraction.persistLineShape
+            ? 'Move connector'
+            : 'Adjust connector curve'
+        )
+      }
+      setLineControlInteraction(null)
+      releaseLineInteractionCapture(event.pointerId)
+      return
+    }
+    if (lineInteraction) {
+      const line = renderedLines.find((candidate) => candidate.id === lineInteraction.lineId)
+      const current = snapLinePointFromPointer(event)
+      if (line) {
+        const canConnect = lineInteraction.endpoint === 'from'
+          ? canConnectMindMapLineEndpoints(current, line.to, availableLineSnapTargets)
+          : canConnectMindMapLineEndpoints(line.from, current, availableLineSnapTargets)
+        if (canConnect) {
+          const resolved = resolveLineEndpointsForInteraction(
+            line,
+            lineInteraction.endpoint,
+            current
+          )
+          const next = lineInteraction.endpoint === 'from' ? resolved.from : resolved.to
+          if (!lineEndpointEquals(next, lineInteraction.initial)) {
+            persistLineUpdate(
+              line.id,
+              lineInteraction.endpoint === 'from' ? { from: next } : { to: next }
+            )
+          }
+        }
+      }
+      setLineInteraction(null)
+      releaseLineInteractionCapture(event.pointerId)
+      return
+    }
+    if (shapeInteraction) {
+      const finalRect = shapeInteractionRectAtPointer(shapeInteraction, event)
+      if (!sameDrawRect(finalRect, shapeInteraction.initialRect)) {
+        persistShapeUpdate(
+          shapeInteraction.shapeId,
+          {
+            position: { x: finalRect.x, y: finalRect.y },
+            width: finalRect.width,
+            height: finalRect.height
+          },
+          shapeInteraction.kind === 'move' ? 'Move shape' : 'Resize shape'
+        )
+      }
+      setShapeInteraction(null)
+      releaseShapeInteractionCapture(event.pointerId)
+      return
+    }
+    if (shapeDrawState) {
+      const current = contentPointFromSvgPointer(event)
+      const travelled = Math.hypot(
+        event.clientX - shapeDrawState.startPointer.x,
+        event.clientY - shapeDrawState.startPointer.y
+      ) / Math.max(zoom, 0.01)
+      if (travelled >= MIND_MAP_SHAPE_MINIMUM_SIZE) {
+        const rect = normalizeMindMapDrawRect(shapeDrawState.start, current)
+        if (rect.width >= MIND_MAP_SHAPE_MINIMUM_SIZE && rect.height >= MIND_MAP_SHAPE_MINIMUM_SIZE) {
+          onCreateShape?.({
+            shape: shapeDrawState.shape,
+            position: { x: rect.x, y: rect.y },
+            width: rect.width,
+            height: rect.height
+          })
+        }
+      }
+      setShapeDrawState(null)
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch {
+        // See matching pointer-capture guard above.
+      }
+      return
+    }
+    if (lineDrawState) {
+      const current = snapLinePointFromPointer(event)
+      const travelled = Math.hypot(
+        event.clientX - lineDrawState.startPointer.x,
+        event.clientY - lineDrawState.startPointer.y
+      ) / Math.max(zoom, 0.01)
+      if (travelled >= MIND_MAP_LINE_MINIMUM_LENGTH) {
+        const draft = buildMindMapCanvasLineDraft(
+          lineDrawState.start,
+          current,
+          availableLineSnapTargets,
+          lineTool ?? { active: true }
+        )
+        if (draft) onCreateLine?.(draft)
+      }
+      setLineDrawState(null)
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch {
+        // See matching pointer-capture guard above.
+      }
+      return
+    }
     const drag = dragRef.current
     const isBackground = event.target === event.currentTarget
     if (drag?.kind === 'box' && drag.moved) {
@@ -917,10 +1971,27 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     }
   }
 
+  const cancelLineDraw = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (!lineDrawState && !shapeDrawState) return
+    setLineDrawState(null)
+    setShapeDrawState(null)
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      // The capture may already have been released by the browser.
+    }
+  }
+
+  const cancelShapeInteraction = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (!shapeInteraction) return
+    setShapeInteraction(null)
+    releaseShapeInteractionCapture(event.pointerId)
+  }
+
   const onWheel = (event: ReactWheelEvent<SVGSVGElement>): void => {
     event.preventDefault()
     // Ctrl/Cmd + wheel (trackpad pinch) still zooms; a plain wheel scrolls the
-    // canvas instead. This matches the requested Xmind-style interaction where
+    // canvas instead. This matches the requested StudiumX-style interaction where
     // a vertical wheel pans up/down and a horizontal wheel (tilt wheel / shift
     // + scroll) pans left/right through the map.
     if (event.ctrlKey || event.metaKey) {
@@ -957,12 +2028,17 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   }
 
   const beginEdit = (nodeId: string, initial: string): void => {
+    if (readOnly) return
     selectTopic(nodeId, false)
     setEditingNodeId(nodeId)
     setEditValue(initial)
   }
 
   const commitEdit = (): void => {
+    if (readOnly) {
+      setEditingNodeId(null)
+      return
+    }
     if (editingNodeId !== null) {
       updateNode(editingNodeId, { title: editValue })
     }
@@ -971,9 +2047,10 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
 
   const beginNodeAction = useCallback(
     (nodeId: string, additive: boolean) => {
+      if (readOnly) return
       selectTopic(nodeId, additive)
     },
-    [selectTopic]
+    [readOnly, selectTopic]
   )
 
   // --- Node resize interaction ---
@@ -983,7 +2060,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     edge: 'left' | 'right',
     event: ReactPointerEvent<SVGGElement>
   ): void => {
-    if (editingNodeId || nodeDragState) return
+    if (readOnly || editingNodeId || nodeDragState) return
     event.stopPropagation()
     event.preventDefault()
     dragRef.current = null
@@ -1016,6 +2093,10 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   const endNodeResize = (event?: ReactPointerEvent<SVGSVGElement>): void => {
     const resize = nodeResizeState
     if (!resize) return
+    if (readOnly) {
+      setNodeResizeState(null)
+      return
+    }
     const topic = sheet ? findTopicNode(sheet.root, resize.nodeId) : undefined
     if (topic && Math.abs(resize.width - resize.startWidth) >= 0.5) {
       updateNode(resize.nodeId, {
@@ -1039,7 +2120,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   // --- Node drag-and-drop reparenting ---
 
   const startNodeDrag = (nodeId: string, event: ReactPointerEvent<SVGGElement>): void => {
-    if (editingNodeId) return
+    if (readOnly || editingNodeId) return
     dragRef.current = null
     setNodeDragState({
       draggingId: nodeId,
@@ -1098,6 +2179,10 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
 
   const endNodeDrag = (): void => {
     if (!nodeDragState) return
+    if (readOnly) {
+      setNodeDragState(null)
+      return
+    }
     const { draggingId, dropTargetId } = nodeDragState
     if (dropTargetId && dropTargetId !== draggingId && onMoveNode) {
       onMoveNode(draggingId, dropTargetId)
@@ -1142,6 +2227,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     imageId: string,
     event: ReactPointerEvent<SVGSVGElement | SVGGElement>
   ): void => {
+    if (readOnly) return
     event.stopPropagation()
     event.preventDefault()
     dragRef.current = null
@@ -1191,6 +2277,10 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
 
   const endImageDrag = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (!imageDragState) return
+    if (readOnly) {
+      setImageDragState(null)
+      return
+    }
     // A press/release without real pointer travel is just a click (selection);
     // do not detach the image from its topic or move it.
     const travelled = Math.hypot(
@@ -1240,6 +2330,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     imageId: string,
     event: ReactPointerEvent<SVGSVGElement | SVGGElement>
   ): void => {
+    if (readOnly) return
     event.stopPropagation()
     event.preventDefault()
     const rect = imageRects.find((candidate) => candidate.id === imageId)
@@ -1269,6 +2360,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   }
 
   const deleteImage = (imageId: string): void => {
+    if (readOnly) return
     if (!sheet) return
     const image = sheet.images?.find((candidate) => candidate.id === imageId)
     const commands: MindMapCommand[] = [
@@ -1287,6 +2379,92 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
     () => computeImageRects(sheet, nodeById),
     [sheet, nodeById]
   )
+
+  // Keep the live preview and persisted-line rendering on the same geometry
+  // path. Bound endpoints recompute from current target bounds, so a line
+  // follows a topic or the local free-shape move/resize preview immediately.
+  const connectorPathOptions = (
+    from: MindMapCanvasLineEndpoint,
+    to: MindMapCanvasLineEndpoint,
+    curvePoint?: Vec2
+  ) => {
+    const fromNormal = resolveMindMapLineEndpointOutwardNormal(from, availableLineSnapTargets)
+    const toNormal = resolveMindMapLineEndpointOutwardNormal(to, availableLineSnapTargets)
+    return {
+      ...(fromNormal ? { fromTangent: fromNormal } : {}),
+      // The target normal points outward. A path ending at that border must
+      // arrive in the opposite direction so its marker points into the target.
+      ...(toNormal ? { toTangent: { x: -toNormal.x, y: -toNormal.y } } : {}),
+      ...(curvePoint ? { curvePoint } : {})
+    }
+  }
+  const renderedLineGeometries = renderedLines.map((line) => {
+    const interaction = lineInteraction?.lineId === line.id ? lineInteraction : null
+    const controlInteraction = lineControlInteraction?.lineId === line.id
+      ? lineControlInteraction
+      : null
+    const interactiveLine = {
+      ...line,
+      ...(interaction
+        ? (interaction.endpoint === 'from'
+          ? { from: lineSnapStateToEndpoint(interaction.current) }
+          : { to: lineSnapStateToEndpoint(interaction.current) })
+        : {}),
+      ...(controlInteraction
+        ? {
+            style: {
+              ...line.style,
+              lineShape: controlInteraction.lineShape
+            }
+          }
+        : {})
+    }
+    const { from, to } = resolveMindMapLineEndpoints(
+      interactiveLine.from,
+      interactiveLine.to,
+      availableLineSnapTargets
+    )
+    const curvePoint = isMindMapCurvedLineShape(interactiveLine.style.lineShape)
+      ? controlInteraction?.current
+        ?? resolveMindMapLineCurvePoint(from, to, interactiveLine.curveControlOffset)
+      : undefined
+    return {
+      line,
+      interaction,
+      controlInteraction,
+      interactiveLine,
+      from,
+      to,
+      curvePoint,
+      path: relationshipElementPath(
+        from,
+        to,
+        interactiveLine.style.lineShape,
+        connectorPathOptions(
+          from,
+          to,
+          curvePoint
+        )
+      )
+    }
+  })
+  const linePreview = lineDrawState
+    ? buildMindMapCanvasLineDraft(
+        lineDrawState.start,
+        lineDrawState.current,
+        availableLineSnapTargets,
+        lineTool ?? { active: true }
+      )
+      : null
+  const linePreviewCurvePoint = linePreview && isMindMapCurvedLineShape(linePreview.style.lineShape)
+    ? resolveMindMapLineCurvePoint(linePreview.from, linePreview.to)
+    : undefined
+  const shapePreview: { shape: MindMapDrawingShape; rect: MindMapDrawRect } | null = shapeDrawState
+    ? {
+        shape: shapeDrawState.shape,
+        rect: normalizeMindMapDrawRect(shapeDrawState.start, shapeDrawState.current)
+      }
+    : null
 
   if (!sheet || layout.nodes.length === 0) {
     return (
@@ -1314,20 +2492,60 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
   return (
     <div
       ref={containerRef}
-      className={`mindmap-canvas${nodeDragState ? ' is-dragging-node' : ''}`}
+      className={`mindmap-canvas${!hasMeasuredContainer ? ' mindmap-canvas--unmeasured' : ''}${panMode ? ' mindmap-canvas--pan-mode' : ''}${lineTool?.active ? ' mindmap-canvas--line-tool' : ''}${drawingShape ? ' mindmap-canvas--shape-tool' : ''}${nodeDragState ? ' is-dragging-node' : ''}${readOnly ? ' mindmap-canvas--generation-preview' : ''}`}
       data-theme-id={document.theme.id}
       style={canvasStyle}
     >
       <svg
+        ref={svgRef}
         className="mindmap-svg"
         viewBox={viewBox}
         role="img"
         aria-label={sheet.title}
-        onPointerDown={startPointerDrag}
-        onPointerMove={(e) => { onPointerMove(e); updateNodeDrag(e); updateNodeResize(e); updateImageDrag(e); updateImageResize(e) }}
-        onPointerUp={(e) => { endPointerDrag(e); endNodeDrag(); endNodeResize(e); endImageDrag(e); endImageResize() }}
-        onPointerLeave={(e) => { endPointerDrag(e); endNodeDrag(); endNodeResize(e); endImageDrag(e); endImageResize() }}
-        onPointerCancel={(e) => { endPointerDrag(e); endNodeDrag(); endNodeResize(e); endImageDrag(e); endImageResize() }}
+        aria-busy={readOnly || undefined}
+        onKeyDownCapture={(event) => {
+          if (!readOnly) return
+          // Keep keyboard focus navigable, but prevent an already-focused
+          // topic/control from activating a write while the AI projection is
+          // being revealed.
+          event.stopPropagation()
+          if (event.key !== 'Tab') event.preventDefault()
+        }}
+        onPointerDownCapture={readOnly ? undefined : startDrawingPointerCapture}
+        onPointerDown={readOnly ? undefined : startPointerDrag}
+        onPointerMove={readOnly ? undefined : (e) => { onPointerMove(e); updateNodeDrag(e); updateNodeResize(e); updateImageDrag(e); updateImageResize(e) }}
+        onPointerUp={readOnly ? undefined : (e) => { endPointerDrag(e); endNodeDrag(); endNodeResize(e); endImageDrag(e); endImageResize() }}
+        onPointerLeave={readOnly ? undefined : (e) => {
+          // A captured pointer is allowed to leave the SVG while the user is
+          // still drawing/panning. Wait for pointerup/pointercancel instead of
+          // committing or cancelling the gesture on this transient boundary.
+          const rootCaptured = typeof e.currentTarget.hasPointerCapture === 'function'
+            && e.currentTarget.hasPointerCapture(e.pointerId)
+          const shapeCaptured = typeof shapeInteractionCaptureRef.current?.hasPointerCapture === 'function'
+            && shapeInteractionCaptureRef.current.hasPointerCapture(e.pointerId)
+          const lineCaptured = typeof lineInteractionCaptureRef.current?.hasPointerCapture === 'function'
+            && lineInteractionCaptureRef.current.hasPointerCapture(e.pointerId)
+          const captured = rootCaptured || shapeCaptured || lineCaptured
+          if (captured) return
+          if (lineInteraction || lineControlInteraction) cancelLineInteraction(e)
+          else if (lineDrawState || shapeDrawState) cancelLineDraw(e)
+          else if (shapeInteraction) cancelShapeInteraction(e)
+          else endPointerDrag(e)
+          endNodeDrag()
+          endNodeResize(e)
+          endImageDrag(e)
+          endImageResize()
+        }}
+        onPointerCancel={readOnly ? undefined : (e) => {
+          if (lineInteraction || lineControlInteraction) cancelLineInteraction(e)
+          else if (lineDrawState || shapeDrawState) cancelLineDraw(e)
+          else if (shapeInteraction) cancelShapeInteraction(e)
+          else endPointerDrag(e)
+          endNodeDrag()
+          endNodeResize(e)
+          endImageDrag(e)
+          endImageResize()
+        }}
         onWheel={onWheel}
       >
         {selectionBox ? (
@@ -1366,21 +2584,35 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
               'herringbone', 'double-arrow', 'anti-triangle', 'attached', 'hook'
             ] as const).map((arrow) => {
               const markerPath = relationshipArrowMarkerPath(arrow)
-              if (!markerPath) return null
+              const markerMetrics = relationshipArrowMarkerMetrics(arrow)
+              if (!markerPath || !markerMetrics) return null
               return (
                 <marker
                   key={arrow}
                   id={`mindmap-rel-arrow-${arrow}`}
                   viewBox="0 0 10 10"
-                  refX={arrow === 'dot' ? 6 : arrow === 'herringbone' || arrow === 'attached' ? 6 : 8}
+                  refX={markerMetrics.refX}
                   refY="5"
-                  markerWidth="7"
-                  markerHeight="7"
+                  markerUnits="userSpaceOnUse"
+                  markerWidth={markerMetrics.markerWidth ?? 8}
+                  markerHeight={markerMetrics.markerHeight ?? 8}
                   orient="auto-start-reverse"
                   fill="context-stroke"
-                  opacity="0.78"
+                  overflow={markerMetrics.overflow}
+                  opacity="1"
                 >
-                  <path d={markerPath} />
+                  <path
+                    d={markerPath}
+                    {...(markerMetrics.open
+                      ? {
+                          fill: 'none',
+                          stroke: 'context-stroke',
+                          strokeWidth: 1.5,
+                          strokeLinecap: 'round',
+                          strokeLinejoin: 'round'
+                        }
+                      : {})}
+                  />
                 </marker>
               )
             })}
@@ -1398,6 +2630,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             const pattern = sheet?.layout?.linePattern
             const dash = lineDashPattern(pattern)
             const tapered = sheet?.layout?.tapered === true
+            const isNewEdge = newlyRevealedNodeIds.includes(edge.to)
             const edgeStyle: CSSProperties = color
               ? { stroke: color, strokeWidth, ...(dash ? { strokeDasharray: dash } : {}) }
               : { strokeWidth, ...(dash ? { strokeDasharray: dash } : {}) }
@@ -1406,7 +2639,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
               return (
                 <path
                   key={edge.to}
-                  className="mindmap-edge mindmap-edge--tapered"
+                  className={`mindmap-edge mindmap-edge--tapered${isNewEdge ? ' is-generation-new' : ''}`}
                   d={taperedEdgePath(from, to, strokeWidth, childWidth, edge.axis)}
                   style={color ? { fill: color } : {}}
                 />
@@ -1415,10 +2648,248 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             return (
               <path
                 key={edge.to}
-                className="mindmap-edge"
+                className={`mindmap-edge${isNewEdge ? ' is-generation-new' : ''}`}
                 d={resolveEdgePath(from, to, lineStyle, edge.axis)}
                 style={edgeStyle}
               />
+            )
+          })}
+
+          {renderedLineGeometries.map(({ line, interaction, controlInteraction, interactiveLine, path }) => {
+            const isSelected = selection.kind === 'element' && selection.elementId === line.id
+            const canEdit = !readOnly && !lineTool?.active && !drawingShape
+            const endpointLabel = line.label || t('mindmap.elementStyle.types.connector', { defaultValue: 'Connector' })
+            return (
+              <g
+                key={line.id}
+                className={`mindmap-drawn-line-group${isSelected ? ' is-selected' : ''}${interaction || controlInteraction ? ' is-interacting' : ''}`}
+                role="button"
+                tabIndex={readOnly ? -1 : (isSelected ? 0 : -1)}
+                style={{ outline: 'none' }}
+                aria-disabled={readOnly || undefined}
+                aria-pressed={isSelected}
+                aria-label={endpointLabel}
+                onPointerDown={(event) => {
+                  if (!canEdit) return
+                  startLineBodyInteraction(line, event)
+                }}
+                onContextMenu={(event) => openLineContextMenu(line.id, event)}
+                onKeyDown={(event) => {
+                  if (!canEdit || !isSelected || !onDeleteLine) return
+                  if (event.key !== 'Delete' && event.key !== 'Backspace') return
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onDeleteLine(line.id)
+                }}
+              >
+                <path
+                  className="mindmap-drawn-line"
+                  d={path}
+                  markerStart={interactiveLine.style.beginArrow && interactiveLine.style.beginArrow !== 'none'
+                    ? `url(#mindmap-rel-arrow-${interactiveLine.style.beginArrow})`
+                    : undefined}
+                  markerEnd={interactiveLine.style.endArrow && interactiveLine.style.endArrow !== 'none'
+                    ? `url(#mindmap-rel-arrow-${interactiveLine.style.endArrow})`
+                    : undefined}
+                  style={{
+                    ...(interactiveLine.style.stroke ? { stroke: interactiveLine.style.stroke } : {}),
+                    ...(interactiveLine.style.strokeWidth !== undefined ? { strokeWidth: interactiveLine.style.strokeWidth } : {}),
+                    ...(interactiveLine.style.linePattern !== undefined
+                      ? { strokeDasharray: elementLineDashArray(interactiveLine.style.linePattern) ?? 'none' }
+                      : {})
+                  }}
+                  aria-hidden="true"
+                >
+                  <title>{endpointLabel}</title>
+                </path>
+                <path
+                  className="mindmap-drawn-line-hit"
+                  d={path}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={Math.max(12, (interactiveLine.style.strokeWidth ?? 1.6) + 12)}
+                  vectorEffect="non-scaling-stroke"
+                  pointerEvents="stroke"
+                  aria-hidden="true"
+                />
+              </g>
+            )
+          })}
+
+          {renderedShapes.map(({ shape, rect }) => {
+            const isSelected = selection.kind === 'element' && selection.elementId === shape.id
+            const isTextEditing = shapeTextEditing?.shapeId === shape.id
+            const shapeLabel = shape.label || t(`mindmap.topicStyle.${shape.shape === 'rounded-rect' ? 'shapeRoundedRect' : shape.shape === 'rect' ? 'shapeRect' : shape.shape === 'ellipse' ? 'shapeEllipse' : shape.shape === 'diamond' ? 'shapeDiamond' : shape.shape === 'parallelogram' ? 'shapeParallelogram' : 'shapeHexagon'}`, { defaultValue: t('mindmap.topicStyle.shapeLabel') })
+            const stroke = shape.style?.stroke ?? 'var(--mindmap-theme-line, var(--line-muted))'
+            const fill = shape.style?.fill ?? 'var(--surface-muted)'
+            const labelInset = Math.min(
+              MIND_MAP_SHAPE_LABEL_PADDING,
+              Math.max(1, Math.min(rect.width, rect.height) / 4)
+            )
+            const labelRect = {
+              x: rect.x + labelInset,
+              y: rect.y + labelInset,
+              width: Math.max(1, rect.width - labelInset * 2),
+              height: Math.max(1, rect.height - labelInset * 2)
+            }
+            const shapeTextStyle: CSSProperties = {
+              color: shape.style?.textColor ?? 'var(--mindmap-theme-text, var(--text))',
+              fontFamily: shape.style?.fontFamily ?? 'var(--mindmap-theme-font, inherit)',
+              fontSize: shape.style?.fontSize ?? 14,
+              textAlign: 'center'
+            }
+            const resizeHitSize = MIND_MAP_SHAPE_RESIZE_EDGE_HIT_SIZE / Math.max(zoom, 0.01)
+            const selectionGap = MIND_MAP_SELECTION_RING_GAP / Math.max(zoom, 0.01)
+            return (
+              <g
+                key={shape.id}
+                className={`mindmap-drawn-shape-group${isSelected ? ' is-selected' : ''}${shapeInteraction?.shapeId === shape.id ? shapeInteraction.kind === 'move' ? ' is-moving' : ' is-resizing' : ''}${isTextEditing ? ' is-editing' : ''}`}
+                data-mindmap-line-snap-target={`shape:${shape.id}`}
+                role="button"
+                tabIndex={readOnly ? -1 : (isSelected ? 0 : -1)}
+                style={{ outline: 'none' }}
+                aria-disabled={readOnly || undefined}
+                aria-pressed={isSelected}
+                aria-label={shapeLabel}
+                onPointerDown={(event) => {
+                  if (readOnly) return
+                  if (isTextEditing) return
+                  // Keep a secondary click (context menu) from bubbling to the
+                  // SVG root, whose right-button pan gesture captures the
+                  // pointer and swallows the subsequent contextmenu event.
+                  event.stopPropagation()
+                  startShapeInteraction(shape.id, rect, 'move', event)
+                }}
+                onDoubleClick={(event) => {
+                  if (readOnly) return
+                  if (lineTool?.active || drawingShape) return
+                  event.stopPropagation()
+                  event.preventDefault()
+                  startShapeTextEditing(shape.id, shape.label ?? '')
+                }}
+                onKeyDown={(event) => {
+                  if (readOnly) return
+                  if ((event.key !== 'Enter' && event.key !== 'F2') || lineTool?.active || drawingShape) return
+                  event.preventDefault()
+                  event.stopPropagation()
+                  startShapeTextEditing(shape.id, shape.label ?? '')
+                }}
+                onContextMenu={(event) => openShapeContextMenu(shape.id, event)}
+              >
+                <path
+                  className="mindmap-drawn-shape"
+                  d={mindMapDrawingShapePath(shape.shape, rect)}
+                  style={{
+                    fill,
+                    stroke,
+                    ...(shape.style?.strokeWidth !== undefined ? { strokeWidth: shape.style.strokeWidth } : {}),
+                    ...(shape.style?.linePattern !== undefined
+                      ? { strokeDasharray: elementLineDashArray(shape.style.linePattern) ?? 'none' }
+                      : shape.style?.dashed === false
+                        ? { strokeDasharray: 'none' }
+                        : shape.style?.dashed
+                          ? { strokeDasharray: '6 4' }
+                          : {})
+                  }}
+                  aria-hidden="true"
+                >
+                  <title>{shapeLabel}</title>
+                </path>
+
+                {shape.label || isTextEditing ? (
+                  <foreignObject
+                    className="mindmap-drawn-shape-label-foreign"
+                    x={labelRect.x}
+                    y={labelRect.y}
+                    width={labelRect.width}
+                    height={labelRect.height}
+                  >
+                    {isTextEditing ? (
+                      <div className="mindmap-drawn-shape-label-editor-shell">
+                        <textarea
+                          ref={shapeTextEditorRef}
+                          className="mindmap-drawn-shape-label-editor"
+                          aria-label={`${t('mindmap.elementStyle.text')}: ${shapeLabel}`}
+                          autoFocus
+                          rows={1}
+                          value={shapeTextEditing?.value ?? ''}
+                          style={shapeTextStyle}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) => {
+                            const value = event.currentTarget.value
+                            setShapeTextEditing((current) => current?.shapeId === shape.id
+                              ? { ...current, value }
+                              : current)
+                          }}
+                          onBlur={(event) => commitShapeTextEditing(shape.id, event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            if (readOnly) return
+                            // The shape group also uses Enter/F2 to begin an
+                            // edit. Do not let a textarea Enter bubble back to
+                            // that handler: it would recreate the session with
+                            // the old label instead of inserting a newline.
+                            event.stopPropagation()
+                            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                              event.preventDefault()
+                              commitShapeTextEditing(shape.id, event.currentTarget.value)
+                            } else if (event.key === 'Escape') {
+                              event.preventDefault()
+                              cancelShapeTextEditing(shape.id)
+                            }
+                          }}
+                          onPointerDown={(event) => {
+                            if (readOnly) return
+                            event.stopPropagation()
+                          }}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        className="mindmap-drawn-shape-label"
+                        style={shapeTextStyle}
+                        aria-hidden="true"
+                      >
+                        {shape.label}
+                      </div>
+                    )}
+                  </foreignObject>
+                ) : null}
+
+                {!isTextEditing && !lineTool?.active && !drawingShape ? (
+                  <>
+                    {isSelected ? (
+                      <rect
+                        className="mindmap-shape-selection"
+                        x={rect.x - selectionGap}
+                        y={rect.y - selectionGap}
+                        width={rect.width + selectionGap * 2}
+                        height={rect.height + selectionGap * 2}
+                        pointerEvents="none"
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                    {MIND_MAP_SHAPE_RESIZE_HANDLES.map((handle) => {
+                      const hitRect = shapeResizeHitRect(rect, handle, resizeHitSize)
+                      return (
+                        <rect
+                          key={handle}
+                          className={`mindmap-shape-resize-handle mindmap-shape-resize-handle--${handle}`}
+                          data-mindmap-shape-resize-handle={handle}
+                          data-mindmap-shape-resize-edge={handle}
+                          x={hitRect.x}
+                          y={hitRect.y}
+                          width={hitRect.width}
+                          height={hitRect.height}
+                          fill="transparent"
+                          stroke="none"
+                          onPointerDown={(event) => startShapeInteraction(shape.id, rect, 'resize', event, handle)}
+                        />
+                      )
+                    })}
+                  </>
+                ) : null}
+              </g>
             )
           })}
 
@@ -1433,10 +2904,12 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 key={relationship.id}
                 className={`mindmap-relationship-group${selection.kind === 'element' && selection.elementId === relationship.id ? ' is-selected' : ''}`}
                 role="button"
-                tabIndex={selection.kind === 'element' && selection.elementId === relationship.id ? 0 : -1}
+                tabIndex={readOnly ? -1 : (selection.kind === 'element' && selection.elementId === relationship.id ? 0 : -1)}
+                aria-disabled={readOnly || undefined}
                 aria-pressed={selection.kind === 'element' && selection.elementId === relationship.id}
                 aria-label={relationship.label || endpointLabel}
                 onPointerDown={(event) => {
+                  if (readOnly) return
                   event.stopPropagation()
                   event.preventDefault()
                   dragRef.current = null
@@ -1504,9 +2977,11 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
               key={rect.callout.id}
               className={`mindmap-callout-group${selection.kind === 'element' && selection.elementId === rect.callout.id ? ' is-selected' : ''}`}
               role="button"
-              tabIndex={selection.kind === 'element' && selection.elementId === rect.callout.id ? 0 : -1}
+              tabIndex={readOnly ? -1 : (selection.kind === 'element' && selection.elementId === rect.callout.id ? 0 : -1)}
+              aria-disabled={readOnly || undefined}
               aria-pressed={selection.kind === 'element' && selection.elementId === rect.callout.id}
               onPointerDown={(event) => {
+                if (readOnly) return
                 event.stopPropagation()
                 event.preventDefault()
                 dragRef.current = null
@@ -1596,10 +3071,13 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
               <g
                 key={bracket.summary.id}
                 className={`mindmap-summary-group${selection.kind === 'element' && selection.elementId === bracket.summary.id ? ' is-selected' : ''}`}
+                data-summary-side={bracket.side}
                 role="button"
-                tabIndex={selection.kind === 'element' && selection.elementId === bracket.summary.id ? 0 : -1}
+                tabIndex={readOnly ? -1 : (selection.kind === 'element' && selection.elementId === bracket.summary.id ? 0 : -1)}
+                aria-disabled={readOnly || undefined}
                 aria-pressed={selection.kind === 'element' && selection.elementId === bracket.summary.id}
                 onPointerDown={(event) => {
+                  if (readOnly) return
                   event.stopPropagation()
                   event.preventDefault()
                   dragRef.current = null
@@ -1619,6 +3097,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                     className="mindmap-summary-label"
                     x={bracket.labelX}
                     y={bracket.labelY}
+                    textAnchor={bracket.side === 'left' ? 'end' : 'start'}
                     dominantBaseline="central"
                     style={{
                       ...(bracket.summary.style?.textColor
@@ -1646,10 +3125,12 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 key={boundary.id}
                 className={`mindmap-boundary-group${selection.kind === 'element' && selection.elementId === boundary.id ? ' is-selected' : ''}`}
                 role="button"
-                tabIndex={selection.kind === 'element' && selection.elementId === boundary.id ? 0 : -1}
+                tabIndex={readOnly ? -1 : (selection.kind === 'element' && selection.elementId === boundary.id ? 0 : -1)}
+                aria-disabled={readOnly || undefined}
                 aria-pressed={selection.kind === 'element' && selection.elementId === boundary.id}
                 aria-label={boundary.label || t('mindmap.elementStyle.types.boundary')}
                 onPointerDown={(event) => {
+                  if (readOnly) return
                   event.stopPropagation()
                   event.preventDefault()
                   dragRef.current = null
@@ -1701,6 +3182,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             const isSelected = selection.kind === 'topic' && selection.topicIds.includes(node.id)
             const isPrimarySelection = node.id === selectedNodeId
             const isEditing = node.id === editingNodeId
+            const selectionGap = MIND_MAP_SELECTION_RING_GAP / Math.max(zoom, 0.01)
             const depthClass = node.depth === 0 ? ' is-root' : node.depth === 1 ? ' is-branch' : ''
             // P4: Merge theme.topicStyles[central/main/sub] with node.style.
             // Priority: node.style > theme.topicStyles[layer] > CSS default.
@@ -1767,15 +3249,17 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             return (
               <g
                 key={node.id}
-                className={`mindmap-node-group${isSelected ? ' is-selected' : ''}${depthClass}${nodeDragState?.draggingId === node.id ? ' is-dragging' : ''}${nodeDragState?.dropTargetId === node.id ? ' is-drop-target' : ''}${nodeResizeState?.nodeId === node.id ? ' is-resizing' : ''}`}
+                className={`mindmap-node-group${isSelected ? ' is-selected' : ''}${depthClass}${nodeDragState?.draggingId === node.id ? ' is-dragging' : ''}${nodeDragState?.dropTargetId === node.id ? ' is-drop-target' : ''}${nodeResizeState?.nodeId === node.id ? ' is-resizing' : ''}${newlyRevealedNodeIds.includes(node.id) ? ' is-generation-new' : ''}`}
                 data-depth={node.depth}
                 data-node-id={node.id}
                 role="button"
-                tabIndex={isPrimarySelection ? 0 : -1}
+                tabIndex={readOnly ? -1 : (isPrimarySelection ? 0 : -1)}
                 style={{ outline: 'none' }}
                 aria-label={node.title || t('mindmap.untitledTopic')}
+                aria-disabled={readOnly || undefined}
                 aria-pressed={isSelected}
                 onPointerDown={(event) => {
+                  if (readOnly) return
                   event.stopPropagation()
                   // A secondary click opens the context menu. It must not run
                   // the normal primary-click selection path first, otherwise
@@ -1791,7 +3275,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   // Match marquee selection: Ctrl/Cmd/Shift all add or remove
                   // a topic from the current selection instead of starting a
                   // reparent drag. Shift is especially useful on keyboards
-                  // without a Command key and mirrors XMind's range-select
+                  // without a Command key and mirrors StudiumX's range-select
                   // affordance.
                   const additive = event.metaKey || event.ctrlKey || event.shiftKey
                   const isPrimaryActivation = event.button === 0 && !additive
@@ -1827,12 +3311,14 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   beginNodeAction(node.id, additive)
                 }}
                 onContextMenu={(event) => {
+                  if (readOnly) return
                   if (onContextMenu) {
                     event.preventDefault()
                     onContextMenu(node.id, event.clientX, event.clientY)
                   }
                 }}
                 onPointerDownCapture={(event) => {
+                  if (readOnly) return
                   const target = event.target as Element
                   const isControl = target.closest?.(
                     '.mindmap-node-action, .mindmap-node-action-group, .mindmap-collapse-badge, .mindmap-node-topic-action, .mindmap-node-topic-action-group, .mindmap-node-note-button, .mindmap-node-note-button-group, .mindmap-node-input, .mindmap-node-resize-control'
@@ -1849,6 +3335,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   }
                 }}
                 onDoubleClick={(event) => {
+                  if (readOnly) return
                   event.stopPropagation()
                   if (!isEditing) beginEdit(node.id, node.title)
                 }}
@@ -1857,20 +3344,19 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   const elem = shapeElement(node, shape)
                   const branchInk = branchColorForKey(document.theme, node.branchKey)
                   const bColor = node.depth === 1 ? branchInk : null
-                  // Xmind Snowbrush look: first-level branches are solid chips
+                  // StudiumX Snowbrush look: first-level branches are solid chips
                   // in the branch colour with no border; deeper topics use the
                   // quiet grey fill from the stylesheet.
                   const fill = styleOverride?.fill
                     ?? (node.depth === 1 && bColor ? bColor : undefined)
-                  // Selection/focus is rendered on ordinary topic shapes.
-                  // Underlines stay in branch ink because they are connectors,
-                  // not independently highlighted node borders.
-                  const focusStroke = !isEditing && isSelected && shape !== 'underline'
-                    ? 'var(--mm-focus)'
-                    : undefined
+                  // Selection no longer repaints the node's own border: the
+                  // topic-style inspector edits border colour/width in place,
+                  // so the real border must stay visible while selected; the
+                  // dashed ring (mindmap-node-selection) marks selection
+                  // instead. Underlines stay in branch ink because they are
+                  // connectors, not independently highlighted node borders.
                   const borderStyle = styleOverride?.borderStyle
-                  const stroke = focusStroke
-                    ?? (borderStyle === 'none' ? 'none' : styleOverride?.stroke)
+                  const stroke = (borderStyle === 'none' ? 'none' : styleOverride?.stroke)
                     ?? (borderStyle ? 'var(--mindmap-theme-line, #8E8E93)' : undefined)
                     // The underline is part of the branch, so its default ink
                     // must match the incoming/outgoing edge rather than the
@@ -1880,31 +3366,25 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                   const styleProps: Record<string, string | number> = {}
                   if (fill) styleProps.fill = fill
                   if (stroke) styleProps.stroke = stroke
-                  if (focusStroke) {
-                    styleProps.strokeWidth = isSelected ? 2 : 1.5
+                  // The underline is a continuation of the branch, not an
+                  // independent border. Match the incoming branch's width so
+                  // it reads as one uninterrupted line.
+                  if (shape === 'underline' && styleOverride?.borderWidth === undefined) {
+                    styleProps.strokeWidth = edgeStrokeWidth(
+                      node.depth,
+                      sheet?.layout?.lineWidthScale
+                    )
+                  }
+                  if (styleOverride?.borderWidth !== undefined) {
+                    styleProps.strokeWidth = styleOverride.borderWidth
+                  }
+                  if (borderStyle === 'dash' || borderStyle === 'hand-drawn-dash') {
+                    styleProps.strokeDasharray = '6 4'
+                  } else if (borderStyle === 'solid' || borderStyle === 'hand-drawn-solid') {
                     styleProps.strokeDasharray = 'none'
-                    styleProps.filter = 'none'
-                  } else {
-                    // The underline is a continuation of the branch, not an
-                    // independent border. Match the incoming branch's width so
-                    // it reads as one uninterrupted line.
-                    if (shape === 'underline' && styleOverride?.borderWidth === undefined) {
-                      styleProps.strokeWidth = edgeStrokeWidth(
-                        node.depth,
-                        sheet?.layout?.lineWidthScale
-                      )
-                    }
-                    if (styleOverride?.borderWidth !== undefined) {
-                      styleProps.strokeWidth = styleOverride.borderWidth
-                    }
-                    if (borderStyle === 'dash' || borderStyle === 'hand-drawn-dash') {
-                      styleProps.strokeDasharray = '6 4'
-                    } else if (borderStyle === 'solid' || borderStyle === 'hand-drawn-solid') {
-                      styleProps.strokeDasharray = 'none'
-                    }
-                    if (borderStyle === 'hand-drawn-solid' || borderStyle === 'hand-drawn-dash') {
-                      styleProps.filter = 'url(#mindmap-topic-hand-drawn)'
-                    }
+                  }
+                  if (borderStyle === 'hand-drawn-solid' || borderStyle === 'hand-drawn-dash') {
+                    styleProps.filter = 'url(#mindmap-topic-hand-drawn)'
                   }
 
                   const Tag = elem.tag
@@ -1933,6 +3413,17 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                     </>
                   )
                 })()}
+                {!isEditing && isSelected && shape !== 'underline' ? (
+                  <rect
+                    className="mindmap-node-selection"
+                    x={node.x - selectionGap}
+                    y={node.y - selectionGap}
+                    width={node.width + selectionGap * 2}
+                    height={node.height + selectionGap * 2}
+                    pointerEvents="none"
+                    aria-hidden="true"
+                  />
+                ) : null}
                 {!isEditing ? topicActions.map((action, actionIndex) => {
                   const actionX = node.x + node.width
                     - topicActions.length * MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH
@@ -1954,17 +3445,21 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                       className={`mindmap-node-topic-action-group mindmap-node-note-button-group${action.kind === 'note' ? ' mindmap-note-indicator' : ''}`}
                       data-topic-action={action.kind}
                       role="button"
-                      tabIndex={0}
+                      tabIndex={readOnly ? -1 : 0}
+                      aria-disabled={readOnly || undefined}
                       aria-label={actionLabel}
                       onPointerDown={(event) => {
+                        if (readOnly) return
                         event.stopPropagation()
                         event.preventDefault()
                       }}
                       onClick={(event) => {
+                        if (readOnly) return
                         event.stopPropagation()
                         action.onOpen?.(node.id)
                       }}
                       onKeyDown={(event) => {
+                        if (readOnly) return
                         if (event.key !== 'Enter' && event.key !== ' ') return
                         event.preventDefault()
                         event.stopPropagation()
@@ -2181,6 +3676,7 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                       <g
                         className="mindmap-collapse-badge"
                         onClick={(event) => {
+                          if (readOnly) return
                           event.stopPropagation()
                           toggleCollapse(node.id)
                         }}
@@ -2222,17 +3718,21 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                           key={direction}
                           className={`mindmap-node-action-group mindmap-node-action-group--${direction}`}
                           role="button"
-                          tabIndex={0}
+                          tabIndex={readOnly ? -1 : 0}
+                          aria-disabled={readOnly || undefined}
                           aria-label={t('mindmap.addChild')}
                           onPointerDown={(event) => {
+                            if (readOnly) return
                             event.stopPropagation()
                             event.preventDefault()
                           }}
                           onClick={(event) => {
+                            if (readOnly) return
                             event.stopPropagation()
                             addChild(node.id)
                           }}
                           onKeyDown={(event) => {
+                            if (readOnly) return
                             if (event.key !== 'Enter' && event.key !== ' ') return
                             event.preventDefault()
                             event.stopPropagation()
@@ -2300,7 +3800,8 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                 key={rect.id}
                 className={`mindmap-image-group${isSelected ? ' is-selected' : ''}${isDragging ? ' is-dragging' : ''}`}
                 role="button"
-                tabIndex={isSelected ? 0 : -1}
+                tabIndex={readOnly ? -1 : (isSelected ? 0 : -1)}
+                aria-disabled={readOnly || undefined}
                 aria-label={asset?.fileName ?? t('mindmap.contentPanel.images')}
                 onPointerDown={(event) => startImageDrag(rect.id, event)}
               >
@@ -2349,8 +3850,12 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
                       role="button"
                       aria-label={t('mindmap.contentPanel.removeImage')}
                       transform={`translate(${rect.x + rect.width - 26} ${rect.y - 26})`}
-                      onPointerDown={(event) => event.stopPropagation()}
+                      onPointerDown={(event) => {
+                        if (readOnly) return
+                        event.stopPropagation()
+                      }}
                       onClick={(event) => {
+                        if (readOnly) return
                         event.stopPropagation()
                         deleteImage(rect.id)
                       }}
@@ -2391,6 +3896,95 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
             )
           })() : null}
 
+          {renderedLineGeometries.map(({
+            line,
+            interaction,
+            controlInteraction,
+            from,
+            to,
+            curvePoint
+          }) => {
+            const isSelected = selection.kind === 'element' && selection.elementId === line.id
+            const canEdit = !readOnly && !lineTool?.active && !drawingShape
+            if (!isSelected || !canEdit) return null
+
+            const endpointLabel = line.label || t('mindmap.elementStyle.types.connector', { defaultValue: 'Connector' })
+            const hitRadius = 13 / Math.max(zoom, 0.01)
+            const visibleRadius = 4.5 / Math.max(zoom, 0.01)
+            const endpoints: ReadonlyArray<{
+              key: 'from' | 'to'
+              point: { x: number; y: number }
+              label: string
+            }> = [
+              { key: 'from', point: from, label: `${endpointLabel} start` },
+              { key: 'to', point: to, label: `${endpointLabel} end` }
+            ]
+
+            return (
+              <g
+                key={`endpoints-${line.id}`}
+                data-mindmap-line-endpoint-overlay={line.id}
+                className={`mindmap-drawn-line-endpoint-overlay${interaction || controlInteraction ? ' is-interacting' : ''}`}
+              >
+                {curvePoint ? (
+                  <g className="mindmap-drawn-line-control">
+                    <path
+                      className="mindmap-drawn-line-control-guide"
+                      d={`M ${from.x} ${from.y} L ${curvePoint.x} ${curvePoint.y} L ${to.x} ${to.y}`}
+                      pointerEvents="none"
+                      aria-hidden="true"
+                    />
+                    <circle
+                      data-mindmap-line-control={line.id}
+                      className="mindmap-drawn-line-control-hit"
+                      cx={curvePoint.x}
+                      cy={curvePoint.y}
+                      r={hitRadius}
+                      fill="transparent"
+                      pointerEvents="all"
+                      aria-label={`${endpointLabel} curve control`}
+                      onPointerDown={(event) => startLineControlInteraction(line, curvePoint, event)}
+                      onContextMenu={(event) => openLineContextMenu(line.id, event)}
+                    />
+                    <circle
+                      className="mindmap-drawn-line-control-core"
+                      cx={curvePoint.x}
+                      cy={curvePoint.y}
+                      r={visibleRadius + 1}
+                      pointerEvents="none"
+                      aria-hidden="true"
+                    />
+                  </g>
+                ) : null}
+                {endpoints.map(({ key, point, label }) => (
+                  <g key={key}>
+                    <circle
+                      data-mindmap-line-endpoint={key}
+                      data-mindmap-line-id={line.id}
+                      className="mindmap-drawn-line-endpoint-hit"
+                      cx={point.x}
+                      cy={point.y}
+                      r={hitRadius}
+                      fill="transparent"
+                      pointerEvents="all"
+                      aria-label={label}
+                      onPointerDown={(event) => startLineEndpointInteraction(line, key, event)}
+                      onContextMenu={(event) => openLineContextMenu(line.id, event)}
+                    />
+                    <circle
+                      className="mindmap-drawn-line-endpoint-core"
+                      cx={point.x}
+                      cy={point.y}
+                      r={visibleRadius}
+                      pointerEvents="none"
+                      aria-hidden="true"
+                    />
+                  </g>
+                ))}
+              </g>
+            )
+          })}
+
           {nodeDragState?.ghost ? (() => {
             const ghost = nodeDragState.ghost
             const dropTarget = nodeDragState.dropTargetId
@@ -2416,7 +4010,85 @@ export function MindMapCanvas({ document, activeSheetIndex, viewportAction, onZo
               </g>
             )
           })() : null}
+
+          {shapePreview ? (
+            <path
+              className="mindmap-shape-draft"
+              d={mindMapDrawingShapePath(shapePreview.shape, shapePreview.rect)}
+              pointerEvents="none"
+            />
+          ) : null}
+
+          {linePreview ? (() => {
+            const currentTarget = lineDrawState?.current.target
+              ? lineSnapTargetByKey.get(`${lineDrawState.current.target.kind}:${lineDrawState.current.target.id}`)
+              : undefined
+            return (
+              <g className="mindmap-line-draft-group" pointerEvents="none" aria-hidden="true">
+                {currentTarget ? (
+                  <rect
+                    className="mindmap-line-snap-highlight"
+                    x={currentTarget.x - 3}
+                    y={currentTarget.y - 3}
+                    width={currentTarget.width + 6}
+                    height={currentTarget.height + 6}
+                    rx={8}
+                  />
+                ) : null}
+                <path
+                  className="mindmap-line-draft"
+                  d={relationshipElementPath(
+                    linePreview.from,
+                    linePreview.to,
+                    linePreview.style.lineShape,
+                    connectorPathOptions(
+                      linePreview.from,
+                      linePreview.to,
+                      linePreviewCurvePoint
+                    )
+                  )}
+                  markerStart={linePreview.style.beginArrow && linePreview.style.beginArrow !== 'none'
+                    ? `url(#mindmap-rel-arrow-${linePreview.style.beginArrow})`
+                    : undefined}
+                  markerEnd={linePreview.style.endArrow && linePreview.style.endArrow !== 'none'
+                    ? `url(#mindmap-rel-arrow-${linePreview.style.endArrow})`
+                    : undefined}
+                  style={linePreview.style.linePattern
+                    ? { strokeDasharray: elementLineDashArray(linePreview.style.linePattern) ?? 'none' }
+                    : undefined}
+                />
+              </g>
+            )
+          })() : null}
+
+          {lineTool?.active ? (
+            <g className="mindmap-line-snap-targets" aria-hidden="true">
+              {availableLineSnapTargets.map((target) => (
+                <rect
+                  key={`${target.kind}:${target.id}`}
+                  data-mindmap-line-snap-target={`${target.kind}:${target.id}`}
+                  x={target.x}
+                  y={target.y}
+                  width={target.width}
+                  height={target.height}
+                  fill="transparent"
+                />
+              ))}
+            </g>
+          ) : null}
         </g>
+        {readOnly ? (
+          <rect
+            className="mindmap-generation-read-only-shield"
+            x="0"
+            y="0"
+            width="100%"
+            height="100%"
+            fill="transparent"
+            onPointerDown={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.preventDefault()}
+          />
+        ) : null}
       </svg>
     </div>
   )

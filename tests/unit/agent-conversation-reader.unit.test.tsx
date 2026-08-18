@@ -24,20 +24,21 @@ function presentation(state: 'active' | 'complete'): AgentConversationTurnPresen
 }
 
 describe('AgentConversationReader reasoning progress', () => {
-  it('renders learner-visible reasoning progress without echoing a legacy raw detail', () => {
+  it('renders a compact Think row with the current learner-safe reasoning summary', () => {
     renderUi(<AgentConversationReader presentation={presentation('active')} />)
 
     const panel = screen.getByRole('region', { name: 'AI 处理过程' })
     expect(panel).toHaveTextContent('正在准备写入')
-    expect(panel).toHaveTextContent('思考过程')
+    expect(panel).toHaveTextContent('Think')
     expect(panel).toHaveTextContent('好，让我接下来写入文件。')
+    expect(screen.getByRole('button', { name: '展开思考内容' })).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('creates a process panel when reasoning is the only item', () => {
     renderUi(<AgentConversationReader presentation={{ ...presentation('active'), items: [presentation('active').items[0]] }} />)
 
     const panel = screen.getByRole('region', { name: 'AI 处理过程' })
-    expect(panel).toHaveTextContent('思考过程')
+    expect(panel).toHaveTextContent('Think')
     expect(panel).toHaveTextContent('好，让我接下来写入文件。')
   })
 })
@@ -59,7 +60,7 @@ const teachingPresentation: TeachingTurnPresentation = {
 }
 
 describe('AgentConversationReader combined teaching and reasoning views', () => {
-  it('shows the teaching projection and the reasoning detail for the same turn', () => {
+  it('shows the teaching projection and the Think summary for the same turn', () => {
     renderUi(
       <AgentConversationReader
         presentation={presentation('active')}
@@ -69,7 +70,7 @@ describe('AgentConversationReader combined teaching and reasoning views', () => 
 
     expect(screen.getByRole('region', { name: '学习流程' })).toBeVisible()
     const process = screen.getByRole('region', { name: 'AI 处理过程' })
-    expect(process).toHaveTextContent('思考过程')
+    expect(process).toHaveTextContent('Think')
     expect(process).toHaveTextContent('好，让我接下来写入文件。')
   })
 })
@@ -167,28 +168,26 @@ describe('AgentConversationReader repeated process descriptions', () => {
 
 
 describe('AgentConversationReader process outcomes', () => {
-  it('folds the completed planning card and lets the learner expand it again', async () => {
+  it('keeps a completed Think timeline in the normal message flow without a generic completion banner', async () => {
     const user = setupUser()
     const { rerender } = renderUi(<AgentConversationReader presentation={presentation('active')} />)
 
     expect(screen.queryByRole('button', { name: '展开思考过程' })).toBeNull()
+    expect(screen.getByRole('button', { name: '展开思考内容' })).toHaveAttribute('aria-expanded', 'false')
 
     rerender(<AgentConversationReader presentation={presentation('complete')} />)
 
-    const expand = await screen.findByRole('button', { name: '展开思考过程' })
     const panel = screen.getByRole('region', { name: 'AI 处理过程' })
-    const content = document.getElementById('agent-process-content-assistant-1')
-    expect(panel).toHaveClass('is-collapsed')
-    expect(panel).toHaveTextContent('思考结束')
-    expect(panel).not.toHaveTextContent('规划中')
-    expect(expand).toHaveAttribute('aria-expanded', 'false')
-    expect(content).toHaveAttribute('aria-hidden', 'true')
+    expect(panel).toHaveTextContent('Think')
+    expect(panel).toHaveTextContent('处理完成')
+    expect(panel).not.toHaveTextContent('思考结束')
+    expect(screen.queryByRole('button', { name: '收起思考过程' })).toBeNull()
 
+    const expand = screen.getByRole('button', { name: '展开思考内容' })
     await user.click(expand)
 
-    expect(screen.getByRole('button', { name: '收起思考过程' })).toHaveAttribute('aria-expanded', 'true')
-    expect(panel).not.toHaveClass('is-collapsed')
-    expect(content).not.toHaveAttribute('aria-hidden')
+    expect(screen.getByRole('button', { name: '收起思考内容' })).toHaveAttribute('aria-expanded', 'true')
+    expect(panel.querySelector('.agent-process-reasoning-content')).toHaveTextContent('好，让我接下来写入文件。')
   })
 
   it('falls back to legacy active/completed semantics when status is missing or unknown', () => {
@@ -202,11 +201,13 @@ describe('AgentConversationReader process outcomes', () => {
     })
 
     const { rerender } = renderUi(<AgentConversationReader presentation={legacy(true)} />)
-    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('思考中进行中')
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('旧投影')
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).not.toHaveTextContent('思考中')
 
     rerender(<AgentConversationReader presentation={legacy(false, { kind: 'future_status' })} />)
     const panel = screen.getByRole('region', { name: 'AI 处理过程' })
-    expect(panel).toHaveTextContent('思考结束已完成')
+    expect(panel).toHaveTextContent('旧投影')
+    expect(panel).not.toHaveTextContent('思考结束')
     expect(panel).not.toHaveTextContent('运行中断')
     expect(panel).not.toHaveTextContent('发生错误')
   })
@@ -267,7 +268,7 @@ describe('AgentConversationReader process outcomes', () => {
     expect(panel.querySelector('.agent-process-event')).toHaveClass('is-attention')
   })
 
-  it('retains failed, canceled, and completed header semantics', () => {
+  it('shows outcome rows only for failed/canceled states, never for an ordinary completion', () => {
     const makePresentation = (kind: 'failed' | 'canceled' | 'completed'): AgentConversationTurnPresentation => ({
       turnId: kind,
       active: false,
@@ -289,7 +290,9 @@ describe('AgentConversationReader process outcomes', () => {
     expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('处理已取消已取消')
 
     rerender(<AgentConversationReader presentation={makePresentation('completed')} />)
-    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('思考结束已完成')
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).toHaveTextContent('completed')
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).not.toHaveTextContent('思考结束')
+    expect(screen.getByRole('region', { name: 'AI 处理过程' })).not.toHaveTextContent('已完成')
   })
 })
 
@@ -305,24 +308,24 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     items
   })
 
-  it('preserves safe learner-visible process primary labels', () => {
+  it('uses Think and reviewed tool categories while preserving safe activity labels', () => {
     renderUi(
       <AgentConversationReader
         presentation={basePresentation([
           { id: 'safe-reasoning', kind: 'reasoning', label: '思考过程', state: 'complete' },
-          { id: 'safe-tool', kind: 'tool_call', label: '调用工具：search_notes', state: 'complete' },
+          { id: 'safe-tool', kind: 'tool_call', label: 'READ', state: 'complete' },
           { id: 'safe-status', kind: 'status', label: '正在准备回复', state: 'complete' }
         ])}
       />
     )
 
     const panel = screen.getByRole('region', { name: 'AI 处理过程' })
-    expect(panel).toHaveTextContent('思考过程')
-    expect(panel).toHaveTextContent('调用工具：search_notes')
+    expect(panel).toHaveTextContent('Think')
+    expect(panel).toHaveTextContent('READ')
     expect(panel).toHaveTextContent('正在准备回复')
   })
 
-  it('fail-closed redacts non-reasoning diagnostic labels while preserving a reasoning label verbatim', () => {
+  it('fail-closes unsafe diagnostics including reasoning labels and details', () => {
     const secretLabel = 'api_key=sk-secret-do-not-show-xyz'
     const answerLabel = 'RAW-ANSWER-DO-NOT-SHOW: momentum is conserved'
     const pathLabel = 'C:\\Users\\learner\\private\\answer-key.md'
@@ -364,12 +367,16 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
       expect(rendered).not.toContain(forbidden)
     }
 
-    expect(rendered).toContain('技术步骤')
+    expect(rendered).toContain('Tool call')
     expect(rendered).toContain('处理状态')
     expect(rendered).toContain('来源处理')
     expect(rendered).toContain('辅助任务')
-    expect(rendered).toContain(cotLabel)
-    expect(rendered).toContain(cotDetail)
+    expect(rendered).toContain('Think')
+    expect(rendered).toContain('已隐藏不安全的分析内容。')
+    expect(rendered).not.toContain(cotLabel)
+    expect(rendered).not.toContain(cotDetail)
+    expect(rendered).not.toContain('reasoning-secret')
+    expect(rendered).not.toContain('C:\\Users\\learner')
     expect(rendered).toContain('上下文整理')
   })
 
@@ -413,7 +420,7 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     }
 
     expect(rendered).toContain('来源处理')
-    expect(rendered).toContain('技术步骤')
+    expect(rendered).toContain('Tool call')
     expect(rendered).toContain('处理状态')
     expect(rendered).toContain('辅助任务')
     expect(rendered).toContain('上下文整理')
@@ -458,18 +465,18 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
       expect(rendered).not.toContain(forbidden)
     }
 
-    expect(rendered).toContain('技术步骤')
+    expect(rendered).toContain('Tool call')
     expect(rendered).toContain('处理状态')
     expect(rendered).toContain('来源处理')
     expect(rendered).toContain('辅助任务')
   })
 
-  it('does not misclassify safe learner-visible labels as absolute paths or secrets', () => {
+  it('keeps reviewed tool categories and does not misclassify safe labels', () => {
     const { container } = renderUi(
       <AgentConversationReader
         presentation={basePresentation([
-          { id: 'rel-path', kind: 'tool_call', label: '读取 notes/lesson-guide.md', state: 'complete' },
-          { id: 'tool-name', kind: 'tool_result', label: '调用工具：search_notes', state: 'complete' },
+          { id: 'read', kind: 'tool_call', label: 'READ', state: 'complete' },
+          { id: 'shell', kind: 'tool_result', label: 'Bash', state: 'complete' },
           { id: 'status-copy', kind: 'status', label: '正在准备回复', state: 'complete' },
           { id: 'reasoning-copy', kind: 'reasoning', label: '思考过程', state: 'complete' }
         ])}
@@ -477,10 +484,10 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     )
 
     const rendered = container.textContent ?? ''
-    expect(rendered).toContain('读取 notes/lesson-guide.md')
-    expect(rendered).toContain('调用工具：search_notes')
+    expect(rendered).toContain('READ')
+    expect(rendered).toContain('Bash')
     expect(rendered).toContain('正在准备回复')
-    expect(rendered).toContain('思考过程')
+    expect(rendered).toContain('Think')
     expect(rendered).not.toContain('[redacted')
     // Unmarked ordinary answer sentences without typed markers are out of scope
     // for this projector; they remain an upstream typed-title contract follow-up.
@@ -510,7 +517,6 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
       />
     )
 
-    await user.click(screen.getByRole('button', { name: '展开思考过程' }))
     const expand = screen.getByRole('button', { name: '展开辅助任务历史' })
     expect(expand).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByRole('button', { name: new RegExp(maliciousLabel) })).toBeNull()
@@ -525,5 +531,254 @@ describe('AgentConversationReader learner-safe process primary labels', () => {
     expect(panel).toHaveTextContent('辅助任务')
     expect(panel).not.toHaveTextContent(maliciousLabel)
     expect(panel).not.toHaveTextContent('sk-malicious-history-label')
+  })
+})
+
+describe('AgentConversationReader Think and tool disclosures', () => {
+  const basePresentation = (
+    items: AgentConversationTurnPresentation['items']
+  ): AgentConversationTurnPresentation => ({
+    turnId: 'disclosure-1',
+    active: false,
+    status: { kind: 'completed' },
+    answeredAsks: [],
+    sources: [],
+    items
+  })
+
+  it('keeps the process toggle name distinct from a reasoning-row disclosure', async () => {
+    const user = setupUser()
+    renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([{
+          id: 'reasoning-disclosure',
+          kind: 'reasoning',
+          label: '思考过程',
+          detail: '先检查已有结果。\n再组织下一步。',
+          state: 'complete'
+        }])}
+      />
+    )
+
+    const reasoningToggle = screen.getByRole('button', { name: '展开思考内容' })
+    expect(reasoningToggle).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(reasoningToggle)
+
+    expect(screen.getByRole('button', { name: '收起思考内容' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('先检查已有结果。')).toBeInTheDocument()
+  })
+
+  it('renders a safe projected tool summary without exposing raw input/output fields', async () => {
+    const user = setupUser()
+    renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([{
+          id: 'tool-disclosure',
+          kind: 'tool_result',
+          label: 'Tool call',
+          detail: '已找到 3 条相关笔记。',
+          state: 'complete'
+        }])}
+      />
+    )
+
+    const toggle = screen.getByRole('button', { name: '展开Tool call详情' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await user.click(toggle)
+
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).toHaveTextContent('OUT')
+    expect(panel).toHaveTextContent('已找到 3 条相关笔记。')
+    expect(panel).not.toHaveTextContent('arguments')
+    expect(panel).not.toHaveTextContent('input')
+    expect(panel).not.toHaveTextContent('output')
+  })
+
+  it('renders structured tool input and output in an expandable IN/OUT card', async () => {
+    const user = setupUser()
+    renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([{
+          id: 'tool-call-disclosure',
+          kind: 'tool_call',
+          label: 'READ',
+          detail: 'src/example.ts',
+          state: 'complete',
+          disclosure: {
+            eligible: true,
+            label: 'src/example.ts',
+            arguments: '{\n  "path": "src/example.ts"\n}',
+            result: 'export const answer = 42',
+            resultState: 'available'
+          }
+        }])}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: '展开READ详情' }))
+
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).toHaveTextContent('IN')
+    expect(panel).toHaveTextContent('OUT')
+    expect(panel).toHaveTextContent('"path": "src/example.ts"')
+    expect(panel).toHaveTextContent('export const answer = 42')
+  })
+
+  it('renders structured terminal, read, diff, and search cards for recognized safe tools', async () => {
+    const user = setupUser()
+    const { container } = renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([
+          {
+            id: 'terminal-card',
+            kind: 'tool_call',
+            label: 'Bash',
+            state: 'complete',
+            disclosure: {
+              eligible: true,
+              label: 'pnpm typecheck',
+              arguments: JSON.stringify({ command: 'pnpm typecheck', cwd: '.' }),
+              result: JSON.stringify({ stdout: 'Types passed\n', exitCode: 0 }),
+              content: {
+                kind: 'terminal',
+                command: 'pnpm typecheck',
+                cwd: '.',
+                output: 'Types passed\n',
+                exitCode: 0,
+                running: false,
+                failed: false,
+                truncated: false
+              }
+            }
+          },
+          {
+            id: 'read-card',
+            kind: 'tool_call',
+            label: 'READ',
+            state: 'complete',
+            disclosure: {
+              eligible: true,
+              label: 'src/example.ts',
+              arguments: JSON.stringify({ path: 'src/example.ts' }),
+              result: JSON.stringify({ path: 'src/example.ts', content: 'export const answer = 42' }),
+              content: {
+                kind: 'read',
+                path: 'src/example.ts',
+                lines: [{ number: 1, text: 'export const answer = 42' }],
+                totalLines: 1,
+                truncated: false
+              }
+            }
+          },
+          {
+            id: 'diff-card',
+            kind: 'tool_call',
+            label: 'Edit',
+            state: 'complete',
+            disclosure: {
+              eligible: true,
+              label: 'src/example.ts',
+              arguments: JSON.stringify({ path: 'src/example.ts' }),
+              result: JSON.stringify({ ok: true }),
+              content: {
+                kind: 'diff',
+                path: 'src/example.ts',
+                oldText: 'export const answer = 41',
+                newText: 'export const answer = 42'
+              }
+            }
+          },
+          {
+            id: 'search-card',
+            kind: 'tool_call',
+            label: 'Search',
+            state: 'complete',
+            disclosure: {
+              eligible: true,
+              label: 'answer',
+              arguments: JSON.stringify({ pattern: 'answer' }),
+              result: JSON.stringify({ count: 1 }),
+              content: {
+                kind: 'search',
+                query: 'answer',
+                resultKind: 'matches',
+                files: [{ path: 'src/example.ts', matches: [{ lineNumber: 1, text: 'export const answer = 42' }] }],
+                paths: [],
+                total: 1,
+                truncated: false
+              }
+            }
+          }
+        ])}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: '展开Bash详情' }))
+    await user.click(screen.getByRole('button', { name: '展开READ详情' }))
+    await user.click(screen.getByRole('button', { name: '展开Edit详情' }))
+    await user.click(screen.getByRole('button', { name: '展开Search详情' }))
+
+    expect(container.querySelectorAll('.agent-tool-card')).toHaveLength(4)
+    expect(container.querySelector('.agent-tool-terminal')).toHaveTextContent('pnpm typecheck')
+    expect(container.querySelector('.agent-tool-terminal')).toHaveTextContent('Types passed')
+    expect(container.querySelector('.agent-tool-read')).toHaveTextContent('1')
+    expect(container.querySelector('.agent-tool-diff')).toHaveTextContent('+')
+    expect(container.querySelector('.agent-tool-diff')).toHaveTextContent('-')
+    expect(container.querySelector('.agent-tool-search')).toHaveTextContent('搜索结果')
+    expect(container.querySelector('.agent-process-tool-io-card')).toBeNull()
+  })
+
+  it('fails closed when a crafted disclosure contains sensitive diagnostics', () => {
+    const secret = 'token=do-not-render'
+    const { container } = renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([{
+          id: 'sensitive-tool-disclosure',
+          kind: 'tool_call',
+          label: 'Tool call',
+          detail: '安全摘要',
+          state: 'complete',
+          disclosure: {
+            eligible: true,
+            label: secret,
+            arguments: JSON.stringify({ token: secret }),
+            result: `provider payload ${secret}`
+          }
+        }])}
+      />
+    )
+
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).not.toHaveTextContent(secret)
+    expect(container.textContent).toContain('安全摘要')
+    expect(screen.queryByRole('button', { name: '展开Tool call详情' })).toBeNull()
+  })
+
+  it('shows only IN while a structured tool call is still running', async () => {
+    const user = setupUser()
+    renderUi(
+      <AgentConversationReader
+        presentation={basePresentation([{
+          id: 'active-tool',
+          kind: 'tool_call',
+          label: 'Bash',
+          state: 'active',
+          disclosure: {
+            eligible: true,
+            label: '检查类型',
+            arguments: 'pnpm typecheck'
+          }
+        }])}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: '展开Bash详情' }))
+
+    const panel = screen.getByRole('region', { name: 'AI 处理过程' })
+    expect(panel).toHaveTextContent('IN')
+    expect(panel).not.toHaveTextContent('OUT')
+    expect(panel).toHaveTextContent('pnpm typecheck')
+    expect(panel).not.toHaveTextContent('原始参数不会显示')
   })
 })

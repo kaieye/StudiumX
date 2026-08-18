@@ -12,7 +12,7 @@
     0 0 4px rgba(0, 0, 0, 0.05);   /* vana effect-light-l3 */
   --mm-transition-fast: 120ms ease;
   --mm-transition-med: 160ms ease;
-  /* v2 canvas tokens (plan §4.1) — font tiers follow Xmind M01 28:20:14pt. */
+  /* v2 canvas tokens (plan §4.1) — font tiers follow StudiumX M01 28:20:14pt. */
   --mm-ink: #333333;
   --mm-sub-fill: #f8f7f7;
   --mm-font-root: 26px;
@@ -784,7 +784,7 @@
 
 /* ---- canvas ---- */
 .mindmap-canvas {
-  /* Xmind maps sit on a flat, near-white canvas — no dot grid. */
+  /* StudiumX maps sit on a flat, near-white canvas — no dot grid. */
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
@@ -807,6 +807,34 @@
   user-select: none;
 }
 
+/* Do not paint the default (0,0) camera while ResizeObserver is measuring the
+ * real canvas. The first visible frame is already fitted to the viewport. */
+.mindmap-canvas--unmeasured .mindmap-svg {
+  visibility: hidden;
+}
+
+/* The canvas opens in drag mode. Keep its cursor in sync without changing
+ * cursors on topics and other interactive canvas controls. */
+.mindmap-canvas--pan-mode .mindmap-svg {
+  cursor: default;
+}
+
+.mindmap-canvas--pan-mode .mindmap-svg:active {
+  cursor: default;
+}
+
+/* The dedicated line tool owns its pointer gesture, so it overrides the
+ * background pan cursor even when pan mode is otherwise enabled. */
+.mindmap-canvas--line-tool .mindmap-svg,
+.mindmap-canvas--line-tool .mindmap-svg:active {
+  cursor: crosshair;
+}
+
+.mindmap-canvas--shape-tool .mindmap-svg,
+.mindmap-canvas--shape-tool .mindmap-svg:active {
+  cursor: crosshair;
+}
+
 /* Marquee selection is rendered in viewport (SVG) coordinates, outside the
  * pan/zoom group, so the drag rectangle stays under the pointer while the map
  * is zoomed. */
@@ -824,6 +852,43 @@
   stroke-linejoin: round;
 }
 
+/* A streamed proposal is a temporary document projection. New branches enter
+ * once, while existing DOM keys stay stable and therefore do not replay this
+ * motion on each reducer step. */
+.mindmap-node-group.is-generation-new {
+  transform-origin: center;
+  animation: mindmap-generation-node-in 180ms ease-out both;
+}
+
+.mindmap-edge.is-generation-new {
+  animation: mindmap-generation-edge-in 170ms ease-out both;
+}
+
+.mindmap-canvas--generation-preview .mindmap-svg {
+  cursor: progress;
+}
+
+.mindmap-generation-read-only-shield {
+  cursor: progress;
+}
+
+@keyframes mindmap-generation-node-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes mindmap-generation-edge-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mindmap-node-group.is-generation-new,
+  .mindmap-edge.is-generation-new {
+    animation: none;
+  }
+}
+
 /* Sheet-level relationships are intentionally distinct from tree edges. */
 .mindmap-relationship {
   fill: none;
@@ -832,6 +897,239 @@
   stroke-dasharray: 6 4;
   opacity: 0.78;
   pointer-events: none;
+}
+
+/* Freehand connector drawings use the same visual language as relationships,
+ * but stay solid by default so users can distinguish a deliberate drawing from
+ * the historical semantic relationship layer. */
+.mindmap-drawn-line,
+.mindmap-line-draft {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mindmap-drawn-line {
+  opacity: 0.96;
+  pointer-events: none;
+}
+
+/* The visible connector remains non-interactive so its stroke never steals
+ * shape/node gestures. A separate transparent path above it provides a
+ * forgiving, keyboard-selectable pointer target for remove/edit actions. */
+.mindmap-drawn-line-hit {
+  fill: none;
+  stroke: transparent;
+  pointer-events: stroke;
+}
+
+.mindmap-line-draft {
+  opacity: 0.72;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
+}
+
+.mindmap-line-snap-highlight {
+  fill: color-mix(in srgb, var(--accent) 10%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.mindmap-drawn-shape,
+.mindmap-shape-draft {
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.mindmap-drawn-shape {
+  fill: color-mix(in srgb, var(--surface-muted) 76%, transparent);
+  stroke: var(--mindmap-theme-line, var(--line-muted));
+  stroke-width: 1.4;
+  pointer-events: all;
+}
+
+.mindmap-drawn-shape-group {
+  cursor: move;
+}
+
+.mindmap-drawn-shape-group:focus-visible,
+.mindmap-drawn-line-group:focus-visible {
+  /* Selection state paints the dashed selection ring around the shape/line;
+   * suppress the browser's native focus ring on the tabindexed SVG groups. */
+  outline: none !important;
+}
+
+.mindmap-drawn-shape-group.is-editing {
+  cursor: text;
+}
+
+/* Selection no longer repaints the shape's own border. The element-style
+ * inspector edits stroke colour/width in place, so the real border must stay
+ * visible while selected; the dashed ring (mindmap-shape-selection) is what
+ * marks selection instead. */
+
+/* Free-shape selection mirrors the select-tool affordance: the outline and
+ * handles are rendered in document coordinates but retain a consistent screen
+ * stroke/target size while zooming. */
+.mindmap-shape-selection {
+  fill: none;
+  stroke: var(--mm-focus);
+  stroke-width: 1.25;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Topic-node selection mirrors the free-shape ring: drawn just outside the
+ * node bounds so it never covers the real border, which stays editable (and
+ * visibly updated) in the topic-style inspector while the node is selected. */
+.mindmap-node-selection {
+  fill: none;
+  stroke: var(--mm-focus);
+  stroke-width: 1.25;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.mindmap-shape-resize-handle {
+  /* Resize affordances are hit regions only. The edge cursor is the hint;
+   * visible squares make the canvas feel like a form editor and obscure the
+   * actual shape. Keep opacity at zero without disabling pointer events. */
+  fill: transparent;
+  stroke: none;
+  opacity: 0;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+}
+
+.mindmap-shape-resize-handle--nw,
+.mindmap-shape-resize-handle--se {
+  cursor: nwse-resize;
+}
+
+.mindmap-shape-resize-handle--ne,
+.mindmap-shape-resize-handle--sw {
+  cursor: nesw-resize;
+}
+
+.mindmap-shape-resize-handle--n,
+.mindmap-shape-resize-handle--s {
+  cursor: ns-resize;
+}
+
+.mindmap-shape-resize-handle--e,
+.mindmap-shape-resize-handle--w {
+  cursor: ew-resize;
+}
+
+.mindmap-drawn-shape-label-foreign {
+  overflow: visible;
+}
+
+.mindmap-drawn-shape-label,
+.mindmap-drawn-shape-label-editor {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 2px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.mindmap-drawn-shape-label-editor-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mindmap-drawn-shape-label {
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  user-select: none;
+}
+
+.mindmap-drawn-shape-label-editor {
+  display: block;
+  flex: 0 1 100%;
+  min-height: 1.25em;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+}
+
+.mindmap-shape-draft {
+  fill: color-mix(in srgb, var(--accent) 10%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 6 4;
+}
+
+.mindmap-drawn-line-group {
+  cursor: pointer;
+}
+
+/* Same as shapes: keep the connector's real stroke visible while its width/
+ * colour are edited in the element-style inspector; selection is marked by
+ * the endpoint/control handles instead of repainting the line. */
+
+.mindmap-drawn-line-endpoint-hit,
+.mindmap-drawn-line-control-hit {
+  cursor: grab;
+  vector-effect: non-scaling-stroke;
+}
+
+.mindmap-drawn-line-endpoint-hit:active,
+.mindmap-drawn-line-control-hit:active {
+  cursor: grabbing;
+}
+
+.mindmap-drawn-line-endpoint-core {
+  fill: var(--surface-solid);
+  stroke: var(--mm-focus);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.mindmap-drawn-line-endpoint-overlay.is-interacting .mindmap-drawn-line-endpoint-core {
+  fill: var(--mm-focus);
+}
+
+.mindmap-drawn-line-control-guide {
+  fill: none;
+  stroke: var(--mm-focus);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.42;
+  vector-effect: non-scaling-stroke;
+}
+
+.mindmap-drawn-line-control-core {
+  fill: var(--mm-focus);
+  stroke: var(--surface-solid);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.mindmap-drawn-line-endpoint-overlay.is-interacting .mindmap-drawn-line-control-core {
+  stroke-width: 2.5;
+}
+
+/* Invisible hit regions sit over topics/free shapes only while the tool is
+ * active. They allow a gesture to begin on a node without changing normal
+ * selection, node dragging, or shape interaction outside line mode. */
+.mindmap-line-snap-targets rect {
+  pointer-events: all;
 }
 
 .mindmap-relationship-label {
@@ -1041,7 +1339,7 @@
 }
 
 /* ================================================================
- * Xmind-inspired enhancement styles
+ * StudiumX-inspired enhancement styles
  * ================================================================ */
 /* ---- Boundaries (coloured enclosures) ---- */
 .mindmap-boundary-group {
@@ -1882,11 +2180,9 @@
   opacity: 0.4;
 }
 
-/* ---- Smooth zoom transition ---- */
-.mindmap-svg > g {
-  transition: transform 80ms ease-out;
-}
-
+/* The initial fit is applied after the real canvas size is measured. Keep the
+ * viewport transform discrete so that first paint cannot animate from the
+ * SVG origin (top-left) into the fitted centre. */
 .mindmap-svg.is-dragging > g {
   transition: none;
 }
@@ -2834,12 +3130,167 @@
   color: #438eff;
 }
 
+/* Split-button glyphs: keep the primary icon centered in the 34px toolbar
+ * button and hang a small submenu chevron near the bottom edge. Used by the
+ * shape and line drawing tools so the long-press palette reads as a submenu
+ * without shifting the main icon. */
+.mindmap-floating-toolbar__submenu-chevron {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  color: currentColor;
+  opacity: 0.75;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
 .mindmap-floating-toolbar__divider {
   width: 1px;
   height: 18px;
   background: var(--line-muted);
   margin: 0 4px;
   flex-shrink: 0;
+}
+
+/* ---- Shape drawing tool (normal click = rectangle; hold = palette) ---- */
+.mindmap-shape-tool {
+  position: relative;
+  display: inline-flex;
+}
+
+.mindmap-shape-tool__menu {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(72px, 1fr));
+  gap: 4px;
+  min-width: 244px;
+  padding: 6px;
+  margin-top: 10px;
+  background: rgba(248, 249, 250, 0.6);
+  border: 1px solid rgba(120, 134, 156, 0.16);
+  border-radius: 12px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08), 0 0 3px rgba(0, 0, 0, 0.06);
+  transform: translateX(-50%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+  backdrop-filter: blur(8px) saturate(150%);
+}
+
+:root[data-resolved-theme='dark'] .mindmap-shape-tool__menu {
+  background: rgba(31, 35, 38, 0.6);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.mindmap-shape-tool__option {
+  display: grid;
+  grid-template-rows: 28px auto;
+  align-items: center;
+  justify-items: center;
+  gap: 3px;
+  min-height: 58px;
+  padding: 5px 4px;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: center;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.mindmap-shape-tool__option:hover,
+.mindmap-shape-tool__option:focus-visible {
+  color: var(--text);
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.mindmap-shape-tool__option:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--mm-focus) 70%, transparent);
+}
+
+.mindmap-shape-tool__option.is-selected {
+  color: #438eff;
+  background: rgba(67, 142, 255, 0.12);
+}
+
+/* ---- Free line drawing tool (normal click = curved arrow; hold = palette) ---- */
+.mindmap-line-tool {
+  position: relative;
+  display: inline-flex;
+}
+
+.mindmap-line-tool__menu {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(112px, 1fr));
+  gap: 4px;
+  min-width: 240px;
+  padding: 6px;
+  margin-top: 10px;
+  background: rgba(248, 249, 250, 0.6);
+  border: 1px solid rgba(120, 134, 156, 0.16);
+  border-radius: 12px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08), 0 0 3px rgba(0, 0, 0, 0.06);
+  transform: translateX(-50%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+  backdrop-filter: blur(8px) saturate(150%);
+}
+
+:root[data-resolved-theme='dark'] .mindmap-line-tool__menu {
+  background: rgba(31, 35, 38, 0.6);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.mindmap-line-tool__option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 6px 8px;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.mindmap-line-tool__option:hover,
+.mindmap-line-tool__option:focus-visible {
+  color: var(--text);
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.mindmap-line-tool__option:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--mm-focus) 70%, transparent);
+}
+
+.mindmap-line-tool__option.is-selected {
+  color: #438eff;
+  background: rgba(67, 142, 255, 0.12);
+}
+
+.mindmap-line-tool__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  color: currentColor;
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: -4px;
 }
 
 /* ---- Export dropdown ---- */
@@ -3101,9 +3552,9 @@
 }
 
 /* ================================================================
- * P3 - Canvas detail polish (Xmind Snowbrush alignment)
+ * P3 - Canvas detail polish (StudiumX Snowbrush alignment)
  * ================================================================ */
-/* ---- P3.2: Collapse badge as number pill (Xmind-style) ---- */
+/* ---- P3.2: Collapse badge as number pill (StudiumX-style) ---- */
 .mindmap-collapse-badge-rect {
   stroke-width: 1.3;
   cursor: pointer;
@@ -3188,7 +3639,7 @@
 
 
 /* ================================================================
- * v2 S1 — Canvas visual refresh (docs/mindmap/xmind-ui-refactor-plan.md §3 G1–G8)
+ * v2 S1 — Canvas visual refresh (docs/mindmap/studiumx-ui-refactor-plan.md §3 G1–G8)
  * Overrides earlier layers; S4 merges all layers into one sequence.
  * ================================================================ */
 
@@ -3216,7 +3667,7 @@
   opacity: 0.45;
 }
 
-/* XMind numbering prefix (2.1.3) — lighter weight so the title stays the
+/* StudiumX numbering prefix (2.1.3) — lighter weight so the title stays the
  * visual focus. Presentational only; never part of the accessible name. */
 .mindmap-node-number {
   font-weight: 500;
@@ -3254,17 +3705,9 @@
   fill: #ffffff;
 }
 
-/* Keyboard focus uses the node's own single highlight outline. */
-.mindmap-node-group.is-selected:focus-visible .mindmap-node-rect {
-  stroke: var(--mm-focus);
-  stroke-width: 2;
-  fill: var(--mm-sub-fill);
-  filter: none;
-}
-
-.mindmap-node-group.is-root.is-selected:focus-visible .mindmap-node-rect {
-  fill: var(--surface-solid);
-}
+/* Keyboard focus keeps the node's real border (same as pointer selection):
+ * the dashed selection ring plus the floating topic actions mark the focused
+ * node instead of repainting its border. */
 
 /* G7: collapse badge grows to 18px tall — bump its number accordingly. */
 .mindmap-collapse-badge-symbol {
@@ -3289,7 +3732,7 @@
 /* ================================================================
  * v2 S2 — Floating workspace chrome (plan §3 G9–G14)
  * The full-width stage header is gone: identity, toolbar and actions
- * float over the canvas exactly like Xmind's editor chrome.
+ * float over the canvas exactly like StudiumX's editor chrome.
  * ================================================================ */
 .mindmap-stage__identity {
   position: absolute;
@@ -3324,7 +3767,7 @@
   background: var(--surface-hover);
 }
 
-/* Save state collapses to Xmind's green dot; the label lives in its title. */
+/* Save state collapses to StudiumX's green dot; the label lives in its title. */
 .mindmap-stage__save-state {
   flex: 0 0 auto;
   width: 7px;
@@ -3495,7 +3938,7 @@
 
 /* ================================================================
  * v2 S3 — Inspector redesign (plan §3 G15–G20)
- * Xmind-style control language: segmented top tabs, label-left rows,
+ * StudiumX-style control language: segmented top tabs, label-left rows,
  * switches, round swatches, 2-column theme cards. Sections go flat.
  * ================================================================ */
 .mindmap-inspector-tabs {
@@ -3999,7 +4442,7 @@
   padding-top: 14px;
 }
 
-/* Home gallery: recent maps are presented as centred XMind-style cards when
+/* Home gallery: recent maps are presented as centred StudiumX-style cards when
  * no document is open. */
 .mindmap-home {
   position: relative;
@@ -4173,6 +4616,7 @@
 .mindmap-view--home {
   display: flex;
   min-height: 0;
+  position: relative;
 }
 
 .mindmap-view--home .mindmap-home {
@@ -4276,30 +4720,18 @@
   font-weight: 550;
 }
 
-/* Back-to-library affordance pinned to the top-left of the home page. */
+/* Back-to-library affordance pinned to the top-left of the home view. The
+   button reuses .mindmap-stage__home so it matches the editor's top-left
+   home button exactly; this rule only supplies the positioning (absolute,
+   relative to the home view, same 16px inset as the editor's stage button). */
 .mindmap-folder__back {
-  position: fixed;
+  position: absolute;
   top: 16px;
-  left: 18px;
+  left: 16px;
   z-index: 30;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 8px 12px;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 14px;
-  background: color-mix(in srgb, var(--surface-solid) 78%, transparent);
-  border: 1px solid color-mix(in srgb, var(--line-muted) 70%, transparent);
-  border-radius: 999px;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--text) 7%, transparent);
-  cursor: pointer;
-  backdrop-filter: blur(10px);
-}
-
-.mindmap-folder__back:hover {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--text-muted) 40%, var(--line-muted));
+  justify-content: center;
 }
 
 .mindmap-home__empty {
@@ -5627,7 +6059,7 @@
   font-size: 11px;
 }
 
-/* --- Xmind-style graphical icon picker --------------------------------
+/* --- StudiumX-style graphical icon picker --------------------------------
  * A compact trigger that opens an animated popover where each option is a
  * concrete drawing of the shape (node / outline / line / pattern / arrow)
  * instead of a bare text label. Used by the topic shape picker, the element
@@ -5845,26 +6277,78 @@
   stroke: var(--mm-focus);
 }
 
-.mindmap-element-style__type {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
 .mindmap-element-style__grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
-.mindmap-element-style__field,
-.mindmap-element-style__toggle {
+.mindmap-element-style__subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-muted);
+}
+
+.mindmap-element-style__subsection-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mindmap-element-style__field {
   display: grid;
   gap: 6px;
   margin-top: 10px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.mindmap-element-style__color-field,
+.mindmap-element-style__stroke-width-field {
+  min-width: 0;
+}
+
+.mindmap-element-style__color-field > .mm-row__label,
+.mindmap-element-style__stroke-width-field > .mm-row__label {
+  flex: 1 1 auto;
+}
+
+.mindmap-element-style__color-field > span[style],
+.mindmap-element-style__stroke-width-field > span[style] {
+  flex: 0 1 58%;
+  min-width: 0;
+}
+
+.mindmap-element-style__picker-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 10px;
+}
+
+.mindmap-element-style__picker-row > .mindmap-topic-color,
+.mindmap-element-style__picker-row > .mindmap-topic-style-menu {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mindmap-element-style__compat-color,
+.mindmap-element-style__compat-range {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .mindmap-element-style__field input:not([type='color']):not([type='range']),
@@ -5889,11 +6373,6 @@
 
 .mindmap-element-style__field .mindmap-theme-color-editor__hex {
   width: 100%;
-}
-
-.mindmap-element-style__toggle {
-  grid-template-columns: 1fr auto;
-  align-items: center;
 }
 
 .mindmap-element-style__notice {
@@ -6748,20 +7227,23 @@
   border-radius: 14px;
 }
 
-.mindmap-ai-panel__message-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
+.mindmap-ai-panel__message--assistant.is-no-changes {
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: 14px;
 }
 
 .mindmap-ai-panel__message--assistant > .markdown-message pre {
-  max-height: 180px;
+  /* The surrounding conversation thread owns vertical scrolling. Limiting a
+   * streamed map payload here turns a single AI turn into a second, tiny
+   * scroll area and makes the rest of the response look cut off. */
+  max-height: none;
   margin: 8px 0 0;
-  overflow: auto;
+  overflow: visible;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
@@ -6775,6 +7257,11 @@
   color: inherit;
 }
 
+.mindmap-ai-panel__message-notice {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+}
+
 .mindmap-ai-panel__message-announcement {
   position: absolute;
   width: 1px;
@@ -6786,7 +7273,7 @@
   border: 0;
 }
 
-/* Composer card + status strip — 1:1 with overview-dialog-card / -statusbar. */
+/* Composer card — 1:1 with overview-dialog-card. */
 .mindmap-ai-panel__composer {
   flex: 0 0 auto;
   padding: 0 10px 10px;
@@ -6795,6 +7282,11 @@
 
 .mindmap-ai-panel__composer-card {
   display: flex;
+  /* This card is a grid item inside the shared overview stack. Its default
+   * min-width:auto uses the two picker labels as an intrinsic minimum and can
+   * make a 300px inspector paint the composer outside its own clipped panel. */
+  min-width: 0;
+  width: 100%;
   min-height: 108px;
   flex-direction: column;
   justify-content: space-between;
@@ -6923,42 +7415,6 @@
   opacity: 0.42;
   box-shadow: none;
   transform: none;
-}
-
-.mindmap-ai-panel__statusbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 48px;
-  gap: 16px;
-  margin-top: -24px;
-  padding: 27px 14px 5px;
-  border-top: 0;
-  border-radius: 0 0 22px 22px;
-  background: var(--surface-muted);
-  color: #8a8a8a;
-}
-
-.mindmap-ai-panel__status-group {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-
-.mindmap-ai-panel__status-group:first-child {
-  flex: 1 1 auto;
-}
-
-.mindmap-ai-panel__status-group:last-child {
-  flex: 0 0 auto;
-  justify-content: flex-end;
-}
-
-.mindmap-ai-panel__status-text {
-  color: var(--text-muted);
-  font-size: 11px;
 }
 
 /* Respect the user's reduced-motion preference for the inspector slide. */
@@ -7273,4 +7729,29 @@
   fill: color-mix(in srgb, var(--accent) 30%, transparent);
   stroke: var(--accent);
   stroke-width: 1.5;
+}
+
+/* Keep the AI conversation breathing room consistent with the main
+ * conversation while respecting the inspector's narrow width. The process
+ * transcript is a full-width child of the assistant message, so constrain it
+ * explicitly to avoid horizontal overflow from long tool/status labels. */
+.mindmap-ai-panel__thread {
+  padding: 16px 0 20px;
+}
+
+.mindmap-ai-panel__thread-inner {
+  padding-inline: clamp(16px, 4vw, 24px);
+}
+
+.mindmap-ai-panel__composer {
+  padding: 0 clamp(16px, 4vw, 24px) 16px;
+}
+
+.mindmap-ai-panel__composer-card {
+  padding: 14px 16px 12px;
+}
+
+.mindmap-ai-panel__message--assistant .agent-process-panel {
+  min-width: 0;
+  margin-top: 10px;
 }

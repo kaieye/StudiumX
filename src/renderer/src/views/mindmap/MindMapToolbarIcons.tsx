@@ -65,3 +65,21 @@ export function AddSiblingTopicIcon(props: ToolbarIconProps) {
     </ToolbarIcon>
   )
 }
+
+/** Two covered topics collected by one curly summary brace. */
+export function AddSummaryIcon(props: ToolbarIconProps) {
+  return (
+    <ToolbarIcon {...props}>
+      <rect x="1.75" y="3" width="7" height="5" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="1.75" y="12" width="7" height="5" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        className="mindmap-toolbar-summary-icon__brace"
+        d="M16.5 2.75C14.35 2.75 13.25 3.75 13.25 5.75V7.25C13.25 8.55 12.55 9.4 11.25 10C12.55 10.6 13.25 11.45 13.25 12.75V14.25C13.25 16.25 14.35 17.25 16.5 17.25"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </ToolbarIcon>
+  )
+}

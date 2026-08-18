@@ -19,7 +19,7 @@ function validDocument(): MindMapDocument {
       {
         id: 'sheet-1',
         title: 'Sheet 1',
-        structureClass: 'org.xmind.ui.logic.right',
+        structureClass: 'studiumx.layout.logic.right',
         root: {
           id: 'root-1',
           title: 'Chemistry',
@@ -64,7 +64,7 @@ describe('mindMapNodesSchema', () => {
     const result = mindMapNodeSchema.safeParse({
       id: 'n1',
       title: 'Root',
-      structureClass: 'org.xmind.ui.logic.bogus',
+      structureClass: 'studiumx.layout.logic.bogus',
       children: []
     })
     expect(result.success).toBe(false)
@@ -91,7 +91,7 @@ describe('mindMapNodesSchema', () => {
 type MindMapNodeLike = { id: string; title: string; children: MindMapNodeLike[] }
 
 describe('mindMapSheetSchema', () => {
-  it('defaults missing sheet structureClass to balanced', () => {
+  it('defaults missing sheet structureClass to the native right-side layout', () => {
     const result = mindMapSheetSchema.safeParse({
       id: 'sheet-1',
       title: 'Sheet 1',
@@ -99,7 +99,7 @@ describe('mindMapSheetSchema', () => {
     })
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.structureClass).toBe('org.xmind.ui.logic.balanced')
+      expect(result.data.structureClass).toBe('studiumx.layout.logic.right')
     }
   })
 
@@ -107,7 +107,7 @@ describe('mindMapSheetSchema', () => {
     const result = mindMapSheetSchema.safeParse({
       id: 'sheet-1',
       title: 'Sheet 1',
-      structureClass: 'org.xmind.ui.logic.right'
+      structureClass: 'studiumx.layout.logic.right'
     })
     expect(result.success).toBe(false)
   })

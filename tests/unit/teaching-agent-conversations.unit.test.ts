@@ -103,6 +103,78 @@ describe('Teaching Agent conversation catalog', () => {
     })
   })
 
+  it('restores safe interleaved presentation rows and drops unsafe, malformed, or dangling rows', async () => {
+    const root = await createRoot()
+    const secret = 'sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'
+    await mkdir(join(root, 'conversations'), { recursive: true })
+    await writeFile(
+      join(root, 'conversations', 'chat-timeline.json'),
+      `${JSON.stringify({
+        version: 2,
+        id: 'chat-timeline',
+        title: 'Timeline',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:01:00.000Z',
+        relativePath: 'conversations/chat-timeline.md',
+        turns: [{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Final answer',
+          createdAt: '2026-08-01T00:01:00.000Z',
+          processEvents: [{
+            id: 'reasoning-1',
+            kind: 'reasoning',
+            title: 'Think',
+            detail: 'Check the result first.',
+            createdAt: '2026-08-01T00:00:01.000Z'
+          }],
+          presentationTimeline: [
+            {
+              id: 'think-row', sequence: 20, kind: 'process', processEventId: 'reasoning-1',
+              createdAt: '2026-08-01T00:00:01.000Z', rawResult: secret
+            },
+            {
+              id: 'text-row', sequence: 21, kind: 'assistant_text',
+              content: 'Partial safe answer.',
+              createdAt: '2026-08-01T00:00:02.000Z'
+            },
+            {
+              id: 'secret-row', sequence: 22, kind: 'assistant_text',
+              content: `Partial answer with ${secret}`,
+              createdAt: '2026-08-01T00:00:03.000Z'
+            },
+            {
+              id: 'dangling-row', sequence: 23, kind: 'process', processEventId: 'not-present',
+              createdAt: '2026-08-01T00:00:04.000Z'
+            },
+            {
+              id: 'invalid-sequence', sequence: 1.5, kind: 'assistant_text', content: 'ignored',
+              createdAt: '2026-08-01T00:00:05.000Z'
+            }
+          ]
+        }]
+      }, null, 2)}\n`,
+      'utf8'
+    )
+
+    const record = await readAgentConversationRecord(root, 'chat-timeline')
+    const turn = record.turns[0]!
+    expect(turn.processEvents?.[0]).toMatchObject({ id: 'reasoning-1', kind: 'reasoning' })
+    expect(turn.presentationTimeline).toEqual([
+      {
+        id: 'think-row', sequence: 0, kind: 'process', processEventId: 'reasoning-1',
+        createdAt: '2026-08-01T00:00:01.000Z'
+      },
+      {
+        id: 'text-row', sequence: 1, kind: 'assistant_text', content: 'Partial safe answer.',
+        createdAt: '2026-08-01T00:00:02.000Z'
+      }
+    ])
+    expect(JSON.stringify(record)).not.toContain(secret)
+    expect(JSON.stringify(turn.presentationTimeline)).not.toContain('secret-row')
+    expect(JSON.stringify(turn.presentationTimeline)).not.toContain('[redacted]')
+  })
+
   it('persists only the allow-listed explicit Skill invocation evidence', async () => {
     const root = await createRoot()
     await mkdir(join(root, 'conversations'), { recursive: true })

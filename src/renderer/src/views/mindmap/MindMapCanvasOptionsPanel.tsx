@@ -28,7 +28,7 @@ const LINE_WIDTH_OPTIONS: Array<{ value: number; labelKey: string }> = [
   { value: 2, labelKey: 'lineWidthExtraThick' }
 ]
 
-/** Connector styles selectable in the canvas options (XMind branch language). */
+/** Connector styles selectable in the canvas options (StudiumX branch language). */
 const SELECTABLE_CONNECTORS = ['rounded-elbow', 'elbow', 'straight', 'curve'] as const
 
 type CanvasOptionsText = {
@@ -49,7 +49,7 @@ type CanvasOptionsText = {
   [key: string]: string
 }
 
-/** XMind-style per-sheet layout controls. Mutations stay on the command path. */
+/** StudiumX-style per-sheet layout controls. Mutations stay on the command path. */
 export function MindMapCanvasOptionsPanel() {
   const { t } = useTranslation()
   const current = useMindMapViewStore((state) => state.current)
@@ -87,7 +87,7 @@ export function MindMapCanvasOptionsPanel() {
   const taperedValue = layoutField('tapered')
   const defaultTopicShapeValue = layoutField('defaultTopicShape')
   const autoBalanceCapability = getCanvasInspectorFieldCapability('autoBalance', sheet.layout.structureClass)
-  const autoBalanceEnabled = sheet.layout.structureClass === 'org.xmind.ui.logic.balanced'
+  const autoBalanceEnabled = sheet.layout.structureClass === 'studiumx.layout.logic.balanced'
 
   // The structure's default connector (e.g. Curve for map/logic, Elbow for
   // org/tree). When that default is itself one of the selectable styles, treat
@@ -171,8 +171,8 @@ export function MindMapCanvasOptionsPanel() {
               disabled={autoBalanceCapability.disabled}
               onChange={(event) => dispatchLayoutPatch({
                 structureClass: event.currentTarget.checked
-                  ? 'org.xmind.ui.logic.balanced'
-                  : 'org.xmind.ui.logic.right'
+                  ? 'studiumx.layout.logic.balanced'
+                  : 'studiumx.layout.logic.right'
               })}
             />
             <span className="mm-switch__track" aria-hidden="true" />

@@ -25,7 +25,7 @@ function makeDocument(title: string): MindMapDocumentV2 {
         title: 'Markdown topics',
         root: { id: 'root', title, children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []

@@ -36,7 +36,7 @@ function node(
 
 function sheet(
   root: MindMapTopicV2,
-  structureClass: MindMapStructureClass = 'org.xmind.ui.logic.right',
+  structureClass: MindMapStructureClass = 'studiumx.layout.logic.right',
   elements: MindMapSheetV2['elements'] = []
 ): MindMapSheetV2 {
   return {
@@ -67,7 +67,7 @@ describe('computeMindMapLayout', () => {
   it('retains labelled sheet relationships separately from tree edges', () => {
     const root = node('a', 'A', [node('b', 'B'), node('c', 'C')])
     const { edges, relationships, callouts, summaries, boundaries } = computeMindMapLayout(
-      sheet(root, 'org.xmind.ui.logic.right', [
+      sheet(root, 'studiumx.layout.logic.right', [
         { id: 'rel-1', type: 'relationship', from: 'b', to: 'c', label: 'depends on' },
         { id: 'callout-1', type: 'callout', topicId: 'a', text: 'note', position: { x: 12, y: 24 } },
         { id: 'summary-1', type: 'summary', from: 'b', to: 'c', label: 'group' }
@@ -94,10 +94,10 @@ describe('computeMindMapLayout', () => {
     const root = node('a', 'A', [
       node('b', 'B'),
       node('c', 'C'),
-      node('summary-topic', 'Node summary')
+      node('summary-topic', 'Node summary', [node('summary-child', 'Detail')])
     ])
     const layout = computeMindMapLayout(
-      sheet(root, 'org.xmind.ui.logic.right', [
+      sheet(root, 'studiumx.layout.logic.right', [
         {
           id: 'summary-1',
           type: 'summary',
@@ -111,9 +111,16 @@ describe('computeMindMapLayout', () => {
     const from = byId.get('b')!
     const to = byId.get('c')!
     const output = byId.get('summary-topic')!
+    const child = byId.get('summary-child')!
 
     expect(layout.summaries).toEqual([
-      { id: 'summary-1', from: 'b', to: 'c', summaryTopicId: 'summary-topic' }
+      expect.objectContaining({
+        id: 'summary-1',
+        from: 'b',
+        to: 'c',
+        summaryTopicId: 'summary-topic',
+        side: 'right'
+      })
     ])
     expect(output.depth).toBe(1)
     // Summary output sits directly after a compact brace: 20px from the
@@ -123,7 +130,199 @@ describe('computeMindMapLayout', () => {
       (from.y + from.height / 2 + to.y + to.height / 2) / 2,
       5
     )
+    expect(child.x).toBeGreaterThanOrEqual(output.x + output.width)
     expect(layout.edges.some((edge) => edge.to === 'summary-topic')).toBe(false)
+  })
+
+  it('moves a linked summary outward when covered topics gain visible descendants', () => {
+    const root = node('a', 'A', [
+      node('b', 'B', [node('b-detail', 'B detail')]),
+      node('c', 'C'),
+      node('summary-topic', 'Node summary')
+    ])
+    const layout = computeMindMapLayout(
+      sheet(root, 'studiumx.layout.logic.right', [
+        {
+          id: 'summary-1',
+          type: 'summary',
+          from: 'b',
+          to: 'c',
+          summaryTopicId: 'summary-topic'
+        }
+      ])
+    )
+    const byId = new Map(layout.nodes.map((layoutNode) => [layoutNode.id, layoutNode]))
+    const output = byId.get('summary-topic')!
+    const coveredNodes = ['b', 'b-detail', 'c'].map((id) => byId.get(id)!)
+    const coveredRight = Math.max(...coveredNodes.map((layoutNode) => layoutNode.x + layoutNode.width))
+    const coveredTop = Math.min(...coveredNodes.map((layoutNode) => layoutNode.y))
+    const coveredBottom = Math.max(...coveredNodes.map((layoutNode) => layoutNode.y + layoutNode.height))
+
+    // The brace/output pair follows the latest visible extent of the covered
+    // subtrees instead of staying beside the source topics and overlapping the
+    // children that were added after the summary was created.
+    expect(layout.summaries[0]?.coveredEdgeX).toBe(coveredRight)
+    expect(layout.summaries[0]?.coveredTopY).toBe(coveredTop)
+    expect(layout.summaries[0]?.coveredBottomY).toBe(coveredBottom)
+    expect(output.x - coveredRight).toBe(64)
+  })
+
+  it('mirrors a linked summary output for a left-side branch', () => {
+    const root = node('root', 'Root', [
+      node('right-branch', 'Right branch'),
+      node('left-branch', 'Left branch', [
+        node('first', 'First', [node('first-detail', 'First detail')]),
+        node('second', 'Second'),
+        node('summary-topic', 'Node summary', [node('summary-child', 'Detail')])
+      ])
+    ])
+    const layout = computeMindMapLayout(
+      sheet(root, 'studiumx.layout.logic.balanced', [
+        {
+          id: 'summary-1',
+          type: 'summary',
+          from: 'first',
+          to: 'second',
+          summaryTopicId: 'summary-topic'
+        }
+      ])
+    )
+    const byId = new Map(layout.nodes.map((layoutNode) => [layoutNode.id, layoutNode]))
+    const first = byId.get('first')!
+    const firstDetail = byId.get('first-detail')!
+    const second = byId.get('second')!
+    const output = byId.get('summary-topic')!
+    const child = byId.get('summary-child')!
+
+    expect(layout.summaries).toEqual([
+      expect.objectContaining({
+        id: 'summary-1',
+        from: 'first',
+        to: 'second',
+        summaryTopicId: 'summary-topic',
+        side: 'left'
+      })
+    ])
+    expect(Math.min(first.x, firstDetail.x, second.x) - (output.x + output.width)).toBe(64)
+    expect(child.x + child.width).toBeLessThanOrEqual(output.x)
+    expect(layout.edges.some((edge) => edge.to === 'summary-topic')).toBe(false)
+  })
+
+  it('keeps descendants of a cross-branch left summary on the left', () => {
+    // In a balanced map these source topics are both on the left, but their
+    // shared parent is the root. The generated output topic is inserted after
+    // the second left root branch, which is an even root index and would
+    // normally make its descendants grow to the right. Once the output is
+    // mirrored beside a left-side brace, its descendants must mirror too.
+    const root = node('root', 'Root', [
+      node('right-a', 'Right A'),
+      node('left-a', 'Left A', [node('first', 'First')]),
+      node('right-b', 'Right B'),
+      node('left-b', 'Left B', [node('second', 'Second')]),
+      node('summary-topic', 'Node summary', [node('summary-child', 'Detail')])
+    ])
+    const layout = computeMindMapLayout(
+      sheet(root, 'studiumx.layout.logic.balanced', [
+        {
+          id: 'summary-1',
+          type: 'summary',
+          from: 'first',
+          to: 'second',
+          sourceTopicIds: ['first', 'second'],
+          summaryTopicId: 'summary-topic'
+        }
+      ])
+    )
+    const byId = new Map(layout.nodes.map((layoutNode) => [layoutNode.id, layoutNode]))
+    const output = byId.get('summary-topic')!
+    const child = byId.get('summary-child')!
+
+    expect(layout.summaries).toEqual([
+      expect.objectContaining({ id: 'summary-1', side: 'left' })
+    ])
+    expect(child.x + child.width).toBeLessThanOrEqual(output.x)
+  })
+
+  it('keeps descendants of a cross-branch right summary on the right', () => {
+    // This is the symmetric case: the generated output occupies a left
+    // semantic root index, even though all of the covered source topics are on
+    // the right and the summary output is rendered there.
+    const root = node('root', 'Root', [
+      node('right-a', 'Right A', [node('first', 'First')]),
+      node('left-a', 'Left A'),
+      node('right-b', 'Right B', [node('second', 'Second')]),
+      node('summary-topic', 'Node summary', [node('summary-child', 'Detail')])
+    ])
+    const layout = computeMindMapLayout(
+      sheet(root, 'studiumx.layout.logic.balanced', [
+        {
+          id: 'summary-1',
+          type: 'summary',
+          from: 'first',
+          to: 'second',
+          sourceTopicIds: ['first', 'second'],
+          summaryTopicId: 'summary-topic'
+        }
+      ])
+    )
+    const byId = new Map(layout.nodes.map((layoutNode) => [layoutNode.id, layoutNode]))
+    const output = byId.get('summary-topic')!
+    const child = byId.get('summary-child')!
+
+    expect(layout.summaries).toEqual([
+      expect.objectContaining({ id: 'summary-1', side: 'right' })
+    ])
+    expect(child.x).toBeGreaterThanOrEqual(output.x + output.width)
+  })
+
+  it('does not flip balanced siblings when a summary output sits mid-list', () => {
+    // Regression: a cross-branch summary output is inserted as an ordinary
+    // child of the common ancestor (here at root index 5, before the last
+    // left branch). If it took part in the balanced index alternation it
+    // would shift `l3` from an odd (left) index to an even (right) index,
+    // "splitting" the map's sides. The output must be excluded from sibling
+    // stacking so existing branches keep their sides and stay centred.
+    const root = node('root', 'Root', [
+      node('r1', 'R1', [node('a', 'A')]),
+      node('l1', 'L1'),
+      node('r2', 'R2', [node('c', 'C')]),
+      node('l2', 'L2'),
+      node('r3', 'R3', [node('e', 'E')]),
+      node('summary-topic', 'Node summary'),
+      node('l3', 'L3', [node('f', 'F')])
+    ])
+    const layout = computeMindMapLayout(
+      sheet(root, 'studiumx.layout.logic.balanced', [
+        {
+          id: 'summary-1',
+          type: 'summary',
+          from: 'a',
+          to: 'e',
+          sourceTopicIds: ['a', 'c', 'e'],
+          summaryTopicId: 'summary-topic'
+        }
+      ])
+    )
+    const byId = new Map(layout.nodes.map((layoutNode) => [layoutNode.id, layoutNode]))
+    const rootNode = byId.get('root')!
+    const l3 = byId.get('l3')!
+    const r3 = byId.get('r3')!
+
+    // The last left branch must stay on the left instead of flipping to the
+    // right once the summary output consumes the slot before it.
+    expect(l3.x + l3.width / 2).toBeLessThan(0)
+    expect(r3.x + r3.width / 2).toBeGreaterThan(0)
+
+    // Neither side group may be left mis-centred by the moved output.
+    const depth1 = layout.nodes.filter((node) => node.depth === 1)
+    const rootCenterY = rootNode.y + rootNode.height / 2
+    const rightGroup = depth1.filter((node) => node.x + node.width / 2 > 0)
+    const leftGroup = depth1.filter((node) => node.x + node.width / 2 < 0)
+    for (const group of [leftGroup, rightGroup]) {
+      const minY = Math.min(...group.map((node) => node.y))
+      const maxY = Math.max(...group.map((node) => node.y + node.height))
+      expect((minY + maxY) / 2).toBeCloseTo(rootCenterY, 5)
+    }
   })
 
   it('projects topic markers without changing tree geometry', () => {
@@ -213,7 +412,7 @@ describe('computeMindMapLayout', () => {
       node('d', 'D'),
       node('e', 'E')
     ])
-    const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.balanced'))
+    const { nodes } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.balanced'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     const a = byId.get('a')!
     const parentMid = a.y + a.height / 2
@@ -248,7 +447,7 @@ describe('computeMindMapLayout', () => {
       node('b', 'B', [node('d', 'D'), node('e', 'E')]),
       node('c', 'C', [node('f', 'F'), node('g', 'G')])
     ])
-    const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.balanced'))
+    const { nodes } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.balanced'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
 
     // b goes right, c goes left (first-level balanced alternation).
@@ -276,14 +475,14 @@ describe('computeMindMapLayout', () => {
   })
 
   it('keeps deeper balanced topics on their branch side (no swing back to the root)', () => {
-    // Xmind alternates sides at the root only. Both children of the
+    // native alternates sides at the root only. Both children of the
     // right-side branch b must lie to b's right; both children of the
     // left-side branch c must lie to c's left.
     const root = node('a', 'A', [
       node('b', 'B', [node('d', 'D'), node('e', 'E')]),
       node('c', 'C', [node('f', 'F'), node('g', 'G')])
     ])
-    const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.balanced'))
+    const { nodes } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.balanced'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     const b = byId.get('b')!
     const c = byId.get('c')!
@@ -295,7 +494,7 @@ describe('computeMindMapLayout', () => {
 
   it('places children to the right (+x) for the right structure class', () => {
     const root = node('a', 'A', [node('b', 'B'), node('c', 'C')])
-    const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.right'))
+    const { nodes } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.right'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     for (const id of ['b', 'c']) {
       expect(byId.get(id)!.x).toBeGreaterThan(byId.get('a')!.x)
@@ -304,7 +503,7 @@ describe('computeMindMapLayout', () => {
 
   it('places children to the left (−x) for the left structure class', () => {
     const root = node('a', 'A', [node('b', 'B'), node('c', 'C')])
-    const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.left'))
+    const { nodes } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.left'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     for (const id of ['b', 'c']) {
       expect(byId.get(id)!.x).toBeLessThan(byId.get('a')!.x)
@@ -313,7 +512,7 @@ describe('computeMindMapLayout', () => {
 
   it('places children below and spreads them horizontally for the down structure class', () => {
     const root = node('a', 'A', [node('b', 'B'), node('c', 'C'), node('d', 'D')])
-    const { nodes, edges } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.down'))
+    const { nodes, edges } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.down'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     const rootNode = byId.get('a')!
     const children = ['b', 'c', 'd'].map((id) => byId.get(id)!)
@@ -330,7 +529,7 @@ describe('computeMindMapLayout', () => {
 
   it('places children above for the up structure class', () => {
     const root = node('a', 'A', [node('b', 'B'), node('c', 'C')])
-    const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.up'))
+    const { nodes } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.up'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     const rootNode = byId.get('a')!
     const children = ['b', 'c'].map((id) => byId.get(id)!)
@@ -346,7 +545,7 @@ describe('computeMindMapLayout', () => {
       node('c', 'C'),
       node('d', 'D')
     ])
-    const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.balanced'))
+    const { nodes } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.balanced'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     const rootX = byId.get('a')!.x
     const childXs = ['b', 'c', 'd'].map((id) => byId.get(id)!.x)
@@ -356,9 +555,9 @@ describe('computeMindMapLayout', () => {
 
   it('honors a per-node structureClass override for its children', () => {
     const root = node('a', 'A', [
-      node('b', 'B', [node('c', 'C')], false, 'org.xmind.ui.logic.left')
+      node('b', 'B', [node('c', 'C')], false, 'studiumx.layout.logic.left')
     ])
-    const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.right'))
+    const { nodes } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.right'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     expect(byId.get('b')!.x).toBeGreaterThan(byId.get('a')!.x)
     expect(byId.get('c')!.x).toBeLessThan(byId.get('b')!.x)
@@ -369,7 +568,7 @@ describe('computeMindMapLayout', () => {
       node('b', 'B', [node('c', 'C'), node('d', 'D')]),
       node('e', 'E')
     ])
-    const { nodes, edges } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.map'))
+    const { nodes, edges } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.map'))
     expect(nodes.length).toBe(5)
     expect(edges.length).toBe(4)
     expect(new Set(nodes.map((n) => n.id)).size).toBe(5)
@@ -514,7 +713,7 @@ describe('computeMindMapLayout', () => {
       node('d', 'D')
     ])
     const { boundaries } = computeMindMapLayout(
-      sheet(root, 'org.xmind.ui.logic.right', [
+      sheet(root, 'studiumx.layout.logic.right', [
         { id: 'bound-1', type: 'boundary', topicId: 'a', children: ['b', 'c'] }
       ])
     )
@@ -529,7 +728,7 @@ describe('computeMindMapLayout', () => {
       node('b', 'B'),
       node('c', 'A much longer sibling title')
     ])
-    const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.right'))
+    const { nodes } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.right'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     const a = byId.get('a')!
     for (const id of ['b', 'c']) {
@@ -546,10 +745,10 @@ describe('computeMindMapLayout', () => {
       node('e', 'E')
     ])
 
-    const map = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.map'))
-    const timeline = computeMindMapLayout(sheet(root, 'org.xmind.ui.timeline.horizontal'))
-    const fishbone = computeMindMapLayout(sheet(root, 'org.xmind.ui.fishbone.rightHeaded'))
-    const matrix = computeMindMapLayout(sheet(root, 'org.xmind.ui.spreadsheet'))
+    const map = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.map'))
+    const timeline = computeMindMapLayout(sheet(root, 'studiumx.layout.timeline.horizontal'))
+    const fishbone = computeMindMapLayout(sheet(root, 'studiumx.layout.fishbone.rightHeaded'))
+    const matrix = computeMindMapLayout(sheet(root, 'studiumx.layout.spreadsheet'))
 
     const childPositions = (layout: typeof map) =>
       layout.nodes
@@ -568,7 +767,7 @@ describe('computeMindMapLayout', () => {
     const root = node('a', 'A', [
       node('b', 'B', [node('c', 'C')])
     ])
-    const { nodes } = computeMindMapLayout(sheet(root, 'org.xmind.ui.logic.right'))
+    const { nodes } = computeMindMapLayout(sheet(root, 'studiumx.layout.logic.right'))
     const byId = new Map(nodes.map((n) => [n.id, n]))
     const a = byId.get('a')!
     const b = byId.get('b')!
@@ -664,17 +863,17 @@ describe('computeMindMapLayout', () => {
       )
     }
     const structureClasses: MindMapStructureClass[] = [
-      'org.xmind.ui.logic.map',
-      'org.xmind.ui.logic.right',
-      'org.xmind.ui.logic.left',
-      'org.xmind.ui.logic.down',
-      'org.xmind.ui.logic.up',
-      'org.xmind.ui.timeline.horizontal',
-      'org.xmind.ui.timeline.vertical',
-      'org.xmind.ui.fishbone.rightHeaded',
-      'org.xmind.ui.fishbone.leftHeaded',
-      'org.xmind.ui.spreadsheet',
-      'org.xmind.ui.spreadsheet.column'
+      'studiumx.layout.logic.map',
+      'studiumx.layout.logic.right',
+      'studiumx.layout.logic.left',
+      'studiumx.layout.logic.down',
+      'studiumx.layout.logic.up',
+      'studiumx.layout.timeline.horizontal',
+      'studiumx.layout.timeline.vertical',
+      'studiumx.layout.fishbone.rightHeaded',
+      'studiumx.layout.fishbone.leftHeaded',
+      'studiumx.layout.spreadsheet',
+      'studiumx.layout.spreadsheet.column'
     ]
 
     for (const structureClass of structureClasses) {

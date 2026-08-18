@@ -101,11 +101,16 @@ function cloneTopic(
 function cloneElement(
   element: MindMapElement,
   idMap: ReadonlyMap<string, string>,
+  elementIdMap: ReadonlyMap<string, string>,
   occupied: Set<string>
 ): MindMapElement {
-  const newElementId = uniqueCopyId(element.id, occupied)
+  const newElementId = elementIdMap.get(element.id) ?? uniqueCopyId(element.id, occupied)
+  // `copySheet` pre-allocates every element id so connector anchors can be
+  // remapped even when the target shape appears later in the array. Keep the
+  // fallback for callers/tests that invoke this helper with a partial map.
   occupied.add(newElementId)
   const remap = (id: string): string => idMap.get(id) ?? id
+  const remapElement = (id: string): string => elementIdMap.get(id) ?? id
   switch (element.type) {
     case 'relationship':
       return {
@@ -148,6 +153,28 @@ function cloneElement(
         id: newElementId,
         topicId: remap(element.topicId)
       }
+    case 'shape':
+      return {
+        ...element,
+        id: newElementId
+      }
+    case 'connector':
+      return {
+        ...element,
+        id: newElementId,
+        start: {
+          ...element.start,
+          anchor: element.start.anchor.targetType === 'topic'
+            ? { ...element.start.anchor, targetId: remap(element.start.anchor.targetId) }
+            : { ...element.start.anchor, targetId: remapElement(element.start.anchor.targetId) }
+        },
+        end: {
+          ...element.end,
+          anchor: element.end.anchor.targetType === 'topic'
+            ? { ...element.end.anchor, targetId: remap(element.end.anchor.targetId) }
+            : { ...element.end.anchor, targetId: remapElement(element.end.anchor.targetId) }
+        }
+      }
   }
 }
 
@@ -171,8 +198,14 @@ export function copySheet(
   occupied.add(newSheetId)
 
   const copiedRoot = cloneTopic(source.root, idMap, occupied)
+  const elementIdMap = new Map<string, string>()
+  for (const element of source.elements) {
+    const copiedId = uniqueCopyId(element.id, occupied)
+    elementIdMap.set(element.id, copiedId)
+    occupied.add(copiedId)
+  }
   const copiedElements = source.elements.map((element) =>
-    cloneElement(element, idMap, occupied)
+    cloneElement(element, idMap, elementIdMap, occupied)
   )
 
   const copiedSheet: MindMapSheetV2 = {

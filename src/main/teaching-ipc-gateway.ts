@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, extname, join, resolve } from 'node:path'
 import { cancelStreamAskPending, resolveAskPending } from './ai/ask-pending'
@@ -51,7 +51,7 @@ import {
   parseCancelConversationTurnIntent,
   parseWorkspaceItemRemovePayload, parseWorkspaceRemovePayload, parseRunTeachingDoctorPayload, parseProjectTeachingTurnReviewPayload, parseDecideTeachingTurnReviewPayload, parseProjectTeachingTurnReviewHandoffPayload, parseGetTeachingTurnReviewLastBundlePayload, parseSaveTeachingTurnReviewLastBundlePayload, requireStreamId, requireString,
   requireWindowControlAction,
-  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapAssetImportPayload, parseMindMapAssetReadPayload, parseMindMapUpdatePayload, parseMindMapFlushPayload, parseMindMapSourceRefreshPayload, parseMindMapGeneratePayload, parseMindMapProposalGeneratePayload, parseMindMapCancelGenerationPayload, parseMindMapImportPayload, parseMindMapMarkdownImportPayload, parseMindMapOpmlImportPayload, parseMindMapExportPayload, parseMindMapMarkdownExportPayload, parseMindMapOpmlExportPayload, parseMindMapSvgExportPayload, parseMindMapPngExportPayload
+  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapAssetImportPayload, parseMindMapAssetReadPayload, parseMindMapUpdatePayload, parseMindMapFlushPayload, parseMindMapSourceRefreshPayload, parseMindMapGeneratePayload, parseMindMapProposalGeneratePayload, parseMindMapCancelGenerationPayload, parseMindMapMarkdownImportPayload, parseMindMapOpmlImportPayload, parseMindMapMarkdownExportPayload, parseMindMapOpmlExportPayload, parseMindMapSvgExportPayload, parseMindMapPngExportPayload
 } from './teaching-ipc-commands'
 import type { TeachingSettingsService } from './teaching-settings'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
@@ -86,7 +86,7 @@ import {
   parseMindMapSourceRefreshApplyPayload
 } from './mindmap/mind-map-ipc-commands'
 import { previewMindMapSourceRefresh } from './mindmap/mind-map-source-refresh'
-import { MindMapAssetError, MindMapAssetStore } from './mindmap/mind-map-assets'
+import { MindMapAssetStore } from './mindmap/mind-map-assets'
 import type { MindMapStore } from './mindmap/mind-map-store'
 import {
   cancelMindMapGeneration,
@@ -101,6 +101,10 @@ import {
   resolveMindMapNotes,
   resolveSelectedMindMapFile
 } from './mindmap/mind-map-selected-file'
+import {
+  resolveMindMapAutoSourceContext,
+  type MindMapAutoSourceContext
+} from './mindmap/mind-map-auto-source'
 import { exportMindMapMarkdownFile } from './mindmap/markdown-file'
 import { importMindMapMarkdownFile } from './mindmap/markdown-import-file'
 import { importMindMapOpmlFile } from './mindmap/opml-import-file'
@@ -108,10 +112,6 @@ import { exportMindMapOpmlFile } from './mindmap/opml-file'
 import { exportMindMapSvgFile } from './mindmap/svg-file'
 import { exportMindMapPngFile } from './mindmap/png-file'
 import { parseMindMapProposalApplyPayload } from './mindmap/mind-map-proposal-ipc'
-import {
-  exportXmindFileV2,
-  readXmindFileWithCompatibilityReport
-} from './mindmap/xmind-file'
 import type { AgentChatStreamPayload, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AgentRealtimeEvent, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, MindMapStreamStep, TeachingSettingsV1 } from '../shared/teaching-types'
 import type { MindMapAssetRef, MindMapDocumentV2 } from '../shared/mindmap/domain/types'
 import type { MindMapDocument } from '../shared/mindmap/mind-map-types'
@@ -1778,7 +1778,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     command({
       channel: teachingInvokeChannels.generateMindMapProposal,
       parser: (payload) => parseMindMapProposalGeneratePayload(payload),
-      action: async (_event, payload) => {
+      action: async (event, payload) => {
         const p = requireMindMapPayload(payload, 'generateMindMapProposal')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
         const store = getMindMapStore(root)
@@ -1786,6 +1786,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         let selectedFileContext
         let notesContext
         let lessonContext
+        let autoSourceContext: MindMapAutoSourceContext | undefined
         if (p.scope === 'selected-file') {
           if (!p.selectedFile) {
             throw new Error('Invalid mind-map proposal request (invalid_source_refs): selected-file scope requires a selected file.')
@@ -1810,6 +1811,12 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           } catch (error) {
             throw mindMapLessonIpcError(error)
           }
+        } else if (p.scope === 'sheet') {
+          // There is no renderer-side source picker. A prompt such as
+          // “根据资料分析文件夹中的 Markdown 生成导图” is resolved locally from
+          // the user's own language, and only matching workspace Markdown is
+          // read through the bounded main-process file boundary.
+          autoSourceContext = await resolveMindMapAutoSourceContext(root, p.prompt)
         } else if (p.selectedFile !== undefined) {
           throw new Error('Invalid mind-map proposal request (source_out_of_scope): selectedFile is only valid for selected-file scope.')
         }
@@ -1828,7 +1835,20 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         }
 
         const loadedSettings = await settings.load()
+        const generationId = p.generationId ?? randomUUID()
+        const sendStatus = (
+          step: MindMapStreamStep,
+          message?: string
+        ): void => {
+          safeSend(event.sender, teachingEventChannels.mindMapStreamStatus, {
+            generationId,
+            step,
+            ...(message ? { message } : {})
+          })
+        }
+        let streamStarted = false
         let proposal
+        sendStatus('calling')
         try {
           proposal = await generateMindMapProposal({
             title: current.title,
@@ -1837,11 +1857,26 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             document: current,
             request: built.request,
             selectedFileContext,
+            autoSourceContext,
             notesContext,
             lessonContext,
-            generationId: p.generationId
+            generationId
+          }, (delta) => {
+            if (!streamStarted) {
+              streamStarted = true
+              sendStatus('streaming')
+            }
+            safeSend(event.sender, teachingEventChannels.mindMapStreamChunk, {
+              generationId,
+              delta
+            })
           })
+          sendStatus('validating')
         } catch (error) {
+          const step = error instanceof MindMapGenerationError && error.kind === 'cancelled'
+            ? 'cancelled'
+            : 'error'
+          sendStatus(step, errorMessage(error))
           throw mindMapGenerationIpcError(error)
         }
 
@@ -1875,6 +1910,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         const loadedSettings = await settings.load()
         let selectedFileContext
         let lessonContext
+        let autoSourceContext: MindMapAutoSourceContext | undefined
         if (p.selectedFile) {
           try {
             selectedFileContext = await resolveSelectedMindMapFile(root, p.selectedFile.workspacePath)
@@ -1887,6 +1923,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           } catch (error) {
             throw mindMapLessonIpcError(error)
           }
+        } else {
+          autoSourceContext = await resolveMindMapAutoSourceContext(root, p.prompt)
         }
         const generationId = p.generationId ?? randomUUID()
         const sendStatus = (
@@ -1908,6 +1946,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             prompt: p.prompt,
             settings: loadedSettings,
             selectedFileContext,
+            autoSourceContext,
             lessonContext,
             generationId
           }, (delta) => {
@@ -1969,81 +2008,6 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
     command({
-      channel: teachingInvokeChannels.importMindMapXmind,
-      parser: (payload) => parseMindMapImportPayload(payload),
-      action: async (_event, payload) => {
-        const p = requireMindMapPayload(payload, 'importMindMapXmind')
-        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        const assetStore = new MindMapAssetStore({ rootPath: join(root, 'mindmap-assets') })
-        let createdAsset: MindMapAssetRef | undefined
-        try {
-          const imported = await readXmindFileWithCompatibilityReport(p.sourcePath, {
-            importEmbeddedImage: async (image) => {
-              const id = stableXmindAssetId(image.zipPath, image.bytes)
-              const importInput = {
-                id,
-                fileName: image.fileName,
-                mimeType: image.mimeType,
-                content: image.bytes
-              }
-              try {
-                const asset = await assetStore.importFromBytes(importInput)
-                createdAsset = asset
-                return asset
-              } catch (error) {
-                if (!(error instanceof MindMapAssetError) || error.code !== 'asset_exists') {
-                  throw error
-                }
-                // Re-importing the same XMind should be idempotent. Verify the
-                // existing bytes before reusing its metadata; never trust an
-                // id-only collision.
-                const existingRef: MindMapAssetRef = {
-                  id,
-                  fileName: image.fileName,
-                  mimeType: image.mimeType
-                }
-                const existingBytes = await assetStore.read(existingRef)
-                const incomingBytes = Buffer.from(image.bytes)
-                if (
-                  existingBytes.byteLength !== incomingBytes.byteLength ||
-                  !existingBytes.equals(incomingBytes)
-                ) {
-                  throw new Error('Mind-map asset id collision for embedded XMind image')
-                }
-                return {
-                  ...existingRef,
-                  sizeBytes: existingBytes.byteLength,
-                  sha256: createHash('sha256').update(existingBytes).digest('hex')
-                }
-              }
-            }
-          })
-          const migrated = migrateV1ToV2(imported.document)
-          if (!migrated.ok) {
-            throw new Error(`Imported mind map failed migration: ${migrated.error.message}`)
-          }
-          const document = await persistImportedMindMap(
-            root,
-            { ...migrated.value, assets: imported.assets ?? [] },
-            '导入的思维导图',
-            'importMindMapXmind'
-          )
-          // Keep the v2 document fields at the top level so legacy renderer and
-          // preload callers continue to read `id`, `title`, and `sheets`
-          // unchanged.  The report is response metadata, not canonical document
-          // state, and therefore is deliberately not persisted in the store.
-          return {
-            ...document,
-            compatibilityReport: imported.compatibilityReport
-          }
-        } catch (error) {
-          if (createdAsset) await assetStore.remove(createdAsset).catch(() => undefined)
-          throw error
-        }
-      },
-      reply: identityReply, streamCleanup: noStreamCleanup
-    }),
-    command({
       channel: teachingInvokeChannels.importMindMapMarkdown,
       parser: (payload) => parseMindMapMarkdownImportPayload(payload),
       action: async (_event, payload) => {
@@ -2072,36 +2036,6 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           '导入的思维导图',
           'importMindMapOpml'
         )
-      },
-      reply: identityReply, streamCleanup: noStreamCleanup
-    }),
-    command({
-      channel: teachingInvokeChannels.exportMindMapXmind,
-      parser: (payload) => parseMindMapExportPayload(payload),
-      action: async (_event, payload) => {
-        const p = requireMindMapPayload(payload, 'exportMindMapXmind')
-        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        const store = getMindMapStore(root)
-
-        // Flush first, then read a fresh repository snapshot. The renderer
-        // proof is advisory input; readiness is decided again in the host so
-        // XMind cannot retain the legacy race that the other export formats
-        // already reject.
-        await store.flush(p.id)
-        const doc = await store.read(p.id)
-        const readiness = assessMindMapExportSnapshotReadiness({
-          snapshotRevision: p.snapshotRevision,
-          durableRevision: doc.revision,
-          expectedRevision: p.expectedRevision,
-          pendingWrites: p.pendingWrites,
-          dirty: p.dirty
-        })
-        if (!readiness.ready) {
-          throw new Error(
-            `Mind map XMind export refused: ${readiness.reasons.join(', ')}`
-          )
-        }
-        return exportXmindFileV2(doc, p.destinationDirectory)
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
@@ -2460,13 +2394,4 @@ function mindMapImageMimeType(asset: MindMapAssetRef): string | null {
 
 function isMindMapImageAsset(asset: MindMapAssetRef): boolean {
   return mindMapImageMimeType(asset) !== null
-}
-
-function stableXmindAssetId(zipPath: string, bytes: Uint8Array): string {
-  return `xmind-${createHash('sha256')
-    .update(zipPath)
-    .update('\0')
-    .update(bytes)
-    .digest('hex')
-    .slice(0, 32)}`
 }

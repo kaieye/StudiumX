@@ -104,7 +104,7 @@ StudiumX 的笔记能力：
 IMA 的脑图编辑器（`plpfbadbocioapeolmdippopkebeapof`, v5.3.0）：
 - 独立扩展，2.1MB JS
 - `<all_urls>` + `sidePanel` + `fileSystem` + `management`
-- 支持 XMind 文件导入（`colorful-xmind-file.svg`）
+- 支持脑图文件导入（`colorful-mindmap-file.svg`）
 
 ### StudiumX：内置 MindMap 视图
 
@@ -114,7 +114,6 @@ StudiumX 的脑图能力（`src/renderer/src/views/mindmap/`，24 个组件）�
 - `MindMapContextMenu.tsx`：右键菜单
 - `MindMapDocumentList.tsx`：文档列表
 - `MindMapExportFeedback.tsx`：导出反馈
-- `MindMapImportCompatibilityReport.tsx`：导入兼容性
 - `MindMapMarkersPanel.tsx`：标记面板
 - `MindMapMinimap.tsx`：缩略图
 - `MindMapNotesPanel.tsx`：笔记面板

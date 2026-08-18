@@ -26,7 +26,7 @@ describe('resolveShapeWithReport (unknown shape degradation)', () => {
     const unknown = [
       'squiggle',
       'triangle-bounce',
-      'org.xmind.topicShape.customPetal',
+      'external.topicShape.customPetal',
       'starburst',
       'octagon',
       ' ',

@@ -2,9 +2,9 @@ import type { MindMapConnectorStyle } from '../../../../shared/mindmap/structure
 import type { MindMapLayoutNode } from './mind-map-layout'
 
 /**
- * Edge connector path generators for different line styles (Xmind-inspired).
+ * Edge connector path generators for different line styles (StudiumX-inspired).
  *
- * Xmind supports three connector styles:
+ * StudiumX supports three connector styles:
  * - **curve** (default): smooth cubic bezier, organic and flowing
  * - **elbow**: right-angle with rounded corners, structured and technical
  * - **straight**: direct line, minimalist
@@ -55,7 +55,7 @@ function edgeOrientation(
   // An underline topic's visible border is its baseline, not the middle of its
   // layout box. Attach horizontal branches to that baseline so an incoming
   // edge, the underline itself, and any outgoing edges read as one continuous
-  // branch (matching XMind's underline-topic geometry).
+  // branch (matching StudiumX's underline-topic geometry).
   const fromAnchorY = from.shape === 'underline' ? from.y + from.height : fromCenterY
   const toAnchorY = to.shape === 'underline' ? to.y + to.height : toCenterY
   return {
@@ -68,7 +68,7 @@ function edgeOrientation(
   }
 }
 
-/** Smooth cubic bezier curve from parent to child (Xmind default). */
+/** Smooth cubic bezier curve from parent to child (StudiumX default). */
 export function curveEdgePath(
   from: MindMapLayoutNode,
   to: MindMapLayoutNode,
@@ -84,7 +84,7 @@ export function curveEdgePath(
   // Keep the bend inside a bounded middle band. Long sibling fans used to
   // reserve 80% of their horizontal span for the second control point, which
   // made each branch bow independently and read as a tangle. Equal, capped
-  // tangents preserve the Xmind-style fold while keeping adjacent branches
+  // tangents preserve the StudiumX-style fold while keeping adjacent branches
   // visually parallel.
   const dx = Math.max(24, Math.abs(edge.x2 - edge.x1))
   const control = Math.min(36, dx / 2)
@@ -137,7 +137,7 @@ function elbowEdgePathWithRadius(
 
 /**
  * Bight connector: an elbow whose middle segment carries a small square
- * pocket (a "bight"), a distinct Xmind-influenced branch language. The pocket
+ * pocket (a "bight"), a distinct StudiumX-influenced branch language. The pocket
  * is sized from the horizontal span so it stays visible even when the child
  * sits level with the parent (where a vertical-only clamp would collapse it).
  */
@@ -373,7 +373,7 @@ export function resolveLinePatternWithReport(
 }
 
 /**
- * Tapered (Xmind "线条渐细") edge rendered as a closed polygon whose width
+ * Tapered (StudiumX "线条渐细") edge rendered as a closed polygon whose width
  * shrinks from the parent anchor toward the child anchor. Produces a true
  * width taper that a uniform `stroke-width` cannot express.
  */
@@ -431,10 +431,10 @@ export function resolveEdgePath(
 
 /**
  * Determine edge stroke width based on the target node's depth.
- * Xmind uses thicker lines for first-level branches, thinner for deeper nodes.
+ * StudiumX uses thicker lines for first-level branches, thinner for deeper nodes.
  */
 export function edgeStrokeWidth(depth: number, scale = 1): number {
-  // Xmind M01 original values: centralTopic line-width 4 (root→L1) and
+  // StudiumX M01 original values: centralTopic line-width 4 (root→L1) and
   // mainTopic line-width 3 (L1→L2); deeper connections continue the taper at 2.
   const base = depth <= 1 ? 4 : depth === 2 ? 3 : 2
   return base * (Number.isFinite(scale) && scale > 0 ? scale : 1)

@@ -35,7 +35,7 @@ describe('mind-map font provenance', () => {
   })
 
   it('does not pretend to know installed fonts, but warns for unmanaged imported/custom stacks', () => {
-    const importedFont = 'Imported XMind Font, sans-serif'
+    const importedFont = 'Imported native Font, sans-serif'
     expect(resolveTopicFontProvenance({ fontFamily: importedFont }, { id: 'test' }, 0)).toEqual({
       source: 'local', fontFamily: importedFont, mayFallback: true
     })
@@ -58,9 +58,9 @@ describe('mind-map font provenance', () => {
     })
     expect(effectiveDocumentFontStack({
       id: 'test',
-      fontFamily: 'Imported XMind Font, sans-serif'
+      fontFamily: 'Imported native Font, sans-serif'
     })).toEqual({
-      fontFamily: 'Imported XMind Font, sans-serif',
+      fontFamily: 'Imported native Font, sans-serif',
       mayFallback: true
     })
   })
@@ -104,7 +104,7 @@ describe('mind map document degradation report', () => {
           },
           elements: [],
           layout: {
-            structureClass: 'org.xmind.ui.logic.right',
+            structureClass: 'studiumx.layout.logic.right',
             linePattern: 'dotted-wavy' as never
           }
         }
@@ -155,7 +155,7 @@ describe('mind map document degradation report', () => {
           title: 'S',
           root: { id: 'root', title: 'Root', children: [] },
           elements: [],
-          layout: { structureClass: 'org.xmind.ui.logic.right' }
+          layout: { structureClass: 'studiumx.layout.logic.right' }
         }
       ],
       assets: []

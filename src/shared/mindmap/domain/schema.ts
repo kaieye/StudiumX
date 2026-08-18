@@ -13,94 +13,6 @@ import { mindMapStructureClassSchema } from '../mind-map-schema'
 import type { MindMapTopicV2 } from './types'
 import { MIND_MAP_DOCUMENT_SCHEMA_VERSION_V2 } from './types'
 
-/**
- * XMind extension baggage is foreign input, not an open-ended application
- * object. Keep it JSON-only and bounded so an imported document cannot smuggle
- * executable values or an unbounded metadata payload into the renderer.
- */
-const MAX_XMIND_EXTENSION_BYTES = 64 * 1024
-const MAX_XMIND_EXTENSION_KEYS = 128
-const MAX_XMIND_EXTENSION_DEPTH = 8
-
-function extensionValueError(
-  value: unknown,
-  depth: number,
-  seen: Set<object>
-): string | undefined {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
-    return undefined
-  }
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? undefined : 'must contain only finite numbers'
-  }
-  if (typeof value !== 'object') {
-    return 'must contain JSON values only'
-  }
-  if (depth >= MAX_XMIND_EXTENSION_DEPTH) {
-    return `must not exceed ${MAX_XMIND_EXTENSION_DEPTH} nested levels`
-  }
-  if (seen.has(value)) {
-    return 'must not contain cyclic references'
-  }
-  seen.add(value)
-
-  let error: string | undefined
-  if (Array.isArray(value)) {
-    if (value.length > MAX_XMIND_EXTENSION_KEYS) {
-      error = `must not contain more than ${MAX_XMIND_EXTENSION_KEYS} items per array`
-    } else {
-      for (const item of value) {
-        error = extensionValueError(item, depth + 1, seen)
-        if (error) break
-      }
-    }
-  } else if (
-    Object.getPrototypeOf(value) !== Object.prototype &&
-    Object.getPrototypeOf(value) !== null
-  ) {
-    error = 'must contain plain JSON objects only'
-  } else {
-    const entries = Object.entries(value)
-    if (entries.length > MAX_XMIND_EXTENSION_KEYS) {
-      error = `must not contain more than ${MAX_XMIND_EXTENSION_KEYS} keys per object`
-    } else {
-      for (const [, item] of entries) {
-        error = extensionValueError(item, depth + 1, seen)
-        if (error) break
-      }
-    }
-  }
-  seen.delete(value)
-  return error
-}
-
-const mindMapXmindExtensionsSchema = z
-  .record(z.string(), z.unknown())
-  .superRefine((extensions, ctx) => {
-    const error = extensionValueError(extensions, 0, new Set<object>())
-    if (error) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: error })
-      return
-    }
-    let serialized: string
-    try {
-      serialized = JSON.stringify(extensions)
-    } catch {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'must be serializable JSON'
-      })
-      return
-    }
-    const serializedBytes = new TextEncoder().encode(serialized).byteLength
-    if (serializedBytes > MAX_XMIND_EXTENSION_BYTES) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `must not exceed ${MAX_XMIND_EXTENSION_BYTES} serialized bytes`
-      })
-    }
-  })
-
 export const mindMapPointSchema = z.object({
   x: z.number(),
   y: z.number()
@@ -199,14 +111,6 @@ export const mindMapAssetRefSchema = z.object({
 })
 
 export const mindMapInteropMetadataSchema = z.object({
-  xmind: z
-    .object({
-      sourcePath: z.string().optional(),
-      sourceVersion: z.string().optional(),
-      importedAt: z.string().optional(),
-      extensions: mindMapXmindExtensionsSchema.optional()
-    })
-    .optional(),
   migratedFrom: z
     .object({ schemaVersion: z.number().int().nonnegative() })
     .optional()
@@ -305,6 +209,24 @@ const mindMapElementOutlineShapeSchema = z.enum([
   'bracket'
 ])
 
+export const mindMapDrawingShapeSchema = z.enum([
+  'rect',
+  'rounded-rect',
+  'ellipse',
+  'diamond',
+  'parallelogram',
+  'hexagon'
+])
+
+export const mindMapConnectorAnchorSchema = z.object({
+  targetType: z.enum(['topic', 'shape']),
+  targetId: z.string().min(1)
+})
+
+export const mindMapConnectorEndpointSchema = mindMapPointSchema.extend({
+  anchor: mindMapConnectorAnchorSchema
+})
+
 export const mindMapElementStyleSchema = z.object({
   stroke: mindMapColorSchema.optional(),
   strokeWidth: z.number().finite().nonnegative().max(64).optional(),
@@ -322,7 +244,7 @@ export const mindMapElementStyleSchema = z.object({
 
 export const mindMapElementBaseSchema = z.object({
   id: z.string().min(1),
-  type: z.enum(['relationship', 'boundary', 'summary', 'callout', 'free-topic']),
+  type: z.enum(['relationship', 'boundary', 'summary', 'callout', 'free-topic', 'shape', 'connector']),
   label: z.string().optional(),
   style: mindMapElementStyleSchema.optional()
 })
@@ -360,6 +282,21 @@ export const mindMapFreeTopicSchema = mindMapElementBaseSchema.extend({
   position: mindMapPointSchema
 })
 
+export const mindMapShapeSchema = mindMapElementBaseSchema.extend({
+  type: z.literal('shape'),
+  shape: mindMapDrawingShapeSchema,
+  position: mindMapPointSchema,
+  width: z.number().finite().positive().max(100_000),
+  height: z.number().finite().positive().max(100_000)
+})
+
+export const mindMapConnectorSchema = mindMapElementBaseSchema.extend({
+  type: z.literal('connector'),
+  start: mindMapConnectorEndpointSchema,
+  end: mindMapConnectorEndpointSchema,
+  curveControlOffset: mindMapPointSchema.optional()
+})
+
 export const mindMapImageElementSchema = z.object({
   id: z.string().min(1),
   type: z.literal('image'),
@@ -377,7 +314,9 @@ export const mindMapElementSchema = z.discriminatedUnion('type', [
   mindMapBoundarySchema,
   mindMapSummarySchema,
   mindMapCalloutSchema,
-  mindMapFreeTopicSchema
+  mindMapFreeTopicSchema,
+  mindMapShapeSchema,
+  mindMapConnectorSchema
 ])
 
 export const mindMapTopicNumberingSchema = z.object({

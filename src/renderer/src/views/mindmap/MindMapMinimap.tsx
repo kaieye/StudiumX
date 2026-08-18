@@ -5,7 +5,7 @@ import { computeMindMapLayout } from './mind-map-layout'
 import { branchColorForKey } from './mind-map-branch-colors'
 
 /**
- * Minimap (overview) panel for the mind-map canvas (Xmind-style).
+ * Minimap (overview) panel for the mind-map canvas (StudiumX-style).
  *
  * Renders a scaled-down view of the entire sheet so the user can see the full
  * structure at a glance and click to navigate.
@@ -61,7 +61,7 @@ export function MindMapMinimap({
 
   if (!sheet || nodes.length === 0) return null
 
-  // Xmind hides the minimap for small maps - it adds no navigation value
+  // StudiumX hides the minimap for small maps - it adds no navigation value
   // when the entire structure is already visible on the canvas.
   if (nodes.length < 5) return null
 

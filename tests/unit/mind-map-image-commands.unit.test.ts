@@ -25,7 +25,7 @@ function makeDocument(): MindMapDocumentV2 {
         title: 'S',
         root: { id: 'root', title: 'Root', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: [{ id: 'asset-1', fileName: 'a.png', mimeType: 'image/png' }]

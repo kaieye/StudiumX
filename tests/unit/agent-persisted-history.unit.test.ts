@@ -264,6 +264,70 @@ describe('persisted user-history sanitizer', () => {
     expect(persisted.messageCount).toBe(4)
   })
 
+  it('preserves safe presentation text, drops unsafe rows, and binds the timeline into the parent proof', () => {
+    const secret = 'sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'
+    const turns = attachAgentParentTurnCommit([
+      { id: 'turn-1', role: 'user' as const, content: 'Explain the steps', createdAt: '2026-08-01T00:00:00.000Z' },
+      {
+        id: 'turn-2',
+        role: 'assistant' as const,
+        content: 'Final answer',
+        createdAt: '2026-08-01T00:01:00.000Z',
+        processEvents: [{
+          id: 'think-1', kind: 'reasoning' as const, title: 'Think', detail: 'Plan safely.',
+          createdAt: '2026-08-01T00:00:01.000Z'
+        }],
+        presentationTimeline: [
+          {
+            id: 'raw-think-row', sequence: 20, kind: 'process' as const, processEventId: 'think-1',
+            createdAt: '2026-08-01T00:00:01.000Z', rawToolResult: secret
+          } as never,
+          {
+            id: 'partial-row', sequence: 21, kind: 'assistant_text' as const,
+            content: 'Partial safe answer.',
+            createdAt: '2026-08-01T00:00:02.000Z'
+          },
+          {
+            id: 'secret-row', sequence: 22, kind: 'assistant_text' as const,
+            content: `Partial ${secret} <tool_call>lookup<arg_key>query</arg_key></tool_call>`,
+            createdAt: '2026-08-01T00:00:03.000Z'
+          },
+          {
+            id: 'dangling-row', sequence: 23, kind: 'process' as const, processEventId: 'missing-event',
+            createdAt: '2026-08-01T00:00:04.000Z'
+          }
+        ]
+      }
+    ], 'run-timeline')
+    const persisted = sanitizePersistedAgentConversationRecord({ ...recordFor('safe'), turns })
+    const assistant = persisted.turns[1]!
+    const proof = assistant.metadata!.parentTurnProof!.digest
+
+    expect(assistant.presentationTimeline).toEqual([
+      {
+        id: 'raw-think-row', sequence: 0, kind: 'process', processEventId: 'think-1',
+        createdAt: '2026-08-01T00:00:01.000Z'
+      },
+      {
+        id: 'partial-row', sequence: 1, kind: 'assistant_text', content: 'Partial safe answer.',
+        createdAt: '2026-08-01T00:00:02.000Z'
+      }
+    ])
+    expect(JSON.stringify(persisted)).not.toContain(secret)
+    expect(JSON.stringify(assistant.presentationTimeline)).not.toContain('secret-row')
+    expect(JSON.stringify(assistant.presentationTimeline)).not.toContain('[redacted]')
+    expect(hasAgentParentTurnCommit(persisted.turns, 'run-timeline', proof)).toBe(true)
+    expect(hasAgentParentTurnCommit([
+      persisted.turns[0]!,
+      {
+        ...assistant,
+        presentationTimeline: assistant.presentationTimeline?.map((entry) => entry.kind === 'assistant_text'
+          ? { ...entry, content: 'tampered timeline text' }
+          : entry)
+      }
+    ], 'run-timeline', proof)).toBe(false)
+  })
+
   it('keeps turn identity and message-count invariants for omitted user content', () => {
     const record = recordFor('xoxb-123456789012-123456789012-abcdefghijklmno')
     const sanitized = sanitizePersistedAgentConversationRecord(record)

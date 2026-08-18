@@ -4,7 +4,7 @@ import { findTopicInSheet } from './mind-map-commands'
 import { useMindMapViewStore } from './mind-map-view-store'
 
 /**
- * Hook that wires the Xmind-style right-click context menu into MindMapView.
+ * Hook that wires the StudiumX-style right-click context menu into MindMapView.
  *
  * Keeps context-menu state out of the already-large MindMapView component and
  * provides a single `contextMenuHandlers` bundle that can be spread onto the

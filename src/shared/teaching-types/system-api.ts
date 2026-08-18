@@ -151,7 +151,6 @@ import type {
   MindMapAssetReadResult,
   MindMapCancelGenerationPayload,
   MindMapCreatePayload,
-  MindMapExportPayload,
   MindMapMarkdownExportPayload,
   MindMapMarkdownImportPayload,
   MindMapOpmlExportPayload,
@@ -159,8 +158,6 @@ import type {
   MindMapPngExportPayload,
   MindMapSvgExportPayload,
   MindMapGeneratePayload,
-  MindMapImportPayload,
-  MindMapXmindImportResult,
   MindMapFlushPayload,
   MindMapLibrary,
   MindMapListPayload,
@@ -536,8 +533,6 @@ export type TeachingSystemApi = {
   onMindMapStreamStatus: (handler: (status: MindMapStreamStatus) => void) => () => void
   /** Cancel an in-flight AI mind-map generation (propagates to the provider request). */
   cancelMindMapGeneration: (payload: MindMapCancelGenerationPayload) => Promise<{ canceled: boolean }>
-  /** Import XMind while preserving legacy document fields and exposing the compatibility audit. */
-  importMindMapXmind: (payload: MindMapImportPayload) => Promise<MindMapXmindImportResult>
   /** Import the StudiumX Markdown tree/notes subset, persist it, and return the document. */
   importMindMapMarkdown: (payload: MindMapMarkdownImportPayload) => Promise<MindMapDocumentV2>
   /** Import the StudiumX OPML tree/notes subset, persist it, and return the document. */
@@ -558,8 +553,6 @@ export type TeachingSystemApi = {
   generateMindMapProposal: (
     payload: MindMapProposalGeneratePayload
   ) => Promise<MindMapProposalGenerateResult>
-  /** Export one mind map as an `.xmind` file into a directory. */
-  exportMindMapXmind: (payload: MindMapExportPayload) => Promise<{ path: string }>
   /** Export one clean, durably acknowledged mind map as Markdown. */
   exportMindMapMarkdown: (payload: MindMapMarkdownExportPayload) => Promise<{ path: string }>
   /** Export one clean, durably acknowledged mind map as OPML. */

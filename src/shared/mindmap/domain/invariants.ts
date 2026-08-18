@@ -10,6 +10,7 @@
 import type {
   MindMapDocumentV2,
   MindMapElement,
+  MindMapElementType,
   MindMapSheetV2,
   MindMapTopicV2
 } from './types'
@@ -39,13 +40,15 @@ export type MindMapInvariantResult =
   | { ok: true }
   | { ok: false; errors: MindMapInvariantError[] }
 
-const ELEMENT_TYPES = new Set([
+const ELEMENT_TYPES: ReadonlySet<MindMapElementType> = new Set([
   'relationship',
   'boundary',
   'summary',
   'callout',
-  'free-topic'
-] as const)
+  'free-topic',
+  'shape',
+  'connector'
+])
 
 /**
  * Collect every topic id in the given sheet's tree (root included).
@@ -167,6 +170,11 @@ function elementRefs(element: MindMapElement): ElementRef[] {
       return [{ field: 'topicId', id: element.topicId }]
     case 'free-topic':
       return [{ field: 'topicId', id: element.topicId }]
+    case 'shape':
+    case 'connector':
+      // Shapes have no topic references. Connector anchors are validated
+      // against both topic and shape ids in validateMindMapSheetV2 below.
+      return []
   }
 }
 
@@ -174,6 +182,13 @@ function elementRefs(element: MindMapElement): ElementRef[] {
 export function validateMindMapSheetV2(sheet: MindMapSheetV2): MindMapInvariantError[] {
   const errors = validateTopicTree(sheet.id, sheet.root)
   const topicIds = new Set(collectTopicIds(sheet))
+  // Connector anchors may point to a shape that appears later in the flat
+  // element list, so collect shape ids before validating individual elements.
+  const shapeIds = new Set(
+    sheet.elements
+      .filter((element) => element.type === 'shape')
+      .map((element) => element.id)
+  )
 
   if (typeof sheet.id !== 'string' || sheet.id.length === 0) {
     errors.push({
@@ -217,6 +232,85 @@ export function validateMindMapSheetV2(sheet: MindMapSheetV2): MindMapInvariantE
           code: 'ELEMENT_REF_MISSING',
           message: `Element "${element.id}" references missing node id "${ref.id}" (${ref.field})`,
           path: [...path, ref.field]
+        })
+      }
+    }
+
+    if (element.type === 'shape') {
+      if (!Number.isFinite(element.position.x) || !Number.isFinite(element.position.y)) {
+        errors.push({
+          code: 'ELEMENT_REF_MISSING',
+          message: `Shape "${element.id}" position must contain finite coordinates`,
+          path: [...path, 'position']
+        })
+      }
+      if (!Number.isFinite(element.width) || element.width <= 0) {
+        errors.push({
+          code: 'ELEMENT_REF_MISSING',
+          message: `Shape "${element.id}" width must be a positive number`,
+          path: [...path, 'width']
+        })
+      }
+      if (!Number.isFinite(element.height) || element.height <= 0) {
+        errors.push({
+          code: 'ELEMENT_REF_MISSING',
+          message: `Shape "${element.id}" height must be a positive number`,
+          path: [...path, 'height']
+        })
+      }
+    }
+
+    if (element.type === 'connector') {
+      for (const [endpointName, endpoint] of [['start', element.start], ['end', element.end]] as const) {
+        if (!Number.isFinite(endpoint.x) || !Number.isFinite(endpoint.y)) {
+          errors.push({
+            code: 'ELEMENT_REF_MISSING',
+            message: `Connector "${element.id}" ${endpointName} must contain finite coordinates`,
+            path: [...path, endpointName]
+          })
+        }
+        const anchor = endpoint.anchor
+        if (!anchor) {
+          errors.push({
+            code: 'ELEMENT_REF_MISSING',
+            message: `Connector "${element.id}" ${endpointName} must attach to a topic or shape`,
+            path: [...path, endpointName, 'anchor']
+          })
+          continue
+        }
+        const targetExists = anchor.targetType === 'topic'
+          ? topicIds.has(anchor.targetId)
+          : shapeIds.has(anchor.targetId)
+        if (!targetExists) {
+          errors.push({
+            code: 'ELEMENT_REF_MISSING',
+            message: `Connector "${element.id}" references missing ${anchor.targetType} "${anchor.targetId}"`,
+            path: [...path, endpointName, 'anchor', 'targetId']
+          })
+        }
+      }
+      if (
+        element.curveControlOffset !== undefined
+        && (!Number.isFinite(element.curveControlOffset.x) || !Number.isFinite(element.curveControlOffset.y))
+      ) {
+        errors.push({
+          code: 'ELEMENT_REF_MISSING',
+          message: `Connector "${element.id}" curveControlOffset must contain finite coordinates`,
+          path: [...path, 'curveControlOffset']
+        })
+      }
+      const startAnchor = element.start.anchor
+      const endAnchor = element.end.anchor
+      if (
+        startAnchor
+        && endAnchor
+        && startAnchor.targetType === endAnchor.targetType
+        && startAnchor.targetId === endAnchor.targetId
+      ) {
+        errors.push({
+          code: 'ELEMENT_REF_MISSING',
+          message: `Connector "${element.id}" must connect two different targets`,
+          path: [...path, 'end', 'anchor']
         })
       }
     }

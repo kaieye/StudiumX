@@ -3,7 +3,7 @@ import type { MindMapLayoutNode } from './mind-map-layout'
 /**
  * Node shape rendering utilities.
  *
- * Xmind supports several node shapes. This module provides SVG path / element
+ * StudiumX supports several node shapes. This module provides SVG path / element
  * generators for each, so the canvas can render the appropriate shape based on
  * the topic's style override or the document theme.
  */
@@ -126,6 +126,15 @@ export type ShapeElement = {
   attrs: Record<string, string | number>
 }
 
+/** Minimal geometry required to paint a shape. Layout nodes carry additional
+ * topic metadata, while free-form canvas shapes only have these four bounds. */
+export type ShapeBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 /**
  * Generate the SVG element(s) for a node shape.
  *
@@ -133,7 +142,7 @@ export type ShapeElement = {
  * canvas component can render it without shape-specific logic.
  */
 export function shapeElement(
-  node: MindMapLayoutNode,
+  node: ShapeBounds | MindMapLayoutNode,
   shape: NodeShape
 ): ShapeElement {
   const { x, y, width, height } = node

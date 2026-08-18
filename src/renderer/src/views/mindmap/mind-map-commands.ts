@@ -59,8 +59,18 @@ export function elementRefIds(element: MindMapElement): string[] {
       return [element.topicId]
     case 'free-topic':
       return [element.topicId]
+    case 'shape':
+      return []
+    case 'connector':
+      return [
+        ...(element.start.anchor?.targetType === 'topic'
+          ? [element.start.anchor.targetId]
+          : []),
+        ...(element.end.anchor?.targetType === 'topic'
+          ? [element.end.anchor.targetId]
+          : [])
+      ]
   }
-  return []
 }
 
 export function findTopicInSheet(
@@ -695,8 +705,19 @@ export function captureClipboardData(
   const branchIds = new Set(collectTopicIds({ ...sheet, root: ref.node }))
   const elements = sheet.elements
     .filter((element) => {
+      if (element.type === 'connector') {
+        // Branch copying has no independent free-shape selection. A connector
+        // is portable only when both of its topic targets are inside the
+        // copied branch; otherwise it would point back into the source map.
+        return element.start.anchor?.targetType === 'topic'
+          && element.end.anchor?.targetType === 'topic'
+          && branchIds.has(element.start.anchor.targetId)
+          && branchIds.has(element.end.anchor.targetId)
+      }
       const refs = elementRefIds(element)
-      if (!refs.some((id) => branchIds.has(id))) return false
+      // Copying a branch must not create an element whose topic references
+      // point into the source map.
+      if (refs.length === 0 || !refs.every((id) => branchIds.has(id))) return false
       // A linked summary is only portable when its covered range and output
       // topic are copied together. Copying its output alone must remain a
       // normal node operation rather than creating dangling brace references.

@@ -36,7 +36,7 @@ const document: MindMapDocumentV2 = {
       children: [{ id: 'child', title: 'Child', children: [] }]
     },
     elements: [],
-    layout: { structureClass: 'org.xmind.ui.logic.right' }
+    layout: { structureClass: 'studiumx.layout.logic.right' }
   }],
   assets: []
 }

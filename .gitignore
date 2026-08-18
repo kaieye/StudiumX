@@ -60,3 +60,7 @@ _adr_nonclaims*
 _theme_nonclaims*
 _new_task_block.txt
 /a.png
+
+# Throwaway local screenshot/tool scripts
+shot-tools.tmp.js
+vision-test.png

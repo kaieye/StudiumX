@@ -23,7 +23,7 @@ export type MindMapViewportSize = {
 export const MIN_MIND_MAP_ZOOM = 0.25
 export const MAX_MIND_MAP_ZOOM = 3
 /**
- * Xmind behaviour: fit only zooms out, never zooms in.  Small maps stay at
+ * StudiumX behaviour: fit only zooms out, never zooms in.  Small maps stay at
  * 100% so the zoom percentage shown to the user is trustworthy.
  */
 const FIT_MAX_ZOOM = 1

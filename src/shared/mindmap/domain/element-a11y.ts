@@ -41,9 +41,24 @@ export function buildMindMapElementAccessibleLabel(
     case 'free-topic':
       description = `Free topic ${topicName(element.topicId, topicTitles)}`
       break
+    case 'shape':
+      description = `Shape ${element.shape}`
+      break
+    case 'connector':
+      description = `Connector from ${connectorEndpointName(element.start, topicTitles)} to ${connectorEndpointName(element.end, topicTitles)}`
+      break
   }
 
   return label === undefined ? description : `${description}: ${label}`
+}
+
+function connectorEndpointName(
+  endpoint: { x: number; y: number; anchor?: { targetType: 'topic' | 'shape'; targetId: string } },
+  topicTitles: MindMapElementTopicTitleLookup
+): string {
+  if (endpoint.anchor?.targetType === 'topic') return topicName(endpoint.anchor.targetId, topicTitles)
+  if (endpoint.anchor?.targetType === 'shape') return `shape ${endpoint.anchor.targetId}`
+  return `${Math.round(endpoint.x)},${Math.round(endpoint.y)}`
 }
 
 function topicName(topicId: string, topicTitles: MindMapElementTopicTitleLookup): string {

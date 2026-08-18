@@ -27,7 +27,7 @@ function makeDocument(): MindMapDocumentV2 {
   return {
     schemaVersion: 2, id: 'mind-map-elements', revision: 1, title: 'Elements', createdAt: NOW, updatedAt: NOW,
     theme: { id: 'default' }, assets: [], sheets: [{
-      id: 'sheet-1', title: 'Overview', layout: { structureClass: 'org.xmind.ui.logic.right' },
+      id: 'sheet-1', title: 'Overview', layout: { structureClass: 'studiumx.layout.logic.right' },
       root: { id: 'root', title: 'Root', children: [
         { id: 'a', title: 'Alpha', children: [] }, { id: 'b', title: 'Beta', children: [] }
       ] },
@@ -79,9 +79,10 @@ describe('mind map element selection and inspector', () => {
     render(<MindMapElementStyleInspector />)
     const stroke = screen.getByLabelText('Line color')
     fireEvent.change(stroke, { target: { value: '#445566' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Dashed line' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Line pattern' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Line pattern' })).getByRole('option', { name: 'Dash' }))
     const current = useMindMapViewStore.getState().current
-    expect(current?.sheets[0]?.elements[0]?.style).toMatchObject({ stroke: '#445566', dashed: true })
+    expect(current?.sheets[0]?.elements[0]?.style).toMatchObject({ stroke: '#445566', linePattern: 'dash' })
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.elements[0]?.style).toEqual({ stroke: '#445566' })
     act(() => useMindMapViewStore.getState().undo())
@@ -120,6 +121,118 @@ describe('mind map element selection and inspector', () => {
     })
     act(() => useMindMapViewStore.getState().undo())
     expect(useMindMapViewStore.getState().current?.sheets[0]?.elements[0]?.style).toEqual({ stroke: '#112233' })
+  })
+
+  it('keeps connector-only arrow controls out of a free shape inspector', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.sheets[0]!.elements.push({
+      id: 'shape-1',
+      type: 'shape',
+      shape: 'rounded-rect',
+      position: { x: 80, y: 120 },
+      width: 160,
+      height: 96,
+      label: 'Canvas shape'
+    })
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+    useMindMapViewStore.getState().selectElement('shape-1', 'shape')
+    render(<MindMapElementStyleInspector />)
+
+    expect(screen.queryByRole('button', { name: 'Line shape' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start arrow' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'End arrow' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Line pattern' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Outline shape' })).toBeEnabled()
+  })
+
+  it('uses the node-inspector picker UI without redundant element or label headings', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.sheets[0]!.elements.push({
+      id: 'shape-ui-1',
+      type: 'shape',
+      shape: 'rounded-rect',
+      position: { x: 80, y: 120 },
+      width: 160,
+      height: 96,
+      label: 'Canvas shape'
+    })
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+    useMindMapViewStore.getState().selectElement('shape-ui-1', 'shape')
+    const { container } = render(<MindMapElementStyleInspector />)
+
+    expect(screen.queryByText('Element style')).not.toBeInTheDocument()
+    expect(screen.queryByText('Label / text')).not.toBeInTheDocument()
+    expect(screen.getByText('Text')).toBeInTheDocument()
+    expect(screen.getByText('Shape')).toBeInTheDocument()
+    expect(container.querySelectorAll('.mindmap-topic-color')).toHaveLength(3)
+    expect(container.querySelector('.mindmap-topic-style-menu--border-width')).toBeInTheDocument()
+  })
+
+  it('shows effective values instead of an inherit placeholder and has no text box', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.theme = { id: 'default', fontFamily: 'Georgia, serif' }
+    current.sheets[0]!.elements.push({
+      id: 'shape-eff-1',
+      type: 'shape',
+      shape: 'rounded-rect',
+      position: { x: 80, y: 120 },
+      width: 160,
+      height: 96,
+      label: 'Canvas shape'
+    })
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+    useMindMapViewStore.getState().selectElement('shape-eff-1', 'shape')
+    render(<MindMapElementStyleInspector />)
+
+    // The panel no longer hosts a label/text editor.
+    expect(screen.queryByLabelText('Label / text')).not.toBeInTheDocument()
+
+    // Inherited picker fields surface the value the canvas actually draws.
+    const linePattern = screen.getByRole('button', { name: 'Line pattern' })
+    expect(within(linePattern).getByText('Solid')).toBeInTheDocument()
+    const outlineShape = screen.getByRole('button', { name: 'Outline shape' })
+    expect(within(outlineShape).getByText('Rounded Rectangle')).toBeInTheDocument()
+
+    // The font control shows the document theme font instead of an inherit option.
+    const font = screen.getByLabelText('Font')
+    expect(font).toHaveValue('Georgia, serif')
+    expect(within(font).getByRole('option', { selected: true })).toHaveTextContent('Serif')
+    expect(screen.queryByText(/Inherit/i)).not.toBeInTheDocument()
+  })
+
+  it('renders connector line and arrow controls in their own group', () => {
+    const current = useMindMapViewStore.getState().current
+    if (!current) throw new Error('expected current document')
+    current.sheets[0]!.elements.push({
+      id: 'connector-1',
+      type: 'connector',
+      label: 'Connects the topics',
+      start: { x: 80, y: 120, anchor: { targetType: 'topic', targetId: 'a' } },
+      end: { x: 280, y: 120, anchor: { targetType: 'topic', targetId: 'b' } }
+    })
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+    useMindMapViewStore.getState().selectElement('connector-1', 'connector')
+    render(<MindMapElementStyleInspector />)
+
+    const shapeGroup = screen.getByRole('group', { name: 'Shape' })
+    expect(within(shapeGroup).getByLabelText('Line color')).toBeEnabled()
+    expect(within(shapeGroup).getByLabelText('Line width')).toBeEnabled()
+    expect(within(shapeGroup).getByRole('button', { name: 'Line shape' })).toBeEnabled()
+    expect(within(shapeGroup).getByRole('button', { name: 'Start arrow' })).toBeEnabled()
+    expect(within(shapeGroup).getByRole('button', { name: 'End arrow' })).toBeEnabled()
+    expect(within(shapeGroup).getByRole('button', { name: 'Line pattern' })).toBeEnabled()
+    expect(screen.queryByLabelText('Fill color')).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'Dashed line' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Outline shape' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(shapeGroup).getByRole('button', { name: 'End arrow' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'End arrow' })).getByRole('option', { name: 'Triangle' }))
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.elements.at(-1)?.style).toMatchObject({
+      endArrow: 'triangle'
+    })
   })
 
   it('clears an advanced field back to inherit by selecting the empty option', () => {
@@ -199,8 +312,8 @@ describe('mind map element selection and inspector', () => {
     render(<MindMapElementStyleInspector />)
 
     for (const name of [
-      'Label / text', 'Line color', 'Fill color', 'Text color', 'Line width', 'Dashed line',
-      'Line shape', 'Start arrow', 'End arrow', 'Line pattern', 'Outline shape', 'Font', 'Font size'
+      'Line color', 'Fill color', 'Text color', 'Line width',
+      'Line pattern', 'Outline shape', 'Font', 'Font size'
     ]) {
       expect(screen.getByLabelText(name)).toBeDisabled()
     }

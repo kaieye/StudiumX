@@ -16,7 +16,7 @@ function baseSheet(elements: MindMapElement[]): MindMapSheetV2 {
       children: [{ id: 'child-1', title: 'Child', children: [] }]
     },
     elements,
-    layout: { structureClass: 'org.xmind.ui.logic.right' }
+    layout: { structureClass: 'studiumx.layout.logic.right' }
   }
 }
 
@@ -28,6 +28,35 @@ describe('mind map element reference invariants', () => {
       { id: 'summary-1', type: 'summary', from: 'root-1', to: 'child-1' },
       { id: 'callout-1', type: 'callout', topicId: 'child-1', text: 'Note' },
       { id: 'free-topic-1', type: 'free-topic', topicId: 'child-1', position: { x: 0, y: 0 } }
+    ]
+
+    expect(validateMindMapSheetV2(baseSheet(elements))).toEqual([])
+  })
+
+  it('accepts connectors anchored to existing topics and shapes', () => {
+    const elements: MindMapElement[] = [
+      {
+        id: 'shape-1',
+        type: 'shape',
+        shape: 'rect',
+        position: { x: 20, y: 30 },
+        width: 120,
+        height: 80
+      },
+      {
+        id: 'connector-1',
+        type: 'connector',
+        start: {
+          x: 80,
+          y: 30,
+          anchor: { targetType: 'shape', targetId: 'shape-1' }
+        },
+        end: {
+          x: 10,
+          y: 10,
+          anchor: { targetType: 'topic', targetId: 'child-1' }
+        }
+      }
     ]
 
     expect(validateMindMapSheetV2(baseSheet(elements))).toEqual([])
@@ -55,5 +84,62 @@ describe('mind map element reference invariants', () => {
     const errors = validateMindMapSheetV2(baseSheet([element]))
 
     expect(errors.some((error) => error.code === 'ELEMENT_REF_MISSING')).toBe(true)
+  })
+
+  it('reports a connector anchor that points to a missing shape', () => {
+    const errors = validateMindMapSheetV2(baseSheet([
+      {
+        id: 'connector-1',
+        type: 'connector',
+        start: {
+          x: 20,
+          y: 30,
+          anchor: { targetType: 'shape', targetId: 'missing-shape' }
+        },
+        end: {
+          x: 100,
+          y: 120,
+          anchor: { targetType: 'topic', targetId: 'child-1' }
+        }
+      }
+    ]))
+
+    expect(errors.some((error) => (
+      error.code === 'ELEMENT_REF_MISSING' &&
+      error.message.includes('missing shape "missing-shape"')
+    ))).toBe(true)
+  })
+
+  it('rejects a connector endpoint that has no anchor', () => {
+    const malformedConnector = {
+      id: 'connector-1',
+      type: 'connector',
+      start: { x: 20, y: 30, anchor: { targetType: 'topic', targetId: 'root-1' } },
+      end: { x: 100, y: 120 }
+    } as unknown as MindMapElement
+    const errors = validateMindMapSheetV2(baseSheet([
+      malformedConnector
+    ]))
+
+    expect(errors.some((error) => (
+      error.code === 'ELEMENT_REF_MISSING' &&
+      error.message.includes('must attach to a topic or shape')
+    ))).toBe(true)
+  })
+
+  it('reports a connector that attaches both ends to the same target', () => {
+    const errors = validateMindMapSheetV2(baseSheet([
+      {
+        id: 'connector-1',
+        type: 'connector',
+        start: { x: 20, y: 30, anchor: { targetType: 'topic', targetId: 'root-1' } },
+        end: { x: 100, y: 120, anchor: { targetType: 'topic', targetId: 'root-1' } }
+      }
+    ]))
+
+    expect(errors.some((error) => (
+      error.code === 'ELEMENT_REF_MISSING' &&
+      error.message.includes('must connect two different targets')
+    ))).toBe(true)
   })
 })

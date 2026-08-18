@@ -362,12 +362,44 @@ export type AgentChatProcessEvent = {
   createdAt: string
 }
 
+/**
+ * A safe, renderer-only transcript of the order in which an assistant turn
+ * produced visible text and process rows. It is never teaching evidence,
+ * settlement authority, or an instruction/tool replay log.
+ *
+ * Process rows point back to `processEvents` rather than copying diagnostic
+ * detail, so the existing learner-safe projection remains the only renderer of
+ * reasoning and tool activity.
+ */
+export type AgentChatPresentationTimelineEntry =
+  | {
+      id: string
+      /** Stable arrival order within one assistant turn. */
+      sequence: number
+      kind: 'assistant_text'
+      content: string
+      createdAt: string
+    }
+  | {
+      id: string
+      /** Stable arrival order within one assistant turn. */
+      sequence: number
+      kind: 'process'
+      processEventId: string
+      createdAt: string
+    }
+
 export type AgentChatTurn = {
   id: string
   role: 'user' | 'assistant'
   content: string
   toolCalls?: AgentChatToolCallView[]
   processEvents?: AgentChatProcessEvent[]
+  /**
+   * Optional, durable UI ordering projection. This is deliberately separate
+   * from `metadata` and teaching/settlement data.
+   */
+  presentationTimeline?: AgentChatPresentationTimelineEntry[]
   metadata?: AgentTurnMetadata
   createdAt: string
 }

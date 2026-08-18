@@ -156,14 +156,10 @@ function toResponsesInput(messages: ChatMessage[]): { instructions: string; inpu
           }
           for (const tc of m.tool_calls) {
             input.push({
-              role: 'assistant',
-              content: [{
-                type: 'function_call',
-                id: tc.id,
-                call_id: tc.id,
-                name: tc.function.name,
-                arguments: tc.function.arguments
-              }]
+              type: 'function_call',
+              call_id: tc.id,
+              name: tc.function.name,
+              arguments: tc.function.arguments
             })
           }
         } else {
@@ -172,7 +168,7 @@ function toResponsesInput(messages: ChatMessage[]): { instructions: string; inpu
         break
       }
       case 'tool':
-        input.push({ role: 'tool', call_id: m.tool_call_id, content: [{ type: 'output_text', text: m.content }] })
+        input.push({ type: 'function_call_output', call_id: m.tool_call_id, output: m.content })
         break
     }
   }

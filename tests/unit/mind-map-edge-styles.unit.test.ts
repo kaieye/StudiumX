@@ -179,7 +179,7 @@ describe('extended connector shapes', () => {
 
 describe('mind map edge stroke width', () => {
   it('tapers from thick first-level to thin deep branches by default', () => {
-    // Xmind M01 original taper: 4 (root→L1), 3 (L1→L2), 2 deeper.
+    // native M01 original taper: 4 (root→L1), 3 (L1→L2), 2 deeper.
     expect(edgeStrokeWidth(1)).toBe(4)
     expect(edgeStrokeWidth(2)).toBe(3)
     expect(edgeStrokeWidth(3)).toBe(2)
@@ -216,7 +216,7 @@ describe('resolveLinePatternWithReport (unknown line-pattern degradation)', () =
   })
 
   it('flags unknown line patterns as degraded with the stable solid fallback', () => {
-    for (const pattern of ['dotted', 'zigzag', 'double-dash', 'wavy', 'org.xmind.linePattern.curly']) {
+    for (const pattern of ['dotted', 'zigzag', 'double-dash', 'wavy', 'external.linePattern.curly']) {
       const resolved = resolveLinePatternWithReport(pattern)
       expect(resolved.degraded, `expected ${JSON.stringify(pattern)} to degrade`).toBe(true)
       // The stable fallback renders the same solid dash as the `solid` token.

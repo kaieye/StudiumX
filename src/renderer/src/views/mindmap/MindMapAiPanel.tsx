@@ -1,9 +1,10 @@
-import { Loader2, PanelRightClose, SendHorizontal, Sparkles, Square } from 'lucide-react'
+import { PanelRightClose, SendHorizontal, Square } from 'lucide-react'
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { MindMapCommand } from '../../../../shared/mindmap/commands'
 import type { MindMapProposalDecision } from '../../../../shared/mindmap/commands/mind-map-proposal'
-import type { MindMapStreamStatus } from '../../../../shared/teaching-types/mindmap'
+import { MIND_MAP_DOCUMENT_NOT_FOUND_ERROR_MARKER } from '../../../../shared/mindmap/mind-map-repository-errors'
 import { useAppStore } from '../../app-shell/appStore'
 import {
   OverviewModelPicker,
@@ -16,13 +17,54 @@ import { MindMapThemePanel } from './MindMapThemePanel'
 import { MindMapTopicStyleInspector } from './MindMapTopicStyleInspector'
 import { MindMapCanvasOptionsPanel } from './MindMapCanvasOptionsPanel'
 import { MindMapElementStyleInspector } from './MindMapElementStyleInspector'
+import {
+  MindMapGenerationProcess,
+  type MindMapGenerationMode,
+  type MindMapGenerationStep
+} from './MindMapGenerationProcess'
+import {
+  expandMindMapGenerationPreviewCommand,
+  newCompletedMindMapProposalItems,
+  type MindMapStreamedProposalItem
+} from './mind-map-generation-preview'
 
 type MindMapAiGenerationMessage = {
   generationId: string
   prompt: string
   preview: string
-  status: 'generating' | 'completed' | 'cancelled' | 'error'
+  mode: MindMapGenerationMode
+  step: MindMapGenerationStep
+  /** Terminal host status is kept separate so the process card can mark the
+   * step that actually failed/cancelled instead of inventing a new phase. */
+  terminalStep?: 'error' | 'cancelled'
+  status: 'generating' | 'completed' | 'no_changes' | 'cancelled' | 'error'
   error?: string
+  notice?: string
+}
+
+type MindMapGenerationTerminal = {
+  generationId: string
+  step: 'error' | 'cancelled'
+}
+
+type MindMapGenerationPreviewSession = {
+  generationId: string
+  streamText: string
+  admittedItemIds: Set<string>
+  commands: MindMapCommand[]
+  timer: ReturnType<typeof setTimeout> | null
+  drainWaiters: Array<(drained: boolean) => void>
+}
+
+// Short enough to keep a medium map moving, long enough for a person to see
+// the parent-to-child reveal rather than a single layout pop.
+const MIND_MAP_PREVIEW_REVEAL_INTERVAL_MS = 56
+
+function terminalStepForGeneration(
+  terminal: MindMapGenerationTerminal | null,
+  generationId: string
+): MindMapGenerationTerminal['step'] {
+  return terminal?.generationId === generationId ? terminal.step : 'error'
 }
 
 /**
@@ -44,6 +86,48 @@ function mindMapPreviewMarkdown(preview: string): string {
 }
 
 /**
+ * Electron prepends an implementation-level IPC envelope to rejected invokes.
+ * Keep that detail out of the learner-facing transcript, and turn the known
+ * strict proposal-boundary failure into an actionable retry message. The raw
+ * provider text remains only in the already-rendered preview; it is never
+ * applied to the canonical mind map unless the host validates it.
+ */
+function mindMapGenerationErrorMessage(
+  caught: unknown,
+  t: (key: string) => string
+): string {
+  const raw = caught instanceof Error ? caught.message : String(caught)
+  if (raw.includes(MIND_MAP_DOCUMENT_NOT_FOUND_ERROR_MARKER)) {
+    return t('mindmap.aiDocumentMissing')
+  }
+  if (raw.includes('mind-map proposal failed schema validation')) {
+    return t('mindmap.aiProposalInvalidOutput')
+  }
+
+  const withoutIpcEnvelope = raw.replace(
+    /^Error invoking remote method '[^']+': Error:\s*/u,
+    ''
+  ).trim()
+  return withoutIpcEnvelope || t('mindmap.aiError')
+}
+
+/**
+ * Recognize both the path-safe repository marker and a raw ENOENT emitted by
+ * an already-running older main process. The legacy fallback is constrained to
+ * the exact open-map file, so a missing selected source file is not mistaken
+ * for a deleted canonical document.
+ */
+function isMissingCurrentMindMapDocumentError(caught: unknown, documentId: string): boolean {
+  const raw = caught instanceof Error ? caught.message : String(caught)
+  if (raw.includes(MIND_MAP_DOCUMENT_NOT_FOUND_ERROR_MARKER)) return true
+  if (!raw.includes('ENOENT: no such file or directory')) return false
+  return [
+    `/mindmaps/${documentId}.json`,
+    `\\mindmaps\\${documentId}.json`
+  ].some((suffix) => raw.includes(suffix))
+}
+
+/**
  * AI chat panel for the mind map (docs/mindmap/design.md §6.5).
  *
  * The conversation edits the current canvas directly: sending a message asks
@@ -59,6 +143,8 @@ function mindMapPreviewMarkdown(preview: string): string {
 type MindMapAiPanelProps = {
   /** P2 §5.2: whether the inspector is visible (controlled by the view store). */
   open: boolean
+  /** Temporary AI projection mode; the title control must not write canonical state. */
+  readOnly?: boolean
   /** Toggle the inspector visibility (header button + ⌘.). */
   onToggle: () => void
   /** Title of the currently open mind-map document. */
@@ -75,6 +161,7 @@ type MindMapAiPanelProps = {
 
 export function MindMapAiPanel({
   open,
+  readOnly = false,
   onToggle,
   documentTitle,
   onRenameDocument,
@@ -90,7 +177,6 @@ export function MindMapAiPanel({
   const error = useMindMapViewStore((s) => s.error)
   const selection = useMindMapViewStore((s) => s.selection)
 
-  const [streamStep, setStreamStep] = useState<MindMapStreamStatus['step']>('calling')
   const [generationMessages, setGenerationMessages] = useState<MindMapAiGenerationMessage[]>([])
   const [editingDocumentTitle, setEditingDocumentTitle] = useState(false)
   const [documentTitleDraft, setDocumentTitleDraft] = useState(documentTitle)
@@ -101,12 +187,152 @@ export function MindMapAiPanel({
     generationId: string
     prompt: string
   } | null>(null)
+  // Once the host apply invoke has started, cancelling the renderer lease
+  // cannot reliably undo a commit that may already be in flight. Keep that
+  // narrow boundary non-cancellable from the UI and let the invoke settle.
+  const generationPhaseRef = useRef<'provider' | 'applying' | null>(null)
+  const generationTerminalRef = useRef<MindMapGenerationTerminal | null>(null)
+  const previewSessionRef = useRef<MindMapGenerationPreviewSession | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const threadShouldStickRef = useRef(true)
+
+  const settlePreviewDrain = (
+    session: MindMapGenerationPreviewSession,
+    drained: boolean
+  ): void => {
+    const waiters = session.drainWaiters.splice(0)
+    for (const resolve of waiters) resolve(drained)
+  }
+
+  const discardGenerationPreview = (generationId?: string): void => {
+    const session = previewSessionRef.current
+    if (!session) {
+      if (generationId) useMindMapViewStore.getState().clearGenerationPreview(generationId)
+      return
+    }
+    if (generationId && session.generationId !== generationId) return
+    previewSessionRef.current = null
+    if (session.timer !== null) clearTimeout(session.timer)
+    session.timer = null
+    session.commands.length = 0
+    settlePreviewDrain(session, false)
+    useMindMapViewStore.getState().clearGenerationPreview(session.generationId)
+  }
+
+  /**
+   * Unmounting the panel is a cancellation boundary.  Invalidate the local
+   * lease before a late provider promise can cross into apply/adopt, then ask
+   * the host to abort the matching request on a best-effort basis.
+   */
+  const abandonGenerationLease = (): void => {
+    const active = generationRef.current
+    if (!active) {
+      discardGenerationPreview()
+      useMindMapViewStore.setState({ generating: false })
+      generationPhaseRef.current = null
+      return
+    }
+    generationTerminalRef.current = { generationId: active.generationId, step: 'cancelled' }
+    generationRef.current = null
+    generationPhaseRef.current = null
+    discardGenerationPreview(active.generationId)
+    // A panel can disappear while its provider promise is still pending (for
+    // example when the learner leaves the editor). Do not leave the global
+    // store stuck in a permanent generating state after the component's
+    // cancellation boundary has run.
+    useMindMapViewStore.setState({ generating: false, aiPrompt: active.prompt })
+    try {
+      void window.teachingSystem?.cancelMindMapGeneration({
+        workspaceId: active.workspaceId,
+        generationId: active.generationId
+      })
+    } catch {
+      // Unmount cleanup is best-effort; the local lease is already invalidated.
+    }
+  }
+
+  const scheduleGenerationPreviewReveal = (generationId: string): void => {
+    const session = previewSessionRef.current
+    if (!session || session.generationId !== generationId || session.timer !== null) return
+    session.timer = setTimeout(() => {
+      const active = previewSessionRef.current
+      if (!active || active.generationId !== generationId) return
+      active.timer = null
+      if (generationRef.current?.generationId !== generationId) {
+        discardGenerationPreview(generationId)
+        return
+      }
+      const command = active.commands.shift()
+      if (!command) {
+        settlePreviewDrain(active, true)
+        return
+      }
+      useMindMapViewStore.getState().revealGenerationPreviewCommand(generationId, command)
+      if (active.commands.length > 0) {
+        scheduleGenerationPreviewReveal(generationId)
+      } else {
+        settlePreviewDrain(active, true)
+      }
+    }, MIND_MAP_PREVIEW_REVEAL_INTERVAL_MS)
+  }
+
+  const enqueuePreviewItems = (
+    generationId: string,
+    items: readonly MindMapStreamedProposalItem[]
+  ): void => {
+    const session = previewSessionRef.current
+    if (!session || session.generationId !== generationId) return
+    for (const item of items) {
+      if (session.admittedItemIds.has(item.id)) continue
+      session.admittedItemIds.add(item.id)
+      session.commands.push(...expandMindMapGenerationPreviewCommand(item.command))
+    }
+    if (session.commands.length > 0) scheduleGenerationPreviewReveal(generationId)
+  }
+
+  const appendPreviewStream = (generationId: string, delta: string): void => {
+    const session = previewSessionRef.current
+    if (!session || session.generationId !== generationId) return
+    session.streamText += delta
+    enqueuePreviewItems(
+      generationId,
+      newCompletedMindMapProposalItems(session.streamText, session.admittedItemIds)
+    )
+  }
+
+  const beginGenerationPreview = (generationId: string): void => {
+    if (!useMindMapViewStore.getState().startGenerationPreview(generationId)) return
+    previewSessionRef.current = {
+      generationId,
+      streamText: '',
+      admittedItemIds: new Set<string>(),
+      commands: [],
+      timer: null,
+      drainWaiters: []
+    }
+  }
+
+  const waitForPreviewQueue = (generationId: string): Promise<boolean> => {
+    const session = previewSessionRef.current
+    // No preview means the legacy full-document path is intentionally using its
+    // existing final-document fallback, so it must not block canonical apply.
+    if (!session || session.generationId !== generationId) return Promise.resolve(true)
+    if (session.timer === null && session.commands.length === 0) return Promise.resolve(true)
+    return new Promise((resolve) => {
+      session.drainWaiters.push(resolve)
+      scheduleGenerationPreviewReveal(generationId)
+    })
+  }
 
   useEffect(() => {
     if (!editingDocumentTitle) setDocumentTitleDraft(documentTitle)
   }, [documentTitle, editingDocumentTitle])
+
+  useEffect(() => {
+    if (!readOnly || !editingDocumentTitle) return
+    setEditingDocumentTitle(false)
+    setDocumentTitleDraft(documentTitle)
+  }, [documentTitle, editingDocumentTitle, readOnly])
 
   useEffect(() => {
     if (editingDocumentTitle) documentTitleInputRef.current?.focus()
@@ -114,27 +340,49 @@ export function MindMapAiPanel({
 
   useEffect(() => {
     const api = window.teachingSystem
-    if (!api?.onMindMapStreamChunk) return undefined
-
-    const offChunk = api.onMindMapStreamChunk((chunk) => {
-      if (generationRef.current?.generationId !== chunk.generationId) return
-      useMindMapViewStore.setState((state) => ({
-        streamText: state.streamText + chunk.delta
-      }))
-      setGenerationMessages((messages) => messages.map((message) => (
-        message.generationId === chunk.generationId
-          ? { ...message, preview: message.preview + chunk.delta }
-          : message
-      )))
-    })
-    const offStatus = api.onMindMapStreamStatus?.((status) => {
+    const offChunk = api?.onMindMapStreamChunk
+      ? api.onMindMapStreamChunk((chunk) => {
+          if (generationRef.current?.generationId !== chunk.generationId) return
+          useMindMapViewStore.setState((state) => ({
+            streamText: state.streamText + chunk.delta
+          }))
+          appendPreviewStream(chunk.generationId, chunk.delta)
+          setGenerationMessages((messages) => messages.map((message) => (
+            message.generationId === chunk.generationId
+              ? { ...message, preview: message.preview + chunk.delta }
+              : message
+          )))
+        })
+      : () => undefined
+    const offStatus = api?.onMindMapStreamStatus?.((status) => {
       if (generationRef.current?.generationId !== status.generationId) return
-      setStreamStep(status.step)
+      if (status.step === 'error' || status.step === 'cancelled') {
+        generationTerminalRef.current = { generationId: status.generationId, step: status.step }
+        discardGenerationPreview(status.generationId)
+      } else if (status.step === 'calling') {
+        generationTerminalRef.current = null
+      }
+      setGenerationMessages((messages) => messages.map((message) => {
+        if (message.generationId !== status.generationId) return message
+        if (status.step === 'error' || status.step === 'cancelled') {
+          return {
+            ...message,
+            terminalStep: status.step,
+            status: status.step === 'cancelled' ? 'cancelled' : 'error'
+          }
+        }
+        return {
+          ...message,
+          step: status.step,
+          terminalStep: undefined
+        }
+      }))
     })
 
     return () => {
       offChunk()
       offStatus?.()
+      abandonGenerationLease()
     }
   }, [])
 
@@ -162,6 +410,45 @@ export function MindMapAiPanel({
     if (generated.documentId !== documentId) {
       throw new Error(t('mindmap.aiProposalDocumentMismatch'))
     }
+
+    // A host-validated proposal is authoritative for completion. It also
+    // fills any items whose final `}` arrived after the last renderer stream
+    // event, while stable item ids keep already-queued streamed items unique.
+    enqueuePreviewItems(generationId, generated.proposal.items)
+    const previewDrained = await waitForPreviewQueue(generationId)
+    if (!previewDrained || generationRef.current?.generationId !== generationId) return
+
+    // Providers can legitimately signal that they found no useful edits with
+    // an empty proposal. This is a no-op, not a failed schema/IPC boundary:
+    // preserve the canonical document, do not enter the durable apply lane,
+    // and make the result clear so the learner can refine or retry the prompt.
+    if (generated.proposal.items.length === 0) {
+      if (generationRef.current?.generationId !== generationId) return
+      discardGenerationPreview(generationId)
+      setGenerationMessages((messages) => messages.map((message) => (
+        message.generationId === generationId
+          ? {
+              ...message,
+              step: 'done',
+              terminalStep: undefined,
+              status: 'no_changes',
+              notice: t('mindmap.aiNoChangesDetail')
+            }
+          : message
+      )))
+      return
+    }
+
+    // The provider proposal is read-only. Confirm the local generation lease
+    // before crossing into the mutating apply lane, then expose that real
+    // renderer-side boundary in the process transcript.
+    if (generationRef.current?.generationId !== generationId) return
+    generationPhaseRef.current = 'applying'
+    setGenerationMessages((messages) => messages.map((message) => (
+      message.generationId === generationId
+        ? { ...message, step: 'applying', terminalStep: undefined }
+        : message
+    )))
 
     // No approval step: every proposed item is accepted and applied directly.
     const decisions: Record<string, MindMapProposalDecision> = {}
@@ -194,9 +481,10 @@ export function MindMapAiPanel({
       inverse: applied.inverse,
       label: t('mindmap.aiProposalUndoLabel')
     })
+    discardGenerationPreview(generationId)
     setGenerationMessages((messages) => messages.map((message) => (
       message.generationId === generationId
-        ? { ...message, status: 'completed' }
+        ? { ...message, step: 'done', terminalStep: undefined, status: 'completed' }
         : message
     )))
   }
@@ -230,7 +518,7 @@ export function MindMapAiPanel({
       })
       setGenerationMessages((messages) => messages.map((message) => (
         message.generationId === generationId
-          ? { ...message, status: 'completed' }
+          ? { ...message, step: 'done', terminalStep: undefined, status: 'completed' }
           : message
       )))
       void useMindMapViewStore.getState().loadDocuments()
@@ -243,36 +531,66 @@ export function MindMapAiPanel({
     if (!workspace) return
     const generationId = crypto.randomUUID()
     const submittedPrompt = prompt.trim()
+    const current = useMindMapViewStore.getState().current
+    const sheetId = useMindMapViewStore.getState().activeSheetId ?? current?.sheets[0]?.id
+    const mode: MindMapGenerationMode = current && sheetId ? 'edit' : 'create'
     generationRef.current = { workspaceId: workspace, generationId, prompt: submittedPrompt }
+    generationPhaseRef.current = 'provider'
+    generationTerminalRef.current = null
+    if (current && sheetId) beginGenerationPreview(generationId)
     setGenerationMessages((messages) => [
       ...messages,
-      { generationId, prompt: submittedPrompt, preview: '', status: 'generating' }
+      { generationId, prompt: submittedPrompt, preview: '', mode, step: 'calling', status: 'generating' }
     ])
-    setStreamStep('calling')
     useMindMapViewStore.setState({ generating: true, streamText: '', error: null })
     try {
-      const current = useMindMapViewStore.getState().current
-      const sheetId = useMindMapViewStore.getState().activeSheetId ?? current?.sheets[0]?.id
       if (current && sheetId) {
-        await editCurrentCanvas(workspace, current.id, sheetId, submittedPrompt, generationId)
+        await editCurrentCanvas(
+          workspace,
+          current.id,
+          sheetId,
+          submittedPrompt,
+          generationId
+        )
       } else {
         await generateNewDocument(workspace, submittedPrompt, generationId)
       }
     } catch (caught) {
+      discardGenerationPreview(generationId)
       // A cancelled run is intentionally not an error panel; the user already
       // asked to stop it.
       if (generationRef.current?.generationId === generationId) {
-        const message = caught instanceof Error ? caught.message : String(caught)
-        useMindMapViewStore.setState({ error: message, aiPrompt: submittedPrompt })
+        const currentDocumentWasRemoved = current
+          ? isMissingCurrentMindMapDocumentError(caught, current.id)
+          : false
+        const message = currentDocumentWasRemoved
+          ? t('mindmap.aiDocumentMissing')
+          : mindMapGenerationErrorMessage(caught, t)
+        const terminalStatus = terminalStepForGeneration(
+          generationTerminalRef.current,
+          generationId
+        )
         setGenerationMessages((messages) => messages.map((entry) => (
           entry.generationId === generationId
-            ? { ...entry, status: 'error', error: message }
+            ? terminalStatus === 'cancelled'
+              ? { ...entry, status: 'cancelled', terminalStep: 'cancelled' }
+              : { ...entry, status: 'error', terminalStep: 'error', error: message }
             : entry
         )))
+        if (terminalStatus !== 'cancelled') {
+          if (currentDocumentWasRemoved && current) {
+            useMindMapViewStore.getState().discardMissingDocument(current.id, message)
+            useMindMapViewStore.setState({ aiPrompt: submittedPrompt })
+          } else {
+            useMindMapViewStore.setState({ error: message, aiPrompt: submittedPrompt })
+          }
+        }
       }
     } finally {
+      discardGenerationPreview(generationId)
       if (generationRef.current?.generationId === generationId) {
         generationRef.current = null
+        generationPhaseRef.current = null
         useMindMapViewStore.setState({ generating: false })
       }
     }
@@ -280,13 +598,15 @@ export function MindMapAiPanel({
 
   const cancelGeneration = (): void => {
     const active = generationRef.current
-    if (!active) return
+    if (!active || generationPhaseRef.current === 'applying') return
     const { workspaceId, generationId, prompt } = active
+    generationTerminalRef.current = { generationId, step: 'cancelled' }
+    discardGenerationPreview(generationId)
     generationRef.current = null
-    setStreamStep('cancelled')
+    generationPhaseRef.current = null
     setGenerationMessages((messages) => messages.map((message) => (
       message.generationId === generationId
-        ? { ...message, status: 'cancelled' }
+        ? { ...message, terminalStep: 'cancelled', status: 'cancelled' }
         : message
     )))
     useMindMapViewStore.setState({ generating: false, aiPrompt: prompt })
@@ -297,6 +617,8 @@ export function MindMapAiPanel({
       // main process/provider abort is fire-and-forget from the renderer.
     }
   }
+
+  const canCancelGeneration = generating && generationPhaseRef.current !== 'applying'
 
   const submitPrompt = (): void => {
     if (!canSubmit) return
@@ -332,29 +654,22 @@ export function MindMapAiPanel({
 
   useEffect(() => {
     const thread = threadRef.current
-    if (!thread || !threadShouldStickRef.current) return
+    if (!thread) return
+    // During an in-flight generation the transcript is pinned to the bottom so
+    // the latest process step and streamed preview stay visible without manual
+    // scrolling (mirrors the overview conversation). Once idle, only follow new
+    // content when the learner is already at the bottom, so reading older turns
+    // is never fought.
+    const shouldStick = threadShouldStickRef.current || generating
+    if (!shouldStick) return
     thread.scrollTop = thread.scrollHeight
-  }, [generationMessages])
+  }, [generationMessages, streamText, generating])
 
   const inspectorTab = useMindMapViewStore((s) => s.inspectorTab)
   const setInspectorTab = useMindMapViewStore((s) => s.setInspectorTab)
 
-  // Compact generation status shown in the composer statusbar (mirrors the
-  // overview dialog's status strip).
-  const lastMessage = generationMessages[generationMessages.length - 1]
-  const statusLabel = generationMessages.length === 0 && error
-    ? t('mindmap.aiError')
-    : !lastMessage
-      ? null
-      : lastMessage.status === 'generating'
-        ? t('mindmap.aiStreaming')
-        : lastMessage.status === 'cancelled'
-          ? t('mindmap.aiStreamCancelled')
-          : lastMessage.status === 'error'
-            ? t('mindmap.aiError')
-            : t('mindmap.aiApplied')
-
   const beginDocumentTitleEdit = (): void => {
+    if (readOnly) return
     setDocumentTitleDraft(documentTitle)
     setEditingDocumentTitle(true)
   }
@@ -383,7 +698,7 @@ export function MindMapAiPanel({
           }}
           onChange={(event) => setDocumentTitleDraft(event.currentTarget.value)}
           onBlur={() => {
-            if (editingDocumentTitle) commitDocumentTitleEdit()
+            if (editingDocumentTitle && !readOnly) commitDocumentTitleEdit()
           }}
           onKeyDown={(event) => {
             if (!editingDocumentTitle) {
@@ -401,8 +716,9 @@ export function MindMapAiPanel({
               commitDocumentTitleEdit()
             }
           }}
-          title={t('mindmap.renameDocument')}
+          title={readOnly ? t('mindmap.aiStreaming') : t('mindmap.renameDocument')}
           aria-label={t('mindmap.renameDocument')}
+          disabled={readOnly}
         />
         {utilityControl}
         {importExportControl}
@@ -492,22 +808,21 @@ export function MindMapAiPanel({
                           </div>
                           <div className="mindmap-ai-panel__turn mindmap-ai-panel__turn--assistant">
                             <article
-                              className={`mindmap-ai-panel__message mindmap-ai-panel__message--assistant overview-dialog-message is-assistant${message.status === 'error' ? ' is-error' : ''}`}
-                              data-stream-step={active ? streamStep : undefined}
+                              className={`mindmap-ai-panel__message mindmap-ai-panel__message--assistant overview-dialog-message is-assistant${message.status === 'error' ? ' is-error' : ''}${message.status === 'no_changes' ? ' is-no-changes' : ''}`}
+                              // Keep the real last lifecycle boundary on completed, failed,
+                              // and cancelled turns as well. Besides aiding diagnostics, this
+                              // avoids making historical process cards look like they never
+                              // received a provider/renderer status.
+                              data-stream-step={message.step}
                               data-generation-status={message.status}
                             >
-                              <div className="mindmap-ai-panel__message-status">
-                                {active ? <Loader2 size={14} className="spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
-                                <span>
-                                  {active
-                                    ? t('mindmap.aiStreaming')
-                                    : message.status === 'cancelled'
-                                      ? t('mindmap.aiStreamCancelled')
-                                    : message.status === 'error'
-                                      ? t('mindmap.aiError')
-                                        : t('mindmap.aiApplied')}
-                                </span>
-                              </div>
+                              <MindMapGenerationProcess
+                                generationId={message.generationId}
+                                mode={message.mode}
+                                step={message.step}
+                                status={message.status}
+                                terminalStep={message.terminalStep}
+                              />
                               {preview ? (
                                 <MarkdownMessage
                                   content={mindMapPreviewMarkdown(preview)}
@@ -516,7 +831,8 @@ export function MindMapAiPanel({
                                 />
                               ) : null}
                               {message.error ? <p className="mindmap-ai-panel__message-error">{message.error}</p> : null}
-                              {message.status === 'error' ? (
+                              {message.notice ? <p className="mindmap-ai-panel__message-notice">{message.notice}</p> : null}
+                              {message.status === 'error' || message.status === 'no_changes' ? (
                                 <button
                                   type="button"
                                   className="ghost-button"
@@ -581,6 +897,7 @@ export function MindMapAiPanel({
                           type="button"
                           className="mindmap-ai-panel__send overview-dialog-send"
                           onClick={cancelGeneration}
+                          disabled={!canCancelGeneration}
                           aria-label={t('mindmap.aiCancel')}
                           title={t('mindmap.aiCancel')}
                         >
@@ -599,16 +916,6 @@ export function MindMapAiPanel({
                       )}
                     </div>
                   </div>
-                  {statusLabel ? (
-                    <div className="mindmap-ai-panel__statusbar overview-dialog-statusbar" aria-label={t('mindmap.inspector.ai')}>
-                      <div className="mindmap-ai-panel__status-group overview-dialog-status-group" />
-                      <div className="mindmap-ai-panel__status-group overview-dialog-status-group">
-                        <span className="mindmap-ai-panel__status-text overview-dialog-status-text" role="status" aria-live="polite">
-                          {statusLabel}
-                        </span>
-                      </div>
-                    </div>
-                  ) : null}
                 </form>
               </div>
             </div>

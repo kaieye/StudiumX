@@ -132,10 +132,19 @@ function extractResponsesToolCalls(body: unknown): ToolCall[] {
   const calls: ToolCall[] = []
   for (const item of output) {
     if (!item || typeof item !== 'object') continue
-    const record = item as { type?: string; id?: string; name?: string; arguments?: unknown }
+    const record = item as {
+      type?: string
+      id?: string
+      call_id?: string
+      name?: string
+      arguments?: unknown
+    }
     if (record.type !== 'function_call') continue
     calls.push({
-      id: record.id || `call_${calls.length}`,
+      // Responses uses `id` for the output item and `call_id` to correlate
+      // the subsequent function_call_output input. Preserve the latter so a
+      // streamed or non-streamed tool turn can continue correctly.
+      id: record.call_id || record.id || `call_${calls.length}`,
       type: 'function',
       function: {
         name: record.name || '',

@@ -31,7 +31,7 @@ function makeDocument(): MindMapDocumentV2 {
           ]
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []
@@ -477,10 +477,12 @@ describe('mind-map provider proposal parser', () => {
     expect(parseMindMapProposalJson(JSON.stringify(emptySheetCreate)).ok).toBe(false)
   })
 
-  it('rejects empty proposals, blank ids, duplicate ids, and invalid JSON', () => {
-    expect(
-      parseMindMapProposalJson(JSON.stringify({ ...validProposal(), items: [] })).ok
-    ).toBe(false)
+  it('accepts an explicit no-change proposal, but still rejects blank ids, duplicate ids, and invalid JSON', () => {
+    const noChanges = { ...validProposal(), items: [] }
+    expect(parseMindMapProposalJson(JSON.stringify(noChanges))).toEqual({
+      ok: true,
+      proposal: noChanges
+    })
     expect(
       parseMindMapProposalJson(JSON.stringify({ ...validProposal(), proposalId: '   ' })).ok
     ).toBe(false)

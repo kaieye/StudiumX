@@ -46,7 +46,7 @@ const documentFixture: MindMapDocumentV2 = {
       children: [{ id: 'child', title: 'Other topic', children: [] }]
     },
     elements: [],
-    layout: { structureClass: 'org.xmind.ui.logic.right' }
+    layout: { structureClass: 'studiumx.layout.logic.right' }
   }],
   assets: []
 }

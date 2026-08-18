@@ -225,7 +225,7 @@ export const FEATURES: readonly FeatureDefinition[] = [
     stage: 'under_development',
     title: '思维导图与 AI 辅助生成',
     summary:
-      '原生导图编辑（数据模型镜像 XMind content：sheet→rootTopic→topic 递归树）+ AI 辅助生成（复用 provider 基建，Zod 校验）。导图是用户内容非教学权威；durable 工作区写；`.xmind` 导入/导出用 fflate；渲染器自绘 SVG。见 ADR-0172。',
+      '原生导图编辑（StudiumX 文档模型：sheet→root topic→递归主题树）+ AI 辅助生成（复用 provider 基建，Zod 校验）。导图是用户内容非教学权威；durable 工作区写；支持 Markdown、OPML、SVG 与 PNG 交换；渲染器自绘 SVG。见 ADR-0172。',
     since: '2026-08',
     footprintHint: 3
   }

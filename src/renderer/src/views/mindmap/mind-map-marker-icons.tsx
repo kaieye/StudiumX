@@ -1,13 +1,13 @@
 import type { ReactElement } from 'react'
 
 /**
- * SVG marker icon set inspired by Xmind's marker system.
+ * SVG marker icon set inspired by StudiumX's marker system.
  *
- * Xmind organises markers into groups: priority, task/progress, flags,
+ * StudiumX organises markers into groups: priority, task/progress, flags,
  * stars, symbols, etc. Each marker is a small SVG icon
  * rendered inside a circular badge on the node.
  *
- * These are original SVG paths designed to visually echo the Xmind style
+ * These are original SVG paths designed to visually echo the StudiumX style
  * without copying proprietary assets.
  */
 

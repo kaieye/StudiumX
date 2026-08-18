@@ -67,7 +67,7 @@ function makeDocument(): MindMapDocumentV2 {
                 fill: '#654321',
                 stroke: '#222222',
                 fontWeight: '400',
-                structureClass: 'org.xmind.ui.logic.left'
+                structureClass: 'studiumx.layout.logic.left'
               },
               children: [
                 {
@@ -87,7 +87,7 @@ function makeDocument(): MindMapDocumentV2 {
           ]
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []
@@ -145,7 +145,7 @@ describe('MindMapTopicStyleInspector', () => {
     render(<MindMapTopicStyleInspector />)
 
     expect(screen.getByText('Node style')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Node layout' })).toHaveValue('org.xmind.ui.logic.right')
+    expect(screen.getByRole('combobox', { name: 'Node layout' })).toHaveValue('studiumx.layout.logic.right')
     expect(screen.getByText('Effective layout: Right')).toBeInTheDocument()
   })
 
@@ -197,14 +197,14 @@ describe('MindMapTopicStyleInspector', () => {
     render(<MindMapTopicStyleInspector />)
     const select = screen.getByRole('combobox', { name: 'Node layout' })
 
-    fireEvent.change(select, { target: { value: 'org.xmind.ui.logic.balanced' } })
+    fireEvent.change(select, { target: { value: 'studiumx.layout.logic.balanced' } })
 
     const topic = useMindMapViewStore.getState().current?.sheets[0]?.root
     expect(topic?.style).toEqual({
       fill: '#123456',
       stroke: '#111111',
       fontWeight: '600',
-      structureClass: 'org.xmind.ui.logic.balanced'
+      structureClass: 'studiumx.layout.logic.balanced'
     })
     expect(screen.getByText('Effective layout: Balanced')).toBeInTheDocument()
   })
@@ -213,7 +213,7 @@ describe('MindMapTopicStyleInspector', () => {
     render(<MindMapTopicStyleInspector />)
     const select = screen.getByRole('combobox', { name: 'Node layout' })
 
-    fireEvent.change(select, { target: { value: 'org.xmind.ui.logic.left' } })
+    fireEvent.change(select, { target: { value: 'studiumx.layout.logic.left' } })
     fireEvent.change(select, { target: { value: '' } })
 
     expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style).toEqual({
@@ -221,7 +221,7 @@ describe('MindMapTopicStyleInspector', () => {
       stroke: '#111111',
       fontWeight: '600'
     })
-    expect(select).toHaveValue('org.xmind.ui.logic.right')
+    expect(select).toHaveValue('studiumx.layout.logic.right')
 
     act(() => {
       useMindMapViewStore.getState().undo()
@@ -230,9 +230,9 @@ describe('MindMapTopicStyleInspector', () => {
       fill: '#123456',
       stroke: '#111111',
       fontWeight: '600',
-      structureClass: 'org.xmind.ui.logic.left'
+      structureClass: 'studiumx.layout.logic.left'
     })
-    expect(select).toHaveValue('org.xmind.ui.logic.left')
+    expect(select).toHaveValue('studiumx.layout.logic.left')
   })
 
   it('shows mixed values for a topic multi-selection instead of the primary topic value', () => {
@@ -267,7 +267,7 @@ describe('MindMapTopicStyleInspector', () => {
       fill: '#4A90D9',
       stroke: '#222222',
       fontWeight: '400',
-      structureClass: 'org.xmind.ui.logic.left'
+      structureClass: 'studiumx.layout.logic.left'
     })
 
     act(() => useMindMapViewStore.getState().undo())
@@ -914,14 +914,14 @@ describe('MindMapTopicStyleInspector', () => {
     if (!withLocalFont) throw new Error('expected current document')
     withLocalFont.sheets[0]!.root.style = {
       ...withLocalFont.sheets[0]!.root.style,
-      fontFamily: 'Imported XMind Font, sans-serif'
+      fontFamily: 'Imported native Font, sans-serif'
     }
     useMindMapViewStore.setState({ current: structuredClone(withLocalFont) })
     rerender(<MindMapTopicStyleInspector />)
 
-    expect(screen.getByRole('button', { name: /Imported XMind Font/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Imported native Font/ })).toBeInTheDocument()
     expect(screen.getByRole('status', { name: /Font source:/ })).toHaveTextContent(
-      'Font source: Local override (Imported XMind Font, sans-serif)'
+      'Font source: Local override (Imported native Font, sans-serif)'
     )
     expect(screen.getByText('Requested imported or custom font may fall back in this app.')).toBeInTheDocument()
   })

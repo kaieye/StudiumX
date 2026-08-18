@@ -53,14 +53,14 @@ function documentWithDuplicateTopicIds(): MindMapDocumentV2 {
         title: 'First sheet',
         root: { id: 'shared-topic', title: 'First title', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       },
       {
         id: 'sheet-2',
         title: 'Active sheet',
         root: { id: 'shared-topic', title: 'Second title', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []

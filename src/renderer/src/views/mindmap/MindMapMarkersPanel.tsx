@@ -4,11 +4,11 @@ import { useMindMapViewStore } from './mind-map-view-store'
 import { MARKER_GROUPS } from './mind-map-marker-icons'
 
 /**
- * Markers/icons picker panel for the selected topic (Xmind-style).
+ * Markers/icons picker panel for the selected topic (StudiumX-style).
  *
  * Offers a curated set of SVG marker icons (priority, task progress, flags,
  * stars, symbols) that can be attached to or removed
- * from the selected topic.  Uses original SVG icons inspired by Xmind's
+ * from the selected topic.  Uses original SVG icons inspired by StudiumX's
  * marker system.
  */
 

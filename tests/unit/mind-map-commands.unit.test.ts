@@ -23,7 +23,9 @@ import {
   buildInsertChildCommand,
   buildInsertSiblingCommand,
   buildRemoveTopicsCommand,
-  buildToggleCollapseTopicsCommand
+  buildToggleCollapseTopicsCommand,
+  captureClipboardData,
+  elementRefIds
 } from '../../src/renderer/src/views/mindmap/mind-map-commands'
 
 function makeDocument(): MindMapDocumentV2 {
@@ -48,7 +50,7 @@ function makeDocument(): MindMapDocumentV2 {
           ]
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []
@@ -424,6 +426,32 @@ describe('applyMindMapCommand — elements', () => {
     expect(result.document).toEqual(doc)
   })
 
+  it('updates and undoes a connector curve-control offset', () => {
+    const doc = makeDocument()
+    doc.sheets[0]!.elements = [{
+      id: 'curve-1',
+      type: 'connector',
+      start: { x: 0, y: 0, anchor: { targetType: 'topic', targetId: 'a' } },
+      end: { x: 200, y: 80, anchor: { targetType: 'topic', targetId: 'b' } },
+      style: { lineShape: 'curved' }
+    }]
+
+    const updated = applyMindMapCommand(doc, {
+      type: 'element.update',
+      sheetId: 'sheet-1',
+      elementId: 'curve-1',
+      patch: { curveControlOffset: { x: 18, y: -42 } }
+    })
+    expectOk(updated)
+    expect(updated.document.sheets[0]!.elements[0]).toMatchObject({
+      curveControlOffset: { x: 18, y: -42 }
+    })
+
+    const undone = applyMindMapCommand(updated.document, updated.inverse)
+    expectOk(undone)
+    expect(undone.document).toEqual(doc)
+  })
+
   it('rejects an element that references a missing topic', () => {
     const bad: MindMapElement = { id: 'rel-bad', type: 'relationship', from: 'missing', to: 'b' }
     const result = applyMindMapCommand(makeDocument(), {
@@ -433,6 +461,88 @@ describe('applyMindMapCommand — elements', () => {
     })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('INVALID_PATCH')
+  })
+
+  it('removes connectors attached to a removed shape and restores them through undo/redo', () => {
+    const doc = makeDocument()
+    const shape: MindMapElement = {
+      id: 'shape-1',
+      type: 'shape',
+      shape: 'rect',
+      position: { x: 40, y: 50 },
+      width: 100,
+      height: 60
+    }
+    const connectorBeforeShape: MindMapElement = {
+      id: 'connector-1',
+      type: 'connector',
+      start: { x: 0, y: 0, anchor: { targetType: 'topic', targetId: 'a' } },
+      end: { x: 140, y: 80, anchor: { targetType: 'shape', targetId: shape.id } }
+    }
+    const connectorAfterShape: MindMapElement = {
+      id: 'connector-2',
+      type: 'connector',
+      start: {
+        x: 140,
+        y: 80,
+        anchor: { targetType: 'shape', targetId: shape.id }
+      },
+      end: { x: 200, y: 100, anchor: { targetType: 'topic', targetId: 'b' } }
+    }
+    // Keep the shape in the middle so the inverse must recreate it before the
+    // dependent connectors while preserving the original element ordering.
+    doc.sheets[0]!.elements = [connectorBeforeShape, shape, connectorAfterShape]
+    expectInvariants(doc)
+
+    const remove: MindMapCommand = {
+      type: 'element.remove',
+      sheetId: 'sheet-1',
+      elementId: shape.id
+    }
+    const stack = new MindMapUndoRedoStack(doc)
+    const removed = stack.execute(remove)
+    expectOk(removed)
+
+    expect(stack.document.sheets[0]!.elements).toEqual([])
+    expectInvariants(stack.document)
+
+    // The reducer restores the shape before the dependent connectors and
+    // adjusts the insertion index to retain the original ordering.
+    expect(removed.inverse).toEqual({
+      type: 'transaction',
+      commands: [
+        {
+          type: 'element.create',
+          sheetId: 'sheet-1',
+          index: 0,
+          element: shape
+        },
+        {
+          type: 'element.create',
+          sheetId: 'sheet-1',
+          index: 0,
+          element: connectorBeforeShape
+        },
+        {
+          type: 'element.create',
+          sheetId: 'sheet-1',
+          index: 2,
+          element: connectorAfterShape
+        }
+      ]
+    })
+
+    const undone = stack.undo()
+    expect(undone).not.toBeNull()
+    expectOk(undone as MindMapCommandResult)
+    expect(stack.document).toEqual(doc)
+    expectInvariants(stack.document)
+
+    const redone = stack.redo()
+    expect(redone).not.toBeNull()
+    expectOk(redone as MindMapCommandResult)
+    expect(stack.document.sheets[0]!.elements).toEqual([])
+    expectInvariants(stack.document)
   })
 })
 
@@ -599,7 +709,7 @@ describe('applyMindMapCommand — sheets and theme', () => {
     inverses.push(result.inverse)
     expect(result.document.sheets.map((s) => s.id)).toEqual(['sheet-1', 'sheet-2'])
     expect(result.document.sheets[1]!.layout).toMatchObject({
-      structureClass: 'org.xmind.ui.logic.right',
+      structureClass: 'studiumx.layout.logic.right',
       defaultTopicShape: 'rounded-rect'
     })
     expectInvariants(result.document)
@@ -646,7 +756,7 @@ describe('applyMindMapCommand — sheets and theme', () => {
       type: 'sheet.update-layout',
       sheetId: 'sheet-1',
       patch: {
-        structureClass: 'org.xmind.ui.logic.balanced',
+        structureClass: 'studiumx.layout.logic.balanced',
         direction: 'rtl',
         compact: true,
         spacing: 28,
@@ -655,7 +765,7 @@ describe('applyMindMapCommand — sheets and theme', () => {
     })
     expectOk(result)
     expect(result.document.sheets[0]!.layout).toEqual({
-      structureClass: 'org.xmind.ui.logic.balanced',
+      structureClass: 'studiumx.layout.logic.balanced',
       direction: 'rtl',
       compact: true,
       spacing: 28,
@@ -680,11 +790,11 @@ describe('applyMindMapCommand — sheets and theme', () => {
     const changedStructure = applyMindMapCommand(overridden.document, {
       type: 'sheet.update-layout',
       sheetId: 'sheet-1',
-      patch: { structureClass: 'org.xmind.ui.timeline.horizontal' }
+      patch: { structureClass: 'studiumx.layout.timeline.horizontal' }
     })
     expectOk(changedStructure)
     expect(changedStructure.document.sheets[0]!.layout).toMatchObject({
-      structureClass: 'org.xmind.ui.timeline.horizontal',
+      structureClass: 'studiumx.layout.timeline.horizontal',
       lineStyle: 'curve'
     })
 
@@ -699,7 +809,7 @@ describe('applyMindMapCommand — sheets and theme', () => {
       type: 'sheet.update-layout',
       sheetId: 'sheet-1',
       patch: {
-        structureClass: 'org.xmind.ui.timeline.horizontal',
+        structureClass: 'studiumx.layout.timeline.horizontal',
         direction: null,
         compact: null,
         spacing: null,
@@ -1030,6 +1140,108 @@ describe('clipboard', () => {
       to: 'output-copy',
       summaryTopicId: 'output-copy'
     })
+  })
+
+  it('omits a connector when one of its targets is outside the copied branch', () => {
+    const doc = makeDocument()
+    const sheet = doc.sheets[0]!
+    sheet.elements = [
+      {
+        id: 'shape-1',
+        type: 'shape',
+        shape: 'rect',
+        position: { x: 260, y: 80 },
+        width: 100,
+        height: 60
+      },
+      {
+        id: 'connector-1',
+        type: 'connector',
+        start: { x: 160, y: 60, anchor: { targetType: 'topic', targetId: 'a' } },
+        end: { x: 260, y: 110, anchor: { targetType: 'shape', targetId: 'shape-1' } }
+      }
+    ]
+
+    // Shape anchors are intentionally not treated as topic-branch references.
+    // The clipboard path below still omits this connector because its shape
+    // target is outside the copied branch.
+    expect(elementRefIds(sheet.elements[1]!)).toEqual(['a'])
+    const data = captureClipboardData(doc, 'sheet-1', 'a')
+    expect(data?.elements).toEqual([])
+
+    const command = buildPasteCommand(
+      {
+        kind: 'paste',
+        data: data!,
+        targetSheetId: 'sheet-1',
+        targetParentId: 'root-1'
+      },
+      (id) => `copy-${id}`
+    )
+    const result = applyMindMapCommand(doc, command)
+    expectOk(result)
+    expect(result.document.sheets[0]!.elements).toEqual(sheet.elements)
+    expectInvariants(result.document)
+  })
+
+  it('creates copied shapes before connectors that magnetically anchor to them', () => {
+    const data = {
+      documentId: 'doc-1',
+      sheetId: 'sheet-1',
+      branches: [],
+      // Deliberately serialise in the less convenient order to ensure paste
+      // uses the dependency-safe creation sequence.
+      elements: [
+        {
+          id: 'connector-1',
+          type: 'connector' as const,
+          start: { x: 30, y: 40, anchor: { targetType: 'shape' as const, targetId: 'shape-1' } },
+          end: { x: 180, y: 80, anchor: { targetType: 'shape' as const, targetId: 'shape-2' } }
+        },
+        {
+          id: 'shape-1',
+          type: 'shape' as const,
+          shape: 'ellipse' as const,
+          position: { x: 80, y: 50 },
+          width: 90,
+          height: 50
+        },
+        {
+          id: 'shape-2',
+          type: 'shape' as const,
+          shape: 'rect' as const,
+          position: { x: 170, y: 50 },
+          width: 90,
+          height: 50
+        }
+      ],
+      capturedAt: '2026-08-09T00:00:00.000Z'
+    }
+    const command = buildPasteCommand(
+      { kind: 'paste', data, targetSheetId: 'sheet-1', targetParentId: 'root-1' },
+      (id) => `copy-${id}`
+    )
+
+    expect(command).toMatchObject({
+      type: 'transaction',
+      commands: [
+        { type: 'element.create', element: { id: 'copy-shape-1', type: 'shape' } },
+        { type: 'element.create', element: { id: 'copy-shape-2', type: 'shape' } },
+        { type: 'element.create', element: { id: 'copy-connector-1', type: 'connector' } }
+      ]
+    })
+    const result = applyMindMapCommand(makeDocument(), command)
+    expectOk(result)
+    expectInvariants(result.document)
+  })
+
+  it('does not capture a relationship that crosses the copied branch boundary', () => {
+    const doc = makeDocument()
+    doc.sheets[0]!.elements = [
+      { id: 'relationship-1', type: 'relationship', from: 'a', to: 'b' }
+    ]
+
+    expect(captureClipboardData(doc, 'sheet-1', 'a')?.elements).toEqual([])
   })
 })
 

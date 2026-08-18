@@ -63,6 +63,11 @@ import {
   type MindMapTopicStyleClipboard
 } from './mind-map-topic-style-clipboard'
 import { migrateTopicAssetsToImages } from '../../../../shared/mindmap/migrations'
+import {
+  createMindMapGenerationPreview,
+  projectMindMapGenerationPreviewCommand,
+  type MindMapGenerationPreview
+} from './mind-map-generation-preview'
 
 /**
  * Renderer state for the mind-map view (docs/mindmap/design.md §6.6).
@@ -102,6 +107,8 @@ type MindMapViewState = {
   editingNodeId: string | null
   generating: boolean
   streamText: string
+  /** Renderer-only projection of an in-flight AI proposal; never persisted. */
+  generationPreview: MindMapGenerationPreview | null
   error: string | null
   aiPrompt: string
   /** P2 §5.2: right-inspector visibility, persisted to localStorage. */
@@ -135,6 +142,11 @@ type MindMapViewState = {
   openDocument: (id: string) => Promise<void>
   /** Flush pending local writes and return to the document gallery. */
   closeDocument: () => Promise<void>
+  /**
+   * Exit an editor whose canonical file was deleted outside StudiumX. This path
+   * deliberately never persists or recreates the renderer snapshot.
+   */
+  discardMissingDocument: (id: string, message: string) => void
   /**
    * Create and open a persisted document. Rejects when the request cannot be
    * completed so the caller can keep its create surface open and show the
@@ -203,6 +215,12 @@ type MindMapViewState = {
 
   setEditingNodeId: (id: string | null) => void
   setAiPrompt: (prompt: string) => void
+  /** Clone the canonical document for one generation-correlated transient projection. */
+  startGenerationPreview: (generationId: string) => boolean
+  /** Project one schema-validated command without touching undo, IPC, or persistence. */
+  revealGenerationPreviewCommand: (generationId: string, command: MindMapCommand) => boolean
+  /** Discard a preview only when it belongs to the caller's active generation. */
+  clearGenerationPreview: (generationId: string) => void
   /** Adopt a document already committed by the main-process canonical lane. */
   adoptCommittedDocument: (
     document: MindMapDocumentV2,
@@ -420,6 +438,10 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     command: MindMapCommand,
     options?: MindMapExecuteOptions
   ): void => {
+    // The preview is deliberately isolated from the editor undo/persist lane.
+    // A stale canvas/inspector event during the reveal must not mutate the
+    // canonical snapshot underneath the provider's revision-bound proposal.
+    if (get().generationPreview !== null) return
     const stack = undoStack
     if (!stack) return
     const result = stack.execute(command, options)
@@ -433,6 +455,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
   }
 
   const undo = (): void => {
+    if (get().generationPreview !== null) return
     const stack = undoStack
     if (!stack) return
     const result = stack.undo()
@@ -447,6 +470,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
   }
 
   const redo = (): void => {
+    if (get().generationPreview !== null) return
     const stack = undoStack
     if (!stack) return
     const result = stack.redo()
@@ -458,6 +482,50 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     mutationEpoch += 1
     set({ current: stack.document, error: null })
     schedulePersist()
+  }
+
+  const discardMissingDocument = (id: string, message: string): void => {
+    const current = get().current
+    // A late failure for a document that has already been closed or replaced
+    // must not eject the learner from the newly opened map.
+    if (!current || current.id !== id) return
+
+    const ownerWorkspaceId = workspaceIdForDocument(id)
+    clearPendingPersist()
+    dirty = false
+    mutationEpoch += 1
+    undoStack = null
+    clipboard = null
+
+    set((state) => {
+      const library = state.library
+        ? {
+            home:
+              ownerWorkspaceId === HOME_MIND_MAP_WORKSPACE_ID
+                ? state.library.home.filter((document) => document.id !== id)
+                : state.library.home,
+            workspaces: state.library.workspaces.map((entry) => (
+              entry.workspaceId === ownerWorkspaceId
+                ? { ...entry, documents: entry.documents.filter((document) => document.id !== id) }
+                : entry
+            ))
+          }
+        : null
+      return {
+        documents: state.documents.filter((document) => document.id !== id),
+        ...(library ? { library } : {}),
+        current: null,
+        selection: { kind: 'canvas' } as const,
+        selectedNodeId: null,
+        activeSheetId: null,
+        editingNodeId: null,
+        error: message
+      }
+    })
+
+    // The synchronous removal makes the old card disappear immediately; this
+    // best-effort refresh reconciles any other external filesystem changes.
+    void refreshDocuments().catch(() => undefined)
   }
 
   return {
@@ -472,6 +540,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     copiedTopicStyle: null,
     generating: false,
     streamText: '',
+    generationPreview: null,
     error: null,
     aiPrompt: '',
     inspectorOpen: (() => {
@@ -554,6 +623,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
             selectedNodeId: current.sheets[0]?.root.id ?? null,
             activeSheetId: current.sheets[0]?.id ?? null,
             editingNodeId: null,
+            generationPreview: null,
             error: null
           })
         }
@@ -579,9 +649,12 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         selectedNodeId: null,
         activeSheetId: null,
         editingNodeId: null,
+        generationPreview: null,
         error: null
       })
     },
+
+    discardMissingDocument,
 
     createDocument: async (title, structureClass) => {
       const workspace = workspaceId()
@@ -618,6 +691,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
           selectedNodeId: current.sheets[0]?.root.id ?? null,
           activeSheetId: current.sheets[0]?.id ?? null,
           editingNodeId: null,
+          generationPreview: null,
           documents: [
             {
               id: current.id,
@@ -1212,6 +1286,36 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     setEditingNodeId: (editingNodeId) => set({ editingNodeId }),
 
     setAiPrompt: (aiPrompt) => set({ aiPrompt }),
+    startGenerationPreview: (generationId) => {
+      const existing = get().generationPreview
+      if (existing !== null && existing.generationId !== generationId) return false
+      const current = get().current
+      if (!current) return false
+      set({
+        generationPreview: createMindMapGenerationPreview(generationId, current),
+        editingNodeId: null
+      })
+      return true
+    },
+    revealGenerationPreviewCommand: (generationId, command) => {
+      let revealed = false
+      set((state) => {
+        const preview = state.generationPreview
+        if (!preview || preview.generationId !== generationId) return state
+        const projection = projectMindMapGenerationPreviewCommand(preview, command)
+        if (!projection.applied) return state
+        revealed = true
+        return { generationPreview: projection.preview, editingNodeId: null }
+      })
+      return revealed
+    },
+    clearGenerationPreview: (generationId) => {
+      set((state) => (
+        state.generationPreview?.generationId === generationId
+          ? { generationPreview: null, editingNodeId: null }
+          : state
+      ))
+    },
     toggleInspector: () => {
       set((state) => {
         const next = !state.inspectorOpen
@@ -1311,6 +1415,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         selectedNodeId,
         activeSheetId,
         editingNodeId: null,
+        generationPreview: null,
         error: null
       })
       void refreshDocuments()

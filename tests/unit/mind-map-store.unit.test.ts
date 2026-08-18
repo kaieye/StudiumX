@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { parseMindMapUpdatePayload } from '../../src/main/mindmap/mind-map-ipc-commands'
-import { createMindMapStore } from '../../src/main/mindmap/mind-map-store'
+import { createMindMapStore, MindMapStoreError } from '../../src/main/mindmap/mind-map-store'
 import { mindMapDocumentV2Schema } from '../../src/shared/mindmap/domain/schema'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 import type { MindMapUpdateResult } from '../../src/shared/teaching-types/mindmap'
@@ -44,7 +44,7 @@ function makeDocument(overrides: Partial<MindMapDocumentV2> = {}): MindMapDocume
           title: 'Sheet 1',
           root: { id: 'root-1', title: 'Root', children: [] },
           elements: [],
-          layout: { structureClass: 'org.xmind.ui.logic.right' }
+          layout: { structureClass: 'studiumx.layout.logic.right' }
         }
       ],
       assets: []
@@ -73,7 +73,7 @@ describe('createMindMapStore', () => {
     expect(created.sheets).toHaveLength(1)
     expect(created.sheets[0]!.root.title).toBe('My mind map')
     expect(created.sheets[0]!.root.children).toEqual([])
-    expect(created.sheets[0]!.layout.structureClass).toBe('org.xmind.ui.logic.right')
+    expect(created.sheets[0]!.layout.structureClass).toBe('studiumx.layout.logic.right')
     expect(created.sheets[0]!.layout.defaultTopicShape).toBe('rounded-rect')
 
     const read = await store.read(created.id)
@@ -84,10 +84,80 @@ describe('createMindMapStore', () => {
     const root = await createRoot()
     const store = createMindMapStore(root)
 
-    const created = await store.create('Matrix', 'org.xmind.ui.spreadsheet')
+    const created = await store.create('Matrix', 'studiumx.layout.spreadsheet')
 
-    expect(created.sheets[0]?.layout.structureClass).toBe('org.xmind.ui.spreadsheet')
+    expect(created.sheets[0]?.layout.structureClass).toBe('studiumx.layout.spreadsheet')
     await expect(store.read(created.id)).resolves.toEqual(created)
+  })
+
+  it('opens a legacy document after removing invalid connector records', async () => {
+    const root = await createRoot()
+    const store = createMindMapStore(root)
+    const created = await store.create('Legacy connector map')
+    const sheet = created.sheets[0]!
+    const childId = 'child-1'
+    const legacy = {
+      ...created,
+      sheets: [
+        {
+          ...sheet,
+          root: {
+            ...sheet.root,
+            children: [{ id: childId, title: 'Child', children: [] }]
+          },
+          elements: [
+            {
+              id: 'connector-valid',
+              type: 'connector',
+              start: {
+                x: 0,
+                y: 0,
+                anchor: { targetType: 'topic', targetId: sheet.root.id }
+              },
+              end: {
+                x: 200,
+                y: 80,
+                anchor: { targetType: 'topic', targetId: childId }
+              }
+            },
+            {
+              id: 'connector-half',
+              type: 'connector',
+              start: {
+                x: 0,
+                y: 0,
+                anchor: { targetType: 'topic', targetId: sheet.root.id }
+              },
+              end: { x: 200, y: 80 }
+            },
+            {
+              id: 'connector-self',
+              type: 'connector',
+              start: {
+                x: 0,
+                y: 0,
+                anchor: { targetType: 'topic', targetId: sheet.root.id }
+              },
+              end: {
+                x: 100,
+                y: 80,
+                anchor: { targetType: 'topic', targetId: sheet.root.id }
+              }
+            }
+          ]
+        }
+      ]
+    }
+    await writeFile(
+      join(root, 'mindmaps', `${created.id}.json`),
+      JSON.stringify(legacy, null, 2)
+    )
+
+    const reopened = await store.read(created.id)
+
+    expect(reopened.sheets[0]!.elements.map((element) => element.id)).toEqual([
+      'connector-valid'
+    ])
   })
 
   it('update stamps updatedAt and persists the change', async () => {
@@ -104,14 +174,14 @@ describe('createMindMapStore', () => {
           title: 'Sheet 1',
           root: { id: 'root-1', title: 'Root', children: [] },
           elements: [],
-          layout: { structureClass: 'org.xmind.ui.logic.right' }
+          layout: { structureClass: 'studiumx.layout.logic.right' }
         },
         {
           id: 'sheet-2',
           title: 'Sheet 2',
           root: { id: 'root-2', title: 'Root 2', children: [] },
           elements: [],
-          layout: { structureClass: 'org.xmind.ui.logic.balanced' }
+          layout: { structureClass: 'studiumx.layout.logic.balanced' }
         }
       ]
     }, created.revision))
@@ -158,7 +228,7 @@ describe('createMindMapStore', () => {
             textTransform: 'capitalize',
             textAlign: 'right',
             shape: 'roundedRect',
-            structureClass: 'org.xmind.ui.logic.balanced'
+            structureClass: 'studiumx.layout.logic.balanced'
           },
           main: { fill: '#FAD8DF', fontWeight: '500' },
           sub: { fill: '#F8F7F7', shape: 'underline' }
@@ -217,7 +287,7 @@ describe('createMindMapStore', () => {
             fontStyle: 'italic',
             textDecoration: 'underline',
             shape: 'roundedRect',
-            structureClass: 'org.xmind.ui.logic.right'
+            structureClass: 'studiumx.layout.logic.right'
           },
           main: { fill: '#DDEEFF', fontStyle: 'normal' },
           sub: { textColor: '#334455', shape: 'underline' }
@@ -273,7 +343,7 @@ describe('createMindMapStore', () => {
           }
         ],
         layout: {
-          structureClass: 'org.xmind.ui.logic.right',
+          structureClass: 'studiumx.layout.logic.right',
           direction: 'rtl',
           compact: true,
           spacing: 36,
@@ -385,6 +455,24 @@ describe('createMindMapStore', () => {
     expect(files).toHaveLength(0)
   })
 
+  it('reports a missing document with a path-safe structured error', async () => {
+    const root = await createRoot()
+    const store = createMindMapStore(root)
+
+    let caught: unknown
+    try {
+      await store.read('missing-map')
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(MindMapStoreError)
+    const failure = caught as MindMapStoreError
+    expect(failure.code).toBe('not_found')
+    expect(failure.message).toBe('mind_map_document_not_found: Mind map document not found.')
+    expect(failure.message).not.toContain(root)
+  })
+
   it('remove is idempotent on a missing file', async () => {
     const root = await createRoot()
     const store = createMindMapStore(root)
@@ -416,6 +504,11 @@ describe('createMindMapStore', () => {
     expect(list.map((s) => s.id)).toEqual([second.id, third.id, first.id])
     expect(list[0]!.title).toBe('second updated')
     expect(list[0]!.sheetCount).toBe(1)
+    expect(list[0]!.preview).toEqual({
+      theme: second.theme,
+      root: second.sheets[0]!.root,
+      layout: second.sheets[0]!.layout
+    })
     expect(list[0]!.updatedAt > list[1]!.updatedAt).toBe(true)
     expect(list[1]!.updatedAt > list[2]!.updatedAt).toBe(true)
   })

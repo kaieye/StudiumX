@@ -85,10 +85,18 @@ describe('buildChatRequest native tool formats', () => {
     const { body } = readBody(buildChatRequest('responses', {
       provider: provider(), generator: generator(), request, stream: false, includeTools: true
     }))
-    const input = body.input as Array<Record<string, unknown>>
-    expect(input.some((m) => m.role === 'assistant' && Array.isArray(m.content) &&
-      (m.content as Array<Record<string, unknown>>)[0]?.type === 'function_call')).toBe(true)
-    expect(input.some((m) => m.role === 'tool' && m.call_id === 'fc_1')).toBe(true)
+    expect(body.input).toEqual([
+      { role: 'user', content: [{ type: 'input_text', text: 'q' }] },
+      { role: 'assistant', content: [{ type: 'output_text', text: 'thinking' }] },
+      {
+        type: 'function_call',
+        call_id: 'fc_1',
+        name: 'lookup_glossary',
+        arguments: '{"term":"x"}'
+      },
+      { type: 'function_call_output', call_id: 'fc_1', output: 'result' },
+      { role: 'user', content: [{ type: 'input_text', text: 'follow-up' }] }
+    ])
   })
 
   it('builds an Anthropic Messages request with native tools and role merging', () => {
@@ -145,11 +153,17 @@ describe('extractToolCalls native formats', () => {
   it('extracts function_call items from a Responses body', () => {
     const calls = extractToolCalls('responses', {
       output: [
-        { type: 'function_call', id: 'fc_1', name: 'lookup_glossary', arguments: '{"term":"x"}' },
+        {
+          type: 'function_call',
+          id: 'fc_1',
+          call_id: 'call_1',
+          name: 'lookup_glossary',
+          arguments: '{"term":"x"}'
+        },
         { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }
       ]
     })
-    expect(calls).toEqual([toolCall('lookup_glossary', 'fc_1', '{"term":"x"}')])
+    expect(calls).toEqual([toolCall('lookup_glossary', 'call_1', '{"term":"x"}')])
   })
 
   it('extracts tool_use blocks from an Anthropic Messages body', () => {
@@ -199,13 +213,13 @@ describe('readChatSseStream native tool streaming', () => {
 
   it('assembles Responses function_call deltas into a tool call', async () => {
     const events = [
-      { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', id: 'fc_1', call_id: 'fc_1', name: 'lookup_glossary' } },
+      { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'lookup_glossary' } },
       { type: 'response.function_call_arguments.delta', output_index: 0, delta: '{"term":"x"}' },
       { type: 'response.completed', response: { status: 'completed' } }
     ]
     const body = sseBody(events.map((e) => `data: ${JSON.stringify(e)}\n\n`).concat('data: [DONE]\n\n'))
     const result = await readChatSseStream(body, 'responses')
-    expect(result.toolCalls).toEqual([toolCall('lookup_glossary', 'fc_1', '{"term":"x"}')])
+    expect(result.toolCalls).toEqual([toolCall('lookup_glossary', 'call_1', '{"term":"x"}')])
     expect(result.finishReason).toBe('stop')
   })
 

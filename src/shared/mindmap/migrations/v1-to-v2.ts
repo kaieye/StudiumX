@@ -7,7 +7,7 @@
  * keep the original file intact.
  *
  * The migration preserves v1 title/note/collapsed/tree structure and all
- * sheets. XMind `structureClass` values are carried over into the sheet's
+ * sheets. StudiumX `structureClass` values are carried over into the sheet's
  * layout and, for per-node overrides, into the topic style bag.
  */
 import { mindMapDocumentSchema } from '../mind-map-schema'
@@ -43,6 +43,104 @@ export type MindMapMigrationError = {
 export type MindMapMigrationResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: MindMapMigrationError }
+
+type UnknownRecord = Record<string, unknown>
+
+type LegacyConnectorTarget = {
+  targetType: 'topic' | 'shape'
+  targetId: string
+}
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function collectRawTopicIds(root: unknown): Set<string> {
+  const ids = new Set<string>()
+  const visited = new Set<UnknownRecord>()
+  const stack: unknown[] = [root]
+
+  while (stack.length > 0) {
+    const topic = stack.pop()
+    if (!isRecord(topic) || visited.has(topic)) continue
+    visited.add(topic)
+
+    if (typeof topic.id === 'string' && topic.id.length > 0) {
+      ids.add(topic.id)
+    }
+    if (Array.isArray(topic.children)) {
+      stack.push(...topic.children)
+    }
+  }
+
+  return ids
+}
+
+function connectorTarget(
+  endpoint: unknown,
+  topicIds: ReadonlySet<string>,
+  shapeIds: ReadonlySet<string>
+): LegacyConnectorTarget | null {
+  if (!isRecord(endpoint) || !isRecord(endpoint.anchor)) return null
+
+  const { targetType, targetId } = endpoint.anchor
+  if (
+    (targetType !== 'topic' && targetType !== 'shape')
+    || typeof targetId !== 'string'
+    || targetId.length === 0
+  ) {
+    return null
+  }
+
+  const targetExists = targetType === 'topic'
+    ? topicIds.has(targetId)
+    : shapeIds.has(targetId)
+  return targetExists ? { targetType, targetId } : null
+}
+
+/**
+ * Remove connectors emitted by earlier v2 canvas builds before endpoints became
+ * mandatory bindings. This is deliberately narrow: malformed topics, shapes,
+ * styles, and all non-connector elements still reach the regular schema and
+ * invariant validation paths unchanged.
+ */
+function removeLegacyInvalidConnectors(input: UnknownRecord): unknown {
+  if (!Array.isArray(input.sheets)) return input
+
+  let changed = false
+  const sheets = input.sheets.map((rawSheet) => {
+    if (!isRecord(rawSheet) || !Array.isArray(rawSheet.elements)) return rawSheet
+
+    const topicIds = collectRawTopicIds(rawSheet.root)
+    const shapeIds = new Set(
+      rawSheet.elements.flatMap((element) => (
+        isRecord(element)
+        && element.type === 'shape'
+        && typeof element.id === 'string'
+        && element.id.length > 0
+          ? [element.id]
+          : []
+      ))
+    )
+    const elements = rawSheet.elements.filter((element) => {
+      if (!isRecord(element) || element.type !== 'connector') return true
+
+      const start = connectorTarget(element.start, topicIds, shapeIds)
+      const end = connectorTarget(element.end, topicIds, shapeIds)
+      return (
+        start !== null
+        && end !== null
+        && (start.targetType !== end.targetType || start.targetId !== end.targetId)
+      )
+    })
+
+    if (elements.length === rawSheet.elements.length) return rawSheet
+    changed = true
+    return { ...rawSheet, elements }
+  })
+
+  return changed ? { ...input, sheets } : input
+}
 
 function mapTopic(topic: MindMapNode): MindMapTopicV2 {
   return {
@@ -108,7 +206,7 @@ export function migrateV1ToV2(input: unknown): MindMapMigrationResult<MindMapDoc
 
   const candidate = input as { schemaVersion?: unknown }
   if (candidate.schemaVersion === MIND_MAP_DOCUMENT_SCHEMA_VERSION_V2) {
-    const parsed = mindMapDocumentV2Schema.safeParse(input)
+    const parsed = mindMapDocumentV2Schema.safeParse(removeLegacyInvalidConnectors(candidate))
     if (!parsed.success) {
       return {
         ok: false,

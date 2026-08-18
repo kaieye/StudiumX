@@ -35,7 +35,7 @@ function makeDocument(colorSchemeId = 'dawn'): MindMapDocumentV2 {
       title: 'Overview',
       root: { id: 'root', title: 'Root topic', children: [] },
       elements: [],
-      layout: { structureClass: 'org.xmind.ui.logic.right' }
+      layout: { structureClass: 'studiumx.layout.logic.right' }
     }],
     assets: []
   }

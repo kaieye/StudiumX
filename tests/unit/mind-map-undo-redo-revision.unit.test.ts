@@ -18,7 +18,7 @@ function documentV2(): MindMapDocumentV2 {
         title: 'Sheet 1',
         root: { id: 'root-1', title: 'Root', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []

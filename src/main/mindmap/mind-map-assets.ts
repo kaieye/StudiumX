@@ -60,7 +60,7 @@ export type MindMapAssetImport = {
   createdAt?: string
 }
 
-/** A bounded byte payload supplied by a trusted importer (for example XMind). */
+/** A bounded byte payload supplied by a trusted importer (for example StudiumX). */
 export type MindMapAssetBytesImport = {
   id: string
   fileName: string

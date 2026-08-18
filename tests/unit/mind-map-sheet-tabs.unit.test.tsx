@@ -22,21 +22,21 @@ function makeDocument(): MindMapDocumentV2 {
         title: 'Overview',
         root: { id: 'root-1', title: 'Overview', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       },
       {
         id: 'sheet-2',
         title: 'Plan',
         root: { id: 'root-2', title: 'Plan', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       },
       {
         id: 'sheet-3',
         title: 'Review',
         root: { id: 'root-3', title: 'Review', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []

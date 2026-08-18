@@ -38,7 +38,6 @@ import type {
   MindMapAssetReadPayload,
   MindMapCancelGenerationPayload,
   MindMapCreatePayload,
-  MindMapExportPayload,
   MindMapMarkdownExportPayload,
   MindMapMarkdownImportPayload,
   MindMapOpmlExportPayload,
@@ -48,7 +47,6 @@ import type {
   MindMapFlushPayload,
   MindMapGeneratePayload,
   MindMapProposalGeneratePayload,
-  MindMapImportPayload,
   MindMapListPayload,
   MindMapSourceRefreshApplyPayload,
   MindMapSourceRefreshPayload,
@@ -384,14 +382,6 @@ export function parseMindMapCancelGenerationPayload(value: unknown): MindMapCanc
   return { workspaceId, generationId }
 }
 
-export function parseMindMapImportPayload(value: unknown): MindMapImportPayload | null {
-  const record = requireExactKeys(value, ['workspaceId', 'sourcePath'])
-  if (!record) return null
-  const workspaceId = requireNonEmptyString(record.workspaceId)
-  const sourcePath = requireNonEmptyString(record.sourcePath)
-  if (!workspaceId || !sourcePath) return null
-  return { workspaceId, sourcePath }
-}
 
 /** Parse the Markdown import envelope before any filesystem access. */
 export function parseMindMapMarkdownImportPayload(
@@ -417,49 +407,6 @@ export function parseMindMapOpmlImportPayload(
   return { workspaceId, sourcePath }
 }
 
-/**
- * Parse the XMind export envelope using the fail-closed renderer readiness proof.
- * A legacy destination-only request is intentionally rejected: the main process
- * must not serialize a snapshot without evidence that the renderer drained its
- * local save lane.
- */
-export function parseMindMapExportPayload(value: unknown): MindMapExportPayload | null {
-  const record = requireExactKeys(value, [
-    'workspaceId',
-    'id',
-    'destinationDirectory',
-    'snapshotRevision',
-    'expectedRevision',
-    'pendingWrites',
-    'dirty'
-  ])
-  if (!record) return null
-  const workspaceId = requireNonEmptyString(record.workspaceId)
-  const id = requireNonEmptyString(record.id)
-  const destinationDirectory = requireNonEmptyString(record.destinationDirectory)
-  const snapshotRevision = requireNonNegativeSafeInteger(record.snapshotRevision)
-  const expectedRevision = requireNonNegativeSafeInteger(record.expectedRevision)
-  if (
-    !workspaceId ||
-    !id ||
-    !destinationDirectory ||
-    snapshotRevision === null ||
-    expectedRevision === null ||
-    typeof record.pendingWrites !== 'boolean' ||
-    typeof record.dirty !== 'boolean'
-  ) {
-    return null
-  }
-  return {
-    workspaceId,
-    id,
-    destinationDirectory,
-    snapshotRevision,
-    expectedRevision,
-    pendingWrites: record.pendingWrites,
-    dirty: record.dirty
-  }
-}
 
 /**
  * Parse the Markdown export envelope.  The readiness fields are deliberately

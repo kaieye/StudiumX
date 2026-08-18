@@ -44,6 +44,7 @@ import type {
   MindMapNotesContext,
   MindMapSelectedFileContext
 } from './mind-map-selected-file'
+import type { MindMapAutoSourceContext } from './mind-map-auto-source'
 
 export type MindMapGenerationErrorKind =
   | 'invalid_output' // model returned non-JSON or failed Zod validation
@@ -77,6 +78,8 @@ export type MindMapGenerationInput = {
   resourceGovernance?: AgentRunResourceGovernance
   /** Main-process bounded context from one explicitly selected workspace file. */
   selectedFileContext?: MindMapSelectedFileContext
+  /** Main-process context from Markdown files inferred from this user prompt. */
+  autoSourceContext?: MindMapAutoSourceContext
   /** Main-process bounded context from one canonical generated Lesson artifact. */
   lessonContext?: MindMapLessonContext
 }
@@ -95,6 +98,8 @@ export type MindMapProposalGenerationInput = {
   resourceGovernance?: AgentRunResourceGovernance
   /** Main-process bounded context from one explicitly selected workspace file. */
   selectedFileContext?: MindMapSelectedFileContext
+  /** Main-process context from Markdown files inferred from this user prompt. */
+  autoSourceContext?: MindMapAutoSourceContext
   /** Main-process bounded context from one canonical generated Lesson artifact. */
   lessonContext?: MindMapLessonContext
   /** Main-process bounded context from the canonical workspace `NOTES.md`. */
@@ -183,12 +188,14 @@ export async function generateMindMap(
       title: input.title,
       prompt: input.prompt,
       selectedFileContext: input.selectedFileContext,
+      autoSourceContext: input.autoSourceContext,
       lessonContext: input.lessonContext
     }),
     userPrompt: buildMindMapUserPrompt({
       title: input.title,
       prompt: input.prompt,
       selectedFileContext: input.selectedFileContext,
+      autoSourceContext: input.autoSourceContext,
       lessonContext: input.lessonContext
     })
   }, onStream)
@@ -201,24 +208,33 @@ export async function generateMindMap(
  * never applies commands or persists the document.
  */
 export async function generateMindMapProposal(
-  input: MindMapProposalGenerationInput
+  input: MindMapProposalGenerationInput,
+  onStream?: (text: string) => void
 ): Promise<MindMapProviderProposal> {
+  // The renderer deliberately does not get to declare a request as an
+  // "initial map": derive it from the canonical v2 snapshot that the main
+  // process just loaded. A blank sheet needs a complete hierarchy, whereas an
+  // established map must retain the conservative proposal behavior.
+  const initialMap = isInitialMindMapProposal(input)
   const text = await runMindMapProvider(input, {
     systemPrompt: buildMindMapProposalSystemPrompt({
       title: input.title,
       prompt: input.prompt,
-      request: input.request
+      request: input.request,
+      initialMap
     }),
     userPrompt: buildMindMapProposalUserPrompt({
       title: input.title,
       prompt: input.prompt,
       request: input.request,
+      initialMap,
       selectedFileContext: input.selectedFileContext,
+      autoSourceContext: input.autoSourceContext,
       notesContext: input.notesContext,
       lessonContext: input.lessonContext,
       document: input.document
     })
-  })
+  }, onStream)
   const parsed = parseMindMapProposalJson(text)
   if (!parsed.ok) {
     throw new MindMapGenerationError('invalid_output', parsed.message)
@@ -230,6 +246,18 @@ export async function generateMindMapProposal(
     )
   }
   return parsed.proposal
+}
+
+/**
+ * An empty sheet is the first-generation path even though it is already a
+ * persisted document. Explicit topic selection remains an edit request: this
+ * prevents a user selecting the root merely to make a small change from
+ * accidentally asking the provider to rebuild the entire map.
+ */
+function isInitialMindMapProposal(input: MindMapProposalGenerationInput): boolean {
+  if (input.request.selectedTopicIds.length > 0) return false
+  const sheet = input.document.sheets.find((candidate) => candidate.id === input.request.sheetId)
+  return sheet !== undefined && sheet.root.children.length === 0
 }
 
 type MindMapProviderCallInput = Pick<

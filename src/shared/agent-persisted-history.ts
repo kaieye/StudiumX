@@ -1,8 +1,14 @@
 import { createHash } from 'node:crypto'
 
+import { sanitizeAgentPresentationTimeline, sanitizeAgentTurnContent } from './agent-conversation-turns'
 import { redactAgentSecretText } from './agent-secret-redaction'
 import { normalizeTraceId } from './trace-context'
-import type { AgentChatTurn, AgentConversationRecord, AgentTurnMetadata } from './teaching-types'
+import type {
+  AgentChatPresentationTimelineEntry,
+  AgentChatTurn,
+  AgentConversationRecord,
+  AgentTurnMetadata
+} from './teaching-types'
 
 /**
  * Canonical replacement for a user turn whose content must not become durable.
@@ -154,17 +160,92 @@ function sanitizePersistedConversationTurn(turn: AgentChatTurn): AgentChatTurn {
       ...(detail === undefined ? {} : { detail })
     }
   })
+  const presentationTimeline = sanitizePersistedPresentationTimeline(
+    turn.presentationTimeline,
+    new Set((processEvents ?? []).map((event) => event.id))
+  )
   const metadata = sanitizePersistedTurnMetadata(stripRawParentTurnDigest(turn.metadata))
   const toolCallsChanged = Boolean(toolCalls?.some((tool, index) => tool !== turn.toolCalls?.[index]))
   const processEventsChanged = Boolean(processEvents?.some((event, index) => event !== turn.processEvents?.[index]))
-  if (content === turn.content && !toolCallsChanged && !processEventsChanged && metadata === turn.metadata) return turn
+  const presentationTimelineChanged = !presentationTimelinesEqual(presentationTimeline, turn.presentationTimeline)
+  if (
+    content === turn.content &&
+    !toolCallsChanged &&
+    !processEventsChanged &&
+    !presentationTimelineChanged &&
+    metadata === turn.metadata
+  ) return turn
+  const { presentationTimeline: _unsafePresentationTimeline, ...turnWithoutPresentationTimeline } = turn
   return {
-    ...turn,
+    ...turnWithoutPresentationTimeline,
     content,
     ...(toolCalls === undefined ? {} : { toolCalls }),
     ...(processEvents === undefined ? {} : { processEvents }),
+    ...(presentationTimeline === undefined ? {} : { presentationTimeline }),
     ...(metadata === undefined ? {} : { metadata })
   }
+}
+
+/**
+ * The presentation timeline is a safe rendering order projection, not a
+ * second transcript. Rebuild each entry so a malformed in-memory object cannot
+ * carry raw diagnostic fields through persistence, and retain process rows
+ * only when they point at a sanitized event from this turn.
+ */
+function sanitizePersistedPresentationTimeline(
+  timeline: readonly AgentChatPresentationTimelineEntry[] | undefined,
+  processEventIds: ReadonlySet<string>
+): AgentChatPresentationTimelineEntry[] | undefined {
+  if (!timeline?.length) return undefined
+  const entries: AgentChatPresentationTimelineEntry[] = []
+  for (const raw of timeline) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    const entry = raw as unknown as Record<string, unknown>
+    const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id : null
+    const sequence = typeof entry.sequence === 'number' && Number.isSafeInteger(entry.sequence)
+      ? entry.sequence
+      : null
+    const createdAt = typeof entry.createdAt === 'string' && entry.createdAt.trim()
+      ? entry.createdAt
+      : null
+    if (!id || sequence === null || !createdAt) continue
+    if (entry.kind === 'assistant_text') {
+      if (typeof entry.content !== 'string') continue
+      const content = sanitizeAgentTurnContent(redactAgentSecretText(entry.content))
+      if (!content) continue
+      entries.push({ id, sequence, kind: 'assistant_text', content, createdAt })
+      continue
+    }
+    if (entry.kind === 'process') {
+      const processEventId = typeof entry.processEventId === 'string' && entry.processEventId.trim()
+        ? entry.processEventId
+        : null
+      if (!processEventId || !processEventIds.has(processEventId)) continue
+      entries.push({ id, sequence, kind: 'process', processEventId, createdAt })
+    }
+  }
+  return sanitizeAgentPresentationTimeline(entries)
+}
+
+function presentationTimelinesEqual(
+  left: readonly AgentChatPresentationTimelineEntry[] | undefined,
+  right: readonly AgentChatPresentationTimelineEntry[] | undefined
+): boolean {
+  if (left === right) return true
+  if (!left || !right || left.length !== right.length) return false
+  return left.every((entry, index) => {
+    const candidate = right[index]
+    if (
+      !candidate ||
+      entry.id !== candidate.id ||
+      entry.sequence !== candidate.sequence ||
+      entry.kind !== candidate.kind ||
+      entry.createdAt !== candidate.createdAt
+    ) return false
+    return entry.kind === 'assistant_text'
+      ? candidate.kind === 'assistant_text' && entry.content === candidate.content
+      : candidate.kind === 'process' && entry.processEventId === candidate.processEventId
+  })
 }
 
 /**
@@ -328,6 +409,23 @@ function parentTurnProofProjection(turn: AgentChatTurn): unknown {
       ...(event.isError === true ? { isError: true } : {}),
       createdAt: event.createdAt
     })),
+    ...(turn.presentationTimeline === undefined ? {} : {
+      presentationTimeline: turn.presentationTimeline.map((entry) => entry.kind === 'assistant_text'
+        ? {
+            id: entry.id,
+            sequence: entry.sequence,
+            kind: 'assistant_text' as const,
+            content: entry.content,
+            createdAt: entry.createdAt
+          }
+        : {
+            id: entry.id,
+            sequence: entry.sequence,
+            kind: 'process' as const,
+            processEventId: entry.processEventId,
+            createdAt: entry.createdAt
+          })
+    }),
     metadata: metadataForProof
   }
 }

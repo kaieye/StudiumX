@@ -1,28 +1,54 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../src/renderer/src/i18n'
 import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
 import { MindMapView } from '../../src/renderer/src/views/mindmap/MindMapView'
+import type { MindMapCanvasLineUpdate } from '../../src/renderer/src/views/mindmap/MindMapCanvas'
+import type {
+  MindMapCanvasLineDraft,
+  MindMapCanvasLineTool
+} from '../../src/renderer/src/views/mindmap/mind-map-line-tool'
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 import type { MindMapSummary } from '../../src/shared/mindmap/mind-map-types'
 import type { TeachingSystemApi, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 
+type MindMapCanvasHarnessProps = {
+  document?: MindMapDocumentV2
+  lineTool?: MindMapCanvasLineTool | null
+  onCreateLine?: (draft: MindMapCanvasLineDraft) => void
+  onUpdateLine?: (lineId: string, patch: MindMapCanvasLineUpdate) => void
+}
+
+const mindMapCanvasHarness = vi.hoisted(() => ({
+  props: null as MindMapCanvasHarnessProps | null
+}))
+
 vi.mock('../../src/renderer/src/views/mindmap/MindMapAiPanel', () => ({
   MindMapAiPanel: ({
     utilityControl,
-    utilityContent
-  }: { utilityControl?: ReactNode; utilityContent?: ReactNode }) => (
+    utilityContent,
+    importExportControl
+  }: {
+    utilityControl?: ReactNode
+    utilityContent?: ReactNode
+    importExportControl?: ReactNode
+  }) => (
     <aside>
       {utilityControl}
       {utilityContent}
+      {importExportControl}
     </aside>
   )
 }))
-vi.mock('../../src/renderer/src/views/mindmap/MindMapCanvas', () => ({ MindMapCanvas: () => null }))
+vi.mock('../../src/renderer/src/views/mindmap/MindMapCanvas', () => ({
+  MindMapCanvas: (props: MindMapCanvasHarnessProps) => {
+    mindMapCanvasHarness.props = props
+    return null
+  }
+}))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapExportFeedback', () => ({ MindMapExportFeedback: () => null }))
-vi.mock('../../src/renderer/src/views/mindmap/MindMapImportCompatibilityReport', () => ({ MindMapImportCompatibilityReport: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapOutline', () => ({ MindMapOutline: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapSearchPanel', () => ({ MindMapSearchPanel: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapSheetTabs', () => ({ MindMapSheetTabs: () => null }))
@@ -78,7 +104,7 @@ function makeDocument(title: string): MindMapDocumentV2 {
         title: 'Sheet 1',
         root: { id: 'root', title, children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []
@@ -112,6 +138,7 @@ beforeEach(async () => {
     editingNodeId: null,
     error: null
   })
+  mindMapCanvasHarness.props = null
 })
 
 afterEach(() => {
@@ -144,12 +171,76 @@ describe('MindMapView create flow', () => {
     await waitFor(() => expect(window.teachingSystem?.createMindMap).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       title: 'New mind map',
-      structureClass: 'org.xmind.ui.logic.right'
+      structureClass: 'studiumx.layout.logic.right'
     }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(container.querySelector('.mindmap-home')).not.toBeInTheDocument()
     expect(container.querySelector('.mindmap-stage')).toBeInTheDocument()
     expect(useMindMapViewStore.getState().current?.title).toBe('Chemistry')
+  })
+
+  it('leaves line drawing mode after creating a connector so its endpoints can be edited', async () => {
+    render(<MindMapView />)
+    fireEvent.click(screen.getAllByRole('button', { name: 'New mind map' })[0])
+
+    await waitFor(() => expect(mindMapCanvasHarness.props).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Line' }))
+    await waitFor(() => expect(mindMapCanvasHarness.props?.lineTool).toMatchObject({
+      active: true,
+      lineShape: 'straight',
+      endArrow: 'triangle'
+    }))
+
+    const onCreateLine = mindMapCanvasHarness.props?.onCreateLine
+    if (!onCreateLine) throw new Error('expected the canvas to receive an onCreateLine callback')
+
+    act(() => {
+      onCreateLine({
+        from: { x: 20, y: 20 },
+        to: { x: 140, y: 100 },
+        style: { lineShape: 'straight', endArrow: 'triangle' }
+      })
+    })
+
+    await waitFor(() => expect(mindMapCanvasHarness.props?.lineTool).toBeNull())
+  })
+
+  it('persists and undoes a curved connector control offset from the canvas', async () => {
+    render(<MindMapView />)
+    fireEvent.click(screen.getAllByRole('button', { name: 'New mind map' })[0])
+    await waitFor(() => expect(mindMapCanvasHarness.props?.onCreateLine).toBeDefined())
+
+    act(() => {
+      mindMapCanvasHarness.props?.onCreateLine?.({
+        from: { x: 20, y: 20 },
+        to: { x: 180, y: 100 },
+        style: { lineShape: 'curved', endArrow: 'triangle' }
+      })
+    })
+    const connector = useMindMapViewStore.getState().current?.sheets[0]?.elements.find(
+      (element) => element.type === 'connector'
+    )
+    if (!connector) throw new Error('expected the canvas callback to create a connector')
+
+    act(() => {
+      mindMapCanvasHarness.props?.onUpdateLine?.(connector.id, {
+        curveControlOffset: { x: 24, y: -48 }
+      })
+    })
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.elements[0]).toMatchObject({
+      curveControlOffset: { x: 24, y: -48 }
+    })
+    await waitFor(() => {
+      expect(mindMapCanvasHarness.props?.document?.sheets[0]?.elements[0]).toMatchObject({
+        curveControlOffset: { x: 24, y: -48 }
+      })
+    })
+
+    act(() => useMindMapViewStore.getState().undo())
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.elements[0]).not.toHaveProperty(
+      'curveControlOffset'
+    )
   })
 
   it('uses compact Chinese hover labels for floating-toolbar actions', async () => {
@@ -170,7 +261,7 @@ describe('MindMapView create flow', () => {
       ['展开下一层子节点', '展开下一层子节点'],
       ['添加子节点', '加子节点'],
       ['添加同级节点', '加同级'],
-      ['节点总结', '加总结'],
+      ['节点总结', '节点总结'],
       ['添加内容', '加内容']
     ]
 
@@ -186,6 +277,9 @@ describe('MindMapView create flow', () => {
       .toHaveAttribute('d', 'M5.5 5.5L9 10L5.5 14.5')
     expect(toolbar?.querySelector('button[aria-label="展开下一层子节点"] svg > path'))
       .toHaveAttribute('d', 'M8.5 5.5L5 10L8.5 14.5')
+    const summaryIcon = toolbar?.querySelector('button[aria-label="节点总结"] svg')
+    expect(summaryIcon?.querySelectorAll('rect')).toHaveLength(2)
+    expect(summaryIcon?.querySelector('.mindmap-toolbar-summary-icon__brace')).toBeInTheDocument()
   })
 
   it('keeps the user in the gallery when direct creation fails', async () => {
@@ -324,6 +418,44 @@ describe('MindMapView create flow', () => {
     expect(screen.queryAllByRole('button', { name: 'Chemistry' })).toHaveLength(0)
   })
 
+  it('renders list-provided card previews without waiting for document reads', async () => {
+    const source = makeDocument('Chemistry')
+    source.sheets[0]!.root = {
+      id: 'preview-root',
+      title: 'Preview root',
+      children: [{ id: 'preview-child', title: 'Preview child', children: [] }]
+    }
+    const summary: MindMapSummary = {
+      id: source.id,
+      title: 'Chemistry',
+      updatedAt: source.updatedAt,
+      sheetCount: 1,
+      preview: {
+        theme: source.theme,
+        root: source.sheets[0]!.root,
+        layout: source.sheets[0]!.layout
+      }
+    }
+    const readMindMap = vi.fn(() => new Promise<MindMapDocumentV2>(() => undefined))
+    Object.defineProperty(window, 'teachingSystem', {
+      configurable: true,
+      value: {
+        listMindMaps: vi.fn(async () => []),
+        listMindMapLibrary: vi.fn(async () => ({
+          home: [],
+          workspaces: [{ workspaceId: 'workspace-1', name: 'Test workspace', documents: [summary] }]
+        })),
+        readMindMap
+      } as Partial<TeachingSystemApi>
+    })
+
+    render(<MindMapView />)
+
+    await screen.findAllByRole('button', { name: 'Chemistry' })
+    expect(screen.getAllByText('Preview child')).toHaveLength(2)
+    expect(readMindMap).not.toHaveBeenCalled()
+  })
+
   it('opens editor utilities from the right and returns to the gallery from the home icon', async () => {
     const document = makeDocument('Chemistry')
     useMindMapViewStore.setState({
@@ -348,5 +480,24 @@ describe('MindMapView create flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to mind maps' }))
     await waitFor(() => expect(useMindMapViewStore.getState().current).toBeNull())
     expect(screen.getByPlaceholderText('Search mind maps')).toBeInTheDocument()
+  })
+
+  it('offers the implemented export formats', () => {
+    const document = makeDocument('Chemistry')
+    useMindMapViewStore.setState({
+      current: document,
+      selectedNodeId: document.sheets[0]?.root.id ?? null,
+      activeSheetId: document.sheets[0]?.id ?? null,
+      editingNodeId: null
+    })
+
+    render(<MindMapView />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Share' }))
+
+    expect(screen.getByRole('menuitem', { name: 'Export Markdown' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Export OPML' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Export SVG' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Export PNG' })).toBeInTheDocument()
   })
 })

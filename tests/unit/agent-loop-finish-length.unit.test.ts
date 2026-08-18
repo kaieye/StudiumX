@@ -179,6 +179,70 @@ describe('runAgentLoop length tool rejection (A-02)', () => {
     expect(result.usage.toolCalls).toBe(1)
   })
 
+  it('streams safe prose before a native tool row and preserves its event order', async () => {
+    const responses = [
+      sseResponse([
+        { choices: [{ delta: { content: '先检查资料。' } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-live', type: 'function', function: { name: 'lookup', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }
+      ]),
+      sseResponse([
+        { choices: [{ delta: { content: '最终答案。' } }] },
+        { choices: [{ delta: {}, finish_reason: 'stop' }] }
+      ])
+    ]
+    globalThis.fetch = (async () => responses.shift()!) as typeof fetch
+    const events: Array<{ type: string; delta?: string; toolCallId?: string }> = []
+
+    const result = await runAgentLoop({
+      settings: settings(),
+      provider: provider(),
+      messages: [{ role: 'user', content: 'look' }],
+      tools: [{
+        type: 'function',
+        function: { name: 'lookup', description: 'lookup', parameters: { type: 'object', properties: {} } }
+      }],
+      toolHandlers: { lookup: async () => 'tool-ok' },
+      callbacks: { onEvent: (event) => events.push(event) }
+    })
+
+    expect(result.finalText).toBe('最终答案。')
+    const firstText = events.findIndex((event) => event.type === 'token' && event.delta === '先检查资料。')
+    const toolCall = events.findIndex((event) => event.type === 'tool_call' && event.toolCall.id === 'call-live')
+    const toolResult = events.findIndex((event) => event.type === 'tool_result' && event.toolCallId === 'call-live')
+    const finalText = events.findIndex((event) => event.type === 'token' && event.delta === '最终答案。')
+    expect(firstText).toBeGreaterThanOrEqual(0)
+    expect(toolCall).toBeGreaterThan(firstText)
+    expect(toolResult).toBeGreaterThan(toolCall)
+    expect(finalText).toBeGreaterThan(toolResult)
+  })
+
+  it('withholds a split raw XML tool protocol from live text events', async () => {
+    globalThis.fetch = (async () => sseResponse([
+      { choices: [{ delta: { content: '安全开头。<tool' } }] },
+      { choices: [{ delta: { content: '_call>lookup<arg_key>path</arg_key><arg_value>x</arg_value></tool_call>' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop' }] }
+    ])) as typeof fetch
+    const visibleDeltas: string[] = []
+
+    const result = await runAgentLoop({
+      settings: settings(),
+      provider: provider(),
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      toolHandlers: {},
+      callbacks: {
+        onEvent: (event) => {
+          if (event.type === 'token') visibleDeltas.push(event.delta)
+        }
+      }
+    })
+
+    expect(result.finalText).toBe('安全开头。')
+    expect(visibleDeltas.join('')).toBe('安全开头。')
+    expect(visibleDeltas.join('')).not.toContain('tool_call')
+    expect(visibleDeltas.join('')).not.toContain('arg_key')
+  })
+
   it('ends cleanly on pure length without tools', async () => {
     globalThis.fetch = (async () =>
       jsonResponse({

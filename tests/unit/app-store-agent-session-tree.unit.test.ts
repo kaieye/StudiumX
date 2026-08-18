@@ -39,12 +39,25 @@ function workspace(): TeachingWorkspaceSummary {
   }
 }
 
-function appState(): TeachingAppState {
+function appState(options: {
+  workspaceConversationIds?: string[]
+  temporaryConversationIds?: string[]
+} = {}): TeachingAppState {
   const activeWorkspace = workspace()
+  const toSummary = (id: string): TeachingWorkspaceSummary['conversations'][number] => ({
+    id,
+    workspaceId: 'workspace-1',
+    title: id,
+    createdAt,
+    updatedAt: createdAt,
+    relativePath: `conversations/${id}.md`,
+    absolutePath: `/workspace/conversations/${id}.md`,
+    messageCount: 1
+  })
   return {
-    workspaces: [activeWorkspace],
-    activeWorkspace,
-    temporaryConversations: [],
+    workspaces: [{ ...activeWorkspace, conversations: (options.workspaceConversationIds ?? []).map(toSummary) }],
+    activeWorkspace: { ...activeWorkspace, conversations: (options.workspaceConversationIds ?? []).map(toSummary) },
+    temporaryConversations: (options.temporaryConversationIds ?? []).map((id) => toSummary(id)),
     previewHtml: '',
     previewUrl: '',
     selectedLessonPath: null,
@@ -252,7 +265,7 @@ describe('appStore Agent session lifecycle', () => {
     })
     const readTree = vi.fn(async () => recoveredTree)
     installApi({
-      getState: vi.fn(async () => appState()),
+      getState: vi.fn(async () => appState({ temporaryConversationIds: ['root'] })),
       getSettings: vi.fn(async () => originalState.settings),
       listInterruptedAgentRuns: vi.fn(async () => [{
         runId: 'run-1',
@@ -308,7 +321,7 @@ describe('appStore Agent session lifecycle', () => {
     })
     const readTree = vi.fn(async () => recoveredTree)
     installApi({
-      getState: vi.fn(async () => appState()),
+      getState: vi.fn(async () => appState({ workspaceConversationIds: ['newest', 'older'] })),
       getSettings: vi.fn(async () => originalState.settings),
       listInterruptedAgentRuns: vi.fn(async () => [{
         runId: 'older-current', streamId: 'stream-older', workspaceId: 'workspace-1', conversationId: 'older',
@@ -365,7 +378,7 @@ describe('appStore Agent session lifecycle', () => {
     })
     const readTree = vi.fn(async () => recoveredTree)
     installApi({
-      getState: vi.fn(async () => appState()),
+      getState: vi.fn(async () => appState({ workspaceConversationIds: ['terminal-conversation', 'older'] })),
       getSettings: vi.fn(async () => originalState.settings),
       listInterruptedAgentRuns: vi.fn(async () => [{
         runId: 'older-interruption', streamId: 'stream-interruption', workspaceId: 'workspace-1', conversationId: 'older',
@@ -414,7 +427,7 @@ describe('appStore Agent session lifecycle', () => {
       throw new Error('Conversation not found.')
     })
     installApi({
-      getState: vi.fn(async () => appState()),
+      getState: vi.fn(async () => appState({ workspaceConversationIds: ['no-progress-conversation'] })),
       getSettings: vi.fn(async () => originalState.settings),
       listInterruptedAgentRuns: vi.fn(async () => []),
       listTerminalAgentRunNotices: vi.fn(async () => [{

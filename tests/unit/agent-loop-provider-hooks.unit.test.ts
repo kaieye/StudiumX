@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { runAgentLoop } from '../../src/main/ai/agent-loop'
+import { buildAgentRunPresentation } from '../../src/main/ai/agent-run-presentation'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import type { TeachingModelProviderProfile, TeachingSettingsV1 } from '../../src/shared/teaching-types'
+import type { AgentLoopEvent } from '../../src/main/ai/agent-loop'
 
 const originalFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = originalFetch })
@@ -92,6 +94,89 @@ describe('runAgentLoop provider hooks end-to-end', () => {
       { type: 'token', delta: '第一段第二段' },
       { type: 'status', status: 'done' }
     ])
+  })
+
+  it('keeps visible prose before a tool call in the real presentation flow', async () => {
+    const responses = [
+      sseResponse([
+        { choices: [{ delta: { reasoning_content: '先读取已有笔记。' } }] },
+        { choices: [{ delta: { content: '我会先查看笔记，再给你准确的答案。' } }] },
+        {
+          choices: [{
+            delta: {
+              tool_calls: [{
+                index: 0,
+                id: 'call-read-notes',
+                type: 'function',
+                function: { name: 'read_workspace_file', arguments: '{"path":"notes.md"}' }
+              }]
+            }
+          }]
+        }
+      ]),
+      sseResponse([
+        { choices: [{ delta: { reasoning_content: '笔记已经核对完毕。' } }] },
+        { choices: [{ delta: { content: '这是基于笔记整理出的最终答案。' } }] }
+      ])
+    ]
+    globalThis.fetch = (async () => responses.shift()!) as typeof fetch
+    const events: AgentLoopEvent[] = []
+
+    const result = await runAgentLoop({
+      settings: settings(),
+      provider: provider(),
+      messages: [{ role: 'user', content: '请根据笔记回答问题' }],
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'read_workspace_file',
+          description: 'read one workspace file',
+          parameters: { type: 'object', properties: {} }
+        }
+      }],
+      toolHandlers: {
+        read_workspace_file: async () => JSON.stringify({ ok: true, content: 'private tool result' })
+      },
+      callbacks: { onEvent: (event) => events.push(event) }
+    })
+
+    expect(result.stopReason).toBe('final_answer')
+    expect(result.finalText).toBe('这是基于笔记整理出的最终答案。')
+    expect(events.flatMap((event) => {
+      if (event.type === 'reasoning' || event.type === 'token') return [`${event.type}:${event.delta}`]
+      if (event.type === 'tool_call') return [`tool_call:${event.toolCall.function.name}`]
+      if (event.type === 'tool_result') return [`tool_result:${event.name}`]
+      return []
+    })).toEqual([
+      'reasoning:先读取已有笔记。',
+      'token:我会先查看笔记，再给你准确的答案。',
+      'tool_call:read_workspace_file',
+      'tool_result:read_workspace_file',
+      'reasoning:笔记已经核对完毕。',
+      'token:这是基于笔记整理出的最终答案。'
+    ])
+
+    const projection = buildAgentRunPresentation(events, {
+      streamId: 'tool-prose-order',
+      now: () => '2026-08-16T12:00:00.000Z'
+    })
+    const processEvents = projection.processEvents ?? []
+    expect(processEvents).toMatchObject([
+      { kind: 'reasoning', title: 'Think', detail: '先读取已有笔记。' },
+      { kind: 'tool_call', title: 'READ', status: 'tool_done', toolCallId: 'call-read-notes' },
+      { kind: 'reasoning', title: 'Think', detail: '笔记已经核对完毕。' }
+    ])
+    expect(projection.presentationTimeline?.map((entry) => entry.kind === 'assistant_text'
+      ? `text:${entry.content}`
+      : `process:${entry.processEventId}`
+    )).toEqual([
+      `process:${processEvents[0]?.id}`,
+      'text:我会先查看笔记，再给你准确的答案。',
+      `process:${processEvents[1]?.id}`,
+      `process:${processEvents[2]?.id}`,
+      'text:这是基于笔记整理出的最终答案。'
+    ])
+    expect(JSON.stringify(projection)).not.toContain('private tool result')
   })
 
   it('accounts every adapter transport dispatch when a streaming request falls back after timeout', async () => {
@@ -205,7 +290,7 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     })
   })
 
-  it('does not concatenate text emitted before a tool call into the final answer', async () => {
+  it('keeps text emitted before a tool call in arrival order without polluting the final answer', async () => {
     const responses = [
       sseResponse([
         { choices: [{ delta: { content: '我先查一下。' } }] },
@@ -224,11 +309,11 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     })
 
     expect(result.finalText).toBe('这是最终答案')
-    expect(tokens.join('')).toBe('这是最终答案')
+    expect(tokens).toEqual(['我先查一下。', '这是最终答案'])
   })
 
 
-  it('suppresses repeated write preambles from every tool-calling iteration', async () => {
+  it('keeps repeated write preambles from tool-calling iterations in arrival order', async () => {
     const preamble = '好，让我接下来写入文件。'
     const responses = [
       sseResponse([
@@ -271,8 +356,7 @@ describe('runAgentLoop provider hooks end-to-end', () => {
     })
 
     expect(result.finalText).toBe('文件已写入。')
-    expect(tokens).toEqual(['文件已写入。'])
-    expect(tokens.join('')).not.toContain(preamble)
+    expect(tokens).toEqual([preamble, preamble, preamble, '文件已写入。'])
     expect(writes).toBe(3)
     expect(responses).toHaveLength(0)
   })

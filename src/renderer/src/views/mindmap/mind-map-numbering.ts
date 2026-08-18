@@ -1,5 +1,5 @@
 /**
- * Pure XMind-style topic numbering.
+ * Pure StudiumX-style topic numbering.
  *
  * A topic's own `numbering` config applies to ITS CHILDREN: a topic is
  * numbered by the nearest ancestor (parent or above) that declares a
@@ -89,7 +89,7 @@ export function computeTopicNumber(
 /**
  * Compute the display number prefix for EVERY topic in the sheet.
  *
- * Semantics (XMind "Numbering"):
+ * Semantics (StudiumX "Numbering"):
  * - A topic's own `numbering` applies to its children; the topic itself is
  *   numbered by its parent/ancestor rule.
  * - `pattern` formats each sibling level (arabic/uppercase/lowercase/roman).

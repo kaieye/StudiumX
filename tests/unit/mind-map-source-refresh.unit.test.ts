@@ -44,7 +44,7 @@ function documentWithTopics(topics: MindMapTopicV2[]): MindMapDocumentV2 {
           children: topics
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ]
   }

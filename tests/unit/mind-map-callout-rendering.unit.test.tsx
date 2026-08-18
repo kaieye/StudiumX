@@ -35,7 +35,7 @@ function makeDocument(
           ]
         },
         elements,
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []

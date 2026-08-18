@@ -6,7 +6,6 @@ import {
 
 describe('mindMapImportFormatForFileName', () => {
   it('routes supported native import formats case-insensitively', () => {
-    expect(mindMapImportFormatForFileName('course.XMIND')).toBe('xmind')
     expect(mindMapImportFormatForFileName('course.md')).toBe('markdown')
     expect(mindMapImportFormatForFileName('course.MARKDOWN')).toBe('markdown')
     expect(mindMapImportFormatForFileName('course.OPML')).toBe('opml')
@@ -16,12 +15,11 @@ describe('mindMapImportFormatForFileName', () => {
     expect(mindMapImportFormatForFileName('/tmp/archive.course.md')).toBe('markdown')
     expect(mindMapImportFormatForFileName('course.md.bak')).toBeNull()
     expect(mindMapImportFormatForFileName('course')).toBeNull()
-    expect(mindMapImportFormatForFileName('.xmind')).toBe('xmind')
     expect(mindMapImportFormatForFileName('   ')).toBeNull()
     expect(mindMapImportFormatForFileName(null)).toBeNull()
   })
 
   it('keeps the file-input filter aligned with the supported formats', () => {
-    expect(MIND_MAP_IMPORT_ACCEPT).toBe('.xmind,.md,.markdown,.opml')
+    expect(MIND_MAP_IMPORT_ACCEPT).toBe('.md,.markdown,.opml')
   })
 })

@@ -30,7 +30,7 @@ function makeDocument(): MindMapDocumentV2 {
           children: [{ id: 'child', title: 'Child', children: [] }]
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []
@@ -93,12 +93,12 @@ describe('MindMapCanvas accessibility', () => {
   })
 
   it.each([
-    ['org.xmind.ui.logic.balanced', ['left', 'right']],
-    ['org.xmind.ui.logic.left', ['left']],
-    ['org.xmind.ui.logic.down', ['bottom']],
-    ['org.xmind.ui.logic.up', ['top']],
-    ['org.xmind.ui.timeline.horizontal', ['right']],
-    ['org.xmind.ui.fishbone.rightHeaded', ['left']]
+    ['studiumx.layout.logic.balanced', ['left', 'right']],
+    ['studiumx.layout.logic.left', ['left']],
+    ['studiumx.layout.logic.down', ['bottom']],
+    ['studiumx.layout.logic.up', ['top']],
+    ['studiumx.layout.timeline.horizontal', ['right']],
+    ['studiumx.layout.fishbone.rightHeaded', ['left']]
   ] as const)('places root quick-add controls naturally for %s', (structureClass, directions) => {
     const document = makeDocument()
     document.sheets[0]!.layout.structureClass = structureClass
@@ -368,7 +368,10 @@ describe('MindMapCanvas accessibility', () => {
     const selected = container.querySelector('.mindmap-node-group.is-selected')
     expect(selected).not.toBeNull()
     expect(selected).toHaveStyle({ outline: 'none' })
-    expect(selected?.querySelector('.mindmap-node-rect')).toHaveStyle({ stroke: 'var(--mm-focus)' })
+    // Selection no longer repaints the node border; a dashed ring sits just
+    // outside it so the real border stays editable in the style inspector.
+    expect(selected?.querySelector('.mindmap-node-rect')).not.toHaveStyle({ stroke: 'var(--mm-focus)' })
+    expect(selected?.querySelector('.mindmap-node-selection')).not.toBeNull()
   })
 
   it('keeps hover from drawing a second topic highlight beside the selected topic', () => {
@@ -378,8 +381,10 @@ describe('MindMapCanvas accessibility', () => {
     const child = screen.getByRole('button', { name: 'Child' })
     fireEvent.pointerEnter(child)
 
-    expect(root.querySelector('.mindmap-node-rect')).toHaveStyle({ stroke: 'var(--mm-focus)' })
+    expect(root.querySelector('.mindmap-node-rect')).not.toHaveStyle({ stroke: 'var(--mm-focus)' })
+    expect(root.querySelector('.mindmap-node-selection')).not.toBeNull()
     expect(child.querySelector('.mindmap-node-rect')).not.toHaveStyle({ stroke: 'var(--mm-focus)' })
+    expect(child.querySelector('.mindmap-node-selection')).toBeNull()
   })
 
   it('renders underline topics as a continuous branch with the label resting above it', () => {
@@ -469,7 +474,7 @@ describe('MindMapCanvas accessibility', () => {
     expect(rootLabel?.textContent).toBe('Root')
   })
 
-  it('renders the XMind numbering prefix for a numbered child', () => {
+  it('renders the native numbering prefix for a numbered child', () => {
     const document = makeDocument()
     document.sheets[0]!.root.numbering = { pattern: 'arabic' }
     document.sheets[0]!.root.children = [
@@ -541,7 +546,7 @@ describe('MindMapCanvas accessibility', () => {
     right.unmount()
 
     const leftDocument = makeDocument()
-    leftDocument.sheets[0]!.layout.structureClass = 'org.xmind.ui.logic.left'
+    leftDocument.sheets[0]!.layout.structureClass = 'studiumx.layout.logic.left'
     const left = renderCanvas(leftDocument)
     const leftChild = [...left.container.querySelectorAll<SVGTextElement>('.mindmap-node-label')]
       .find((label) => label.textContent === 'Child')
@@ -602,7 +607,7 @@ describe('MindMapCanvas accessibility', () => {
     expect(shape?.style.filter).toBe(expected.filter)
   })
 
-  it('lets the selection highlight override a dashed hand-drawn topic border', () => {
+  it('keeps a dashed hand-drawn topic border visible while the node is selected', () => {
     const document = makeDocument()
     document.sheets[0]!.root.style = {
       stroke: '#123456',
@@ -612,10 +617,13 @@ describe('MindMapCanvas accessibility', () => {
 
     const { container } = renderCanvas(document)
     const selectedShape = container.querySelector<SVGElement>('.mindmap-node-group.is-selected .mindmap-node-rect')
-    expect(selectedShape?.style.stroke).toBe('var(--mm-focus)')
-    expect(selectedShape?.style.strokeWidth).toBe('2')
-    expect(selectedShape?.style.strokeDasharray).toBe('none')
-    expect(selectedShape?.style.filter).toBe('none')
+    // Selection no longer repaints the border: the real colour, width and
+    // pattern stay visible so the topic-style inspector can edit them in place.
+    expect(selectedShape?.style.stroke).toBe('rgb(18, 52, 86)')
+    expect(selectedShape?.style.strokeWidth).toBe('5')
+    expect(selectedShape?.style.strokeDasharray).toBe('6 4')
+    expect(selectedShape?.style.filter).toBe('url("#mindmap-topic-hand-drawn")')
+    expect(selectedShape?.parentElement?.querySelector('.mindmap-node-selection')).not.toBeNull()
   })
 
   it('lets an explicit border override the shape-none dashed fallback outline', () => {
@@ -808,7 +816,7 @@ describe('MindMapCanvas accessibility', () => {
     // Unknown shape token on a topic: must fall back to the stable rounded-rect.
     document.sheets[0]!.root.style = {
       shape: 'squiggle-petal',
-      fontFamily: 'Imported XMind Font, sans-serif'
+      fontFamily: 'Imported native Font, sans-serif'
     }
     // Unknown branch line pattern on the sheet layout: falls back to solid.
     document.sheets[0]!.layout = {
@@ -864,6 +872,80 @@ describe('MindMapCanvas accessibility', () => {
     })
   })
 
+  it('moves a summary brace beyond children and spans their outer edges', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.children = [
+      {
+        id: 'first',
+        title: 'First selected',
+        children: [{ id: 'new-detail', title: 'New detail', children: [] }]
+      },
+      { id: 'second', title: 'Second selected', children: [] },
+      { id: 'summary-output', title: '节点总结', children: [] }
+    ]
+    document.sheets[0]!.elements = [
+      {
+        id: 'summary-1',
+        type: 'summary',
+        from: 'first',
+        to: 'second',
+        summaryTopicId: 'summary-output'
+      }
+    ]
+
+    const { container } = renderCanvas(document)
+    const detailRect = container.querySelector<SVGRectElement>(
+      '[data-node-id="new-detail"] .mindmap-node-rect'
+    )
+    const bracePath = container.querySelector<SVGPathElement>('.mindmap-summary-brace')
+    const braceData = bracePath?.getAttribute('d') ?? ''
+    const braceStart = braceData.match(/^M ([\d.-]+) ([\d.-]+)/)
+    const braceEnd = braceData.match(/([\d.-]+) ([\d.-]+)$/)
+    const braceX = Number(braceStart?.[1])
+    const braceTop = Number(braceStart?.[2])
+    const braceBottom = Number(braceEnd?.[2])
+    const detailRight = Number(detailRect?.getAttribute('x')) + Number(detailRect?.getAttribute('width'))
+    const coveredRects = ['first', 'new-detail', 'second'].map((topicId) =>
+      container.querySelector<SVGRectElement>(`[data-node-id="${topicId}"] .mindmap-node-rect`)
+    )
+    const coveredTop = Math.min(...coveredRects.map((rect) => Number(rect?.getAttribute('y'))))
+    const coveredBottom = Math.max(...coveredRects.map((rect) =>
+      Number(rect?.getAttribute('y')) + Number(rect?.getAttribute('height'))
+    ))
+
+    expect(braceX - detailRight).toBe(20)
+    expect(braceTop).toBe(coveredTop)
+    expect(braceBottom).toBe(coveredBottom)
+  })
+
+  it('mirrors linked node summaries on a left-side branch', () => {
+    const document = makeDocument()
+    document.sheets[0]!.layout.structureClass = 'studiumx.layout.logic.left'
+    document.sheets[0]!.root.children = [
+      { id: 'first', title: 'First selected', children: [] },
+      { id: 'second', title: 'Second selected', children: [] },
+      { id: 'summary-output', title: '节点总结', children: [] }
+    ]
+    document.sheets[0]!.elements = [
+      {
+        id: 'summary-1',
+        type: 'summary',
+        from: 'first',
+        to: 'second',
+        summaryTopicId: 'summary-output'
+      }
+    ]
+
+    const { container } = renderCanvas(document)
+    const summary = container.querySelector('.mindmap-summary-group')
+    const sourceRect = container.querySelector<SVGRectElement>('[data-node-id="first"] .mindmap-node-rect')
+    const outputRect = container.querySelector<SVGRectElement>('[data-node-id="summary-output"] .mindmap-node-rect')
+
+    expect(summary).toHaveAttribute('data-summary-side', 'left')
+    expect(Number(outputRect?.getAttribute('x')) + Number(outputRect?.getAttribute('width')))
+      .toBeLessThan(Number(sourceRect?.getAttribute('x')))
+  })
+
   it('scrolls the canvas instead of zooming when the vertical wheel is used', () => {
     const { container } = renderCanvas()
     const svg = container.querySelector('.mindmap-svg')
@@ -890,6 +972,39 @@ describe('MindMapCanvas accessibility', () => {
       .toBe('translate(-60 0) scale(1)')
   })
 
+  it('pans by default instead of drawing a marquee for a primary background drag', () => {
+    const { container } = renderCanvas()
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+
+    fireEvent.pointerDown(svg, { button: 0, pointerId: 1, clientX: 80, clientY: 90 })
+    fireEvent.pointerMove(svg, { pointerId: 1, clientX: 140, clientY: 130 })
+
+    expect(container.querySelector('.mindmap-selection-box')).not.toBeInTheDocument()
+    expect(container.querySelector('.mindmap-svg > g')?.getAttribute('transform'))
+      .toBe('translate(60 40) scale(1)')
+  })
+
+  it('draws a marquee instead of panning for a primary background drag in box-selection mode', () => {
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocument()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        panMode={false}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+
+    fireEvent.pointerDown(svg, { button: 0, pointerId: 1, clientX: 80, clientY: 90 })
+    fireEvent.pointerMove(svg, { pointerId: 1, clientX: 140, clientY: 130 })
+
+    expect(container.querySelector('.mindmap-selection-box')).toBeInTheDocument()
+    expect(container.querySelector('.mindmap-svg > g')?.getAttribute('transform'))
+      .toBe('translate(0 0) scale(1)')
+  })
+
   it('still zooms when Ctrl/Cmd + wheel is used (trackpad pinch)', () => {
     const { container } = renderCanvas()
     const svg = container.querySelector('.mindmap-svg')
@@ -898,5 +1013,922 @@ describe('MindMapCanvas accessibility', () => {
     fireEvent.wheel(svg, { deltaY: -100, deltaX: 0, deltaMode: 0, ctrlKey: true })
     const transform = container.querySelector('.mindmap-svg > g')?.getAttribute('transform')
     expect(transform).toMatch(/scale\(1\.1\)$/)
+  })
+})
+
+describe('MindMapCanvas drawing tools', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('en-US')
+    useMindMapViewStore.setState({
+      selection: { kind: 'topic', topicIds: ['root'] },
+      selectedNodeId: 'root',
+      editingNodeId: null
+    })
+  })
+
+  afterEach(() => {
+    useMindMapViewStore.setState({
+      selection: { kind: 'canvas' },
+      selectedNodeId: null,
+      editingNodeId: null
+    })
+  })
+
+  function makeDocumentWithDrawnShape(): MindMapDocumentV2 {
+    const document = makeDocument()
+    document.sheets[0]!.elements = [{
+      id: 'shape-1',
+      type: 'shape',
+      shape: 'rect',
+      position: { x: 600, y: 220 },
+      width: 120,
+      height: 80
+    }]
+    return document
+  }
+
+  function makeDocumentWithEditableDrawnShape(): MindMapDocumentV2 {
+    const document = makeDocumentWithDrawnShape()
+    document.sheets[0]!.elements[0] = {
+      ...document.sheets[0]!.elements[0]!,
+      label: 'Initial label'
+    }
+    return document
+  }
+
+  function targetBounds(target: SVGRectElement): { x: number; y: number; width: number; height: number } {
+    const value = (name: 'x' | 'y' | 'width' | 'height'): number => {
+      const raw = target.getAttribute(name)
+      if (raw === null) throw new Error(`missing ${name} on line snap target`)
+      return Number(raw)
+    }
+    return {
+      x: value('x'),
+      y: value('y'),
+      width: value('width'),
+      height: value('height')
+    }
+  }
+
+  function isOnTargetBorder(
+    point: { x: number; y: number },
+    target: { x: number; y: number; width: number; height: number }
+  ): boolean {
+    const epsilon = 0.001
+    const inside = point.x >= target.x - epsilon
+      && point.x <= target.x + target.width + epsilon
+      && point.y >= target.y - epsilon
+      && point.y <= target.y + target.height + epsilon
+    const onEdge = Math.abs(point.x - target.x) <= epsilon
+      || Math.abs(point.x - (target.x + target.width)) <= epsilon
+      || Math.abs(point.y - target.y) <= epsilon
+      || Math.abs(point.y - (target.y + target.height)) <= epsilon
+    return inside && onEdge
+  }
+
+  it('captures a shape gesture that begins over a topic and commits its normalized draft', () => {
+    const onCreateShape = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocument()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        drawingShape="diamond"
+        onCreateShape={onCreateShape}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+    const child = screen.getByRole('button', { name: 'Child' })
+
+    fireEvent.pointerDown(child, { button: 0, pointerId: 21, clientX: 240, clientY: 160 })
+    fireEvent.pointerMove(svg, { pointerId: 21, clientX: 160, clientY: 100 })
+
+    expect(container.querySelector('.mindmap-shape-draft')).toBeInTheDocument()
+    // The capture-phase tool handler prevents the topic's normal selection/drag
+    // handler from claiming the gesture.
+    expect(useMindMapViewStore.getState().selectedNodeId).toBe('root')
+
+    fireEvent.pointerUp(svg, { pointerId: 21, clientX: 160, clientY: 100 })
+
+    expect(onCreateShape).toHaveBeenCalledTimes(1)
+    expect(onCreateShape).toHaveBeenCalledWith({
+      shape: 'diamond',
+      position: { x: 160, y: 100 },
+      width: 80,
+      height: 60
+    })
+    expect(container.querySelector('.mindmap-shape-draft')).not.toBeInTheDocument()
+  })
+
+  it('draws from a topic to a free shape, highlights the snap target, and anchors both endpoints', () => {
+    const onCreateLine = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocumentWithDrawnShape()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        lineTool={{ active: true, lineShape: 'straight', endArrow: 'triangle' }}
+        onCreateLine={onCreateLine}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const topicTarget = container.querySelector<SVGRectElement>(
+      'rect[data-mindmap-line-snap-target="topic:root"]'
+    )
+    const shapeTarget = container.querySelector<SVGRectElement>(
+      'rect[data-mindmap-line-snap-target="shape:shape-1"]'
+    )
+    if (!svg || !topicTarget || !shapeTarget) throw new Error('expected line snap targets')
+
+    const topicBounds = targetBounds(topicTarget)
+    const shapeBounds = targetBounds(shapeTarget)
+    const topicCenter = {
+      x: topicBounds.x + topicBounds.width / 2,
+      y: topicBounds.y + topicBounds.height / 2
+    }
+    const shapeCenter = {
+      x: shapeBounds.x + shapeBounds.width / 2,
+      y: shapeBounds.y + shapeBounds.height / 2
+    }
+
+    fireEvent.pointerDown(topicTarget, { button: 0, pointerId: 22, clientX: topicCenter.x, clientY: topicCenter.y })
+    fireEvent.pointerMove(shapeTarget, { pointerId: 22, clientX: shapeCenter.x, clientY: shapeCenter.y })
+
+    const highlight = container.querySelector<SVGRectElement>('.mindmap-line-snap-highlight')
+    expect(container.querySelector('.mindmap-line-draft')).toBeInTheDocument()
+    expect(highlight).toHaveAttribute('x', String(shapeBounds.x - 3))
+    expect(highlight).toHaveAttribute('y', String(shapeBounds.y - 3))
+    expect(highlight).toHaveAttribute('width', String(shapeBounds.width + 6))
+    expect(highlight).toHaveAttribute('height', String(shapeBounds.height + 6))
+
+    fireEvent.pointerUp(shapeTarget, { pointerId: 22, clientX: shapeCenter.x, clientY: shapeCenter.y })
+
+    expect(onCreateLine).toHaveBeenCalledTimes(1)
+    const draft = onCreateLine.mock.calls[0]?.[0]
+    if (!draft) throw new Error('expected a connector draft')
+    expect(draft.style).toMatchObject({ lineShape: 'straight', endArrow: 'triangle' })
+    expect(draft.from.target).toEqual({ id: 'root', kind: 'topic' })
+    expect(draft.to.target).toEqual({ id: 'shape-1', kind: 'shape' })
+    expect(isOnTargetBorder(draft.from, topicBounds)).toBe(true)
+    expect(isOnTargetBorder(draft.to, shapeBounds)).toBe(true)
+  })
+
+  it('captures a connector started over a free shape and attaches it to a topic', () => {
+    const onCreateLine = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocumentWithDrawnShape()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        lineTool={{ active: true, lineShape: 'curved', endArrow: 'none' }}
+        onCreateLine={onCreateLine}
+      />
+    )
+    const topicTarget = container.querySelector<SVGRectElement>(
+      'rect[data-mindmap-line-snap-target="topic:root"]'
+    )
+    const shapeTarget = container.querySelector<SVGRectElement>(
+      'rect[data-mindmap-line-snap-target="shape:shape-1"]'
+    )
+    if (!topicTarget || !shapeTarget) throw new Error('expected line snap targets')
+
+    const topicBounds = targetBounds(topicTarget)
+    const shapeBounds = targetBounds(shapeTarget)
+    const topicCenter = {
+      x: topicBounds.x + topicBounds.width / 2,
+      y: topicBounds.y + topicBounds.height / 2
+    }
+    const shapeCenter = {
+      x: shapeBounds.x + shapeBounds.width / 2,
+      y: shapeBounds.y + shapeBounds.height / 2
+    }
+
+    fireEvent.pointerDown(shapeTarget, { button: 0, pointerId: 23, clientX: shapeCenter.x, clientY: shapeCenter.y })
+    fireEvent.pointerMove(topicTarget, { pointerId: 23, clientX: topicCenter.x, clientY: topicCenter.y })
+    fireEvent.pointerUp(topicTarget, { pointerId: 23, clientX: topicCenter.x, clientY: topicCenter.y })
+
+    expect(onCreateLine).toHaveBeenCalledTimes(1)
+    const draft = onCreateLine.mock.calls[0]?.[0]
+    if (!draft) throw new Error('expected a connector draft')
+    expect(draft.style).toMatchObject({ lineShape: 'curved', endArrow: 'none' })
+    expect(draft.from.target).toEqual({ id: 'shape-1', kind: 'shape' })
+    expect(draft.to.target).toEqual({ id: 'root', kind: 'topic' })
+    expect(isOnTargetBorder(draft.from, shapeBounds)).toBe(true)
+    expect(isOnTargetBorder(draft.to, topicBounds)).toBe(true)
+  })
+
+  it('does not start a connector gesture on the empty canvas', () => {
+    const onCreateLine = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocument()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        lineTool={{ active: true, lineShape: 'straight', endArrow: 'none' }}
+        onCreateLine={onCreateLine}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+
+    fireEvent.pointerDown(svg, { button: 0, pointerId: 24, clientX: 720, clientY: 420 })
+    fireEvent.pointerMove(svg, { pointerId: 24, clientX: 900, clientY: 520 })
+
+    expect(container.querySelector('.mindmap-line-draft')).not.toBeInTheDocument()
+
+    fireEvent.pointerUp(svg, { pointerId: 24, clientX: 900, clientY: 520 })
+
+    expect(onCreateLine).not.toHaveBeenCalled()
+  })
+
+  it('previews a free-shape move locally and persists one update on release', () => {
+    const onUpdateShape = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocumentWithEditableDrawnShape()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateShape={onUpdateShape}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+    const shape = screen.getByRole('button', { name: 'Initial label' })
+
+    fireEvent.pointerDown(shape, { button: 0, pointerId: 31, clientX: 620, clientY: 240 })
+    fireEvent.pointerMove(svg, { pointerId: 31, clientX: 660, clientY: 265 })
+
+    expect(onUpdateShape).not.toHaveBeenCalled()
+    expect(container.querySelector('.mindmap-drawn-shape')).toHaveAttribute(
+      'd',
+      'M 640 245 H 760 V 325 H 640 Z'
+    )
+
+    fireEvent.pointerUp(svg, { pointerId: 31, clientX: 660, clientY: 265 })
+
+    expect(onUpdateShape).toHaveBeenCalledTimes(1)
+    expect(onUpdateShape).toHaveBeenCalledWith('shape-1', {
+      position: { x: 640, y: 245 },
+      width: 120,
+      height: 80
+    })
+  })
+
+  it('reprojects a shape-anchored connector during a local move preview', () => {
+    const onUpdateShape = vi.fn()
+    const document = makeDocumentWithEditableDrawnShape()
+    document.sheets[0]!.elements.push({
+      id: 'connector-1',
+      type: 'connector',
+      start: {
+        x: 720,
+        y: 260,
+        anchor: { targetType: 'shape', targetId: 'shape-1' }
+      },
+      end: {
+        x: 900,
+        y: 260,
+        anchor: { targetType: 'topic', targetId: 'root' }
+      },
+      style: { lineShape: 'straight', endArrow: 'triangle' }
+    })
+
+    const { container } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateShape={onUpdateShape}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const line = container.querySelector<SVGPathElement>('.mindmap-drawn-line')
+    if (!svg || !line) throw new Error('expected mind map SVG and anchored connector')
+    const initialPath = line.getAttribute('d')
+    const shape = screen.getByRole('button', { name: 'Initial label' })
+
+    fireEvent.pointerDown(shape, { button: 0, pointerId: 34, clientX: 620, clientY: 240 })
+    fireEvent.pointerMove(svg, { pointerId: 34, clientX: 660, clientY: 265 })
+
+    // The document callback remains deferred, yet the anchored endpoint has
+    // already been resolved from the transient moved rectangle.
+    expect(onUpdateShape).not.toHaveBeenCalled()
+    expect(line).not.toHaveAttribute('d', initialPath ?? '')
+
+    fireEvent.pointerUp(svg, { pointerId: 34, clientX: 660, clientY: 265 })
+    expect(onUpdateShape).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps snapped connector arrows outside their target and does not clip wide marker styles', () => {
+    const document = makeDocumentWithDrawnShape()
+    document.sheets[0]!.elements.push({
+      id: 'connector-marker-1',
+      type: 'connector',
+      start: { x: 0, y: 0, anchor: { targetType: 'topic', targetId: 'root' } },
+      end: { x: 600, y: 260, anchor: { targetType: 'shape', targetId: 'shape-1' } },
+      style: { lineShape: 'straight', endArrow: 'triangle' }
+    })
+
+    const { container } = renderCanvas(document)
+    const line = container.querySelector<SVGPathElement>('.mindmap-drawn-line')
+    const triangle = container.querySelector<SVGMarkerElement>('#mindmap-rel-arrow-triangle')
+    const herringbone = container.querySelector<SVGMarkerElement>('#mindmap-rel-arrow-herringbone')
+    const attached = container.querySelector<SVGMarkerElement>('#mindmap-rel-arrow-attached')
+
+    expect(line).toHaveAttribute('marker-end', 'url(#mindmap-rel-arrow-triangle)')
+    // The target paints after connector paths. A larger default marker keeps
+    // the arrow readable, while refX positions its tip just outside the fill.
+    expect(triangle).toHaveAttribute('refX', '10.45')
+    expect(triangle).toHaveAttribute('markerWidth', '12')
+    expect(triangle).toHaveAttribute('markerHeight', '12')
+    expect(herringbone).toHaveAttribute('overflow', 'visible')
+    expect(attached).toHaveAttribute('overflow', 'visible')
+    expect(herringbone?.querySelector('path')).toHaveAttribute('fill', 'none')
+    expect(herringbone?.querySelector('path')).toHaveAttribute('stroke', 'context-stroke')
+  })
+
+  it('keeps a curved connector end tangent aimed into its target border', () => {
+    const document = makeDocumentWithDrawnShape()
+    document.sheets[0]!.elements.push({
+      id: 'connector-curved-direction-1',
+      type: 'connector',
+      start: { x: 0, y: 0, anchor: { targetType: 'topic', targetId: 'root' } },
+      end: { x: 600, y: 260, anchor: { targetType: 'shape', targetId: 'shape-1' } },
+      style: { lineShape: 'curved', endArrow: 'triangle' }
+    })
+
+    const { container } = renderCanvas(document)
+    const line = container.querySelector<SVGPathElement>('.mindmap-drawn-line')
+    const path = line?.getAttribute('d')
+    if (!path) throw new Error('expected an anchored curved connector')
+
+    const segments = path.split(' C ')
+    if (segments.length !== 3) throw new Error('expected two cubic curve segments')
+    const values = segments[2]!.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? []
+    if (values.length !== 6) throw new Error('expected terminal cubic control points')
+
+    const terminalControl = { x: values[2]!, y: values[3]! }
+    const endpoint = { x: values[4]!, y: values[5]! }
+
+    // This target sits to the right of the root, so the connector reaches its
+    // left edge while travelling right. The final cubic control must stay to
+    // the left of that endpoint, making the arrow point into the shape.
+    expect(endpoint.x).toBeCloseTo(600)
+    expect(terminalControl.x).toBeLessThan(endpoint.x)
+  })
+
+  it('gives persisted connectors a wide invisible stroke hit target so they can be selected and removed', () => {
+    const document = makeDocumentWithDrawnShape()
+    document.sheets[0]!.elements.push({
+      id: 'connector-hit-1',
+      type: 'connector',
+      start: { x: 100, y: 120, anchor: { targetType: 'topic', targetId: 'root' } },
+      end: { x: 520, y: 220, anchor: { targetType: 'shape', targetId: 'shape-1' } },
+      style: { lineShape: 'straight', endArrow: 'triangle' }
+    })
+
+    const { container } = renderCanvas(document)
+    const hitTarget = container.querySelector<SVGPathElement>('.mindmap-drawn-line-hit')
+    if (!hitTarget) throw new Error('expected connector hit target')
+
+    expect(hitTarget).toHaveAttribute('fill', 'none')
+    expect(hitTarget).toHaveAttribute('stroke', 'transparent')
+    expect(Number(hitTarget.getAttribute('stroke-width'))).toBeGreaterThanOrEqual(12)
+    expect(hitTarget).toHaveAttribute('pointer-events', 'stroke')
+
+    fireEvent.pointerDown(hitTarget, { button: 0, pointerId: 48 })
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'element',
+      elementId: 'connector-hit-1',
+      elementType: 'connector'
+    })
+  })
+
+  it('moves a persisted straight connector as a flexible curve without detaching either endpoint', () => {
+    const document = makeDocumentWithDrawnShape()
+    document.sheets[0]!.elements.push({
+      id: 'connector-body-drag-1',
+      type: 'connector',
+      start: { x: 100, y: 120, anchor: { targetType: 'topic', targetId: 'root' } },
+      end: { x: 520, y: 220, anchor: { targetType: 'shape', targetId: 'shape-1' } },
+      style: { lineShape: 'straight', endArrow: 'triangle' }
+    })
+    const onUpdateLine = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateLine={onUpdateLine}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const lineHit = container.querySelector<SVGPathElement>('.mindmap-drawn-line-hit')
+    if (!svg || !lineHit) throw new Error('expected connector hit target and SVG')
+
+    const grab = { x: 320, y: 180 }
+    fireEvent.pointerDown(lineHit, {
+      button: 0,
+      pointerId: 58,
+      clientX: grab.x,
+      clientY: grab.y
+    })
+
+    const control = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-control="connector-body-drag-1"]'
+    )
+    const fromEndpoint = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-endpoint="from"][data-mindmap-line-id="connector-body-drag-1"]'
+    )
+    const toEndpoint = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-endpoint="to"][data-mindmap-line-id="connector-body-drag-1"]'
+    )
+    if (!control || !fromEndpoint || !toEndpoint) {
+      throw new Error('expected connector control and endpoint handles')
+    }
+
+    const initialControl = {
+      x: Number(control.getAttribute('cx')),
+      y: Number(control.getAttribute('cy'))
+    }
+    const endpointMidpoint = {
+      x: (Number(fromEndpoint.getAttribute('cx')) + Number(toEndpoint.getAttribute('cx'))) / 2,
+      y: (Number(fromEndpoint.getAttribute('cy')) + Number(toEndpoint.getAttribute('cy'))) / 2
+    }
+    const delta = { x: 48, y: -36 }
+    const dragged = {
+      x: grab.x + delta.x,
+      y: grab.y + delta.y
+    }
+
+    fireEvent.pointerMove(svg, {
+      pointerId: 58,
+      clientX: dragged.x,
+      clientY: dragged.y
+    })
+    expect(onUpdateLine).not.toHaveBeenCalled()
+
+    fireEvent.pointerUp(svg, {
+      pointerId: 58,
+      clientX: dragged.x,
+      clientY: dragged.y
+    })
+
+    expect(onUpdateLine).toHaveBeenCalledTimes(1)
+    expect(onUpdateLine).toHaveBeenCalledWith('connector-body-drag-1', {
+      curveControlOffset: {
+        x: initialControl.x + delta.x - endpointMidpoint.x,
+        y: initialControl.y + delta.y - endpointMidpoint.y
+      },
+      style: { lineShape: 'flexible-curved' }
+    })
+    const connector = document.sheets[0]!.elements.find(
+      (element) => element.id === 'connector-body-drag-1'
+    )
+    expect(connector).toMatchObject({
+      start: { anchor: { targetType: 'topic', targetId: 'root' } },
+      end: { anchor: { targetType: 'shape', targetId: 'shape-1' } }
+    })
+  })
+
+  it('shows a draggable middle point that adjusts and persists a curved connector', () => {
+    const document = makeDocumentWithDrawnShape()
+    document.sheets[0]!.elements.push({
+      id: 'connector-curve-1',
+      type: 'connector',
+      start: { x: 0, y: 0, anchor: { targetType: 'topic', targetId: 'root' } },
+      end: { x: 600, y: 260, anchor: { targetType: 'shape', targetId: 'shape-1' } },
+      style: { lineShape: 'curved', endArrow: 'triangle' }
+    })
+    const onUpdateLine = vi.fn()
+    const { container, rerender } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateLine={onUpdateLine}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const lineHit = container.querySelector<SVGPathElement>('.mindmap-drawn-line-hit')
+    const line = container.querySelector<SVGPathElement>('.mindmap-drawn-line')
+    if (!svg || !lineHit || !line) throw new Error('expected curved connector and SVG')
+
+    fireEvent.pointerDown(lineHit, { button: 0, pointerId: 60 })
+
+    const control = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-control="connector-curve-1"]'
+    )
+    const fromEndpoint = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-endpoint="from"][data-mindmap-line-id="connector-curve-1"]'
+    )
+    const toEndpoint = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-endpoint="to"][data-mindmap-line-id="connector-curve-1"]'
+    )
+    if (!control || !fromEndpoint || !toEndpoint) {
+      throw new Error('expected curve control and endpoint handles')
+    }
+
+    const initialPath = line.getAttribute('d')
+    const initialControl = {
+      x: Number(control.getAttribute('cx')),
+      y: Number(control.getAttribute('cy'))
+    }
+    const endpointMidpoint = {
+      x: (Number(fromEndpoint.getAttribute('cx')) + Number(toEndpoint.getAttribute('cx'))) / 2,
+      y: (Number(fromEndpoint.getAttribute('cy')) + Number(toEndpoint.getAttribute('cy'))) / 2
+    }
+    expect(initialControl).not.toEqual(endpointMidpoint)
+
+    const dragged = { x: initialControl.x + 60, y: initialControl.y - 80 }
+    fireEvent.pointerDown(control, {
+      button: 0,
+      pointerId: 61,
+      clientX: initialControl.x,
+      clientY: initialControl.y
+    })
+    fireEvent.pointerMove(svg, {
+      pointerId: 61,
+      clientX: dragged.x,
+      clientY: dragged.y
+    })
+
+    expect(onUpdateLine).not.toHaveBeenCalled()
+    expect(line).not.toHaveAttribute('d', initialPath ?? '')
+    const draggedPath = line.getAttribute('d')
+    expect(control).toHaveAttribute('cx', String(dragged.x))
+    expect(control).toHaveAttribute('cy', String(dragged.y))
+
+    fireEvent.pointerUp(svg, {
+      pointerId: 61,
+      clientX: dragged.x,
+      clientY: dragged.y
+    })
+
+    expect(onUpdateLine).toHaveBeenCalledTimes(1)
+    expect(onUpdateLine).toHaveBeenCalledWith('connector-curve-1', {
+      curveControlOffset: {
+        x: dragged.x - endpointMidpoint.x,
+        y: dragged.y - endpointMidpoint.y
+      }
+    })
+
+    const persistedDocument = structuredClone(document)
+    const persistedConnector = persistedDocument.sheets[0]!.elements.find(
+      (element) => element.id === 'connector-curve-1'
+    )
+    if (!persistedConnector || persistedConnector.type !== 'connector') {
+      throw new Error('expected persisted curved connector')
+    }
+    persistedConnector.curveControlOffset = {
+      x: dragged.x - endpointMidpoint.x,
+      y: dragged.y - endpointMidpoint.y
+    }
+    rerender(
+      <MindMapCanvas
+        document={persistedDocument}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateLine={onUpdateLine}
+      />
+    )
+
+    expect(container.querySelector('.mindmap-drawn-line')).toHaveAttribute('d', draggedPath ?? '')
+    expect(container.querySelector('[data-mindmap-line-control="connector-curve-1"]'))
+      .toHaveAttribute('cx', String(dragged.x))
+  })
+
+  it('discards a curved connector middle-point preview when the pointer is cancelled', () => {
+    const document = makeDocumentWithDrawnShape()
+    document.sheets[0]!.elements.push({
+      id: 'connector-curve-cancel',
+      type: 'connector',
+      start: { x: 0, y: 0, anchor: { targetType: 'topic', targetId: 'root' } },
+      end: { x: 600, y: 260, anchor: { targetType: 'shape', targetId: 'shape-1' } },
+      style: { lineShape: 'curved', endArrow: 'triangle' }
+    })
+    const onUpdateLine = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateLine={onUpdateLine}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const lineHit = container.querySelector<SVGPathElement>('.mindmap-drawn-line-hit')
+    if (!svg || !lineHit) throw new Error('expected curved connector and SVG')
+
+    fireEvent.pointerDown(lineHit, { button: 0, pointerId: 62 })
+    const control = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-control="connector-curve-cancel"]'
+    )
+    if (!control) throw new Error('expected curve control')
+    const initial = {
+      x: Number(control.getAttribute('cx')),
+      y: Number(control.getAttribute('cy'))
+    }
+
+    fireEvent.pointerDown(control, {
+      button: 0,
+      pointerId: 63,
+      clientX: initial.x,
+      clientY: initial.y
+    })
+    fireEvent.pointerMove(svg, {
+      pointerId: 63,
+      clientX: initial.x + 80,
+      clientY: initial.y - 40
+    })
+    expect(control).toHaveAttribute('cx', String(initial.x + 80))
+
+    fireEvent.pointerCancel(svg, { pointerId: 63 })
+
+    expect(onUpdateLine).not.toHaveBeenCalled()
+    expect(control).toHaveAttribute('cx', String(initial.x))
+    expect(control).toHaveAttribute('cy', String(initial.y))
+  })
+
+  it('keeps selected connector endpoints above nodes and allows moving or right-clicking them', () => {
+    const document = makeDocumentWithDrawnShape()
+    document.sheets[0]!.elements.push({
+      id: 'connector-endpoint-1',
+      type: 'connector',
+      start: { x: 180, y: 130, anchor: { targetType: 'topic', targetId: 'root' } },
+      end: { x: 520, y: 250, anchor: { targetType: 'shape', targetId: 'shape-1' } },
+      style: { lineShape: 'straight', endArrow: 'triangle' }
+    })
+    const onUpdateLine = vi.fn()
+    const onLineContextMenu = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={document}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateLine={onUpdateLine}
+        onLineContextMenu={onLineContextMenu}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const lineHit = container.querySelector<SVGPathElement>('.mindmap-drawn-line-hit')
+    if (!svg || !lineHit) throw new Error('expected connector hit target and SVG')
+
+    fireEvent.pointerDown(lineHit, { button: 0, pointerId: 49 })
+
+    const overlay = container.querySelector<SVGGElement>(
+      '[data-mindmap-line-endpoint-overlay="connector-endpoint-1"]'
+    )
+    const root = container.querySelector<SVGGElement>('[data-node-id="root"]')
+    const fromEndpoint = container.querySelector<SVGCircleElement>(
+      '[data-mindmap-line-endpoint="from"][data-mindmap-line-id="connector-endpoint-1"]'
+    )
+    const child = container.querySelector<SVGGElement>('[data-node-id="child"]')
+    const childRect = child?.querySelector<SVGRectElement>('.mindmap-node-rect')
+    if (!overlay || !root || !fromEndpoint || !childRect) {
+      throw new Error('expected selected connector endpoint overlay')
+    }
+
+    // The overlay is painted after topic/shape/image layers, so a snapped
+    // endpoint remains visible and receives the next pointer gesture.
+    expect(root.compareDocumentPosition(overlay) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+
+    fireEvent.pointerDown(fromEndpoint, {
+      button: 0,
+      pointerId: 50,
+      clientX: 180,
+      clientY: 130
+    })
+    const childBounds = targetBounds(childRect)
+    const childCenter = {
+      x: childBounds.x + childBounds.width / 2,
+      y: childBounds.y + childBounds.height / 2
+    }
+    fireEvent.pointerMove(svg, { pointerId: 50, clientX: childCenter.x, clientY: childCenter.y })
+    fireEvent.pointerUp(svg, { pointerId: 50, clientX: childCenter.x, clientY: childCenter.y })
+
+    expect(onUpdateLine).toHaveBeenCalledTimes(1)
+    expect(onUpdateLine).toHaveBeenCalledWith('connector-endpoint-1', {
+      from: expect.objectContaining({
+        target: { id: 'child', kind: 'topic' }
+      })
+    })
+
+    fireEvent.contextMenu(fromEndpoint, { clientX: 320, clientY: 260 })
+    expect(onLineContextMenu).toHaveBeenCalledWith('connector-endpoint-1', 320, 260)
+  })
+
+  it('right-clicking a drawn shape opens its context menu and selects the shape', () => {
+    const onShapeContextMenu = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocumentWithDrawnShape()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onShapeContextMenu={onShapeContextMenu}
+      />
+    )
+    const shape = container.querySelector<SVGGElement>('.mindmap-drawn-shape-group')
+    if (!shape) throw new Error('expected drawn shape group')
+
+    fireEvent.contextMenu(shape, { clientX: 620, clientY: 240 })
+    expect(onShapeContextMenu).toHaveBeenCalledWith('shape-1', 620, 240)
+    // Right-click also selects the shape so the targeted element is visible.
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'element',
+      elementId: 'shape-1',
+      elementType: 'shape'
+    })
+  })
+
+  it('resizes a selected free shape once and uses the editable minimum without moving its opposite edges', () => {
+    const onUpdateShape = vi.fn()
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocumentWithEditableDrawnShape()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateShape={onUpdateShape}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    if (!svg) throw new Error('expected mind map SVG')
+    const shape = screen.getByRole('button', { name: 'Initial label' })
+
+    // A stationary primary click selects the shape and exposes its eight handles
+    // without creating a persistence command.
+    fireEvent.pointerDown(shape, { button: 0, pointerId: 32, clientX: 620, clientY: 240 })
+    fireEvent.pointerUp(svg, { pointerId: 32, clientX: 620, clientY: 240 })
+    expect(onUpdateShape).not.toHaveBeenCalled()
+
+    const northWestHandle = container.querySelector<SVGRectElement>(
+      '[data-mindmap-shape-resize-handle="nw"]'
+    )
+    if (!northWestHandle) throw new Error('expected north-west shape resize handle')
+
+    fireEvent.pointerDown(northWestHandle, { button: 0, pointerId: 33, clientX: 600, clientY: 220 })
+    fireEvent.pointerMove(svg, { pointerId: 33, clientX: 1_600, clientY: 1_220 })
+    fireEvent.pointerUp(svg, { pointerId: 33, clientX: 1_600, clientY: 1_220 })
+
+    expect(onUpdateShape).toHaveBeenCalledTimes(1)
+    expect(onUpdateShape).toHaveBeenCalledWith('shape-1', {
+      position: { x: 696, y: 276 },
+      width: 24,
+      height: 24
+    })
+  })
+
+  it('uses invisible resize zones along every edge and corner instead of visible handles', () => {
+    const { container } = renderCanvas(makeDocumentWithEditableDrawnShape())
+    const zones = [...container.querySelectorAll<SVGRectElement>('[data-mindmap-shape-resize-edge]')]
+
+    expect(zones.map((zone) => zone.dataset.mindmapShapeResizeEdge)).toEqual([
+      'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'
+    ])
+    for (const zone of zones) {
+      expect(zone).toHaveAttribute('fill', 'transparent')
+      expect(zone).toHaveAttribute('stroke', 'none')
+    }
+
+    const north = zones.find((zone) => zone.dataset.mindmapShapeResizeEdge === 'n')
+    const east = zones.find((zone) => zone.dataset.mindmapShapeResizeEdge === 'e')
+    expect(Number(north?.getAttribute('width'))).toBeGreaterThan(100)
+    expect(Number(east?.getAttribute('height'))).toBeGreaterThan(60)
+  })
+
+  it('captures free-shape gestures on the shape itself so Chromium can dispatch its double-click back to it', () => {
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocumentWithEditableDrawnShape()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const shape = screen.getByRole('button', { name: 'Initial label' })
+    if (!svg) throw new Error('expected mind map SVG')
+
+    const shapeCapture = vi.fn()
+    const rootCapture = vi.fn()
+    Object.defineProperty(shape, 'setPointerCapture', { configurable: true, value: shapeCapture })
+    Object.defineProperty(svg, 'setPointerCapture', { configurable: true, value: rootCapture })
+
+    fireEvent.pointerDown(shape, { button: 0, pointerId: 46, clientX: 620, clientY: 240 })
+
+    expect(shapeCapture).toHaveBeenCalledWith(46)
+    expect(rootCapture).not.toHaveBeenCalled()
+  })
+
+  it('keeps a shape interaction alive when its captured pointer leaves the canvas', () => {
+    const { container } = render(
+      <MindMapCanvas
+        document={makeDocumentWithEditableDrawnShape()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+      />
+    )
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const shape = screen.getByRole('button', { name: 'Initial label' })
+    if (!svg) throw new Error('expected mind map SVG')
+
+    Object.defineProperty(shape, 'setPointerCapture', { configurable: true, value: vi.fn() })
+    Object.defineProperty(shape, 'hasPointerCapture', { configurable: true, value: vi.fn(() => true) })
+
+    fireEvent.pointerDown(shape, { button: 0, pointerId: 47, clientX: 620, clientY: 240 })
+    fireEvent.pointerLeave(svg, { pointerId: 47, clientX: 1_200, clientY: 800 })
+
+    expect(shape).toHaveClass('is-moving')
+  })
+
+  it('commits edited shape text on blur and discards it on Escape', async () => {
+    const user = userEvent.setup()
+    const onUpdateShape = vi.fn()
+    render(
+      <MindMapCanvas
+        document={makeDocumentWithEditableDrawnShape()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateShape={onUpdateShape}
+      />
+    )
+    const shape = screen.getByRole('button', { name: 'Initial label' })
+
+    await user.dblClick(shape)
+    const editor = screen.getByRole('textbox')
+    await user.clear(editor)
+    await user.type(editor, 'Blurred label')
+    fireEvent.blur(editor)
+
+    expect(onUpdateShape).toHaveBeenCalledTimes(1)
+    expect(onUpdateShape).toHaveBeenLastCalledWith('shape-1', { label: 'Blurred label' })
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+
+    await user.dblClick(screen.getByRole('button', { name: 'Initial label' }))
+    const cancelledEditor = screen.getByRole('textbox')
+    await user.clear(cancelledEditor)
+    await user.type(cancelledEditor, 'Do not save')
+    fireEvent.keyDown(cancelledEditor, { key: 'Escape' })
+    fireEvent.blur(cancelledEditor)
+
+    expect(onUpdateShape).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it('starts shape text in the visual centre and keeps an unmodified Enter as a newline', async () => {
+    const user = userEvent.setup()
+    const onUpdateShape = vi.fn()
+    render(
+      <MindMapCanvas
+        document={makeDocumentWithEditableDrawnShape()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateShape={onUpdateShape}
+      />
+    )
+
+    await user.dblClick(screen.getByRole('button', { name: 'Initial label' }))
+    const editor = screen.getByRole('textbox')
+    expect(editor.parentElement).toHaveClass('mindmap-drawn-shape-label-editor-shell')
+    expect(editor).toHaveStyle({ textAlign: 'center' })
+
+    await user.clear(editor)
+    await user.type(editor, 'First line{enter}Second line')
+    expect(editor).toHaveValue('First line\nSecond line')
+    expect(onUpdateShape).not.toHaveBeenCalled()
+
+    fireEvent.blur(editor)
+    expect(onUpdateShape).toHaveBeenCalledWith('shape-1', {
+      label: 'First line\nSecond line'
+    })
+  })
+
+  it.each([
+    ['Ctrl', { ctrlKey: true }],
+    ['Cmd', { metaKey: true }]
+  ])('commits shape text once with %s+Enter even when blur follows', async (_shortcut, modifier) => {
+    const user = userEvent.setup()
+    const onUpdateShape = vi.fn()
+    render(
+      <MindMapCanvas
+        document={makeDocumentWithEditableDrawnShape()}
+        activeSheetIndex={0}
+        onActiveSheetChange={() => undefined}
+        onUpdateShape={onUpdateShape}
+      />
+    )
+
+    await user.dblClick(screen.getByRole('button', { name: 'Initial label' }))
+    const editor = screen.getByRole('textbox')
+    await user.clear(editor)
+    await user.type(editor, 'Keyboard label')
+    fireEvent.keyDown(editor, { key: 'Enter', ...modifier })
+    // The edit commit unmounts the textarea. A late blur from the browser must
+    // be ignored so this remains a single undoable update.
+    fireEvent.blur(editor)
+
+    expect(onUpdateShape).toHaveBeenCalledTimes(1)
+    expect(onUpdateShape).toHaveBeenCalledWith('shape-1', { label: 'Keyboard label' })
   })
 })

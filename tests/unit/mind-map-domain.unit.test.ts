@@ -131,7 +131,7 @@ function sheet(
     title,
     root,
     elements,
-    layout: { structureClass: 'org.xmind.ui.logic.right' }
+    layout: { structureClass: 'studiumx.layout.logic.right' }
   }
 }
 
@@ -169,13 +169,13 @@ function validDocumentV1(): MindMapDocument {
       {
         id: 'sheet-1',
         title: 'Sheet 1',
-        structureClass: 'org.xmind.ui.logic.right',
+        structureClass: 'studiumx.layout.logic.right',
         root: {
           id: 'root-1',
           title: '中心主题',
           note: 'a note',
           collapsed: true,
-          structureClass: 'org.xmind.ui.logic.balanced',
+          structureClass: 'studiumx.layout.logic.balanced',
           children: [
             {
               id: 'branch-1',
@@ -190,7 +190,7 @@ function validDocumentV1(): MindMapDocument {
       {
         id: 'sheet-2',
         title: 'Sheet 2',
-        structureClass: 'org.xmind.ui.logic.map',
+        structureClass: 'studiumx.layout.logic.map',
         root: { id: 'root-2', title: 'Second Root', children: [] }
       }
     ]
@@ -217,6 +217,25 @@ describe('mind map v2 schemas', () => {
   it('accepts a valid v2 document', () => {
     const result = mindMapDocumentV2Schema.safeParse(validDocumentV2())
     expect(result.success).toBe(true)
+  })
+
+  it('persists only finite connector curve-control offsets', () => {
+    const doc = validDocumentV2()
+    doc.sheets[0].elements = [element({
+      id: 'curve-1',
+      type: 'connector',
+      start: { x: 0, y: 0, anchor: { targetType: 'topic', targetId: 'r1' } },
+      end: { x: 200, y: 80, anchor: { targetType: 'topic', targetId: 'a1' } },
+      curveControlOffset: { x: 18, y: -42 },
+      style: { lineShape: 'curved' }
+    })]
+
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(true)
+    doc.sheets[0].elements[0] = {
+      ...doc.sheets[0].elements[0]!,
+      curveControlOffset: { x: Number.NaN, y: 0 }
+    } as MindMapElement
+    expect(mindMapDocumentV2Schema.safeParse(doc).success).toBe(false)
   })
 
   it('validates the fixed width mode contract', () => {
@@ -532,14 +551,14 @@ describe('v1 → v2 migration', () => {
     const s1 = v2.sheets[0]
     expect(s1.id).toBe('sheet-1')
     expect(s1.title).toBe('Sheet 1')
-    expect(s1.layout.structureClass).toBe('org.xmind.ui.logic.right')
+    expect(s1.layout.structureClass).toBe('studiumx.layout.logic.right')
     expect(s1.elements).toEqual([])
     expect(s1.root).toMatchObject({
       id: 'root-1',
       title: '中心主题',
       note: 'a note',
       collapsed: true,
-      style: { structureClass: 'org.xmind.ui.logic.balanced' }
+      style: { structureClass: 'studiumx.layout.logic.balanced' }
     })
     expect(s1.root.children).toHaveLength(1)
     expect(s1.root.children[0]).toMatchObject({
@@ -549,7 +568,7 @@ describe('v1 → v2 migration', () => {
     })
 
     const s2 = v2.sheets[1]
-    expect(s2.layout.structureClass).toBe('org.xmind.ui.logic.map')
+    expect(s2.layout.structureClass).toBe('studiumx.layout.logic.map')
     expect(s2.root.id).toBe('root-2')
   })
 
@@ -562,6 +581,115 @@ describe('v1 → v2 migration', () => {
     expect(twice.ok).toBe(true)
     if (!twice.ok) return
     expect(twice.value).toEqual(once.value)
+  })
+
+  it('removes only legacy connectors that cannot attach two distinct existing targets', () => {
+    const input = {
+      ...validDocumentV2(),
+      sheets: [
+        {
+          ...validDocumentV2().sheets[0]!,
+          elements: [
+            {
+              id: 'connector-valid',
+              type: 'connector',
+              start: {
+                x: 0,
+                y: 0,
+                anchor: { targetType: 'topic', targetId: 'r1' }
+              },
+              end: {
+                x: 200,
+                y: 100,
+                anchor: { targetType: 'topic', targetId: 'a1' }
+              }
+            },
+            {
+              id: 'connector-half',
+              type: 'connector',
+              start: {
+                x: 0,
+                y: 0,
+                anchor: { targetType: 'topic', targetId: 'r1' }
+              },
+              end: { x: 200, y: 100 }
+            },
+            {
+              id: 'connector-missing-target',
+              type: 'connector',
+              start: {
+                x: 0,
+                y: 0,
+                anchor: { targetType: 'topic', targetId: 'missing' }
+              },
+              end: {
+                x: 200,
+                y: 100,
+                anchor: { targetType: 'topic', targetId: 'a1' }
+              }
+            },
+            {
+              id: 'connector-self',
+              type: 'connector',
+              start: {
+                x: 0,
+                y: 0,
+                anchor: { targetType: 'topic', targetId: 'r1' }
+              },
+              end: {
+                x: 100,
+                y: 100,
+                anchor: { targetType: 'topic', targetId: 'r1' }
+              }
+            }
+          ]
+        }
+      ]
+    }
+    const snapshot = JSON.parse(JSON.stringify(input))
+
+    const result = migrateV1ToV2(input)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.sheets[0]!.elements.map((element) => element.id)).toEqual([
+      'connector-valid'
+    ])
+    expect(input).toEqual(snapshot)
+
+    const repeated = migrateV1ToV2(result.value)
+    expect(repeated).toEqual(result)
+  })
+
+  it('continues to reject non-connector corruption in v2 documents', () => {
+    const input = {
+      ...validDocumentV2(),
+      title: 42,
+      sheets: [
+        {
+          ...validDocumentV2().sheets[0]!,
+          elements: [
+            {
+              id: 'connector-half',
+              type: 'connector',
+              start: {
+                x: 0,
+                y: 0,
+                anchor: { targetType: 'topic', targetId: 'r1' }
+              },
+              end: { x: 200, y: 100 }
+            }
+          ]
+        }
+      ]
+    }
+
+    const result = migrateV1ToV2(input)
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.code).toBe('INVALID_V2_DOCUMENT')
+    }
   })
 
   it('is deterministic for the same v1 input', () => {

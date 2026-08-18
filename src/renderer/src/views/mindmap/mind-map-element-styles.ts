@@ -8,15 +8,32 @@ import type {
 /**
  * Renderer-side geometry helpers for advanced non-topic element styling.
  *
- * These are pure SVG string/fragment helpers mirroring the XMind vocabulary:
- * relationship connector shapes (`org.xmind.relationshipShape.*`), endpoint
- * arrows (`org.xmind.arrowShape.*`), line patterns
+ * These are pure SVG string/fragment helpers mirroring the StudiumX vocabulary:
+ * relationship connector shapes (`studiumx.relationship.*`), endpoint
+ * arrows (`studiumx.arrow.*`), line patterns
  * (`solid/dash/dot/dash-dot/dash-dot-dot`) and container outlines
  * (boundary/summary/callout shapes). The canvas consumes these together with
  * `MindMapElementStyle` so every declared field has a visual consequence.
  */
 
 export type ElementPathPoint = { x: number; y: number }
+
+/** Optional endpoint tangents used by canvas connectors anchored to a shape. */
+export type RelationshipElementPathOptions = Readonly<{
+  /** Direction in which the path should leave its start point. */
+  fromTangent?: ElementPathPoint
+  /** Direction in which the path should arrive at its end point. */
+  toTangent?: ElementPathPoint
+  /** Draggable point through which a curved connector must pass. */
+  curvePoint?: ElementPathPoint
+}>
+
+function unitVector(vector: ElementPathPoint | undefined, fallback: ElementPathPoint): ElementPathPoint {
+  const candidate = vector ?? fallback
+  const length = Math.hypot(candidate.x, candidate.y)
+  if (length <= Number.EPSILON) return { x: 1, y: 0 }
+  return { x: candidate.x / length, y: candidate.y / length }
+}
 
 function controlOffset(shape: MindMapElementLineShape | undefined, dx: number): number {
   switch (shape) {
@@ -36,23 +53,182 @@ function controlOffset(shape: MindMapElementLineShape | undefined, dx: number): 
   }
 }
 
+function offsetPoint(point: ElementPathPoint, direction: ElementPathPoint, distance: number): ElementPathPoint {
+  return {
+    x: point.x + direction.x * distance,
+    y: point.y + direction.y * distance
+  }
+}
+
+function anchoredZigzagPath(
+  from: ElementPathPoint,
+  to: ElementPathPoint,
+  fromDirection: ElementPathPoint,
+  toDirection: ElementPathPoint
+): string {
+  const totalDistance = Math.hypot(to.x - from.x, to.y - from.y)
+  const lead = Math.min(52, Math.max(14, totalDistance * 0.16))
+  const startLead = offsetPoint(from, fromDirection, lead)
+  const endLead = offsetPoint(to, { x: -toDirection.x, y: -toDirection.y }, lead)
+  const span = { x: endLead.x - startLead.x, y: endLead.y - startLead.y }
+  const spanLength = Math.hypot(span.x, span.y)
+  if (spanLength <= 8) return `M ${from.x} ${from.y} L ${to.x} ${to.y}`
+
+  const normal = { x: -span.y / spanLength, y: span.x / spanLength }
+  const amplitude = Math.min(16, Math.max(5, spanLength * 0.1))
+  const points = [`M ${from.x} ${from.y}`, `L ${startLead.x} ${startLead.y}`]
+  for (let index = 1; index <= 3; index += 1) {
+    const progress = index / 4
+    const direction = index % 2 === 0 ? -1 : 1
+    const point = {
+      x: startLead.x + span.x * progress + normal.x * amplitude * direction,
+      y: startLead.y + span.y * progress + normal.y * amplitude * direction
+    }
+    points.push(`L ${point.x} ${point.y}`)
+  }
+  points.push(`L ${endLead.x} ${endLead.y}`, `L ${to.x} ${to.y}`)
+  return points.join(' ')
+}
+
+function quadraticPathThroughPoint(
+  from: ElementPathPoint,
+  to: ElementPathPoint,
+  curvePoint: ElementPathPoint
+): string {
+  // A quadratic Bezier reaches its control point only indirectly. Solve for
+  // that control point so the visible curve passes through the draggable
+  // point at t=0.5: curvePoint = (from + 2 * control + to) / 4.
+  const endpointMidpoint = {
+    x: (from.x + to.x) / 2,
+    y: (from.y + to.y) / 2
+  }
+  const control = {
+    x: 2 * curvePoint.x - endpointMidpoint.x,
+    y: 2 * curvePoint.y - endpointMidpoint.y
+  }
+  return `M ${from.x} ${from.y} Q ${control.x} ${control.y}, ${to.x} ${to.y}`
+}
+
 /**
- * Relationship connector path for one of the XMind relationship shapes.
+ * Route a curved connector through its draggable midpoint while retaining
+ * explicit endpoint tangents. A single quadratic can pass through the point,
+ * but cannot independently control its start/end direction; that made arrow
+ * markers point sideways at snapped shapes. Two smooth cubic segments keep
+ * both arrow directions tied to their target borders.
+ */
+function anchoredCurvedPathThroughPoint(
+  from: ElementPathPoint,
+  to: ElementPathPoint,
+  curvePoint: ElementPathPoint,
+  fromDirection: ElementPathPoint,
+  toDirection: ElementPathPoint
+): string {
+  const fromDistance = Math.hypot(curvePoint.x - from.x, curvePoint.y - from.y)
+  const toDistance = Math.hypot(to.x - curvePoint.x, to.y - curvePoint.y)
+  const fromHandle = Math.min(72, Math.max(4, fromDistance * 0.34))
+  const toHandle = Math.min(72, Math.max(4, toDistance * 0.34))
+  const incomingDirection = unitVector(
+    { x: curvePoint.x - from.x, y: curvePoint.y - from.y },
+    { x: to.x - from.x, y: to.y - from.y }
+  )
+  const outgoingDirection = unitVector(
+    { x: to.x - curvePoint.x, y: to.y - curvePoint.y },
+    { x: to.x - from.x, y: to.y - from.y }
+  )
+  const joinDirection = unitVector(
+    {
+      x: incomingDirection.x + outgoingDirection.x,
+      y: incomingDirection.y + outgoingDirection.y
+    },
+    { x: to.x - from.x, y: to.y - from.y }
+  )
+  const joinHandle = Math.min(32, Math.max(4, Math.min(fromDistance, toDistance) * 0.16))
+  const c1 = offsetPoint(from, fromDirection, fromHandle)
+  const c2 = offsetPoint(curvePoint, { x: -joinDirection.x, y: -joinDirection.y }, joinHandle)
+  const c3 = offsetPoint(curvePoint, joinDirection, joinHandle)
+  const c4 = offsetPoint(to, { x: -toDirection.x, y: -toDirection.y }, toHandle)
+  return [
+    `M ${from.x} ${from.y}`,
+    `C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${curvePoint.x} ${curvePoint.y}`,
+    `C ${c3.x} ${c3.y}, ${c4.x} ${c4.y}, ${to.x} ${to.y}`
+  ].join(' ')
+}
+
+/**
+ * Relationship connector path for one of the StudiumX relationship shapes.
  * All shapes keep their endpoints on the topic borders.
  */
 export function relationshipElementPath(
   from: ElementPathPoint,
   to: ElementPathPoint,
-  shape: MindMapElementLineShape = 'curved'
+  shape: MindMapElementLineShape = 'curved',
+  options?: RelationshipElementPathOptions
 ): string {
   const toRight = to.x >= from.x
   const midX = from.x + (to.x - from.x) / 2
   const dx = Math.abs(to.x - from.x)
   const dy = Math.abs(to.y - from.y)
-  const cx1 = shape === 'straight' || shape === 'angled' || shape === 'flexible-angled'
+  const delta = { x: to.x - from.x, y: to.y - from.y }
+
+  if (shape === 'straight') {
+    return `M ${from.x} ${from.y} L ${to.x} ${to.y}`
+  }
+
+  if ((shape === 'curved' || shape === 'flexible-curved') && options?.curvePoint !== undefined) {
+    if (options.fromTangent !== undefined || options.toTangent !== undefined) {
+      return anchoredCurvedPathThroughPoint(
+        from,
+        to,
+        options.curvePoint,
+        unitVector(options.fromTangent, delta),
+        unitVector(options.toTangent, delta)
+      )
+    }
+    return quadraticPathThroughPoint(from, to, options.curvePoint)
+  }
+
+  // A marker follows the path tangent, not the vector between its endpoints.
+  // The historical curve controls always approached the endpoint horizontally,
+  // which put an arrow aimed at the top/bottom edge of a shape sideways. When
+  // either endpoint is anchored, keep the final tangent aligned with the
+  // target-facing direction while retaining a gentle curve in the middle.
+  if (options?.fromTangent !== undefined || options?.toTangent !== undefined) {
+    const fromDirection = unitVector(options.fromTangent, delta)
+    const toDirection = unitVector(options.toTangent, delta)
+    if (shape === 'angled' || shape === 'flexible-angled') {
+      const distance = Math.min(56, Math.max(14, Math.hypot(delta.x, delta.y) * 0.16))
+      const startElbow = offsetPoint(from, fromDirection, distance)
+      const endElbow = offsetPoint(to, { x: -toDirection.x, y: -toDirection.y }, distance)
+      return [
+        `M ${from.x} ${from.y}`,
+        `L ${startElbow.x} ${startElbow.y}`,
+        `L ${endElbow.x} ${endElbow.y}`,
+        `L ${to.x} ${to.y}`
+      ].join(' ')
+    }
+    if (shape === 'zigzag' || shape === 'flexible-zigzag') {
+      return anchoredZigzagPath(from, to, fromDirection, toDirection)
+    }
+    if (shape === 'curved' || shape === 'flexible-curved') {
+      // Keep endpoint handles proportional to the actual span. A hard 20 px
+      // minimum made short connectors loop and left their arrowheads looking
+      // detached from the target shape.
+      const distance = Math.min(72, Math.max(4, Math.hypot(delta.x, delta.y) * 0.2))
+      const c1 = {
+        x: from.x + fromDirection.x * distance,
+        y: from.y + fromDirection.y * distance
+      }
+      const c2 = {
+        x: to.x - toDirection.x * distance,
+        y: to.y - toDirection.y * distance
+      }
+      return `M ${from.x} ${from.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${to.x} ${to.y}`
+    }
+  }
+  const cx1 = shape === 'angled' || shape === 'flexible-angled'
     ? toRight ? from.x + dx * 0.5 : from.x - dx * 0.5
     : toRight ? from.x + controlOffset(shape, dx) : from.x - controlOffset(shape, dx)
-  const cx2 = shape === 'straight' || shape === 'angled' || shape === 'flexible-angled'
+  const cx2 = shape === 'angled' || shape === 'flexible-angled'
     ? toRight ? to.x - dx * 0.5 : to.x + dx * 0.5
     : toRight ? to.x - controlOffset(shape, dx) : to.x + controlOffset(shape, dx)
 
@@ -80,8 +256,10 @@ export function relationshipElementPath(
 }
 
 /**
- * Marker path fragment for one endpoint arrow shape (10×10 viewBox).
- * `none` returns undefined so the canvas simply omits the marker.
+ * Marker path fragment for one endpoint arrow shape (10×10 marker coordinate
+ * space). `herringbone` and `attached` intentionally extend past x=10; their
+ * marker metrics opt into a visible viewport below. `none` returns undefined
+ * so the canvas simply omits the marker.
  */
 export function relationshipArrowMarkerPath(
   arrow: MindMapElementArrowShape | undefined
@@ -90,8 +268,12 @@ export function relationshipArrowMarkerPath(
     case 'dot':
       return 'M 2 5 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0'
     case 'triangle':
+      // A full, balanced triangle remains legible at the canvas's default
+      // connector width. Its tip sits on the positive marker axis so refX can
+      // keep it visibly attached when the target is painted above the line.
+      return 'M 1 1.2 L 9.7 5 L 1 8.8 Z'
     case 'spearhead':
-      return 'M 0 0 L 10 5 L 0 10 Z'
+      return 'M 1.25 1.35 L 9.5 5 L 1.25 8.65'
     case 'square':
       return 'M 1 1 L 9 1 L 9 9 L 1 9 Z'
     case 'diamond':
@@ -106,6 +288,53 @@ export function relationshipArrowMarkerPath(
       return 'M 0 0 L 6 5 L 0 10 M 6 0 L 12 5 L 6 10'
     case 'hook':
       return 'M 1 1 C 6 1 9 3 8 8 L 8 5 M 8 5 L 5 8'
+    case 'none':
+    default:
+      return undefined
+  }
+}
+
+/**
+ * SVG positioning metrics for endpoint markers.
+ *
+ * Connector endpoints are projected directly onto the border of a snapped
+ * target. The connector layer intentionally sits beneath nodes and free
+ * shapes, so a marker whose visual front extends past that endpoint is hidden
+ * by the target fill. Keep every marker's forward-most ink one marker unit
+ * outside of the endpoint. This preserves border attachment while giving the
+ * target stroke enough clearance not to anti-alias over the arrow tip.
+ */
+export function relationshipArrowMarkerMetrics(
+  arrow: MindMapElementArrowShape | undefined
+): Readonly<{
+  refX: number
+  markerWidth?: number
+  markerHeight?: number
+  overflow?: 'visible'
+  open?: true
+}> | undefined {
+  switch (arrow) {
+    case 'dot':
+      return { refX: 9 }
+    case 'triangle':
+      // The connector layer sits beneath topics/shapes. Give the default arrow
+      // enough visual weight, but keep its tip just outside the target border
+      // so the fill cannot blunt it.
+      return { refX: 10.45, markerWidth: 12, markerHeight: 12 }
+    case 'spearhead':
+      return { refX: 9, open: true }
+    case 'diamond':
+    case 'double-arrow':
+    case 'anti-triangle':
+      return { refX: 11 }
+    case 'square':
+      return { refX: 10 }
+    case 'hook':
+      return { refX: 10, open: true }
+    case 'herringbone':
+      return { refX: 12, overflow: 'visible', open: true }
+    case 'attached':
+      return { refX: 13, overflow: 'visible', open: true }
     case 'none':
     default:
       return undefined

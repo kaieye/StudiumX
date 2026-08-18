@@ -1,12 +1,12 @@
 /**
- * Xmind structure-type presets.
+ * StudiumX structure-type presets.
  *
- * Xmind supports eight layout families beyond the basic logic chart: map
+ * StudiumX supports eight layout families beyond the basic logic chart: map
  * (radial), org-chart, tree, brace, timeline, fishbone, and matrix. Each
  * family has directional variants (left/right, up/down, horizontal/vertical).
  *
  * This registry centralises the metadata for every supported structure class
- * so the layout algorithm, UI selector, xmind converter and schema all share
+ * so the layout algorithm, UI selector, studiumx converter and schema all share
  * a single source of truth.
  *
  * The registry keeps the historical base strategy API for compatibility, while
@@ -65,9 +65,9 @@ export type MindMapConnectorStyle =
 
 /** Metadata for a single structure-type preset. */
 export interface StructureTypePreset {
-  /** The Xmind structureClass value (canonical or legacy alias). */
+  /** The StudiumX structureClass value (canonical or legacy alias). */
   id: MindMapStructureClass
-  /** English display name (from Xmind locale). */
+  /** English display name (from StudiumX locale). */
   name: string
   /** Layout family for UI grouping and theme template association. */
   family: StructureFamily
@@ -88,7 +88,7 @@ export interface StructureTypePreset {
 export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
   // ---- Logic Chart (逻辑图) ----
   {
-    id: 'org.xmind.ui.logic.right',
+    id: 'studiumx.layout.logic.right',
     name: 'Logic Chart (Right)',
     family: 'logic',
     labelKey: 'right',
@@ -96,7 +96,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'horizontal-right'
   },
   {
-    id: 'org.xmind.ui.logic.balanced',
+    id: 'studiumx.layout.logic.balanced',
     name: 'Logic Chart (Balanced)',
     family: 'logic',
     labelKey: 'balanced',
@@ -104,7 +104,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'balanced'
   },
   {
-    id: 'org.xmind.ui.logic.left',
+    id: 'studiumx.layout.logic.left',
     name: 'Logic Chart (Left)',
     family: 'logic',
     labelKey: 'left',
@@ -114,7 +114,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
 
   // ---- Mind Map (思维导图 - radial) ----
   {
-    id: 'org.xmind.ui.logic.map',
+    id: 'studiumx.layout.logic.map',
     name: 'Mind Map',
     family: 'map',
     labelKey: 'map',
@@ -122,7 +122,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'balanced'
   },
   {
-    id: 'org.xmind.ui.map',
+    id: 'studiumx.layout.map',
     name: 'Mind Map (Map)',
     family: 'map',
     labelKey: 'mapClassic',
@@ -130,7 +130,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'balanced'
   },
   {
-    id: 'org.xmind.ui.map.clockwise',
+    id: 'studiumx.layout.map.clockwise',
     name: 'Mind Map (Clockwise)',
     family: 'map',
     labelKey: 'mapClockwise',
@@ -138,7 +138,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'horizontal-right'
   },
   {
-    id: 'org.xmind.ui.map.anticlockwise',
+    id: 'studiumx.layout.map.anticlockwise',
     name: 'Mind Map (Anticlockwise)',
     family: 'map',
     labelKey: 'mapAnticlockwise',
@@ -148,7 +148,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
 
   // ---- Org Chart (组织结构图) ----
   {
-    id: 'org.xmind.ui.logic.down',
+    id: 'studiumx.layout.logic.down',
     name: 'Org Chart (Down)',
     family: 'org',
     labelKey: 'down',
@@ -156,7 +156,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'vertical-down'
   },
   {
-    id: 'org.xmind.ui.logic.up',
+    id: 'studiumx.layout.logic.up',
     name: 'Org Chart (Up)',
     family: 'org',
     labelKey: 'up',
@@ -164,7 +164,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'vertical-up'
   },
   {
-    id: 'org.xmind.ui.org-chart.down',
+    id: 'studiumx.layout.org-chart.down',
     name: 'Org Chart (Down)',
     family: 'org',
     labelKey: 'orgChartDown',
@@ -172,7 +172,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'vertical-down'
   },
   {
-    id: 'org.xmind.ui.org-chart.up',
+    id: 'studiumx.layout.org-chart.up',
     name: 'Org Chart (Up)',
     family: 'org',
     labelKey: 'orgChartUp',
@@ -182,7 +182,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
 
   // ---- Tree Chart (树形图) ----
   {
-    id: 'org.xmind.ui.tree.right',
+    id: 'studiumx.layout.tree.right',
     name: 'Tree Chart (Right)',
     family: 'tree',
     labelKey: 'treeRight',
@@ -190,7 +190,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'horizontal-right'
   },
   {
-    id: 'org.xmind.ui.tree.left',
+    id: 'studiumx.layout.tree.left',
     name: 'Tree Chart (Left)',
     family: 'tree',
     labelKey: 'treeLeft',
@@ -200,7 +200,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
 
   // ---- Brace Map (括号图) ----
   {
-    id: 'org.xmind.ui.brace.right',
+    id: 'studiumx.layout.brace.right',
     name: 'Brace Map (Right)',
     family: 'brace',
     labelKey: 'braceRight',
@@ -208,7 +208,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'horizontal-right'
   },
   {
-    id: 'org.xmind.ui.brace.left',
+    id: 'studiumx.layout.brace.left',
     name: 'Brace Map (Left)',
     family: 'brace',
     labelKey: 'braceLeft',
@@ -218,7 +218,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
 
   // ---- Timeline (时间轴) ----
   {
-    id: 'org.xmind.ui.timeline.horizontal',
+    id: 'studiumx.layout.timeline.horizontal',
     name: 'Timeline (Horizontal)',
     family: 'timeline',
     labelKey: 'timelineHorizontal',
@@ -226,7 +226,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'balanced'
   },
   {
-    id: 'org.xmind.ui.timeline.vertical',
+    id: 'studiumx.layout.timeline.vertical',
     name: 'Timeline (Vertical)',
     family: 'timeline',
     labelKey: 'timelineVertical',
@@ -236,7 +236,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
 
   // ---- Matrix (矩阵图) ----
   {
-    id: 'org.xmind.ui.spreadsheet',
+    id: 'studiumx.layout.spreadsheet',
     name: 'Matrix (Rows)',
     family: 'matrix',
     labelKey: 'matrixRow',
@@ -244,7 +244,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'vertical-down'
   },
   {
-    id: 'org.xmind.ui.spreadsheet.column',
+    id: 'studiumx.layout.spreadsheet.column',
     name: 'Matrix (Columns)',
     family: 'matrix',
     labelKey: 'matrixColumn',
@@ -254,7 +254,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
 
   // ---- Fishbone (鱼骨图) ----
   {
-    id: 'org.xmind.ui.fishbone.rightHeaded',
+    id: 'studiumx.layout.fishbone.rightHeaded',
     name: 'Fishbone (Right Headed)',
     family: 'fishbone',
     labelKey: 'fishboneRight',
@@ -262,7 +262,7 @@ export const STRUCTURE_TYPE_PRESETS: readonly StructureTypePreset[] = [
     layoutStrategy: 'balanced'
   },
   {
-    id: 'org.xmind.ui.fishbone.leftHeaded',
+    id: 'studiumx.layout.fishbone.leftHeaded',
     name: 'Fishbone (Left Headed)',
     family: 'fishbone',
     labelKey: 'fishboneLeft',
@@ -296,24 +296,24 @@ export function getLayoutStrategy(
 /** Resolve the actual family geometry without breaking the legacy strategy API. */
 export function getLayoutGeometry(id: MindMapStructureClass): LayoutGeometry {
   switch (id) {
-    case 'org.xmind.ui.timeline.horizontal':
+    case 'studiumx.layout.timeline.horizontal':
       return 'timeline-horizontal'
-    case 'org.xmind.ui.timeline.vertical':
+    case 'studiumx.layout.timeline.vertical':
       return 'timeline-vertical'
-    case 'org.xmind.ui.fishbone.rightHeaded':
+    case 'studiumx.layout.fishbone.rightHeaded':
       return 'fishbone-right'
-    case 'org.xmind.ui.fishbone.leftHeaded':
+    case 'studiumx.layout.fishbone.leftHeaded':
       return 'fishbone-left'
-    case 'org.xmind.ui.spreadsheet':
+    case 'studiumx.layout.spreadsheet':
       return 'matrix-rows'
-    case 'org.xmind.ui.spreadsheet.column':
+    case 'studiumx.layout.spreadsheet.column':
       return 'matrix-columns'
     default:
       return getLayoutStrategy(id)
   }
 }
 
-/** The default connector language for each XMind structure family. */
+/** The default connector language for each StudiumX structure family. */
 export function getConnectorStyle(id: MindMapStructureClass): MindMapConnectorStyle {
   const preset = PRESET_BY_ID.get(id)
   switch (preset?.family) {
@@ -358,7 +358,7 @@ export const STRUCTURE_FAMILY_LABELS: Record<StructureFamily, string> = {
 }
 
 /**
- * Map an Xmind `template` value (from themes.json) to the primary
+ * Map a StudiumX `template` value (from themes.json) to the primary
  * structure class for that family. Used when applying a theme to
  * optionally suggest the matching layout.
  */
@@ -366,14 +366,14 @@ export function templateToStructureClass(
   template: string
 ): MindMapStructureClass | undefined {
   const map: Record<string, MindMapStructureClass> = {
-    map: 'org.xmind.ui.logic.map',
-    logic: 'org.xmind.ui.logic.right',
-    brace: 'org.xmind.ui.brace.right',
-    org: 'org.xmind.ui.org-chart.down',
-    tree: 'org.xmind.ui.tree.right',
-    timeline: 'org.xmind.ui.timeline.horizontal',
-    fishbone: 'org.xmind.ui.fishbone.rightHeaded',
-    matrix: 'org.xmind.ui.spreadsheet'
+    map: 'studiumx.layout.logic.map',
+    logic: 'studiumx.layout.logic.right',
+    brace: 'studiumx.layout.brace.right',
+    org: 'studiumx.layout.org-chart.down',
+    tree: 'studiumx.layout.tree.right',
+    timeline: 'studiumx.layout.timeline.horizontal',
+    fishbone: 'studiumx.layout.fishbone.rightHeaded',
+    matrix: 'studiumx.layout.spreadsheet'
   }
   return map[template]
 }

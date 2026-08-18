@@ -70,6 +70,14 @@ describe('mind map page layout contract', () => {
     expect(editor).not.toMatch(/transition:\s*grid-template-columns/)
   })
 
+  it('does not animate the initial canvas viewport fit', () => {
+    const declarations = readMindMapRuleDeclarations('.mindmap-svg > g')
+
+    expect(declarations).not.toMatch(/transition:\s*transform/)
+    expect(readMindMapRuleDeclarations('.mindmap-canvas--unmeasured .mindmap-svg'))
+      .toMatch(/visibility:\s*hidden/)
+  })
+
   it('uses one layout owner for the inspector and anchors its header to the editor shell', () => {
     const panel = readMindMapRuleDeclarations('.mindmap-ai-panel')
     const header = readMindMapRuleDeclarations('.mindmap-inspector-header')

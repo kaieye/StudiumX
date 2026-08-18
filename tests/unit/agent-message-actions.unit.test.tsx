@@ -11,7 +11,7 @@ function turn(role: AgentChatTurn['role'], content = 'hello'): AgentChatTurn {
 }
 
 describe('AgentMessageActions', () => {
-  it('exposes the compact hover controls and edit only for user turns', async () => {
+  it('exposes in-flow controls, a hover-revealed timestamp, and edit only for user turns', async () => {
     const user = userEvent.setup()
     const onCopy = vi.fn()
     const onFork = vi.fn()
@@ -32,6 +32,10 @@ describe('AgentMessageActions', () => {
     )
     await user.click(screen.getByRole('button', { name: '复制消息' }))
     expect(onCopy).toHaveBeenCalledWith('hello')
+    const assistantToolbar = screen.getByRole('toolbar', { name: '消息操作' })
+    const assistantTime = assistantToolbar.querySelector('time')
+    expect(assistantTime).toHaveAttribute('dateTime', createdAt)
+    expect(assistantToolbar.lastElementChild).toBe(assistantTime)
     expect(screen.getByRole('button', { name: '从轮次创建分支' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '重新编辑并发送' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('分支 2/2')).toBeInTheDocument()
@@ -41,6 +45,10 @@ describe('AgentMessageActions', () => {
     expect(onPrevious).toHaveBeenCalledOnce()
 
     rerender(<AgentMessageActions turn={turn('user')} canFork canEdit onCopy={onCopy} onFork={onFork} onEdit={onEdit} />)
+    const userToolbar = screen.getByRole('toolbar', { name: '消息操作' })
+    const userTime = userToolbar.querySelector('time')
+    expect(userTime).toHaveAttribute('dateTime', createdAt)
+    expect(userToolbar.firstElementChild).toBe(userTime)
     await user.click(screen.getByRole('button', { name: '重新编辑并发送' }))
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 'turn-user' }))
   })

@@ -1,7 +1,7 @@
 /**
  * Zod schemas mirroring the mind map data model 1:1 (see mind-map-types.ts).
- * Used for AI generation output validation, IPC payload validation, `.xmind`
- * import validation, and unit tests. Validation failures produce structured
+ * Used for AI generation output validation, IPC payload validation, native document
+ * validation, and unit tests. Validation failures produce structured
  * diagnostics (ZodError) — never silent degradation.
  */
 import { z } from 'zod'
@@ -13,28 +13,28 @@ import {
 } from './mind-map-types'
 
 export const mindMapStructureClassSchema = z.enum([
-  'org.xmind.ui.logic.right',
-  'org.xmind.ui.logic.balanced',
-  'org.xmind.ui.logic.left',
-  'org.xmind.ui.logic.map',
-  'org.xmind.ui.logic.down',
-  'org.xmind.ui.logic.up'
+  'studiumx.layout.logic.right',
+  'studiumx.layout.logic.balanced',
+  'studiumx.layout.logic.left',
+  'studiumx.layout.logic.map',
+  'studiumx.layout.logic.down',
+  'studiumx.layout.logic.up'
 ,
-  'org.xmind.ui.map',
-  'org.xmind.ui.map.clockwise',
-  'org.xmind.ui.map.anticlockwise',
-  'org.xmind.ui.org-chart.down',
-  'org.xmind.ui.org-chart.up',
-  'org.xmind.ui.tree.right',
-  'org.xmind.ui.tree.left',
-  'org.xmind.ui.brace.right',
-  'org.xmind.ui.brace.left',
-  'org.xmind.ui.timeline.horizontal',
-  'org.xmind.ui.timeline.vertical',
-  'org.xmind.ui.spreadsheet',
-  'org.xmind.ui.spreadsheet.column',
-  'org.xmind.ui.fishbone.rightHeaded',
-  'org.xmind.ui.fishbone.leftHeaded'
+  'studiumx.layout.map',
+  'studiumx.layout.map.clockwise',
+  'studiumx.layout.map.anticlockwise',
+  'studiumx.layout.org-chart.down',
+  'studiumx.layout.org-chart.up',
+  'studiumx.layout.tree.right',
+  'studiumx.layout.tree.left',
+  'studiumx.layout.brace.right',
+  'studiumx.layout.brace.left',
+  'studiumx.layout.timeline.horizontal',
+  'studiumx.layout.timeline.vertical',
+  'studiumx.layout.spreadsheet',
+  'studiumx.layout.spreadsheet.column',
+  'studiumx.layout.fishbone.rightHeaded',
+  'studiumx.layout.fishbone.leftHeaded'
 ])
 
 export const mindMapNodeSchema: z.ZodType<

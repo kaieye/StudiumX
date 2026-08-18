@@ -2,10 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   parseMindMapCancelGenerationPayload,
   parseMindMapCreatePayload,
-  parseMindMapExportPayload,
   parseMindMapGeneratePayload,
   parseMindMapProposalGeneratePayload,
-  parseMindMapImportPayload,
   parseMindMapMarkdownImportPayload,
   parseMindMapMarkdownExportPayload,
   parseMindMapOpmlImportPayload,
@@ -49,7 +47,7 @@ describe('parseMindMapUpdatePayload', () => {
             textAlign: 'right' as const
           },
           main: { stroke: '#abcdef', borderStyle: 'solid' as const, borderWidth: 3, fontSize: 18, shape: 'underline' },
-          sub: { textColor: '#654321', structureClass: 'org.xmind.ui.logic.right' }
+          sub: { textColor: '#654321', structureClass: 'studiumx.layout.logic.right' }
         }
       },
       sheets: [{
@@ -58,7 +56,7 @@ describe('parseMindMapUpdatePayload', () => {
         root: { id: 'root', title: 'Root', children: [] },
         elements: [],
         layout: {
-          structureClass: 'org.xmind.ui.logic.right',
+          structureClass: 'studiumx.layout.logic.right',
           direction: 'ltr' as const,
           compact: true,
           spacing: 24,
@@ -97,7 +95,7 @@ describe('parseMindMapUpdatePayload', () => {
           title: 'Overview',
           root: { id: 'root', title: 'Root', children: [] },
           elements: [],
-          layout: { structureClass: 'org.xmind.ui.logic.right', lineWidthScale: 0 }
+          layout: { structureClass: 'studiumx.layout.logic.right', lineWidthScale: 0 }
         }],
         assets: []
       }
@@ -114,15 +112,15 @@ describe('parseMindMapCreatePayload', () => {
     expect(parseMindMapCreatePayload(legacyPayload)).toEqual(legacyPayload)
   })
 
-  it('accepts an XMind-compatible initial structure', () => {
+  it('accepts an native-compatible initial structure', () => {
     expect(
       parseMindMapCreatePayload({
         ...legacyPayload,
-        structureClass: 'org.xmind.ui.spreadsheet'
+        structureClass: 'studiumx.layout.spreadsheet'
       })
     ).toEqual({
       ...legacyPayload,
-      structureClass: 'org.xmind.ui.spreadsheet'
+      structureClass: 'studiumx.layout.spreadsheet'
     })
   })
 
@@ -130,7 +128,7 @@ describe('parseMindMapCreatePayload', () => {
     expect(
       parseMindMapCreatePayload({
         ...legacyPayload,
-        structureClass: 'org.xmind.ui.not-a-layout'
+        structureClass: 'studiumx.layout.not-a-layout'
       })
     ).toBeNull()
     expect(parseMindMapCreatePayload({ ...legacyPayload, rootPath: '/outside' })).toBeNull()
@@ -621,22 +619,6 @@ describe('parseMindMapCancelGenerationPayload', () => {
   })
 })
 
-describe('parseMindMapImportPayload', () => {
-  const valid = {
-    workspaceId: 'workspace-1',
-    sourcePath: '/tmp/imports/course.xmind'
-  }
-
-  it('accepts the workspace-scoped source path envelope', () => {
-    expect(parseMindMapImportPayload(valid)).toEqual(valid)
-  })
-
-  it('rejects blank fields and unknown keys before file access', () => {
-    expect(parseMindMapImportPayload({ ...valid, workspaceId: '  ' })).toBeNull()
-    expect(parseMindMapImportPayload({ ...valid, sourcePath: '' })).toBeNull()
-    expect(parseMindMapImportPayload({ ...valid, extra: true })).toBeNull()
-  })
-})
 
 describe('parseMindMapMarkdownImportPayload', () => {
   const valid = {
@@ -672,39 +654,6 @@ describe('parseMindMapOpmlImportPayload', () => {
   })
 })
 
-describe('parseMindMapExportPayload', () => {
-  const valid = {
-    workspaceId: 'workspace-1',
-    id: 'map-1',
-    destinationDirectory: '/tmp/exports',
-    snapshotRevision: 4,
-    expectedRevision: 4,
-    pendingWrites: false,
-    dirty: false
-  }
-
-  it('accepts the workspace-scoped XMind envelope with readiness proof', () => {
-    expect(parseMindMapExportPayload(valid)).toEqual(valid)
-  })
-
-  it('rejects legacy destination-only requests before file access', () => {
-    expect(
-      parseMindMapExportPayload({
-        workspaceId: valid.workspaceId,
-        id: valid.id,
-        destinationDirectory: valid.destinationDirectory
-      })
-    ).toBeNull()
-  })
-
-  it('rejects blank fields, invalid readiness, and unknown keys before file access', () => {
-    expect(parseMindMapExportPayload({ ...valid, id: ' ' })).toBeNull()
-    expect(parseMindMapExportPayload({ ...valid, destinationDirectory: '' })).toBeNull()
-    expect(parseMindMapExportPayload({ ...valid, snapshotRevision: -1 })).toBeNull()
-    expect(parseMindMapExportPayload({ ...valid, pendingWrites: 'false' })).toBeNull()
-    expect(parseMindMapExportPayload({ ...valid, extra: true })).toBeNull()
-  })
-})
 
 describe('parseMindMapMarkdownExportPayload', () => {
   const valid = {

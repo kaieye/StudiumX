@@ -26,7 +26,12 @@ import {
   type AgentStagedChildTranscriptAllowance
 } from './agent-conversation-session-audit'
 import { saveAgentConversationArchive } from './agent-conversation-archive'
-import { sanitizeAgentConversationTurns, sanitizeAgentTurnContent } from '../shared/agent-conversation-turns'
+import {
+  sanitizeAgentConversationTurns,
+  sanitizeAgentPresentationTimeline,
+  sanitizeAgentTurnContent
+} from '../shared/agent-conversation-turns'
+import { redactAgentSecretText } from '../shared/agent-secret-redaction'
 import {
   hasPersistedAgentParentTurnProof,
   sanitizePersistedConversationTitle,
@@ -35,6 +40,7 @@ import {
 import type {
   AgentArtifactRef,
   AgentChildRunMetadata,
+  AgentChatPresentationTimelineEntry,
   AgentChatProcessEvent,
   AgentChatTurn,
   AgentCompactionMetadata,
@@ -297,6 +303,9 @@ export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[]
             }
           })
       : undefined
+    const presentationTimeline = role === 'assistant'
+      ? normalizeAgentPresentationTimeline(record.presentationTimeline, processEvents)
+      : undefined
     const metadata = normalizeAgentTurnMetadata(record.metadata)
     normalized.push({
       id: typeof record.id === 'string' && record.id ? record.id : `${role}-${index}`,
@@ -304,6 +313,7 @@ export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[]
       content: sanitizeAgentTurnContent(typeof record.content === 'string' ? record.content : ''),
       toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
       processEvents: processEvents && processEvents.length > 0 ? processEvents : undefined,
+      presentationTimeline,
       metadata,
       createdAt: typeof record.createdAt === 'string' ? record.createdAt : now
     })
@@ -314,6 +324,7 @@ export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[]
 function normalizeAgentProcessEventKind(value: unknown): AgentChatProcessEvent['kind'] {
   switch (value) {
     case 'status':
+    case 'reasoning':
     case 'tool_call':
     case 'tool_result':
     case 'permission_request':
@@ -331,6 +342,49 @@ function normalizeAgentProcessEventKind(value: unknown): AgentChatProcessEvent['
     default:
       return 'status'
   }
+}
+
+/**
+ * Parses the renderer-only order projection conservatively. It is intentionally
+ * kept separate from conversation/teaching evidence: text is redacted and tool
+ * rows may only refer to a process event already accepted for this same turn.
+ */
+function normalizeAgentPresentationTimeline(
+  value: unknown,
+  processEvents: readonly AgentChatProcessEvent[] | undefined
+): AgentChatPresentationTimelineEntry[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const processEventIds = new Set((processEvents ?? []).map((event) => event.id))
+  const entries: AgentChatPresentationTimelineEntry[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    const record = raw as Record<string, unknown>
+    const id = typeof record.id === 'string' && record.id.trim() ? record.id : null
+    const sequence = typeof record.sequence === 'number' && Number.isSafeInteger(record.sequence)
+      ? record.sequence
+      : null
+    const createdAt = typeof record.createdAt === 'string' && record.createdAt.trim()
+      ? record.createdAt
+      : null
+    if (!id || sequence === null || !createdAt) continue
+
+    if (record.kind === 'assistant_text') {
+      if (typeof record.content !== 'string') continue
+      const content = redactAgentSecretText(sanitizeAgentTurnContent(record.content))
+      if (!content) continue
+      entries.push({ id, sequence, kind: 'assistant_text', content, createdAt })
+      continue
+    }
+
+    if (record.kind === 'process') {
+      const processEventId = typeof record.processEventId === 'string' && record.processEventId.trim()
+        ? record.processEventId
+        : null
+      if (!processEventId || !processEventIds.has(processEventId)) continue
+      entries.push({ id, sequence, kind: 'process', processEventId, createdAt })
+    }
+  }
+  return sanitizeAgentPresentationTimeline(entries)
 }
 
 export function deriveConversationTitle(turns: AgentChatTurn[], timestamp: string): string {

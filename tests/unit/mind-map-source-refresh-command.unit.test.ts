@@ -48,14 +48,14 @@ function makeDocument(): MindMapDocumentV2 {
           children: [topic('child-1', [source('shared', { workspacePath: 'notes\\shared.md' })])]
         }),
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       },
       {
         id: 'sheet-2',
         title: 'Second',
         root: topic('root-2', [source('shared')], { note: 'keep second note' }),
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.left' }
+        layout: { structureClass: 'studiumx.layout.logic.left' }
       }
     ]
   }

@@ -1,0 +1,620 @@
+/* Tool content cards, aligned with the deepseek-harness card family: the same
+   code-block surface as fenced markdown code (surface-solid), a 12px radius,
+   and a hairline l1 border. Each card keeps its own scroller inside so a long
+   payload never takes over the message flow. */
+
+.agent-tool-card {
+  position: relative;
+  margin: 4px 0 4px 4px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-solid);
+  color: var(--text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* Banner: the code-block banner surface, hairline below. */
+.agent-tool-card-banner {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-muted);
+}
+
+.agent-tool-card-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.agent-tool-card-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-soft);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.agent-tool-card-lang {
+  color: var(--text-soft);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* Quiet text copy control (the reference's copy button): no icon box. */
+.agent-tool-copy-button {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.agent-tool-copy-button:hover {
+  color: var(--text);
+}
+
+.agent-tool-copy-button:focus-visible,
+.agent-tool-expand-button:focus-visible,
+.agent-tool-search-file:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  outline-offset: 1px;
+}
+
+/* ---------- Terminal ---------- */
+
+.agent-tool-terminal {
+  /* Gutter column holding the run-state dot, like the reference terminal. */
+  --terminal-gutter: 30px;
+  padding-left: var(--terminal-gutter);
+}
+
+.agent-tool-terminal-banner {
+  align-items: flex-start;
+  /* Pulled back across the card's gutter padding so the banner spans the full
+     surface, then re-inset so the prompt text and the dot keep their spots. */
+  margin-left: calc(-1 * var(--terminal-gutter));
+  padding: 9px 14px 9px var(--terminal-gutter);
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+/* A running card is banner-only: no divider beneath it. */
+.agent-tool-card[data-running] .agent-tool-terminal-banner {
+  border-bottom: none;
+}
+
+.agent-tool-terminal-banner::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 6px;
+}
+
+.agent-tool-terminal-banner::-webkit-scrollbar-track {
+  margin: 6px;
+}
+
+/* Sticky against the banner's own scroll so the pill and the copy control stay
+   in reach while a long command scrolls underneath. */
+.agent-tool-terminal-banner .agent-tool-status-badge,
+.agent-tool-terminal-banner .agent-tool-copy-button {
+  position: sticky;
+  top: 0;
+}
+
+.agent-tool-terminal-banner .agent-tool-copy-button {
+  background-color: var(--surface-muted);
+}
+
+.agent-tool-terminal-prompt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.agent-tool-terminal-command-line {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: pre;
+  line-height: 18px;
+}
+
+.agent-tool-terminal-prefix {
+  flex: none;
+  color: var(--text-soft);
+}
+
+.agent-tool-terminal-command-line code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+/* Run-state dot in the gutter column, vertically centered on the first prompt
+   row (reference StateDot: solid core + 12% halo). */
+.agent-tool-state-dot {
+  position: absolute;
+  left: calc(-1 * var(--terminal-gutter) + 9px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  color: var(--green);
+  background: currentColor;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.agent-tool-state-dot[data-state="running"] {
+  color: var(--accent);
+}
+
+.agent-tool-state-dot[data-state="error"] {
+  color: var(--rose);
+}
+
+/* Exit-status pill (reference Pill: rounded, subtle fill, error text). */
+.agent-tool-status-badge {
+  flex: none;
+  align-self: flex-start;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  color: var(--rose);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 24px;
+}
+
+/* Body scrollers: `pre` + horizontal scroll, vertical cap inside the card. */
+.agent-tool-terminal-output,
+.agent-tool-read-body,
+.agent-tool-diff-body,
+.agent-tool-search-body {
+  max-height: 310px;
+  overflow: auto;
+}
+
+.agent-tool-terminal-output {
+  padding: 12px 14px 12px 0;
+}
+
+.agent-tool-terminal-output-line,
+.agent-tool-read-line,
+.agent-tool-diff-line,
+.agent-tool-search-match,
+.agent-tool-search-path {
+  min-width: max-content;
+  white-space: pre;
+  line-height: 18px;
+}
+
+.agent-tool-terminal-output-line {
+  min-height: 18px;
+  color: var(--text);
+}
+
+/* ---------- Read ---------- */
+
+.agent-tool-read-body {
+  padding: 12px 0;
+}
+
+.agent-tool-read-line {
+  display: grid;
+  grid-template-columns: 48px minmax(max-content, 1fr);
+  min-height: 18px;
+}
+
+.agent-tool-read-gutter {
+  padding-right: 14px;
+  color: var(--text-soft);
+  text-align: right;
+  user-select: none;
+}
+
+.agent-tool-read-line code {
+  padding-right: 14px;
+  color: var(--text);
+}
+
+/* ---------- Diff ---------- */
+
+.agent-tool-diff-body {
+  padding: 12px 14px;
+}
+
+/* The copy control floats over the body's top-right corner, so the card has no
+   empty banner row above its first diff line (reference DiffBlock). */
+.agent-tool-diff-copy {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 1;
+}
+
+.agent-tool-diff-line {
+  display: flex;
+  align-items: baseline;
+  min-height: 18px;
+  padding-right: 14px;
+}
+
+.agent-tool-diff-line > span {
+  flex: none;
+  width: 14px;
+  color: var(--text-soft);
+  user-select: none;
+}
+
+.agent-tool-diff-line code {
+  color: var(--text);
+}
+
+/* The file header: the path in the primary tone, set apart by weight. Reserve
+   space at its end so a long path scrolls under the floating copy button. */
+.agent-tool-diff-line[data-kind="path"] {
+  color: var(--text);
+  font-weight: 600;
+  padding-right: 56px;
+}
+
+/* The diff's meaning-carrying colors: removed on the error token, added on the
+   success token. */
+.agent-tool-diff-line[data-kind="removed"] {
+  color: var(--rose);
+}
+
+.agent-tool-diff-line[data-kind="added"] {
+  color: color-mix(in srgb, var(--green) 82%, var(--text));
+}
+
+/* Change summary, dim under the body (reference footer shape). */
+.agent-tool-diff-footer {
+  padding: 0 14px 12px;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-soft);
+}
+
+/* ---------- Search ---------- */
+
+.agent-tool-search-heading {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+}
+
+.agent-tool-search-heading > span {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.agent-tool-search-heading code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.agent-tool-search-body {
+  padding: 8px 14px 12px 0;
+}
+
+/* A file group's header: bold path + match count, the whole row the collapse
+   control (reference SearchBlock). */
+.agent-tool-search-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-height: 18px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.agent-tool-search-file code {
+  min-width: 0;
+  color: var(--text);
+  font-weight: 600;
+  white-space: pre;
+}
+
+.agent-tool-search-file span {
+  flex: none;
+  color: var(--text-soft);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.agent-tool-search-match {
+  display: flex;
+  align-items: baseline;
+  min-height: 18px;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+.agent-tool-search-match-line {
+  flex: none;
+  color: var(--text-soft);
+}
+
+.agent-tool-search-match code {
+  color: var(--text);
+}
+
+.agent-tool-search-path {
+  display: block;
+  min-height: 18px;
+  padding: 0 14px;
+  color: var(--text-soft);
+}
+
+/* ---------- Web search ---------- */
+
+.agent-tool-web-sources {
+  margin: 0;
+  padding: 8px 14px 12px;
+  list-style: none;
+  counter-reset: web-source;
+  max-height: 310px;
+  overflow-y: auto;
+}
+
+.agent-tool-web-source {
+  position: relative;
+  padding: 4px 0 4px 26px;
+  counter-increment: web-source;
+}
+
+.agent-tool-web-source::before {
+  content: counter(web-source);
+  position: absolute;
+  left: 2px;
+  top: 6px;
+  width: 18px;
+  color: var(--text-soft);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: right;
+}
+
+.agent-tool-web-source-link {
+  color: var(--accent);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.agent-tool-web-source-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.agent-tool-web-source-link.is-plain {
+  color: var(--text);
+  font-weight: 400;
+  cursor: default;
+}
+
+.agent-tool-web-snippet {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.agent-tool-web-published {
+  margin-top: 1px;
+  color: var(--text-soft);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* ---------- Web fetch ---------- */
+
+.agent-tool-web-fetch-body {
+  padding: 12px 14px;
+}
+
+.agent-tool-web-fetch-url {
+  display: block;
+  color: var(--accent);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.agent-tool-web-fetch-url:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.agent-tool-web-fetch-url.is-plain {
+  color: var(--text);
+  font-weight: 400;
+  cursor: default;
+}
+
+.agent-tool-web-fetch-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  color: var(--text-soft);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.agent-tool-web-fetch-status {
+  color: var(--green);
+}
+
+/* ---------- Memory ---------- */
+
+.agent-tool-memory-body {
+  padding: 8px 14px 12px;
+  max-height: 310px;
+  overflow-y: auto;
+}
+
+.agent-tool-memory-hit {
+  padding: 6px 0;
+}
+
+.agent-tool-memory-hit + .agent-tool-memory-hit {
+  border-top: 1px solid var(--line);
+}
+
+.agent-tool-memory-hit-title {
+  color: var(--text);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.agent-tool-memory-hit-snippet {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Lesson ---------- */
+
+.agent-tool-lesson-heading {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-tool-lesson-path {
+  color: var(--text-soft);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.agent-tool-lesson-message {
+  padding: 12px 14px;
+  color: var(--text-muted);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Shared affordances ---------- */
+
+.agent-tool-expand-button {
+  display: block;
+  width: 100%;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+}
+
+.agent-tool-expand-button:hover {
+  color: var(--text);
+}
+
+/* Indent the read card's toggle under its 48px gutter column. */
+.agent-tool-read-body .agent-tool-expand-button {
+  padding-left: 48px;
+}
+
+.agent-tool-card-empty,
+.agent-tool-truncated-note {
+  padding: 4px 14px;
+  color: var(--text-soft);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .agent-tool-card {
+    margin-left: 0;
+  }
+
+  .agent-tool-card-banner {
+    gap: 7px;
+    padding-inline: 10px;
+  }
+
+  .agent-tool-card-actions {
+    gap: 6px;
+  }
+
+  .agent-tool-card-actions > span:first-child:not(:last-child) {
+    display: none;
+  }
+}

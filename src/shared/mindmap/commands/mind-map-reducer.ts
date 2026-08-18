@@ -19,6 +19,7 @@
 import type {
   MindMapDocumentV2,
   MindMapElement,
+  MindMapConnectorEndpoint,
   MindMapElementArrowShape,
   MindMapElementLinePattern,
   MindMapElementLineShape,
@@ -75,7 +76,9 @@ const ELEMENT_ALLOWED_FIELDS: Readonly<Record<string, ReadonlySet<string>>> = {
   boundary: new Set(['label', 'topicId', 'children', 'style']),
   summary: new Set(['label', 'from', 'to', 'sourceTopicIds', 'summaryTopicId', 'style']),
   callout: new Set(['label', 'topicId', 'text', 'position', 'style']),
-  'free-topic': new Set(['label', 'topicId', 'position', 'style'])
+  'free-topic': new Set(['label', 'topicId', 'position', 'style']),
+  shape: new Set(['label', 'shape', 'position', 'width', 'height', 'style']),
+  connector: new Set(['label', 'start', 'end', 'curveControlOffset', 'style'])
 }
 
 function error(command: MindMapCommand, code: MindMapCommandErrorCode, message: string): MindMapCommandResult {
@@ -259,7 +262,11 @@ function validateElementStyle(style: MindMapElementStyle | undefined): string[] 
   return errors
 }
 
-function elementReferenceErrors(element: MindMapElement, topicIds: ReadonlySet<string>): string[] {
+function elementReferenceErrors(
+  element: MindMapElement,
+  topicIds: ReadonlySet<string>,
+  shapeIds: ReadonlySet<string> = new Set()
+): string[] {
   const errors: string[] = []
   switch (element.type) {
     case 'relationship':
@@ -283,10 +290,7 @@ function elementReferenceErrors(element: MindMapElement, topicIds: ReadonlySet<s
       for (const sourceTopicId of element.sourceTopicIds ?? []) {
         if (!topicIds.has(sourceTopicId)) errors.push(`summary "${element.id}" references missing source node "${sourceTopicId}"`)
       }
-      if (
-        element.summaryTopicId !== undefined &&
-        !topicIds.has(element.summaryTopicId)
-      ) {
+      if (element.summaryTopicId !== undefined && !topicIds.has(element.summaryTopicId)) {
         errors.push(`summary "${element.id}" references missing output node "${element.summaryTopicId}"`)
       }
       break
@@ -295,6 +299,41 @@ function elementReferenceErrors(element: MindMapElement, topicIds: ReadonlySet<s
       break
     case 'free-topic':
       if (!topicIds.has(element.topicId)) errors.push(`free-topic "${element.id}" references missing topic "${element.topicId}"`)
+      break
+    case 'shape':
+      if (!Number.isFinite(element.position.x) || !Number.isFinite(element.position.y)) errors.push(`shape "${element.id}" position must contain finite coordinates`)
+      if (!Number.isFinite(element.width) || element.width <= 0) errors.push(`shape "${element.id}" width must be positive`)
+      if (!Number.isFinite(element.height) || element.height <= 0) errors.push(`shape "${element.id}" height must be positive`)
+      break
+    case 'connector':
+      const endpoints: ReadonlyArray<readonly [string, MindMapConnectorEndpoint]> = [
+        ['start', element.start],
+        ['end', element.end]
+      ]
+      for (const [name, endpoint] of endpoints) {
+        if (!Number.isFinite(endpoint.x) || !Number.isFinite(endpoint.y)) errors.push(`connector "${element.id}" ${name} must contain finite coordinates`)
+        const anchor = endpoint.anchor
+        if (!anchor) {
+          errors.push(`connector "${element.id}" ${name} must attach to a topic or shape`)
+          continue
+        }
+        const targetSet = anchor.targetType === 'topic' ? topicIds : shapeIds
+        if (!targetSet.has(anchor.targetId)) errors.push(`connector "${element.id}" references missing ${anchor.targetType} "${anchor.targetId}"`)
+      }
+      if (
+        element.curveControlOffset !== undefined
+        && (!Number.isFinite(element.curveControlOffset.x) || !Number.isFinite(element.curveControlOffset.y))
+      ) {
+        errors.push(`connector "${element.id}" curveControlOffset must contain finite coordinates`)
+      }
+      if (
+        element.start.anchor
+        && element.end.anchor
+        && element.start.anchor.targetType === element.end.anchor.targetType
+        && element.start.anchor.targetId === element.end.anchor.targetId
+      ) {
+        errors.push(`connector "${element.id}" must connect two different targets`)
+      }
       break
   }
   return errors
@@ -317,6 +356,13 @@ function elementRefIds(element: MindMapElement): string[] {
       return [element.topicId]
     case 'free-topic':
       return [element.topicId]
+    case 'shape':
+      return []
+    case 'connector':
+      return [
+        ...(element.start.anchor?.targetType === 'topic' ? [element.start.anchor.targetId] : []),
+        ...(element.end.anchor?.targetType === 'topic' ? [element.end.anchor.targetId] : [])
+      ]
   }
 }
 
@@ -599,7 +645,8 @@ function applyElementCreate(document: MindMapDocumentV2, command: Extract<MindMa
     return error(command, 'DUPLICATE_ID', `Element id "${command.element.id}" already exists in sheet "${command.sheetId}"`)
   }
   const topicIds = new Set(collectTopicIds(sheet))
-  const refErrors = elementReferenceErrors(command.element, topicIds)
+  const shapeIds = new Set(sheet.elements.filter((element) => element.type === 'shape').map((element) => element.id))
+  const refErrors = elementReferenceErrors(command.element, topicIds, shapeIds)
   if (refErrors.length > 0) return error(command, 'INVALID_PATCH', refErrors.join('; '))
   const styleErrors = validateElementStyle(command.element.style)
   if (styleErrors.length > 0) return error(command, 'INVALID_STYLE', styleErrors.join('; '))
@@ -638,7 +685,8 @@ function applyElementUpdate(document: MindMapDocumentV2, command: Extract<MindMa
 
   const inversePatch = mutateElementWithPatch(nextElement, command.patch)
   const topicIds = new Set(collectTopicIds(nextSheet))
-  const refErrors = elementReferenceErrors(nextElement, topicIds)
+  const shapeIds = new Set(nextSheet.elements.filter((candidate) => candidate.type === 'shape').map((candidate) => candidate.id))
+  const refErrors = elementReferenceErrors(nextElement, topicIds, shapeIds)
   if (refErrors.length > 0) return error(command, 'INVALID_PATCH', refErrors.join('; '))
 
   const inverse: MindMapCommand = {
@@ -657,19 +705,56 @@ function applyElementRemove(document: MindMapDocumentV2, command: Extract<MindMa
   if (index === -1) return error(command, 'ELEMENT_NOT_FOUND', `Element "${command.elementId}" not found in sheet "${command.sheetId}"`)
   const removed = structuredClone(sheet.elements[index])
 
+  // Removing a shape also removes every connector attached to it as the same
+  // undoable operation. Free endpoints remain valid on their own.
+  const attachedConnectors: Array<{ element: MindMapElement; elementIndex: number }> = []
+  if (removed.type === 'shape') {
+    for (let elementIndex = 0; elementIndex < sheet.elements.length; elementIndex += 1) {
+      const element = sheet.elements[elementIndex]!
+      if (element.type !== 'connector') continue
+      if (
+        (element.start.anchor?.targetType === 'shape' && element.start.anchor.targetId === removed.id)
+        || (element.end.anchor?.targetType === 'shape' && element.end.anchor.targetId === removed.id)
+      ) {
+        attachedConnectors.push({ element: structuredClone(element), elementIndex })
+      }
+    }
+  }
+
   const next = cloneDocument(document)
   const nextSheet = getSheet(next, command.sheetId)
   if (nextSheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
   const nextIndex = nextSheet.elements.findIndex((candidate) => candidate.id === command.elementId)
   if (nextIndex === -1) return error(command, 'ELEMENT_NOT_FOUND', `Element "${command.elementId}" not found`)
-  nextSheet.elements.splice(nextIndex, 1)
+  const removedElementIds = new Set([
+    removed.id,
+    ...attachedConnectors.map(({ element }) => element.id)
+  ])
+  nextSheet.elements = nextSheet.elements.filter((element) => !removedElementIds.has(element.id))
 
-  const inverse: MindMapCommand = {
-    type: 'element.create',
-    sheetId: command.sheetId,
-    index,
-    element: removed
-  }
+  const connectorsBeforeShape = attachedConnectors.filter(({ elementIndex }) => elementIndex < index).length
+  const restoreCommands: MindMapCommand[] = [
+    {
+      type: 'element.create',
+      sheetId: command.sheetId,
+      // Shape targets must exist before their connectors can be recreated.
+      // Inserting it before the removed preceding connectors preserves the
+      // original ordering once those connectors are restored at their indexes.
+      index: index - connectorsBeforeShape,
+      element: removed
+    },
+    ...attachedConnectors
+      .sort((a, b) => a.elementIndex - b.elementIndex)
+      .map(({ element, elementIndex }): MindMapCommand => ({
+        type: 'element.create',
+        sheetId: command.sheetId,
+        index: elementIndex,
+        element
+      }))
+  ]
+  const inverse: MindMapCommand = restoreCommands.length === 1
+    ? restoreCommands[0]!
+    : { type: 'transaction', commands: restoreCommands }
   return ok(next, inverse)
 }
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../src/renderer/src/i18n'
 import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
@@ -8,9 +8,12 @@ import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 import type { TeachingSystemApi, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
 
 vi.mock('../../src/renderer/src/views/mindmap/MindMapAiPanel', () => ({ MindMapAiPanel: () => null }))
-vi.mock('../../src/renderer/src/views/mindmap/MindMapCanvas', () => ({ MindMapCanvas: () => null }))
+vi.mock('../../src/renderer/src/views/mindmap/MindMapCanvas', () => ({
+  MindMapCanvas: ({ panMode }: { panMode?: boolean }) => (
+    <div data-testid="mindmap-canvas" data-pan-mode={String(panMode ?? true)} />
+  )
+}))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapExportFeedback', () => ({ MindMapExportFeedback: () => null }))
-vi.mock('../../src/renderer/src/views/mindmap/MindMapImportCompatibilityReport', () => ({ MindMapImportCompatibilityReport: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapOutline', () => ({ MindMapOutline: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapSearchPanel', () => ({ MindMapSearchPanel: () => null }))
 vi.mock('../../src/renderer/src/views/mindmap/MindMapSheetTabs', () => ({ MindMapSheetTabs: () => null }))
@@ -77,7 +80,7 @@ function makeDocument(): MindMapDocumentV2 {
           ]
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []
@@ -143,6 +146,23 @@ describe('MindMapView recursive collapse/expand toolbar actions', () => {
 
     expect(screen.getByRole('button', { name: 'Collapse last visible level' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Expand next level' })).toBeInTheDocument()
+  })
+
+  it('puts the box-selection tool first and passes its toggled mode to the canvas', () => {
+    render(<MindMapView />)
+
+    const toolbar = screen.getByRole('toolbar', { name: 'Mind Map' })
+    const boxSelectTool = within(toolbar).getAllByRole('button')[0]!
+
+    expect(boxSelectTool).toHaveAccessibleName('Box select mode')
+    expect(boxSelectTool).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTestId('mindmap-canvas')).toHaveAttribute('data-pan-mode', 'true')
+
+    fireEvent.click(boxSelectTool)
+
+    expect(boxSelectTool).toHaveAttribute('aria-pressed', 'true')
+    expect(boxSelectTool).toHaveClass('is-active')
+    expect(screen.getByTestId('mindmap-canvas')).toHaveAttribute('data-pan-mode', 'false')
   })
 
   it('collapses the deepest visible branch layer recursively through the canonical command path', () => {

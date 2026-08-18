@@ -79,14 +79,14 @@ describe('fitMindMapViewport', () => {
     expect(Number.isFinite(viewport.pan.y)).toBe(true)
   })
 
-  it('does not exceed zoom 1 for a tiny content region (Xmind: fit only zooms out)', () => {
+  it('does not exceed zoom 1 for a tiny content region (native: fit only zooms out)', () => {
     const viewport = fitMindMapViewport(
       { left: 20, top: 30, right: 20, bottom: 30 },
       { width: 800, height: 600 },
       48
     )
 
-    // Xmind behaviour: fit never zooms in. Small maps stay at 100%.
+    // native behaviour: fit never zooms in. Small maps stay at 100%.
     expect(viewport.zoom).toBe(1)
     // Content centered at zoom 1: pan centers the content midpoint.
     expect(viewport.pan.x).toBeCloseTo((800 - (20 + 20) * 1) / 2)

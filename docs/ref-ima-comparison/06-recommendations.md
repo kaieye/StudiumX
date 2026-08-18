@@ -69,7 +69,7 @@
 
 **现状：** StudiumX 的 `RESOURCES.md` 是文本清单，不支持直接解析文件内容。
 
-**IMA 做法：** 支持网页链接、微信文件、PPT/Office、XMind/脑图、AI 对话、笔记作为知识源。
+**IMA 做法：** 支持网页链接、微信文件、PPT/Office、脑图、AI 对话、笔记作为知识源。
 
 **StudiumX 建议：**
 - 在资源管理中支持文件附件（PDF/Office/EPUB/图片）

@@ -39,7 +39,13 @@ export type MindMapProposalItem = {
 export const MIND_MAP_PROPOSAL_SCOPES = ['selection', 'sheet', 'source', 'selected-file', 'notes', 'lesson'] as const
 export type MindMapProposalScope = (typeof MIND_MAP_PROPOSAL_SCOPES)[number]
 
-/** Provider-facing proposal envelope. It is data only until reviewed. */
+/**
+ * Provider-facing proposal envelope. It is data only until reviewed.
+ *
+ * An empty `items` array is an explicit no-change outcome. It must be surfaced
+ * to the user and skipped by the renderer; it is never a reason to create a
+ * durable document revision.
+ */
 export type MindMapProviderProposal = {
   schemaVersion: 1
   proposalId: string
@@ -397,6 +403,7 @@ const mindMapElementUpdatePatchProposalSchema: z.ZodType<MindMapElementUpdatePat
     children: z.array(z.string()).nullable().optional(),
     text: z.string().optional(),
     position: mindMapPointProposalSchema.nullable().optional(),
+    curveControlOffset: mindMapPointProposalSchema.nullable().optional(),
     style: mindMapElementStyleProposalSchema.nullable().optional()
   })
   .strict()
@@ -555,7 +562,6 @@ export const mindMapProposalSchema: z.ZodType<MindMapProviderProposal, z.ZodType
           .object({ id: nonEmptyIdSchema, command: mindMapCommandProposalSchema })
           .strict()
       )
-      .min(1)
   })
   .strict()
   .superRefine((proposal, ctx) => {

@@ -4,6 +4,7 @@ import i18n from '../../src/renderer/src/i18n'
 import { useAppStore } from '../../src/renderer/src/app-shell/appStore'
 import { MindMapThemePanel } from '../../src/renderer/src/views/mindmap/MindMapThemePanel'
 import { MindMapCanvasOptionsPanel } from '../../src/renderer/src/views/mindmap/MindMapCanvasOptionsPanel'
+import { MindMapView } from '../../src/renderer/src/views/mindmap/MindMapView'
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 import type { TeachingSystemApi, TeachingWorkspaceSummary } from '../../src/shared/teaching-types'
@@ -65,7 +66,7 @@ function makeDocument(): MindMapDocumentV2 {
         root: { id: 'root', title: 'Root topic', children: [] },
         elements: [],
         layout: {
-          structureClass: 'org.xmind.ui.logic.right',
+          structureClass: 'studiumx.layout.logic.right',
           defaultTopicShape: 'rounded-rect'
         }
       }
@@ -170,6 +171,73 @@ function renderPanels(): void {
 }
 
 describe('mind-map controls survive save -> reopen (L-03)', () => {
+  it('creates and persists a connector between two topics through the real toolbar and canvas', async () => {
+    useMindMapViewStore.getState().addChild('root')
+    const childId = useMindMapViewStore.getState().current?.sheets[0]?.root.children[0]?.id
+    if (!childId) throw new Error('expected an added child topic')
+
+    const { container } = render(<MindMapView />)
+    const lineButton = screen.getByRole('button', { name: 'Line' })
+    fireEvent.click(lineButton)
+    expect(lineButton).toHaveAttribute('aria-pressed', 'true')
+
+    const svg = container.querySelector<SVGSVGElement>('.mindmap-svg')
+    const rootTarget = container.querySelector<SVGRectElement>(
+      'rect[data-mindmap-line-snap-target="topic:root"]'
+    )
+    const childTarget = container.querySelector<SVGRectElement>(
+      `rect[data-mindmap-line-snap-target="topic:${childId}"]`
+    )
+    if (!svg || !rootTarget || !childTarget) throw new Error('expected topic snap targets')
+
+    const centerOf = (target: SVGRectElement) => ({
+      x: Number(target.getAttribute('x')) + Number(target.getAttribute('width')) / 2,
+      y: Number(target.getAttribute('y')) + Number(target.getAttribute('height')) / 2
+    })
+    const rootCenter = centerOf(rootTarget)
+    const childCenter = centerOf(childTarget)
+
+    fireEvent.pointerDown(rootTarget, {
+      button: 0,
+      pointerId: 71,
+      clientX: rootCenter.x,
+      clientY: rootCenter.y
+    })
+    fireEvent.pointerMove(childTarget, {
+      pointerId: 71,
+      clientX: childCenter.x,
+      clientY: childCenter.y
+    })
+    expect(container.querySelector('.mindmap-line-draft')).toBeInTheDocument()
+    fireEvent.pointerUp(childTarget, {
+      pointerId: 71,
+      clientX: childCenter.x,
+      clientY: childCenter.y
+    })
+    expect(useMindMapViewStore.getState().error).toBeNull()
+
+    const connector = useMindMapViewStore.getState().current?.sheets[0]?.elements.find(
+      (element) => element.type === 'connector'
+    )
+    if (!connector || connector.type !== 'connector') throw new Error('expected a persisted connector')
+    expect(connector).toMatchObject({
+      start: { anchor: { targetType: 'topic', targetId: 'root' } },
+      end: { anchor: { targetType: 'topic', targetId: childId } }
+    })
+
+    const reopened = await saveAndReopen()
+    expect(reopened.sheets[0]?.elements).toContainEqual(expect.objectContaining({
+      id: connector.id,
+      type: 'connector',
+      start: expect.objectContaining({
+        anchor: { targetType: 'topic', targetId: 'root' }
+      }),
+      end: expect.objectContaining({
+        anchor: { targetType: 'topic', targetId: childId }
+      })
+    }))
+  })
+
   it('retains the background color (theme.background) after reopen', async () => {
     renderPanels()
 
@@ -204,7 +272,10 @@ describe('mind-map controls survive save -> reopen (L-03)', () => {
     expect(toggle).toBeChecked()
     fireEvent.click(toggle)
 
-    const lineHex = screen.getByRole('textbox', { name: 'Branch line HEX' })
+    fireEvent.click(screen.getByRole('button', { name: 'Single branch color' }))
+    const lineHex = within(
+      screen.getByRole('dialog', { name: 'Single branch color' })
+    ).getByRole('textbox', { name: 'Branch line HEX' })
     fireEvent.change(lineHex, { target: { value: '#123456' } })
     fireEvent.keyDown(lineHex, { key: 'Enter' })
 
@@ -271,12 +342,12 @@ describe('mind-map controls survive save -> reopen (L-03)', () => {
     const toggle = screen.getByRole('checkbox', { name: 'Auto-balance map' })
     expect(toggle).not.toBeChecked()
     fireEvent.click(toggle)
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.structureClass).toBe('org.xmind.ui.logic.balanced')
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.structureClass).toBe('studiumx.layout.logic.balanced')
     fireEvent.click(toggle)
-    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.structureClass).toBe('org.xmind.ui.logic.right')
+    expect(useMindMapViewStore.getState().current?.sheets[0]?.layout.structureClass).toBe('studiumx.layout.logic.right')
 
     const reopened = await saveAndReopen()
-    expect(reopened.sheets[0]?.layout.structureClass).toBe('org.xmind.ui.logic.right')
+    expect(reopened.sheets[0]?.layout.structureClass).toBe('studiumx.layout.logic.right')
   })
 
   it('retains the default node shape used for newly created topics after reopen', async () => {
@@ -294,21 +365,18 @@ describe('mind-map controls survive save -> reopen (L-03)', () => {
     expect(reopened.sheets[0]?.layout.defaultTopicShape).toBe('ellipse')
   })
 
-  it('retains compact layout and spacing (sheet.layout.compact / spacing) after reopen', async () => {
+  it('retains branch spacing (sheet.layout.spacing) after reopen', async () => {
     renderPanels()
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /Compact branches/ }))
     const spacingInput = screen.getByRole('spinbutton', { name: 'Branch spacing' })
     fireEvent.change(spacingInput, { target: { value: '24' } })
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout).toMatchObject({
-      compact: true,
       spacing: 24
     })
 
     const reopened = await saveAndReopen()
-    expect(reopened.sheets[0]?.layout).toMatchObject({ compact: true, spacing: 24 })
+    expect(reopened.sheets[0]?.layout).toMatchObject({ spacing: 24 })
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout).toMatchObject({
-      compact: true,
       spacing: 24
     })
   })

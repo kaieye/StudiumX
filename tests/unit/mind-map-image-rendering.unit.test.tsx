@@ -41,7 +41,7 @@ const documentFixture: MindMapDocumentV2 = {
     root: { id: 'root', title: 'Diagram', children: [] },
     elements: [],
     images: [{ id: 'img-1', type: 'image', assetId: 'asset-1', width: 160, height: 88, topicId: 'root' }],
-    layout: { structureClass: 'org.xmind.ui.logic.right' }
+    layout: { structureClass: 'studiumx.layout.logic.right' }
   }],
   assets: [{ id: 'asset-1', fileName: 'diagram.png', mimeType: 'image/png' }]
 }

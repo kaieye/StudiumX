@@ -11,7 +11,11 @@
  * cannot collide with existing topic/element ids.
  */
 import type { MindMapCommand } from './mind-map-command-types'
-import type { MindMapElement, MindMapTopicV2 } from '../domain/types'
+import type {
+  MindMapConnectorEndpoint,
+  MindMapElement,
+  MindMapTopicV2
+} from '../domain/types'
 
 export type MindMapClipboardData = {
   /** Source document id (for audit / cross-document paste). */
@@ -60,7 +64,46 @@ function remapTopic(node: MindMapTopicV2, remap: (oldId: string) => string): Min
   }
 }
 
-function remapElement(element: MindMapElement, remap: (oldId: string) => string): MindMapElement {
+type ClipboardReferenceSets = Readonly<{
+  topicIds: ReadonlySet<string>
+  shapeIds: ReadonlySet<string>
+}>
+
+function collectClipboardTopicIds(branches: readonly MindMapTopicV2[]): Set<string> {
+  const ids = new Set<string>()
+  const stack = [...branches]
+  while (stack.length > 0) {
+    const topic = stack.pop()
+    if (!topic) continue
+    ids.add(topic.id)
+    stack.push(...topic.children)
+  }
+  return ids
+}
+
+function remapConnectorEndpoint(
+  endpoint: MindMapConnectorEndpoint,
+  remap: (oldId: string) => string,
+  references: ClipboardReferenceSets
+): MindMapConnectorEndpoint | null {
+  const { anchor, ...point } = endpoint
+  if (!anchor) return null
+
+  const ids = anchor.targetType === 'topic' ? references.topicIds : references.shapeIds
+  // Both anchored targets must travel with a copied connector.
+  if (!ids.has(anchor.targetId)) return null
+
+  return {
+    ...point,
+    anchor: { ...anchor, targetId: remap(anchor.targetId) }
+  }
+}
+
+function remapElement(
+  element: MindMapElement,
+  remap: (oldId: string) => string,
+  references: ClipboardReferenceSets
+): MindMapElement | null {
   switch (element.type) {
     case 'relationship':
       return { ...element, from: remap(element.from), to: remap(element.to) }
@@ -88,6 +131,29 @@ function remapElement(element: MindMapElement, remap: (oldId: string) => string)
       return { ...element, topicId: remap(element.topicId) }
     case 'free-topic':
       return { ...element, topicId: remap(element.topicId) }
+    case 'shape':
+      // Shapes are independent of the topic tree, but their own ids may be
+      // referenced by connector anchors in the same clipboard payload.
+      return { ...element, id: remap(element.id) }
+    case 'connector': {
+      const start = remapConnectorEndpoint(element.start, remap, references)
+      const end = remapConnectorEndpoint(element.end, remap, references)
+      if (
+        !start
+        || !end
+        || (start.anchor && end.anchor
+          && start.anchor.targetType === end.anchor.targetType
+          && start.anchor.targetId === end.anchor.targetId)
+      ) {
+        return null
+      }
+      return {
+        ...element,
+        id: remap(element.id),
+        start,
+        end
+      }
+    }
   }
 }
 
@@ -96,10 +162,32 @@ export function remapClipboardIds(
   data: MindMapClipboardData,
   remap: (oldId: string) => string
 ): { branches: MindMapTopicV2[]; elements: MindMapElement[] } {
+  const references: ClipboardReferenceSets = {
+    topicIds: collectClipboardTopicIds(data.branches),
+    shapeIds: new Set(
+      data.elements
+        .filter((element): element is Extract<MindMapElement, { type: 'shape' }> => element.type === 'shape')
+        .map((element) => element.id)
+    )
+  }
+  const elements = data.elements
+    .map((element) => remapElement(element, remap, references))
+    .filter((element): element is MindMapElement => element !== null)
   return {
     branches: data.branches.map((branch) => remapTopic(branch, remap)),
-    elements: data.elements.map((element) => remapElement(element, remap))
+    elements
   }
+}
+
+function orderElementsForCreate(elements: readonly MindMapElement[]): MindMapElement[] {
+  // Connector anchors can point at shapes. Creating shapes first lets the
+  // reducer validate every connector even when a clipboard payload happened
+  // to serialize the connector before its target shape.
+  return [
+    ...elements.filter((element) => element.type === 'shape'),
+    ...elements.filter((element) => element.type !== 'shape' && element.type !== 'connector'),
+    ...elements.filter((element) => element.type === 'connector')
+  ]
 }
 
 /**
@@ -122,7 +210,7 @@ export function buildPasteCommand(
       node: branch
     })
   })
-  for (const element of elements) {
+  for (const element of orderElementsForCreate(elements)) {
     commands.push({ type: 'element.create', sheetId: payload.targetSheetId, element })
   }
   return { type: 'transaction', commands }

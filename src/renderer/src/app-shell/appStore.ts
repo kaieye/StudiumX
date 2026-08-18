@@ -143,6 +143,8 @@ type LessonGenerationOptions = {
 
 export type StoreState = {
   view: WorkspaceView
+  /** The shell view active just before Settings was opened; restored on close. */
+  viewBeforeSettings: WorkspaceView | null
   settingsSection: SettingsSection
   sidebarCollapsed: boolean
   loading: boolean
@@ -175,6 +177,7 @@ export type StoreState = {
   setSettingsSection: (section: SettingsSection) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   openSettings: (section?: SettingsSection) => void
+  closeSettings: () => void
   setSearchQuery: (query: string) => void
   setTaskPrompt: (prompt: string) => void
   clearError: () => void
@@ -905,6 +908,7 @@ export const useAppStore = create<StoreState>((set, get) => {
 
   return ({
   view: initialWorkspaceViewFromUrl(),
+  viewBeforeSettings: null,
   settingsSection: 'general',
   sidebarCollapsed: false,
   loading: true,
@@ -1075,6 +1079,9 @@ export const useAppStore = create<StoreState>((set, get) => {
     set({
       ...openPrimaryView('settings', current.appState),
       settingsSection: section,
+      // Remember the shell view so closing Settings returns where the user was,
+      // instead of always jumping back to the conversation/home page.
+      ...(current.view !== 'settings' ? { viewBeforeSettings: current.view } : {}),
       activeConversationScope: null,
       activeConversationRevision: null,
       activeSessionTree: null,
@@ -1087,6 +1094,15 @@ export const useAppStore = create<StoreState>((set, get) => {
             pendingAgentConversation: null,
             agentChatBusy: false
           })
+    })
+  },
+  closeSettings: () => {
+    const current = get()
+    const target = current.viewBeforeSettings ?? 'overview'
+    set({
+      viewBeforeSettings: null,
+      settingsSection: 'general',
+      ...openPrimaryView(target, current.appState)
     })
   },
   setSearchQuery: (searchQuery) => set({ searchQuery }),
@@ -1110,10 +1126,18 @@ export const useAppStore = create<StoreState>((set, get) => {
       ])
       const settings = normalizeRendererSettings(rawSettings)
       applySettingsSideEffects(settings)
+      // Startup recovery must never resurrect a conversation the user removed
+      // from the list (archived): a durable interrupted/terminal run notice for
+      // such a conversation would otherwise reload its content on every launch.
+      const visibleConversationIds = new Set<string>([
+        ...state.temporaryConversations.map((conversation) => conversation.id),
+        ...state.workspaces.flatMap((workspace) => workspace.conversations.map((conversation) => conversation.id))
+      ])
       const durableNoticesInCurrentWorkspace = [...interruptedRuns, ...terminalNotices]
         .filter((run) => state.activeWorkspace
           ? run.workspaceId === state.activeWorkspace.id
           : !run.workspaceId)
+        .filter((run) => !run.conversationId || visibleConversationIds.has(run.conversationId))
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       // Open only the newest record; all remaining durable notices remain explicitly counted for review.
       const durableNotice = durableNoticesInCurrentWorkspace[0]

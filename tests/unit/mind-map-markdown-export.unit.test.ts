@@ -32,14 +32,14 @@ function sampleDocument(): MindMapDocumentV2 {
           ]
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       },
       {
         id: 'sheet-2',
         title: 'Chemistry',
         root: { id: 'root-2', title: 'Atoms', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.map' }
+        layout: { structureClass: 'studiumx.layout.logic.map' }
       }
     ]
   }

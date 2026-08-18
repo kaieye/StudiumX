@@ -37,7 +37,7 @@ function documentWithReferencedSubtree(): MindMapDocumentV2 {
           { id: 'free-topic-removed', type: 'free-topic', topicId: 'removed-branch', position: { x: 1, y: 2 } },
           { id: 'relationship-kept', type: 'relationship', from: 'root-1', to: 'kept-branch' }
         ],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []

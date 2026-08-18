@@ -3,7 +3,15 @@ import {
   isTemporaryAgentConversationPath,
   pendingAgentConversationRelativePath
 } from '../../shared/agent-conversation-catalog'
-import { collapseConsecutiveAssistantTurns, sanitizeAgentConversationTurns, sanitizeAgentTurnContent } from '../../shared/agent-conversation-turns'
+import { agentConversationToolDisplayName } from '../../shared/agent-conversation-tool-label'
+import {
+  appendAgentPresentationProcess,
+  appendAgentPresentationText,
+  collapseConsecutiveAssistantTurns,
+  sanitizeAgentConversationTurns,
+  sanitizeAgentPresentationText,
+  sanitizeAgentTurnContent
+} from '../../shared/agent-conversation-turns'
 import type {
   AgentChatMessage,
   AgentChatMode,
@@ -12,6 +20,7 @@ import type {
   AgentChatStreamStatus,
   AgentChatStreamToolEvent,
   AgentChatTurn,
+  AgentRealtimeEvent,
   AgentToolPermissionRequest,
   AgentTurnMetadata,
   AgentConversationSummary,
@@ -200,26 +209,76 @@ export function applyAgentChatChunkToPending({
   activeConversationId,
   assistantId,
   chunk,
+  realtimeEvent,
   updatedAt
 }: {
   pending: PendingAgentConversation | null
   activeConversationId: string | null
   assistantId: string
   chunk: AgentChatStreamChunk
+  /** Host EventBus metadata; preserves durable presentation order while streaming. */
+  realtimeEvent?: Pick<AgentRealtimeEvent, 'sequence' | 'createdAt'>
   updatedAt?: string
 }): PendingConversationStorePatch | null {
   if (!pending || chunk.streamId !== pending.summary.id || latestAssistantTurnWasCanceled(pending.turns)) return null
+  const visibleTextDelta = sanitizeAgentPresentationText(chunk.delta)
   let changed = false
   const turns = pending.turns.map((turn) => {
     if (turn.id !== assistantId) return turn
     changed = true
+    const createdAt = realtimeEvent?.createdAt ?? updatedAt ?? new Date().toISOString()
     if (chunk.channel === 'reasoning') {
+      // A Think row is only extended while it is the current visible timeline
+      // boundary. If text or a tool appeared since it, create a fresh row so
+      // Think → text → Think never mutates the earlier thought in place.
+      const latestReasoning = [...(turn.processEvents ?? [])]
+        .reverse()
+        .find((event) => event.kind === 'reasoning')
+      const latestPresentationEntry = turn.presentationTimeline?.at(-1)
+      const continuesVisibleReasoning = Boolean(
+        latestReasoning &&
+        latestPresentationEntry?.kind === 'process' &&
+        latestPresentationEntry.processEventId === latestReasoning.id
+      )
+      const processEvents = appendAgentReasoningDelta(
+        turn.processEvents,
+        chunk.delta,
+        createdAt,
+        continuesVisibleReasoning
+      )
+      const reasoning = [...processEvents].reverse().find((event) => event.kind === 'reasoning')
       return {
         ...turn,
-        processEvents: appendAgentReasoningDelta(turn.processEvents, chunk.delta)
+        processEvents,
+        presentationTimeline: reasoning
+          ? appendAgentPresentationProcess(
+            turn.presentationTimeline,
+            reasoning.id,
+            createdAt,
+            `presentation-process:${reasoning.id}`,
+            realtimeEvent?.sequence
+          )
+          : turn.presentationTimeline
       }
     }
-    return { ...turn, content: `${turn.content}${chunk.delta}` }
+    const existingContent = sanitizeAgentPresentationText(turn.content)
+    const combinedContent = visibleTextDelta
+      ? sanitizeAgentPresentationText(`${existingContent}${visibleTextDelta}`)
+      : existingContent
+    return {
+      ...turn,
+      // Keep the renderer-only pending transcript fail-closed too. A durable
+      // refresh will provide canonical content later, but raw provider payloads
+      // must never transiently enter local presentation state.
+      content: combinedContent || existingContent,
+      presentationTimeline: appendAgentPresentationText(
+        turn.presentationTimeline,
+        visibleTextDelta,
+        createdAt,
+        createAgentPresentationEntryId('text'),
+        realtimeEvent?.sequence
+      )
+    }
   })
   if (!changed) return null
   return syncPendingAgentConversation({
@@ -236,20 +295,24 @@ export function applyAgentChatStatusToPending({
   activeConversationId,
   assistantId,
   status,
+  realtimeEvent,
   updatedAt
 }: {
   pending: PendingAgentConversation | null
   activeConversationId: string | null
   assistantId: string
   status: AgentChatStreamStatus
+  /** Retain the host event time on process records even though status has no flow row. */
+  realtimeEvent?: Pick<AgentRealtimeEvent, 'sequence' | 'createdAt'>
   updatedAt?: string
 }): PendingConversationStorePatch | null {
   if (!pending || status.streamId !== pending.summary.id || latestAssistantTurnWasCanceled(pending.turns)) return null
   const label = agentStatusLabel(status.status)
-  const statusText = status.message?.startsWith('正在生成课程：')
-    ? status.message
-    : status.message
-      ? `${label} ${status.message}`
+  const visibleStatusMessage = sanitizeAgentPresentationText(status.message)
+  const statusText = visibleStatusMessage.startsWith('正在生成课程：')
+    ? visibleStatusMessage
+    : visibleStatusMessage
+      ? `${label} ${visibleStatusMessage}`
       : label
   return syncPendingAgentConversation({
     pending,
@@ -265,7 +328,7 @@ export function applyAgentChatStatusToPending({
             status.status === 'done' || status.status === 'error' || status.status === 'canceled' || status.status === 'resource_limit' || status.status === 'suspended' || status.status === 'no_progress' || status.status === 'context_unrecoverable' || status.status === 'retry_exhausted',
             status.status === 'error'
           ),
-          createAgentStatusProcessEvent(status.status, status.message)
+          createAgentStatusProcessEvent(status.status, visibleStatusMessage, realtimeEvent?.createdAt)
         )
       }))
     },
@@ -278,12 +341,15 @@ export function applyAgentChatToolEventToPending({
   activeConversationId,
   assistantId,
   event,
+  realtimeEvent,
   updatedAt
 }: {
   pending: PendingAgentConversation | null
   activeConversationId: string | null
   assistantId: string
   event: AgentChatStreamToolEvent
+  /** Host EventBus metadata; tool completion updates its original row in place. */
+  realtimeEvent?: Pick<AgentRealtimeEvent, 'sequence' | 'createdAt'>
   updatedAt?: string
 }): PendingConversationStorePatch | null {
   if (!pending || event.streamId !== pending.summary.id || latestAssistantTurnWasCanceled(pending.turns)) return null
@@ -326,15 +392,34 @@ export function applyAgentChatToolEventToPending({
     }
   }
 
-  // Only append process events for first projection or terminal result.
-  // Host re-stamp of ask arguments must not duplicate elicitation_request.
+  // Each call owns one stable process row. A result updates that row in place
+  // so the timeline remains anchored where the tool was invoked. Ask/permission
+  // retain their existing resolved process kinds so recovery and approval
+  // semantics do not change.
   const shouldUpdateProcessEvents = existingIdx < 0 || event.result !== undefined
   if (shouldUpdateProcessEvents) {
+    const createdAt = realtimeEvent?.createdAt ?? updatedAt ?? new Date().toISOString()
+    const resolvedProcessEvents = event.result !== undefined
+      ? resolveAgentToolProcessEvent(turns[idx].processEvents, event, createdAt)
+      : appendAgentProcessEvent(turns[idx].processEvents, createAgentToolCallProcessEvent(event, createdAt))
+    const processEvents = resolvedProcessEvents
+    const processEvent = latestAgentProcessEventForTool(
+      processEvents,
+      event.toolCall.id,
+      event.toolCall.name
+    )
     turns[idx] = {
       ...turns[idx],
-      processEvents: event.result !== undefined
-        ? resolveAgentToolProcessEvent(turns[idx].processEvents, event)
-        : appendAgentProcessEvent(turns[idx].processEvents, createAgentToolCallProcessEvent(event))
+      processEvents,
+      presentationTimeline: processEvent
+        ? appendAgentPresentationProcess(
+          turns[idx].presentationTimeline,
+          processEvent.id,
+          createdAt,
+          `presentation-process:${processEvent.id}`,
+          realtimeEvent?.sequence
+        )
+        : turns[idx].presentationTimeline
     }
   }
 
@@ -401,17 +486,18 @@ export function failPendingAgentConversation({
   assistantId: string
   message: string
 }): PendingConversationStorePatch {
+  const visibleMessage = sanitizeAgentPresentationText(message) || '对话未能完成。'
   const turns = updateAgentAssistantTurn(pending.turns, assistantId, (turn) => ({
     ...turn,
     processEvents: appendAgentProcessEvent(
       turn.processEvents,
-      createAgentStatusProcessEvent('error', message)
+      createAgentStatusProcessEvent('error', visibleMessage)
     )
   }))
   const failedPending: PendingAgentConversation = {
     ...pending,
     turns,
-    status: message,
+    status: visibleMessage,
     summary: {
       ...pending.summary,
       updatedAt: new Date().toISOString(),
@@ -630,10 +716,17 @@ export function reconcileAgentTurnsWithLocalProcess(
     const localTurn = localAssistantTurns[assistantIndex]
     assistantIndex += 1
     const processEvents = localTurn?.processEvents?.length ? localTurn.processEvents : turn.processEvents
+    // A canonical read can race a still-visible live stream. Prefer the local
+    // ordered projection until the host’s durable transcript catches up; this
+    // preserves Think → text → tool IN/OUT boundaries when returning to chat.
+    const presentationTimeline = localTurn?.presentationTimeline?.length
+      ? localTurn.presentationTimeline
+      : turn.presentationTimeline
     const metadata = mergeAgentTurnMetadata(turn.metadata, localTurn?.metadata)
     const content = sanitizeAgentTurnContent(turn.content || localTurn?.content || '')
     if (
       processEvents === turn.processEvents &&
+      presentationTimeline === turn.presentationTimeline &&
       metadata === turn.metadata &&
       content === turn.content
     ) return turn
@@ -641,6 +734,7 @@ export function reconcileAgentTurnsWithLocalProcess(
       ...turn,
       content,
       processEvents,
+      presentationTimeline,
       metadata
     }
   })
@@ -702,9 +796,14 @@ function createAgentProcessEventId(prefix: string): string {
   return `${prefix}-${Date.now()}-${agentProcessEventCounter}`
 }
 
+function createAgentPresentationEntryId(prefix: string): string {
+  return `presentation-${createAgentProcessEventId(prefix)}`
+}
+
 function createAgentStatusProcessEvent(
   status: AgentChatStreamStatus['status'],
-  message?: string
+  message?: string,
+  createdAt = new Date().toISOString()
 ): AgentChatProcessEvent {
   const copy = agentProcessStatusCopy(status, message)
   return {
@@ -713,11 +812,14 @@ function createAgentStatusProcessEvent(
     status,
     title: copy.title,
     detail: copy.detail,
-    createdAt: new Date().toISOString()
+    createdAt
   }
 }
 
-function createAgentToolCallProcessEvent(event: AgentChatStreamToolEvent): AgentChatProcessEvent {
+function createAgentToolCallProcessEvent(
+  event: AgentChatStreamToolEvent,
+  createdAt = new Date().toISOString()
+): AgentChatProcessEvent {
   const name = event.toolCall.name || 'tool'
   if (name === TOOL_PERMISSION_NAME) {
     const request = event.permissionRequest ?? parsePermissionArguments(event.toolCall.arguments)
@@ -726,11 +828,11 @@ function createAgentToolCallProcessEvent(event: AgentChatStreamToolEvent): Agent
       kind: 'permission_request',
       title: '等待写入审批',
       detail: request
-        ? `${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}`
-        : compactText(prettyJson(event.toolCall.arguments), 180),
+        ? sanitizeAgentPresentationText(`${request.operation}${request.targetPath ? `：${request.targetPath}` : ''}`) || undefined
+        : undefined,
       toolCallId: event.toolCall.id,
       toolName: name,
-      createdAt: new Date().toISOString()
+      createdAt
     }
   }
   if (name === 'ask') {
@@ -741,20 +843,20 @@ function createAgentToolCallProcessEvent(event: AgentChatStreamToolEvent): Agent
       kind: 'elicitation_request',
       title: '等待用户选择',
       detail: firstQuestion
-        ? compactText(firstQuestion, 180)
-        : compactText(prettyJson(event.toolCall.arguments), 180),
+        ? sanitizeAgentPresentationText(firstQuestion) || undefined
+        : undefined,
       toolCallId: event.toolCall.id,
       toolName: name,
-      createdAt: new Date().toISOString()
+      createdAt
     }
   }
   return {
     id: createAgentProcessEventId('tool-call'),
     kind: 'tool_call',
-    title: `调用工具：${name}`,
+    title: agentConversationToolDisplayName(name),
     toolCallId: event.toolCall.id,
     toolName: name,
-    createdAt: new Date().toISOString()
+    createdAt
   }
 }
 
@@ -770,9 +872,21 @@ function settlePermissionProcessEvents(
     : event)
 }
 
+function latestAgentProcessEventForTool(
+  events: AgentChatProcessEvent[] | undefined,
+  toolCallId: string,
+  toolName: string
+): AgentChatProcessEvent | undefined {
+  const candidates = (events ?? []).filter((item) =>
+    item.toolCallId === toolCallId && item.toolName === toolName
+  )
+  return candidates[candidates.length - 1]
+}
+
 function resolveAgentToolProcessEvent(
   events: AgentChatProcessEvent[] | undefined,
-  event: AgentChatStreamToolEvent
+  event: AgentChatStreamToolEvent,
+  createdAt = new Date().toISOString()
 ): AgentChatProcessEvent[] {
   const current = events ?? []
   const index = current.findIndex((item) =>
@@ -781,7 +895,7 @@ function resolveAgentToolProcessEvent(
     (item.kind === 'tool_call' || item.kind === 'permission_request' || item.kind === 'elicitation_request')
   )
   if (index < 0) {
-    const call = createAgentToolCallProcessEvent(event)
+    const call = createAgentToolCallProcessEvent(event, createdAt)
     return [...current, {
       ...call,
       status: 'tool_done',
@@ -921,15 +1035,20 @@ function agentProcessStatusCopy(
 
 function appendAgentReasoningDelta(
   events: AgentChatProcessEvent[] | undefined,
-  delta: string
+  delta: string,
+  createdAt: string,
+  continuesVisibleReasoning: boolean
 ): AgentChatProcessEvent[] {
   const current = events ?? []
-  if (!delta) return current
+  const visibleDelta = sanitizeAgentPresentationText(delta)
+  if (!visibleDelta) return current
   const last = current[current.length - 1]
-  if (last?.kind === 'reasoning') {
+  if (continuesVisibleReasoning && last?.kind === 'reasoning') {
+    const combined = sanitizeAgentPresentationText(`${last.detail ?? ''}${visibleDelta}`)
+    if (!combined) return current
     return [
       ...current.slice(0, -1),
-      { ...last, detail: `${last.detail ?? ''}${delta}` }
+      { ...last, detail: combined }
     ]
   }
   return [
@@ -938,9 +1057,9 @@ function appendAgentReasoningDelta(
       id: createAgentProcessEventId('reasoning'),
       kind: 'reasoning',
       title: '思考过程',
-      detail: delta,
+      detail: visibleDelta,
       status: 'thinking',
-      createdAt: new Date().toISOString()
+      createdAt
     }
   ]
 }
@@ -1018,15 +1137,6 @@ function mergeMetadataItems<T>(
 
 function nonEmptyMetadataItems<T>(items: T[]): T[] | undefined {
   return items.length > 0 ? items : undefined
-}
-
-function prettyJson(value: string): string {
-  if (!value) return ''
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2)
-  } catch {
-    return value
-  }
 }
 
 function compactText(value: string, maxLength: number): string {

@@ -27,7 +27,7 @@ function makeDocument(): MindMapDocumentV2 {
       title: 'Overview',
       root: { id: 'root', title: 'Root topic', children: [] },
       elements: [],
-      layout: { structureClass: 'org.xmind.ui.logic.right' }
+      layout: { structureClass: 'studiumx.layout.logic.right' }
     }],
     assets: []
   }
@@ -145,11 +145,6 @@ describe('MindMapThemeGallery', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Color Scheme Dawn/i }))
     const listbox = screen.getByRole('listbox', { name: 'Color Scheme' })
-
-    const recommended = within(listbox).getByText('Recommended')
-    const classic = within(listbox).getByText('Classic')
-    expect(recommended).toBeInTheDocument()
-    expect(classic).toBeInTheDocument()
 
     const recommendedGroup = within(listbox).getByRole('group', { name: 'Recommended' })
     const classicGroup = within(listbox).getByRole('group', { name: 'Classic' })

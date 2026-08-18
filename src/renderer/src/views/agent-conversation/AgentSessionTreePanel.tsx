@@ -152,7 +152,7 @@ export type AgentMessageActionsProps = {
   }
 }
 
-/** Compact hover toolbar for chat bubbles. Branch details live in the left session list. */
+/** In-flow message actions mirroring the conversation chrome. Branch details live in the left session list. */
 export function AgentMessageActions({
   turn,
   canFork,
@@ -167,9 +167,14 @@ export function AgentMessageActions({
   const showFork = canFork && turn.metadata?.provenance?.kind !== 'recovery_notice'
   const showEdit = canEdit && turn.role === 'user' && turn.metadata?.provenance?.kind !== 'recovery_notice'
   if (!showCopy && !showFork && !showEdit && !branchNavigation) return null
+  const messageTime = formatMessageTime(turn.createdAt)
+  const time = messageTime ? (
+    <time className="agent-message-time" dateTime={turn.createdAt}>{messageTime}</time>
+  ) : null
 
   return (
     <div className="agent-message-actions" role="toolbar" aria-label="消息操作">
+      {turn.role === 'user' ? time : null}
       <button
         type="button"
         className="agent-message-action"
@@ -229,8 +234,18 @@ export function AgentMessageActions({
           </button>
         </div>
       ) : null}
+      {turn.role === 'assistant' ? time : null}
     </div>
   )
+}
+
+function formatMessageTime(createdAt: string): string | null {
+  const timestamp = new Date(createdAt)
+  if (Number.isNaN(timestamp.valueOf())) return null
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(timestamp)
 }
 
 export type AgentMessageEditorProps = {

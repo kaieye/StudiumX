@@ -43,7 +43,7 @@ type MindMapTopicShapePickerProps = {
 
 /**
  * A compact, searchable shape picker that shows a concrete drawing of each
- * node shape (like Xmind) instead of a bare text label. It owns only transient
+ * node shape (like StudiumX) instead of a bare text label. It owns only transient
  * UI state; callers retain the canonical command/reducer/persistence lane.
  */
 export function MindMapTopicShapePicker({

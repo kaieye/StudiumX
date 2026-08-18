@@ -61,12 +61,12 @@ const NUMBERING_RESTART_MIN = 1
 const NUMBERING_RESTART_MAX = 9999
 
 const MIND_MAP_TOPIC_STYLE_LAYOUT_OPTIONS: readonly MindMapTopicStyleLayoutOption[] = [
-  { value: 'org.xmind.ui.logic.right', labelKey: 'right' },
-  { value: 'org.xmind.ui.logic.balanced', labelKey: 'balanced' },
-  { value: 'org.xmind.ui.logic.left', labelKey: 'left' },
-  { value: 'org.xmind.ui.logic.map', labelKey: 'map' },
-  { value: 'org.xmind.ui.logic.down', labelKey: 'down' },
-  { value: 'org.xmind.ui.logic.up', labelKey: 'up' }
+  { value: 'studiumx.layout.logic.right', labelKey: 'right' },
+  { value: 'studiumx.layout.logic.balanced', labelKey: 'balanced' },
+  { value: 'studiumx.layout.logic.left', labelKey: 'left' },
+  { value: 'studiumx.layout.logic.map', labelKey: 'map' },
+  { value: 'studiumx.layout.logic.down', labelKey: 'down' },
+  { value: 'studiumx.layout.logic.up', labelKey: 'up' }
 ]
 
 const FILL_PATTERN_OPTIONS = [

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { ChevronRight, ImagePlus, Link2, Sigma, StickyNote, Tag } from 'lucide-react'
 
 /**
- * Right-click context menu for mind-map nodes (Xmind-style).
+ * Right-click context menu for mind-map nodes (StudiumX-style).
  *
  * Shows common operations: add child/sibling, edit, delete, collapse,
  * copy/cut/paste/duplicate, and style clipboard actions.
@@ -106,7 +106,7 @@ export function MindMapContextMenu({
 
   useEffect(() => clearHoverTimer, [])
 
-  // XMind keeps the menu inside the application window.  Browser context-menu
+  // StudiumX keeps the menu inside the application window.  Browser context-menu
   // coordinates are viewport coordinates, so clamp after measuring the menu
   // itself instead of allowing the last items to disappear below the stage.
   useLayoutEffect(() => {

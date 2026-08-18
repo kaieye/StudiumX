@@ -38,18 +38,18 @@ import { mindMapTopicDisplayTitle } from './mind-map-topic-markdown'
  * a node are vertically centered around the parent's midline so the subtree
  * spreads symmetrically above and below the parent.  For two-sided structures
  * (balanced / map) the left-side and right-side groups are centered
- * independently, matching Xmind's layout at every depth.
+ * independently, matching StudiumX's layout at every depth.
  *
  * `collapsed` nodes are still emitted (rendered with a collapse badge) but their
  * descendants are not visited, so collapse hides the subtree with no reflow cost.
  *
- * Node dimensions auto-size to the title text (matching Xmind), while branch
+ * Node dimensions auto-size to the title text (matching StudiumX), while branch
  * indices are computed for per-branch colour assignment.
  */
 
 // ---- text measurement (pure, no DOM) ----
 //
-// v2 §4.2: Font sizes follow Xmind M01's 2 : 1.43 : 1 tier ratio (28/20/14pt)
+// v2 §4.2: Font sizes follow StudiumX M01's 2 : 1.43 : 1 tier ratio (28/20/14pt)
 // scaled to a 100%-zoom-friendly density:
 //   depth 0 (root):   26px/600 → CJK ≈ 26, ASCII ≈ 13.5
 //   depth 1 (branch): 16px/500 → CJK ≈ 16, ASCII ≈ 8.5
@@ -314,7 +314,7 @@ export type MindMapLayoutNode = {
   imageCount?: number
   /** Where the attached image block sits relative to the text label. */
   imagePlacement?: MindMapImagePlacement
-  /** Small, accessible XMind-style marker badges attached to the topic. */
+  /** Small, accessible StudiumX-style marker badges attached to the topic. */
   markers?: MindMapMarker[]
   /** Text labels attached to the topic. */
   labels?: string[]
@@ -372,6 +372,8 @@ export type MindMapLayoutSummary = {
   id: string
   from: string
   to: string
+  /** Horizontal side on which the brace and linked output are rendered. */
+  side: 'left' | 'right'
   /** Explicit source topics for a cross-branch summary. */
   sourceTopicIds?: string[]
   /** Real topic rendered beside the brace for newly created summaries. */
@@ -379,6 +381,11 @@ export type MindMapLayoutSummary = {
   /** Legacy label-only summaries omit `summaryTopicId`. */
   label?: string
   style?: MindMapElementStyle
+  /** Outward horizontal edge of the currently visible covered subtrees. */
+  coveredEdgeX?: number
+  /** Top and bottom edges of the currently visible covered subtrees. */
+  coveredTopY?: number
+  coveredBottomY?: number
 }
 
 /** A boundary enclosing a topic subtree, projected into layout coordinates. */
@@ -428,14 +435,14 @@ export const MIND_MAP_VERTICAL_GAP = 16
 
 /**
  * Horizontal gap between a parent's right edge and its child's left edge,
- * varying by depth to match Xmind Snowbrush spacing (wider near the root,
+ * varying by depth to match StudiumX Snowbrush spacing (wider near the root,
  * tighter for deeper levels). MUST stay in sync with CSS font-size values.
  */
 export function horizontalGapForDepth(depth: number): number {
   return depth === 0 ? 64 : 44
 }
 
-/** Vertical gap between sibling subtrees, varying by depth (Xmind-style). */
+/** Vertical gap between sibling subtrees, varying by depth (StudiumX-style). */
 export function verticalGapForDepth(depth: number): number {
   return depth === 0 ? 24 : 10
 }
@@ -463,7 +470,7 @@ function countDescendants(node: MindMapTopicV2): number {
 /** Direction (in x units) applied to each child index for a given structure.
  *
  * Balanced structures alternate right/left **at the root only** — deeper
- * topics stay on their branch's side (Xmind behaviour). Without this, the
+ * topics stay on their branch's side (StudiumX behaviour). Without this, the
  * second child of a right-side branch would swing back toward the root and
  * overlap it.
  */
@@ -544,7 +551,18 @@ type MindMapLayoutPlan = {
   /** Bounds relative to this topic's top-centre anchor. */
   bounds: LayoutBounds
   children: MindMapLayoutChildPlan[]
+  /**
+   * Summary-output children excluded from ordinary sibling stacking. They are
+   * still planned (so their subtrees get correct sizes/depths) and emitted, but
+   * their final position is driven by `placeSummaryTopicBesideBrace` rather than
+   * by the tree. Keeping them out of `children`/`bounds` means adding a summary
+   * never re-flips balanced sides nor leaves a mis-centred gap behind.
+   */
+  floatingChildren: MindMapLayoutChildPlan[]
 }
+
+/** No-op set used when callers do not need summary-output floating handling. */
+const EMPTY_TOPIC_SET: ReadonlySet<string> = new Set()
 
 function boundsForSize(size: { width: number; height: number }): LayoutBounds {
   return {
@@ -598,7 +616,8 @@ function createLayoutPlan(
   inheritedStructureClass: MindMapStructureClass,
   sizes: Map<string, { width: number; height: number }>,
   verticalGap: (depth: number) => number,
-  inheritedSide: 1 | -1 = 1
+  inheritedSide: 1 | -1 = 1,
+  floatingTopicIds: ReadonlySet<string> = EMPTY_TOPIC_SET
 ): MindMapLayoutPlan {
   const structureClass = node.style?.structureClass ?? inheritedStructureClass
   const size = sizes.get(node.id) ?? { width: MIND_MAP_NODE_WIDTH, height: MIND_MAP_NODE_HEIGHT }
@@ -606,7 +625,7 @@ function createLayoutPlan(
   const ownBounds = boundsForSize(size)
 
   if (collapsed || node.children.length === 0) {
-    return { node, structureClass, size, collapsed, bounds: ownBounds, children: [] }
+    return { node, structureClass, size, collapsed, bounds: ownBounds, children: [], floatingChildren: [] }
   }
 
   const geometry = getLayoutGeometry(structureClass)
@@ -618,7 +637,8 @@ function createLayoutPlan(
       size,
       sizes,
       verticalGap,
-      geometry
+      geometry,
+      floatingTopicIds
     )
     return {
       node,
@@ -626,31 +646,45 @@ function createLayoutPlan(
       size,
       collapsed,
       bounds: special.bounds,
-      children: special.children
+      children: special.children,
+      floatingChildren: special.floatingChildren
     }
   }
 
   const hGap = horizontalGapForDepth(depth)
   const vGap = verticalGap(depth)
   const children: MindMapLayoutChildPlan[] = []
+  const floatingChildren: MindMapLayoutChildPlan[] = []
   let bounds = ownBounds
 
   const placeChild = (index: number, plan: MindMapLayoutPlan, offsetX: number, offsetY: number): void => {
     children.push({ index, plan, offsetX, offsetY })
     bounds = unionBounds(bounds, translateBounds(plan.bounds, offsetX, offsetY))
   }
+  const placeFloating = (child: { index: number; plan: MindMapLayoutPlan }): void => {
+    floatingChildren.push({ index: child.index, plan: child.plan, offsetX: 0, offsetY: 0 })
+  }
 
   if (isVerticalStructure(structureClass)) {
-    const childPlans = node.children.map((child, index) => ({
-      index,
-      plan: createLayoutPlan(child, depth + 1, structureClass, sizes, verticalGap)
-    }))
-    const totalWidth = childPlans.reduce((sum, child) => sum + child.plan.bounds.width, 0) +
-      Math.max(0, childPlans.length - 1) * vGap
+    const childPlans = node.children.map((child, index) => {
+      const plan = createLayoutPlan(
+        child,
+        depth + 1,
+        structureClass,
+        sizes,
+        verticalGap,
+        inheritedSide,
+        floatingTopicIds
+      )
+      return { index, floating: floatingTopicIds.has(child.id), plan }
+    })
+    const regularChildren = childPlans.filter((child) => !child.floating)
+    const totalWidth = regularChildren.reduce((sum, child) => sum + child.plan.bounds.width, 0) +
+      Math.max(0, regularChildren.length - 1) * vGap
     let cursorLeft = -totalWidth / 2
     const isDown = geometry === 'vertical-down'
 
-    for (const child of childPlans) {
+    for (const child of regularChildren) {
       const offsetX = cursorLeft - child.plan.bounds.left
       const offsetY = isDown
         ? ownBounds.bottom + hGap - child.plan.bounds.top
@@ -659,28 +693,46 @@ function createLayoutPlan(
       cursorLeft += child.plan.bounds.width + vGap
     }
 
-    return { node, structureClass, size, collapsed, bounds, children }
+    for (const child of childPlans) {
+      if (child.floating) placeFloating(child)
+    }
+
+    return { node, structureClass, size, collapsed, bounds, children, floatingChildren }
   }
 
-  const directions = childDirections(structureClass, node.children.length, depth, inheritedSide)
-  const childPlans = node.children.map((child, index) => ({
-    index,
-    direction: directions[index] === -1 ? -1 : 1 as 1 | -1,
-    plan: createLayoutPlan(
-      child,
-      depth + 1,
-      structureClass,
-      sizes,
-      verticalGap,
-      directions[index] === -1 ? -1 : 1
-    )
-  }))
+  // For balanced/map structures the side of a root child is decided by its
+  // index among *non-summary* children. A summary output occupies a real array
+  // slot but must never re-index (and thereby flip) its siblings, so it is
+  // excluded from the alternation and stacked separately beside its brace.
+  const regularChildNodes = node.children.filter((child) => !floatingTopicIds.has(child.id))
+  const directions = childDirections(structureClass, regularChildNodes.length, depth, inheritedSide)
+  const childPlans = node.children.map((child, index) => {
+    const floating = floatingTopicIds.has(child.id)
+    const regularIndex = floating ? -1 : regularChildNodes.indexOf(child)
+    const direction: 1 | -1 = floating
+      ? inheritedSide
+      : directions[regularIndex] === -1 ? -1 : 1
+    return {
+      index,
+      floating,
+      direction,
+      plan: createLayoutPlan(
+        child,
+        depth + 1,
+        structureClass,
+        sizes,
+        verticalGap,
+        direction,
+        floatingTopicIds
+      )
+    }
+  })
   const sides = directions.some((direction) => direction > 0) && directions.some((direction) => direction < 0)
     ? ([1, -1] as const)
     : [directions[0] === -1 ? -1 : 1]
 
   for (const side of sides) {
-    const sideChildren = childPlans.filter((child) => child.direction === side)
+    const sideChildren = childPlans.filter((child) => !child.floating && child.direction === side)
     const sideExtent = sideChildren.reduce((sum, child) => sum + child.plan.bounds.height, 0) +
       Math.max(0, sideChildren.length - 1) * vGap
     let cursorTop = (ownBounds.top + ownBounds.bottom) / 2 - sideExtent / 2
@@ -695,7 +747,11 @@ function createLayoutPlan(
     }
   }
 
-  return { node, structureClass, size, collapsed, bounds, children }
+  for (const child of childPlans) {
+    if (child.floating) placeFloating(child)
+  }
+
+  return { node, structureClass, size, collapsed, bounds, children, floatingChildren }
 }
 
 /**
@@ -710,29 +766,41 @@ function assignSpecialChildren(
   size: { width: number; height: number },
   sizes: Map<string, { width: number; height: number }>,
   verticalGap: (depth: number) => number,
-  geometry: LayoutGeometry
-): Pick<MindMapLayoutPlan, 'bounds' | 'children'> {
+  geometry: LayoutGeometry,
+  floatingTopicIds: ReadonlySet<string> = EMPTY_TOPIC_SET
+): Pick<MindMapLayoutPlan, 'bounds' | 'children' | 'floatingChildren'> {
   const ownBounds = boundsForSize(size)
   const hGap = horizontalGapForDepth(depth)
   const vGap = verticalGap(depth)
   const children: MindMapLayoutChildPlan[] = []
+  const floatingChildren: MindMapLayoutChildPlan[] = []
   let bounds = ownBounds
 
   const createChildPlans = (sideForIndex: (index: number) => 1 | -1) =>
     node.children.map((child, index) => ({
       index,
+      floating: floatingTopicIds.has(child.id),
       plan: createLayoutPlan(
         child,
         depth + 1,
         structureClass,
         sizes,
         verticalGap,
-        sideForIndex(index)
+        sideForIndex(index),
+        floatingTopicIds
       )
     }))
   const placeChild = (index: number, plan: MindMapLayoutPlan, offsetX: number, offsetY: number): void => {
     children.push({ index, plan, offsetX, offsetY })
     bounds = unionBounds(bounds, translateBounds(plan.bounds, offsetX, offsetY))
+  }
+  const placeFloating = (child: { index: number; plan: MindMapLayoutPlan }): void => {
+    floatingChildren.push({ index: child.index, plan: child.plan, offsetX: 0, offsetY: 0 })
+  }
+  const stack = (childPlans: Array<{ index: number; floating: boolean; plan: MindMapLayoutPlan }>): void => {
+    for (const child of childPlans) {
+      if (child.floating) placeFloating(child)
+    }
   }
   const parentCenterY = (ownBounds.top + ownBounds.bottom) / 2
 
@@ -740,6 +808,7 @@ function assignSpecialChildren(
     const childPlans = createChildPlans((index) => (index % 2 === 0 ? -1 : 1))
     let cursorLeft = ownBounds.right + hGap
     for (const child of childPlans) {
+      if (child.floating) continue
       const isAbove = child.index % 2 === 0
       const offsetX = cursorLeft - child.plan.bounds.left
       const offsetY = isAbove
@@ -748,13 +817,15 @@ function assignSpecialChildren(
       placeChild(child.index, child.plan, offsetX, offsetY)
       cursorLeft += child.plan.bounds.width + hGap
     }
-    return { bounds, children }
+    stack(childPlans)
+    return { bounds, children, floatingChildren }
   }
 
   if (geometry === 'timeline-vertical') {
     const childPlans = createChildPlans((index) => (index % 2 === 0 ? 1 : -1))
     let cursorTop = ownBounds.bottom + hGap
     for (const child of childPlans) {
+      if (child.floating) continue
       const side: 1 | -1 = child.index % 2 === 0 ? 1 : -1
       const offsetX = side === 1
         ? ownBounds.right + hGap - child.plan.bounds.left
@@ -763,7 +834,8 @@ function assignSpecialChildren(
       placeChild(child.index, child.plan, offsetX, offsetY)
       cursorTop += child.plan.bounds.height + vGap
     }
-    return { bounds, children }
+    stack(childPlans)
+    return { bounds, children, floatingChildren }
   }
 
   if (geometry === 'fishbone-right' || geometry === 'fishbone-left') {
@@ -771,6 +843,7 @@ function assignSpecialChildren(
     const childPlans = createChildPlans(() => direction)
     let cursorEdge = direction === 1 ? ownBounds.right + hGap : ownBounds.left - hGap
     for (const child of childPlans) {
+      if (child.floating) continue
       const isAbove = child.index % 2 === 0
       const offsetX = direction === 1
         ? cursorEdge - child.plan.bounds.left
@@ -781,19 +854,21 @@ function assignSpecialChildren(
       placeChild(child.index, child.plan, offsetX, offsetY)
       cursorEdge += direction * (child.plan.bounds.width + hGap)
     }
-    return { bounds, children }
+    stack(childPlans)
+    return { bounds, children, floatingChildren }
   }
 
   const isColumnMajor = geometry === 'matrix-columns'
   const childPlans = createChildPlans(() => 1)
+  const regularChildPlans = childPlans.filter((child) => !child.floating)
   const columnCount = Math.max(
     1,
-    isColumnMajor ? Math.min(3, childPlans.length) : Math.ceil(Math.sqrt(childPlans.length))
+    isColumnMajor ? Math.min(3, regularChildPlans.length) : Math.ceil(Math.sqrt(regularChildPlans.length))
   )
-  const rowCount = Math.ceil(childPlans.length / columnCount)
+  const rowCount = Math.ceil(regularChildPlans.length / columnCount)
   const cellWidths = new Array<number>(columnCount).fill(0)
   const cellHeights = new Array<number>(rowCount).fill(0)
-  for (const child of childPlans) {
+  for (const child of regularChildPlans) {
     const row = isColumnMajor ? child.index % rowCount : Math.floor(child.index / columnCount)
     const column = isColumnMajor ? Math.floor(child.index / rowCount) : child.index % columnCount
     cellWidths[column] = Math.max(cellWidths[column] ?? 0, child.plan.bounds.width)
@@ -815,7 +890,7 @@ function assignSpecialChildren(
     rowTop += cellHeight + vGap
   }
 
-  for (const child of childPlans) {
+  for (const child of regularChildPlans) {
     const row = isColumnMajor ? child.index % rowCount : Math.floor(child.index / columnCount)
     const column = isColumnMajor ? Math.floor(child.index / rowCount) : child.index % columnCount
     const cellWidth = cellWidths[column] ?? child.plan.bounds.width
@@ -826,8 +901,9 @@ function assignSpecialChildren(
     const offsetY = cellTop + (cellHeight - child.plan.bounds.height) / 2 - child.plan.bounds.top
     placeChild(child.index, child.plan, offsetX, offsetY)
   }
+  stack(childPlans)
 
-  return { bounds, children }
+  return { bounds, children, floatingChildren }
 }
 
 /** Pre-compute auto-sized dimensions for every node in the tree. */
@@ -934,6 +1010,25 @@ function emitLayoutPlan(
       edges
     )
   }
+
+  // Summary-output subtrees are planned alongside their siblings but are not
+  // stacked; emit them at the parent's anchor and let the summary placement
+  // pass (placeSummaryTopicBesideBrace) translate them beside their brace.
+  for (const child of plan.floatingChildren) {
+    const childBranchIndex = depth === 0 ? child.index : branchIndex
+    const childBranchKey = depth === 0 ? child.plan.node.id : branchKey
+    pushEdge(edges, node.id, child.plan.node.id, childBranchIndex, childBranchKey, structureClass)
+    emitLayoutPlan(
+      child.plan,
+      centerX + child.offsetX,
+      topY + child.offsetY,
+      depth + 1,
+      childBranchIndex,
+      childBranchKey,
+      nodes,
+      edges
+    )
+  }
 }
 
 /** Space between the covered range and the summary brace. */
@@ -944,6 +1039,63 @@ export const MIND_MAP_SUMMARY_BRACE_WIDTH = 24
 export const MIND_MAP_SUMMARY_OUTPUT_GAP = 20
 
 /**
+ * A summary extends away from the branch it covers. For two-sided structures,
+ * only a group wholly on the left is mirrored; cross-branch summaries retain
+ * the established right-hand placement.
+ */
+function summarySideForSourceNodes(
+  sourceNodes: readonly MindMapLayoutNode[],
+  rootNode: MindMapLayoutNode,
+  defaultStructureClass: MindMapStructureClass
+): 'left' | 'right' {
+  const rootCenterX = rootNode.x + rootNode.width / 2
+  const sides = sourceNodes.map((node) => {
+    switch (getLayoutGeometry(node.style?.structureClass ?? defaultStructureClass)) {
+      case 'horizontal-left':
+      case 'fishbone-right':
+        return 'left' as const
+      case 'balanced':
+        return node.x + node.width / 2 < rootCenterX ? 'left' as const : 'right' as const
+      default:
+        return 'right' as const
+    }
+  })
+  return sides.length > 0 && sides.every((side) => side === 'left') ? 'left' : 'right'
+}
+
+/**
+ * Resolve the visible subtree envelope covered by a summary. A source topic's
+ * descendants become part of that envelope as they are added, while collapsed
+ * descendants and floating summary outputs remain outside it.
+ */
+function visibleSummaryCoverageNodes(
+  root: MindMapTopicV2,
+  nodes: readonly MindMapLayoutNode[],
+  sourceTopicIds: readonly string[],
+  excludedTopicIds: ReadonlySet<string>
+): MindMapLayoutNode[] {
+  const layoutNodeById = new Map(nodes.map((node) => [node.id, node]))
+  const coveredNodes: MindMapLayoutNode[] = []
+  const coveredTopicIds = new Set<string>()
+
+  const visit = (topic: MindMapTopicV2): void => {
+    if (excludedTopicIds.has(topic.id) || coveredTopicIds.has(topic.id)) return
+    const layoutNode = layoutNodeById.get(topic.id)
+    if (!layoutNode) return
+    coveredTopicIds.add(topic.id)
+    coveredNodes.push(layoutNode)
+    if (layoutNode.collapsed) return
+    for (const child of topic.children) visit(child)
+  }
+
+  for (const topicId of sourceTopicIds) {
+    const topic = findTopicNodeById(root, topicId)
+    if (topic) visit(topic)
+  }
+  return coveredNodes
+}
+
+/**
  * Move a linked summary topic (and its visible descendants) beside its brace.
  * The topic remains in the tree and continues through the regular canvas node
  * rendering path; only its ordinary incoming tree edge is suppressed below.
@@ -952,6 +1104,7 @@ function placeSummaryTopicBesideBrace(
   root: MindMapTopicV2,
   nodes: MindMapLayoutNode[],
   summaryTopicId: string,
+  side: 'left' | 'right',
   x: number,
   y: number
 ): boolean {
@@ -974,7 +1127,62 @@ function placeSummaryTopicBesideBrace(
     node.x += deltaX
     node.y += deltaY
   }
+
+  // A cross-branch summary is inserted under its lowest common ancestor. In a
+  // balanced map, that insertion index can have the opposite semantic branch
+  // direction from the side where the summary brace is rendered. Translating
+  // the output subtree alone would then leave newly added child topics growing
+  // back through the brace. Mirror an entirely opposite-facing subtree around
+  // the output topic so summary descendants always grow away from the covered
+  // range. Do not disturb vertical/mixed layouts, which have no single
+  // horizontal outward direction to correct.
+  const outputCenterX = layoutTopic.x + layoutTopic.width / 2
+  const desiredDirection = side === 'left' ? -1 : 1
+  const directChildDirections = topic.children
+    .map((child) => nodes.find((node) => node.id === child.id))
+    .filter((node): node is MindMapLayoutNode => node !== undefined)
+    .map((node) => Math.sign(node.x + node.width / 2 - outputCenterX))
+    .filter((direction) => direction !== 0)
+  if (
+    directChildDirections.length > 0 &&
+    directChildDirections.every((direction) => direction === -desiredDirection)
+  ) {
+    for (const node of nodes) {
+      if (!topicIds.has(node.id) || node.id === summaryTopicId) continue
+      node.x = 2 * outputCenterX - node.x - node.width
+    }
+  }
   return true
+}
+
+/**
+ * Fallback placement for a floating summary output whose covered range cannot
+ * be resolved (e.g. a source hidden by a collapsed subtree). The brace is not
+ * drawn in that case, so the output topic is anchored beside its own parent on
+ * the parent's side instead of being left overlapping the tree.
+ */
+function placeSummaryOutputBesideParent(
+  root: MindMapTopicV2,
+  nodes: MindMapLayoutNode[],
+  summaryTopicId: string,
+  rootNode: MindMapLayoutNode | undefined
+): boolean {
+  const outputNode = nodes.find((node) => node.id === summaryTopicId)
+  const parent = findTopicParentNodeById(root, summaryTopicId)
+  if (!outputNode || !parent || !rootNode) return false
+  const parentNode = nodes.find((node) => node.id === parent.id)
+  if (!parentNode) return false
+
+  const side: 'left' | 'right' =
+    parentNode.x + parentNode.width / 2 < rootNode.x + rootNode.width / 2
+      ? 'left'
+      : 'right'
+  const hGap = horizontalGapForDepth(parentNode.depth)
+  const x = side === 'left'
+    ? parentNode.x - hGap - outputNode.width
+    : parentNode.x + parentNode.width + hGap
+  const y = parentNode.y + parentNode.height / 2 - outputNode.height / 2
+  return placeSummaryTopicBesideBrace(root, nodes, summaryTopicId, side, x, y)
 }
 
 /** Optional knobs for {@link computeMindMapLayout}. */
@@ -1058,12 +1266,24 @@ export function computeMindMapLayout(
       ...(style !== undefined ? { style: { ...style } } : {})
     }))
 
+  // Summary outputs are laid out as ordinary tree nodes (so their subtrees,
+  // sizes and depths are all correct) but are excluded from sibling stacking
+  // and positioned beside their brace below. This keeps adding a summary from
+  // re-indexing balanced siblings or leaving a mis-centred gap behind.
+  const floatingTopicIds = new Set<string>()
+  for (const element of sheet.elements) {
+    if (element.type === 'summary' && element.summaryTopicId !== undefined) {
+      floatingTopicIds.add(element.summaryTopicId)
+    }
+  }
   const plan = createLayoutPlan(
     sheet.root,
     0,
     sheet.layout.structureClass,
     sizes,
-    verticalGap
+    verticalGap,
+    1,
+    floatingTopicIds
   )
   emitLayoutPlan(plan, 0, 0, 0, 0, sheet.root.id, nodes, edges)
 
@@ -1071,31 +1291,100 @@ export function computeMindMapLayout(
   // beside the brace, then remove only its normal parent edge; all other topic
   // behavior remains the standard layout/canvas behavior.
   const summaryTopicIds = new Set<string>()
+  const summarySides = new Map<string, 'left' | 'right'>()
+  const summaryCoveredBounds = new Map<string, {
+    edgeX: number
+    topY: number
+    bottomY: number
+  }>()
+  const rootNode = nodes.find((node) => node.id === sheet.root.id)
   for (const summary of summaryBase) {
-    if (summary.summaryTopicId === undefined) continue
     const sourceTopicIds = summary.sourceTopicIds ?? [summary.from, summary.to]
     const sourceNodes = sourceTopicIds.map((topicId) => nodes.find((node) => node.id === topicId))
-    const outputNode = nodes.find((node) => node.id === summary.summaryTopicId)
-    if (sourceNodes.some((node) => node === undefined) || !outputNode) continue
+    // A summary output is laid out floating (not stacked with siblings). When
+    // a covered source sits inside a collapsed subtree the brace is hidden, but
+    // the output topic must still get a sensible position instead of overlapping
+    // its parent — fall back to placing it beside its parent.
+    if (sourceNodes.some((node) => node === undefined) || !rootNode) {
+      if (summary.summaryTopicId !== undefined) {
+        const placed = placeSummaryOutputBesideParent(
+          sheet.root,
+          nodes,
+          summary.summaryTopicId,
+          rootNode
+        )
+        if (placed) summaryTopicIds.add(summary.summaryTopicId)
+      }
+      continue
+    }
     const resolvedSourceNodes = sourceNodes as MindMapLayoutNode[]
+    const side = summarySideForSourceNodes(
+      resolvedSourceNodes,
+      rootNode,
+      sheet.layout.structureClass
+    )
+    summarySides.set(summary.id, side)
 
-    const top = Math.min(...resolvedSourceNodes.map((node) => node.y + node.height / 2))
-    const bottom = Math.max(...resolvedSourceNodes.map((node) => node.y + node.height / 2))
-    const right = Math.max(...resolvedSourceNodes.map((node) => node.x + node.width))
+    const visibleCoveredNodes = visibleSummaryCoverageNodes(
+      sheet.root,
+      nodes,
+      sourceTopicIds,
+      floatingTopicIds
+    )
+    // A summary output can itself be selected as an ordinary topic for a later
+    // summary. In that edge case it is also a floating topic, so retain the
+    // already-resolved source nodes rather than producing an empty envelope.
+    const coveredNodes = visibleCoveredNodes.length > 0
+      ? visibleCoveredNodes
+      : resolvedSourceNodes
+    const left = Math.min(...coveredNodes.map((node) => node.x))
+    const right = Math.max(...coveredNodes.map((node) => node.x + node.width))
+    const top = Math.min(...coveredNodes.map((node) => node.y))
+    const bottom = Math.max(...coveredNodes.map((node) => node.y + node.height))
+    summaryCoveredBounds.set(summary.id, {
+      edgeX: side === 'left' ? left : right,
+      topY: top,
+      bottomY: bottom
+    })
+
+    if (summary.summaryTopicId === undefined) continue
+    const outputNode = nodes.find((node) => node.id === summary.summaryTopicId)
+    if (!outputNode) continue
+
     const placed = placeSummaryTopicBesideBrace(
       sheet.root,
       nodes,
       summary.summaryTopicId,
-      right
-        + MIND_MAP_SUMMARY_RANGE_GAP
-        + MIND_MAP_SUMMARY_BRACE_WIDTH
-        + MIND_MAP_SUMMARY_OUTPUT_GAP,
+      side,
+      side === 'left'
+        ? left
+          - MIND_MAP_SUMMARY_RANGE_GAP
+          - MIND_MAP_SUMMARY_BRACE_WIDTH
+          - MIND_MAP_SUMMARY_OUTPUT_GAP
+          - outputNode.width
+        : right
+          + MIND_MAP_SUMMARY_RANGE_GAP
+          + MIND_MAP_SUMMARY_BRACE_WIDTH
+          + MIND_MAP_SUMMARY_OUTPUT_GAP,
       (top + bottom) / 2 - outputNode.height / 2
     )
     if (placed) summaryTopicIds.add(summary.summaryTopicId)
   }
   const visibleEdges = edges.filter((edge) => !summaryTopicIds.has(edge.to))
-  const summaries = summaryBase
+  const summaries = summaryBase.map((summary) => {
+    const coveredBounds = summaryCoveredBounds.get(summary.id)
+    return {
+      ...summary,
+      side: summarySides.get(summary.id) ?? 'right',
+      ...(coveredBounds
+        ? {
+            coveredEdgeX: coveredBounds.edgeX,
+            coveredTopY: coveredBounds.topY,
+            coveredBottomY: coveredBounds.bottomY
+          }
+        : {})
+    }
+  })
 
   // Compute boundary rectangles from layout nodes.
   const boundaries = sheet.elements

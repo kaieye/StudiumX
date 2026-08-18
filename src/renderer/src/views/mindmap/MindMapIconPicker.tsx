@@ -44,7 +44,7 @@ type MindMapIconPickerProps = {
 }
 
 /**
- * An Xmind-style graphical picker: a compact trigger button that opens an
+ * A StudiumX graphical picker: a compact trigger button that opens an
  * animated popover showing each option as a concrete shape glyph instead of a
  * bare text label. Handles search, category grouping, keyboard navigation,
  * Escape and outside-click dismissal. Owns only transient UI state; callers

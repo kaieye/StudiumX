@@ -40,12 +40,12 @@ describe('MindMapExportFeedback', () => {
   it('uses an assertive alert for failures and preserves the safe error reason', () => {
     renderFeedback({
       status: 'error',
-      format: 'xmind',
+      format: 'markdown',
       message: 'Mind map is still saving; try again when the save completes.'
     })
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'XMind export failed: Mind map is still saving; try again when the save completes.'
+      'Markdown export failed: Mind map is still saving; try again when the save completes.'
     )
   })
 

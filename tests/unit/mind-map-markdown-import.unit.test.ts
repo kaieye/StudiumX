@@ -35,14 +35,14 @@ function sampleDocument(): MindMapDocumentV2 {
           ]
         },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       },
       {
         id: 'sheet-2',
         title: 'Chemistry',
         root: { id: 'root-2', title: 'Atoms', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.map' }
+        layout: { structureClass: 'studiumx.layout.logic.map' }
       }
     ]
   }
@@ -54,7 +54,7 @@ describe('mindMapMarkdownToDocument', () => {
     const imported = mindMapMarkdownToDocument(markdown, {
       documentId: 'markdown-import',
       nowIso: '2026-08-09T01:00:00.000Z',
-      structureClass: 'org.xmind.ui.logic.map'
+      structureClass: 'studiumx.layout.logic.map'
     })
 
     expect(imported).toEqual({
@@ -91,7 +91,7 @@ describe('mindMapMarkdownToDocument', () => {
               ]
             },
             elements: [],
-            layout: { structureClass: 'org.xmind.ui.logic.map' }
+            layout: { structureClass: 'studiumx.layout.logic.map' }
           },
           {
             id: 'sheet-2',
@@ -102,7 +102,7 @@ describe('mindMapMarkdownToDocument', () => {
               children: []
             },
             elements: [],
-            layout: { structureClass: 'org.xmind.ui.logic.map' }
+            layout: { structureClass: 'studiumx.layout.logic.map' }
           }
         ]
       }
@@ -114,7 +114,7 @@ describe('mindMapMarkdownToDocument', () => {
       expect(repeated.document.sheets).toEqual(
         imported.document.sheets.map((sheet) => ({
           ...sheet,
-          layout: { structureClass: 'org.xmind.ui.logic.balanced' }
+          layout: { structureClass: 'studiumx.layout.logic.right' }
         }))
       )
       expect(repeated.document.sheets.flatMap((sheet) => [

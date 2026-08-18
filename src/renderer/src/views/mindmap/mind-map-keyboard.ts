@@ -40,6 +40,19 @@ function isEditableTarget(target: EventTarget | null): boolean {
   )
 }
 
+/**
+ * True when the user holds a live, non-collapsed text selection. The mind-map
+ * canvas itself is `user-select: none`, so a text selection can only come from
+ * a non-canvas surface such as an AI-panel message, the search/outline panels
+ * or the library list. In that situation the learner is copying text, not a
+ * mind-map node, and the browser default must be left alone.
+ */
+function hasTextSelection(): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false
+  return selection.toString().trim().length > 0
+}
+
 export function useMindMapKeyboard(
   enabled: boolean,
   editing: boolean,
@@ -81,7 +94,7 @@ export function useMindMapKeyboard(
         return
       }
 
-      // Insert key: insert child (Xmind-style shortcut)
+      // Insert key: insert child (StudiumX-style shortcut)
       if (key === 'Insert') {
         if (mod) return
         event.preventDefault()
@@ -153,6 +166,13 @@ export function useMindMapKeyboard(
         return
       }
 
+      if (mod && (key.toLowerCase() === 'c' || key.toLowerCase() === 'x')) {
+        // Copying/cutting with a live text selection must keep the browser's
+        // default behaviour (e.g. selected text inside an AI-panel message)
+        // instead of being swallowed by the mind-map node clipboard.
+        if (hasTextSelection()) return
+      }
+
       if (mod && key.toLowerCase() === 'c') {
         event.preventDefault()
         handlers.copy()
@@ -177,7 +197,7 @@ export function useMindMapKeyboard(
         return
       }
 
-      // P2 §5.4: ⌘. / Ctrl+. toggles the right inspector (Xmind-style).
+      // P2 §5.4: ⌘. / Ctrl+. toggles the right inspector (StudiumX-style).
       if (mod && key === '.') {
         if (handlers.toggleInspector) {
           event.preventDefault()

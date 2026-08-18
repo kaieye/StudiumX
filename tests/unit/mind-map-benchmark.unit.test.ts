@@ -3,7 +3,6 @@ import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { parseXmindZip } from '../../src/main/mindmap/xmind-file'
 import {
   validateMindMapDocumentV2,
   validateMindMapSheetV2
@@ -17,7 +16,6 @@ import type {
 import { MindMapUndoRedoStack } from '../../src/shared/mindmap/commands/mind-map-undo-redo'
 import type { MindMapCommandResult } from '../../src/shared/mindmap/commands/mind-map-command-types'
 import { computeMindMapLayout } from '../../src/renderer/src/views/mindmap/mind-map-layout'
-import { xmindContentToDocument } from '../../src/shared/mindmap/xmind-converter'
 
 const FIXTURES_DIR = resolve(process.cwd(), 'docs/mindmap/benchmarks/fixtures')
 
@@ -230,73 +228,4 @@ describe('mind map v2 benchmark fixtures', () => {
         `cancelledAfter=${partialRun.applied}`
     )
   })
-})
-
-const XMIND_CONTENT_FIXTURES = [
-  'xmind-content-basic.json',
-  'xmind-content-right.json',
-  'xmind-content-balanced.json',
-  'xmind-content-map.json',
-  'xmind-content-down.json',
-  'xmind-content-up.json',
-  'xmind-content-styles.json',
-  'xmind-content-relationships.json',
-  'xmind-content-summaries.json',
-  'xmind-content-attachments.json',
-  'xmind-content-unknown-fields.json',
-  'xmind-content-unsupported-fields.json',
-  'xmind-content-empty.json',
-  'xmind-content-multi-sheet.json'
-] as const
-
-describe('xmind content fixtures', () => {
-  it('converts the basic fixture without crash and preserves the tree', () => {
-    const content = readJson('xmind-content-basic.json')
-    const doc = xmindContentToDocument(content)
-    expect(doc.sheets).toHaveLength(1)
-    expect(doc.sheets[0].root.id).toBe('t1')
-    expect(doc.sheets[0].root.title).toBe('中心主题')
-    expect(doc.sheets[0].root.children).toHaveLength(2)
-    expect(doc.sheets[0].root.children.map((child) => child.id)).toEqual(['t2', 't5'])
-  })
-
-  it('converts every content.json fixture without crash', () => {
-    for (const file of XMIND_CONTENT_FIXTURES) {
-      const content = readJson(file)
-      const doc = xmindContentToDocument(content)
-      expect(doc.sheets.length, file).toBeGreaterThan(0)
-    }
-  })
-})
-
-const CORRUPT_FIXTURES = [
-  {
-    file: 'xmind-corrupt-not-a-zip.xmind',
-    pattern: /Not a valid \.xmind ZIP archive/
-  },
-  {
-    file: 'xmind-corrupt-empty.xmind',
-    pattern: /Not a valid \.xmind ZIP archive/
-  },
-  {
-    file: 'xmind-corrupt-missing-content.xmind',
-    pattern: /missing content\.json/
-  },
-  {
-    file: 'xmind-corrupt-invalid-json.xmind',
-    pattern: /content\.json is not valid JSON/
-  },
-  {
-    file: 'xmind-corrupt-truncated.xmind',
-    pattern: /Not a valid \.xmind ZIP archive/
-  }
-] as const
-
-describe('corrupted .xmind zip fixtures', () => {
-  for (const fixture of CORRUPT_FIXTURES) {
-    it(`${fixture.file} returns a structured error instead of crashing`, () => {
-      const bytes = readBytes(fixture.file)
-      expect(() => parseXmindZip(bytes)).toThrow(fixture.pattern)
-    })
-  }
 })

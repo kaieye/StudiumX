@@ -26,6 +26,7 @@ import {
   DEFAULT_MIND_MAP_STRUCTURE_CLASS,
   DEFAULT_MIND_MAP_TOPIC_SHAPE
 } from '../../shared/mindmap/mind-map-types'
+import { MIND_MAP_DOCUMENT_NOT_FOUND_ERROR_MESSAGE } from '../../shared/mindmap/mind-map-repository-errors'
 import type { MindMapStructureClass, MindMapSummary } from '../../shared/mindmap/mind-map-types'
 
 export type { MindMapSummary } from '../../shared/mindmap/mind-map-types'
@@ -88,7 +89,12 @@ export type MindMapStore = {
 
 /** Structured repository failure (invalid document, migration, recovery). */
 export class MindMapStoreError extends Error {
-  readonly code: 'invalid_document' | 'migration_failed' | 'read_failed' | 'write_failed'
+  readonly code:
+    | 'not_found'
+    | 'invalid_document'
+    | 'migration_failed'
+    | 'read_failed'
+    | 'write_failed'
   readonly detail?: unknown
   constructor(
     code: MindMapStoreError['code'],
@@ -222,7 +228,15 @@ async function readDocumentFromDisk(
       if (isErrno(error) && (error.code === 'EACCES' || error.code === 'EPERM')) throw error
     }
   }
-  const content = await readFile(filePath, 'utf8')
+  let content: string
+  try {
+    content = await readFile(filePath, 'utf8')
+  } catch (error) {
+    if (isErrno(error) && error.code === 'ENOENT') {
+      throw new MindMapStoreError('not_found', MIND_MAP_DOCUMENT_NOT_FOUND_ERROR_MESSAGE)
+    }
+    throw error
+  }
   return parseAndMigrateDocument(id, content)
 }
 
@@ -360,7 +374,16 @@ export function createMindMapStore(rootPath: string, dirName: string = MIND_MAPS
             id: doc.id,
             title: doc.title,
             updatedAt: doc.updatedAt,
-            sheetCount: doc.sheets.length
+            sheetCount: doc.sheets.length,
+            // Card previews need only the first tree and its layout settings;
+            // elements/assets stay behind the canonical read boundary.
+            preview: doc.sheets[0]
+              ? {
+                  theme: doc.theme,
+                  root: doc.sheets[0].root,
+                  layout: doc.sheets[0].layout
+                }
+              : undefined
           })
         } catch {
           // Skip unparseable files robustly — don't crash the whole list.

@@ -2,13 +2,13 @@ import type { MindMapTheme } from '../../../../shared/mindmap/domain/types'
 import { DAWN_COLORS } from '../../../../shared/mindmap/themes/color-schemes'
 
 /**
- * Branch colour palette inspired by Xmind's default theme.
+ * Branch colour palette inspired by StudiumX's default theme.
  *
  * Each first-level branch gets a distinct colour. Descendants inherit their
  * branch ancestor's colour for visual grouping.
  */
 /**
- * Default branch colors - Xmind "Dawn" (晨曦) multi-line color scheme.
+ * Default branch colors - StudiumX "Dawn" (晨曦) multi-line color scheme.
  * Now sourced from the shared color-schemes table (P4).
  */
 export const DEFAULT_BRANCH_COLORS: readonly string[] = DAWN_COLORS

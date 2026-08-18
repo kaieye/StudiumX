@@ -55,7 +55,7 @@ function makeDocument(): MindMapDocumentV2 {
         title: 'Overview',
         root: { id: 'root', title: 'Root topic', children: [] },
         elements: [],
-        layout: { structureClass: 'org.xmind.ui.logic.right' }
+        layout: { structureClass: 'studiumx.layout.logic.right' }
       }
     ],
     assets: []
@@ -136,7 +136,7 @@ describe('MindMapCanvasOptionsPanel', () => {
     const current = useMindMapViewStore.getState().current
     if (!current) throw new Error('expected current document')
     current.sheets[0]!.layout = {
-      structureClass: 'org.xmind.ui.spreadsheet.column',
+      structureClass: 'studiumx.layout.spreadsheet.column',
       spacing: 32,
       compact: true
     }
@@ -146,7 +146,7 @@ describe('MindMapCanvasOptionsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset canvas layout' }))
 
     expect(useMindMapViewStore.getState().current?.sheets[0]?.layout).toEqual({
-      structureClass: 'org.xmind.ui.spreadsheet.column'
+      structureClass: 'studiumx.layout.spreadsheet.column'
     })
   })
 
