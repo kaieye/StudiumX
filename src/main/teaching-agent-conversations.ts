@@ -32,6 +32,7 @@ import {
   sanitizeAgentTurnContent
 } from '../shared/agent-conversation-turns'
 import { redactAgentSecretText } from '../shared/agent-secret-redaction'
+import { validateAgentChatImageAttachments } from '../shared/agent-chat-images'
 import {
   hasPersistedAgentParentTurnProof,
   sanitizePersistedConversationTitle,
@@ -307,10 +308,21 @@ export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[]
       ? normalizeAgentPresentationTimeline(record.presentationTimeline, processEvents)
       : undefined
     const metadata = normalizeAgentTurnMetadata(record.metadata)
+    let imageAttachments
+    try {
+      imageAttachments = role === 'user'
+        ? validateAgentChatImageAttachments(record.imageAttachments)
+        : undefined
+    } catch {
+      // A corrupt durable attachment must not make the complete conversation
+      // unreadable; drop it rather than exposing unvalidated binary data.
+      imageAttachments = undefined
+    }
     normalized.push({
       id: typeof record.id === 'string' && record.id ? record.id : `${role}-${index}`,
       role,
       content: sanitizeAgentTurnContent(typeof record.content === 'string' ? record.content : ''),
+      ...(imageAttachments ? { imageAttachments } : {}),
       toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
       processEvents: processEvents && processEvents.length > 0 ? processEvents : undefined,
       presentationTimeline,

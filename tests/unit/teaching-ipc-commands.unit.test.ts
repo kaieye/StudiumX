@@ -103,6 +103,55 @@ describe('skill orchestration IPC payloads', () => {
   })
 })
 
+describe('agent chat image IPC payloads', () => {
+  const imageAttachment = {
+    id: 'image-1',
+    name: 'diagram.png',
+    mimeType: 'image/png',
+    dataBase64: 'iVBORw0KGgo=',
+    sizeBytes: 8
+  }
+
+  it('accepts only an exact current-turn attachment at the main-process boundary', () => {
+    const parsed = parseAgentChatStreamPayload({
+      userInput: 'Please analyze the image.',
+      messages: [{ role: 'user', content: 'Earlier text-only context' }],
+      imageAttachments: [imageAttachment]
+    })
+
+    expect(parsed.imageAttachments).toEqual([imageAttachment])
+    expect(parsed.messages[0]).toEqual({
+      role: 'user', content: 'Earlier text-only context'
+    })
+  })
+
+  it('rejects renderer-only fields and image data smuggled into transcript history', () => {
+    const rendererAttachment = { ...imageAttachment, previewUrl: 'blob:https://renderer.invalid/preview' }
+    expect(() => parseAgentChatStreamPayload({
+      userInput: 'Please analyze the image.',
+      imageAttachments: [rendererAttachment]
+    })).toThrow('不允许的字段')
+
+    expect(() => parseAgentChatStreamPayload({
+      userInput: 'Please analyze the image.',
+      messages: [{ role: 'user', content: 'Earlier image', imageAttachments: [imageAttachment] }]
+    })).toThrow('transcript messages must not include image attachments')
+  })
+
+  it('rejects local paths and invalid binary data before an agent turn is reserved', () => {
+    expect(() => parseAgentChatStreamPayload({
+      userInput: 'Please analyze the image.',
+      messages: [],
+      imageAttachments: [{ ...imageAttachment, name: 'file:///Users/learner/private.png' }]
+    })).toThrow('本地路径')
+    expect(() => parseAgentChatStreamPayload({
+      userInput: 'Please analyze the image.',
+      messages: [],
+      imageAttachments: [{ ...imageAttachment, mimeType: 'image/jpeg' }]
+    })).toThrow('内容与声明的类型不匹配')
+  })
+})
+
 
 describe('parseSubmitConversationTurnIntent', () => {
   const canonicalIntent = {

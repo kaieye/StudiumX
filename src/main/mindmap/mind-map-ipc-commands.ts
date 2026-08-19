@@ -28,6 +28,8 @@ import {
 } from '../../shared/mindmap/svg-export'
 import { inspectMindMapPngExportArtifact } from '../../shared/mindmap/png-export'
 import { mindMapStructureClassSchema } from '../../shared/mindmap/mind-map-schema'
+import { validateAgentChatImageAttachments } from '../../shared/agent-chat-images'
+import type { AgentChatImageAttachment } from '../../shared/agent-chat-images'
 import type {
   MindMapDocumentV2,
   MindMapSourceRef
@@ -93,6 +95,33 @@ function requireNonNegativeSafeInteger(value: unknown): number | null {
     && value >= 0
     ? value
     : null
+}
+
+/**
+ * Validate the renderer-supplied image attachments with the same fail-closed
+ * shared validator the agent-chat IPC uses. Returns `null` on any invalid
+ * payload so the strict mind-map parser can reject the whole envelope.
+ */
+function parseImageAttachments(value: unknown): AgentChatImageAttachment[] | null {
+  try {
+    return validateAgentChatImageAttachments(value) ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Build exact-key envelopes with the optional `imageAttachments` field for
+ * every base key set, so the strict parser stays explicit while the payload
+ * stays backward compatible.
+ */
+function withImageAttachmentsKey(
+  baseSets: ReadonlyArray<readonly string[]>
+): ReadonlyArray<readonly string[]> {
+  return [
+    ...baseSets,
+    ...baseSets.map((keys) => [...keys, 'imageAttachments'])
+  ]
 }
 
 export function parseMindMapListPayload(value: unknown): MindMapListPayload | null {
@@ -227,16 +256,20 @@ export function parseMindMapSourceRefreshApplyPayload(
 }
 
 export function parseMindMapGeneratePayload(value: unknown): MindMapGeneratePayload | null {
-  // `generationId` was added for provider cancellation. Keep the original
-  // three-field envelope valid while allowing exactly one read-only context
-  // selector (selected file or generated Lesson).
-  const record =
-    requireExactKeys(value, ['workspaceId', 'title', 'prompt']) ??
-    requireExactKeys(value, ['workspaceId', 'title', 'prompt', 'generationId']) ??
-    requireExactKeys(value, ['workspaceId', 'title', 'prompt', 'selectedFile']) ??
-    requireExactKeys(value, ['workspaceId', 'title', 'prompt', 'selectedFile', 'generationId']) ??
-    requireExactKeys(value, ['workspaceId', 'title', 'prompt', 'lesson']) ??
-    requireExactKeys(value, ['workspaceId', 'title', 'prompt', 'lesson', 'generationId'])
+  // `generationId` was added for provider cancellation; `imageAttachments`
+  // mirrors the agent-chat image turn. Keep the original envelopes valid while
+  // allowing exactly one read-only context selector (selected file or Lesson).
+  const record = withImageAttachmentsKey([
+    ['workspaceId', 'title', 'prompt'],
+    ['workspaceId', 'title', 'prompt', 'generationId'],
+    ['workspaceId', 'title', 'prompt', 'selectedFile'],
+    ['workspaceId', 'title', 'prompt', 'selectedFile', 'generationId'],
+    ['workspaceId', 'title', 'prompt', 'lesson'],
+    ['workspaceId', 'title', 'prompt', 'lesson', 'generationId']
+  ]).reduce<Record<string, unknown> | null>(
+    (matched, keys) => matched ?? requireExactKeys(value, keys),
+    null
+  )
   if (!record) return null
   const workspaceId = requireNonEmptyString(record.workspaceId)
   const title = requireNonEmptyString(record.title)
@@ -246,6 +279,10 @@ export function parseMindMapGeneratePayload(value: unknown): MindMapGeneratePayl
   if (Object.prototype.hasOwnProperty.call(record, 'selectedFile') && !selectedFile) return null
   const lesson = parseLesson(record.lesson)
   if (Object.prototype.hasOwnProperty.call(record, 'lesson') && !lesson) return null
+  const imageAttachments = Object.prototype.hasOwnProperty.call(record, 'imageAttachments')
+    ? parseImageAttachments(record.imageAttachments)
+    : undefined
+  if (Object.prototype.hasOwnProperty.call(record, 'imageAttachments') && !imageAttachments) return null
   const generationId = Object.prototype.hasOwnProperty.call(record, 'generationId')
     ? requireNonEmptyString(record.generationId)
     : undefined
@@ -256,6 +293,7 @@ export function parseMindMapGeneratePayload(value: unknown): MindMapGeneratePayl
     prompt,
     ...(selectedFile ? { selectedFile } : {}),
     ...(lesson ? { lesson } : {}),
+    ...(imageAttachments ? { imageAttachments } : {}),
     ...(generationId ? { generationId } : {})
   }
 }
@@ -277,13 +315,17 @@ export function parseMindMapProposalGeneratePayload(
     'selectedTopicIds',
     'sourceRefs'
   ] as const
-  const record =
-    requireExactKeys(value, [...baseKeys, 'prompt']) ??
-    requireExactKeys(value, [...baseKeys, 'prompt', 'generationId']) ??
-    requireExactKeys(value, [...baseKeys, 'selectedFile', 'prompt']) ??
-    requireExactKeys(value, [...baseKeys, 'selectedFile', 'prompt', 'generationId']) ??
-    requireExactKeys(value, [...baseKeys, 'lesson', 'prompt']) ??
-    requireExactKeys(value, [...baseKeys, 'lesson', 'prompt', 'generationId'])
+  const record = withImageAttachmentsKey([
+    [...baseKeys, 'prompt'],
+    [...baseKeys, 'prompt', 'generationId'],
+    [...baseKeys, 'selectedFile', 'prompt'],
+    [...baseKeys, 'selectedFile', 'prompt', 'generationId'],
+    [...baseKeys, 'lesson', 'prompt'],
+    [...baseKeys, 'lesson', 'prompt', 'generationId']
+  ]).reduce<Record<string, unknown> | null>(
+    (matched, keys) => matched ?? requireExactKeys(value, keys),
+    null
+  )
   if (!record) return null
 
   const workspaceId = requireNonEmptyString(record.workspaceId)
@@ -306,6 +348,10 @@ export function parseMindMapProposalGeneratePayload(
   if (scope !== 'selected-file' && selectedFile) return null
   if (scope === 'lesson' && !lesson) return null
   if (scope !== 'lesson' && lesson) return null
+  const imageAttachments = Object.prototype.hasOwnProperty.call(record, 'imageAttachments')
+    ? parseImageAttachments(record.imageAttachments)
+    : undefined
+  if (Object.prototype.hasOwnProperty.call(record, 'imageAttachments') && !imageAttachments) return null
 
   const generationId = Object.prototype.hasOwnProperty.call(record, 'generationId')
     ? requireNonEmptyString(record.generationId)
@@ -320,6 +366,7 @@ export function parseMindMapProposalGeneratePayload(
     sourceRefs,
     ...(selectedFile ? { selectedFile } : {}),
     ...(lesson ? { lesson } : {}),
+    ...(imageAttachments ? { imageAttachments } : {}),
     prompt,
     ...(generationId ? { generationId } : {})
   }

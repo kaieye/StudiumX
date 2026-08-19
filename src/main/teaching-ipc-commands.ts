@@ -39,6 +39,7 @@ import { isLearningSessionId } from '../shared/teaching-placement'
 import { normalizeProviderCustomHeaders } from '../shared/provider-custom-headers'
 import { getSkillOrchestrationPreset } from '../shared/skill-orchestration-presets'
 import { isSafeSkillId } from '../shared/skill-command'
+import { validateAgentChatImageAttachments } from '../shared/agent-chat-images'
 
 // Mind map IPC parsers live in a dedicated module to respect the module-size
 // policy (AGENTS.md); re-export so the gateway can import them from one place.
@@ -208,6 +209,12 @@ export function parseAgentChatMessages(value: unknown): AgentChatMessage[] {
     const m = item as Record<string, unknown>
     const role = m.role
     if (role !== 'user' && role !== 'assistant' && role !== 'system' && role !== 'tool') continue
+    if (m.imageAttachments !== undefined) {
+      // Transcript messages are historical context only. The sole renderer IPC
+      // field that may carry binary image data is the current turn's top-level
+      // `imageAttachments` field, which is independently revalidated below.
+      throw new Error('IPC agent chat transcript messages must not include image attachments.')
+    }
     messages.push({
       role,
       content: typeof m.content === 'string' ? m.content : m.content === null ? null : '',
@@ -247,7 +254,8 @@ export function parseSubmitConversationTurnIntent(payload: unknown): SubmitConve
     'delivery',
     'expectedBranchRevision',
     'expectedActiveTurnId',
-    'skillIds'
+    'skillIds',
+    'imageAttachments'
   ], 'submitConversationTurn')
 
   const target = parseSubmitConversationTurnTarget(record.target)
@@ -269,6 +277,7 @@ export function parseSubmitConversationTurnIntent(payload: unknown): SubmitConve
     throw new Error('IPC submitConversationTurn payload requires "expectedActiveTurnId" for delivery "steer".')
   }
   const skillIds = parseSkillIds(record.skillIds, 'skillIds')
+  const imageAttachments = validateAgentChatImageAttachments(record.imageAttachments)
 
   return {
     target,
@@ -278,7 +287,8 @@ export function parseSubmitConversationTurnIntent(payload: unknown): SubmitConve
     delivery,
     ...(expectedBranchRevision !== undefined ? { expectedBranchRevision } : {}),
     ...(expectedActiveTurnId !== undefined ? { expectedActiveTurnId } : {}),
-    ...(skillIds !== undefined ? { skillIds } : {})
+    ...(skillIds !== undefined ? { skillIds } : {}),
+    ...(imageAttachments ? { imageAttachments } : {})
   }
 }
 
@@ -366,7 +376,8 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
     'skillIds',
     'messageTurnIds',
     'messages',
-    'userInput'
+    'userInput',
+    'imageAttachments'
   ], 'agentChatStream')
   const skillIds = parseSkillIds(record.skillIds, 'skillIds')
   const messageTurnIds = Array.isArray(record.messageTurnIds) && record.messageTurnIds.length <= 400
@@ -376,6 +387,7 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
       })
     : undefined
   const messages = parseAgentChatMessages(record.messages)
+  const imageAttachments = validateAgentChatImageAttachments(record.imageAttachments)
   const expectedBranchRevision = optionalNonNegativeInteger(record.expectedBranchRevision, 'expectedBranchRevision')
   const alignedMessageTurnIds = messageTurnIds?.length === messages.length
     ? messageTurnIds as AgentChatStreamPayload['messageTurnIds']
@@ -391,7 +403,8 @@ export function parseAgentChatStreamPayload(payload: unknown): AgentChatStreamPa
     ...(skillIds?.length ? { skillIds } : {}),
     ...(alignedMessageTurnIds ? { messageTurnIds: alignedMessageTurnIds } : {}),
     messages,
-    userInput: requireString(record.userInput, 'userInput')
+    userInput: requireString(record.userInput, 'userInput'),
+    ...(imageAttachments ? { imageAttachments } : {})
   }
 }
 

@@ -65,8 +65,6 @@ const TEXT_ALIGN_OPTIONS = [
   labelKey: string
 }[]
 
-const DEFAULT_FONT_SIZE_PRESETS = [10, 11, 12, 13, 14, 16, 18, 20, 24]
-
 /**
  * Global-node default style editor.
  *
@@ -275,13 +273,15 @@ export function MindMapDefaultNodeStyle({
         <label className="mm-row__label" htmlFor="mindmap-default-node-fontsize">
           {t('mindmap.topicStyle.fontSize')}
         </label>
-        <div className="mindmap-topic-style__number-field">
+        <label
+          className="mindmap-spacing-field mindmap-spacing-field--wide"
+          htmlFor="mindmap-default-node-fontsize"
+        >
           <input
             id="mindmap-default-node-fontsize"
             className="mm-number-input"
             type="number"
             inputMode="decimal"
-            list="mindmap-default-node-fontsize-presets"
             min="0.1"
             max="512"
             step="any"
@@ -300,12 +300,7 @@ export function MindMapDefaultNodeStyle({
             }}
           />
           <span id="mindmap-default-node-fontsize-unit" aria-hidden="true">px</span>
-          <datalist id="mindmap-default-node-fontsize-presets">
-            {DEFAULT_FONT_SIZE_PRESETS.map((size) => (
-              <option key={size} value={size} />
-            ))}
-          </datalist>
-        </div>
+        </label>
       </div>
       <div className="mm-row">
         <label className="mm-row__label" htmlFor="mindmap-default-node-fontweight">

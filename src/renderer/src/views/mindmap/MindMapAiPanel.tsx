@@ -1,27 +1,49 @@
 import { PanelRightClose, SendHorizontal, Square } from 'lucide-react'
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapCommand } from '../../../../shared/mindmap/commands'
 import type { MindMapProposalDecision } from '../../../../shared/mindmap/commands/mind-map-proposal'
 import { MIND_MAP_DOCUMENT_NOT_FOUND_ERROR_MARKER } from '../../../../shared/mindmap/mind-map-repository-errors'
+import type {
+  AgentChatStreamStatus,
+  AgentChatStreamToolEvent,
+  AgentChatTurn,
+  AgentRealtimeEvent,
+  MindMapProposalApplyResult,
+  MindMapStreamStatus
+} from '../../../../shared/teaching-types'
+import type { AgentChatImageAttachment } from '../../../../shared/agent-chat-images'
+import {
+  applyAgentChatChunkToPending,
+  applyAgentChatStatusToPending,
+  applyAgentChatToolEventToPending,
+  type PendingAgentConversation
+} from '../../agent-conversation-state'
+import { buildAgentConversationPresentation } from '../../agent-conversation-presentation'
 import { useAppStore } from '../../app-shell/appStore'
 import {
-  OverviewModelPicker,
-  OverviewReasoningPicker
+  OverviewModelAndReasoningPicker
 } from '../../ui/overview-composer-pickers'
+import { AgentChatImageGallery } from '../../ui/AgentChatImageGallery'
+import {
+  AgentChatImageAttachmentRail,
+  AgentChatImageComposerError,
+  AgentChatImageFileInput,
+  AgentChatImagePickerButton,
+  useAgentChatImageDrafts
+} from '../../ui/agent-chat-image-composer'
 import { MarkdownMessage } from '../../ui/MarkdownMessage'
+import {
+  AgentConversationAssistantBody,
+  AgentConversationMessageFrame
+} from '../agent-conversation/AgentConversationAssistantBody'
 import { useMindMapViewStore } from './mind-map-view-store'
 import { MindMapThemeGallery } from './MindMapThemeGallery'
 import { MindMapThemePanel } from './MindMapThemePanel'
 import { MindMapTopicStyleInspector } from './MindMapTopicStyleInspector'
 import { MindMapCanvasOptionsPanel } from './MindMapCanvasOptionsPanel'
 import { MindMapElementStyleInspector } from './MindMapElementStyleInspector'
-import {
-  MindMapGenerationProcess,
-  type MindMapGenerationMode,
-  type MindMapGenerationStep
-} from './MindMapGenerationProcess'
 import {
   expandMindMapGenerationPreviewCommand,
   newCompletedMindMapProposalItems,
@@ -31,13 +53,12 @@ import {
 type MindMapAiGenerationMessage = {
   generationId: string
   prompt: string
-  preview: string
-  mode: MindMapGenerationMode
-  step: MindMapGenerationStep
-  /** Terminal host status is kept separate so the process card can mark the
-   * step that actually failed/cancelled instead of inventing a new phase. */
-  terminalStep?: 'error' | 'cancelled'
+  step: MindMapStreamStatus['step'] | 'applying'
   status: 'generating' | 'completed' | 'no_changes' | 'cancelled' | 'error'
+  agentTurn: AgentChatTurn
+  lastAgentSequence: number
+  /** User images attached to this generation turn, shown in the transcript. */
+  imageAttachments?: AgentChatImageAttachment[]
   error?: string
   notice?: string
 }
@@ -67,30 +88,104 @@ function terminalStepForGeneration(
   return terminal?.generationId === generationId ? terminal.step : 'error'
 }
 
-/**
- * Mind-map generation is structured output rather than a normal agent reply.
- * Render its provider preview as a Markdown code block so it uses the same
- * message renderer and readable code treatment as the main AI conversation,
- * without pretending that the provider returned explanatory prose.
- */
-function mindMapPreviewMarkdown(preview: string): string {
-  // JSON values can legitimately contain backticks (for example, when the
-  // source prompt contains a Markdown code sample). Pick a fence longer than
-  // any run in the preview so the structured stream cannot end its own fence.
-  const longestBacktickRun = Math.max(
-    0,
-    ...Array.from(preview.matchAll(/`+/g), (match) => match[0].length)
-  )
-  const fence = '`'.repeat(Math.max(3, longestBacktickRun + 1))
-  return `${fence}json\n${preview}\n${fence}`
+function pendingConversationForMindMapMessage(
+  message: MindMapAiGenerationMessage
+): PendingAgentConversation {
+  return {
+    workspaceId: 'mind-map',
+    sourceConversationId: null,
+    sourceConversationRevision: null,
+    mode: 'temporary',
+    summary: {
+      id: message.generationId,
+      title: message.prompt,
+      createdAt: message.agentTurn.createdAt,
+      updatedAt: message.agentTurn.createdAt,
+      relativePath: '',
+      absolutePath: '',
+      messageCount: 1,
+      pending: true
+    },
+    turns: [message.agentTurn],
+    status: '',
+    toolsSupported: null,
+    runtimeStreamId: message.generationId
+  }
+}
+
+function terminalAgentStatus(event: Extract<AgentRealtimeEvent, { kind: 'terminal' }>): AgentChatStreamStatus {
+  return {
+    streamId: event.streamId,
+    status: event.outcome,
+    ...(event.message ? { message: event.message } : {})
+  }
+}
+
+/** Project one dedicated mind-map event through the homepage conversation reducer. */
+function applyMindMapAgentEvent(
+  message: MindMapAiGenerationMessage,
+  event: AgentRealtimeEvent
+): MindMapAiGenerationMessage {
+  if (event.streamId !== message.generationId || event.sequence <= message.lastAgentSequence) {
+    return message
+  }
+  // Mind-map provider output is machine-readable JSON for the canvas preview,
+  // never assistant prose. Ignore answer-channel chunks defensively so an
+  // older main process cannot reintroduce the raw document into the transcript.
+  if (event.kind === 'chunk' && event.payload.channel !== 'reasoning') {
+    return { ...message, lastAgentSequence: event.sequence }
+  }
+  const pending = pendingConversationForMindMapMessage(message)
+  const common = {
+    pending,
+    activeConversationId: message.generationId,
+    assistantId: message.agentTurn.id,
+    realtimeEvent: event,
+    updatedAt: event.createdAt
+  }
+  const patch = event.kind === 'chunk'
+    ? applyAgentChatChunkToPending({ ...common, chunk: event.payload })
+    : event.kind === 'status'
+      ? applyAgentChatStatusToPending({ ...common, status: event.payload })
+      : event.kind === 'tool'
+        ? applyAgentChatToolEventToPending({ ...common, event: event.payload })
+        : applyAgentChatStatusToPending({ ...common, status: terminalAgentStatus(event) })
+  const agentTurn = patch?.pendingAgentConversation?.turns.find((turn) => turn.id === message.agentTurn.id)
+  return {
+    ...message,
+    agentTurn: agentTurn ?? message.agentTurn,
+    lastAgentSequence: event.sequence
+  }
+}
+
+/** Project a real repository IPC boundary without competing with host sequence numbers. */
+function applyMindMapToolProjection(
+  message: MindMapAiGenerationMessage,
+  event: AgentChatStreamToolEvent,
+  updatedAt = new Date().toISOString()
+): MindMapAiGenerationMessage {
+  if (event.streamId !== message.generationId) return message
+  const pending = pendingConversationForMindMapMessage(message)
+  const patch = applyAgentChatToolEventToPending({
+    pending,
+    activeConversationId: message.generationId,
+    assistantId: message.agentTurn.id,
+    event,
+    updatedAt
+  })
+  const agentTurn = patch?.pendingAgentConversation?.turns.find((turn) => turn.id === message.agentTurn.id)
+  return {
+    ...message,
+    agentTurn: agentTurn ?? message.agentTurn
+  }
 }
 
 /**
  * Electron prepends an implementation-level IPC envelope to rejected invokes.
  * Keep that detail out of the learner-facing transcript, and turn the known
  * strict proposal-boundary failure into an actionable retry message. The raw
- * provider text remains only in the already-rendered preview; it is never
- * applied to the canonical mind map unless the host validates it.
+ * provider text remains only in the canvas preview; it is never copied into
+ * assistant prose or applied to the canonical map unless the host validates it.
  */
 function mindMapGenerationErrorMessage(
   caught: unknown,
@@ -173,7 +268,6 @@ export function MindMapAiPanel({
   const aiPrompt = useMindMapViewStore((s) => s.aiPrompt)
   const setAiPrompt = useMindMapViewStore((s) => s.setAiPrompt)
   const generating = useMindMapViewStore((s) => s.generating)
-  const streamText = useMindMapViewStore((s) => s.streamText)
   const error = useMindMapViewStore((s) => s.error)
   const selection = useMindMapViewStore((s) => s.selection)
 
@@ -181,6 +275,13 @@ export function MindMapAiPanel({
   const [editingDocumentTitle, setEditingDocumentTitle] = useState(false)
   const [documentTitleDraft, setDocumentTitleDraft] = useState(documentTitle)
   const documentTitleInputRef = useRef<HTMLInputElement>(null)
+
+  // Shared composer image attachments (same hook as the overview conversation).
+  const imageDrafts = useAgentChatImageDrafts({
+    // Attachments belong to the current document; never carry them across maps.
+    resetKey: useMindMapViewStore((s) => s.current?.id)
+  })
+  const hasDraftImages = imageDrafts.hasDrafts
 
   const generationRef = useRef<{
     workspaceId: string
@@ -347,11 +448,6 @@ export function MindMapAiPanel({
             streamText: state.streamText + chunk.delta
           }))
           appendPreviewStream(chunk.generationId, chunk.delta)
-          setGenerationMessages((messages) => messages.map((message) => (
-            message.generationId === chunk.generationId
-              ? { ...message, preview: message.preview + chunk.delta }
-              : message
-          )))
         })
       : () => undefined
     const offStatus = api?.onMindMapStreamStatus?.((status) => {
@@ -367,26 +463,33 @@ export function MindMapAiPanel({
         if (status.step === 'error' || status.step === 'cancelled') {
           return {
             ...message,
-            terminalStep: status.step,
             status: status.step === 'cancelled' ? 'cancelled' : 'error'
           }
         }
         return {
           ...message,
-          step: status.step,
-          terminalStep: undefined
+          step: status.step
         }
       }))
+    })
+    const offAgentEvent = api?.onMindMapAgentEvent?.((event) => {
+      if (generationRef.current?.generationId !== event.streamId) return
+      setGenerationMessages((messages) => messages.map((message) => (
+        message.generationId === event.streamId
+          ? applyMindMapAgentEvent(message, event)
+          : message
+      )))
     })
 
     return () => {
       offChunk()
       offStatus?.()
+      offAgentEvent?.()
       abandonGenerationLease()
     }
   }, [])
 
-  const canSubmit = !generating && aiPrompt.trim().length > 0
+  const canSubmit = !generating && (aiPrompt.trim().length > 0 || hasDraftImages)
 
   /** Apply a provider diff to the open canvas immediately, without review. */
   const editCurrentCanvas = async (
@@ -394,7 +497,8 @@ export function MindMapAiPanel({
     documentId: string,
     sheetId: string,
     prompt: string,
-    generationId: string
+    generationId: string,
+    imageAttachments?: AgentChatImageAttachment[]
   ): Promise<void> => {
     const generated = await window.teachingSystem?.generateMindMapProposal({
       workspaceId: workspace,
@@ -404,6 +508,7 @@ export function MindMapAiPanel({
       selectedTopicIds: [],
       sourceRefs: [],
       prompt,
+      ...(imageAttachments?.length ? { imageAttachments } : {}),
       generationId
     })
     if (!generated) throw new Error(t('mindmap.aiProposalUnavailable'))
@@ -430,7 +535,6 @@ export function MindMapAiPanel({
           ? {
               ...message,
               step: 'done',
-              terminalStep: undefined,
               status: 'no_changes',
               notice: t('mindmap.aiNoChangesDetail')
             }
@@ -446,7 +550,7 @@ export function MindMapAiPanel({
     generationPhaseRef.current = 'applying'
     setGenerationMessages((messages) => messages.map((message) => (
       message.generationId === generationId
-        ? { ...message, step: 'applying', terminalStep: undefined }
+        ? { ...message, step: 'applying' }
         : message
     )))
 
@@ -455,24 +559,51 @@ export function MindMapAiPanel({
     for (const item of generated.proposal.items) {
       decisions[item.id] = 'accept'
     }
-    const applied = await window.teachingSystem?.applyMindMapProposal({
-      workspaceId: workspace,
-      id: documentId,
-      expectedRevision: generated.revision,
-      proposal: generated.proposal,
-      decisions
-    })
-    if (!applied) throw new Error(t('mindmap.aiProposalUnavailable'))
-    if (!applied.ok) {
-      if (applied.code === 'revision_stale') {
-        throw new Error(
-          t('mindmap.aiProposalRevisionStale', {
-            expected: applied.expectedRevision,
-            current: applied.currentRevision
-          })
-        )
+    const targetPath = `mindmaps/${documentId}.json`
+    const toolCall = {
+      id: `${generationId}:edit:${documentId}`,
+      name: 'edit_workspace_file',
+      arguments: JSON.stringify({ path: targetPath })
+    }
+    const projectTool = (result?: string, isError?: boolean): void => {
+      setGenerationMessages((messages) => messages.map((message) => (
+        message.generationId === generationId
+          ? applyMindMapToolProjection(message, {
+              streamId: generationId,
+              toolCall,
+              ...(result !== undefined ? { result, isError } : {})
+            })
+          : message
+      )))
+    }
+    projectTool()
+
+    let applied: Extract<MindMapProposalApplyResult, { ok: true }>
+    try {
+      const result = await window.teachingSystem?.applyMindMapProposal({
+        workspaceId: workspace,
+        id: documentId,
+        expectedRevision: generated.revision,
+        proposal: generated.proposal,
+        decisions
+      })
+      if (!result) throw new Error(t('mindmap.aiProposalUnavailable'))
+      if (!result.ok) {
+        if (result.code === 'revision_stale') {
+          throw new Error(
+            t('mindmap.aiProposalRevisionStale', {
+              expected: result.expectedRevision,
+              current: result.currentRevision
+            })
+          )
+        }
+        throw new Error(`${t('mindmap.aiProposalApplyError')}: ${result.error.message}`)
       }
-      throw new Error(`${t('mindmap.aiProposalApplyError')}: ${applied.error.message}`)
+      applied = result
+      projectTool(JSON.stringify({ ok: true, path: targetPath, revision: applied.document.revision }), false)
+    } catch (error) {
+      projectTool(JSON.stringify({ ok: false, path: targetPath }), true)
+      throw error
     }
 
     // A cancelled run must not adopt a late result.
@@ -484,7 +615,7 @@ export function MindMapAiPanel({
     discardGenerationPreview(generationId)
     setGenerationMessages((messages) => messages.map((message) => (
       message.generationId === generationId
-        ? { ...message, step: 'done', terminalStep: undefined, status: 'completed' }
+        ? { ...message, step: 'done', status: 'completed' }
         : message
     )))
   }
@@ -493,12 +624,14 @@ export function MindMapAiPanel({
   const generateNewDocument = async (
     workspace: string,
     prompt: string,
-    generationId: string
+    generationId: string,
+    imageAttachments?: AgentChatImageAttachment[]
   ): Promise<void> => {
     const generated = await window.teachingSystem?.generateMindMap({
       workspaceId: workspace,
       title: prompt.slice(0, 40) || 'AI 导图',
       prompt,
+      ...(imageAttachments?.length ? { imageAttachments } : {}),
       generationId
     })
     // A provider may settle just after the user clicked cancel. Never adopt
@@ -518,14 +651,17 @@ export function MindMapAiPanel({
       })
       setGenerationMessages((messages) => messages.map((message) => (
         message.generationId === generationId
-          ? { ...message, step: 'done', terminalStep: undefined, status: 'completed' }
+          ? { ...message, step: 'done', status: 'completed' }
           : message
       )))
       void useMindMapViewStore.getState().loadDocuments()
     }
   }
 
-  const runGeneration = async (prompt: string): Promise<void> => {
+  const runGeneration = async (
+    prompt: string,
+    imageAttachments?: AgentChatImageAttachment[]
+  ): Promise<void> => {
     if (useMindMapViewStore.getState().generating) return
     const workspace = useAppStore.getState().appState?.activeWorkspace?.id ?? null
     if (!workspace) return
@@ -533,14 +669,28 @@ export function MindMapAiPanel({
     const submittedPrompt = prompt.trim()
     const current = useMindMapViewStore.getState().current
     const sheetId = useMindMapViewStore.getState().activeSheetId ?? current?.sheets[0]?.id
-    const mode: MindMapGenerationMode = current && sheetId ? 'edit' : 'create'
+    const createdAt = new Date().toISOString()
     generationRef.current = { workspaceId: workspace, generationId, prompt: submittedPrompt }
     generationPhaseRef.current = 'provider'
     generationTerminalRef.current = null
     if (current && sheetId) beginGenerationPreview(generationId)
     setGenerationMessages((messages) => [
       ...messages,
-      { generationId, prompt: submittedPrompt, preview: '', mode, step: 'calling', status: 'generating' }
+      {
+        generationId,
+        prompt: submittedPrompt,
+        step: 'calling',
+        status: 'generating',
+        lastAgentSequence: 0,
+        ...(imageAttachments?.length ? { imageAttachments } : {}),
+        agentTurn: {
+          id: `${generationId}:assistant`,
+          role: 'assistant',
+          content: '',
+          processEvents: [],
+          createdAt
+        }
+      }
     ])
     useMindMapViewStore.setState({ generating: true, streamText: '', error: null })
     try {
@@ -550,10 +700,11 @@ export function MindMapAiPanel({
           current.id,
           sheetId,
           submittedPrompt,
-          generationId
+          generationId,
+          imageAttachments
         )
       } else {
-        await generateNewDocument(workspace, submittedPrompt, generationId)
+        await generateNewDocument(workspace, submittedPrompt, generationId, imageAttachments)
       }
     } catch (caught) {
       discardGenerationPreview(generationId)
@@ -573,8 +724,8 @@ export function MindMapAiPanel({
         setGenerationMessages((messages) => messages.map((entry) => (
           entry.generationId === generationId
             ? terminalStatus === 'cancelled'
-              ? { ...entry, status: 'cancelled', terminalStep: 'cancelled' }
-              : { ...entry, status: 'error', terminalStep: 'error', error: message }
+              ? { ...entry, status: 'cancelled' }
+              : { ...entry, status: 'error', error: message }
             : entry
         )))
         if (terminalStatus !== 'cancelled') {
@@ -606,7 +757,7 @@ export function MindMapAiPanel({
     generationPhaseRef.current = null
     setGenerationMessages((messages) => messages.map((message) => (
       message.generationId === generationId
-        ? { ...message, terminalStep: 'cancelled', status: 'cancelled' }
+        ? { ...message, status: 'cancelled' }
         : message
     )))
     useMindMapViewStore.setState({ generating: false, aiPrompt: prompt })
@@ -624,9 +775,14 @@ export function MindMapAiPanel({
     if (!canSubmit) return
     const workspace = useAppStore.getState().appState?.activeWorkspace?.id ?? null
     if (!workspace) return
-    const prompt = aiPrompt.trim()
+    // An image-only submission still needs a generation intent; mirror the
+    // overview composer's default prompt so the provider sees the images.
+    const prompt = aiPrompt.trim() || (hasDraftImages ? '请根据这些图片生成思维导图。' : '')
+    if (!prompt) return
+    const attachments = imageDrafts.transportAttachments()
     setAiPrompt('')
-    void runGeneration(prompt)
+    imageDrafts.clear()
+    void runGeneration(prompt, attachments)
   }
 
   const onSubmit = (event: FormEvent): void => {
@@ -640,10 +796,10 @@ export function MindMapAiPanel({
     submitPrompt()
   }
 
-  const retryGeneration = (prompt: string): void => {
+  const retryGeneration = (prompt: string, imageAttachments?: AgentChatImageAttachment[]): void => {
     if (generating || !prompt.trim()) return
     setAiPrompt('')
-    void runGeneration(prompt)
+    void runGeneration(prompt, imageAttachments)
   }
 
   const updateThreadStickiness = (): void => {
@@ -656,14 +812,14 @@ export function MindMapAiPanel({
     const thread = threadRef.current
     if (!thread) return
     // During an in-flight generation the transcript is pinned to the bottom so
-    // the latest process step and streamed preview stay visible without manual
+    // the latest process row and status stay visible without manual
     // scrolling (mirrors the overview conversation). Once idle, only follow new
     // content when the learner is already at the bottom, so reading older turns
     // is never fought.
     const shouldStick = threadShouldStickRef.current || generating
     if (!shouldStick) return
     thread.scrollTop = thread.scrollHeight
-  }, [generationMessages, streamText, generating])
+  }, [generationMessages, generating])
 
   const inspectorTab = useMindMapViewStore((s) => s.inspectorTab)
   const setInspectorTab = useMindMapViewStore((s) => s.setInspectorTab)
@@ -800,58 +956,55 @@ export function MindMapAiPanel({
                   <div className="mindmap-ai-panel__thread-inner overview-dialog-thread-inner">
                     {generationMessages.map((message) => {
                       const active = message.status === 'generating'
-                      const preview = message.preview || (active ? streamText : '')
+                      const presentation = buildAgentConversationPresentation({
+                        turns: [message.agentTurn],
+                        activeTurnId: active ? message.agentTurn.id : null
+                      }).turns[0]
                       return (
-                        <div className="mindmap-ai-panel__exchange" key={message.generationId}>
-                          <div className="mindmap-ai-panel__turn mindmap-ai-panel__turn--user overview-dialog-message is-user">
+                        <Fragment key={message.generationId}>
+                          <AgentConversationMessageFrame
+                            messageRole="user"
+                            className="mindmap-ai-panel__message mindmap-ai-panel__message--user"
+                          >
                             <MarkdownMessage content={message.prompt} tone="user" compact />
-                          </div>
-                          <div className="mindmap-ai-panel__turn mindmap-ai-panel__turn--assistant">
-                            <article
-                              className={`mindmap-ai-panel__message mindmap-ai-panel__message--assistant overview-dialog-message is-assistant${message.status === 'error' ? ' is-error' : ''}${message.status === 'no_changes' ? ' is-no-changes' : ''}`}
-                              // Keep the real last lifecycle boundary on completed, failed,
-                              // and cancelled turns as well. Besides aiding diagnostics, this
-                              // avoids making historical process cards look like they never
-                              // received a provider/renderer status.
-                              data-stream-step={message.step}
-                              data-generation-status={message.status}
-                            >
-                              <MindMapGenerationProcess
-                                generationId={message.generationId}
-                                mode={message.mode}
-                                step={message.step}
-                                status={message.status}
-                                terminalStep={message.terminalStep}
-                              />
-                              {preview ? (
-                                <MarkdownMessage
-                                  content={mindMapPreviewMarkdown(preview)}
-                                  tone="assistant"
-                                  compact
-                                />
-                              ) : null}
-                              {message.error ? <p className="mindmap-ai-panel__message-error">{message.error}</p> : null}
-                              {message.notice ? <p className="mindmap-ai-panel__message-notice">{message.notice}</p> : null}
-                              {message.status === 'error' || message.status === 'no_changes' ? (
-                                <button
-                                  type="button"
-                                  className="ghost-button"
-                                  onClick={() => retryGeneration(message.prompt)}
-                                  disabled={generating}
-                                >
-                                  {t('mindmap.retry')}
-                                </button>
-                              ) : null}
-                              {message.status === 'generating' || message.status === 'cancelled' ? (
-                                <span className="mindmap-ai-panel__message-announcement" role="status" aria-live="polite">
-                                  {message.status === 'generating'
-                                    ? t('mindmap.aiStreaming')
-                                    : t('mindmap.aiStreamCancelled')}
-                                </span>
-                              ) : null}
-                            </article>
-                          </div>
-                        </div>
+                            {message.imageAttachments?.length ? (
+                              <AgentChatImageGallery attachments={message.imageAttachments} />
+                            ) : null}
+                          </AgentConversationMessageFrame>
+                          <AgentConversationMessageFrame
+                            messageRole="assistant"
+                            className="mindmap-ai-panel__message mindmap-ai-panel__message--assistant"
+                            // Keep the real last renderer lifecycle boundary for diagnostics;
+                            // visible reasoning/text/tool rows come from the shared Agent turn.
+                            data-stream-step={message.step}
+                            data-generation-status={message.status}
+                          >
+                            <AgentConversationAssistantBody
+                              content={message.agentTurn.content}
+                              presentation={presentation}
+                              compact
+                            />
+                            {message.error ? <p className="mindmap-ai-panel__message-error">{message.error}</p> : null}
+                            {message.notice ? <p className="mindmap-ai-panel__message-notice">{message.notice}</p> : null}
+                            {message.status === 'error' || message.status === 'no_changes' ? (
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() => retryGeneration(message.prompt, message.imageAttachments)}
+                                disabled={generating}
+                              >
+                                {t('mindmap.retry')}
+                              </button>
+                            ) : null}
+                            {message.status === 'generating' || message.status === 'cancelled' ? (
+                              <span className="mindmap-ai-panel__message-announcement" role="status" aria-live="polite">
+                                {message.status === 'generating'
+                                  ? t('mindmap.aiStreaming')
+                                  : t('mindmap.aiStreamCancelled')}
+                              </span>
+                            ) : null}
+                          </AgentConversationMessageFrame>
+                        </Fragment>
                       )
                     })}
 
@@ -877,20 +1030,31 @@ export function MindMapAiPanel({
                     <label className="mindmap-ai-panel__composer-label" htmlFor="mindmap-ai-prompt">
                       {t('mindmap.aiPromptLabel')}
                     </label>
+                    <AgentChatImageFileInput
+                      inputRef={imageDrafts.inputRef}
+                      disabled={generating || readOnly}
+                      onFiles={imageDrafts.handleFiles}
+                    />
                     <textarea
                       id="mindmap-ai-prompt"
                       className="mindmap-ai-panel__input"
                       value={aiPrompt}
                       onChange={(event) => setAiPrompt(event.currentTarget.value)}
+                      onPaste={imageDrafts.handlePaste}
                       onKeyDown={onComposerKeyDown}
                       placeholder={t('mindmap.aiPromptPlaceholder')}
                       rows={2}
                       disabled={generating}
                     />
+                    <AgentChatImageAttachmentRail attachments={imageDrafts.attachments} onRemove={imageDrafts.remove} />
+                    <AgentChatImageComposerError error={imageDrafts.error} />
                     <div className="mindmap-ai-panel__composer-footer">
                       <div className="mindmap-ai-panel__composer-actions">
-                        <OverviewModelPicker />
-                        <OverviewReasoningPicker />
+                        <AgentChatImagePickerButton
+                          disabled={generating || readOnly}
+                          onClick={() => imageDrafts.inputRef.current?.click()}
+                        />
+                        <OverviewModelAndReasoningPicker />
                       </div>
                       {generating ? (
                         <button

@@ -3,7 +3,12 @@ import type { ToolCall } from '../provider-adapter'
 import { normalizeStopReason, type ProviderStopReason } from '../provider-hooks'
 import { parseDsmlToolCalls, stripDsmlToolCallBlocks } from './dsml-tool-calls'
 import { toolsSupportedForFormat } from './formats'
-import { extractUsage, type ProviderUsage } from './response-parser'
+import {
+  extractCompletedResponseText,
+  extractUsage,
+  hasReasoningContent,
+  type ProviderUsage
+} from './response-parser'
 
 type ToolCallFragment = {
   index: number
@@ -123,6 +128,29 @@ async function consumeSsePayloads(
 export type TextSseStreamResult = {
   text: string
   usage?: ProviderUsage
+  hadReasoning?: boolean
+}
+
+export type ChatSseStreamResult = {
+  text: string
+  toolCalls: ToolCall[]
+  finishReason?: ProviderStopReason
+  usage?: ProviderUsage
+  hadReasoning?: boolean
+}
+
+function missingCompletedSuffix(existing: string, completed: string): string {
+  if (!completed || completed === existing || existing.endsWith(completed)) return ''
+  if (completed.startsWith(existing)) return completed.slice(existing.length)
+
+  // A few gateways repeat only the tail or prefix around the terminal event.
+  // Preserve already-emitted text while appending the largest non-duplicated
+  // suffix; this is deliberately conservative and never rewrites the preview.
+  const maxOverlap = Math.min(existing.length, completed.length)
+  for (let size = maxOverlap; size > 0; size -= 1) {
+    if (existing.endsWith(completed.slice(0, size))) return completed.slice(size)
+  }
+  return completed
 }
 
 /**
@@ -137,22 +165,38 @@ export async function readSseStream(
 ): Promise<TextSseStreamResult> {
   let acc = ''
   let usage: ProviderUsage | undefined
+  let hadReasoning = false
   await consumeSsePayloads(body, (data) => {
     if (data === '[DONE]') return 'stop'
     const parsed = safeJsonParse(data)
     const chunkUsage = extractUsage(format, parsed)
     if (chunkUsage) usage = chunkUsage
     const delta = extractStreamDelta(format, parsed)
-    if (delta.reasoning) onReasoning?.(delta.reasoning)
+    if (delta.reasoning) {
+      hadReasoning = true
+      onReasoning?.(delta.reasoning)
+    }
     if (delta.content) {
       acc += delta.content
       onToken(delta.content)
+    }
+    const completed = extractCompletedResponseText(format, parsed)
+    if (completed) {
+      const suffix = missingCompletedSuffix(acc, completed)
+      if (suffix) {
+        acc += suffix
+        onToken(suffix)
+      }
+    }
+    if (format === 'responses' && hasReasoningContent(format, (parsed as { response?: unknown })?.response)) {
+      hadReasoning = true
     }
     return 'continue'
   })
   return {
     text: acc,
-    ...(usage ? { usage } : {})
+    ...(usage ? { usage } : {}),
+    ...(hadReasoning ? { hadReasoning: true } : {})
   }
 }
 
@@ -333,10 +377,11 @@ export async function readChatSseStream(
   format: ModelEndpointFormat,
   onToken?: (delta: string) => void,
   onReasoning?: (delta: string) => void
-): Promise<{ text: string; toolCalls: ToolCall[]; finishReason?: ProviderStopReason; usage?: ProviderUsage }> {
+): Promise<ChatSseStreamResult> {
   let textAcc = ''
   let finishReason: ProviderStopReason | undefined
   let usage: ProviderUsage | undefined
+  let hadReasoning = false
   const toolAcc = new Map<number, { index: number; id?: string; name?: string; arguments: string }>()
 
   await consumeSsePayloads(body, (data) => {
@@ -346,10 +391,24 @@ export async function readChatSseStream(
     const chunkUsage = extractUsage(format, parsed)
     if (chunkUsage) usage = chunkUsage
     const delta = extractChatDelta(format, parsed)
-    if (delta.reasoning) onReasoning?.(delta.reasoning)
+    if (delta.reasoning) {
+      hadReasoning = true
+      onReasoning?.(delta.reasoning)
+    }
     if (delta.content) {
       textAcc += delta.content
       onToken?.(delta.content)
+    }
+    const completed = extractCompletedResponseText(format, parsed)
+    if (completed) {
+      const suffix = missingCompletedSuffix(textAcc, completed)
+      if (suffix) {
+        textAcc += suffix
+        onToken?.(suffix)
+      }
+    }
+    if (format === 'responses' && hasReasoningContent(format, (parsed as { response?: unknown })?.response)) {
+      hadReasoning = true
     }
     if (delta.finishReason) finishReason = delta.finishReason
     if (delta.toolCalls) {
@@ -364,5 +423,8 @@ export async function readChatSseStream(
     return 'continue'
   })
 
-  return assembleStream(textAcc, toolAcc, finishReason, usage)
+  return {
+    ...assembleStream(textAcc, toolAcc, finishReason, usage),
+    ...(hadReasoning ? { hadReasoning: true } : {})
+  }
 }

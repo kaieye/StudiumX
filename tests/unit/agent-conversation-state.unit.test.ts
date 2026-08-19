@@ -95,7 +95,19 @@ function applyStreamChunk(
 describe('model history projection', () => {
   it('excludes recovery notices by structured provenance while preserving durable and replayed history with aligned IDs', () => {
     const turns: AgentChatTurn[] = [
-      { id: 'u-durable', role: 'user', content: 'Durable user input', createdAt },
+      {
+        id: 'u-durable',
+        role: 'user',
+        content: 'Durable user input',
+        imageAttachments: [{
+          id: 'history-image-1',
+          name: 'diagram.png',
+          mimeType: 'image/png',
+          dataBase64: 'iVBORw0KGgo=',
+          sizeBytes: 8
+        }],
+        createdAt
+      },
       {
         id: 'a-replayed',
         role: 'assistant',

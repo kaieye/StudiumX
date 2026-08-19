@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildRequest } from '../../src/main/ai/provider-adapter/request-builder'
+import { structuredOutputReasoningPolicy } from '../../src/main/ai/provider-adapter/capabilities'
 import { defaultSettings } from '../../src/main/teaching-settings'
 import type { TeachingModelProviderProfile } from '../../src/shared/teaching-types'
 
@@ -50,5 +51,20 @@ describe('GLM thinking request options', () => {
 
   it('keeps thinking enabled for non-JSON GLM requests when effort is automatic', () => {
     expect(requestBody('glm', false)).toMatchObject({ thinking: { type: 'enabled' } })
+  })
+
+  it('uses conservative omission for an unknown provider/model combination', () => {
+    const { provider } = prepared('custom')
+    expect(structuredOutputReasoningPolicy(provider, 'vendor-reasoner-1')).toBe('omit')
+  })
+
+  it('omits DeepSeek controls for strict structured output', () => {
+    const { provider } = prepared('custom')
+    expect(structuredOutputReasoningPolicy(provider, 'deepseek-v4-flash')).toBe('omit')
+  })
+
+  it('allows documented OpenAI reasoning controls', () => {
+    const { provider } = prepared('custom')
+    expect(structuredOutputReasoningPolicy({ ...provider, baseUrl: 'https://api.openai.com/v1' }, 'o4-mini')).toBe('allow')
   })
 })

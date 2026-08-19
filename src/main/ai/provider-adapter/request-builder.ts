@@ -19,8 +19,13 @@ import type {
   ToolChoice,
   ToolDefinition
 } from '../provider-adapter'
+import type { AgentChatImageAttachment } from '../../../shared/agent-chat-images'
 import { mergeProviderRequestHeaders } from '../../../shared/provider-custom-headers'
-import { anthropicGenerationOptions, reasoningRequestOptions } from './capabilities'
+import {
+  anthropicGenerationOptions,
+  reasoningRequestOptions,
+  type StructuredOutputReasoningPolicy
+} from './capabilities'
 import { adapterAuthHeaders } from './formats'
 
 export { adapterAuthHeaders } from './formats'
@@ -35,6 +40,56 @@ function providerRequestHeaders(
   )
 }
 
+/**
+ * Single source of truth for serializing a user turn (text + optional image
+ * attachments) into each provider's wire format. The chat request builder and
+ * the simple text request builder both delegate here, so image support stays
+ * identical across the main AI conversation and structured generation lanes.
+ */
+export function buildOpenAiUserContent(
+  content: string,
+  imageAttachments: AgentChatImageAttachment[] | undefined
+): string | unknown[] {
+  if (!imageAttachments?.length) return content
+  return [
+    ...(content ? [{ type: 'text', text: content }] : []),
+    ...imageAttachments.map((attachment) => ({
+      type: 'image_url',
+      image_url: { url: `data:${attachment.mimeType};base64,${attachment.dataBase64}` }
+    }))
+  ]
+}
+
+export function buildResponsesUserContent(
+  content: string,
+  imageAttachments: AgentChatImageAttachment[] | undefined
+): unknown[] {
+  return [
+    ...(content ? [{ type: 'input_text', text: content }] : []),
+    ...(imageAttachments ?? []).map((attachment) => ({
+      type: 'input_image',
+      image_url: `data:${attachment.mimeType};base64,${attachment.dataBase64}`
+    }))
+  ]
+}
+
+export function buildAnthropicUserContent(
+  content: string,
+  imageAttachments: AgentChatImageAttachment[] | undefined
+): unknown[] {
+  return [
+    ...(content ? [{ type: 'text', text: content }] : []),
+    ...(imageAttachments ?? []).map((attachment) => ({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: attachment.mimeType,
+        data: attachment.dataBase64
+      }
+    }))
+  ]
+}
+
 export function buildRequest(
   format: ModelEndpointFormat,
   opts: {
@@ -42,10 +97,12 @@ export function buildRequest(
     generator: TeachingSettingsV1['generator']
     request: AdapterRequest
     stream: boolean
+    reasoningPolicy?: StructuredOutputReasoningPolicy
   }
 ): { url: string; init: RequestInit } {
-  const { provider, generator, request, stream } = opts
+  const { provider, generator, request, stream, reasoningPolicy } = opts
   const maxOutputTokens = effectiveMaxOutputTokens(provider, generator.model, generator.maxOutputTokens)
+  const hasImages = Boolean(request.imageAttachments?.length)
   switch (format) {
     case 'chat_completions':
       return {
@@ -57,13 +114,21 @@ export function buildRequest(
             model: generator.model,
             messages: [
               { role: 'system', content: request.systemPrompt },
-              { role: 'user', content: request.userPrompt }
+              {
+                role: 'user',
+                content: hasImages
+                  ? buildOpenAiUserContent(request.userPrompt, request.imageAttachments)
+                  : request.userPrompt
+              }
             ],
             temperature: generator.temperature,
             max_tokens: maxOutputTokens,
             stream,
             ...(stream ? { stream_options: { include_usage: true } } : {}),
-            ...reasoningRequestOptions(format, provider, generator, { jsonMode: request.jsonMode }),
+            ...reasoningRequestOptions(format, provider, generator, {
+              jsonMode: request.jsonMode,
+              reasoningPolicy
+            }),
             ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
           })
         }
@@ -77,11 +142,16 @@ export function buildRequest(
           body: JSON.stringify({
             model: generator.model,
             instructions: request.systemPrompt,
-            input: request.userPrompt,
+            input: hasImages
+              ? [{ role: 'user', content: buildResponsesUserContent(request.userPrompt, request.imageAttachments) }]
+              : request.userPrompt,
             temperature: generator.temperature,
             max_output_tokens: maxOutputTokens,
             stream,
-            ...reasoningRequestOptions(format, provider, generator)
+            ...reasoningRequestOptions(format, provider, generator, {
+              jsonMode: request.jsonMode,
+              reasoningPolicy
+            })
           })
         }
       }
@@ -95,8 +165,13 @@ export function buildRequest(
             model: generator.model,
             max_tokens: maxOutputTokens,
             system: request.systemPrompt,
-            messages: [{ role: 'user', content: request.userPrompt }],
-            ...anthropicGenerationOptions(provider, generator),
+            messages: [{
+              role: 'user',
+              content: hasImages
+                ? buildAnthropicUserContent(request.userPrompt, request.imageAttachments)
+                : request.userPrompt
+            }],
+            ...anthropicGenerationOptions(provider, generator, { reasoningPolicy }),
             stream
           })
         }
@@ -111,13 +186,21 @@ export function buildRequest(
             model: generator.model,
             messages: [
               { role: 'system', content: request.systemPrompt },
-              { role: 'user', content: request.userPrompt }
+              {
+                role: 'user',
+                content: hasImages
+                  ? buildOpenAiUserContent(request.userPrompt, request.imageAttachments)
+                  : request.userPrompt
+              }
             ],
             temperature: generator.temperature,
             max_tokens: maxOutputTokens,
             stream,
             ...(stream ? { stream_options: { include_usage: true } } : {}),
-            ...reasoningRequestOptions(format, provider, generator, { jsonMode: request.jsonMode }),
+            ...reasoningRequestOptions(format, provider, generator, {
+              jsonMode: request.jsonMode,
+              reasoningPolicy
+            }),
             ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
           })
         }
@@ -147,7 +230,7 @@ function toResponsesInput(messages: ChatMessage[]): { instructions: string; inpu
         instructions.push(m.content)
         break
       case 'user':
-        input.push({ role: 'user', content: [{ type: 'input_text', text: m.content }] })
+        input.push({ role: 'user', content: responsesUserContent(m) })
         break
       case 'assistant': {
         if (m.tool_calls && m.tool_calls.length > 0) {
@@ -185,7 +268,7 @@ function toAnthropicMessages(messages: ChatMessage[]): { system: string; message
         system.push(m.content)
         break
       case 'user':
-        raw.push({ role: 'user', content: [{ type: 'text', text: m.content }] })
+        raw.push({ role: 'user', content: anthropicUserContent(m) })
         break
       case 'assistant': {
         const content: unknown[] = []
@@ -219,6 +302,18 @@ function toAnthropicMessages(messages: ChatMessage[]): { system: string; message
     }
   }
   return { system: system.join('\n\n'), messages: merged }
+}
+
+function responsesUserContent(message: Extract<ChatMessage, { role: 'user' }>): unknown[] {
+  return buildResponsesUserContent(message.content, message.imageAttachments)
+}
+
+function anthropicUserContent(message: Extract<ChatMessage, { role: 'user' }>): unknown[] {
+  return buildAnthropicUserContent(message.content, message.imageAttachments)
+}
+
+function openAiUserContent(message: Extract<ChatMessage, { role: 'user' }>): unknown {
+  return buildOpenAiUserContent(message.content, message.imageAttachments)
 }
 
 function toResponsesTools(tools: ToolDefinition[]): unknown[] {
@@ -260,9 +355,10 @@ function buildResponsesChatBody(
     stream: boolean
     includeTools: boolean
     maxOutputTokens: number
+    reasoningPolicy?: StructuredOutputReasoningPolicy
   }
 ): Record<string, unknown> {
-  const { provider, generator, request, stream, includeTools, maxOutputTokens } = opts
+  const { provider, generator, request, stream, includeTools, maxOutputTokens, reasoningPolicy } = opts
   const { instructions, input } = toResponsesInput(request.messages)
   const body: Record<string, unknown> = {
     model: generator.model,
@@ -271,7 +367,10 @@ function buildResponsesChatBody(
     temperature: generator.temperature,
     max_output_tokens: maxOutputTokens,
     stream,
-    ...reasoningRequestOptions('responses', provider, generator, { jsonMode: request.jsonMode })
+    ...reasoningRequestOptions('responses', provider, generator, {
+      jsonMode: request.jsonMode,
+      reasoningPolicy
+    })
   }
   if (includeTools && request.tools && request.tools.length > 0) {
     body.tools = toResponsesTools(request.tools)
@@ -288,16 +387,17 @@ function buildAnthropicChatBody(
     stream: boolean
     includeTools: boolean
     maxOutputTokens: number
+    reasoningPolicy?: StructuredOutputReasoningPolicy
   }
 ): Record<string, unknown> {
-  const { provider, generator, request, stream, includeTools, maxOutputTokens } = opts
+  const { provider, generator, request, stream, includeTools, maxOutputTokens, reasoningPolicy } = opts
   const { system, messages } = toAnthropicMessages(request.messages)
   const body: Record<string, unknown> = {
     model: generator.model,
     max_tokens: maxOutputTokens,
     system,
     messages,
-    ...anthropicGenerationOptions(provider, generator),
+    ...anthropicGenerationOptions(provider, generator, { reasoningPolicy }),
     stream
   }
   if (includeTools && request.tools && request.tools.length > 0) {
@@ -315,9 +415,10 @@ export function buildChatRequest(
     request: ChatAdapterRequest
     stream: boolean
     includeTools: boolean
+    reasoningPolicy?: StructuredOutputReasoningPolicy
   }
 ): { url: string; init: RequestInit } {
-  const { provider, generator, request, stream, includeTools } = opts
+  const { provider, generator, request, stream, includeTools, reasoningPolicy } = opts
   const maxOutputTokens = effectiveMaxOutputTokens(provider, generator.model, generator.maxOutputTokens)
 
   if (format === 'responses') {
@@ -327,7 +428,7 @@ export function buildChatRequest(
         method: 'POST',
         headers: providerRequestHeaders('responses', provider),
         body: JSON.stringify(buildResponsesChatBody({
-          provider, generator, request, stream, includeTools, maxOutputTokens
+          provider, generator, request, stream, includeTools, maxOutputTokens, reasoningPolicy
         }))
       }
     }
@@ -339,7 +440,7 @@ export function buildChatRequest(
         method: 'POST',
         headers: providerRequestHeaders('messages', provider),
         body: JSON.stringify(buildAnthropicChatBody({
-          provider, generator, request, stream, includeTools, maxOutputTokens
+          provider, generator, request, stream, includeTools, maxOutputTokens, reasoningPolicy
         }))
       }
     }
@@ -354,6 +455,7 @@ export function buildChatRequest(
     if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
       return { role: 'assistant', content: m.content ?? '', tool_calls: m.tool_calls }
     }
+    if (m.role === 'user') return { role: 'user', content: openAiUserContent(m) }
     return m
   })
   const body: Record<string, unknown> = {
@@ -364,7 +466,10 @@ export function buildChatRequest(
     stream,
     // OpenAI-compatible hosts only emit usage on the final SSE chunk when this is set.
     ...(stream ? { stream_options: { include_usage: true } } : {}),
-    ...reasoningRequestOptions(format, provider, generator, { jsonMode: request.jsonMode }),
+    ...reasoningRequestOptions(format, provider, generator, {
+      jsonMode: request.jsonMode,
+      reasoningPolicy
+    }),
     ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {})
   }
   if (includeTools && request.tools && request.tools.length > 0) {
@@ -380,4 +485,3 @@ export function buildChatRequest(
     }
   }
 }
-

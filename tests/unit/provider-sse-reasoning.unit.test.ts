@@ -79,5 +79,62 @@ describe('provider SSE reasoning', () => {
       }
     ])
   })
-})
 
+  it('recovers complete Responses text carried only by response.completed', async () => {
+    const answer: string[] = []
+    const result = await readSseStream(
+      sseBody([
+        {
+          type: 'response.completed',
+          response: {
+            status: 'completed',
+            output_text: '{"schemaVersion":1}'
+          }
+        }
+      ]),
+      'responses',
+      (delta) => answer.push(delta)
+    )
+
+    expect(result.text).toBe('{"schemaVersion":1}')
+    expect(answer).toEqual(['{"schemaVersion":1}'])
+  })
+
+  it('does not duplicate a Responses completed body after output deltas', async () => {
+    const answer: string[] = []
+    const result = await readSseStream(
+      sseBody([
+        { type: 'response.output_text.delta', delta: '{"schema' },
+        {
+          type: 'response.completed',
+          response: {
+            status: 'completed',
+            output_text: '{"schemaVersion":1}'
+          }
+        }
+      ]),
+      'responses',
+      (delta) => answer.push(delta)
+    )
+
+    expect(result.text).toBe('{"schemaVersion":1}')
+    expect(answer).toEqual(['{"schema', 'Version":1}'])
+  })
+
+  it('marks reasoning-only Responses streams without exposing reasoning as text', async () => {
+    const reasoning: string[] = []
+    const result = await readSseStream(
+      sseBody([
+        { type: 'response.reasoning_summary_text.delta', delta: 'internal plan' },
+        { type: 'response.completed', response: { status: 'completed' } }
+      ]),
+      'responses',
+      () => {},
+      (delta) => reasoning.push(delta)
+    )
+
+    expect(result.text).toBe('')
+    expect(result.hadReasoning).toBe(true)
+    expect(reasoning).toEqual(['internal plan'])
+  })
+})

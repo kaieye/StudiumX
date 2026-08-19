@@ -116,8 +116,10 @@ import {
   selectPendingToolPermission,
 } from './agent-conversation-state'
 import { buildAgentConversationPresentation } from './agent-conversation-presentation'
-import { AgentConversationReader } from './views/agent-conversation/AgentConversationReader'
-import { AgentConversationTurnFlow } from './views/agent-conversation/AgentConversationTurnFlow'
+import {
+  AgentConversationAssistantBody,
+  AgentConversationMessageFrame
+} from './views/agent-conversation/AgentConversationAssistantBody'
 import { buildTeachingTurnPresentationFromSnapshot, type TeachingTurnAction } from './teaching-turn-presentation'
 import { ConversationInterruptionDock } from './views/agent-conversation/ConversationInterruptionDock'
 import { AgentMessageActions, AgentMessageEditor } from './views/agent-conversation/AgentSessionTreePanel'
@@ -136,7 +138,16 @@ import {
   type LearningOutcomeCommitUiStatus
 } from './teaching/learning-outcome-commit-client'
 import { LearningOutcomeCommitStatusBanner } from './teaching/learning-outcome-commit-status-banner'
+import { AgentChatImageGallery } from './ui/AgentChatImageGallery'
+import {
+  AgentChatImageAttachmentRail,
+  AgentChatImageComposerError,
+  AgentChatImageFileInput,
+  AgentChatImagePickerButton,
+  useAgentChatImageDrafts
+} from './ui/agent-chat-image-composer'
 import { sanitizeAgentPresentationText } from '../../shared/agent-conversation-turns'
+import type { AgentChatImageAttachment } from '../../shared/agent-chat-images'
 import { formatAskRemainingLabel } from '../../shared/ask-deadline'
 import {
   type AgentChatTurn,
@@ -2138,6 +2149,15 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const activeConversationId = useAppStore((s) => s.activeConversationId)
   const activeConversationRevision = useAppStore((s) => s.activeConversationRevision)
   const activeWorkspaceForSkills = useAppStore((s) => s.appState.activeWorkspace)
+
+  const imageDrafts = useAgentChatImageDrafts({
+    // Draft images belong to the current conversation/mode. Never carry an
+    // attachment selected for one branch into another branch or scope.
+    resetKey: `${activeConversationId ?? 'no-conversation'}|${isTeachingMode ? 'teaching' : 'temporary'}`
+  })
+  const hasDraftImages = imageDrafts.hasDrafts
+  const hasSendableContent = Boolean(inputValue.trim() || hasDraftImages)
+
   // ADR-0014: explicit capability multi-select + read-only plan preview.
   // Slash entry stays authoritative for backward compatibility; both merge.
   const skillCapabilities = useSkillCapabilityPicker({
@@ -2215,6 +2235,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   const canCancelAgentChat = agentChatBusy && Boolean(pendingAgentConversation) && (
     activeTurnPresentation?.active === true || hasPendingInterruption
   )
+  const shouldCancel = canCancelAgentChat && !inputValue.trim() && !hasDraftImages
   const blockedAsk = conversationPresentation.blocked?.kind === 'ask'
     ? conversationPresentation.blocked
     : null
@@ -2234,7 +2255,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
   // B-12: agentChatBusy defaults to queue (not hard-block). Still block on generation pipeline / interruption / readonly.
   const canSend = Boolean(
     active &&
-    inputValue.trim() &&
+    hasSendableContent &&
     !(isTeachingMode && generating) &&
     !hasPendingInterruption &&
     !activeBranchReadOnly
@@ -2243,31 +2264,45 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
     () => mergeAgentInputHistory(agentInputHistory, userTurnInputHistory(agentTurns)),
     [agentInputHistory, agentTurns]
   )
-  const submitTeachingPrompt = (value: string): void => {
-    const prompt = value.trim()
-    if (!prompt) return
-    rememberAgentInput(prompt)
+  const submitTeachingPrompt = (value: string, attachments?: AgentChatImageAttachment[]): void => {
+    const typedText = value.trim()
+    if (!typedText && !attachments?.length) return
+    const prompt = typedText || '请分析这些图片。'
+    if (typedText) rememberAgentInput(typedText)
     setInputHistoryIndex(null)
     setInputHistoryDraft('')
     setAgentInput('')
+    imageDrafts.clear()
     scrollThreadToBottom()
     // One brain: the teaching conversation owns clarification AND generation
     // (via its generate_lesson tool). No parallel pipeline hand-off here.
-    void agentChat(prompt, { mode: 'teaching', skillIds: mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt)) })
+    void agentChat(prompt, {
+      mode: 'teaching',
+      skillIds: mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt)),
+      ...(attachments?.length ? { imageAttachments: attachments } : {})
+    })
   }
-  const submitChatPrompt = (value: string): void => {
-    const prompt = value.trim()
-    if (!prompt) return
-    rememberAgentInput(prompt)
+  const submitChatPrompt = (value: string, attachments?: AgentChatImageAttachment[]): void => {
+    const typedText = value.trim()
+    if (!typedText && !attachments?.length) return
+    const prompt = typedText || '请分析这些图片。'
+    if (typedText) rememberAgentInput(typedText)
     setInputHistoryIndex(null)
     setInputHistoryDraft('')
+    setAgentInput('')
+    imageDrafts.clear()
     scrollThreadToBottom()
-    void agentChat(prompt, { mode: 'temporary', skillIds: mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt)) })
+    void agentChat(prompt, {
+      mode: 'temporary',
+      skillIds: mergeComposerSkillIds(skillCapabilities.selectedSkillIds, skillSlash.skillIdsFor(prompt)),
+      ...(attachments?.length ? { imageAttachments: attachments } : {})
+    })
   }
   const submitCurrentMode = (rawInput = inputValue): void => {
+    const trimmed = rawInput.trim()
+    const attachments = imageDrafts.transportAttachments()
     if (isTeachingMode) {
-      const trimmed = rawInput.trim()
-      const looksLikeBareSlash = trimmed.startsWith('/') && !/\s/.test(trimmed)
+      const looksLikeBareSlash = !hasDraftImages && trimmed.startsWith('/') && !/\s/.test(trimmed)
       if (looksLikeBareSlash) {
         const teachingKind = parseTeachingCommandInput(trimmed)
         if (teachingKind) {
@@ -2316,9 +2351,15 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
         // Other bare slash tokens (e.g. skill commands) fall through to teaching submit.
       }
     }
-    if (!active || !rawInput.trim() || (isTeachingMode && generating) || hasPendingInterruption || activeBranchReadOnly) return
-    if (isTeachingMode) submitTeachingPrompt(rawInput)
-    else submitChatPrompt(rawInput)
+    if (
+      !active ||
+      (!trimmed && !attachments?.length) ||
+      (isTeachingMode && generating) ||
+      hasPendingInterruption ||
+      activeBranchReadOnly
+    ) return
+    if (isTeachingMode) submitTeachingPrompt(rawInput, attachments)
+    else submitChatPrompt(rawInput, attachments)
   }
   const submitInterruptedToolAnswer = async (streamId: string, toolCallId: string, answers: AskAnswer[]): Promise<void> => {
     if (interruptionSubmittingRef.current) return
@@ -2450,7 +2491,10 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
       setEditingTurnId(null)
       const mode = isTeachingMode ? 'teaching' as const : 'temporary' as const
       scrollThreadToBottom()
-      void agentChat(content, { mode })
+      void agentChat(content, {
+        mode,
+        ...(turn.imageAttachments?.length ? { imageAttachments: turn.imageAttachments } : {})
+      })
     } finally {
       setMessageActionBusy(false)
     }
@@ -2504,9 +2548,10 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
             const sourceReferences = turn.role === 'assistant' ? (turnPresentation?.sources ?? []) : []
             const isEditing = editingTurnId === turn.id
             return (
-              <div
+              <AgentConversationMessageFrame
                 key={turn.id}
-                className={`overview-dialog-message ${turn.role === 'user' ? 'is-user' : 'is-assistant'}${isEditing ? ' is-editing' : ''}`}
+                messageRole={turn.role === 'user' ? 'user' : 'assistant'}
+                className={isEditing ? 'is-editing' : undefined}
               >
                 {isEditing ? (
                   <AgentMessageEditor
@@ -2517,21 +2562,18 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
                   />
                 ) : (
                   <>
-                    {turn.role === 'assistant' && turnPresentation?.flow?.length ? (
-                      <AgentConversationTurnFlow flow={turnPresentation.flow} />
-                    ) : null}
                     {turn.role === 'assistant' ? (
-                      <AgentConversationReader
+                      <AgentConversationAssistantBody
+                        content={content}
                         presentation={turnPresentation}
                         teachingPresentation={turn.id === [...agentTurns].reverse().find((item) => item.role === 'assistant')?.id ? teachingPresentation : undefined}
                         onTeachingAction={(action) => { void runTeachingAction(action) }}
-                        omitProcessItemIds={turnPresentation?.flow
-                          ?.filter((item) => item.kind === 'process')
-                          .map((item) => item.item.id)}
-                        compact
                       />
                     ) : null}
-                    {content && !(turn.role === 'assistant' && turnPresentation?.flow?.length)
+                    {turn.role === 'user' && turn.imageAttachments?.length ? (
+                      <AgentChatImageGallery attachments={turn.imageAttachments} />
+                    ) : null}
+                    {content && turn.role !== 'assistant'
                       ? <MarkdownMessage content={content} tone={turn.role} compact />
                       : null}
                     {turn.role === 'user' && turn.metadata?.skillInvocation ? (
@@ -2556,7 +2598,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
                     />
                   </>
                 )}
-              </div>
+              </AgentConversationMessageFrame>
             )
           })}
           </div>
@@ -2600,7 +2642,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           />
         ) : null}
       >
-        <DialogModeSwitch />
+        {!hasConversation ? <DialogModeSwitch /> : null}
         <form
           className="overview-dialog-stack"
           data-teaching-sources-key={openTeachingSourcesKey}
@@ -2614,6 +2656,11 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
           {skillSlash.menu}
           {skillCapabilities.panel}
           {skillCapabilities.chips}
+          <AgentChatImageFileInput
+            inputRef={imageDrafts.inputRef}
+            disabled={!active || hasPendingInterruption || activeBranchReadOnly || (isTeachingMode && generating)}
+            onFiles={imageDrafts.handleFiles}
+          />
           <textarea
             ref={inputRef}
             value={inputValue}
@@ -2635,6 +2682,7 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
               setInputHistoryIndex(null)
               setInputHistoryDraft('')
             }}
+            onPaste={imageDrafts.handlePaste}
             onKeyDown={(event) => {
               if (!isInputComposing(event) && teachingComposer.handleKeyDown(event)) return
               if (!isInputComposing(event)) {
@@ -2653,27 +2701,33 @@ function OverviewChat({ active }: { active: TeachingWorkspaceSummary | null }) {
               }
             }}
           />
+          <AgentChatImageAttachmentRail attachments={imageDrafts.attachments} onRemove={imageDrafts.remove} />
+          <AgentChatImageComposerError error={imageDrafts.error} />
           <div className="overview-dialog-footer">
             <AgentFileAccessPicker />
             <div className="overview-dialog-actions">
               {/* ADR-0014: teaching-intent & capability trigger withdrawn from the
                   composer toolbar pending a suitable display surface. */}
               {/* {skillCapabilities.toggle} */}
+              <AgentChatImagePickerButton
+                disabled={!active || hasPendingInterruption || activeBranchReadOnly || (isTeachingMode && generating)}
+                onClick={() => imageDrafts.inputRef.current?.click()}
+              />
               <OverviewModelPicker />
               <OverviewReasoningPicker />
               <button
                 className="send-button overview-dialog-send"
-                type={canCancelAgentChat && !inputValue.trim() ? 'button' : 'submit'}
-                aria-label={canCancelAgentChat && !inputValue.trim() ? '中断对话' : '发送消息'}
-                title={canCancelAgentChat && !inputValue.trim()
+                type={shouldCancel ? 'button' : 'submit'}
+                aria-label={shouldCancel ? '中断对话' : '发送消息'}
+                title={shouldCancel
                   ? '中断对话'
                   : canCancelAgentChat
                     ? (agentBusyAckMessage ?? '当前回合进行中，发送将加入队列')
                     : '发送消息'}
-                disabled={canCancelAgentChat && !inputValue.trim() ? false : !canSend}
-                onClick={canCancelAgentChat && !inputValue.trim() ? () => void cancelAgentChat() : undefined}
+                disabled={shouldCancel ? false : !canSend}
+                onClick={shouldCancel ? () => void cancelAgentChat() : undefined}
               >
-                {canCancelAgentChat && !inputValue.trim()
+                {shouldCancel
                   ? <Square size={16} />
                   : busy
                     ? <Loader2 className="spin" size={18} />

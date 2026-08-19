@@ -11,6 +11,7 @@ import type { MindMapAssetRef, MindMapSourceRef } from '../mindmap/domain/types'
 import type { MindMapDocumentV2 } from '../mindmap/domain/types'
 import type { MindMapStructureClass, MindMapSummary } from '../mindmap/mind-map-types'
 import type { MindMapSvgExportInput } from '../mindmap/svg-export'
+import type { AgentChatImageAttachment } from '../agent-chat-images'
 
 /**
  * Mind map IPC payloads (docs/mindmap/design.md §4).
@@ -259,6 +260,8 @@ export type MindMapProposalGeneratePayload = {
   /** Workspace-relative generated Lesson artifact resolved by the main process. */
   lesson?: MindMapLessonPayload
   prompt: string
+  /** User-selected images attached to this generation turn (same bounded payload as agent chat). */
+  imageAttachments?: AgentChatImageAttachment[]
   /** Stable correlation id shared with the existing generation cancellation path. */
   generationId?: string
 }
@@ -289,6 +292,8 @@ export type MindMapGeneratePayload = {
   selectedFile?: MindMapSelectedFilePayload
   /** Optional generated Lesson artifact used as read-only generation context. */
   lesson?: MindMapLessonPayload
+  /** User-selected images attached to this generation turn (same bounded payload as agent chat). */
+  imageAttachments?: AgentChatImageAttachment[]
   /** Stable correlation id used by `cancelMindMapGeneration` to abort the run. */
   generationId?: string
 }

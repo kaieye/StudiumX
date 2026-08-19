@@ -136,7 +136,9 @@ describe('mind-map topic markdown', () => {
 
     fireEvent.doubleClick(screen.getByRole('button', { name: title }))
 
-    expect(screen.getByDisplayValue(title)).toHaveClass('mindmap-node-input')
+    const editor = document.querySelector<HTMLElement>('.mindmap-node-input')
+    expect(editor).toHaveClass('mindmap-node-input')
+    expect(editor?.textContent).toBe(title)
   })
 
   it('escapes raw HTML while rendering inline markdown', () => {

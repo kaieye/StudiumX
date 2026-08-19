@@ -102,6 +102,7 @@ export function createAgentConversationTurnDraft({
   currentTurns,
   selectedCourseRelativePath,
   currentSelectedLessonPath,
+  imageAttachments,
   createdAt = new Date().toISOString(),
   idSeed = Date.now()
 }: {
@@ -114,6 +115,7 @@ export function createAgentConversationTurnDraft({
   currentTurns: AgentChatTurn[]
   selectedCourseRelativePath: string | null
   currentSelectedLessonPath: string | null
+  imageAttachments?: AgentChatTurn['imageAttachments']
   createdAt?: string
   idSeed?: number
 }): AgentConversationTurnDraft {
@@ -129,6 +131,7 @@ export function createAgentConversationTurnDraft({
     id: `u-${idSeed}`,
     role: 'user',
     content: input,
+    ...(imageAttachments?.length ? { imageAttachments } : {}),
     createdAt
   }
   const assistantId = `a-${idSeed}`
@@ -656,6 +659,9 @@ function isAgentMessageTurn(turn: AgentChatTurn): turn is AgentChatTurn & { role
 export function agentTurnsToMessages(turns: AgentChatTurn[]): AgentChatMessage[] {
   return turns
     .filter(isAgentMessageTurn)
+    // Historical images are durable transcript display data. They must not be
+    // copied into another renderer-to-main request, where a later provider path
+    // could accidentally treat them as a fresh explicit attachment.
     .map((turn) => ({ role: turn.role, content: turn.content }))
 }
 

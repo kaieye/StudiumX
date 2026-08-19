@@ -330,6 +330,26 @@ describe('generateMindMapProposal', () => {
     expect(callProvider).not.toHaveBeenCalled()
   })
 
+  it('forwards provider reasoning deltas through the shared provider seam', async () => {
+    const proposal = validProposal()
+    vi.mocked(streamProvider).mockImplementationOnce(async (options) => {
+      options.callbacks.onReasoning?.('Plan the requested map changes.')
+      options.callbacks.onToken?.('{"schemaVersion":1}')
+      return { text: JSON.stringify(proposal) }
+    })
+    const reasoning: string[] = []
+
+    const result = await generateMindMapProposal(
+      proposalInput(),
+      undefined,
+      (delta) => reasoning.push(delta)
+    )
+
+    expect(result).toEqual(proposal)
+    expect(reasoning).toEqual(['Plan the requested map changes.'])
+    expect(streamProvider).toHaveBeenCalledTimes(1)
+  })
+
   it('passes bounded selected-file context to the provider as read-only data', async () => {
     const selectedFile = {
       id: 'selected-file:abc123',
@@ -406,6 +426,7 @@ describe('generateMindMapProposal', () => {
 
     expect(result).toEqual(proposal)
     const providerCall = vi.mocked(callProvider).mock.calls[0]![0]
+    expect(providerCall.request.userPrompt).toContain('请先归纳资料中的标题、关键概念和逻辑关系')
     expect(providerCall.request.userPrompt).toContain('<workspace_markdown_context>')
     expect(providerCall.request.userPrompt).toContain('根据用户本次请求在当前工作区中自动匹配的 Markdown 资料')
     expect(providerCall.request.userPrompt).toContain('资料分析/基础速算与比重.md')
@@ -584,7 +605,10 @@ describe('generateMindMap cancellation', () => {
 
   it('cancels a streamed provider, suppresses late deltas, and releases its lease', async () => {
     let capturedSignal: AbortSignal | undefined
-    let capturedCallbacks: { onToken?: (delta: string) => void } | undefined
+    let capturedCallbacks: {
+      onToken?: (delta: string) => void
+      onReasoning?: (delta: string) => void
+    } | undefined
     let rejectStream: (reason?: unknown) => void = () => undefined
 
     vi.mocked(streamProvider).mockImplementationOnce((opts) => {
@@ -596,6 +620,7 @@ describe('generateMindMap cancellation', () => {
     })
 
     const chunks: string[] = []
+    const reasoning: string[] = []
     const promise = generateMindMap(
       {
         generationId: 'gen-stream-cancel-test',
@@ -603,17 +628,22 @@ describe('generateMindMap cancellation', () => {
         prompt: 'Test prompt',
         settings: testSettings()
       },
-      (chunk) => chunks.push(chunk)
+      (chunk) => chunks.push(chunk),
+      (delta) => reasoning.push(delta)
     )
 
     await vi.waitFor(() => expect(capturedSignal).toBeDefined())
     capturedCallbacks?.onToken?.('before-cancel')
+    capturedCallbacks?.onReasoning?.('before-cancel-reasoning')
     expect(chunks).toEqual(['before-cancel'])
+    expect(reasoning).toEqual(['before-cancel-reasoning'])
 
     expect(cancelMindMapGeneration('gen-stream-cancel-test')).toBe(true)
     expect(capturedSignal?.aborted).toBe(true)
     capturedCallbacks?.onToken?.('after-cancel')
+    capturedCallbacks?.onReasoning?.('after-cancel-reasoning')
     expect(chunks).toEqual(['before-cancel'])
+    expect(reasoning).toEqual(['before-cancel-reasoning'])
 
     const abortError = new Error('aborted')
     abortError.name = 'AbortError'

@@ -22,4 +22,4 @@ export * from './teaching-types/extension-manifest'
 export * from './teaching-types/teaching-turn-review-ipc'
 export * from './teaching-types/teaching-presentation'
 export * from './teaching-types/mindmap'
-
+export * from './agent-chat-images'

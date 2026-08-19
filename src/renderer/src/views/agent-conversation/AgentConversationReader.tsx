@@ -373,6 +373,22 @@ function processDescription(item: AgentConversationProvenanceItem): string {
 }
 
 /**
+ * Preserve the small set of historical learner-facing labels used by durable
+ * presentation snapshots without reopening arbitrary provider/tool labels.
+ * Runtime tool identifiers are accepted only in the reviewed Chinese prefix
+ * and a conservative identifier grammar; every other value fails closed.
+ */
+function safeLegacyProcessLabel(item: AgentConversationProvenanceItem): string | undefined {
+  const candidate = item.label.replace(/\s+/g, ' ').trim()
+  if (item.kind === 'reasoning') return candidate === '思考过程' ? candidate : undefined
+  if (
+    (item.kind === 'tool_call' || item.kind === 'tool_result') &&
+    /^调用工具：[A-Za-z0-9._-]{1,64}$/.test(candidate)
+  ) return candidate
+  return undefined
+}
+
+/**
  * Single learner-safe primary-label projector for process rows.
  * Raw provenance labels are read only here, then redacted and rejected when
  * they look like secrets, paths, learner answers, or provider/system payloads.
@@ -443,6 +459,7 @@ function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }
   const [expanded, setExpanded] = useState(false)
   const summaryRef = useRef<HTMLSpanElement>(null)
   const contentId = `agent-process-reasoning-${item.id}`
+  const legacyLabel = safeLegacyProcessLabel(item)
 
   // During a streaming Think block, follow the newest line so the summary
   // behaves like the reference UI instead of repeatedly showing its prefix.
@@ -458,7 +475,6 @@ function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }
       data-variant="think"
       data-state={running ? 'running' : 'ok'}
     >
-      {running ? <span className="agent-process-visually-hidden">思考正在进行</span> : null}
       <button
         type="button"
         className="agent-process-disclosure-row"
@@ -470,6 +486,13 @@ function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }
         <DisclosureLeading icon={<BrainCircuit size={13} />} expanded={expanded} />
         <span className="agent-process-disclosure-copy">
           <strong>{primaryLabel}</strong>
+          {running ? (
+            <span className="agent-process-legacy-status">
+              <span>思考中</span>
+              <span>进行中</span>
+            </span>
+          ) : null}
+          {legacyLabel ? <span className="agent-process-legacy-label">{legacyLabel}</span> : null}
           {secondary ? (
             <>
               <span className="agent-process-disclosure-separator" aria-hidden="true" />
@@ -546,12 +569,14 @@ function ToolProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
   const [expanded, setExpanded] = useState(false)
   const contentId = `agent-process-tool-${item.id}`
   const stateLabel = toolStateLabel(item)
+  const legacyLabel = safeLegacyProcessLabel(item)
   const state = item.state === 'active' ? 'running' : item.state === 'error' ? 'error' : 'ok'
   const rowContent = (
     <>
       <DisclosureLeading icon={<ProcessIcon item={item} />} expanded={expanded} />
       <span className="agent-process-disclosure-copy">
         <strong>{primaryLabel}</strong>
+        {legacyLabel ? <span className="agent-process-legacy-label">{legacyLabel}</span> : null}
         {disclosureText ? (
           <>
             <span className="agent-process-disclosure-separator" aria-hidden="true" />
@@ -574,6 +599,7 @@ function ToolProcessRow({ item }: { item: AgentConversationProvenanceItem }) {
           <span className="agent-process-event-icon"><ProcessIcon item={item} /></span>
           <span className="agent-process-disclosure-copy">
             <strong>{primaryLabel}</strong>
+            {legacyLabel ? <span className="agent-process-legacy-label">{legacyLabel}</span> : null}
             {disclosureText ? (
               <>
                 <span className="agent-process-disclosure-separator" aria-hidden="true" />

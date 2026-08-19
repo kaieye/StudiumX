@@ -23,7 +23,7 @@ const SPACING_DEFAULT = 16
 const LINE_WIDTH_OPTIONS: Array<{ value: number; labelKey: string }> = [
   { value: 0.5, labelKey: 'lineWidthExtraThin' },
   { value: 0.75, labelKey: 'lineWidthThin' },
-  { value: 1, labelKey: 'lineWidthDefault' },
+  { value: 1, labelKey: 'lineWidthScaleOne' },
   { value: 1.5, labelKey: 'lineWidthThick' },
   { value: 2, labelKey: 'lineWidthExtraThick' }
 ]
@@ -210,7 +210,7 @@ export function MindMapCanvasOptionsPanel() {
         label={text.connector}
         value={connectorValue}
         isMixed={lineStyleValue.state === 'mixed'}
-        displayLabel={text.connectorDefault}
+        displayLabel={text[effectiveDefault] ?? text.connectorDefault}
         options={SELECTABLE_CONNECTORS.map((lineStyle) => ({
           value: lineStyle,
           label: text[lineStyle],

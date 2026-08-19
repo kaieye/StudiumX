@@ -61,6 +61,7 @@ import {
   type AgentChatMessage,
   type AgentWorkspaceTrustState,
   type AgentChatMode,
+  type AgentChatImageAttachment,
   type AgentChatTurn,
   type AgentConversationBranchStatus,
   type AgentConversationLookupScope,
@@ -228,7 +229,7 @@ export type StoreState = {
   activeSessionTree: AgentConversationSessionTree | null
   agentChatBusy: boolean
   agentBusyAckMessage: string | null
-  agentBusyFollowUpQueue: Array<{ text: string; mode?: AgentChatMode; skillIds?: string[] }>
+  agentBusyFollowUpQueue: Array<{ text: string; mode?: AgentChatMode; skillIds?: string[]; imageAttachments?: AgentChatImageAttachment[] }>
   agentStatus: string
   agentInput: string
   agentInputHistory: string[]
@@ -250,7 +251,7 @@ export type StoreState = {
   replayAgentConversationBranch: (conversationId?: string, sourceTurnId?: string) => Promise<AgentChatTurn[] | null>
   updateAgentConversationBranchStatus: (conversationId: string, status: AgentConversationBranchStatus, expectedRevision: number) => Promise<void>
   renameAgentConversation: (payload: { workspaceId?: string | null; conversationId: string; title: string; scope: AgentConversationLookupScope; expectedRevision?: number }) => Promise<void>
-  agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode; skillIds?: string[] }) => Promise<void>
+  agentChat: (inputOverride?: string, options?: { mode?: AgentChatMode; skillIds?: string[]; imageAttachments?: AgentChatImageAttachment[] }) => Promise<void>
   setWorkspaceItemMeta: (payload: { workspaceId?: string | null; relativePath: string; pinned?: boolean | null; archived?: boolean | null }) => Promise<void>
   removeWorkspaceItem: (payload: { workspaceId?: string | null; relativePath: string; kind: WorkspaceItemKind; mode?: WorkspaceItemRemoveMode }) => Promise<void>
   removeWorkspace: (payload: { workspaceId: string; mode?: WorkspaceItemRemoveMode }) => Promise<void>
@@ -2009,7 +2010,8 @@ export const useAppStore = create<StoreState>((set, get) => {
     await getAgentConversationTurnRunner().run({
       inputOverride,
       mode: options?.mode,
-      skillIds: options?.skillIds
+      skillIds: options?.skillIds,
+      imageAttachments: options?.imageAttachments
     })
   },
   renameAgentConversation: async (payload) => {

@@ -16,6 +16,7 @@ import type {
   MindMapMarker,
   MindMapSheetV2,
   MindMapSummary,
+  MindMapTextSpan,
   MindMapTopicStyleOverride,
   MindMapTopicV2
 } from '../../../../shared/mindmap/domain/types'
@@ -295,6 +296,8 @@ function measureNodeHeight(title: string, width: number, depth: number): number 
 export type MindMapLayoutNode = {
   id: string
   title: string
+  /** Per-character formatting over `title` (Xmind-style rich text spans). */
+  titleFormatting?: MindMapTextSpan[]
   /** Top-left corner of the node rect (SVG user-space). */
   x: number
   y: number
@@ -961,6 +964,9 @@ function emitLayoutPlan(
     id: node.id,
     branchKey,
     title: mindMapTopicDisplayTitle(node),
+    ...(node.titleFormatting && node.titleFormatting.length > 0
+      ? { titleFormatting: structuredClone(node.titleFormatting) }
+      : {}),
     x: centerX - size.width / 2,
     y: topY,
     width: size.width,

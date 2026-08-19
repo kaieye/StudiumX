@@ -126,6 +126,40 @@ export type MindMapLink = {
 }
 
 /**
+ * Per-character (span) text formatting for a topic title or a drawn shape's
+ * label. Spans are offsets into the canonical plain text (`title` / `label`),
+ * so the plain string stays the source of truth for search, a11y, exports and
+ * layout measurement while the spans carry the local overrides on top of the
+ * base (theme / style) text formatting.
+ *
+ * Xmind-style behaviour: while editing text, selecting a fragment and applying
+ * color / bold / font / size from the floating toolbar creates one of these
+ * spans for exactly the selected range.
+ */
+export type MindMapTextSpanStyle = {
+  /** Text color override (any CSS color value). */
+  color?: string
+  /** Bold override. `true` bolds the run, `false` explicitly unbolds it. */
+  bold?: boolean
+  /** Italic override. `true` italicises the run, `false` explicitly un-italicises it. */
+  italic?: boolean
+  /** Underline override (span-level `text-decoration`). */
+  underline?: boolean
+  /** Strikethrough override (span-level `text-decoration`). */
+  strikethrough?: boolean
+  /** Font family stack override. */
+  fontFamily?: string
+  /** Font size override in CSS pixels. */
+  fontSize?: number
+}
+
+/** A formatted run within plain text. `start` inclusive, `end` exclusive. */
+export type MindMapTextSpan = MindMapTextSpanStyle & {
+  start: number
+  end: number
+}
+
+/**
  * Source anchor pointing back into the StudiumX workspace (notes, lessons,
  * glossary, files). Line numbers are hints, never identity.
  */
@@ -184,6 +218,12 @@ export type MindMapImagePlacement = 'top' | 'bottom' | 'left' | 'right'
 export type MindMapTopicV2 = {
   id: string
   title: string
+  /**
+   * Per-character formatting over `title` (Xmind-style rich text). Offsets
+   * index into the plain `title` string. Omitted/empty means no local
+   * formatting — the theme/topic style text formatting applies as before.
+   */
+  titleFormatting?: MindMapTextSpan[]
   note?: string
   collapsed?: boolean
   children: MindMapTopicV2[]
@@ -333,6 +373,11 @@ export type MindMapShape = MindMapElementBase & {
   position: MindMapPoint
   width: number
   height: number
+  /**
+   * Per-character formatting over `label` (Xmind-style rich text). Offsets
+   * index into the plain `label` string; see {@link MindMapTextSpan}.
+   */
+  labelFormatting?: MindMapTextSpan[]
 }
 
 /** A directed line or arrow between two canvas endpoints. Endpoints may bind

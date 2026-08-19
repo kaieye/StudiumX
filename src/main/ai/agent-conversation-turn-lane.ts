@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { AgentChatImageAttachment } from '../../shared/agent-chat-images'
 
 /**
  * Process-local, main-only host lane for serializing conversation-turn intents.
@@ -37,6 +38,7 @@ export type SubmitConversationTurnIntent = Readonly<{
   expectedBranchRevision?: number
   expectedActiveTurnId?: string
   skillIds?: string[]
+  imageAttachments?: AgentChatImageAttachment[]
 }>
 
 export type SubmitConversationTurnDisposition =

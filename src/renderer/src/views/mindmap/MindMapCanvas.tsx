@@ -16,10 +16,12 @@ import type {
   MindMapImagePlacement,
   MindMapMarker,
   MindMapSheetV2,
+  MindMapTextSpan,
   MindMapTopicV2
 } from '../../../../shared/mindmap/domain/types'
 import type { MindMapCommand } from '../../../../shared/mindmap/commands'
 import { classifyExternalDestination } from '../../../../shared/external-destination'
+import { hasTextSpans, normalizeTextSpans } from '../../../../shared/mindmap/text-spans'
 import { MARKER_DEFS } from './mind-map-marker-icons'
 import {
   clampMindMapNodeWidth,
@@ -46,6 +48,8 @@ import {
   resolveMindMapTopicTextStyle
 } from './mind-map-topic-text-style'
 import { resolveEdgePath, edgeStrokeWidth, lineDashPattern, taperedEdgePath } from './mind-map-edge-styles'
+import { fontEntryLabel, SAFE_FONTS } from './mind-map-font-list'
+import { DEFAULT_TOPIC_FONT_FAMILY } from './mind-map-topic-display-style'
 import {
   elementLineDashArray,
   elementOutlinePath,
@@ -93,6 +97,10 @@ import {
 import { useMindMapViewStore } from './mind-map-view-store'
 import { useAppStore } from '../../app-shell/appStore'
 import { hasMindMapTopicMarkdown, renderMarkdownInlineHtml } from '../../markdown-preview'
+import { MindMapRichTextEditor, type MindMapRichTextEditorHandle } from './MindMapRichTextEditor'
+import { MindMapTextFormatToolbar } from './MindMapTextFormatToolbar'
+import { MindMapRichTextLabel } from './MindMapRichTextLabel'
+import type { RichTextSelectionState } from './mind-map-rich-text-dom'
 import { computeAllTopicNumbers } from './mind-map-numbering'
 import {
   selectMindMapLinesInRectangle,
@@ -225,6 +233,8 @@ export type MindMapCanvasShapeUpdate = {
   width?: number
   height?: number
   label?: string | null
+  /** Per-character formatting over `label` (Xmind-style rich text spans). */
+  labelFormatting?: MindMapTextSpan[] | null
 }
 
 type CanvasProps = {
@@ -615,6 +625,31 @@ function findTopicNode(node: MindMapTopicV2, id: string): MindMapTopicV2 | undef
   return undefined
 }
 
+function findTopicDepth(node: MindMapTopicV2, id: string, depth = 0): number | null {
+  if (node.id === id) return depth
+  for (const child of node.children) {
+    const found = findTopicDepth(child, id, depth + 1)
+    if (found !== null) return found
+  }
+  return null
+}
+
+/** Human label for the primary family of a CSS font stack ("Inter, …" → "Inter"). */
+function primaryFontFamilyLabel(stack: string): string {
+  const primary = stack.split(',')[0]?.trim().replace(/^['"]|['"]$/g, '') ?? ''
+  return primary || stack
+}
+
+/**
+ * Whether a DOM focus target lives inside the right-side inspector panel. When
+ * the inline editor blurs into this panel we keep the edit session (and the
+ * text selection) alive so the panel's text-property controls target the
+ * selected span instead of the whole node/shape label.
+ */
+function isMindMapInspectorTarget(target: Node | null): boolean {
+  return target instanceof Element && target.closest('.mindmap-ai-panel') !== null
+}
+
 /** Counts how many sheet elements still reference an asset (for cleanup). */
 function countImageAssetReferences(document: MindMapDocumentV2, assetId: string): number {
   let count = 0
@@ -738,6 +773,11 @@ export function MindMapCanvas({
   const selectCanvas = useMindMapViewStore((s) => s.selectCanvas)
   const editingNodeId = useMindMapViewStore((s) => s.editingNodeId)
   const setEditingNodeId = useMindMapViewStore((s) => s.setEditingNodeId)
+  const richTextSelection = useMindMapViewStore((s) => s.richTextSelection)
+  const setRichTextSelection = useMindMapViewStore((s) => s.setRichTextSelection)
+  const setRichTextSelectionActive = useMindMapViewStore((s) => s.setRichTextSelectionActive)
+  const setRichTextTarget = useMindMapViewStore((s) => s.setRichTextTarget)
+  const richTextStyleRequest = useMindMapViewStore((s) => s.richTextStyleRequest)
   const updateNode = useMindMapViewStore((s) => s.updateNode)
   const addChild = useMindMapViewStore((s) => s.addChild)
   const toggleCollapse = useMindMapViewStore((s) => s.toggleCollapse)
@@ -750,6 +790,10 @@ export function MindMapCanvas({
   const safeSheetIndex = Math.min(Math.max(activeSheetIndex, 0), sheetCount - 1)
   const sheet = document.sheets[safeSheetIndex]
   const [editValue, setEditValue] = useState('')
+  const [editSpans, setEditSpans] = useState<MindMapTextSpan[]>([])
+
+  const nodeEditorRef = useRef<MindMapRichTextEditorHandle | null>(null)
+  const shapeEditorRef = useRef<MindMapRichTextEditorHandle | null>(null)
 
   const [nodeResizeState, setNodeResizeState] = useState<{
     nodeId: string
@@ -792,8 +836,9 @@ export function MindMapCanvas({
   const [shapeTextEditing, setShapeTextEditing] = useState<{
     shapeId: string
     value: string
+    spans: MindMapTextSpan[]
   } | null>(null)
-  // A blur follows a keyboard submit when React removes the textarea. Retain a
+  // A blur follows a keyboard submit when React removes the editor. Retain a
   // tiny explicit session guard so that blur cannot turn one edit into two
   // undoable commands.
   const shapeTextEditingSessionRef = useRef<string | null>(null)
@@ -801,7 +846,6 @@ export function MindMapCanvas({
   // the root SVG retargets the browser's follow-up click/dblclick events and
   // prevents the shape group's in-place text editor from opening.
   const shapeInteractionCaptureRef = useRef<SVGElement | null>(null)
-  const shapeTextEditorRef = useRef<HTMLTextAreaElement | null>(null)
 
   // Edit and resize previews stay local until commit so typing does not create
   // one undoable topic.update command per keypress. The pure layout still sees
@@ -888,11 +932,12 @@ export function MindMapCanvas({
       : mindMapShapeBounds(shape.position, shape.width, shape.height)
   })), [drawnShapes, shapeInteraction])
 
-  // A textarea has no native vertical-align property. Keep its intrinsic
-  // content height centered inside the shape while it grows for multi-line
-  // input, so the first caret starts in the same visual centre as the label.
+  // A contentEditable editor has no native vertical-align property. Keep its
+  // intrinsic content height centered inside the shape while it grows for
+  // multi-line input, so the first caret starts in the same visual centre as
+  // the label.
   useLayoutEffect(() => {
-    const editor = shapeTextEditorRef.current
+    const editor = shapeEditorRef.current?.root
     if (!editor || !shapeTextEditing) return
     const host = editor.parentElement
     if (!host) return
@@ -1147,9 +1192,25 @@ export function MindMapCanvas({
   // local edit buffer with that node's current title.
   useEffect(() => {
     if (editingNodeId === null || !sheet) return
-    const ref = findTopicTitle(sheet.root, editingNodeId)
-    if (ref !== undefined) setEditValue(ref)
+    const topic = findTopicNode(sheet.root, editingNodeId)
+    if (topic === undefined) return
+    setEditValue(topic.title)
+    setEditSpans(topic.titleFormatting ? normalizeTextSpans(topic.titleFormatting, topic.title.length) : [])
   }, [editingNodeId, sheet])
+
+  // The right-side inspector issues one-shot rich text style requests (span
+  // formatting applied to the selected text). Forward them to the active
+  // editor so the editor DOM/model stays the single source of truth, deduped
+  // by the monotonically increasing request id.
+  const richTextStyleRequestAppliedRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!richTextStyleRequest || richTextStyleRequestAppliedRef.current === richTextStyleRequest.id) {
+      return
+    }
+    richTextStyleRequestAppliedRef.current = richTextStyleRequest.id
+    const editor = editingNodeId ? nodeEditorRef.current : shapeEditorRef.current
+    editor?.applyStyle(richTextStyleRequest.style, richTextStyleRequest.toggle)
+  }, [richTextStyleRequest, editingNodeId])
 
   const bounds = useMemo(() => {
     if (layout.nodes.length === 0) {
@@ -1647,34 +1708,62 @@ export function MindMapCanvas({
       : resizeMindMapDrawRect(interaction.initialRect, interaction.handle ?? 'se', delta)
   }
 
-  const startShapeTextEditing = (shapeId: string, initialValue: string): void => {
+  const startShapeTextEditing = (shapeId: string, initialValue: string, initialSpans: MindMapTextSpan[] = []): void => {
     if (readOnly) return
     selectElement(shapeId, 'shape')
     setShapeInteraction(null)
+    setRichTextSelection(null)
+    setRichTextTarget({ kind: 'shape', shapeId })
     shapeTextEditingSessionRef.current = shapeId
-    setShapeTextEditing({ shapeId, value: initialValue })
+    setShapeTextEditing({
+      shapeId,
+      value: initialValue,
+      spans: normalizeTextSpans(initialSpans, initialValue.length)
+    })
   }
 
-  const commitShapeTextEditing = (shapeId: string, value: string): void => {
+  const commitShapeTextEditing = (shapeId: string, value: string, spans: MindMapTextSpan[]): void => {
     if (shapeTextEditingSessionRef.current !== shapeId) return
     if (readOnly) {
       shapeTextEditingSessionRef.current = null
       setShapeTextEditing(null)
+      setRichTextSelection(null)
+      setRichTextSelectionActive(false)
+      setRichTextTarget(null)
       return
     }
     shapeTextEditingSessionRef.current = null
+    const normalizedSpans = normalizeTextSpans(spans, value.length)
     const nextLabel = value === '' ? null : value
-    const currentLabel = drawnShapes.find((shape) => shape.id === shapeId)?.label ?? null
-    if (nextLabel !== currentLabel) {
-      persistShapeUpdate(shapeId, { label: nextLabel }, 'Edit shape text')
+    const currentShape = drawnShapes.find((shape) => shape.id === shapeId)
+    const currentLabel = currentShape?.label ?? null
+    const currentFormatting = currentShape?.labelFormatting ?? []
+    const formattingChanged = JSON.stringify(normalizedSpans) !== JSON.stringify(currentFormatting)
+    if (nextLabel !== currentLabel || formattingChanged) {
+      persistShapeUpdate(
+        shapeId,
+        {
+          label: nextLabel,
+          ...(formattingChanged
+            ? { labelFormatting: normalizedSpans.length > 0 ? normalizedSpans : null }
+            : {})
+        },
+        'Edit shape text'
+      )
     }
     setShapeTextEditing(null)
+    setRichTextSelection(null)
+    setRichTextSelectionActive(false)
+    setRichTextTarget(null)
   }
 
   const cancelShapeTextEditing = (shapeId: string): void => {
     if (shapeTextEditingSessionRef.current !== shapeId) return
     shapeTextEditingSessionRef.current = null
     setShapeTextEditing(null)
+    setRichTextSelection(null)
+    setRichTextSelectionActive(false)
+    setRichTextTarget(null)
   }
 
   const releaseShapeInteractionCapture = (pointerId: number): void => {
@@ -2175,23 +2264,68 @@ export function MindMapCanvas({
     setPan((prev) => ({ x: prev.x - dx, y: prev.y - dy }))
   }
 
-  const beginEdit = (nodeId: string, initial: string): void => {
+  const beginEdit = (nodeId: string, initial: string, initialSpans: MindMapTextSpan[] = []): void => {
     if (readOnly) return
     selectTopic(nodeId, false)
+    setRichTextSelection(null)
+    setRichTextSelectionActive(false)
+    setRichTextTarget({ kind: 'node', nodeId })
     setEditingNodeId(nodeId)
     setEditValue(initial)
+    setEditSpans(normalizeTextSpans(initialSpans, initial.length))
   }
 
-  const commitEdit = (): void => {
+  const commitEdit = (text = editValue, spans = editSpans): void => {
     if (readOnly) {
       setEditingNodeId(null)
+      setRichTextSelection(null)
+      setRichTextSelectionActive(false)
+      setRichTextTarget(null)
       return
     }
-    if (editingNodeId !== null) {
-      updateNode(editingNodeId, { title: editValue })
+    if (editingNodeId !== null && sheet) {
+      const normalizedSpans = normalizeTextSpans(spans, text.length)
+      const currentTopic = findTopicNode(sheet.root, editingNodeId)
+      const currentFormatting = currentTopic?.titleFormatting ?? []
+      const formattingChanged = JSON.stringify(normalizedSpans) !== JSON.stringify(currentFormatting)
+      updateNode(editingNodeId, {
+        title: text,
+        ...(formattingChanged
+          ? { titleFormatting: normalizedSpans.length > 0 ? normalizedSpans : null }
+          : {})
+      })
     }
     setEditingNodeId(null)
+    setRichTextSelection(null)
+    setRichTextSelectionActive(false)
+    setRichTextTarget(null)
   }
+
+  // When the editor blurs into the right-side panel we keep the edit session
+  // open (so panel edits target the selected span). The next pointerdown on
+  // the canvas — background, another node, a control — commits the pending
+  // edit, mirroring the normal "click away to commit" behaviour.
+  const panelDeferredCommitRef = useRef(false)
+
+  const commitPendingEditOnCanvasPointerDown = (): void => {
+    if (!panelDeferredCommitRef.current) return
+    panelDeferredCommitRef.current = false
+    if (editingNodeId !== null) {
+      commitEdit()
+    } else if (shapeTextEditing) {
+      commitShapeTextEditing(shapeTextEditing.shapeId, shapeTextEditing.value, shapeTextEditing.spans)
+    }
+  }
+
+  // The live selection drives the floating toolbar; the "active" flag is kept
+  // for the right panel even after the editor blurs (see onBlur handling).
+  const handleRichTextSelectionChange = useCallback(
+    (state: RichTextSelectionState): void => {
+      setRichTextSelection(state)
+      if (state.active) setRichTextSelectionActive(true)
+    },
+    [setRichTextSelection, setRichTextSelectionActive]
+  )
 
   const beginNodeAction = useCallback(
     (nodeId: string, additive: boolean) => {
@@ -2661,12 +2795,62 @@ export function MindMapCanvas({
       : {})
   }
 
+  // Real default font family/size for the current inline-editing target, shown
+  // in the floating toolbar's "inherit" entries instead of a generic
+  // "App default" placeholder (the value the selected span falls back to).
+  const toolbarTextDefaults = useMemo<{ fontLabel: string; fontSize: number }>(() => {
+    const resolveStackLabel = (stack: string): string => {
+      const entry = SAFE_FONTS.find((candidate) => candidate.stack === stack)
+      return entry
+        ? fontEntryLabel(entry, (key) => (key ? t(key) : key))
+        : primaryFontFamilyLabel(stack)
+    }
+    if (editingNodeId !== null && sheet) {
+      const node = findTopicNode(sheet.root, editingNodeId)
+      const depth = node ? findTopicDepth(sheet.root, editingNodeId) : null
+      if (node && depth !== null) {
+        const textStyle = resolveMindMapTopicTextStyle(depth, node.style)
+        const parsedSize = Number.parseFloat(String(textStyle.fontSize))
+        const fontStack = node.style?.fontFamily
+          ?? document.theme.fontFamily
+          ?? DEFAULT_TOPIC_FONT_FAMILY
+        return {
+          fontLabel: resolveStackLabel(fontStack),
+          fontSize: Number.isFinite(parsedSize) ? parsedSize : 16
+        }
+      }
+    }
+    if (shapeTextEditing && sheet) {
+      const element = sheet.elements.find((candidate) => candidate.id === shapeTextEditing.shapeId)
+      const fontStack = element?.style?.fontFamily
+        ?? document.theme.fontFamily
+        ?? DEFAULT_TOPIC_FONT_FAMILY
+      return {
+        fontLabel: resolveStackLabel(fontStack),
+        fontSize: element?.style?.fontSize ?? 13
+      }
+    }
+    return {
+      fontLabel: primaryFontFamilyLabel(DEFAULT_TOPIC_FONT_FAMILY),
+      fontSize: 16
+    }
+  }, [editingNodeId, shapeTextEditing, sheet, document.theme.fontFamily, t])
+
   return (
     <div
       ref={containerRef}
       className={`mindmap-canvas${!hasMeasuredContainer ? ' mindmap-canvas--unmeasured' : ''}${panMode ? ' mindmap-canvas--pan-mode' : ''}${lineTool?.active ? ' mindmap-canvas--line-tool' : ''}${drawingShape ? ' mindmap-canvas--shape-tool' : ''}${nodeDragState ? ' is-dragging-node' : ''}${readOnly ? ' mindmap-canvas--generation-preview' : ''}`}
       data-theme-id={document.theme.id}
       style={canvasStyle}
+      onPointerDownCapture={readOnly ? undefined : (event) => {
+        // A pointerdown inside the canvas (background, another node, a control)
+        // commits a panel-deferred edit, unless it lands back inside the editor
+        // itself (the user is continuing to type).
+        if (panelDeferredCommitRef.current) {
+          const target = event.target as Element
+          if (!target.closest('.mindmap-richtext')) commitPendingEditOnCanvasPointerDown()
+        }
+      }}
     >
       <svg
         ref={svgRef}
@@ -2948,14 +3132,14 @@ export function MindMapCanvas({
                   if (lineTool?.active || drawingShape) return
                   event.stopPropagation()
                   event.preventDefault()
-                  startShapeTextEditing(shape.id, shape.label ?? '')
+                  startShapeTextEditing(shape.id, shape.label ?? '', shape.labelFormatting ?? [])
                 }}
                 onKeyDown={(event) => {
                   if (readOnly) return
                   if ((event.key !== 'Enter' && event.key !== 'F2') || lineTool?.active || drawingShape) return
                   event.preventDefault()
                   event.stopPropagation()
-                  startShapeTextEditing(shape.id, shape.label ?? '')
+                  startShapeTextEditing(shape.id, shape.label ?? '', shape.labelFormatting ?? [])
                 }}
                 onContextMenu={(event) => openShapeContextMenu(shape.id, event)}
               >
@@ -2989,51 +3173,56 @@ export function MindMapCanvas({
                   >
                     {isTextEditing ? (
                       <div className="mindmap-drawn-shape-label-editor-shell">
-                        <textarea
-                          ref={shapeTextEditorRef}
+                        <MindMapRichTextEditor
+                          ref={shapeEditorRef}
+                          text={shapeTextEditing?.value ?? ''}
+                          spans={shapeTextEditing?.spans ?? []}
                           className="mindmap-drawn-shape-label-editor"
-                          aria-label={`${t('mindmap.elementStyle.text')}: ${shapeLabel}`}
+                          ariaLabel={`${t('mindmap.elementStyle.text')}: ${shapeLabel}`}
+                          baseStyle={shapeTextStyle}
+                          multiline
                           autoFocus
-                          rows={1}
-                          value={shapeTextEditing?.value ?? ''}
-                          style={shapeTextStyle}
-                          onFocus={(event) => event.currentTarget.select()}
-                          onChange={(event) => {
-                            const value = event.currentTarget.value
+                          placeholder={t('mindmap.untitledTopic')}
+                          onModelChange={(value, spans) => {
                             setShapeTextEditing((current) => current?.shapeId === shape.id
-                              ? { ...current, value }
+                              ? { ...current, value, spans }
                               : current)
                           }}
-                          onBlur={(event) => commitShapeTextEditing(shape.id, event.currentTarget.value)}
+                          onSelectionChange={handleRichTextSelectionChange}
+                          onBlur={(event, value, spans) => {
+                            // Keep the edit + selection alive when the user
+                            // moves into the right-side inspector so its text
+                            // controls target the selected span.
+                            if (isMindMapInspectorTarget(event.relatedTarget)) {
+                              panelDeferredCommitRef.current = true
+                              return
+                            }
+                            commitShapeTextEditing(shape.id, value, spans)
+                          }}
                           onKeyDown={(event) => {
                             if (readOnly) return
                             // The shape group also uses Enter/F2 to begin an
-                            // edit. Do not let a textarea Enter bubble back to
+                            // edit. Do not let an editor Enter bubble back to
                             // that handler: it would recreate the session with
                             // the old label instead of inserting a newline.
                             event.stopPropagation()
                             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                               event.preventDefault()
-                              commitShapeTextEditing(shape.id, event.currentTarget.value)
+                              commitShapeTextEditing(shape.id, shapeTextEditing?.value ?? '', shapeTextEditing?.spans ?? [])
                             } else if (event.key === 'Escape') {
                               event.preventDefault()
                               cancelShapeTextEditing(shape.id)
                             }
                           }}
-                          onPointerDown={(event) => {
-                            if (readOnly) return
-                            event.stopPropagation()
-                          }}
-                          onDoubleClick={(event) => event.stopPropagation()}
                         />
                       </div>
                     ) : (
-                      <div
-                        className="mindmap-drawn-shape-label"
-                        style={shapeTextStyle}
-                        aria-hidden="true"
-                      >
-                        {shape.label}
+                      <div className="mindmap-drawn-shape-label" aria-hidden="true">
+                        <MindMapRichTextLabel
+                          text={shape.label ?? ''}
+                          spans={shape.labelFormatting ?? []}
+                          style={shapeTextStyle}
+                        />
                       </div>
                     )}
                   </foreignObject>
@@ -3494,7 +3683,7 @@ export function MindMapCanvas({
                   if (isDoublePointerActivation) {
                     lastNodePointerDownRef.current = null
                     setNodeDragState(null)
-                    beginEdit(node.id, node.title)
+                    beginEdit(node.id, node.title, node.titleFormatting ?? [])
                     return
                   }
 
@@ -3534,7 +3723,7 @@ export function MindMapCanvas({
                 onDoubleClick={(event) => {
                   if (readOnly) return
                   event.stopPropagation()
-                  if (!isEditing) beginEdit(node.id, node.title)
+                  if (!isEditing) beginEdit(node.id, node.title, node.titleFormatting ?? [])
                 }}
               >
                 {(() => {
@@ -3699,31 +3888,74 @@ export function MindMapCanvas({
                     className={`mindmap-node-foreign mindmap-node-input-foreign mindmap-node-region--${imagePlacement}`}
                   >
                     <div className="mindmap-node-input-wrap">
-                      <textarea
+                      <MindMapRichTextEditor
+                        ref={nodeEditorRef}
+                        text={editValue}
+                        spans={editSpans}
                         className="mindmap-node-input"
-                        value={editValue}
-                        rows={Math.max(1, labelLines.length)}
-                        autoFocus
-                        style={{
+                        ariaLabel={`${t('mindmap.editTopic')}: ${node.title}`}
+                        baseStyle={{
                           ...topicTextStyle,
                           color: topicTextColor,
                           lineHeight: 1,
                           textAlign
                         }}
-                        onFocus={(event) => event.target.select()}
-                        onChange={(event) => setEditValue(event.currentTarget.value)}
-                        onBlur={commitEdit}
+                        autoFocus
+                        selectAllOnFocus
+                        placeholder={t('mindmap.untitledTopic')}
+                        onModelChange={(text, spans) => {
+                          setEditValue(text)
+                          setEditSpans(spans)
+                        }}
+                        onSelectionChange={handleRichTextSelectionChange}
+                        onBlur={(event, text, spans) => {
+                          setEditValue(text)
+                          setEditSpans(spans)
+                          // Keep the edit + selection alive when the user
+                          // moves into the right-side inspector so its text
+                          // controls target the selected span.
+                          if (isMindMapInspectorTarget(event.relatedTarget)) {
+                            panelDeferredCommitRef.current = true
+                            return
+                          }
+                          commitEdit(text, spans)
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter' && !event.shiftKey) {
                             event.preventDefault()
                             commitEdit()
                           }
                           if (event.key === 'Escape') {
+                            event.preventDefault()
                             setEditingNodeId(null)
                           }
                         }}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onDoubleClick={(event) => event.stopPropagation()}
+                      />
+                    </div>
+                  </foreignObject>
+                ) : hasTextSpans(node.titleFormatting) ? (
+                  <foreignObject
+                    x={labelRegion.x}
+                    y={labelRegion.y}
+                    width={labelRegion.width}
+                    height={labelRegion.height}
+                    className="mindmap-node-foreign mindmap-node-markdown-foreign"
+                  >
+                    <div
+                      className={`mindmap-node-markdown-label${node.title ? '' : ' is-placeholder'}`}
+                      style={{
+                        ...topicTextStyle,
+                        color: topicTextColor,
+                        textAlign,
+                        lineHeight: 1.2
+                      }}
+                    >
+                      <MindMapRichTextLabel
+                        text={topicNumbers.get(node.id)
+                          ? `${topicNumbers.get(node.id)}  ${displayTitle}`
+                          : displayTitle}
+                        spans={node.titleFormatting ?? []}
+                        className="mindmap-node-markdown-label__content"
                       />
                     </div>
                   </foreignObject>
@@ -4292,15 +4524,25 @@ export function MindMapCanvas({
           />
         ) : null}
       </svg>
+      {!readOnly ? (
+        <MindMapTextFormatToolbar
+          selection={richTextSelection}
+          onApplyStyle={(style) => {
+            const editor = editingNodeId ? nodeEditorRef.current : shapeEditorRef.current
+            editor?.applyStyle(style)
+          }}
+          onToggleBold={() => {
+            const editor = editingNodeId ? nodeEditorRef.current : shapeEditorRef.current
+            editor?.applyStyle({ bold: true }, true)
+          }}
+          onToggleItalic={() => {
+            const editor = editingNodeId ? nodeEditorRef.current : shapeEditorRef.current
+            editor?.applyStyle({ italic: true }, true)
+          }}
+          defaultFontLabel={toolbarTextDefaults.fontLabel}
+          defaultFontSize={toolbarTextDefaults.fontSize}
+        />
+      ) : null}
     </div>
   )
-}
-
-function findTopicTitle(node: MindMapTopicV2, id: string): string | undefined {
-  if (node.id === id) return node.title
-  for (const child of node.children) {
-    const found = findTopicTitle(child, id)
-    if (found !== undefined) return found
-  }
-  return undefined
 }

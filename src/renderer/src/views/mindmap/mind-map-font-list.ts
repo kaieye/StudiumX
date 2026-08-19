@@ -36,7 +36,9 @@ export const SAFE_FONTS: readonly FontCatalogueEntry[] = [
   {
     id: 'app-default',
     stack: DEFAULT_TOPIC_FONT_FAMILY,
-    labelKey: 'mindmap.topicStyle.fontAppDefault',
+    // The app's default font is the real value here, never a "default"
+    // placeholder: this stack's primary family is Inter.
+    label: 'Inter',
     category: 'sans'
   },
   {

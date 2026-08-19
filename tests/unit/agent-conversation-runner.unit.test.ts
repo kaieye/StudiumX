@@ -404,12 +404,20 @@ describe('AgentConversationTurnRunner ADR-0004 host submission', () => {
       .mockResolvedValueOnce({ code: 'queued', queuePosition: 1, activeTurnId: 'turn-1' })
     const read = vi.fn(async () => conversation('conversation-7', 9))
     const harness = makeHarness({ submitConversationTurn: submit, readAgentConversation: read })
+    const imageAttachment = {
+      id: 'image-1',
+      name: 'diagram.png',
+      mimeType: 'image/png' as const,
+      dataBase64: 'iVBORw0KGgo=',
+      sizeBytes: 8
+    }
 
     await harness.runner.run({ inputOverride: 'First question' })
-    await harness.runner.run({ inputOverride: 'Queued question' })
+    await harness.runner.run({ inputOverride: 'Queued question', imageAttachments: [imageAttachment] })
     expect(harness.getState().agentBusyFollowUpQueue).toEqual([
       expect.objectContaining({
         text: 'Queued question',
+        imageAttachments: [imageAttachment],
         clientRequestId: '22222222-2222-4222-8222-222222222222',
         target: { kind: 'pending', workspaceId: 'workspace-1', scope: 'workspace', pendingConversationId: 'pending-42' }
       })
@@ -426,7 +434,7 @@ describe('AgentConversationTurnRunner ADR-0004 host submission', () => {
     harness.event({ sequence: 0, streamId: 'queued-stream-2', kind: 'conversation_turn_started', createdAt, activeTurnId: 'turn-2', clientRequestId: '22222222-2222-4222-8222-222222222222', conversationId: 'conversation-7' })
     expect(harness.getState()).toMatchObject({ agentChatBusy: true, activeConversationId: 'pending-43', agentBusyFollowUpQueue: [] })
     expect(harness.getState().agentTurns).toMatchObject([
-      { role: 'user', content: 'Queued question' },
+      { role: 'user', content: 'Queued question', imageAttachments: [imageAttachment] },
       { role: 'assistant', content: '' }
     ])
 

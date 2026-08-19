@@ -11,6 +11,7 @@ import { createVitestRuntimeScope } from '../helpers/test-runtime/vitest'
 import type { TeachingIpcRegistration } from '../../src/main/teaching-ipc-gateway'
 import { teachingEventChannels, teachingInvokeChannels } from '../../src/shared/teaching-ipc-contract'
 import { createMindMapStore, type MindMapStore } from '../../src/main/mindmap/mind-map-store'
+import type { AgentRealtimeEvent } from '../../src/shared/teaching-types'
 
 const electron = vi.hoisted(() => {
   const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>()
@@ -1621,8 +1622,10 @@ describe('Teaching IPC gateway', () => {
     }
     mindMapGeneration.generateMindMapProposal.mockImplementationOnce(async (
       _input: unknown,
-      onStream?: (delta: string) => void
+      onStream?: (delta: string) => void,
+      onReasoning?: (delta: string) => void
     ) => {
+      onReasoning?.('Inspecting the current mind map.')
       onStream?.('{\"schemaVersion\":1}')
       return proposal
     })
@@ -1691,6 +1694,74 @@ describe('Teaching IPC gateway', () => {
       teachingEventChannels.mindMapStreamStatus,
       expect.objectContaining({ generationId: 'proposal-stream-1', step: 'done' })
     )
+    const agentEvents = event.sender.send.mock.calls
+      .filter(([channel]) => channel === teachingEventChannels.mindMapAgentEvent)
+      .map(([, payload]) => payload as AgentRealtimeEvent)
+    expect(agentEvents.map((agentEvent) => agentEvent.sequence)).toEqual([1, 2, 3, 4, 5, 6])
+    expect(agentEvents).toEqual([
+      expect.objectContaining({
+        streamId: 'proposal-stream-1',
+        kind: 'status',
+        payload: { streamId: 'proposal-stream-1', status: 'thinking' }
+      }),
+      expect.objectContaining({
+        streamId: 'proposal-stream-1',
+        kind: 'tool',
+        payload: expect.objectContaining({
+          streamId: 'proposal-stream-1',
+          toolCall: {
+            id: 'proposal-stream-1:read:document',
+            name: 'read_workspace_file',
+            arguments: JSON.stringify({ path: `mindmaps/${created.id}.json` })
+          }
+        })
+      }),
+      expect.objectContaining({
+        streamId: 'proposal-stream-1',
+        kind: 'tool',
+        payload: expect.objectContaining({
+          streamId: 'proposal-stream-1',
+          toolCall: {
+            id: 'proposal-stream-1:read:document',
+            name: 'read_workspace_file',
+            arguments: JSON.stringify({ path: `mindmaps/${created.id}.json` })
+          },
+          isError: false
+        })
+      }),
+      expect.objectContaining({
+        streamId: 'proposal-stream-1',
+        kind: 'chunk',
+        payload: {
+          streamId: 'proposal-stream-1',
+          channel: 'reasoning',
+          delta: 'Inspecting the current mind map.'
+        }
+      }),
+      expect.objectContaining({
+        streamId: 'proposal-stream-1',
+        kind: 'status',
+        payload: { streamId: 'proposal-stream-1', status: 'answering' }
+      }),
+      expect.objectContaining({
+        streamId: 'proposal-stream-1',
+        kind: 'terminal',
+        outcome: 'done'
+      })
+    ])
+    const readResult = agentEvents[2]
+    expect(readResult?.kind).toBe('tool')
+    if (readResult?.kind === 'tool') {
+      expect(JSON.parse(readResult.payload.result ?? '{}')).toEqual({
+        ok: true,
+        path: `mindmaps/${created.id}.json`
+      })
+      expect(JSON.parse(readResult.payload.result ?? '{}')).not.toHaveProperty('content')
+    }
+    expect(agentEvents.some((agentEvent) => (
+      agentEvent.kind === 'chunk' && agentEvent.payload.channel === 'answer'
+    ))).toBe(false)
+    expect(JSON.stringify(agentEvents)).not.toContain('{\"schemaVersion\":1}')
     expect(mindMapGeneration.generateMindMapProposal).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Original',
@@ -1706,6 +1777,7 @@ describe('Teaching IPC gateway', () => {
           sourceRefs: []
         })
       }),
+      expect.any(Function),
       expect.any(Function)
     )
     expect(update).not.toHaveBeenCalled()
@@ -1774,6 +1846,7 @@ describe('Teaching IPC gateway', () => {
           ]
         })
       }),
+      expect.any(Function),
       expect.any(Function)
     )
     const generatedInput = mindMapGeneration.generateMindMapProposal.mock.calls[0]?.[0] as {
@@ -1789,12 +1862,15 @@ describe('Teaching IPC gateway', () => {
     expect(JSON.stringify(result)).not.toContain(rootPath)
   })
 
-  it('infers a prompt-named Markdown folder when creating a new mind map', async () => {
+  it('reads the current workspace before creating a mind map when the prompt explicitly requests it', async () => {
     const runtime = await runtimeScope.create('gateway-mind-map-auto-source-create')
     const rootPath = join(runtime.paths.workspace, 'registered-course')
     await mkdir(join(rootPath, '资料分析'), { recursive: true })
     const sourceContent = '# 比重\n现期比重 = 部分 / 整体。'
+    const secondSourceContent = '# 混合\n浓度 = 溶质 / 溶液。'
     await writeFile(join(rootPath, '资料分析', '基础速算与比重.md'), sourceContent, 'utf8')
+    await writeFile(join(rootPath, '资料分析', '盐水与混合.md'), secondSourceContent, 'utf8')
+    await writeFile(join(rootPath, '资料分析', '示意图.png'), 'not markdown', 'utf8')
 
     const store = createMindMapStore(rootPath)
     const getState = vi.fn().mockResolvedValue({
@@ -1833,21 +1909,27 @@ describe('Teaching IPC gateway', () => {
     const result = await handler(teachingInvokeChannels.generateMindMap)(event, {
       workspaceId: 'workspace-auto-source-create',
       title: '资料分析',
-      prompt: '请根据资料分析文件夹中的 Markdown 生成完整导图。'
+      prompt: '请先查看当前文件夹中的资料内容，思考后再根据这些文件生成完整导图。',
+      generationId: 'create-stream-1'
     }) as { id: string; title: string; sheets: Array<{ root: { children: unknown[] } }> }
 
     expect(mindMapGeneration.generateMindMap).toHaveBeenCalledWith(
       expect.objectContaining({
         title: '资料分析',
         autoSourceContext: expect.objectContaining({
-          files: [
+          files: expect.arrayContaining([
             expect.objectContaining({
               sourceRef: expect.objectContaining({ workspacePath: '资料分析/基础速算与比重.md' }),
               content: sourceContent
+            }),
+            expect.objectContaining({
+              sourceRef: expect.objectContaining({ workspacePath: '资料分析/盐水与混合.md' }),
+              content: secondSourceContent
             })
-          ]
+          ])
         })
       }),
+      expect.any(Function),
       expect.any(Function)
     )
     expect(result).toMatchObject({
@@ -1857,6 +1939,76 @@ describe('Teaching IPC gateway', () => {
     expect(result.id).not.toBe('provider-document')
     expect(JSON.stringify(result)).not.toContain(sourceContent)
     expect(JSON.stringify(result)).not.toContain(rootPath)
+
+    const agentEvents = event.sender.send.mock.calls
+      .filter(([channel]) => channel === teachingEventChannels.mindMapAgentEvent)
+      .map(([, payload]) => payload as AgentRealtimeEvent)
+    const toolEvents = agentEvents.filter((agentEvent) => agentEvent.kind === 'tool')
+    expect(toolEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          toolCall: {
+            id: 'create-stream-1:list:auto-source',
+            name: 'list_workspace',
+            arguments: JSON.stringify({
+              path: '.',
+              recursive: true,
+              extensions: ['md', 'markdown', 'mdx']
+            })
+          }
+        })
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          toolCall: {
+            id: expect.stringMatching(/^create-stream-1:read:auto-source:\d+$/),
+            name: 'read_workspace_file',
+            arguments: JSON.stringify({ path: '资料分析/基础速算与比重.md' })
+          }
+        })
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          toolCall: {
+            id: expect.stringMatching(/^create-stream-1:read:auto-source:\d+$/),
+            name: 'read_workspace_file',
+            arguments: JSON.stringify({ path: '资料分析/盐水与混合.md' })
+          }
+        })
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          toolCall: {
+            id: `create-stream-1:write:${result.id}`,
+            name: 'write_workspace_file',
+            arguments: JSON.stringify({ path: `mindmaps/${result.id}.json` })
+          }
+        })
+      })
+    ]))
+    const listResultEvent = toolEvents.find((agentEvent) => (
+      agentEvent.kind === 'tool' &&
+      agentEvent.payload.toolCall.id === 'create-stream-1:list:auto-source' &&
+      agentEvent.payload.result !== undefined
+    ))
+    expect(listResultEvent?.kind).toBe('tool')
+    if (listResultEvent?.kind === 'tool') {
+      const listResult = JSON.parse(listResultEvent.payload.result ?? '{}') as {
+        entries?: Array<{ path?: string }>
+      }
+      expect(listResult.entries?.map((entry) => entry.path)).toEqual(expect.arrayContaining([
+        '资料分析/基础速算与比重.md',
+        '资料分析/盐水与混合.md'
+      ]))
+      expect(listResult.entries).toHaveLength(2)
+    }
+    expect(agentEvents.some((agentEvent) => (
+      agentEvent.kind === 'chunk' && agentEvent.payload.channel === 'answer'
+    ))).toBe(false)
+    expect(JSON.stringify(agentEvents)).not.toContain(sourceContent)
+    expect(JSON.stringify(agentEvents)).not.toContain(secondSourceContent)
+    expect(JSON.stringify(agentEvents)).not.toContain(rootPath)
+    expect(JSON.stringify(agentEvents)).not.toContain('provider-root')
   })
 
   it('rejects a proposal for a removed map without leaking its workspace path or calling the provider', async () => {
@@ -1976,6 +2128,7 @@ describe('Teaching IPC gateway', () => {
           sourceRef: expect.objectContaining({ workspacePath: 'notes/biology.md' })
         })
       }),
+      expect.any(Function),
       expect.any(Function)
     )
     expect(update).not.toHaveBeenCalled()
@@ -2097,6 +2250,7 @@ describe('Teaching IPC gateway', () => {
           sourceRef: expect.objectContaining({ workspacePath: 'NOTES.md' })
         })
       }),
+      expect.any(Function),
       expect.any(Function)
     )
     expect(update).not.toHaveBeenCalled()
@@ -2213,6 +2367,7 @@ describe('Teaching IPC gateway', () => {
           })
         })
       }),
+      expect.any(Function),
       expect.any(Function)
     )
     expect(update).not.toHaveBeenCalled()

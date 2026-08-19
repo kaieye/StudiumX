@@ -24,6 +24,7 @@ import type {
   AgentRunResourceGovernance,
   TeachingSettingsV1
 } from '../../shared/teaching-types'
+import type { AgentChatImageAttachment } from '../../shared/agent-chat-images'
 import { classifyProviderError, providerErrorReason } from '../../shared/provider-error'
 import { mindMapDocumentSchema } from '../../shared/mindmap/mind-map-schema'
 import type { MindMapDocument } from '../../shared/mindmap/mind-map-types'
@@ -66,6 +67,8 @@ export type MindMapGenerationInput = {
   title: string
   prompt: string
   settings: TeachingSettingsV1
+  /** User-selected images sent with the generation turn (same payload as agent chat). */
+  imageAttachments?: AgentChatImageAttachment[]
   /**
    * Stable correlation id used by `cancelMindMapGeneration` to abort the
    * in-flight provider request. Optional so existing callers (and tests that
@@ -90,6 +93,8 @@ export type MindMapProposalGenerationInput = {
   settings: TeachingSettingsV1
   document: MindMapDocumentV2
   request: MindMapProposalRequest
+  /** User-selected images sent with the generation turn (same payload as agent chat). */
+  imageAttachments?: AgentChatImageAttachment[]
   /** Stable correlation id used by `cancelMindMapGeneration`. */
   generationId?: string
   /** Host-owned cancellation signal. */
@@ -181,7 +186,8 @@ export function parseMindMapOutput(raw: string): MindMapDocument {
  */
 export async function generateMindMap(
   input: MindMapGenerationInput,
-  onStream?: (text: string) => void
+  onStream?: (text: string) => void,
+  onReasoning?: (text: string) => void
 ): Promise<MindMapDocument> {
   const text = await runMindMapProvider(input, {
     systemPrompt: buildMindMapSystemPrompt({
@@ -198,7 +204,7 @@ export async function generateMindMap(
       autoSourceContext: input.autoSourceContext,
       lessonContext: input.lessonContext
     })
-  }, onStream)
+  }, onStream, onReasoning)
   return parseMindMapOutput(text)
 }
 
@@ -209,7 +215,8 @@ export async function generateMindMap(
  */
 export async function generateMindMapProposal(
   input: MindMapProposalGenerationInput,
-  onStream?: (text: string) => void
+  onStream?: (text: string) => void,
+  onReasoning?: (text: string) => void
 ): Promise<MindMapProviderProposal> {
   // The renderer deliberately does not get to declare a request as an
   // "initial map": derive it from the canonical v2 snapshot that the main
@@ -234,7 +241,7 @@ export async function generateMindMapProposal(
       lessonContext: input.lessonContext,
       document: input.document
     })
-  }, onStream)
+  }, onStream, onReasoning)
   const parsed = parseMindMapProposalJson(text)
   if (!parsed.ok) {
     throw new MindMapGenerationError('invalid_output', parsed.message)
@@ -262,14 +269,15 @@ function isInitialMindMapProposal(input: MindMapProposalGenerationInput): boolea
 
 type MindMapProviderCallInput = Pick<
   MindMapGenerationInput,
-  'settings' | 'generationId' | 'signal' | 'resourceGovernance'
+  'settings' | 'generationId' | 'signal' | 'resourceGovernance' | 'imageAttachments'
 >
 
 /** Shared provider invocation seam for full documents and reviewable diffs. */
 async function runMindMapProvider(
   input: MindMapProviderCallInput,
   prompts: { systemPrompt: string; userPrompt: string },
-  onStream?: (text: string) => void
+  onStream?: (text: string) => void,
+  onReasoning?: (text: string) => void
 ): Promise<string> {
   const provider = resolveActiveProvider(input.settings)
   if (!provider || !provider.apiKey.trim()) {
@@ -285,17 +293,24 @@ async function runMindMapProvider(
   const signal = composeSignals(input.signal, governor.signal, runController?.signal)
 
   try {
-    const request = { ...prompts, jsonMode: true }
+    const request = {
+      ...prompts,
+      jsonMode: true,
+      ...(input.imageAttachments?.length ? { imageAttachments: input.imageAttachments } : {})
+    }
     try {
       governor.preflight('logical_requests', 1)
       governor.claim('logical_requests', 1)
-      if (onStream) {
+      if (onStream || onReasoning) {
         const callbacks: AdapterCallbacks = {
           // A provider transport may deliver one final queued delta after its
           // abort signal fires. Never surface that stale preview to the
           // renderer after cancellation/resource termination.
           onToken: (delta) => {
-            if (!signal?.aborted) onStream(delta)
+            if (!signal?.aborted) onStream?.(delta)
+          },
+          onReasoning: (delta) => {
+            if (!signal?.aborted) onReasoning?.(delta)
           }
         }
         const result = await streamProvider({
@@ -303,7 +318,8 @@ async function runMindMapProvider(
           provider,
           request,
           callbacks,
-          signal
+          signal,
+          beforeTransportDispatch: () => governor.claim('provider_transport_attempts')
         })
         if (result.usage?.totalTokens !== undefined) {
           governor.consume('total_tokens', Math.max(0, Math.floor(result.usage.totalTokens)))
@@ -315,7 +331,8 @@ async function runMindMapProvider(
         settings: input.settings,
         provider,
         request,
-        signal
+        signal,
+        beforeTransportDispatch: () => governor.claim('provider_transport_attempts')
       })
       if (result.usage?.totalTokens !== undefined) {
         governor.consume('total_tokens', Math.max(0, Math.floor(result.usage.totalTokens)))

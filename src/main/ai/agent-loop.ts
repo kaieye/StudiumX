@@ -407,7 +407,9 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     // Native tool responses can contain ordinary prose before their call. Keep
     // that prose live in the transcript while conservatively withholding any
     // incomplete raw tool-protocol marker.
-    const visibleText = createLearnerVisibleTokenStream(emit)
+    const visibleText = createLearnerVisibleTokenStream(emit, () => {
+      emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
+    })
     try {
       // Pre-send compaction belongs to an already-authorized logical request. An
       // overflow retry keeps the logical request claimed by its original attempt.
@@ -449,8 +451,12 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
             callbacks: {
               onReasoning: (delta) => emit({ type: 'reasoning', delta }),
               onToken: (delta) => {
+                // Keep the normal answer buffered until the adapter has decided
+                // whether this round is prose-only or contains a tool call.
+                // This gives the learner one stable answer chunk while still
+                // allowing the tool branch below to flush its safe prose prefix
+                // before the tool row is emitted.
                 bufferedAnswerDeltas.push(delta)
-                visibleText.push(delta)
               }
             },
             signal: runSignal,
@@ -507,7 +513,6 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       // A caller may require a durable business action. That dedicated recovery is
       // not an iteration quota and is kept separate from normal learning runs.
       if (opts.iterationLimitRecovery?.shouldAttempt() === true) break
-      emit({ type: 'status', status: 'answering', message: '正在整理并生成回复…' })
       visibleText.complete(answerText)
       return execution.completed(transcript, {
         finalText: answerText,
@@ -1020,14 +1025,22 @@ type LearnerVisibleTokenStream = {
   complete(finalText: string): void
 }
 
-function createLearnerVisibleTokenStream(emit: (event: AgentLoopEvent) => void): LearnerVisibleTokenStream {
+function createLearnerVisibleTokenStream(
+  emit: (event: AgentLoopEvent) => void,
+  onFirstVisibleText?: () => void
+): LearnerVisibleTokenStream {
   let raw = ''
   let emitted = ''
+  let hasPublishedVisibleText = false
   const publish = (candidate: string): void => {
     if (!candidate || candidate === emitted || !candidate.startsWith(emitted)) return
     const delta = candidate.slice(emitted.length)
     if (!delta) return
     emitted = candidate
+    if (!hasPublishedVisibleText) {
+      hasPublishedVisibleText = true
+      onFirstVisibleText?.()
+    }
     emit({ type: 'token', delta })
   }
   return {

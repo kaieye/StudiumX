@@ -1,6 +1,7 @@
 import type {
   AgentEventBusReplay,
   AgentRealtimeDeliveryEvent,
+  AgentRealtimeEvent,
   AgentChatStreamChunk,
   AgentChatStreamDone,
   AgentChatStreamPayload,
@@ -549,6 +550,8 @@ export type TeachingSystemApi = {
   onMindMapStreamChunk: (handler: (chunk: MindMapStreamChunk) => void) => () => void
   /** Receive lifecycle statuses for the active, generation-correlated preview. */
   onMindMapStreamStatus: (handler: (status: MindMapStreamStatus) => void) => () => void
+  /** Receive the same ordered Agent process events rendered by the homepage conversation. */
+  onMindMapAgentEvent: (handler: (event: AgentRealtimeEvent) => void) => () => void
   /** Cancel an in-flight AI mind-map generation (propagates to the provider request). */
   cancelMindMapGeneration: (payload: MindMapCancelGenerationPayload) => Promise<{ canceled: boolean }>
   /** Import the StudiumX Markdown tree/notes subset, persist it, and return the document. */

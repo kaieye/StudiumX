@@ -11,6 +11,7 @@ import {
 } from '../agent-conversation-state'
 import type {
   AgentChatMode,
+  AgentChatImageAttachment,
   AgentConversationTurnStartedRealtimeEvent,
   AgentConversationPromotedRealtimeEvent,
   AgentChatStreamChunk,
@@ -41,6 +42,7 @@ export type AgentBusyFollowUpItem = {
   text: string
   mode?: AgentChatMode
   skillIds?: string[]
+  imageAttachments?: AgentChatImageAttachment[]
 }
 
 export type AgentConversationTurnRunnerState = {
@@ -111,6 +113,7 @@ export type RunAgentConversationTurnOptions = {
   inputOverride?: string
   mode?: AgentChatMode
   skillIds?: string[]
+  imageAttachments?: AgentChatImageAttachment[]
 }
 
 type ActiveHostStream = {
@@ -192,11 +195,27 @@ export class AgentConversationTurnRunner<TError> {
 
     const mode = this.resolveMode(initialState, options.mode)
     if (initialState.agentChatBusy) {
-      await this.submitBusyFollowUp({ api, state: initialState, workspaceId: workspace.id, input, mode, skillIds: options.skillIds })
+      await this.submitBusyFollowUp({
+        api,
+        state: initialState,
+        workspaceId: workspace.id,
+        input,
+        mode,
+        skillIds: options.skillIds,
+        imageAttachments: options.imageAttachments
+      })
       return
     }
 
-    await this.submitNewTurn({ api, state: initialState, workspaceId: workspace.id, input, mode, skillIds: options.skillIds })
+    await this.submitNewTurn({
+      api,
+      state: initialState,
+      workspaceId: workspace.id,
+      input,
+      mode,
+      skillIds: options.skillIds,
+      imageAttachments: options.imageAttachments
+    })
   }
 
   async cancel(): Promise<void> {
@@ -250,8 +269,9 @@ export class AgentConversationTurnRunner<TError> {
     input: string
     mode: AgentChatMode
     skillIds?: string[]
+    imageAttachments?: AgentChatImageAttachment[]
   }): Promise<void> {
-    const { api, state, workspaceId, input, mode, skillIds } = request
+    const { api, state, workspaceId, input, mode, skillIds, imageAttachments } = request
     const activeConversationMode = state.activeConversationScope
       ? state.activeConversationScope === 'temporary' ? 'temporary' : 'teaching'
       : null
@@ -291,6 +311,7 @@ export class AgentConversationTurnRunner<TError> {
       currentTurns: canContinueActiveConversation ? state.agentTurns : [],
       selectedCourseRelativePath: state.selectedCourseRelativePath,
       currentSelectedLessonPath: state.appState.selectedLessonPath,
+      imageAttachments,
       createdAt: this.dependencies.now?.() ?? new Date().toISOString(),
       idSeed: this.dependencies.nextIdSeed?.() ?? Date.now()
     })
@@ -315,6 +336,7 @@ export class AgentConversationTurnRunner<TError> {
       input,
       mode,
       skillIds,
+      imageAttachments,
       target,
       expectedBranchRevision,
       draft: { pendingConversationId: draft.pendingConversationId, assistantId: draft.assistantId, workspaceId, mode },
@@ -329,8 +351,9 @@ export class AgentConversationTurnRunner<TError> {
     input: string
     mode: AgentChatMode
     skillIds?: string[]
+    imageAttachments?: AgentChatImageAttachment[]
   }): Promise<void> {
-    const { api, state, workspaceId, input: text, mode, skillIds } = request
+    const { api, state, workspaceId, input: text, mode, skillIds, imageAttachments } = request
     const pending = state.pendingAgentConversation
     const target = this.activeTarget ?? this.targetFromBusyState(state, workspaceId, mode)
     if (!target) {
@@ -345,7 +368,17 @@ export class AgentConversationTurnRunner<TError> {
       return
     }
 
-    await this.submit({ api, input: text, mode, skillIds, target, expectedBranchRevision, restoreState: state, busyFollowUp: true })
+    await this.submit({
+      api,
+      input: text,
+      mode,
+      skillIds,
+      imageAttachments,
+      target,
+      expectedBranchRevision,
+      restoreState: state,
+      busyFollowUp: true
+    })
   }
 
   private async submit(input: {
@@ -353,6 +386,7 @@ export class AgentConversationTurnRunner<TError> {
     input: string
     mode: AgentChatMode
     skillIds?: string[]
+    imageAttachments?: AgentChatImageAttachment[]
     target: ConversationLaneKey
     expectedBranchRevision?: number
     draft?: Omit<ActiveHostStream, 'streamId' | 'activeTurnId' | 'target' | 'conversationId' | 'settling'>
@@ -371,7 +405,8 @@ export class AgentConversationTurnRunner<TError> {
         mode: input.mode,
         delivery: 'follow_up',
         ...(input.expectedBranchRevision !== undefined ? { expectedBranchRevision: input.expectedBranchRevision } : {}),
-        ...(input.skillIds?.length ? { skillIds: input.skillIds } : {})
+        ...(input.skillIds?.length ? { skillIds: input.skillIds } : {}),
+        ...(input.imageAttachments?.length ? { imageAttachments: input.imageAttachments } : {})
       })
       await this.handleDisposition(input, disposition, clientRequestId)
     } catch (error) {
@@ -422,6 +457,7 @@ export class AgentConversationTurnRunner<TError> {
         text: input.input,
         mode: input.mode,
         skillIds: input.skillIds,
+        imageAttachments: input.imageAttachments,
         restoreState: input.restoreState,
         wasAlreadyBusy: input.busyFollowUp === true
       })
@@ -453,6 +489,7 @@ export class AgentConversationTurnRunner<TError> {
     text: string
     mode: AgentChatMode
     skillIds: string[] | undefined
+    imageAttachments: AgentChatImageAttachment[] | undefined
     restoreState: AgentConversationTurnRunnerState
     wasAlreadyBusy: boolean
   }): void {
@@ -467,7 +504,8 @@ export class AgentConversationTurnRunner<TError> {
           target: input.target,
           text: input.text,
           ...(input.mode ? { mode: input.mode } : {}),
-          ...(input.skillIds?.length ? { skillIds: input.skillIds } : {})
+          ...(input.skillIds?.length ? { skillIds: input.skillIds } : {}),
+          ...(input.imageAttachments?.length ? { imageAttachments: input.imageAttachments } : {})
         }
       ],
       agentBusyAckMessage: AGENT_SESSION_BUSY_QUEUED_ACK,
@@ -644,6 +682,7 @@ export class AgentConversationTurnRunner<TError> {
       currentTurns: canUseVisiblePrefix ? state.agentTurns : [],
       selectedCourseRelativePath: state.selectedCourseRelativePath,
       currentSelectedLessonPath: state.appState.selectedLessonPath,
+      imageAttachments: queued.imageAttachments,
       createdAt: this.dependencies.now?.() ?? new Date().toISOString(),
       // Do not collide with a directly-started draft that used the same test or
       // clock seed. This identity is renderer-local projection only.

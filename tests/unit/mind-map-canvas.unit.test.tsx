@@ -69,6 +69,20 @@ function renderCanvas(document = makeDocument()) {
   )
 }
 
+/** The active rich text (contentEditable) editor inside the canvas. */
+function getRichTextEditor(): HTMLElement {
+  const editor = document.querySelector<HTMLElement>('.mindmap-richtext')
+  if (!editor) throw new Error('rich text editor not found')
+  return editor
+}
+
+/** Replace the editor content and fire an input event (jsdom has no
+ *  contentEditable editing, so the DOM must be mutated explicitly). */
+function setRichText(editor: HTMLElement, text: string): void {
+  editor.textContent = text
+  fireEvent.input(editor)
+}
+
 describe('MindMapCanvas accessibility', () => {
   beforeEach(async () => {
     await i18n.changeLanguage('zh-CN')
@@ -243,7 +257,8 @@ describe('MindMapCanvas accessibility', () => {
     await user.dblClick(root)
 
     expect(useMindMapViewStore.getState().editingNodeId).toBe('root')
-    const editor = screen.getByDisplayValue('Root')
+    const editor = getRichTextEditor()
+    expect(editor).toHaveTextContent('Root')
     expect(editor).toHaveStyle({
       color: 'var(--mindmap-theme-text, var(--text))',
       fontFamily: 'var(--mindmap-theme-font, inherit)',
@@ -285,10 +300,8 @@ describe('MindMapCanvas accessibility', () => {
 
     await user.dblClick(root)
 
-    const editor = screen.getByDisplayValue('Root')
-    fireEvent.change(editor, {
-      target: { value: 'A much longer topic title that should expand while typing' }
-    })
+    const editor = getRichTextEditor()
+    setRichText(editor, 'A much longer topic title that should expand while typing')
 
     const expandedWidth = Number(shape?.getAttribute('width'))
     expect(expandedWidth).toBeGreaterThan(initialWidth)
@@ -305,10 +318,11 @@ describe('MindMapCanvas accessibility', () => {
 
     await user.dblClick(root)
 
-    const editor = screen.getByDisplayValue('Root')
-    await user.keyboard('{End}{Shift>}{Enter}{/Shift}Second line')
+    const editor = getRichTextEditor()
+    setRichText(editor, 'Root\nSecond line')
+    fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true })
 
-    expect(editor).toHaveValue('Root\nSecond line')
+    expect(editor.textContent).toBe('Root\nSecond line')
     expect(useMindMapViewStore.getState().editingNodeId).toBe('root')
     expect(Number(shape?.getAttribute('height'))).toBeGreaterThan(initialHeight)
   })
@@ -323,7 +337,7 @@ describe('MindMapCanvas accessibility', () => {
       kind: 'topic',
       topicIds: ['child']
     })
-    expect(screen.getByDisplayValue('Child')).toHaveStyle({
+    expect(getRichTextEditor()).toHaveStyle({
       color: '#ffffff',
       fontSize: '16px',
       fontWeight: '500',
@@ -342,7 +356,7 @@ describe('MindMapCanvas accessibility', () => {
     fireEvent.pointerDown(child, { button: 0, clientX: 240, clientY: 160 })
 
     expect(useMindMapViewStore.getState().editingNodeId).toBe('child')
-    expect(screen.getByDisplayValue('Child')).toHaveFocus()
+    expect(getRichTextEditor()).toHaveFocus()
   })
 
   it('does not mistake a node drag followed by a click for a double-click', () => {
@@ -452,7 +466,7 @@ describe('MindMapCanvas accessibility', () => {
     const editorCenterY = Number(editorRegion?.getAttribute('y'))
       + Number(editorRegion?.getAttribute('height')) / 2
     expect(editorCenterY).toBe(labelY)
-    expect(screen.getByDisplayValue('Child')).toBeInTheDocument()
+    expect(getRichTextEditor()).toHaveTextContent('Child')
   })
 
   it('renders a tapered edge as a curved taper, not a straight line, with fill and no stroke halo', () => {
@@ -566,7 +580,7 @@ describe('MindMapCanvas accessibility', () => {
     act(() => {
       useMindMapViewStore.setState({ editingNodeId: 'child' })
     })
-    expect(screen.getByDisplayValue('Child')).toBeTruthy()
+    expect(getRichTextEditor()).toHaveTextContent('Child')
     expect(container.querySelector('.mindmap-node-number')).toBeNull()
   })
 
@@ -611,7 +625,7 @@ describe('MindMapCanvas accessibility', () => {
 
     renderCanvas(document)
 
-    const input = screen.getByDisplayValue('Child')
+    const input = getRichTextEditor()
     expect(input).toHaveStyle({
       color: '#ffffff',
       fontSize: '16px',
@@ -2108,24 +2122,22 @@ describe('MindMapCanvas drawing tools', () => {
     const shape = screen.getByRole('button', { name: 'Initial label' })
 
     await user.dblClick(shape)
-    const editor = screen.getByRole('textbox')
-    await user.clear(editor)
-    await user.type(editor, 'Blurred label')
+    const editor = getRichTextEditor()
+    setRichText(editor, 'Blurred label')
     fireEvent.blur(editor)
 
     expect(onUpdateShape).toHaveBeenCalledTimes(1)
     expect(onUpdateShape).toHaveBeenLastCalledWith('shape-1', { label: 'Blurred label' })
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(document.querySelector('.mindmap-richtext')).not.toBeInTheDocument()
 
     await user.dblClick(screen.getByRole('button', { name: 'Initial label' }))
-    const cancelledEditor = screen.getByRole('textbox')
-    await user.clear(cancelledEditor)
-    await user.type(cancelledEditor, 'Do not save')
+    const cancelledEditor = getRichTextEditor()
+    setRichText(cancelledEditor, 'Do not save')
     fireEvent.keyDown(cancelledEditor, { key: 'Escape' })
     fireEvent.blur(cancelledEditor)
 
     expect(onUpdateShape).toHaveBeenCalledTimes(1)
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(document.querySelector('.mindmap-richtext')).not.toBeInTheDocument()
   })
 
   it('starts shape text in the visual centre and keeps an unmodified Enter as a newline', async () => {
@@ -2141,13 +2153,12 @@ describe('MindMapCanvas drawing tools', () => {
     )
 
     await user.dblClick(screen.getByRole('button', { name: 'Initial label' }))
-    const editor = screen.getByRole('textbox')
+    const editor = getRichTextEditor()
     expect(editor.parentElement).toHaveClass('mindmap-drawn-shape-label-editor-shell')
     expect(editor).toHaveStyle({ textAlign: 'center' })
 
-    await user.clear(editor)
-    await user.type(editor, 'First line{enter}Second line')
-    expect(editor).toHaveValue('First line\nSecond line')
+    setRichText(editor, 'First line\nSecond line')
+    expect(editor.textContent).toBe('First line\nSecond line')
     expect(onUpdateShape).not.toHaveBeenCalled()
 
     fireEvent.blur(editor)
@@ -2172,11 +2183,10 @@ describe('MindMapCanvas drawing tools', () => {
     )
 
     await user.dblClick(screen.getByRole('button', { name: 'Initial label' }))
-    const editor = screen.getByRole('textbox')
-    await user.clear(editor)
-    await user.type(editor, 'Keyboard label')
+    const editor = getRichTextEditor()
+    setRichText(editor, 'Keyboard label')
     fireEvent.keyDown(editor, { key: 'Enter', ...modifier })
-    // The edit commit unmounts the textarea. A late blur from the browser must
+    // The edit commit unmounts the editor. A late blur from the browser must
     // be ignored so this remains a single undoable update.
     fireEvent.blur(editor)
 

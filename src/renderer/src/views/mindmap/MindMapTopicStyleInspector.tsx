@@ -2,7 +2,7 @@ import { useRef, type CSSProperties } from 'react'
 import { Bold, Italic, Strikethrough, Underline } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { MindMapStructureClass } from '../../../../shared/mindmap/mind-map-types'
-import type { MindMapTopicStyleOverride, MindMapTopicNumbering, MindMapTopicV2 } from '../../../../shared/mindmap/domain/types'
+import type { MindMapTopicStyleOverride, MindMapTopicNumbering, MindMapTopicV2, MindMapTextSpanStyle } from '../../../../shared/mindmap/domain/types'
 import type { MindMapCommand } from '../../../../shared/mindmap/commands/mind-map-command-types'
 import type { MindMapExecuteOptions } from '../../../../shared/mindmap/commands/mind-map-undo-redo'
 import { resolveInspectorValue, resolveTopicStyleField, type InspectorValue } from './mind-map-inspector-values'
@@ -30,7 +30,7 @@ import { fontEntryLabel, SAFE_FONTS } from './mind-map-font-list'
 import { MindMapFontPicker } from './MindMapThemePanel'
 import { MindMapTopicShapePicker } from './MindMapTopicShapePicker'
 import { MindMapTopicColorPicker, MindMapTopicStyleMenu } from './MindMapTopicStyleMenu'
-import { resolveTopicDisplayStyle } from './mind-map-topic-display-style'
+import { resolveTopicDisplayStyle, DEFAULT_TOPIC_FONT_FAMILY } from './mind-map-topic-display-style'
 import { branchColorForKey } from './mind-map-branch-colors'
 
 type MindMapTopicStyleLayoutOption = {
@@ -92,7 +92,9 @@ const TEXT_COLOR_PRESETS: readonly string[] = [
 const BORDER_STYLE_OPTIONS = [
   { value: 'none', labelKey: 'borderStyleNone' },
   { value: 'solid', labelKey: 'borderStyleSolid' },
-  { value: 'dash', labelKey: 'borderStyleDash' }
+  { value: 'dash', labelKey: 'borderStyleDash' },
+  { value: 'hand-drawn-solid', labelKey: 'borderStyleHandDrawnSolid' },
+  { value: 'hand-drawn-dash', labelKey: 'borderStyleHandDrawnDash' }
 ] as const satisfies readonly {
   value: NonNullable<MindMapTopicStyleOverride['borderStyle']>
   labelKey: string
@@ -129,6 +131,10 @@ export function MindMapTopicStyleInspector() {
   const setTopicChildrenCollapsed = useMindMapViewStore((state) => state.setTopicChildrenCollapsed)
   const setSiblingTopicsCollapsed = useMindMapViewStore((state) => state.setSiblingTopicsCollapsed)
   const fontSizeEditSession = useRef(0)
+  const richTextSelection = useMindMapViewStore((state) => state.richTextSelection)
+  const richTextSelectionActive = useMindMapViewStore((state) => state.richTextSelectionActive)
+  const richTextTarget = useMindMapViewStore((state) => state.richTextTarget)
+  const requestRichTextStyle = useMindMapViewStore((state) => state.requestRichTextStyle)
 
   const activeSheet =
     current?.sheets.find((sheet) => sheet.id === activeSheetId) ?? current?.sheets[0] ?? null
@@ -329,14 +335,6 @@ export function MindMapTopicStyleInspector() {
     selectedTopicEntries.map(({ topic, depth }) => ({ nodeStyle: topic.style, depth })),
     current!.theme
   )
-  const effectiveFontFamilyLabel =
-    effectiveFontFamily.state === 'mixed'
-      ? t('mindmap.topicStyle.mixed')
-      : effectiveFontFamily.state === 'concrete'
-        ? SAFE_FONTS.find((entry) => entry.stack === effectiveFontFamily.value)
-          ? fontEntryLabel(SAFE_FONTS.find((entry) => entry.stack === effectiveFontFamily.value)!, t)
-          : t('mindmap.topicStyle.importedFont', { font: effectiveFontFamily.value })
-        : t('mindmap.topicStyle.inherit')
   const effectiveFontSize = effectiveFieldValue((style) => style.fontSize)
   const effectiveFontWeight = effectiveFieldValue((style) => style.fontWeight)
   const borderStyle = fieldValue('borderStyle')
@@ -373,6 +371,81 @@ export function MindMapTopicStyleInspector() {
     ),
     { absentState: 'inherited' }
   )
+
+  // --- Selection-targeted text formatting ---------------------------------
+  // When a rich text selection is active in the inline editor (and the single
+  // selected topic is the one being edited), the text-property controls below
+  // edit the *selected span* instead of the whole topic style. They display
+  // the selection's values and dispatch one-shot span style requests that the
+  // canvas forwards to the live editor.
+  const selectionActiveForTopic =
+    richTextSelectionActive === true &&
+    richTextTarget?.kind === 'node' &&
+    selectedTopics.length === 1 &&
+    selectedTopics[0]!.id === richTextTarget.nodeId
+  const selectedRichText = selectionActiveForTopic ? richTextSelection : null
+
+  const inspectorConcrete = <T,>(value: T | undefined): InspectorValue<T> =>
+    value === undefined ? { state: 'inherited' } : { state: 'concrete', value }
+
+  // Display overrides while a selection is active (reflect the selected span).
+  const selTextColor = selectedRichText
+    ? inspectorConcrete(selectedRichText.color)
+    : effectiveTextColor
+  const selFontFamily = selectedRichText
+    ? inspectorConcrete(selectedRichText.fontFamily)
+    : effectiveFontFamily
+  const selFontSize = selectedRichText
+    ? inspectorConcrete(selectedRichText.fontSize)
+    : effectiveFontSize
+  const selBold = selectedRichText
+    ? inspectorConcrete(selectedRichText.bold)
+    : effectiveBold
+  const selItalic = selectedRichText
+    ? inspectorConcrete(selectedRichText.italic)
+    : effectiveItalic
+  const selUnderline = selectedRichText
+    ? inspectorConcrete(selectedRichText.underline)
+    : effectiveUnderline
+  const selStrikethrough = selectedRichText
+    ? inspectorConcrete(selectedRichText.strikethrough)
+    : effectiveStrikethrough
+  // The panel's weight select only carries bold/non-bold semantics at span
+  // level, so a selection maps to the closest weight tokens.
+  const selFontWeight = selectedRichText
+    ? inspectorConcrete(selectedRichText.bold ? '700' : '400')
+    : effectiveFontWeight
+  // Show the real font the canvas renders: an explicit span/topic stack when
+  // set, otherwise the effective inherited stack (never a "default" label).
+  const fontStackLabel = (stack: string): string =>
+    SAFE_FONTS.some((entry) => entry.stack === stack)
+      ? fontEntryLabel(SAFE_FONTS.find((entry) => entry.stack === stack)!, t)
+      : t('mindmap.topicStyle.importedFont', { font: stack })
+  const selFontFamilyLabel =
+    selFontFamily.state === 'mixed'
+      ? t('mindmap.topicStyle.mixed')
+      : selFontFamily.state === 'concrete'
+        ? fontStackLabel(selFontFamily.value)
+        : fontStackLabel(
+            effectiveFontFamily.state === 'concrete'
+              ? effectiveFontFamily.value
+              : DEFAULT_TOPIC_FONT_FAMILY
+          )
+
+  /** Route a text-property change to the selected span, or fall back to the
+   *  whole-topic style mutation when no selection is active. */
+  const applyTextProperty = (
+    style: MindMapTextSpanStyle,
+    fallback: () => void,
+    toggle = false
+  ): void => {
+    if (selectionActiveForTopic) {
+      requestRichTextStyle(style, toggle)
+      return
+    }
+    fallback()
+  }
+
   const toggleTextDecoration = (
     flag: MindMapTextDecorationFlag,
     effectiveValue: InspectorValue<boolean>
@@ -392,9 +465,38 @@ export function MindMapTopicStyleInspector() {
     })
   }
   const effectiveStructureClassValue = effectiveFieldValue((style) => style.structureClass)
+  const effectiveStructureClassLabel = effectiveStructureClassValue.state === 'mixed'
+    ? t('mindmap.topicStyle.mixed')
+    : effectiveStructureClassValue.state === 'concrete'
+      ? t(`mindmap.topicStyle.layouts.${
+          MIND_MAP_TOPIC_STYLE_LAYOUT_OPTIONS.find(
+            (option) => option.value === effectiveStructureClassValue.value
+          )?.labelKey ?? 'right'
+        }`)
+      : null
+  const fontProvenanceLabel = (() => {
+    switch (resolvedFont.source) {
+      case 'local':
+        return t('mindmap.topicStyle.fontSourceLocal', { font: resolvedFont.fontFamily })
+      case 'document':
+        return t('mindmap.topicStyle.fontSourceDocument', { font: resolvedFont.fontFamily })
+      case 'theme-layer':
+        return t('mindmap.topicStyle.fontSourceThemeLayer', { font: resolvedFont.fontFamily })
+      case 'mixed':
+        return t('mindmap.topicStyle.fontSourceMixed')
+      default:
+        return t('mindmap.topicStyle.fontSourceAppFallback')
+    }
+  })()
   return (
     <section className="mindmap-topic-style mm-section">
       <div className="mm-subhead">{t('mindmap.topicStyle.styleSection')}</div>
+      <div className="mindmap-topic-style__title">{t('mindmap.topicStyle.title')}</div>
+      {selectedTopics.length > 1 ? (
+        <p className="mindmap-topic-style__selection-count">
+          {t('mindmap.topicStyle.multiSelection', { count: selectedTopics.length })}
+        </p>
+      ) : null}
       <MindMapTopicShapePicker
         value={shape}
         displayValue={effectiveShape}
@@ -518,24 +620,38 @@ export function MindMapTopicStyleInspector() {
           )}
         />
       </fieldset>
+      {!borderEnabled ? (
+        <p className="mindmap-topic-style__disabled-note">
+          {t('mindmap.topicStyle.borderDisabled')}
+        </p>
+      ) : null}
 
       <div className="mm-subhead">{t('mindmap.topicStyle.textSection')}</div>
       <div className="mm-row">
         <span className="mm-row__label">{t('mindmap.topicStyle.fontFamily')}</span>
         <MindMapFontPicker
-          value={effectiveFontFamily.state === 'concrete' ? effectiveFontFamily.value : undefined}
-          currentLabel={effectiveFontFamilyLabel}
+          value={selFontFamily.state === 'concrete' ? selFontFamily.value : undefined}
+          currentLabel={selFontFamilyLabel}
           ariaLabel={t('mindmap.topicStyle.fontFamily')}
-          onSelect={(stack) => updateStyleField('fontFamily', stack || undefined)}
+          onSelect={(stack) => applyTextProperty(
+            { fontFamily: stack || undefined },
+            () => updateStyleField('fontFamily', stack || undefined)
+          )}
           searchPlaceholder="Search fonts…"
           searchLabel="Search fonts"
           noResultsLabel="No fonts found."
         />
+        <span
+          className="mindmap-topic-style__font-provenance"
+          role="status"
+          aria-label={fontProvenanceLabel}
+        >
+          {fontProvenanceLabel}
+        </span>
         {resolvedFont.mayFallback ? (
           <span
             id="mindmap-topic-style-font-fallback"
             className="mindmap-topic-style__font-warning"
-            role="status"
           >
             {t('mindmap.topicStyle.fontMayFallback')}
           </span>
@@ -545,18 +661,20 @@ export function MindMapTopicStyleInspector() {
         <label className="mm-row__label" htmlFor="mindmap-topic-style-fontsize">
           {t('mindmap.topicStyle.fontSize')}
         </label>
-        <div className="mindmap-topic-style__number-field">
+        <label
+          className="mindmap-spacing-field mindmap-spacing-field--wide"
+          htmlFor="mindmap-topic-style-fontsize"
+        >
           <input
             id="mindmap-topic-style-fontsize"
             className="mm-number-input"
             type="number"
             inputMode="decimal"
-            list="mindmap-topic-style-fontsize-presets"
             min="0.1"
             max="512"
             step="any"
-            value={effectiveFontSize.state === 'concrete' ? effectiveFontSize.value : ''}
-            placeholder={effectiveFontSize.state === 'mixed'
+            value={selFontSize.state === 'concrete' ? selFontSize.value : ''}
+            placeholder={selFontSize.state === 'mixed'
               ? t('mindmap.topicStyle.mixed')
               : undefined}
             aria-describedby="mindmap-topic-style-fontsize-unit"
@@ -567,22 +685,23 @@ export function MindMapTopicStyleInspector() {
               const rawValue = event.currentTarget.value
               const mergeKey = `topic-style:font-size:${selectedTopics.map((topic) => topic.id).sort().join(',')}:${fontSizeEditSession.current}`
               if (rawValue === '') {
-                updateStyleField('fontSize', undefined, { mergeKey })
+                applyTextProperty(
+                  { fontSize: undefined },
+                  () => updateStyleField('fontSize', undefined, { mergeKey })
+                )
                 return
               }
               const nextValue = Number(rawValue)
               if (Number.isFinite(nextValue) && nextValue > 0 && nextValue <= 512) {
-                updateStyleField('fontSize', nextValue, { mergeKey })
+                applyTextProperty(
+                  { fontSize: nextValue },
+                  () => updateStyleField('fontSize', nextValue, { mergeKey })
+                )
               }
             }}
           />
           <span id="mindmap-topic-style-fontsize-unit" aria-hidden="true">px</span>
-          <datalist id="mindmap-topic-style-fontsize-presets">
-            {[10, 11, 12, 13, 14, 16, 18, 20, 24].map((size) => (
-              <option key={size} value={size} />
-            ))}
-          </datalist>
-        </div>
+        </label>
       </div>
       <div className="mm-row">
         <label className="mm-row__label" htmlFor="mindmap-topic-style-fontweight">
@@ -591,16 +710,19 @@ export function MindMapTopicStyleInspector() {
         <select
           id="mindmap-topic-style-fontweight"
           className="mm-select"
-          value={effectiveFontWeight.state === 'concrete'
-            ? normalizeTopicFontWeight(effectiveFontWeight.value) ?? ''
-            : selectValue(effectiveFontWeight)}
+          value={selFontWeight.state === 'concrete'
+            ? normalizeTopicFontWeight(selFontWeight.value) ?? ''
+            : selectValue(selFontWeight)}
           onChange={(event) => {
-            if (event.currentTarget.value !== MIXED_VALUE) {
-              updateStyleField('fontWeight', event.currentTarget.value || undefined)
-            }
+            if (event.currentTarget.value === MIXED_VALUE) return
+            const next = event.currentTarget.value as string
+            applyTextProperty(
+              { bold: next === '' ? undefined : Number(next) >= 600 },
+              () => updateStyleField('fontWeight', next || undefined)
+            )
           }}
         >
-          {effectiveFontWeight.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
+          {selFontWeight.state === 'mixed' ? <option value={MIXED_VALUE} disabled>{t('mindmap.topicStyle.mixed')}</option> : null}
           <option value="300">{t('mindmap.topicStyle.fontWeightLight')}</option>
           <option value="400">{t('mindmap.topicStyle.fontWeightRegular')}</option>
           <option value="500">{t('mindmap.topicStyle.fontWeightMedium')}</option>
@@ -608,6 +730,11 @@ export function MindMapTopicStyleInspector() {
           <option value="700">{t('mindmap.topicStyle.fontWeightBold')}</option>
         </select>
       </div>
+      {effectiveStructureClassLabel ? (
+        <p className="mindmap-topic-style__effective-layout">
+          {t('mindmap.topicStyle.effectiveLayout', { layout: effectiveStructureClassLabel })}
+        </p>
+      ) : null}
       <div className="mm-row">
         <span className="mm-row__label">{t('mindmap.topicStyle.emphasis')}</span>
         <div
@@ -617,71 +744,89 @@ export function MindMapTopicStyleInspector() {
         >
           <button
             type="button"
-            className={effectiveBold.state === 'concrete' && effectiveBold.value ? 'is-active' : ''}
-            aria-pressed={effectiveBold.state === 'mixed' ? 'mixed' : effectiveBold.state === 'concrete' && effectiveBold.value}
-            aria-label={effectiveBold.state === 'mixed'
+            className={selBold.state === 'concrete' && selBold.value ? 'is-active' : ''}
+            aria-pressed={selBold.state === 'mixed' ? 'mixed' : selBold.state === 'concrete' && selBold.value}
+            aria-label={selBold.state === 'mixed'
               ? `${t('mindmap.topicStyle.bold')} — ${t('mindmap.topicStyle.mixed')}`
               : t('mindmap.topicStyle.bold')}
             title={t('mindmap.topicStyle.bold')}
             onClick={() => {
-              const turnOn = effectiveBold.state === 'mixed' || effectiveBold.state !== 'concrete' || !effectiveBold.value
-              dispatchStyleMutation((style, _topic, depth) => {
-                if (turnOn) style.fontWeight = '700'
-                else if (isBoldTopicFontWeight(topicStyleLayerForDepth(current!.theme, depth)?.fontWeight)) {
-                  style.fontWeight = '400'
-                } else {
-                  delete style.fontWeight
-                }
-                return style
-              })
+              const turnOn = selBold.state === 'mixed' || selBold.state !== 'concrete' || !selBold.value
+              applyTextProperty(
+                { bold: turnOn },
+                () => dispatchStyleMutation((style, _topic, depth) => {
+                  if (turnOn) style.fontWeight = '700'
+                  else if (isBoldTopicFontWeight(topicStyleLayerForDepth(current!.theme, depth)?.fontWeight)) {
+                    style.fontWeight = '400'
+                  } else {
+                    delete style.fontWeight
+                  }
+                  return style
+                })
+              )
             }}
           >
             <Bold size={14} aria-hidden="true" />
           </button>
           <button
             type="button"
-            className={effectiveItalic.state === 'concrete' && effectiveItalic.value ? 'is-active' : ''}
-            aria-pressed={effectiveItalic.state === 'mixed' ? 'mixed' : effectiveItalic.state === 'concrete' && effectiveItalic.value}
-            aria-label={effectiveItalic.state === 'mixed'
+            className={selItalic.state === 'concrete' && selItalic.value ? 'is-active' : ''}
+            aria-pressed={selItalic.state === 'mixed' ? 'mixed' : selItalic.state === 'concrete' && selItalic.value}
+            aria-label={selItalic.state === 'mixed'
               ? `${t('mindmap.topicStyle.italic')} — ${t('mindmap.topicStyle.mixed')}`
               : t('mindmap.topicStyle.italic')}
             title={t('mindmap.topicStyle.italic')}
             onClick={() => {
-              const turnOn = effectiveItalic.state === 'mixed' || effectiveItalic.state !== 'concrete' || !effectiveItalic.value
-              dispatchStyleMutation((style, _topic, depth) => {
-                if (turnOn) style.fontStyle = 'italic'
-                else if (topicStyleLayerForDepth(current!.theme, depth)?.fontStyle === 'italic') {
-                  style.fontStyle = 'normal'
-                } else {
-                  delete style.fontStyle
-                }
-                return style
-              })
+              const turnOn = selItalic.state === 'mixed' || selItalic.state !== 'concrete' || !selItalic.value
+              applyTextProperty(
+                { italic: turnOn },
+                () => dispatchStyleMutation((style, _topic, depth) => {
+                  if (turnOn) style.fontStyle = 'italic'
+                  else if (topicStyleLayerForDepth(current!.theme, depth)?.fontStyle === 'italic') {
+                    style.fontStyle = 'normal'
+                  } else {
+                    delete style.fontStyle
+                  }
+                  return style
+                })
+              )
             }}
           >
             <Italic size={14} aria-hidden="true" />
           </button>
           <button
             type="button"
-            className={effectiveUnderline.state === 'concrete' && effectiveUnderline.value ? 'is-active' : ''}
-            aria-pressed={effectiveUnderline.state === 'mixed' ? 'mixed' : effectiveUnderline.state === 'concrete' && effectiveUnderline.value}
-            aria-label={effectiveUnderline.state === 'mixed'
+            className={selUnderline.state === 'concrete' && selUnderline.value ? 'is-active' : ''}
+            aria-pressed={selUnderline.state === 'mixed' ? 'mixed' : selUnderline.state === 'concrete' && selUnderline.value}
+            aria-label={selUnderline.state === 'mixed'
               ? `${t('mindmap.topicStyle.underline')} — ${t('mindmap.topicStyle.mixed')}`
               : t('mindmap.topicStyle.underline')}
             title={t('mindmap.topicStyle.underline')}
-            onClick={() => toggleTextDecoration('underline', effectiveUnderline)}
+            onClick={() => {
+              const turnOn = selUnderline.state === 'mixed' || selUnderline.state !== 'concrete' || !selUnderline.value
+              applyTextProperty(
+                { underline: turnOn },
+                () => toggleTextDecoration('underline', effectiveUnderline)
+              )
+            }}
           >
             <Underline size={14} aria-hidden="true" />
           </button>
           <button
             type="button"
-            className={effectiveStrikethrough.state === 'concrete' && effectiveStrikethrough.value ? 'is-active' : ''}
-            aria-pressed={effectiveStrikethrough.state === 'mixed' ? 'mixed' : effectiveStrikethrough.state === 'concrete' && effectiveStrikethrough.value}
-            aria-label={effectiveStrikethrough.state === 'mixed'
+            className={selStrikethrough.state === 'concrete' && selStrikethrough.value ? 'is-active' : ''}
+            aria-pressed={selStrikethrough.state === 'mixed' ? 'mixed' : selStrikethrough.state === 'concrete' && selStrikethrough.value}
+            aria-label={selStrikethrough.state === 'mixed'
               ? `${t('mindmap.topicStyle.strikethrough')} — ${t('mindmap.topicStyle.mixed')}`
               : t('mindmap.topicStyle.strikethrough')}
             title={t('mindmap.topicStyle.strikethrough')}
-            onClick={() => toggleTextDecoration('line-through', effectiveStrikethrough)}
+            onClick={() => {
+              const turnOn = selStrikethrough.state === 'mixed' || selStrikethrough.state !== 'concrete' || !selStrikethrough.value
+              applyTextProperty(
+                { strikethrough: turnOn },
+                () => toggleTextDecoration('line-through', effectiveStrikethrough)
+              )
+            }}
           >
             <Strikethrough size={14} aria-hidden="true" />
           </button>
@@ -765,10 +910,13 @@ export function MindMapTopicStyleInspector() {
         id="mindmap-topic-style-text-color"
         label={t('mindmap.topicStyle.textColor')}
         value={textColor}
-        displayValue={effectiveTextColor}
+        displayValue={selTextColor}
         presets={TEXT_COLOR_PRESETS}
         fallback={TOPIC_STYLE_DEFAULTS.textColor}
-        onChange={(nextColor) => updateStyleField('textColor', nextColor)}
+        onChange={(nextColor) => applyTextProperty(
+          { color: nextColor },
+          () => updateStyleField('textColor', nextColor)
+        )}
       />
 
       <div className="mm-subhead">{t('mindmap.topicStyle.layoutSection')}</div>

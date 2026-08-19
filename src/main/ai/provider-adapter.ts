@@ -11,16 +11,24 @@ import {
 } from './provider-adapter/invocation'
 import type { ProviderUsage } from './provider-adapter/response-parser'
 import type { ProviderStopReason } from './provider-hooks'
+import type { AgentChatImageAttachment } from '../../shared/agent-chat-images'
 
 export { toolsSupportedForFormat } from './provider-adapter/formats'
 export { adapterAuthHeaders } from './provider-adapter/request-builder'
-export { ProviderAdapterError, type AdapterErrorKind, type ProviderTransportDispatchHook } from './provider-adapter/invocation'
+export {
+  ProviderAdapterError,
+  type AdapterErrorKind,
+  type ProviderAdapterErrorCode,
+  type ProviderTransportDispatchHook
+} from './provider-adapter/invocation'
 
 export type AdapterRequest = {
   systemPrompt: string
   userPrompt: string
   /** Hint the provider to return strict JSON (where supported). */
   jsonMode: boolean
+  /** User-selected images attached to this user turn (same payload as chat turns). */
+  imageAttachments?: AgentChatImageAttachment[]
 }
 
 export type AdapterResult = { text: string; usage?: ProviderUsage }
@@ -46,7 +54,7 @@ export type ToolCall = {
 
 export type ChatMessage =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: string; imageAttachments?: AgentChatImageAttachment[] }
   | { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string }
 

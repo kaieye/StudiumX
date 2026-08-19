@@ -10,7 +10,7 @@ import type { AgentLoopEvent } from '../../src/main/ai/agent-loop'
 import type { ToolCall, ToolDefinition } from '../../src/main/ai/provider-adapter'
 import type { ToolHandlerMap } from '../../src/main/ai/tools/registry'
 
-type Scenario = 'no-tools' | 'single-tool' | 'multi-tool' | 'tool-error' | 'degraded'
+type Scenario = 'no-tools' | 'single-tool' | 'multi-tool' | 'tool-error' | 'messages-native'
 
 type RecordedRequest = {
   scenario: Scenario
@@ -36,10 +36,10 @@ const server = createServer(async (req, res) => {
   const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as RecordedRequest['body']
   requests.push({ scenario, body })
 
-  if (scenario === 'degraded') {
+  if (scenario === 'messages-native') {
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({
-      content: [{ type: 'text', text: 'Final answer from degraded endpoint.' }],
+      content: [{ type: 'text', text: 'Final answer from Messages endpoint.' }],
       usage: { input_tokens: 7, output_tokens: 3 }
     }))
     return
@@ -197,14 +197,19 @@ try {
   assert.ok(noTools.events.some((event) => event.type === 'token' && event.delta === 'Final answer without tools.'))
   assert.deepEqual(terminalStatuses(noTools.events), ['done'])
 
-  const degraded = await runScenario('degraded', { endpointFormat: 'messages' })
-  assert.equal(degraded.result.stopReason, 'degraded')
-  assert.equal(degraded.result.finalText, 'Final answer from degraded endpoint.')
-  assert.equal(degraded.result.toolsSupported, false)
-  assert.equal(degraded.result.iterations, 1)
-  assert.deepEqual(terminalStatuses(degraded.events), ['done'])
-  assert.equal(degraded.events.some((event) => event.type === 'tool_call'), false)
+  // Messages is a native tool-capable endpoint format. Keep this baseline in
+  // sync with the provider-format contract instead of exercising the obsolete
+  // pre-native-tools degradation path.
+  const messagesNative = await runScenario('messages-native', { endpointFormat: 'messages' })
+  assert.equal(messagesNative.result.stopReason, 'final_answer')
+  assert.equal(messagesNative.result.finalText, 'Final answer from Messages endpoint.')
+  assert.equal(messagesNative.result.toolsSupported, true)
+  assert.equal(messagesNative.result.degradedReason, undefined)
+  assert.equal(messagesNative.result.iterations, 1)
+  assert.deepEqual(terminalStatuses(messagesNative.events), ['done'])
+  assert.equal(messagesNative.events.some((event) => event.type === 'tool_call'), false)
   assert.equal(requests.length, 1)
+  assert.ok(Array.isArray(requests[0]?.body.tools))
 
   const singleTool = await runScenario('single-tool')
   assert.equal(singleTool.result.stopReason, 'final_answer')

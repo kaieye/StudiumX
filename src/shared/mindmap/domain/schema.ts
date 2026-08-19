@@ -18,6 +18,27 @@ export const mindMapPointSchema = z.object({
   y: z.number()
 })
 
+/**
+ * Per-character text formatting span (offsets into the plain label/title).
+ * Spans are optional at rest; `start`/`end` must be non-negative ints and
+ * `end` must not precede `start`.
+ */
+export const mindMapTextSpanSchema = z
+  .object({
+    start: z.number().int().nonnegative(),
+    end: z.number().int().nonnegative(),
+    color: z.string().trim().min(1).max(128).optional(),
+    bold: z.boolean().optional(),
+    italic: z.boolean().optional(),
+    underline: z.boolean().optional(),
+    strikethrough: z.boolean().optional(),
+    fontFamily: z.string().trim().min(1).max(512).optional(),
+    fontSize: z.number().finite().positive().max(1024).optional()
+  })
+  .refine((span) => span.end >= span.start, {
+    message: 'span end must be >= start'
+  })
+
 const mindMapColorSchema = z.string().regex(
   /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i,
   'must be a CSS hex color'
@@ -296,7 +317,8 @@ export const mindMapShapeSchema = mindMapElementBaseSchema.extend({
   shape: mindMapDrawingShapeSchema,
   position: mindMapPointSchema,
   width: z.number().finite().positive().max(100_000),
-  height: z.number().finite().positive().max(100_000)
+  height: z.number().finite().positive().max(100_000),
+  labelFormatting: z.array(mindMapTextSpanSchema).optional()
 })
 
 export const mindMapConnectorSchema = mindMapElementBaseSchema.extend({
@@ -342,6 +364,7 @@ export const mindMapTopicV2Schema: z.ZodType<
     z.object({
       id: z.string().min(1),
       title: z.string(),
+      titleFormatting: z.array(mindMapTextSpanSchema).optional(),
       note: z.string().optional(),
       collapsed: z.boolean().optional(),
       children: z.array(z.lazy(() => mindMapTopicV2Schema)).default([]),

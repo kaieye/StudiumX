@@ -17,6 +17,7 @@ export type TeachingEventChannel =
   | 'appUpdateEvent'
   | 'mindMapStreamChunk'
   | 'mindMapStreamStatus'
+  | 'mindMapAgentEvent'
 
 /** OS power fan-out payload (ADR-0011 OS bridge). Signal only — not timer authority. */
 export type SystemPowerEvent = {
@@ -191,7 +192,8 @@ export const teachingEventChannels = {
   systemPower: 'teach:system-power',
   appUpdateEvent: 'teach:app-update-event',
   mindMapStreamChunk: 'teach:mind-map-stream-chunk',
-  mindMapStreamStatus: 'teach:mind-map-stream-status'
+  mindMapStreamStatus: 'teach:mind-map-stream-status',
+  mindMapAgentEvent: 'teach:mind-map-agent-event'
 } satisfies Record<TeachingEventChannel, string>
 
 const teachingEventChannelKeysAreExact: ExactKeySet<

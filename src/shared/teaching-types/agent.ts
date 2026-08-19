@@ -1,5 +1,6 @@
 import type { TeachingMemoryCaptureResult } from './memory'
 import type { LessonSummary, TeachingAppState } from './workspace'
+import type { AgentChatImageAttachment } from '../agent-chat-images'
 
 export type AgentChatMode = 'temporary' | 'teaching'
 export type AgentConversationLookupScope = 'workspace' | 'temporary'
@@ -46,6 +47,7 @@ export type SubmitConversationTurnIntent = {
   /** Required by host validation for `steer`; never retargeted to a newer turn. */
   expectedActiveTurnId?: string
   skillIds?: string[]
+  imageAttachments?: AgentChatImageAttachment[]
 }
 
 /**
@@ -179,6 +181,7 @@ export type AgentChatMessage = {
   content: string | null
   toolCalls?: AgentChatToolCall[]
   toolCallId?: string
+  imageAttachments?: AgentChatImageAttachment[]
 }
 
 export type AgentChatToolCallView = {
@@ -393,6 +396,7 @@ export type AgentChatTurn = {
   id: string
   role: 'user' | 'assistant'
   content: string
+  imageAttachments?: AgentChatImageAttachment[]
   toolCalls?: AgentChatToolCallView[]
   processEvents?: AgentChatProcessEvent[]
   /**
@@ -449,6 +453,7 @@ export type AgentChatStreamPayload = {
   messageTurnIds?: Array<string | undefined>
   messages: AgentChatMessage[]
   userInput: string
+  imageAttachments?: AgentChatImageAttachment[]
 }
 
 /** Mid-run steer / follow-up against an active agent chat stream (ADR-0004). */

@@ -203,6 +203,11 @@
   max-width: min(525px, 82%);
   margin-left: auto;
 }.overview-dialog-message.is-user > .markdown-message {
+  /* Grid items stretch by default. Keep short user turns sized to their
+     content instead of the available transcript column. */
+  width: fit-content;
+  max-width: 100%;
+  justify-self: end;
   padding: 10px 16px;
   color: var(--text);
   border-color: transparent;
@@ -1203,6 +1208,19 @@
   max-width: 160px;
 }.overview-dialog-reasoning svg {
   flex: 0 0 auto;
+}.overview-dialog-model--combined {
+  justify-content: flex-start;
+  min-width: 0;
+}.overview-dialog-model--combined > svg {
+  flex: 0 0 auto;
+}.overview-dialog-model__model {
+  flex: 0 1 auto;
+}.overview-dialog-model__separator,
+.overview-dialog-model__reasoning {
+  flex: 0 0 auto;
+  color: var(--text-soft);
+}.overview-dialog-model__separator {
+  margin-inline: -2px;
 }.overview-dialog-send {
   width: 40px;
   height: 40px;
@@ -1351,7 +1369,8 @@
 .overview-project-picker .overview-picker-menu,
 .overview-git-menu,
 .overview-model-menu,
-.overview-reasoning-menu {
+.overview-reasoning-menu,
+.overview-model-and-reasoning-menu {
   width: max-content;
   max-width: min(248px, calc(100vw - 48px));
   min-width: 168px;
@@ -1359,7 +1378,8 @@
 
 /* Model/reasoning open right-aligned so the menu stays inside the composer card. */
 .overview-model-menu,
-.overview-reasoning-menu {
+.overview-reasoning-menu,
+.overview-model-and-reasoning-menu {
   right: 0;
   left: auto;
 }.overview-picker-search {
@@ -1395,14 +1415,16 @@
 }.overview-project-picker .overview-picker-option,
 .overview-git-menu .overview-picker-option,
 .overview-model-menu .overview-picker-option,
-.overview-reasoning-menu .overview-picker-option {
+.overview-reasoning-menu .overview-picker-option,
+.overview-model-and-reasoning-menu .overview-picker-option {
   gap: 8px;
   padding: 8px 10px;
 }
 .overview-project-picker .overview-picker-option-title,
 .overview-git-menu .overview-picker-option-title,
 .overview-model-menu .overview-picker-option-title,
-.overview-reasoning-menu .overview-picker-option-title {
+.overview-reasoning-menu .overview-picker-option-title,
+.overview-model-and-reasoning-menu .overview-picker-option-title {
   font-size: 12.5px;
 }
 .overview-project-picker .overview-picker-option-context,
@@ -1418,11 +1440,49 @@
 .overview-git-menu .overview-picker-search input {
   font-size: 12.5px;
 }
-.overview-reasoning-menu .overview-picker-option {
+.overview-reasoning-menu .overview-picker-option,
+.overview-model-and-reasoning-menu .overview-picker-option {
   align-items: center;
 }
-.overview-reasoning-menu .overview-picker-option > svg:last-child {
+.overview-reasoning-menu .overview-picker-option > svg:last-child,
+.overview-model-and-reasoning-menu .overview-picker-option > svg:last-child {
   margin-top: 0;
+}.overview-model-and-reasoning-menu__cell {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 40px;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}.overview-model-and-reasoning-menu__cell:hover,
+.overview-model-and-reasoning-menu__cell:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}.overview-model-and-reasoning-menu__cell-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}.overview-model-and-reasoning-menu__cell-value {
+  min-width: 0;
+  max-width: 112px;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}.overview-model-and-reasoning-menu__cell > svg {
+  flex: 0 0 auto;
+  color: var(--text-soft);
 }
 .overview-picker-option {
   display: flex;
@@ -1574,4 +1634,233 @@
 /* B-12: busy-ack note in OverviewChat statusbar (queue, not ask interruption). */
 .overview-dialog-busy-ack {
   color: var(--text-secondary, #5b6472);
+}
+
+/* ----------------------------------------------------------------
+   Explicit image attachments in the agent conversation
+   ---------------------------------------------------------------- */
+
+/* The file input is only opened from the visible toolbar button. Keeping it
+   out of layout avoids an accidental second focus stop in the composer. */
+.agent-chat-image-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Draft images stay near the text they will be sent with. The rail scrolls
+   horizontally instead of growing the composer beyond the chat column. */
+.agent-chat-image-attachment-rail {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+  padding: 0 1px 10px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(70, 70, 70, 0.22) transparent;
+}
+.agent-chat-image-attachment-rail::-webkit-scrollbar {
+  height: 7px;
+}
+.agent-chat-image-attachment-rail::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(70, 70, 70, 0.2);
+}
+.agent-chat-image-attachment {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  flex: 0 0 72px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.07);
+}
+.agent-chat-image-attachment img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.agent-chat-image-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  place-items: center;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  background: rgba(24, 24, 24, 0.76);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.24);
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+.agent-chat-image-remove:hover {
+  background: rgba(172, 43, 43, 0.94);
+  transform: scale(1.06);
+}
+.agent-chat-image-remove:focus-visible,
+.agent-chat-image-picker:focus-visible,
+.agent-chat-image-thumb:focus-visible,
+.agent-chat-image-lightbox-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.agent-chat-image-picker:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+.agent-chat-image-error {
+  margin: -3px 1px 8px;
+  color: #b4442f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Image history is rendered before the text bubble for user turns. Images are
+   deliberately buttons: opening the preview does not rely on a hidden local
+   file path or expose a browser blob URL to the provider boundary. */
+.agent-chat-message-images {
+  display: grid;
+  width: fit-content;
+  max-width: min(460px, 100%);
+  gap: 8px;
+}
+.overview-dialog-message.is-user .agent-chat-message-images {
+  margin-left: auto;
+}
+.agent-chat-message-images.is-single {
+  grid-template-columns: minmax(0, 1fr);
+  width: min(360px, 100%);
+}
+.agent-chat-message-images.is-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.agent-chat-image-thumb {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(20, 20, 20, 0.09);
+  border-radius: 14px;
+  background: var(--surface-muted);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09);
+  cursor: zoom-in;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+.agent-chat-image-thumb:hover {
+  border-color: rgba(20, 20, 20, 0.2);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.12);
+  transform: translateY(-1px);
+}
+.agent-chat-image-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The lightbox is renderer-only presentation. The image remains the bounded
+   base64 attachment already present in the transcript, never a filesystem
+   URL. */
+.agent-chat-image-lightbox {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  padding: 28px;
+  place-items: center;
+  animation: agent-chat-image-lightbox-in 150ms ease-out both;
+}
+.agent-chat-image-lightbox-backdrop {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: rgba(12, 14, 18, 0.78);
+}
+.agent-chat-image-lightbox-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(100%, 1200px);
+  max-height: 100%;
+  place-items: center;
+}
+.agent-chat-image-lightbox-content img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 56px);
+  border-radius: 14px;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.42);
+  object-fit: contain;
+}
+.agent-chat-image-lightbox-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  place-items: center;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  background: rgba(20, 20, 20, 0.68);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+.agent-chat-image-lightbox-close:hover {
+  background: rgba(20, 20, 20, 0.9);
+  transform: scale(1.05);
+}
+@keyframes agent-chat-image-lightbox-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (max-width: 640px) {
+  .agent-chat-image-attachment {
+    width: 64px;
+    height: 64px;
+    flex-basis: 64px;
+  }
+  .agent-chat-message-images.is-single {
+    width: min(300px, 100%);
+  }
+  .agent-chat-image-lightbox {
+    padding: 16px;
+  }
+  .agent-chat-image-lightbox-content img {
+    max-height: calc(100vh - 32px);
+    border-radius: 10px;
+  }
+  .agent-chat-image-lightbox-close {
+    top: 6px;
+    right: 6px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat-image-remove,
+  .agent-chat-image-thumb,
+  .agent-chat-image-lightbox-close,
+  .agent-chat-image-lightbox {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms;
+  }
 }

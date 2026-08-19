@@ -99,6 +99,54 @@ describe('buildChatRequest native tool formats', () => {
     ])
   })
 
+  it('serializes explicit image attachments in each provider-native chat shape', () => {
+    const image = {
+      id: 'image-1',
+      name: 'diagram.png',
+      mimeType: 'image/png' as const,
+      dataBase64: 'iVBORw0KGgo=',
+      sizeBytes: 8
+    }
+    const request: ChatAdapterRequest = {
+      messages: [{ role: 'user', content: 'Analyze this diagram.', imageAttachments: [image] }]
+    }
+
+    const { body: responsesBody } = readBody(buildChatRequest('responses', {
+      provider: provider(), generator: generator(), request, stream: false, includeTools: false
+    }))
+    expect(responsesBody.input).toEqual([{
+      role: 'user',
+      content: [
+        { type: 'input_text', text: 'Analyze this diagram.' },
+        { type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=' }
+      ]
+    }])
+
+    const { body: anthropicBody } = readBody(buildChatRequest('messages', {
+      provider: provider(), generator: generator(), request, stream: false, includeTools: false
+    }))
+    expect(anthropicBody.messages).toEqual([{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Analyze this diagram.' },
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }
+      ]
+    }])
+
+    for (const format of ['chat_completions', 'custom_endpoint'] as const) {
+      const { body } = readBody(buildChatRequest(format, {
+        provider: provider(), generator: generator(), request, stream: false, includeTools: false
+      }))
+      expect(body.messages).toEqual([{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Analyze this diagram.' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }
+        ]
+      }])
+    }
+  })
+
   it('builds an Anthropic Messages request with native tools and role merging', () => {
     const request: ChatAdapterRequest = {
       messages: [
@@ -238,5 +286,4 @@ describe('readChatSseStream native tool streaming', () => {
     expect(result.toolCalls).toEqual([])
   })
 })
-
 

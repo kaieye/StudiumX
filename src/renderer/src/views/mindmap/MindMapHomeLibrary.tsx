@@ -24,8 +24,9 @@ function formatFolderPath(path: string): string {
  *   1. a search box,
  *   2. four most-recently-edited preview cards (across the home location and
  *      every workspace folder),
- *   3. a section of workspace folders plus all mind-map cards (home cards and
- *      every workspace's cards flattened together).
+ *   3. a section of workspace folders plus the home-location mind-map cards.
+ *      Workspace maps stay inside their own folder and are not flattened onto
+ *      the home page; they only appear here as search hits.
  *
  * Double-clicking a folder switches to that workspace's folder view, rendered
  * by the same component in "folder mode". Opening any card or creating a new
@@ -71,27 +72,30 @@ export function MindMapHomeLibrary({
     ? (folderEntry.path ? formatFolderPath(folderEntry.path) : folderEntry.name)
     : ''
 
-  // In folder mode the card set is just that folder's documents; in home mode
-  // it is every card flattened (home + all workspaces).
+  // The full library (home + every workspace) is the search pool; it also
+  // feeds the recents row and the card-preview lookup.
   const allDocuments = useMemo<MindMapSummary[]>(() => {
     if (!library) return []
-    if (folder) {
-      const entry = library.workspaces.find((item) => item.workspaceId === folder)
-      return entry ? entry.documents : []
-    }
-    return [
-      ...library.home,
-      ...library.workspaces.flatMap((item) => item.documents)
-    ]
-  }, [library, folder])
+    return [...library.home, ...library.workspaces.flatMap((item) => item.documents)]
+  }, [library])
 
+  // In folder mode the card set is just that folder's documents; in home mode
+  // the "All maps" grid shows home-location cards only — workspace maps live
+  // inside their own folder instead of being flattened onto the home page.
+  // An active search query expands the grid to the whole library so workspace
+  // maps stay discoverable from the home page.
   const visibleDocuments = useMemo(() => {
+    if (!library) return []
     const normalizedQuery = query.trim().toLocaleLowerCase()
-    if (!normalizedQuery) return allDocuments
-    return allDocuments.filter((summary) =>
+    const base = folder
+      ? (library.workspaces.find((item) => item.workspaceId === folder)?.documents ?? [])
+      : normalizedQuery
+        ? allDocuments
+        : library.home
+    return base.filter((summary) =>
       (summary.title || t('mindmap.newDocument')).toLocaleLowerCase().includes(normalizedQuery)
     )
-  }, [allDocuments, query, t])
+  }, [library, folder, allDocuments, query, t])
 
   // Most recently edited cards across the whole library (home mode only).
   const recentDocuments = useMemo(() => {

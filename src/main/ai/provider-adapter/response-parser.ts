@@ -10,6 +10,41 @@ export type ProviderUsage = {
   totalTokens?: number
 }
 
+type UnknownRecord = Record<string, unknown>
+
+function asRecord(value: unknown): UnknownRecord | undefined {
+  return value && typeof value === 'object' ? value as UnknownRecord : undefined
+}
+
+function textFromContentBlocks(content: unknown, allowedTypes: readonly string[]): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((block) => {
+      if (typeof block === 'string') return block
+      const record = asRecord(block)
+      if (!record) return ''
+      const type = typeof record.type === 'string' ? record.type : undefined
+      if (type && !allowedTypes.includes(type)) return ''
+      if (typeof record.text === 'string') return record.text
+      return ''
+    })
+    .filter(Boolean)
+    .join('')
+}
+
+function hasReasoningBlock(content: unknown): boolean {
+  if (!Array.isArray(content)) return false
+  return content.some((block) => {
+    const record = asRecord(block)
+    if (!record) return false
+    const type = typeof record.type === 'string' ? record.type.toLowerCase() : ''
+    return type === 'thinking' || type === 'redacted_thinking' || type === 'reasoning' ||
+      type === 'summary_text' || type === 'reasoning_summary_text' ||
+      typeof record.thinking === 'string' || typeof record.reasoning === 'string'
+  })
+}
+
 export function extractUsage(format: ModelEndpointFormat, body: unknown): ProviderUsage | undefined {
   if (!body || typeof body !== 'object') return undefined
   const record = body as Record<string, unknown>
@@ -88,24 +123,27 @@ export function extractFinishReason(format: ModelEndpointFormat, body: unknown):
 export function extractText(format: ModelEndpointFormat, body: unknown): string {
   if (format === 'messages') {
     const content = (body as { content?: unknown })?.content
-    if (Array.isArray(content)) {
-      return content
-        .map((block) => (block as { text?: string })?.text ?? '')
-        .filter(Boolean)
-        .join('')
-    }
-    return typeof content === 'string' ? content : ''
+    return textFromContentBlocks(content, ['text'])
   }
   if (format === 'responses') {
     const out = (body as { output_text?: string })?.output_text
-    if (typeof out === 'string') return out
+    if (typeof out === 'string' && out) return out
     const output = (body as { output?: unknown })?.output
     if (Array.isArray(output)) {
       return output
         .flatMap((item) => {
-          const content = (item as { content?: unknown })?.content
-          return Array.isArray(content)
-            ? content.map((block) => (block as { text?: string })?.text ?? '')
+          const record = asRecord(item)
+          if (!record) return []
+          // Responses can place reasoning summaries and function calls next to
+          // the answer in `output`. Only message/output_text content is user
+          // visible; never treat reasoning summaries as the answer body.
+          if (typeof record.type === 'string' && record.type !== 'message' && record.type !== 'output_text') {
+            return []
+          }
+          if (record.type === 'output_text' && typeof record.text === 'string') return [record.text]
+          const content = record.content
+          return textFromContentBlocks(content, ['output_text', 'text'])
+            ? [textFromContentBlocks(content, ['output_text', 'text'])]
             : []
         })
         .filter(Boolean)
@@ -123,6 +161,57 @@ export function extractText(format: ModelEndpointFormat, body: unknown): string 
     }
   }
   return ''
+}
+
+/**
+ * Responses streaming providers are allowed to put the complete answer only
+ * on `response.completed.response`. This helper deliberately reuses the
+ * non-stream parser so reasoning summaries and function calls stay hidden.
+ */
+export function extractCompletedResponseText(format: ModelEndpointFormat, event: unknown): string {
+  if (format !== 'responses') return ''
+  const response = asRecord(asRecord(event)?.response)
+  return response ? extractText('responses', response) : ''
+}
+
+/**
+ * Detect a response that contained provider reasoning/thinking but no answer.
+ * The result is intentionally boolean: reasoning text must never be copied
+ * into errors, logs, DTOs, or persistence.
+ */
+export function hasReasoningContent(format: ModelEndpointFormat, body: unknown): boolean {
+  const record = asRecord(body)
+  if (!record) return false
+
+  if (format === 'messages') {
+    return hasReasoningBlock(record.content) ||
+      typeof record.thinking === 'string' || typeof record.reasoning === 'string'
+  }
+
+  if (format === 'responses') {
+    if (typeof record.reasoning === 'string' || typeof record.reasoning_content === 'string') return true
+    const output = record.output
+    if (!Array.isArray(output)) return false
+    return output.some((item) => {
+      const itemRecord = asRecord(item)
+      if (!itemRecord) return false
+      const type = typeof itemRecord.type === 'string' ? itemRecord.type.toLowerCase() : ''
+      return type === 'reasoning' || type === 'thinking' ||
+        typeof itemRecord.reasoning === 'string' ||
+        hasReasoningBlock(itemRecord.content)
+    })
+  }
+
+  const choices = record.choices
+  if (!Array.isArray(choices) || choices.length === 0) return false
+  const first = asRecord(choices[0])
+  const message = asRecord(first?.message) ?? asRecord(first?.delta)
+  return Boolean(message && (
+    typeof message.reasoning_content === 'string' ||
+    typeof message.reasoning === 'string' ||
+    typeof message.thinking === 'string' ||
+    hasReasoningBlock(message.content)
+  ))
 }
 
 /** Native Responses API tool calls: `output[].type === 'function_call'`. */

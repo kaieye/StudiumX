@@ -255,6 +255,13 @@ describe('parseMindMapProposalGeneratePayload', () => {
     ],
     prompt: 'Add the missing relationship between these topics.'
   }
+  const pngAttachment = {
+    id: 'image-1',
+    name: 'diagram.png',
+    mimeType: 'image/png' as const,
+    dataBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    sizeBytes: 70
+  }
 
   it('accepts the strict proposal-generation envelope', () => {
     expect(parseMindMapProposalGeneratePayload(valid)).toEqual(valid)
@@ -264,6 +271,40 @@ describe('parseMindMapProposalGeneratePayload', () => {
     expect(
       parseMindMapProposalGeneratePayload({ ...valid, generationId: 'generation-1' })
     ).toEqual({ ...valid, generationId: 'generation-1' })
+  })
+
+  it('accepts validated image attachments on the proposal envelope', () => {
+    expect(
+      parseMindMapProposalGeneratePayload({ ...valid, imageAttachments: [pngAttachment] })
+    ).toEqual({ ...valid, imageAttachments: [pngAttachment] })
+    expect(
+      parseMindMapProposalGeneratePayload({
+        ...valid,
+        imageAttachments: [pngAttachment],
+        generationId: 'generation-1'
+      })
+    ).toEqual({ ...valid, imageAttachments: [pngAttachment], generationId: 'generation-1' })
+  })
+
+  it('rejects invalid image attachments on the proposal envelope', () => {
+    expect(
+      parseMindMapProposalGeneratePayload({
+        ...valid,
+        imageAttachments: [{ ...pngAttachment, sizeBytes: 999 }]
+      })
+    ).toBeNull()
+    expect(
+      parseMindMapProposalGeneratePayload({
+        ...valid,
+        imageAttachments: [{ ...pngAttachment, mimeType: 'image/svg+xml' }]
+      })
+    ).toBeNull()
+    expect(
+      parseMindMapProposalGeneratePayload({
+        ...valid,
+        imageAttachments: [{ ...pngAttachment, name: 'C:\\private\\diagram.png' }]
+      })
+    ).toBeNull()
   })
 
   it('rejects unknown envelope or source-ref fields', () => {
@@ -475,6 +516,61 @@ describe('parseMindMapGeneratePayload', () => {
       prompt: 'Explain mitosis',
       generationId: 'generation-1'
     })
+  })
+
+  it('accepts validated image attachments on the full-document envelope', () => {
+    const attachment = {
+      id: 'image-1',
+      name: 'diagram.png',
+      mimeType: 'image/png' as const,
+      dataBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      sizeBytes: 70
+    }
+    expect(
+      parseMindMapGeneratePayload({
+        workspaceId: 'workspace-1',
+        title: 'Cell biology',
+        prompt: 'Explain mitosis',
+        imageAttachments: [attachment]
+      })
+    ).toEqual({
+      workspaceId: 'workspace-1',
+      title: 'Cell biology',
+      prompt: 'Explain mitosis',
+      imageAttachments: [attachment]
+    })
+    expect(
+      parseMindMapGeneratePayload({
+        workspaceId: 'workspace-1',
+        title: 'Cell biology',
+        prompt: 'Explain mitosis',
+        imageAttachments: [attachment],
+        generationId: 'generation-1'
+      })
+    ).toEqual({
+      workspaceId: 'workspace-1',
+      title: 'Cell biology',
+      prompt: 'Explain mitosis',
+      imageAttachments: [attachment],
+      generationId: 'generation-1'
+    })
+  })
+
+  it('rejects invalid image attachments on the full-document envelope', () => {
+    expect(
+      parseMindMapGeneratePayload({
+        workspaceId: 'workspace-1',
+        title: 'Cell biology',
+        prompt: 'Explain mitosis',
+        imageAttachments: [{
+          id: 'image-1',
+          name: 'diagram.png',
+          mimeType: 'image/png' as const,
+          dataBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+          sizeBytes: 999
+        }]
+      })
+    ).toBeNull()
   })
 
   it('rejects blank generation ids and unknown fields', () => {

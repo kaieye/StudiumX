@@ -142,6 +142,10 @@ export function MindMapElementStyleInspector() {
   const activeSheetId = useMindMapViewStore((state) => state.activeSheetId)
   const selection = useMindMapViewStore((state) => state.selection)
   const dispatchCommand = useMindMapViewStore((state) => state.dispatchCommand)
+  const richTextSelection = useMindMapViewStore((state) => state.richTextSelection)
+  const richTextSelectionActive = useMindMapViewStore((state) => state.richTextSelectionActive)
+  const richTextTarget = useMindMapViewStore((state) => state.richTextTarget)
+  const requestRichTextStyle = useMindMapViewStore((state) => state.requestRichTextStyle)
 
   const activeSheet = current?.sheets.find((sheet) => sheet.id === activeSheetId) ?? current?.sheets[0]
   // Collect every selected element for the current selection kind. A hybrid
@@ -163,6 +167,29 @@ export function MindMapElementStyleInspector() {
   const element = elements[0]
   const styles = elements.map((candidate) => candidate?.style)
   const style = element?.style ?? {}
+
+  // When a rich text selection is active in a drawn shape's label editor (and
+  // exactly that shape is selected), the text controls below edit the selected
+  // span instead of the whole element style.
+  const selectionActiveForShape =
+    richTextSelectionActive === true &&
+    richTextTarget?.kind === 'shape' &&
+    elements.length === 1 &&
+    element?.type === 'shape' &&
+    element.id === richTextTarget.shapeId
+  const selectedRichText = selectionActiveForShape ? richTextSelection : null
+  /** Route a text-property change to the selected span, or to the element
+   *  style patch when no selection is active. */
+  const applyShapeTextProperty = (
+    spanStyle: { color?: string; fontFamily?: string; fontSize?: number },
+    fallback: () => void
+  ): void => {
+    if (selectionActiveForShape) {
+      requestRichTextStyle(spanStyle, false)
+      return
+    }
+    fallback()
+  }
 
   if (!activeSheet || !element) return null
 
@@ -218,6 +245,14 @@ export function MindMapElementStyleInspector() {
 
   /** Reset one field to inherit; only meaningful while the field is concrete. */
   const clearField = (field: keyof MindMapElementStyle): void => {
+    if (field === 'textColor') {
+      applyShapeTextProperty({ color: undefined }, () => updateStyle({ textColor: undefined }))
+      return
+    }
+    if (field === 'fontSize') {
+      applyShapeTextProperty({ fontSize: undefined }, () => updateStyle({ fontSize: undefined }))
+      return
+    }
     updateStyle({ [field]: undefined })
   }
   const clearButton = (field: keyof MindMapElementStyle, value: InspectorValue<unknown>, labelKey: string) => {
@@ -270,8 +305,13 @@ export function MindMapElementStyleInspector() {
     )
   }
   const renderColorField = (field: 'stroke' | 'fill' | 'textColor') => {
-    const value = fieldValue(field)
-    const color = concreteValue(value) ?? FALLBACK[field]
+    const selectionColor = field === 'textColor' && selectedRichText
+      ? selectedRichText.color
+      : undefined
+    const value = selectionColor !== undefined
+      ? { state: 'concrete' as const, value: selectionColor }
+      : fieldValue(field)
+    const color = selectionColor ?? concreteValue(value) ?? FALLBACK[field]
     return (
       <div key={field} className="mindmap-element-style__picker-row">
         <MindMapTopicColorPicker
@@ -282,7 +322,13 @@ export function MindMapElementStyleInspector() {
           presets={ELEMENT_COLOR_PRESETS}
           fallback={FALLBACK[field]}
           disabled={fieldCapability(field).disabled}
-          onChange={(next) => updateStyle({ [field]: next })}
+          onChange={(next) => {
+            if (field === 'textColor') {
+              applyShapeTextProperty({ color: next }, () => updateStyle({ textColor: next }))
+              return
+            }
+            updateStyle({ [field]: next })
+          }}
         />
         {clearButton(field, value, `mindmap.elementStyle.${field}`)}
         {/* Keep a narrow native seam for keyboard automation and older WebView
@@ -294,7 +340,13 @@ export function MindMapElementStyleInspector() {
           aria-label={labelFor(`mindmap.elementStyle.${field}`, value)}
           disabled={fieldCapability(field).disabled}
           aria-describedby={describeField(field)}
-          onChange={(event) => updateStyle({ [field]: event.currentTarget.value })}
+          onChange={(event) => {
+            if (field === 'textColor') {
+              applyShapeTextProperty({ color: event.currentTarget.value }, () => updateStyle({ textColor: event.currentTarget.value }))
+              return
+            }
+            updateStyle({ [field]: event.currentTarget.value })
+          }}
         />
       </div>
     )
@@ -429,6 +481,14 @@ export function MindMapElementStyleInspector() {
       className="mindmap-element-style mm-section"
       aria-label={t(`mindmap.elementStyle.types.${element.type}`)}
     >
+      {isConnector || isRelationship ? (
+        <>
+          <div className="mm-subhead">{t('mindmap.elementStyle.title')}</div>
+          <div className="mindmap-element-style__type">
+            {t(`mindmap.elementStyle.types.${element.type}`)}
+          </div>
+        </>
+      ) : null}
       {/* Text styling only applies to boxed elements that carry a label;
        * relationship/connector lines have no editable text of their own. */}
       {isConnector || isRelationship ? null : (
@@ -446,11 +506,22 @@ export function MindMapElementStyleInspector() {
               {t('mindmap.elementStyle.fontFamily')}
             </span>
             <MindMapFontPicker
-              value={fontFamilyValue.state === 'concrete' ? fontFamilyValue.value : undefined}
-              currentLabel={effectiveFontFamilyLabel}
+              value={selectedRichText
+                ? selectedRichText.fontFamily
+                : fontFamilyValue.state === 'concrete' ? fontFamilyValue.value : undefined}
+              currentLabel={selectedRichText
+                ? (selectedRichText.fontFamily
+                  ? (managedFontEntry(selectedRichText.fontFamily)
+                    ? fontEntryLabel(managedFontEntry(selectedRichText.fontFamily)!, t)
+                    : t('mindmap.topicStyle.importedFont', { font: selectedRichText.fontFamily }))
+                  : effectiveFontFamilyLabel)
+                : effectiveFontFamilyLabel}
               ariaLabel={labelFor('mindmap.elementStyle.fontFamily', fontFamilyValue)}
               disabled={fieldCapability('fontFamily').disabled}
-              onSelect={(stack) => updateStyle({ fontFamily: stack || undefined })}
+              onSelect={(stack) => applyShapeTextProperty(
+                { fontFamily: stack || undefined },
+                () => updateStyle({ fontFamily: stack || undefined })
+              )}
               searchPlaceholder="Search fonts…"
               searchLabel="Search fonts"
               noResultsLabel="No fonts found."
@@ -468,17 +539,29 @@ export function MindMapElementStyleInspector() {
           <label className="mindmap-element-style__field">
             <span>{t('mindmap.elementStyle.fontSize')}</span>
             <span style={ROW_STYLE}>
-              <input
-                type="number"
-                min="8"
-                max="72"
-                value={concreteValue(fieldValue('fontSize')) ?? FALLBACK.fontSize}
-                style={{ flex: '1 1 0', minWidth: 0 }}
-                disabled={fieldCapability('fontSize').disabled}
-                aria-label={labelFor('mindmap.elementStyle.fontSize', fieldValue('fontSize'))}
-                aria-describedby={describeField('fontSize')}
-                onChange={(event) => updateStyle({ fontSize: Number(event.currentTarget.value) })}
-              />
+              <label
+                className="mindmap-spacing-field mindmap-spacing-field--wide"
+                htmlFor="mindmap-element-style-fontsize"
+              >
+                <input
+                  id="mindmap-element-style-fontsize"
+                  className="mm-number-input"
+                  type="number"
+                  min="8"
+                  max="72"
+                  value={selectedRichText
+                    ? selectedRichText.fontSize ?? FALLBACK.fontSize
+                    : concreteValue(fieldValue('fontSize')) ?? FALLBACK.fontSize}
+                  disabled={fieldCapability('fontSize').disabled}
+                  aria-label={labelFor('mindmap.elementStyle.fontSize', fieldValue('fontSize'))}
+                  aria-describedby={describeField('fontSize')}
+                  onChange={(event) => applyShapeTextProperty(
+                    { fontSize: Number(event.currentTarget.value) },
+                    () => updateStyle({ fontSize: Number(event.currentTarget.value) })
+                  )}
+                />
+                <span aria-hidden="true">px</span>
+              </label>
               {clearButton('fontSize', fieldValue('fontSize'), 'mindmap.elementStyle.fontSize')}
             </span>
           </label>

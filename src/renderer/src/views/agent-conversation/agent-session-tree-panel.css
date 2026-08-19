@@ -23,6 +23,10 @@
   margin-left:-6px;
 }
 .overview-dialog-message.is-user .agent-message-actions{
+  /* The user bubble is content-sized, but this grid item would otherwise
+     stretch across the transcript. Keep its timestamp/actions as one group
+     directly beneath the bubble's trailing edge. */
+  justify-self:end;
   align-self:end;
   margin-right:-6px;
 }

@@ -13,9 +13,11 @@ import type {
   MindMapElementType,
   MindMapImageElement,
   MindMapPoint,
-  MindMapSheetV2
+  MindMapSheetV2,
+  MindMapTextSpanStyle
 } from '../../../../shared/mindmap/domain/types'
 import type { MindMapStructureClass, MindMapSummary } from '../../../../shared/mindmap/mind-map-types'
+import type { RichTextSelectionState } from './mind-map-rich-text-dom'
 import {
   HOME_MIND_MAP_WORKSPACE_ID,
   type MindMapLibrary,
@@ -113,6 +115,33 @@ type MindMapViewState = {
   selectedNodeId: string | null
   activeSheetId: string | null
   editingNodeId: string | null
+  /**
+   * Live rich text selection inside the active inline editor (node or shape).
+   * Drives the floating format toolbar and lets the right-side inspector route
+   * its text-property edits to the selected span instead of the whole label.
+   */
+  richTextSelection: RichTextSelectionState | null
+  /**
+   * Whether the active editor currently has a text selection the right-side
+   * inspector can target. Unlike {@link richTextSelection} (which goes
+   * inactive the moment the editor blurs), this stays `true` across a
+   * blur-to-panel so the panel keeps routing edits to the selected span.
+   */
+  richTextSelectionActive: boolean
+  /** Which editor owns the current rich text selection ('node' or 'shape'). */
+  richTextTarget: { kind: 'node'; nodeId: string } | { kind: 'shape'; shapeId: string } | null
+  /**
+   * One-shot request from the inspector/panels to apply a span style to the
+   * active text selection. The canvas consumes it (deduped by `id`) through
+   * the live editor, keeping the editor DOM/model as the single source of truth.
+   */
+  richTextStyleRequest: { id: number; style: MindMapTextSpanStyle; toggle: boolean } | null
+  setRichTextSelection: (selection: RichTextSelectionState | null) => void
+  setRichTextSelectionActive: (active: boolean) => void
+  setRichTextTarget: (
+    target: { kind: 'node'; nodeId: string } | { kind: 'shape'; shapeId: string } | null
+  ) => void
+  requestRichTextStyle: (style: MindMapTextSpanStyle, toggle?: boolean) => void
   generating: boolean
   streamText: string
   /** Renderer-only projection of an in-flight AI proposal; never persisted. */
@@ -320,6 +349,7 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
   let persistInFlight: Promise<boolean> | null = null
   let mutationEpoch = 0
   let dirty = false
+  let richTextStyleRequestId = 0
 
   const revealInspector = (
     tab: 'format' | 'content'
@@ -560,6 +590,10 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     selectedNodeId: null,
     activeSheetId: null,
     editingNodeId: null,
+    richTextSelection: null,
+    richTextSelectionActive: false,
+    richTextTarget: null,
+    richTextStyleRequest: null,
     copiedTopicStyle: null,
     generating: false,
     streamText: '',
@@ -1446,7 +1480,20 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
       }
     },
 
-    setEditingNodeId: (editingNodeId) => set({ editingNodeId }),
+    setEditingNodeId: (editingNodeId) => set({
+      editingNodeId,
+      ...(editingNodeId === null
+        ? { richTextSelection: null, richTextSelectionActive: false, richTextTarget: null, richTextStyleRequest: null }
+        : {})
+    }),
+
+    setRichTextSelection: (richTextSelection) => set({ richTextSelection }),
+    setRichTextSelectionActive: (richTextSelectionActive) => set({ richTextSelectionActive }),
+    setRichTextTarget: (richTextTarget) => set({ richTextTarget }),
+    requestRichTextStyle: (style, toggle = false) => {
+      richTextStyleRequestId += 1
+      set({ richTextStyleRequest: { id: richTextStyleRequestId, style, toggle } })
+    },
 
     setAiPrompt: (aiPrompt) => set({ aiPrompt }),
     startGenerationPreview: (generationId) => {

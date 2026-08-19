@@ -198,6 +198,7 @@ const api: TeachingSystemApi = {
   generateMindMap: (payload) => ipcRenderer.invoke(teachingInvokeChannels.generateMindMap, payload),
   onMindMapStreamChunk: (handler) => registerIpcListener<MindMapStreamChunk>(teachingEventChannels.mindMapStreamChunk, handler),
   onMindMapStreamStatus: (handler) => registerIpcListener<MindMapStreamStatus>(teachingEventChannels.mindMapStreamStatus, handler),
+  onMindMapAgentEvent: (handler) => registerIpcListener<AgentRealtimeEvent>(teachingEventChannels.mindMapAgentEvent, handler),
   cancelMindMapGeneration: (payload) => ipcRenderer.invoke(teachingInvokeChannels.cancelMindMapGeneration, payload),
   importMindMapMarkdown: (payload) => ipcRenderer.invoke(teachingInvokeChannels.importMindMapMarkdown, payload),
   importMindMapOpml: (payload) => ipcRenderer.invoke(teachingInvokeChannels.importMindMapOpml, payload),

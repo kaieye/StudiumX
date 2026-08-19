@@ -52,6 +52,86 @@ function fixtureCoreTeachingKernelReference() {
 }
 
 describe('temporary conversation runtime tool availability', () => {
+  it('sends only the current explicit image to the provider while retaining historical images locally', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'studiumx-image-history-boundary-'))
+    createdRoots.push(root)
+    const settings = configuredSettings(root)
+    settings.memory.enabled = false
+    const requests: Array<{ messages?: Array<{ role: string; content?: unknown }> }> = []
+    const pngHeader = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+    const historicalImage = {
+      id: 'history-image-1',
+      name: 'earlier-diagram.png',
+      mimeType: 'image/png' as const,
+      dataBase64: Buffer.from([...pngHeader, 0x01]).toString('base64'),
+      sizeBytes: 9
+    }
+    const currentImage = {
+      id: 'current-image-1',
+      name: 'current-diagram.png',
+      mimeType: 'image/png' as const,
+      dataBase64: Buffer.from([...pngHeader, 0x02]).toString('base64'),
+      sizeBytes: 9
+    }
+
+    globalThis.fetch = (async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as { messages?: Array<{ role: string; content?: unknown }> })
+      return jsonResponse({ choices: [{ message: { content: '已分析当前图片。' } }] })
+    }) as typeof fetch
+
+    const result = await runTeachingConversationTurn(
+      {
+        streamId: 'image-history-boundary-run',
+        workspaceId: 'workspace-1',
+        conversationId: 'temporary-conversation-images',
+        mode: 'temporary',
+        messages: [
+          { role: 'user', content: 'Earlier image context', imageAttachments: [historicalImage] },
+          { role: 'assistant', content: 'Earlier answer' }
+        ],
+        userInput: 'Analyze the newly selected image.',
+        imageAttachments: [currentImage]
+      },
+      {
+        streamId: 'image-history-boundary-run',
+        onChunk: vi.fn(),
+        onStatus: vi.fn(),
+        onTool: vi.fn()
+      },
+      {
+        id: 'workspace-1',
+        name: 'Fixture workspace',
+        rootPath: root,
+        createdAt: '2026-07-17T00:00:00.000Z',
+        updatedAt: '2026-07-17T00:00:00.000Z',
+        workspaceToolAccessGranted: true
+      },
+      {
+        loadSettings: async () => settings,
+        listMemories: async () => [],
+        createMemory: async () => { throw new Error('memory should not be created') },
+        loadSkillReferences: async () => [],
+        buildTemporaryChatContext: async () => ({ learnerProfiles: [], courses: [] }),
+        runStore: new AgentRunStore(root)
+      }
+    )
+
+    const providerMessages = requests[0]?.messages ?? []
+    const serializedProviderMessages = JSON.stringify(providerMessages)
+    expect(serializedProviderMessages).not.toContain(historicalImage.dataBase64)
+    expect(serializedProviderMessages).toContain(currentImage.dataBase64)
+    expect(providerMessages.find((message) => message.content === 'Earlier image context')).toEqual({
+      role: 'user', content: 'Earlier image context'
+    })
+
+    expect('turns' in result).toBe(true)
+    if (!('turns' in result)) return
+    expect(result.turns.find((turn) => turn.content === 'Earlier image context')?.imageAttachments)
+      .toEqual([historicalImage])
+    expect([...result.turns].reverse().find((turn) => turn.role === 'user')?.imageAttachments)
+      .toEqual([currentImage])
+  })
+
   it('offers configured web tools without exposing workspace tools', async () => {
     const root = await mkdtemp(join(tmpdir(), 'studiumx-temporary-tools-'))
     createdRoots.push(root)

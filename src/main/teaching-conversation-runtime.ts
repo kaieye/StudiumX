@@ -338,7 +338,7 @@ async function runTeachingConversationTurnActive(
     : { handled: false as const, isBareConsentResponse: false }
   if (directMemoryConsent.handled) {
     return {
-      turns: directAgentTurns(payload.messages ?? [], userInput, directMemoryConsent.finalText),
+      turns: directAgentTurns(payload.messages ?? [], userInput, directMemoryConsent.finalText, payload.imageAttachments),
       finalText: directMemoryConsent.finalText,
       iterations: 0,
       toolsSupported: false,
@@ -455,7 +455,12 @@ async function runTeachingConversationTurnActive(
   })
   lessonTool.registerInto(baseRegistry)
 
+  // Keep durable attachment metadata in a host-local copy so a canonical
+  // transcript can round-trip unchanged. The provider-facing history below
+  // deliberately removes it: an image leaves the device only when it appears
+  // on this payload's explicit current-turn `imageAttachments` field.
   const priorMessages: ChatMessage[] = (payload.messages ?? []).map(toChatMessage)
+  const providerPriorMessages = priorMessages.map(stripHistoricalImageAttachmentsForProvider)
   // ADR-0014: pure plan() after mode/settings known, before loading skill bodies.
   // Planner has zero settlement authority; stage-scoped bodies load active_now (+ kernel).
   const orchestrationFacts = deps.skillOrchestrationFacts
@@ -678,11 +683,11 @@ async function runTeachingConversationTurnActive(
   const temporaryContext = conversation.mode === 'temporary' && workspace
     ? await deps.buildTemporaryChatContext(workspace, existingMemories)
     : null
-  const priorMessageTurnIds = payload.messageTurnIds?.length === priorMessages.length
+  const priorMessageTurnIds = payload.messageTurnIds?.length === providerPriorMessages.length
     ? payload.messageTurnIds.map((id) => id || undefined)
-    : priorMessages.map(() => undefined)
+    : providerPriorMessages.map(() => undefined)
   const priorMessagesWithTurnIds = priorMessages
-    .map((message, index) => ({ message, turnId: priorMessageTurnIds[index] }))
+    .map((_, index) => ({ message: providerPriorMessages[index]!, turnId: priorMessageTurnIds[index] }))
     .filter(({ message }) => message.role !== 'system')
   const promptOptions = {
     mode: conversation.mode,
@@ -703,7 +708,11 @@ async function runTeachingConversationTurnActive(
       content: buildSessionStablePrefix(promptOptions)
     },
     ...priorMessagesWithTurnIds.map(({ message }) => message),
-    { role: 'user', content: [composeTeachingUserTurn(promptOptions), providerUserInput].filter(Boolean).join('\n\n') }
+    {
+      role: 'user',
+      content: [composeTeachingUserTurn(promptOptions), providerUserInput].filter(Boolean).join('\n\n'),
+      ...(payload.imageAttachments?.length ? { imageAttachments: payload.imageAttachments } : {})
+    }
   ]
   const messageTurnIds = [
     undefined,
@@ -826,7 +835,10 @@ async function runTeachingConversationTurnActive(
   const durableTurns = attachAgentConversationRuntimeTimeline(
     attachAgentRunAuditMetadata(
       attachExplicitSkillInvocationPresentation(
-        toAgentTurns(withDurableUserInput(memoryOutcome.messages, userInput)),
+        toAgentTurns(restoreHistoricalImageAttachments(
+          withDurableUserInput(memoryOutcome.messages, userInput, payload.imageAttachments),
+          priorMessages
+        )),
         explicitInvocation?.presentation
       ),
       runEvents,
@@ -883,21 +895,65 @@ function toChatMessage(message: AgentChatMessage): ChatMessage {
         : undefined
     return { role: 'assistant', content: message.content, tool_calls: toolCalls }
   }
-  if (message.role === 'user') return { role: 'user', content: message.content ?? '' }
+  if (message.role === 'user') return {
+    role: 'user',
+    content: message.content ?? '',
+    ...(message.imageAttachments?.length ? { imageAttachments: message.imageAttachments } : {})
+  }
   return { role: 'system', content: message.content ?? '' }
 }
 
 
-function withDurableUserInput(messages: ChatMessage[], userInput: string): ChatMessage[] {
+function withDurableUserInput(
+  messages: ChatMessage[],
+  userInput: string,
+  imageAttachments?: AgentChatStreamPayload['imageAttachments']
+): ChatMessage[] {
   const next = messages.slice()
   for (let index = next.length - 1; index >= 0; index -= 1) {
     const message = next[index]
     if (message?.role === 'user') {
-      next[index] = { ...message, content: userInput }
+      next[index] = {
+        ...message,
+        content: userInput,
+        ...(imageAttachments?.length ? { imageAttachments } : {})
+      }
       return next
     }
   }
   return next
+}
+
+/**
+ * Historic attachments are retained for the local durable transcript but never
+ * sent as provider context. The agent loop preserves its initial transcript
+ * order, so restore them against that prefix after the provider-safe run has
+ * completed. The current turn is handled separately by `withDurableUserInput`.
+ */
+function restoreHistoricalImageAttachments(
+  messages: ChatMessage[],
+  historicalMessages: readonly ChatMessage[]
+): ChatMessage[] {
+  const historical = historicalMessages.filter((message) => message.role !== 'system')
+  let historicalIndex = 0
+
+  return messages.map((message) => {
+    const source = historical[historicalIndex]
+    if (!source || message.role !== source.role) return message
+    historicalIndex += 1
+    if (message.role === 'user' && source.role === 'user' && source.imageAttachments?.length) {
+      return { ...message, imageAttachments: source.imageAttachments }
+    }
+    return message
+  })
+}
+
+/** Provider history has no implicit image replay; only the current turn can carry one. */
+function stripHistoricalImageAttachmentsForProvider(message: ChatMessage): ChatMessage {
+  if (message.role === 'user' && message.imageAttachments?.length) {
+    return { role: 'user', content: message.content }
+  }
+  return message
 }
 
 function toAgentTurns(messages: ChatMessage[]): AgentChatTurn[] {
@@ -906,7 +962,13 @@ function toAgentTurns(messages: ChatMessage[]): AgentChatTurn[] {
   const createdAt = new Date().toISOString()
   for (const message of messages) {
     if (message.role === 'user') {
-      turns.push({ id: `t${counter++}`, role: 'user', content: message.content ?? '', createdAt })
+      turns.push({
+        id: `t${counter++}`,
+        role: 'user',
+        content: message.content ?? '',
+        ...(message.imageAttachments?.length ? { imageAttachments: message.imageAttachments } : {}),
+        createdAt
+      })
     } else if (message.role === 'assistant') {
       const toolCalls = message.tool_calls?.map((toolCall) => {
         const resultMessage = messages.find(
@@ -939,7 +1001,12 @@ function latestAssistantContent(messages: AgentChatMessage[]): string {
   return [...messages].reverse().find((message) => message.role === 'assistant')?.content ?? ''
 }
 
-function directAgentTurns(messages: AgentChatMessage[], userInput: string, assistantText: string): AgentChatTurn[] {
+function directAgentTurns(
+  messages: AgentChatMessage[],
+  userInput: string,
+  assistantText: string,
+  imageAttachments?: AgentChatStreamPayload['imageAttachments']
+): AgentChatTurn[] {
   const createdAt = new Date().toISOString()
   const prior = messages
     .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -947,11 +1014,18 @@ function directAgentTurns(messages: AgentChatMessage[], userInput: string, assis
       id: `t${index}`,
       role: message.role === 'assistant' ? 'assistant' : 'user',
       content: message.content ?? '',
+      ...(message.imageAttachments?.length ? { imageAttachments: message.imageAttachments } : {}),
       createdAt
     }))
   return [
     ...prior,
-    { id: `t${prior.length}`, role: 'user', content: userInput, createdAt },
+    {
+      id: `t${prior.length}`,
+      role: 'user',
+      content: userInput,
+      ...(imageAttachments?.length ? { imageAttachments } : {}),
+      createdAt
+    },
     { id: `t${prior.length + 1}`, role: 'assistant', content: sanitizeAgentTurnContent(assistantText), createdAt }
   ]
 }

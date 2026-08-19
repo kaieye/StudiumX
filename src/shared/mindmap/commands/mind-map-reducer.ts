@@ -56,6 +56,7 @@ import type {
 
 const TOPIC_PATCH_FIELDS: ReadonlyArray<keyof MindMapTopicUpdatePatch> = [
   'title',
+  'titleFormatting',
   'note',
   'collapsed',
   'labels',
@@ -77,7 +78,7 @@ const ELEMENT_ALLOWED_FIELDS: Readonly<Record<string, ReadonlySet<string>>> = {
   summary: new Set(['label', 'from', 'to', 'sourceTopicIds', 'summaryTopicId', 'style']),
   callout: new Set(['label', 'topicId', 'text', 'position', 'style']),
   'free-topic': new Set(['label', 'topicId', 'position', 'style']),
-  shape: new Set(['label', 'shape', 'position', 'width', 'height', 'style']),
+  shape: new Set(['label', 'labelFormatting', 'shape', 'position', 'width', 'height', 'style']),
   connector: new Set(['label', 'start', 'end', 'curveControlOffset', 'style'])
 }
 

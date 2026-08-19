@@ -27,6 +27,7 @@ import type {
   MindMapPoint,
   MindMapSheetV2,
   MindMapSourceRef,
+  MindMapTextSpan,
   MindMapTheme,
   MindMapTopicNumbering,
   MindMapTopicStyleOverride,
@@ -36,6 +37,8 @@ import type {
 /** Partial topic update. `null` removes an optional field; `undefined` leaves it untouched. */
 export type MindMapTopicUpdatePatch = {
   title?: string | null
+  /** Per-character formatting over `title`; `null` clears it. */
+  titleFormatting?: MindMapTextSpan[] | null
   note?: string | null
   collapsed?: boolean
   labels?: string[] | null
@@ -75,6 +78,8 @@ export type MindMapSheetLayoutUpdatePatch = {
 
 export type MindMapElementUpdatePatch = {
   label?: string | null
+  /** Per-character formatting over the shape `label`; `null` clears it. */
+  labelFormatting?: MindMapTextSpan[] | null
   from?: string
   to?: string
   /** Explicit cross-branch source topics; `null` restores sibling-range semantics. */

@@ -113,7 +113,7 @@ import { exportMindMapOpmlFile } from './mindmap/opml-file'
 import { exportMindMapSvgFile } from './mindmap/svg-file'
 import { exportMindMapPngFile } from './mindmap/png-file'
 import { parseMindMapProposalApplyPayload } from './mindmap/mind-map-proposal-ipc'
-import type { AgentChatStreamPayload, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AgentRealtimeEvent, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, MindMapStreamStep, TeachingSettingsV1 } from '../shared/teaching-types'
+import type { AgentChatStreamPayload, AgentChatStreamStatus, AgentChatTurn, AgentConversationTurnStartedRealtimeEvent, AgentRealtimeEvent, AgentStreamTerminalStatus, AnalyticsExportRequest, AppUpdateAction, ClearAnalyticsRequest, LearningAnalyticsRequest, MindMapStreamStep, TeachingSettingsV1 } from '../shared/teaching-types'
 import type { MindMapAssetRef, MindMapDocumentV2 } from '../shared/mindmap/domain/types'
 import type { MindMapDocument } from '../shared/mindmap/mind-map-types'
 import {
@@ -1838,6 +1838,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
 
         const loadedSettings = await settings.load()
         const generationId = p.generationId ?? randomUUID()
+        const agentEvents = createMindMapAgentEventSender(event.sender, generationId)
         const sendStatus = (
           step: MindMapStreamStep,
           message?: string
@@ -1851,6 +1852,51 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         let streamStarted = false
         let proposal
         sendStatus('calling')
+        agentEvents.status('thinking')
+        publishCompletedMindMapFileRead(
+          agentEvents,
+          `${generationId}:read:document`,
+          `mindmaps/${current.id}.json`
+        )
+        if (selectedFileContext) {
+          publishCompletedMindMapFileRead(
+            agentEvents,
+            `${generationId}:read:selected-file`,
+            selectedFileContext.sourceRef.workspacePath,
+            selectedFileContext.byteLength
+          )
+        }
+        if (notesContext) {
+          publishCompletedMindMapFileRead(
+            agentEvents,
+            `${generationId}:read:notes`,
+            notesContext.sourceRef.workspacePath,
+            notesContext.byteLength
+          )
+        }
+        if (lessonContext) {
+          publishCompletedMindMapFileRead(
+            agentEvents,
+            `${generationId}:read:lesson`,
+            lessonContext.sourceRef.workspacePath,
+            lessonContext.byteLength
+          )
+        }
+        if (autoSourceContext) {
+          publishCompletedMindMapWorkspaceList(
+            agentEvents,
+            `${generationId}:list:auto-source`,
+            autoSourceContext.files.map((file) => file.sourceRef.workspacePath)
+          )
+          autoSourceContext.files.forEach((file, index) => {
+            publishCompletedMindMapFileRead(
+              agentEvents,
+              `${generationId}:read:auto-source:${index}`,
+              file.sourceRef.workspacePath,
+              file.byteLength
+            )
+          })
+        }
         try {
           proposal = await generateMindMapProposal({
             title: current.title,
@@ -1862,23 +1908,30 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             autoSourceContext,
             notesContext,
             lessonContext,
+            ...(p.imageAttachments?.length ? { imageAttachments: p.imageAttachments } : {}),
             generationId
           }, (delta) => {
             if (!streamStarted) {
               streamStarted = true
               sendStatus('streaming')
+              agentEvents.status('answering')
             }
             safeSend(event.sender, teachingEventChannels.mindMapStreamChunk, {
               generationId,
               delta
             })
+          }, (delta) => {
+            agentEvents.chunk('reasoning', delta)
           })
           sendStatus('validating')
+          agentEvents.terminal('done')
         } catch (error) {
           const step = error instanceof MindMapGenerationError && error.kind === 'cancelled'
             ? 'cancelled'
             : 'error'
-          sendStatus(step, errorMessage(error))
+          const message = errorMessage(error)
+          sendStatus(step, message)
+          agentEvents.terminal(mindMapAgentTerminalForError(error), message)
           throw mindMapGenerationIpcError(error)
         }
 
@@ -1929,6 +1982,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           autoSourceContext = await resolveMindMapAutoSourceContext(root, p.prompt)
         }
         const generationId = p.generationId ?? randomUUID()
+        const agentEvents = createMindMapAgentEventSender(event.sender, generationId)
         const sendStatus = (
           step: MindMapStreamStep,
           message?: string
@@ -1941,6 +1995,38 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         }
         let streamStarted = false
         sendStatus('calling')
+        agentEvents.status('thinking')
+        if (selectedFileContext) {
+          publishCompletedMindMapFileRead(
+            agentEvents,
+            `${generationId}:read:selected-file`,
+            selectedFileContext.sourceRef.workspacePath,
+            selectedFileContext.byteLength
+          )
+        }
+        if (lessonContext) {
+          publishCompletedMindMapFileRead(
+            agentEvents,
+            `${generationId}:read:lesson`,
+            lessonContext.sourceRef.workspacePath,
+            lessonContext.byteLength
+          )
+        }
+        if (autoSourceContext) {
+          publishCompletedMindMapWorkspaceList(
+            agentEvents,
+            `${generationId}:list:auto-source`,
+            autoSourceContext.files.map((file) => file.sourceRef.workspacePath)
+          )
+          autoSourceContext.files.forEach((file, index) => {
+            publishCompletedMindMapFileRead(
+              agentEvents,
+              `${generationId}:read:auto-source:${index}`,
+              file.sourceRef.workspacePath,
+              file.byteLength
+            )
+          })
+        }
         let generated: MindMapDocument
         try {
           generated = await generateMindMap({
@@ -1950,26 +2036,34 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             selectedFileContext,
             autoSourceContext,
             lessonContext,
+            ...(p.imageAttachments?.length ? { imageAttachments: p.imageAttachments } : {}),
             generationId
           }, (delta) => {
             if (!streamStarted) {
               streamStarted = true
               sendStatus('streaming')
+              agentEvents.status('answering')
             }
             safeSend(event.sender, teachingEventChannels.mindMapStreamChunk, {
               generationId,
               delta
             })
+          }, (delta) => {
+            agentEvents.chunk('reasoning', delta)
           })
           sendStatus('validating')
         } catch (error) {
           const step = error instanceof MindMapGenerationError && error.kind === 'cancelled'
             ? 'cancelled'
             : 'error'
-          sendStatus(step, errorMessage(error))
+          const message = errorMessage(error)
+          sendStatus(step, message)
+          agentEvents.terminal(mindMapAgentTerminalForError(error), message)
           throw mindMapGenerationIpcError(error)
         }
         sendStatus('rendering')
+        let writeToolCall: { id: string; name: string; arguments: string } | null = null
+        let writeToolSettled = false
         try {
           const migrated = migrateV1ToV2(generated)
           if (!migrated.ok) {
@@ -1979,18 +2073,37 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           // store (authoritative id + timestamps), then return the persisted doc.
           const store = getMindMapStore(root)
           const created = await store.create(p.title)
+          const targetPath = `mindmaps/${created.id}.json`
+          writeToolCall = {
+            id: `${generationId}:write:${created.id}`,
+            name: 'write_workspace_file',
+            arguments: JSON.stringify({ path: targetPath })
+          }
+          agentEvents.tool(writeToolCall)
           const result = await store.update(
             created.id,
             { ...migrated.value, id: created.id, createdAt: created.createdAt, updatedAt: created.updatedAt },
             created.revision
           )
           const persisted = unwrapMindMapUpdate(result, 'generateMindMap')
+          agentEvents.tool(
+            writeToolCall,
+            JSON.stringify({ ok: true, path: targetPath, revision: persisted.revision }),
+            false
+          )
+          writeToolSettled = true
           sendStatus('done')
+          agentEvents.terminal('done')
           return persisted
         } catch (error) {
           // Keep renderer lifecycle state correlated even when migration or the
           // canonical persistence boundary fails after provider settlement.
-          sendStatus('error', errorMessage(error))
+          const message = errorMessage(error)
+          if (writeToolCall && !writeToolSettled) {
+            agentEvents.tool(writeToolCall, JSON.stringify({ ok: false }), true)
+          }
+          sendStatus('error', message)
+          agentEvents.terminal('error', message)
           throw mindMapGenerationIpcError(error)
         }
       },
@@ -2218,10 +2331,18 @@ function conversationReservationPayload(input: {
     ...(reservation.target.kind === 'canonical'
       ? { conversationId: reservation.target.conversationId, expectedBranchRevision: canonical?.revision }
       : {}),
-    messages: turns.map((turn) => ({ role: turn.role, content: turn.content })),
+    // Attachments here are host-local durable transcript data. Runtime strips
+    // them from provider history and only sends `reservation.intent` images for
+    // this explicitly submitted turn.
+    messages: turns.map((turn) => ({
+      role: turn.role,
+      content: turn.content,
+      ...(turn.imageAttachments?.length ? { imageAttachments: turn.imageAttachments } : {})
+    })),
     ...(turns.length ? { messageTurnIds: turns.map((turn) => turn.id) } : {}),
     userInput: reservation.intent.text,
-    ...(reservation.intent.skillIds?.length ? { skillIds: reservation.intent.skillIds } : {})
+    ...(reservation.intent.skillIds?.length ? { skillIds: reservation.intent.skillIds } : {}),
+    ...(reservation.intent.imageAttachments?.length ? { imageAttachments: reservation.intent.imageAttachments } : {})
   }
 }
 
@@ -2241,7 +2362,26 @@ function mergeHostConversationTurns(
 
 function sameHostConversationTurn(left: AgentChatTurn, right: AgentChatTurn | undefined): boolean {
   if (!right) return false
-  return left.id === right.id && left.role === right.role && left.content === right.content
+  return left.id === right.id &&
+    left.role === right.role &&
+    left.content === right.content &&
+    sameImageAttachments(left.imageAttachments, right.imageAttachments)
+}
+
+function sameImageAttachments(
+  left: AgentChatTurn['imageAttachments'],
+  right: AgentChatTurn['imageAttachments']
+): boolean {
+  if (left === right) return true
+  if (!left || !right || left.length !== right.length) return !left?.length && !right?.length
+  return left.every((attachment, index) => {
+    const candidate = right[index]
+    return candidate?.id === attachment.id &&
+      candidate.name === attachment.name &&
+      candidate.mimeType === attachment.mimeType &&
+      candidate.sizeBytes === attachment.sizeBytes &&
+      candidate.dataBase64 === attachment.dataBase64
+  })
 }
 
 function conversationTurnStartedEvent(
@@ -2372,6 +2512,137 @@ function hasLegacyConversationTarget(context: GatewayContext, target: Conversati
 
 function unavailableReplay(streamId: string, afterSequence: number) {
   return { streamId, available: false, requestedAfterSequence: afterSequence, fromSequence: afterSequence + 1, nextSequence: afterSequence + 1, hasGap: true, droppedEvents: 0, droppedBytes: 0, events: [] }
+}
+
+/**
+ * Mind-map generation is not a teaching conversation and therefore must not
+ * enter AgentEventBus persistence or settlement. It still publishes the same
+ * safe realtime event model on its own IPC channel so embedded and homepage
+ * conversation surfaces share one renderer projection without cross-buffering.
+ */
+function createMindMapAgentEventSender(
+  sender: Electron.WebContents,
+  generationId: string
+): {
+    status: (status: AgentChatStreamStatus['status'], message?: string) => void
+    chunk: (channel: 'reasoning', delta: string) => void
+    tool: (
+      toolCall: { id: string; name: string; arguments: string },
+      result?: string,
+      isError?: boolean
+    ) => void
+    terminal: (outcome: AgentStreamTerminalStatus, message?: string) => void
+  } {
+  let sequence = 0
+  const publish = (event: AgentRealtimeEvent): void => {
+    safeSend(sender, teachingEventChannels.mindMapAgentEvent, event)
+  }
+  const nextEnvelope = (): Pick<AgentRealtimeEvent, 'sequence' | 'streamId' | 'createdAt'> => ({
+    sequence: ++sequence,
+    streamId: generationId,
+    createdAt: new Date().toISOString()
+  })
+  return {
+    status: (status, message) => publish({
+      ...nextEnvelope(),
+      kind: 'status',
+      payload: {
+        streamId: generationId,
+        status,
+        ...(message ? { message } : {})
+      }
+    }),
+    chunk: (channel, delta) => {
+      if (!delta) return
+      publish({
+        ...nextEnvelope(),
+        kind: 'chunk',
+        payload: { streamId: generationId, channel, delta }
+      })
+    },
+    tool: (toolCall, result, isError) => publish({
+      ...nextEnvelope(),
+      kind: 'tool',
+      payload: {
+        streamId: generationId,
+        toolCall,
+        ...(result !== undefined ? { result, isError } : {})
+      }
+    }),
+    terminal: (outcome, message) => publish({
+      ...nextEnvelope(),
+      kind: 'terminal',
+      outcome,
+      ...(message ? { message } : {})
+    })
+  }
+}
+
+function publishCompletedMindMapFileRead(
+  agentEvents: ReturnType<typeof createMindMapAgentEventSender>,
+  toolCallId: string,
+  path: string | undefined,
+  byteLength?: number
+): void {
+  if (!path) return
+  const toolCall = {
+    id: toolCallId,
+    name: 'read_workspace_file',
+    arguments: JSON.stringify({ path })
+  }
+  agentEvents.tool(toolCall)
+  agentEvents.tool(
+    toolCall,
+    JSON.stringify({
+      ok: true,
+      path,
+      ...(byteLength !== undefined ? { byteLength } : {})
+    }),
+    false
+  )
+}
+
+/**
+ * Project the host-owned bounded Markdown discovery as a normal read-only tool
+ * row. Only relative paths selected for provider context cross IPC; source
+ * bodies, absolute workspace paths, and generated JSON remain main-process-only.
+ */
+function publishCompletedMindMapWorkspaceList(
+  agentEvents: ReturnType<typeof createMindMapAgentEventSender>,
+  toolCallId: string,
+  paths: readonly (string | undefined)[]
+): void {
+  const visiblePaths = paths.filter((path): path is string => Boolean(path))
+  if (visiblePaths.length === 0) return
+  const toolCall = {
+    id: toolCallId,
+    name: 'list_workspace',
+    arguments: JSON.stringify({
+      path: '.',
+      recursive: true,
+      extensions: ['md', 'markdown', 'mdx']
+    })
+  }
+  agentEvents.tool(toolCall)
+  agentEvents.tool(
+    toolCall,
+    JSON.stringify({
+      ok: true,
+      path: '.',
+      entries: visiblePaths.map((path) => ({ path, type: 'file' })),
+      count: visiblePaths.length,
+      truncated: false
+    }),
+    false
+  )
+}
+
+function mindMapAgentTerminalForError(error: unknown): AgentStreamTerminalStatus {
+  if (!(error instanceof MindMapGenerationError)) return 'error'
+  if (error.kind === 'cancelled') return 'canceled'
+  if (error.kind === 'resource_limit') return 'resource_limit'
+  if (error.kind === 'suspended') return 'suspended'
+  return 'error'
 }
 
 function safeSend(sender: Electron.WebContents, channel: string, payload: unknown): void {

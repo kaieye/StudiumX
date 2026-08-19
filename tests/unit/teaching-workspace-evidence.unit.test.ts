@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { evaluateLearningSessionOutcome } from '../../src/main/learning-outcome-evaluator'
 import { join } from 'node:path'
 
@@ -95,8 +95,14 @@ describe.runIf(process.platform !== 'win32')('TeachingWorkspaceService preview l
     // The normal preview is scriptful, but host-owned preview evidence is
     // bound to the immutable static assessment SHA. A real generated quiz can
     // therefore establish only through that sidecar authority.
+    const assessmentSidecar = JSON.parse(await readFile(
+      join(workspace.rootPath, session!.lessonRef!.assessment!.relativePath),
+      'utf8'
+    )) as { quizzes?: Array<{ answerIds?: string[] | null }> }
+    const canonicalAnswerId = assessmentSidecar.quizzes?.[0]?.answerIds?.[0]
+    expect(canonicalAnswerId).toEqual(expect.any(String))
     const quizReceipt = await service.recordPreviewLessonInteraction(101, {
-      eventId: 'preview-quiz-assessment-001', kind: 'quiz_answered', itemId: 'quiz-1', selectedOptionIds: ['b'], correct: false
+      eventId: 'preview-quiz-assessment-001', kind: 'quiz_answered', itemId: 'quiz-1', selectedOptionIds: [canonicalAnswerId!], correct: false
     })
     expect(quizReceipt.sequence).toBe(2)
     const evaluated = await evaluateLearningSessionOutcome({

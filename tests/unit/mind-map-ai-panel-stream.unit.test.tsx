@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../../src/renderer/src/i18n'
@@ -9,6 +9,7 @@ import { MindMapAiPanel } from '../../src/renderer/src/views/mindmap/MindMapAiPa
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
 import type { MindMapDocumentV2 } from '../../src/shared/mindmap/domain/types'
 import type {
+  AgentRealtimeEvent,
   MindMapProposalApplyResult,
   MindMapProposalGenerateResult,
   MindMapStreamChunk,
@@ -201,6 +202,7 @@ function appliedProposalResult(): MindMapProposalApplyResult {
 describe('MindMapAiPanel streaming preview', () => {
   let chunkHandler: ((chunk: MindMapStreamChunk) => void) | undefined
   let statusHandler: ((status: MindMapStreamStatus) => void) | undefined
+  let agentEventHandler: ((event: AgentRealtimeEvent) => void) | undefined
   let resolveGeneration: ((document: MindMapDocumentV2) => void) | undefined
   let api: Partial<TeachingSystemApi>
 
@@ -236,6 +238,10 @@ describe('MindMapAiPanel streaming preview', () => {
       }),
       onMindMapStreamStatus: vi.fn((handler) => {
         statusHandler = handler
+        return vi.fn()
+      }),
+      onMindMapAgentEvent: vi.fn((handler) => {
+        agentEventHandler = handler
         return vi.fn()
       })
     }
@@ -347,27 +353,23 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(screen.getByText('Element style')).toBeInTheDocument()
   })
 
-  it('lets streamed previews grow with the transcript instead of clipping them inside a code slab', () => {
+  it('leaves streamed message presentation to the shared homepage conversation styles', () => {
     const styles = readFileSync(
       resolve(process.cwd(), 'src/renderer/src/views/mindmap/mindmap.css'),
       'utf8'
     )
     const threadRule = styles.match(/\.mindmap-ai-panel__thread\s*\{([\s\S]*?)\n\}/)?.[1]
-    const previewRule = styles.match(
-      /\.mindmap-ai-panel__message--assistant > \.markdown-message pre\s*\{([\s\S]*?)\n\}/
-    )?.[1]
 
-    // The conversation thread is the single vertical scroll owner. A generated
-    // map preview can be much longer than a composer input, so a nested 180px
-    // code slab hides most of the AI turn behind a second scrollbar.
+    // The panel keeps its own scroll boundary and horizontal inset, but it must
+    // not redefine the shared user bubble or assistant Markdown/code treatment.
     expect(threadRule).toMatch(/flex:\s*1 1 auto;/)
     expect(threadRule).toMatch(/min-height:\s*0;/)
     expect(threadRule).toMatch(/overflow-y:\s*auto;/)
-    expect(previewRule).toMatch(/max-height:\s*none;/)
-    expect(previewRule).toMatch(/overflow:\s*visible;/)
+    expect(styles).not.toMatch(/\.mindmap-ai-panel__turn--user > \.markdown-message/)
+    expect(styles).not.toMatch(/\.mindmap-ai-panel__message--assistant > \.markdown-message pre/)
   })
 
-  it('renders correlated provider deltas and ignores stale generation events', async () => {
+  it('renders the real shared Agent event flow and ignores stale generation events', async () => {
     const user = userEvent.setup()
     const { container } = render(<MindMapAiPanel open onToggle={() => {}} />)
     await user.click(screen.getByRole('tab', { name: /AI$/ }))
@@ -376,39 +378,137 @@ describe('MindMapAiPanel streaming preview', () => {
     const generationId = (api.generateMindMap as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
     expect(generationId).toEqual(expect.any(String))
 
-    // The mind-map conversation reuses the compact process-card surface from
-    // the main conversation, while exposing its real provider lifecycle.
-    const processPanel = container.querySelector<HTMLElement>(
-      '.mindmap-ai-panel__message--assistant .agent-process-panel'
-    )
-    expect(processPanel).toHaveClass('is-compact')
-    expect(within(processPanel!).getByText('Analyze the prompt and plan the map')).toBeInTheDocument()
-    expect(within(processPanel!).getByText('Generate the mind map')).toBeInTheDocument()
-
     act(() => {
       statusHandler?.({ generationId, step: 'streaming' })
       chunkHandler?.({ generationId, delta: '{"sheets":' })
       chunkHandler?.({ generationId: 'stale-generation', delta: 'ignored' })
       chunkHandler?.({ generationId, delta: '[]}' })
+      agentEventHandler?.({
+        sequence: 1,
+        streamId: generationId,
+        kind: 'tool',
+        createdAt: NOW,
+        payload: {
+          streamId: generationId,
+          toolCall: {
+            id: 'list-1',
+            name: 'list_workspace',
+            arguments: '{"path":".","recursive":true,"extensions":["md","markdown","mdx"]}'
+          }
+        }
+      })
+      agentEventHandler?.({
+        sequence: 2,
+        streamId: generationId,
+        kind: 'tool',
+        createdAt: NOW,
+        payload: {
+          streamId: generationId,
+          toolCall: {
+            id: 'list-1',
+            name: 'list_workspace',
+            arguments: '{"path":".","recursive":true,"extensions":["md","markdown","mdx"]}'
+          },
+          result: '{"ok":true,"path":".","entries":[{"path":"课程资料/第一章.md","type":"file"},{"path":"课程资料/第二章.md","type":"file"}],"count":2,"truncated":false}',
+          isError: false
+        }
+      })
+      agentEventHandler?.({
+        sequence: 3,
+        streamId: generationId,
+        kind: 'chunk',
+        createdAt: NOW,
+        payload: { streamId: generationId, channel: 'reasoning', delta: 'Inspecting the requested structure.' }
+      })
+      agentEventHandler?.({
+        sequence: 4,
+        streamId: 'stale-generation',
+        kind: 'chunk',
+        createdAt: NOW,
+        payload: { streamId: 'stale-generation', delta: 'stale assistant text' }
+      })
+      agentEventHandler?.({
+        sequence: 4,
+        streamId: generationId,
+        kind: 'chunk',
+        createdAt: NOW,
+        payload: {
+          streamId: generationId,
+          channel: 'answer',
+          delta: '```json\n{"sheets":[]}\n```'
+        }
+      })
+      agentEventHandler?.({
+        sequence: 5,
+        streamId: generationId,
+        kind: 'tool',
+        createdAt: NOW,
+        payload: {
+          streamId: generationId,
+          toolCall: {
+            id: 'edit-1',
+            name: 'edit_workspace_file',
+            arguments: '{"path":"mindmaps/generated.json"}'
+          }
+        }
+      })
+      agentEventHandler?.({
+        sequence: 6,
+        streamId: generationId,
+        kind: 'tool',
+        createdAt: NOW,
+        payload: {
+          streamId: generationId,
+          toolCall: {
+            id: 'edit-1',
+            name: 'edit_workspace_file',
+            arguments: '{"path":"mindmaps/generated.json"}'
+          },
+          result: '{"ok":true}',
+          isError: false
+        }
+      })
     })
 
     expect(within(screen.getByRole('log')).getByText('Build a study map')).toBeInTheDocument()
-    expect(screen.getByText('{"sheets":[]}')).toBeInTheDocument()
+    expect(screen.queryByText('{"sheets":[]}')).not.toBeInTheDocument()
     expect(container.querySelector('[data-stream-step="streaming"]')).toBeInTheDocument()
-    expect(screen.getByText('Generate the mind map').closest('.agent-process-event')).toHaveClass('is-active')
-    expect(screen.getByText('Analyze the prompt and plan the map').closest('.agent-process-event')).not.toHaveClass('is-active')
+    expect(screen.getByText('Think')).toBeInTheDocument()
+    expect(screen.getAllByText('Inspecting the requested structure.').length).toBeGreaterThan(0)
+    expect(screen.getByText('Search')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Search详情/ }))
+    expect(screen.getByText('课程资料/第一章.md')).toBeInTheDocument()
+    expect(screen.getByText('课程资料/第二章.md')).toBeInTheDocument()
+    expect(screen.getByText('Edit')).toBeInTheDocument()
+    expect(screen.getByText('mindmaps/generated.json')).toBeInTheDocument()
+    expect(screen.queryByText('{"ok":true}')).not.toBeInTheDocument()
+    expect(screen.queryByText('stale assistant text')).not.toBeInTheDocument()
+    expect(screen.queryByText('Analyze the prompt and plan the map')).not.toBeInTheDocument()
+    expect(screen.queryByText('Waiting for the previous step to finish')).not.toBeInTheDocument()
     expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'off')
-    expect(container.querySelector('.mindmap-ai-panel__thread-inner')).toHaveClass('overview-dialog-thread-inner')
-    expect(within(screen.getByRole('log')).getByText('Build a study map').closest('.markdown-message')).toHaveClass(
-      'markdown-message--user'
-    )
-    expect(screen.getByText('{"sheets":[]}').closest('.markdown-message')).toHaveClass('markdown-message--assistant')
+    const threadInner = container.querySelector('.mindmap-ai-panel__thread-inner')
+    const userMarkdown = within(screen.getByRole('log')).getByText('Build a study map').closest('.markdown-message')
+    const userMessage = userMarkdown?.closest('.overview-dialog-message')
+    const assistantMessage = container.querySelector('.mindmap-ai-panel__message--assistant')
+    expect(threadInner).toHaveClass('overview-dialog-thread-inner')
+    expect(userMarkdown).toHaveClass('markdown-message--user')
+    expect(userMessage).toHaveClass('mindmap-ai-panel__message--user', 'is-user')
+    expect(assistantMessage).toHaveClass('mindmap-ai-panel__message--assistant', 'is-assistant')
+    // The shared message frame remains, but structured mind-map JSON is
+    // represented by the tool row instead of a Markdown/code dump.
+    expect(userMessage?.tagName).toBe('DIV')
+    expect(assistantMessage?.tagName).toBe(userMessage?.tagName)
+    expect(assistantMessage?.querySelector('.markdown-message--assistant')).not.toBeInTheDocument()
+    expect(userMessage?.parentElement).toBe(threadInner)
+    expect(assistantMessage?.parentElement).toBe(threadInner)
+    expect(container.querySelector('.mindmap-ai-panel__exchange')).not.toBeInTheDocument()
+    expect(container.querySelector('.mindmap-ai-panel__turn')).not.toBeInTheDocument()
     expect(container.querySelector('.mindmap-ai-panel__message-preview')).not.toBeInTheDocument()
 
     act(() => resolveGeneration?.(generatedDocument()))
   })
 
-  it('renders no bottom status strip (the process card carries generation status)', async () => {
+  it('renders no duplicate bottom status strip beside the shared Agent turn', async () => {
     const user = userEvent.setup()
     const { container } = render(<MindMapAiPanel open onToggle={() => {}} />)
     await user.click(screen.getByRole('tab', { name: /AI$/ }))
@@ -434,6 +534,9 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(thread).toHaveClass('overview-dialog-thread')
     expect(composer).toHaveClass('overview-dialog-stack')
     expect(composerCard).toHaveClass('overview-dialog-card')
+    expect(composerCard?.querySelector('.overview-model-and-reasoning-picker')).toBeInTheDocument()
+    expect(composerCard?.querySelector('.overview-model-picker')).not.toBeInTheDocument()
+    expect(composerCard?.querySelector('.overview-reasoning-picker')).not.toBeInTheDocument()
 
     const prompt = screen.getByLabelText('Topic or prompt')
     await user.clear(prompt)
@@ -447,6 +550,38 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('overview-dialog-send')
     expect(container.querySelector('.mindmap-ai-panel__statusbar')).not.toBeInTheDocument()
+  })
+
+  it('attaches pasted images to the mind-map generation request and shows them in the transcript', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+
+    const pngBytes = Uint8Array.from(Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64'
+    ))
+    const file = new File([pngBytes], 'diagram.png', { type: 'image/png' })
+    fireEvent.paste(screen.getByLabelText('Topic or prompt'), {
+      clipboardData: { files: [file], items: [] }
+    })
+
+    // The draft rail appears once the shared composer validates and reads the file.
+    await waitFor(() => expect(
+      container.querySelector('.agent-chat-image-attachment-rail')
+    ).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+
+    const payload = vi.mocked(api.generateMindMap!).mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ workspaceId: 'workspace-1', prompt: 'Build a study map' })
+    expect(payload?.imageAttachments).toHaveLength(1)
+    expect(payload?.imageAttachments?.[0]).toMatchObject({ name: 'diagram.png', mimeType: 'image/png' })
+    // Renderer-only preview URLs never cross the IPC boundary.
+    expect(payload?.imageAttachments?.[0]).not.toHaveProperty('previewUrl')
+
+    // The sent image is rendered in the user turn of the conversation thread.
+    expect(within(screen.getByRole('log')).getByAltText('diagram.png')).toBeInTheDocument()
   })
 
   it('sends source intent to the host when creating a new mind map without a file picker', async () => {
@@ -540,8 +675,8 @@ describe('MindMapAiPanel streaming preview', () => {
     })
     expect(useMindMapViewStore.getState().generating).toBe(false)
     expect(useMindMapViewStore.getState().aiPrompt).toBe('Build a study map')
-    expect(screen.getByText('partial JSON')).toBeInTheDocument()
-    expect(screen.getByText('This step was cancelled')).toBeInTheDocument()
+    expect(screen.queryByText('partial JSON')).not.toBeInTheDocument()
+    expect(screen.getByText('Generation stopped — partial preview retained')).toBeInTheDocument()
     expect(container.querySelector('[data-generation-status="cancelled"][data-stream-step="streaming"]')).toBeInTheDocument()
   })
 
@@ -583,13 +718,15 @@ describe('MindMapAiPanel streaming preview', () => {
       decisions: { 'rename-document': 'accept', 'rename-sheet': 'accept' }
     }))
     await waitFor(() => expect(useMindMapViewStore.getState().current).toEqual(applied.document))
-    expect(screen.getByText('Generate a change proposal')).toBeInTheDocument()
-    expect(screen.getByText('Apply changes to the current canvas')).toBeInTheDocument()
     await waitFor(() => expect(
-      screen.getByText('Apply changes to the current canvas').closest('.mindmap-ai-panel__message--assistant')
+      document.querySelector('[data-generation-status="completed"]')
     ).toHaveAttribute('data-stream-step', 'done'))
+    expect(screen.queryByText('Generate a change proposal')).not.toBeInTheDocument()
+    expect(screen.queryByText('Apply changes to the current canvas')).not.toBeInTheDocument()
     expect(screen.queryByText('Proposal item 1')).not.toBeInTheDocument()
     expect(screen.queryByText('Request scope')).not.toBeInTheDocument()
+    expect(screen.getByText('Edit')).toBeInTheDocument()
+    expect(screen.getByText('mindmaps/generated.json')).toBeInTheDocument()
   })
 
   it('reveals inserted topics one step at a time before adopting the host document', async () => {
@@ -795,9 +932,6 @@ describe('MindMapAiPanel streaming preview', () => {
     ).toBeInTheDocument())
     const noChangesMessage = document.querySelector('[data-generation-status="no_changes"]')
     expect(noChangesMessage).not.toBeNull()
-    // The process card carries the terminal no-change outcome (the standalone
-    // status line was removed); the final stage reads as "no changes to apply".
-    expect(within(noChangesMessage!).getByText('No changes to apply')).toBeInTheDocument()
     expect(within(noChangesMessage!).getByText(
       'The AI did not suggest any changes to apply. Specify what to add, revise, or remove, then try again.'
     )).toBeInTheDocument()
