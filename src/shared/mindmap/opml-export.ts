@@ -16,6 +16,13 @@ export type MindMapOpmlExportOptions = {
   includeNotes?: boolean
   /** Include stable StudiumX ids for future round-tripping. Defaults to true. */
   includeIds?: boolean
+  /**
+   * Optional sidecar media paths for a topic.  The paths are carried in a
+   * private StudiumX attribute so ordinary OPML consumers can ignore them;
+   * the neighbouring sidecar manifest remains the source of truth for exact
+   * image placement and bytes.
+   */
+  imagePathsForTopic?: (topic: MindMapTopicV2) => readonly string[]
 }
 
 /**
@@ -46,7 +53,14 @@ export function mindMapDocumentToOpml(
       ...(includeIds ? [`_studiumx_sheet_id="${escapeXmlAttribute(sheet.id)}"`] : [])
     ]
     lines.push(`    <outline ${sheetAttributes.join(' ')}>`)
-    appendTopicOpml(lines, sheet.root, 6, includeNotes, includeIds)
+    appendTopicOpml(
+      lines,
+      sheet.root,
+      6,
+      includeNotes,
+      includeIds,
+      options.imagePathsForTopic
+    )
     lines.push('    </outline>')
   }
 
@@ -59,13 +73,18 @@ function appendTopicOpml(
   topic: MindMapTopicV2,
   indentSize: number,
   includeNotes: boolean,
-  includeIds: boolean
+  includeIds: boolean,
+  imagePathsForTopic?: (topic: MindMapTopicV2) => readonly string[]
 ): void {
+  const imagePaths = imagePathsForTopic?.(topic) ?? []
   const attributes = [
     `text="${escapeXmlAttribute(topic.title)}"`,
     ...(includeIds ? [`_studiumx_topic_id="${escapeXmlAttribute(topic.id)}"`] : []),
     ...(includeNotes && topic.note !== undefined && topic.note.trim() !== ''
       ? [`description="${escapeXmlAttribute(topic.note)}"`]
+      : []),
+    ...(imagePaths.length > 0
+      ? [`_studiumx_image_paths="${escapeXmlAttribute(imagePaths.join('|'))}"`]
       : [])
   ]
   const indent = ' '.repeat(indentSize)
@@ -78,7 +97,14 @@ function appendTopicOpml(
 
   lines.push(`${indent}<outline ${attributes.join(' ')}>`)
   for (const child of topic.children) {
-    appendTopicOpml(lines, child, indentSize + 2, includeNotes, includeIds)
+    appendTopicOpml(
+      lines,
+      child,
+      indentSize + 2,
+      includeNotes,
+      includeIds,
+      imagePathsForTopic
+    )
   }
   lines.push(`${indent}</outline>`)
 }

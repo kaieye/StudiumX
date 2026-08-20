@@ -14,6 +14,8 @@ import type {
 export type MindMapMarkdownExportOptions = {
   /** Include topic notes as nested blockquotes. Defaults to true. */
   includeNotes?: boolean
+  /** Optional image links emitted below the owning topic. */
+  imageLinksForTopic?: (topic: MindMapTopicV2) => readonly { alt: string; url: string }[]
 }
 
 /**
@@ -33,7 +35,7 @@ export function mindMapDocumentToMarkdown(
 
   for (const sheet of document.sheets) {
     lines.push('', `## ${markdownLine(sheet.title)}`)
-    appendTopicMarkdown(lines, sheet.root, 0, includeNotes)
+    appendTopicMarkdown(lines, sheet.root, 0, includeNotes, options.imageLinksForTopic)
   }
 
   return `${lines.join('\n')}\n`
@@ -43,7 +45,8 @@ function appendTopicMarkdown(
   lines: string[],
   topic: MindMapTopicV2,
   depth: number,
-  includeNotes: boolean
+  includeNotes: boolean,
+  imageLinksForTopic?: (topic: MindMapTopicV2) => readonly { alt: string; url: string }[]
 ): void {
   const indent = '  '.repeat(depth)
   lines.push(`${indent}- ${markdownLine(topic.title)}`)
@@ -53,9 +56,22 @@ function appendTopicMarkdown(
     lines.push(`${noteIndent}> ${markdownLine(topic.note)}`)
   }
 
-  for (const child of topic.children) {
-    appendTopicMarkdown(lines, child, depth + 1, includeNotes)
+  for (const image of imageLinksForTopic?.(topic) ?? []) {
+    const imageIndent = '  '.repeat(depth + 1)
+    lines.push(`${imageIndent}!${markdownImageAlt(image.alt)}(${markdownImageUrl(image.url)})`)
   }
+
+  for (const child of topic.children) {
+    appendTopicMarkdown(lines, child, depth + 1, includeNotes, imageLinksForTopic)
+  }
+}
+
+function markdownImageAlt(value: string): string {
+  return `[${value.replace(/[\[\]]/g, '')}]`
+}
+
+function markdownImageUrl(value: string): string {
+  return value.replace(/[()\s]/g, (character) => character === ' ' ? '%20' : `\\${character}`)
 }
 
 function markdownLine(value: string): string {

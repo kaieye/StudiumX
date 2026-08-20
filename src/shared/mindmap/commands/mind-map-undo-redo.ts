@@ -70,6 +70,8 @@ export function defaultMindMapCommandLabel(command: MindMapCommand): string {
       return 'Reorder sheet'
     case 'sheet.remove':
       return 'Remove sheet'
+    case 'sheet.clear':
+      return 'Clear sheet'
     case 'document.apply-theme':
       return 'Apply theme'
     case 'document.rename':

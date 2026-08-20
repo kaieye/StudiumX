@@ -58,8 +58,10 @@ export {
   parseMindMapCancelGenerationPayload,
   parseMindMapMarkdownImportPayload,
   parseMindMapOpmlImportPayload,
+  parseMindMapPortableImportPayload,
   parseMindMapMarkdownExportPayload,
   parseMindMapOpmlExportPayload,
+  parseMindMapPortableExportPayload,
   parseMindMapSvgExportPayload,
   parseMindMapPngExportPayload
 } from './mindmap/mind-map-ipc-commands'

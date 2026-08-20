@@ -10,10 +10,16 @@ import type {
   AgentChatStreamToolEvent,
   AgentChatTurn,
   AgentRealtimeEvent,
+  MindMapConversationHistoryTurn,
   MindMapProposalApplyResult,
   MindMapStreamStatus
 } from '../../../../shared/teaching-types'
 import type { AgentChatImageAttachment } from '../../../../shared/agent-chat-images'
+import {
+  appendAgentPresentationProcess,
+  appendAgentPresentationText,
+  sanitizeAgentPresentationText
+} from '../../../../shared/agent-conversation-turns'
 import {
   applyAgentChatChunkToPending,
   applyAgentChatStatusToPending,
@@ -57,6 +63,11 @@ type MindMapAiGenerationMessage = {
   status: 'generating' | 'completed' | 'no_changes' | 'cancelled' | 'error'
   agentTurn: AgentChatTurn
   lastAgentSequence: number
+  /** Monotonic renderer-local ids for host-authored answer additions. */
+  answerSequence: number
+  /** Once an old host starts a JSON answer stream, suppress its later chunks. */
+  structuredAnswerStreamActive?: boolean
+  structuredAnswerBuffer?: string
   /** User images attached to this generation turn, shown in the transcript. */
   imageAttachments?: AgentChatImageAttachment[]
   error?: string
@@ -121,6 +132,332 @@ function terminalAgentStatus(event: Extract<AgentRealtimeEvent, { kind: 'termina
   }
 }
 
+/**
+ * The normal mind-map preview lifecycle predates the dedicated Agent-event
+ * channel. Keep it as a safe presentation fallback for an older preload/main
+ * pair that still delivers preview statuses but not Agent events. These are
+ * host-authored lifecycle milestones, not provider chain-of-thought.
+ */
+function agentStatusForMindMapStreamStep(
+  step: MindMapStreamStatus['step']
+): AgentChatStreamStatus['status'] {
+  const statuses: Record<MindMapStreamStatus['step'], AgentChatStreamStatus['status']> = {
+    calling: 'thinking',
+    streaming: 'answering',
+    validating: 'thinking',
+    rendering: 'tool_running',
+    done: 'done',
+    error: 'error',
+    cancelled: 'canceled'
+  }
+  return statuses[step]
+}
+
+/** Project one reliable mind-map lifecycle event through the shared UI reducer. */
+function applyMindMapStreamStatusProjection(
+  message: MindMapAiGenerationMessage,
+  status: MindMapStreamStatus,
+  updatedAt = new Date().toISOString()
+): MindMapAiGenerationMessage {
+  if (status.generationId !== message.generationId) return message
+  const agentStatus = agentStatusForMindMapStreamStep(status.step)
+  const pending = pendingConversationForMindMapMessage(message)
+  const patch = applyAgentChatStatusToPending({
+    pending,
+    activeConversationId: message.generationId,
+    assistantId: message.agentTurn.id,
+    status: {
+      streamId: status.generationId,
+      status: agentStatus,
+      ...(status.message ? { message: status.message } : {})
+    },
+    updatedAt
+  })
+  const agentTurn = patch?.pendingAgentConversation?.turns.find((turn) => turn.id === message.agentTurn.id)
+  // The shared status reducer deliberately keeps status rows out of its
+  // presentation timeline: a normal teaching turn renders those as residual
+  // activity around its prose. Mind-map preview status is the compatibility
+  // fallback when the dedicated Agent-event channel is unavailable, however,
+  // and a local repository-read tool row already creates a timeline. Make this
+  // real host lifecycle milestone visible in that same timeline rather than
+  // inventing provider reasoning. If the dedicated channel subsequently sends
+  // the same status, the shared reducer de-duplicates the process event and
+  // this stable reference remains a single visible row.
+  const expectedDetail = sanitizeAgentPresentationText(status.message).trim() || undefined
+  const projectedStatus = [...(agentTurn?.processEvents ?? [])]
+    .reverse()
+    .find((event) => (
+      event.kind === 'status' &&
+      event.status === agentStatus &&
+      event.detail === expectedDetail
+    ))
+  const projectedAgentTurn = agentTurn && projectedStatus
+    ? {
+        ...agentTurn,
+        presentationTimeline: appendAgentPresentationProcess(
+          agentTurn.presentationTimeline,
+          projectedStatus.id,
+          updatedAt,
+          `mindmap-status:${message.generationId}:${projectedStatus.id}`
+        )
+      }
+    : agentTurn
+  return {
+    ...message,
+    agentTurn: projectedAgentTurn ?? message.agentTurn
+  }
+}
+
+/**
+ * The provider is asked for JSON because the canvas needs a strict document or
+ * proposal envelope. Older main processes may still publish that payload on
+ * the shared `answer` channel; keep it out of the learner-facing transcript,
+ * while allowing host-authored natural-language answers through.
+ */
+const STRUCTURED_ANSWER_BUFFER_LIMIT = 2 * 1024 * 1024
+
+type StructuredAnswerProjection = {
+  suppress: boolean
+  active: boolean
+  buffer: string
+  /**
+   * Text that becomes safe to show after inspecting a buffered candidate. This
+   * is either natural language after a complete map payload, or a prior
+   * candidate released after it proved not to be a map envelope.
+   */
+  visibleDelta?: string
+}
+
+function isMindMapStructuredValue(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const envelope = value as { sheets?: unknown; items?: unknown }
+  return Array.isArray(envelope.sheets) || Array.isArray(envelope.items)
+}
+
+type StructuredMindMapParse =
+  | { state: 'incomplete' }
+  | { state: 'structured'; suffix?: string }
+  | { state: 'not_structured' }
+
+type JsonCandidateRoot =
+  | { state: 'incomplete' }
+  | { state: 'not_structured' }
+  | { state: 'root'; start: number; fenced: boolean }
+
+/**
+ * The older main-process protocol occasionally streams a map envelope through
+ * the normal answer channel. It can split immediately after `{` or in the
+ * middle of `schemaVersion`, so wait briefly for a JSON-shaped prefix instead
+ * of leaking the first machine-output fragment into the chat.
+ *
+ * Do not treat arbitrary square-bracket prose (for example, `[see below]`) as
+ * JSON. If a buffered candidate later proves to be ordinary prose or a
+ * different JSON document, it is released in full to the conversation.
+ */
+function looksLikeStructuredMindMapStart(text: string): boolean {
+  let offset = 0
+  while (/\s/u.test(text[offset] ?? '')) offset += 1
+  const remaining = text.slice(offset)
+  if (/^```(?:json)?\s*/iu.test(remaining)) return true
+
+  const root = remaining[0]
+  const rest = remaining.slice(1).trimStart()
+  if (root === '{') return !rest || rest.startsWith('"')
+  if (root === '[') return !rest || /^(?:\{|\[|")/u.test(rest)
+  return false
+}
+
+/**
+ * Consume a legacy answer-channel JSON stream without swallowing a later
+ * natural-language answer. The buffer is renderer-only and bounded; it never
+ * becomes teaching evidence or canonical document state.
+ */
+function projectStructuredMindMapAnswer(
+  delta: string,
+  previousBuffer: string,
+  wasActive: boolean
+): StructuredAnswerProjection {
+  if (!wasActive && !looksLikeStructuredMindMapStart(delta)) {
+    return { suppress: false, active: false, buffer: '' }
+  }
+
+  const combined = `${wasActive ? previousBuffer : ''}${delta}`
+  if (combined.length > STRUCTURED_ANSWER_BUFFER_LIMIT) {
+    // This is UI-only defensive buffering. Drop an unbounded/invalid legacy
+    // candidate rather than retaining provider output, then let the next answer
+    // chunk start a normal conversation projection again.
+    return { suppress: true, active: false, buffer: '' }
+  }
+
+  const parsed = extractStructuredMindMapValue(combined)
+  if (parsed.state === 'structured') {
+    return {
+      suppress: true,
+      active: false,
+      buffer: '',
+      ...(parsed.suffix ? { visibleDelta: parsed.suffix } : {})
+    }
+  }
+
+  if (parsed.state === 'not_structured') {
+    return {
+      suppress: false,
+      active: false,
+      buffer: '',
+      // Earlier chunks were withheld while we identified the JSON root. Restore
+      // them if this is ordinary prose or non-mind-map JSON after all.
+      ...(wasActive ? { visibleDelta: combined } : {})
+    }
+  }
+
+  // Once a structured stream has started, fail closed until its root value is
+  // complete. This prevents a split JSON string/value from leaking one chunk.
+  return {
+    suppress: true,
+    active: true,
+    buffer: combined
+  }
+}
+
+function findJsonCandidateRoot(text: string): JsonCandidateRoot {
+  let offset = 0
+  while (/\s/u.test(text[offset] ?? '')) offset += 1
+  let fenced = false
+  if (/^```(?:json)?\s*/iu.test(text.slice(offset))) {
+    const fence = text.slice(offset).match(/^```(?:json)?\s*/iu)?.[0] ?? ''
+    offset += fence.length
+    while (/\s/u.test(text[offset] ?? '')) offset += 1
+    fenced = true
+  }
+
+  const root = text[offset]
+  if (!root && fenced) return { state: 'incomplete' }
+  if (root !== '{' && root !== '[') return { state: 'not_structured' }
+  return { state: 'root', start: offset, fenced }
+}
+
+function extractStructuredMindMapValue(text: string): StructuredMindMapParse {
+  const candidateRoot = findJsonCandidateRoot(text)
+  if (candidateRoot.state !== 'root') return candidateRoot
+
+  const brackets: string[] = []
+  let inString = false
+  let escaped = false
+  for (let index = candidateRoot.start; index < text.length; index += 1) {
+    const character = text[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+    if (character === '"') {
+      inString = true
+      continue
+    }
+    if (character === '{' || character === '[') {
+      brackets.push(character)
+      continue
+    }
+    if (character === '}' || character === ']') {
+      const opening = brackets.at(-1)
+      if ((character === '}' && opening !== '{') || (character === ']' && opening !== '[')) {
+        return { state: 'not_structured' }
+      }
+      brackets.pop()
+      if (brackets.length === 0) {
+        const candidate = text.slice(candidateRoot.start, index + 1)
+        try {
+          const parsed: unknown = JSON.parse(candidate)
+          if (!isMindMapStructuredValue(parsed)) return { state: 'not_structured' }
+          const rawSuffix = text.slice(index + 1)
+          const suffix = candidateRoot.fenced
+            ? rawSuffix.replace(/^\s*```\s*/u, '').trimStart()
+            : rawSuffix.trimStart()
+          return suffix ? { state: 'structured', suffix } : { state: 'structured' }
+        } catch {
+          return { state: 'not_structured' }
+        }
+      }
+    }
+  }
+  return { state: 'incomplete' }
+}
+
+function appendMindMapAssistantAnswer(
+  message: MindMapAiGenerationMessage,
+  text: string
+): MindMapAiGenerationMessage {
+  // Treat the provider reply as untrusted presentation text even though the
+  // proposal parser bounds its type and size. This matches the realtime
+  // conversation reducer and prevents raw diagnostics/secrets from entering
+  // this renderer-only transcript.
+  const delta = sanitizeAgentPresentationText(text)
+  if (!delta) return message
+  const answerSequence = message.answerSequence + 1
+  const createdAt = new Date().toISOString()
+  const turn = message.agentTurn
+  const existingContent = sanitizeAgentPresentationText(turn.content)
+  const separator = existingContent ? '\n\n' : ''
+  const content = `${existingContent}${separator}${delta}`
+  return {
+    ...message,
+    answerSequence,
+    agentTurn: {
+      ...turn,
+      content,
+      presentationTimeline: appendAgentPresentationText(
+        turn.presentationTimeline,
+        `${separator}${delta}`,
+        createdAt,
+        `mindmap-answer:${message.generationId}:${answerSequence}`
+      )
+    }
+  }
+}
+
+type MindMapChangeSummary = {
+  inserted: number
+  updated: number
+  moved: number
+  removed: number
+  other: number
+}
+
+function emptyMindMapChangeSummary(): MindMapChangeSummary {
+  return { inserted: 0, updated: 0, moved: 0, removed: 0, other: 0 }
+}
+
+function countInsertedTopics(node: unknown): number {
+  if (!node || typeof node !== 'object') return 0
+  const children = (node as { children?: unknown }).children
+  if (!Array.isArray(children)) return 0
+  return children.reduce((total, child) => total + 1 + countInsertedTopics(child), 0)
+}
+
+function summarizeMindMapCommand(command: MindMapCommand, summary: MindMapChangeSummary): void {
+  if (command.type === 'transaction') {
+    command.commands.forEach((nested) => summarizeMindMapCommand(nested, summary))
+    return
+  }
+  if (command.type === 'topic.insert') summary.inserted += 1 + countInsertedTopics(command.node)
+  else if (command.type === 'topic.update') summary.updated += 1
+  else if (command.type === 'topic.move') summary.moved += 1
+  else if (command.type === 'topic.remove') summary.removed += 1
+  else if (
+    command.type === 'element.remove' ||
+    command.type === 'image.remove' ||
+    command.type === 'sheet.remove'
+  ) summary.removed += 1
+  else summary.other += 1
+}
+
+function summarizeMindMapChanges(command: MindMapCommand | null): MindMapChangeSummary {
+  const summary = emptyMindMapChangeSummary()
+  if (command) summarizeMindMapCommand(command, summary)
+  return summary
+}
+
 /** Project one dedicated mind-map event through the homepage conversation reducer. */
 function applyMindMapAgentEvent(
   message: MindMapAiGenerationMessage,
@@ -129,11 +466,34 @@ function applyMindMapAgentEvent(
   if (event.streamId !== message.generationId || event.sequence <= message.lastAgentSequence) {
     return message
   }
-  // Mind-map provider output is machine-readable JSON for the canvas preview,
-  // never assistant prose. Ignore answer-channel chunks defensively so an
-  // older main process cannot reintroduce the raw document into the transcript.
+  // Structured provider output is machine-readable JSON for the canvas preview,
+  // never assistant prose. Ignore only that shape; host-authored answer chunks
+  // are real conversation text and must remain visible.
   if (event.kind === 'chunk' && event.payload.channel !== 'reasoning') {
-    return { ...message, lastAgentSequence: event.sequence }
+    const projection = projectStructuredMindMapAnswer(
+      event.payload.delta,
+      message.structuredAnswerBuffer ?? '',
+      message.structuredAnswerStreamActive === true
+    )
+    if (projection.suppress && !projection.visibleDelta) {
+      return {
+        ...message,
+        lastAgentSequence: event.sequence,
+        structuredAnswerStreamActive: projection.active,
+        ...(projection.buffer ? { structuredAnswerBuffer: projection.buffer } : { structuredAnswerBuffer: undefined })
+      }
+    }
+    message = {
+      ...message,
+      structuredAnswerStreamActive: projection.active,
+      ...(projection.buffer ? { structuredAnswerBuffer: projection.buffer } : { structuredAnswerBuffer: undefined })
+    }
+    if (projection.visibleDelta) {
+      event = {
+        ...event,
+        payload: { ...event.payload, delta: projection.visibleDelta }
+      }
+    }
   }
   const pending = pendingConversationForMindMapMessage(message)
   const common = {
@@ -143,13 +503,14 @@ function applyMindMapAgentEvent(
     realtimeEvent: event,
     updatedAt: event.createdAt
   }
-  const patch = event.kind === 'chunk'
+  let patch = event.kind === 'chunk'
     ? applyAgentChatChunkToPending({ ...common, chunk: event.payload })
     : event.kind === 'status'
       ? applyAgentChatStatusToPending({ ...common, status: event.payload })
       : event.kind === 'tool'
         ? applyAgentChatToolEventToPending({ ...common, event: event.payload })
         : applyAgentChatStatusToPending({ ...common, status: terminalAgentStatus(event) })
+
   const agentTurn = patch?.pendingAgentConversation?.turns.find((turn) => turn.id === message.agentTurn.id)
   return {
     ...message,
@@ -181,6 +542,29 @@ function applyMindMapToolProjection(
 }
 
 /**
+ * Mirror the finished part of the mind-map transcript into a bounded
+ * conversation-history envelope so the next turn keeps context. Only the user
+ * prompt and the assistant's final reply/outcome summary are included — never
+ * raw chain-of-thought, provider JSON, or the in-flight turn itself. The host
+ * parser re-bounds and validates this before it reaches the provider prompt.
+ */
+function buildMindMapConversationHistory(
+  messages: readonly MindMapAiGenerationMessage[]
+): MindMapConversationHistoryTurn[] {
+  const history: MindMapConversationHistoryTurn[] = []
+  for (const message of messages) {
+    // Only settled, productive exchanges belong in history: a failed/cancelled
+    // attempt would re-feed the same prompt and its error answer back to the
+    // model on retry, and the in-flight turn is the current request itself.
+    if (message.status !== 'completed' && message.status !== 'no_changes') continue
+    history.push({ role: 'user', content: message.prompt })
+    const assistantContent = message.agentTurn.content?.trim()
+    if (assistantContent) history.push({ role: 'assistant', content: assistantContent })
+  }
+  return history
+}
+
+/**
  * Electron prepends an implementation-level IPC envelope to rejected invokes.
  * Keep that detail out of the learner-facing transcript, and turn the known
  * strict proposal-boundary failure into an actionable retry message. The raw
@@ -204,6 +588,24 @@ function mindMapGenerationErrorMessage(
     ''
   ).trim()
   return withoutIpcEnvelope || t('mindmap.aiError')
+}
+
+/**
+ * Detect a provider-output validation failure (invalid/truncated JSON or a
+ * schema-mismatched proposal). The host cannot safely turn this output into a
+ * canonical map, but the partially streamed preview is still useful to the
+ * learner and a fresh provider attempt may succeed, so the renderer keeps it
+ * visible until the learner starts another generation or leaves the editor.
+ */
+function isMindMapInvalidOutputError(caught: unknown): boolean {
+  const raw = caught instanceof Error ? caught.message : String(caught)
+  return (
+    raw.includes('invalid_output') ||
+    raw.includes('not valid JSON') ||
+    raw.includes('mind-map proposal failed schema validation') ||
+    raw.includes('mind-map proposal scope mismatch') ||
+    raw.includes('未通过思维导图结构校验')
+  )
 }
 
 /**
@@ -272,6 +674,10 @@ export function MindMapAiPanel({
   const selection = useMindMapViewStore((s) => s.selection)
 
   const [generationMessages, setGenerationMessages] = useState<MindMapAiGenerationMessage[]>([])
+  // Always-current transcript for building follow-up history regardless of the
+  // render closure that started the current generation turn.
+  const generationMessagesRef = useRef<MindMapAiGenerationMessage[]>([])
+  generationMessagesRef.current = generationMessages
   const [editingDocumentTitle, setEditingDocumentTitle] = useState(false)
   const [documentTitleDraft, setDocumentTitleDraft] = useState(documentTitle)
   const documentTitleInputRef = useRef<HTMLInputElement>(null)
@@ -318,6 +724,22 @@ export function MindMapAiPanel({
     session.commands.length = 0
     settlePreviewDrain(session, false)
     useMindMapViewStore.getState().clearGenerationPreview(session.generationId)
+  }
+
+  /**
+   * Stop revealing a generation preview but keep the partially generated map
+   * on the canvas. Used when an invalid provider output ends the run so the
+   * learner does not lose the content that was already streamed; the next
+   * generation or an applied document replaces it normally.
+   */
+  const freezeGenerationPreview = (generationId: string): void => {
+    const session = previewSessionRef.current
+    if (!session || session.generationId !== generationId) return
+    previewSessionRef.current = null
+    if (session.timer !== null) clearTimeout(session.timer)
+    session.timer = null
+    session.commands.length = 0
+    settlePreviewDrain(session, true)
   }
 
   /**
@@ -402,6 +824,15 @@ export function MindMapAiPanel({
   }
 
   const beginGenerationPreview = (generationId: string): void => {
+    // An invalid-output failure intentionally freezes its preview on the
+    // canvas. A new generation is an explicit request to replace that
+    // transient projection; remove it before the store admits the new id.
+    // Use the local disposer rather than clearing only store state so a stale
+    // reveal timer cannot later mutate a newly started preview.
+    const existing = useMindMapViewStore.getState().generationPreview
+    if (existing && existing.generationId !== generationId) {
+      discardGenerationPreview(existing.generationId)
+    }
     if (!useMindMapViewStore.getState().startGenerationPreview(generationId)) return
     previewSessionRef.current = {
       generationId,
@@ -454,22 +885,36 @@ export function MindMapAiPanel({
       if (generationRef.current?.generationId !== status.generationId) return
       if (status.step === 'error' || status.step === 'cancelled') {
         generationTerminalRef.current = { generationId: status.generationId, step: status.step }
-        discardGenerationPreview(status.generationId)
+        // The host publishes the terminal status immediately before the invoke
+        // promise rejects. Keep an already streamed preview alive for the
+        // invalid-output path; runGeneration's catch decides whether to freeze
+        // it (invalid provider JSON) or discard it (transport/cancel errors).
+        if (status.step === 'cancelled') discardGenerationPreview(status.generationId)
       } else if (status.step === 'calling') {
         generationTerminalRef.current = null
       }
       setGenerationMessages((messages) => messages.map((message) => {
         if (message.generationId !== status.generationId) return message
+        let next: MindMapAiGenerationMessage
         if (status.step === 'error' || status.step === 'cancelled') {
-          return {
+          next = {
             ...message,
             status: status.step === 'cancelled' ? 'cancelled' : 'error'
           }
+        } else {
+          next = {
+            ...message,
+            step: status.step
+          }
         }
-        return {
-          ...message,
-          step: status.step
+        // The normal mind-map transcript already owns terminal feedback: an
+        // explicit retryable error or cancellation answer is clearer than
+        // echoing the same terminal message again as a process-row detail.
+        // Keep the shared-flow fallback for live host lifecycle milestones.
+        if (status.step === 'done' || status.step === 'error' || status.step === 'cancelled') {
+          return next
         }
+        return applyMindMapStreamStatusProjection(next, status)
       }))
     })
     const offAgentEvent = api?.onMindMapAgentEvent?.((event) => {
@@ -500,7 +945,30 @@ export function MindMapAiPanel({
     generationId: string,
     imageAttachments?: AgentChatImageAttachment[]
   ): Promise<void> => {
-    const generated = await window.teachingSystem?.generateMindMapProposal({
+    const history = buildMindMapConversationHistory(generationMessagesRef.current)
+    const generateProposal = window.teachingSystem?.generateMindMapProposal
+    if (!generateProposal) throw new Error(t('mindmap.aiProposalUnavailable'))
+
+    // The host always reads the canonical current map before it can generate a
+    // proposal. Mirror that real, read-only boundary locally so an older
+    // preload that lacks the dedicated Agent-event IPC still has a transparent
+    // process trace. The host uses the identical id/name, so newer runtimes
+    // merge their authoritative result into this same tool row.
+    const currentMapToolCall = {
+      id: `${generationId}:read:document`,
+      name: 'read_workspace_file',
+      arguments: JSON.stringify({ path: `mindmaps/${documentId}.json` })
+    }
+    setGenerationMessages((messages) => messages.map((message) => (
+      message.generationId === generationId
+        ? applyMindMapToolProjection(message, {
+            streamId: generationId,
+            toolCall: currentMapToolCall
+          })
+        : message
+    )))
+
+    const generated = await generateProposal({
       workspaceId: workspace,
       id: documentId,
       scope: 'sheet',
@@ -508,12 +976,25 @@ export function MindMapAiPanel({
       selectedTopicIds: [],
       sourceRefs: [],
       prompt,
+      ...(history.length ? { history } : {}),
       ...(imageAttachments?.length ? { imageAttachments } : {}),
       generationId
     })
     if (!generated) throw new Error(t('mindmap.aiProposalUnavailable'))
     if (generated.documentId !== documentId) {
       throw new Error(t('mindmap.aiProposalDocumentMismatch'))
+    }
+    // The invoke result is the reliable delivery path for a provider's
+    // user-facing response. Keep it separate from `proposal` so no prose can
+    // cross into the mutation payload, and only show it while this renderer
+    // still owns the generation lease.
+    if (generationRef.current?.generationId !== generationId) return
+    if (generated.assistantMessage?.trim()) {
+      setGenerationMessages((messages) => messages.map((message) => (
+        message.generationId === generationId
+          ? appendMindMapAssistantAnswer(message, generated.assistantMessage!)
+          : message
+      )))
     }
 
     // A host-validated proposal is authoritative for completion. It also
@@ -536,7 +1017,10 @@ export function MindMapAiPanel({
               ...message,
               step: 'done',
               status: 'no_changes',
-              notice: t('mindmap.aiNoChangesDetail')
+              notice: t('mindmap.aiNoChangesDetail'),
+              agentTurn: {
+                ...appendMindMapAssistantAnswer(message, t('mindmap.aiNoChangesAnswer')).agentTurn
+              }
             }
           : message
       )))
@@ -613,9 +1097,15 @@ export function MindMapAiPanel({
       label: t('mindmap.aiProposalUndoLabel')
     })
     discardGenerationPreview(generationId)
+    const summary = summarizeMindMapChanges(applied.command)
+    const answer = t('mindmap.aiProposalAppliedSummary', summary)
     setGenerationMessages((messages) => messages.map((message) => (
       message.generationId === generationId
-        ? { ...message, step: 'done', status: 'completed' }
+        ? {
+            ...appendMindMapAssistantAnswer(message, answer),
+            step: 'done',
+            status: 'completed'
+          }
         : message
     )))
   }
@@ -627,10 +1117,12 @@ export function MindMapAiPanel({
     generationId: string,
     imageAttachments?: AgentChatImageAttachment[]
   ): Promise<void> => {
+    const history = buildMindMapConversationHistory(generationMessagesRef.current)
     const generated = await window.teachingSystem?.generateMindMap({
       workspaceId: workspace,
       title: prompt.slice(0, 40) || 'AI 导图',
       prompt,
+      ...(history.length ? { history } : {}),
       ...(imageAttachments?.length ? { imageAttachments } : {}),
       generationId
     })
@@ -682,6 +1174,7 @@ export function MindMapAiPanel({
         step: 'calling',
         status: 'generating',
         lastAgentSequence: 0,
+        answerSequence: 0,
         ...(imageAttachments?.length ? { imageAttachments } : {}),
         agentTurn: {
           id: `${generationId}:assistant`,
@@ -693,6 +1186,7 @@ export function MindMapAiPanel({
       }
     ])
     useMindMapViewStore.setState({ generating: true, streamText: '', error: null })
+    let keptPreviewOnInvalidOutput = false
     try {
       if (current && sheetId) {
         await editCurrentCanvas(
@@ -707,7 +1201,15 @@ export function MindMapAiPanel({
         await generateNewDocument(workspace, submittedPrompt, generationId, imageAttachments)
       }
     } catch (caught) {
-      discardGenerationPreview(generationId)
+      // A provider-output validation failure still leaves the partially
+      // streamed map on the canvas: do not discard it, so the learner keeps
+      // the generated content instead of seeing the canvas clear at the end.
+      keptPreviewOnInvalidOutput = isMindMapInvalidOutputError(caught)
+      if (keptPreviewOnInvalidOutput) {
+        freezeGenerationPreview(generationId)
+      } else {
+        discardGenerationPreview(generationId)
+      }
       // A cancelled run is intentionally not an error panel; the user already
       // asked to stop it.
       if (generationRef.current?.generationId === generationId) {
@@ -724,8 +1226,15 @@ export function MindMapAiPanel({
         setGenerationMessages((messages) => messages.map((entry) => (
           entry.generationId === generationId
             ? terminalStatus === 'cancelled'
-              ? { ...entry, status: 'cancelled' }
-              : { ...entry, status: 'error', error: message }
+              ? {
+                  ...appendMindMapAssistantAnswer(entry, t('mindmap.aiCancelledAnswer')),
+                  status: 'cancelled'
+                }
+              : {
+                  ...appendMindMapAssistantAnswer(entry, t('mindmap.aiErrorAnswer')),
+                  status: 'error',
+                  error: message
+                }
             : entry
         )))
         if (terminalStatus !== 'cancelled') {
@@ -738,7 +1247,7 @@ export function MindMapAiPanel({
         }
       }
     } finally {
-      discardGenerationPreview(generationId)
+      if (!keptPreviewOnInvalidOutput) discardGenerationPreview(generationId)
       if (generationRef.current?.generationId === generationId) {
         generationRef.current = null
         generationPhaseRef.current = null
@@ -757,7 +1266,10 @@ export function MindMapAiPanel({
     generationPhaseRef.current = null
     setGenerationMessages((messages) => messages.map((message) => (
       message.generationId === generationId
-        ? { ...message, status: 'cancelled' }
+        ? {
+            ...appendMindMapAssistantAnswer(message, t('mindmap.aiCancelledAnswer')),
+            status: 'cancelled'
+          }
         : message
     )))
     useMindMapViewStore.setState({ generating: false, aiPrompt: prompt })

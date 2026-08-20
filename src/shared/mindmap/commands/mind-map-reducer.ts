@@ -1121,6 +1121,60 @@ function applySheetRemove(document: MindMapDocumentV2, command: Extract<MindMapC
   return ok(next, inverse)
 }
 
+function applySheetClear(document: MindMapDocumentV2, command: Extract<MindMapCommand, { type: 'sheet.clear' }>): MindMapCommandResult {
+  const sheet = getSheet(document, command.sheetId)
+  if (sheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
+
+  // Clear keeps the sheet shell (root topic, title, layout, viewport) and
+  // removes every piece of learner-authored content: all non-root topics,
+  // every element (drawn shapes, connectors, relationships, boundaries,
+  // summaries, callouts, free topics) and every image. Document-level assets
+  // are shared across sheets, so they are deliberately left untouched.
+  const removedSubtrees = sheet.root.children
+  const removedElements = sheet.elements
+  const removedImages = sheet.images ?? []
+
+  const next = cloneDocument(document)
+  const nextSheet = getSheet(next, command.sheetId)
+  if (nextSheet === undefined) return error(command, 'SHEET_NOT_FOUND', `Sheet "${command.sheetId}" not found`)
+  nextSheet.root.children = []
+  nextSheet.elements = []
+  nextSheet.images = []
+
+  // Inverse restores content through existing create commands so undo is exact.
+  // Order matters for reference validation and for the derived redo inverse:
+  // topics first (elements/images may anchor to them), then shapes (connectors
+  // may anchor to them), then every remaining element, then images. The
+  // transaction's own inverse is the reverse order, so redo removes connectors
+  // before the shapes they anchor to and never trips a dangling reference.
+  const inverses: MindMapCommand[] = []
+  for (let childIndex = 0; childIndex < removedSubtrees.length; childIndex += 1) {
+    inverses.push({
+      type: 'topic.insert',
+      sheetId: command.sheetId,
+      parentId: sheet.root.id,
+      index: childIndex,
+      node: structuredClone(removedSubtrees[childIndex])
+    })
+  }
+  const shapes = removedElements.filter((element) => element.type === 'shape')
+  const remainingElements = removedElements.filter((element) => element.type !== 'shape')
+  for (const element of [...shapes, ...remainingElements]) {
+    inverses.push({ type: 'element.create', sheetId: command.sheetId, element: structuredClone(element) })
+  }
+  for (let imageIndex = 0; imageIndex < removedImages.length; imageIndex += 1) {
+    inverses.push({
+      type: 'image.create',
+      sheetId: command.sheetId,
+      index: imageIndex,
+      image: structuredClone(removedImages[imageIndex])
+    })
+  }
+
+  const inverse: MindMapCommand = { type: 'transaction', commands: inverses }
+  return ok(next, inverse)
+}
+
 function applyDocumentRename(document: MindMapDocumentV2, command: Extract<MindMapCommand, { type: 'document.rename' }>): MindMapCommandResult {
   const oldTitle = document.title
   const next = cloneDocument(document)
@@ -1207,6 +1261,8 @@ export function applyMindMapCommand(document: MindMapDocumentV2, command: MindMa
       return applySheetReorder(document, command)
     case 'sheet.remove':
       return applySheetRemove(document, command)
+    case 'sheet.clear':
+      return applySheetClear(document, command)
     case 'document.apply-theme':
       return applyDocumentApplyTheme(document, command)
     case 'document.rename':

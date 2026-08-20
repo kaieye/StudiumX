@@ -2098,17 +2098,19 @@
       "createFailed": "无法创建思维导图，请重试。"
     },
     "import": "导入",
-    "importFormats": "导入 Markdown 或 OPML",
+    "importFormats": "导入 Markdown、OPML 或 StudiumX 文件",
     "importRequiresDesktopPath": "请在桌面应用中选择文件后再导入。",
-    "unsupportedImportFormat": "请选择 .md、.markdown 或 .opml 文件。",
+    "unsupportedImportFormat": "请选择 .md、.markdown、.opml 或 .sxmind 文件。",
     "exportMarkdown": "导出 Markdown",
     "exportOpml": "导出 OPML",
+    "exportPortable": "导出 StudiumX 文件",
     "exportSvg": "导出 SVG",
     "exportPng": "导出 PNG",
     "exportNotReady": "思维导图仍在保存，请稍后再试。",
     "exportFormat": {
       "markdown": "Markdown",
       "opml": "OPML",
+      "portable": "StudiumX",
       "svg": "SVG",
       "png": "PNG"
     },
@@ -2692,6 +2694,11 @@
       "placeholder": "在此输入备注…",
       "inputLabel": "节点备注",
       "hint": "备注会自动保存"
-    }
+    },
+    "aiProposalAppliedSummary": "已完成：新增 {{inserted}} 个节点，修改 {{updated}} 个节点，移动 {{moved}} 个节点，删除 {{removed}} 个节点，其他变更 {{other}} 项。",
+    "aiNoChangesAnswer": "我完成了分析，但没有找到可以安全应用的变化。请告诉我需要新增、修改、移动或删除哪些内容。",
+    "aiGeneratedAnswer": "已完成思维导图生成，并保存到当前工作区。",
+    "aiCancelledAnswer": "已停止这次生成；尚未确认的结果没有写入导图。",
+    "aiErrorAnswer": "这次思维导图请求没有完成，导图未写入未校验的结果。"
   }
 }

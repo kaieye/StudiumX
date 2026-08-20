@@ -25,13 +25,16 @@ import type {
   TeachingSettingsV1
 } from '../../shared/teaching-types'
 import type { AgentChatImageAttachment } from '../../shared/agent-chat-images'
+import type { MindMapConversationHistoryTurn } from '../../shared/teaching-types/mindmap'
 import { classifyProviderError, providerErrorReason } from '../../shared/provider-error'
 import { mindMapDocumentSchema } from '../../shared/mindmap/mind-map-schema'
 import type { MindMapDocument } from '../../shared/mindmap/mind-map-types'
 import {
   parseMindMapProposalJson,
+  salvageFirstParseableJsonRoot,
   type MindMapProviderProposal
 } from '../../shared/mindmap/commands/mind-map-proposal'
+import { reconcileMindMapProposalTopicIds } from '../../shared/mindmap/commands/mind-map-proposal-topic-ids'
 import type { MindMapProposalRequest } from '../../shared/mindmap/commands/mind-map-proposal-request'
 import type { MindMapDocumentV2 } from '../../shared/mindmap/domain/types'
 import {
@@ -67,6 +70,8 @@ export type MindMapGenerationInput = {
   title: string
   prompt: string
   settings: TeachingSettingsV1
+  /** Prior mind-map conversation turns so a follow-up keeps context. */
+  history?: MindMapConversationHistoryTurn[]
   /** User-selected images sent with the generation turn (same payload as agent chat). */
   imageAttachments?: AgentChatImageAttachment[]
   /**
@@ -93,6 +98,8 @@ export type MindMapProposalGenerationInput = {
   settings: TeachingSettingsV1
   document: MindMapDocumentV2
   request: MindMapProposalRequest
+  /** Prior mind-map conversation turns so a follow-up keeps context. */
+  history?: MindMapConversationHistoryTurn[]
   /** User-selected images sent with the generation turn (same payload as agent chat). */
   imageAttachments?: AgentChatImageAttachment[]
   /** Stable correlation id used by `cancelMindMapGeneration`. */
@@ -109,6 +116,12 @@ export type MindMapProposalGenerationInput = {
   lessonContext?: MindMapLessonContext
   /** Main-process bounded context from the canonical workspace `NOTES.md`. */
   notesContext?: MindMapNotesContext
+}
+
+/** Optional presentation-only response attached to a provider result. */
+export type MindMapGeneratedProposal = MindMapProviderProposal & {
+  /** Never send this field through the canonical apply IPC payload. */
+  assistantMessage?: string
 }
 
 /**
@@ -155,9 +168,13 @@ export function parseMindMapOutput(raw: string): MindMapDocument {
   let parsed: unknown
   try {
     parsed = JSON.parse(cleaned)
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
-    throw new MindMapGenerationError('invalid_output', `模型输出不是有效 JSON：${detail}`)
+  } catch {
+    // Tolerate trailing prose/fence after a complete JSON document; a genuinely
+    // truncated root stays an invalid_output so the caller can repair-retry.
+    parsed = salvageFirstParseableJsonRoot(cleaned)
+    if (parsed === null) {
+      throw new MindMapGenerationError('invalid_output', '模型输出不是有效 JSON')
+    }
   }
 
   const result = mindMapDocumentSchema.safeParse(parsed)
@@ -189,23 +206,46 @@ export async function generateMindMap(
   onStream?: (text: string) => void,
   onReasoning?: (text: string) => void
 ): Promise<MindMapDocument> {
-  const text = await runMindMapProvider(input, {
-    systemPrompt: buildMindMapSystemPrompt({
+  const buildPrompts = (repair?: string): { systemPrompt: string; userPrompt: string } => {
+    const userPrompt = buildMindMapUserPrompt({
       title: input.title,
       prompt: input.prompt,
-      selectedFileContext: input.selectedFileContext,
-      autoSourceContext: input.autoSourceContext,
-      lessonContext: input.lessonContext
-    }),
-    userPrompt: buildMindMapUserPrompt({
-      title: input.title,
-      prompt: input.prompt,
+      history: input.history,
       selectedFileContext: input.selectedFileContext,
       autoSourceContext: input.autoSourceContext,
       lessonContext: input.lessonContext
     })
-  }, onStream, onReasoning)
-  return parseMindMapOutput(text)
+    return {
+      systemPrompt: buildMindMapSystemPrompt({
+        title: input.title,
+        prompt: input.prompt,
+        history: input.history,
+        selectedFileContext: input.selectedFileContext,
+        autoSourceContext: input.autoSourceContext,
+        lessonContext: input.lessonContext
+      }),
+      userPrompt: repair ? `${userPrompt}\n\n${repair}` : userPrompt
+    }
+  }
+
+  let text = await runMindMapProvider(input, buildPrompts(), onStream, onReasoning)
+  try {
+    return parseMindMapOutput(text)
+  } catch (firstError) {
+    if (!(firstError instanceof MindMapGenerationError) || firstError.kind !== 'invalid_output') {
+      throw firstError
+    }
+    // One bounded repair retry for a truncated or trailing-garbage document.
+    // Non-streaming so the renderer preview is never fed a second concatenated
+    // JSON payload; reasoning still streams so the learner sees the repair work.
+    text = await runMindMapProvider(
+      input,
+      buildPrompts(buildMindMapRepairInstruction(firstError.message)),
+      undefined,
+      onReasoning
+    )
+    return parseMindMapOutput(text)
+  }
 }
 
 /**
@@ -217,23 +257,18 @@ export async function generateMindMapProposal(
   input: MindMapProposalGenerationInput,
   onStream?: (text: string) => void,
   onReasoning?: (text: string) => void
-): Promise<MindMapProviderProposal> {
+): Promise<MindMapGeneratedProposal> {
   // The renderer deliberately does not get to declare a request as an
   // "initial map": derive it from the canonical v2 snapshot that the main
   // process just loaded. A blank sheet needs a complete hierarchy, whereas an
   // established map must retain the conservative proposal behavior.
   const initialMap = isInitialMindMapProposal(input)
-  const text = await runMindMapProvider(input, {
-    systemPrompt: buildMindMapProposalSystemPrompt({
+  const buildPrompts = (repair?: string): { systemPrompt: string; userPrompt: string } => {
+    const userPrompt = buildMindMapProposalUserPrompt({
       title: input.title,
       prompt: input.prompt,
       request: input.request,
-      initialMap
-    }),
-    userPrompt: buildMindMapProposalUserPrompt({
-      title: input.title,
-      prompt: input.prompt,
-      request: input.request,
+      history: input.history,
       initialMap,
       selectedFileContext: input.selectedFileContext,
       autoSourceContext: input.autoSourceContext,
@@ -241,8 +276,34 @@ export async function generateMindMapProposal(
       lessonContext: input.lessonContext,
       document: input.document
     })
-  }, onStream, onReasoning)
-  const parsed = parseMindMapProposalJson(text)
+    return {
+      systemPrompt: buildMindMapProposalSystemPrompt({
+        title: input.title,
+        prompt: input.prompt,
+        request: input.request,
+        history: input.history,
+        initialMap
+      }),
+      userPrompt: repair ? `${userPrompt}\n\n${repair}` : userPrompt
+    }
+  }
+
+  let text = await runMindMapProvider(input, buildPrompts(), onStream, onReasoning)
+  let parsed = parseMindMapProposalJson(text)
+  if (!parsed.ok) {
+    // One bounded repair retry: providers occasionally truncate the envelope
+    // at the output-token limit or append a note/fence after a complete JSON
+    // root that even salvage cannot read. Non-streaming keeps the renderer
+    // preview from receiving a second, concatenated JSON payload; reasoning
+    // still streams so the learner sees the repair attempt.
+    text = await runMindMapProvider(
+      input,
+      buildPrompts(buildMindMapRepairInstruction(parsed.message)),
+      undefined,
+      onReasoning
+    )
+    parsed = parseMindMapProposalJson(text)
+  }
   if (!parsed.ok) {
     throw new MindMapGenerationError('invalid_output', parsed.message)
   }
@@ -252,7 +313,25 @@ export async function generateMindMapProposal(
       `mind-map proposal scope mismatch: expected ${input.request.scope}`
     )
   }
-  return parsed.proposal
+  return {
+    ...parsed.proposal,
+    items: reconcileMindMapProposalTopicIds(input.document, parsed.proposal.items),
+    ...(parsed.assistantMessage ? { assistantMessage: parsed.assistantMessage } : {})
+  }
+}
+
+/**
+ * Learner-safe repair instruction appended to the user prompt for exactly one
+ * retry after an invalid provider output. It never repeats the system prompt
+ * or any source text; the diagnostic is a short, generic validation summary.
+ */
+function buildMindMapRepairInstruction(diagnostic: string): string {
+  return `你上一次的输出没有通过严格 JSON 校验（${diagnostic}）。
+请只输出一个完整、有效、不截断的 JSON 对象，并严格遵守系统提示中的输出契约：
+- 不要使用 markdown 代码围栏（\`\`\`json），不要输出任何解释、结尾语或额外文字。
+- 确保所有括号、引号和逗号都正确闭合，schemaVersion 与 scope 完全正确。
+- 如果内容较多，请完整输出全部 items，不要因为长度而提前截断。
+只输出 JSON 对象本身。`
 }
 
 /**

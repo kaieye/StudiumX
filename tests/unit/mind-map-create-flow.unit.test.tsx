@@ -452,7 +452,9 @@ describe('MindMapView create flow', () => {
     render(<MindMapView />)
 
     await screen.findAllByRole('button', { name: 'Chemistry' })
-    expect(screen.getAllByText('Preview child')).toHaveLength(2)
+    // Workspace cards stay inside their folder on the home page; the recent
+    // row is the only home-page projection for this workspace document.
+    expect(screen.getAllByText('Preview child')).toHaveLength(1)
     expect(readMindMap).not.toHaveBeenCalled()
   })
 
@@ -499,5 +501,98 @@ describe('MindMapView create flow', () => {
     expect(screen.getByRole('menuitem', { name: 'Export OPML' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Export SVG' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Export PNG' })).toBeInTheDocument()
+  })
+
+  it('shows a newly created map card immediately after returning to the gallery', async () => {
+    const created = makeDocument('Physics')
+    created.id = 'mind-map-physics'
+    const createdSummary: MindMapSummary = {
+      id: created.id,
+      title: created.title,
+      updatedAt: created.updatedAt,
+      sheetCount: created.sheets.length
+    }
+    // The library mock only reports the new card after the create flow has had
+    // a chance to refresh it — mimicking a fresh main-process listing.
+    let libraryCalls = 0
+    const listMindMapLibrary = vi.fn(async () => {
+      libraryCalls += 1
+      return { home: libraryCalls > 1 ? [createdSummary] : [], workspaces: [] }
+    })
+    Object.defineProperty(window, 'teachingSystem', {
+      configurable: true,
+      value: {
+        listMindMaps: vi.fn(async () => []),
+        listMindMapLibrary,
+        createMindMap: vi.fn(async () => created)
+      } as Partial<TeachingSystemApi>
+    })
+
+    render(<MindMapView />)
+    // A freshly opened page has the initial null scope, which is also the
+    // home page — this is the state that previously kept the new card hidden.
+    expect(useMindMapViewStore.getState().scope).toBeNull()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'New mind map' })[0])
+    await waitFor(() => expect(useMindMapViewStore.getState().current?.title).toBe('Physics'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to mind maps' }))
+    await screen.findAllByRole('button', { name: 'Physics' })
+  })
+
+  it('refreshes an edited map card (title and preview) when returning to the gallery', async () => {
+    const source = makeDocument('Chemistry')
+    const edited = { ...source, title: 'Organic chemistry' }
+    const oldSummary: MindMapSummary = {
+      id: source.id,
+      title: source.title,
+      updatedAt: source.updatedAt,
+      sheetCount: source.sheets.length
+    }
+    const newSummary: MindMapSummary = {
+      ...oldSummary,
+      title: 'Organic chemistry',
+      updatedAt: '2026-08-10T02:00:00.000Z'
+    }
+    // The library mock reports the stale card until the editor is closed, then
+    // the refreshed one — the exact staleness the bug report describes.
+    let libraryCalls = 0
+    const listMindMapLibrary = vi.fn(async () => {
+      libraryCalls += 1
+      return { home: libraryCalls > 1 ? [newSummary] : [oldSummary], workspaces: [] }
+    })
+    Object.defineProperty(window, 'teachingSystem', {
+      configurable: true,
+      value: {
+        listMindMaps: vi.fn(async () => []),
+        listMindMapLibrary,
+        updateMindMap: vi.fn(async (payload: { doc: MindMapDocumentV2 }) => ({
+          ok: true as const,
+          document: payload.doc
+        }))
+      } as Partial<TeachingSystemApi>
+    })
+
+    useMindMapViewStore.setState({
+      current: edited,
+      scope: 'home',
+      selectedNodeId: edited.sheets[0]?.root.id ?? null,
+      activeSheetId: edited.sheets[0]?.id ?? null,
+      editingNodeId: null
+    })
+
+    render(<MindMapView />)
+    expect(screen.getByRole('button', { name: 'Back to mind maps' })).toBeInTheDocument()
+
+    const libraryCallsBeforeClose = listMindMapLibrary.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Back to mind maps' }))
+
+    // Closing the editor must re-fetch the aggregate library so the card is
+    // current immediately instead of only after a later reload or restart.
+    await waitFor(() =>
+      expect(listMindMapLibrary.mock.calls.length).toBeGreaterThan(libraryCallsBeforeClose)
+    )
+    await screen.findAllByRole('button', { name: 'Organic chemistry' })
+    expect(screen.queryByRole('button', { name: 'Chemistry' })).not.toBeInTheDocument()
   })
 })

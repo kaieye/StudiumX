@@ -418,7 +418,11 @@ describe('MindMapAiPanel streaming preview', () => {
         streamId: generationId,
         kind: 'chunk',
         createdAt: NOW,
-        payload: { streamId: generationId, channel: 'reasoning', delta: 'Inspecting the requested structure.' }
+        payload: {
+          streamId: generationId,
+          channel: 'reasoning',
+          delta: 'Planning the requested structure.'
+        }
       })
       agentEventHandler?.({
         sequence: 4,
@@ -474,7 +478,7 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(screen.queryByText('{"sheets":[]}')).not.toBeInTheDocument()
     expect(container.querySelector('[data-stream-step="streaming"]')).toBeInTheDocument()
     expect(screen.getByText('Think')).toBeInTheDocument()
-    expect(screen.getAllByText('Inspecting the requested structure.').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Planning the requested structure.').length).toBeGreaterThan(0)
     expect(screen.getByText('Search')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Search详情/ }))
     expect(screen.getByText('课程资料/第一章.md')).toBeInTheDocument()
@@ -504,6 +508,98 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(container.querySelector('.mindmap-ai-panel__exchange')).not.toBeInTheDocument()
     expect(container.querySelector('.mindmap-ai-panel__turn')).not.toBeInTheDocument()
     expect(container.querySelector('.mindmap-ai-panel__message-preview')).not.toBeInTheDocument()
+
+    act(() => resolveGeneration?.(generatedDocument()))
+  })
+
+  it('keeps a transparent process trace when the dedicated Agent-event stream is unavailable', async () => {
+    const user = userEvent.setup()
+    const current = generatedDocument()
+    api.generateMindMapProposal = vi.fn(() => new Promise<MindMapProposalGenerateResult>(() => undefined))
+    useMindMapViewStore.setState({
+      current,
+      selectedNodeId: null,
+      activeSheetId: 'sheet-1'
+    })
+
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+    const generationId = (api.generateMindMapProposal as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
+
+    // The normal mind-map lifecycle channel already drives the canvas preview.
+    // It must also keep the conversation transparent when a stale preload/main
+    // bundle does not deliver the newer dedicated Agent-event channel and the
+    // provider has no separate reasoning deltas.
+    act(() => statusHandler?.({
+      generationId,
+      step: 'calling',
+      message: '正在读取当前导图和相关资料'
+    }))
+
+    // A lifecycle status is deliberately not mislabeled as model reasoning:
+    // providers that do not supply a reasoning delta still expose the actual
+    // host phase alongside the repository read boundary.
+    expect(screen.getByText('分析问题与上下文')).toBeInTheDocument()
+    expect(screen.getByText('正在读取当前导图和相关资料')).toBeInTheDocument()
+    expect(screen.getByText('READ')).toBeInTheDocument()
+    expect(screen.getByText('mindmaps/generated.json')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+  })
+
+  it('keeps a fragmented legacy JSON answer out of chat while showing status and the later natural-language reply', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+    const generationId = (api.generateMindMap as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
+
+    act(() => {
+      agentEventHandler?.({
+        sequence: 1,
+        streamId: generationId,
+        kind: 'chunk',
+        createdAt: NOW,
+        payload: {
+          streamId: generationId,
+          channel: 'reasoning',
+          delta: '正在分析你的要求并规划完整导图。'
+        }
+      })
+      // Older hosts can place the strict map envelope on `answer`, split in
+      // the middle of `schemaVersion`. It is machine output, not chat prose.
+      agentEventHandler?.({
+        sequence: 2,
+        streamId: generationId,
+        kind: 'chunk',
+        createdAt: NOW,
+        payload: { streamId: generationId, channel: 'answer', delta: '{"schema' }
+      })
+      agentEventHandler?.({
+        sequence: 3,
+        streamId: generationId,
+        kind: 'chunk',
+        createdAt: NOW,
+        payload: { streamId: generationId, channel: 'answer', delta: 'Version":1,"sheets":[]}' }
+      })
+      agentEventHandler?.({
+        sequence: 4,
+        streamId: generationId,
+        kind: 'chunk',
+        createdAt: NOW,
+        payload: {
+          streamId: generationId,
+          channel: 'answer',
+          delta: '我已完成检查，并生成了可继续编辑的导图。'
+        }
+      })
+    })
+
+    expect(screen.getAllByText('正在分析你的要求并规划完整导图。').length).toBeGreaterThan(0)
+    expect(screen.getByText('我已完成检查，并生成了可继续编辑的导图。')).toBeInTheDocument()
+    expect(container.querySelector('.markdown-message--assistant')).toBeInTheDocument()
+    expect(screen.queryByText('{"schemaVersion":1,"sheets":[]}')).not.toBeInTheDocument()
 
     act(() => resolveGeneration?.(generatedDocument()))
   })
@@ -683,7 +779,8 @@ describe('MindMapAiPanel streaming preview', () => {
   it('edits the current canvas directly and adopts the host result without review', async () => {
     const user = userEvent.setup()
     const current = generatedDocument()
-    const proposal = proposalResult()
+    const providerReply = '我会重命名导图和画布，并保留现有学习内容。'
+    const proposal = { ...proposalResult(), assistantMessage: providerReply }
     const applied = appliedProposalResult()
     const generateMindMapProposal = vi.fn(async () => proposal)
     const applyMindMapProposal = vi.fn(async () => applied)
@@ -718,6 +815,9 @@ describe('MindMapAiPanel streaming preview', () => {
       decisions: { 'rename-document': 'accept', 'rename-sheet': 'accept' }
     }))
     await waitFor(() => expect(useMindMapViewStore.getState().current).toEqual(applied.document))
+    // The provider reply arrives on the invoke result, so it remains visible
+    // even if a separate realtime event is delayed or unavailable.
+    expect(screen.getByText(providerReply)).toBeInTheDocument()
     await waitFor(() => expect(
       document.querySelector('[data-generation-status="completed"]')
     ).toHaveAttribute('data-stream-step', 'done'))
@@ -725,8 +825,56 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(screen.queryByText('Apply changes to the current canvas')).not.toBeInTheDocument()
     expect(screen.queryByText('Proposal item 1')).not.toBeInTheDocument()
     expect(screen.queryByText('Request scope')).not.toBeInTheDocument()
+    expect(screen.getByText('READ')).toBeInTheDocument()
     expect(screen.getByText('Edit')).toBeInTheDocument()
-    expect(screen.getByText('mindmaps/generated.json')).toBeInTheDocument()
+    // Both the real canonical read and the subsequent write are visible; they
+    // intentionally target the same mind-map file.
+    expect(screen.getAllByText('mindmaps/generated.json')).toHaveLength(2)
+  })
+
+  it('sends prior conversation history on follow-up turns', async () => {
+    const user = userEvent.setup()
+    const current = generatedDocument()
+    const firstProposal = proposalResult()
+    const applied = appliedProposalResult()
+    const secondProposal = topicInsertProposalResult()
+    const secondApplied = appliedTopicInsertProposalResult()
+    const generateMindMapProposal = vi.fn()
+      .mockResolvedValueOnce(firstProposal)
+      .mockResolvedValueOnce(secondProposal)
+    const applyMindMapProposal = vi.fn()
+      .mockResolvedValueOnce(applied)
+      .mockResolvedValueOnce(secondApplied)
+    api.generateMindMapProposal = generateMindMapProposal
+    api.applyMindMapProposal = applyMindMapProposal
+    api.listMindMaps = vi.fn(async () => [])
+    useMindMapViewStore.setState({
+      current,
+      selectedNodeId: null,
+      activeSheetId: 'sheet-1'
+    })
+
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+
+    // First turn completes against the open canvas.
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+    await waitFor(() => expect(applyMindMapProposal).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(useMindMapViewStore.getState().current).toEqual(applied.document))
+
+    // The follow-up turn must carry the prior exchange as bounded history so
+    // the provider is not treated as stateless per message.
+    const prompt = screen.getByLabelText('Topic or prompt')
+    await user.clear(prompt)
+    await user.type(prompt, '再加一个分支{enter}')
+
+    expect(generateMindMapProposal).toHaveBeenLastCalledWith(expect.objectContaining({
+      prompt: '再加一个分支',
+      history: [
+        { role: 'user', content: 'Build a study map' },
+        { role: 'assistant', content: expect.stringContaining('Done:') }
+      ]
+    }))
   })
 
   it('reveals inserted topics one step at a time before adopting the host document', async () => {
@@ -960,6 +1108,110 @@ describe('MindMapAiPanel streaming preview', () => {
       'The AI returned an incomplete change proposal. Your mind map was not changed. Please try again.'
     )).toBeInTheDocument())
     expect(screen.queryByText(/Error invoking remote method/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the partially streamed canvas preview when the provider output is invalid', async () => {
+    const user = userEvent.setup()
+    const current = generatedDocument()
+    const proposal = topicInsertProposalResult()
+    let rejectProposal: ((error: Error) => void) | undefined
+    api.generateMindMapProposal = vi.fn(() => new Promise((_resolve, reject) => {
+      rejectProposal = reject
+    }))
+    api.listMindMaps = vi.fn(async () => [])
+    useMindMapViewStore.setState({
+      current,
+      selectedNodeId: null,
+      activeSheetId: 'sheet-1'
+    })
+
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+
+    const generationId = (api.generateMindMapProposal as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
+    // Stream a completed item so the canvas preview already holds content.
+    act(() => chunkHandler?.({
+      generationId,
+      delta: JSON.stringify({ items: proposal.proposal.items })
+    }))
+    expect(useMindMapViewStore.getState().generationPreview).not.toBeNull()
+
+    // The provider settles with an invalid/truncated JSON envelope at the end.
+    // In production the main process publishes this terminal stream status
+    // before Electron rejects the invoke promise. Keep that ordering here: it
+    // previously cleared the transient canvas preview before runGeneration's
+    // invalid-output catch could retain it.
+    act(() => statusHandler?.({
+      generationId,
+      step: 'error',
+      message: 'Mind map generation failed (invalid_output): mind-map proposal is not valid JSON'
+    }))
+    act(() => rejectProposal?.(new Error(
+      "Error invoking remote method 'teach:generate-mind-map-proposal': Error: Mind map generation failed (invalid_output): mind-map proposal is not valid JSON"
+    )))
+
+    await waitFor(() => expect(useMindMapViewStore.getState().generating).toBe(false))
+    // The partially generated map is retained instead of clearing the canvas.
+    expect(useMindMapViewStore.getState().generationPreview).not.toBeNull()
+    expect(screen.getByText(/not valid JSON/)).toBeInTheDocument()
+  })
+
+  it('replaces a retained invalid-output preview when the learner retries', async () => {
+    const user = userEvent.setup()
+    const current = generatedDocument()
+    const proposal = topicInsertProposalResult()
+    let rejectFirstProposal: ((error: Error) => void) | undefined
+    api.generateMindMapProposal = vi.fn()
+      .mockImplementationOnce(() => new Promise<MindMapProposalGenerateResult>((_resolve, reject) => {
+        rejectFirstProposal = reject
+      }))
+      .mockImplementationOnce(() => new Promise<MindMapProposalGenerateResult>(() => undefined))
+    useMindMapViewStore.setState({
+      current,
+      selectedNodeId: null,
+      activeSheetId: 'sheet-1'
+    })
+
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+
+    const firstGenerationId = (api.generateMindMapProposal as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
+    act(() => chunkHandler?.({
+      generationId: firstGenerationId,
+      delta: JSON.stringify({ items: proposal.proposal.items })
+    }))
+    act(() => statusHandler?.({
+      generationId: firstGenerationId,
+      step: 'error',
+      message: 'Mind map generation failed (invalid_output): mind-map proposal is not valid JSON'
+    }))
+    act(() => rejectFirstProposal?.(new Error(
+      "Error invoking remote method 'teach:generate-mind-map-proposal': Error: Mind map generation failed (invalid_output): mind-map proposal is not valid JSON"
+    )))
+
+    await waitFor(() => expect(useMindMapViewStore.getState().generating).toBe(false))
+    expect(useMindMapViewStore.getState().generationPreview?.generationId).toBe(firstGenerationId)
+
+    // A frozen invalid-output preview is presentation-only. Retrying explicitly
+    // replaces it, so the next stream can reveal a new preview from the
+    // canonical document instead of being blocked by the old generation id.
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(api.generateMindMapProposal).toHaveBeenCalledTimes(2))
+    const retryGenerationId = (api.generateMindMapProposal as ReturnType<typeof vi.fn>).mock.calls[1]?.[0].generationId
+    expect(retryGenerationId).not.toBe(firstGenerationId)
+    expect(useMindMapViewStore.getState().generationPreview?.generationId).toBe(retryGenerationId)
+
+    act(() => chunkHandler?.({
+      generationId: retryGenerationId,
+      delta: JSON.stringify({ items: proposal.proposal.items })
+    }))
+    await waitFor(() => expect(
+      useMindMapViewStore.getState().generationPreview?.document.sheets[0]?.root.children
+    ).toEqual([expect.objectContaining({ id: 'branch' })]))
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
   })
 
   it('returns to the library instead of exposing a local path when the open map was removed', async () => {

@@ -52,7 +52,7 @@ import {
   parseCancelConversationTurnIntent,
   parseWorkspaceItemRemovePayload, parseWorkspaceRemovePayload, parseRunTeachingDoctorPayload, parseProjectTeachingTurnReviewPayload, parseDecideTeachingTurnReviewPayload, parseProjectTeachingTurnReviewHandoffPayload, parseGetTeachingTurnReviewLastBundlePayload, parseSaveTeachingTurnReviewLastBundlePayload, requireStreamId, requireString,
   requireWindowControlAction,
-  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapAssetImportPayload, parseMindMapAssetReadPayload, parseMindMapUpdatePayload, parseMindMapFlushPayload, parseMindMapSourceRefreshPayload, parseMindMapGeneratePayload, parseMindMapProposalGeneratePayload, parseMindMapCancelGenerationPayload, parseMindMapMarkdownImportPayload, parseMindMapOpmlImportPayload, parseMindMapMarkdownExportPayload, parseMindMapOpmlExportPayload, parseMindMapSvgExportPayload, parseMindMapPngExportPayload
+  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapAssetImportPayload, parseMindMapAssetReadPayload, parseMindMapUpdatePayload, parseMindMapFlushPayload, parseMindMapSourceRefreshPayload, parseMindMapGeneratePayload, parseMindMapProposalGeneratePayload, parseMindMapCancelGenerationPayload, parseMindMapMarkdownImportPayload, parseMindMapOpmlImportPayload, parseMindMapPortableImportPayload, parseMindMapMarkdownExportPayload, parseMindMapOpmlExportPayload, parseMindMapPortableExportPayload, parseMindMapSvgExportPayload, parseMindMapPngExportPayload
 } from './teaching-ipc-commands'
 import type { TeachingSettingsService } from './teaching-settings'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
@@ -107,9 +107,10 @@ import {
   type MindMapAutoSourceContext
 } from './mindmap/mind-map-auto-source'
 import { exportMindMapMarkdownFile } from './mindmap/markdown-file'
-import { importMindMapMarkdownFile } from './mindmap/markdown-import-file'
-import { importMindMapOpmlFile } from './mindmap/opml-import-file'
+import { importMindMapMarkdownFileWithAssets } from './mindmap/markdown-import-file'
+import { importMindMapOpmlFileWithAssets } from './mindmap/opml-import-file'
 import { exportMindMapOpmlFile } from './mindmap/opml-file'
+import { exportMindMapPortableFile, importMindMapPortableFile } from './mindmap/portable-file'
 import { exportMindMapSvgFile } from './mindmap/svg-file'
 import { exportMindMapPngFile } from './mindmap/png-file'
 import { parseMindMapProposalApplyPayload } from './mindmap/mind-map-proposal-ipc'
@@ -474,7 +475,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
     rootPath: string,
     imported: MindMapDocumentV2,
     fallbackTitle: string,
-    channel: string
+    channel: string,
+    importedAssets: readonly MindMapAssetRef[] = []
   ): Promise<MindMapDocumentV2> => {
     const store = getMindMapStore(rootPath)
     let created: MindMapDocumentV2 | undefined
@@ -493,6 +495,12 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       return unwrapMindMapUpdate(result, channel)
     } catch (error) {
       if (created) await store.remove(created.id).catch(() => undefined)
+      const assetStore = new MindMapAssetStore({
+        rootPath: join(resolve(rootPath), 'mindmap-assets')
+      })
+      await Promise.all(
+        importedAssets.map((asset) => assetStore.remove(asset).catch(() => undefined))
+      )
       throw error
     }
   }
@@ -1851,8 +1859,9 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         }
         let streamStarted = false
         let proposal
-        sendStatus('calling')
-        agentEvents.status('thinking')
+        let assistantMessage: string | undefined
+        sendStatus('calling', '正在读取当前导图和相关资料')
+        agentEvents.status('thinking', '正在读取当前导图和相关资料')
         publishCompletedMindMapFileRead(
           agentEvents,
           `${generationId}:read:document`,
@@ -1898,12 +1907,13 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           })
         }
         try {
-          proposal = await generateMindMapProposal({
+          const generatedProposal = await generateMindMapProposal({
             title: current.title,
             prompt: p.prompt,
             settings: loadedSettings,
             document: current,
             request: built.request,
+            history: p.history,
             selectedFileContext,
             autoSourceContext,
             notesContext,
@@ -1913,17 +1923,29 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           }, (delta) => {
             if (!streamStarted) {
               streamStarted = true
-              sendStatus('streaming')
-              agentEvents.status('answering')
+              sendStatus('streaming', '正在生成候选提案')
+              agentEvents.status('answering', '正在整理候选提案')
             }
             safeSend(event.sender, teachingEventChannels.mindMapStreamChunk, {
               generationId,
               delta
             })
           }, (delta) => {
+            // The provider's real reasoning stream is a first-class part of the
+            // conversation. It is forwarded on the same reasoning channel the
+            // homepage conversation uses, so the "Think" view shows the model's
+            // actual step-by-step reasoning instead of a canned milestone.
             agentEvents.chunk('reasoning', delta)
           })
-          sendStatus('validating')
+          const { assistantMessage: generatedAssistantMessage, ...validatedProposal } = generatedProposal
+          proposal = validatedProposal
+          assistantMessage = generatedAssistantMessage
+          sendStatus('validating', '正在校验生成结果')
+          // The optional assistantMessage travels with the validated invoke
+          // result below. Sending it over a separate event channel races the
+          // IPC resolution and can either lose the learner-facing reply or
+          // render it twice; the renderer adds it exactly once before applying
+          // the proposal.
           agentEvents.terminal('done')
         } catch (error) {
           const step = error instanceof MindMapGenerationError && error.kind === 'cancelled'
@@ -1941,7 +1963,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           documentId: current.id,
           revision: current.revision,
           request: built.request,
-          proposal
+          proposal,
+          ...(assistantMessage ? { assistantMessage } : {})
         }
       },
       reply: identityReply, streamCleanup: noStreamCleanup
@@ -1994,8 +2017,8 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           })
         }
         let streamStarted = false
-        sendStatus('calling')
-        agentEvents.status('thinking')
+        sendStatus('calling', '正在读取相关资料')
+        agentEvents.status('thinking', '正在读取相关资料')
         if (selectedFileContext) {
           publishCompletedMindMapFileRead(
             agentEvents,
@@ -2033,6 +2056,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             title: p.title,
             prompt: p.prompt,
             settings: loadedSettings,
+            history: p.history,
             selectedFileContext,
             autoSourceContext,
             lessonContext,
@@ -2041,17 +2065,20 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           }, (delta) => {
             if (!streamStarted) {
               streamStarted = true
-              sendStatus('streaming')
-              agentEvents.status('answering')
+              sendStatus('streaming', '正在生成导图内容')
+              agentEvents.status('answering', '正在整理导图内容')
             }
             safeSend(event.sender, teachingEventChannels.mindMapStreamChunk, {
               generationId,
               delta
             })
           }, (delta) => {
+            // The provider's real reasoning stream is forwarded on the same
+            // reasoning channel as the homepage conversation so the "Think"
+            // view shows actual step-by-step reasoning, not a canned status.
             agentEvents.chunk('reasoning', delta)
           })
-          sendStatus('validating')
+          sendStatus('validating', '正在校验生成结果')
         } catch (error) {
           const step = error instanceof MindMapGenerationError && error.kind === 'cancelled'
             ? 'cancelled'
@@ -2061,7 +2088,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           agentEvents.terminal(mindMapAgentTerminalForError(error), message)
           throw mindMapGenerationIpcError(error)
         }
-        sendStatus('rendering')
+        sendStatus('rendering', '正在保存已校验的导图')
         let writeToolCall: { id: string; name: string; arguments: string } | null = null
         let writeToolSettled = false
         try {
@@ -2092,6 +2119,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             false
           )
           writeToolSettled = true
+          agentEvents.chunk('answer', `已生成思维导图：新增 ${countMindMapTopics(persisted)} 个主题。`)
           sendStatus('done')
           agentEvents.terminal('done')
           return persisted
@@ -2128,12 +2156,13 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => {
         const p = requireMindMapPayload(payload, 'importMindMapMarkdown')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        const imported = await importMindMapMarkdownFile(p.sourcePath)
+        const imported = await importMindMapMarkdownFileWithAssets(p.sourcePath, root)
         return persistImportedMindMap(
           root,
-          imported,
+          imported.document,
           '导入的思维导图',
-          'importMindMapMarkdown'
+          'importMindMapMarkdown',
+          imported.importedAssets
         )
       },
       reply: identityReply, streamCleanup: noStreamCleanup
@@ -2144,12 +2173,30 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
       action: async (_event, payload) => {
         const p = requireMindMapPayload(payload, 'importMindMapOpml')
         const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
-        const imported = await importMindMapOpmlFile(p.sourcePath)
+        const imported = await importMindMapOpmlFileWithAssets(p.sourcePath, root)
         return persistImportedMindMap(
           root,
-          imported,
+          imported.document,
           '导入的思维导图',
-          'importMindMapOpml'
+          'importMindMapOpml',
+          imported.importedAssets
+        )
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.importMindMapPortable,
+      parser: (payload) => parseMindMapPortableImportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'importMindMapPortable')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const imported = await importMindMapPortableFile(p.sourcePath, root)
+        return persistImportedMindMap(
+          root,
+          imported.document,
+          '导入的思维导图',
+          'importMindMapPortable',
+          imported.importedAssets
         )
       },
       reply: identityReply, streamCleanup: noStreamCleanup
@@ -2179,7 +2226,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             `Mind map Markdown export refused: ${readiness.reasons.join(', ')}`
           )
         }
-        return exportMindMapMarkdownFile(doc, p.destinationDirectory)
+        return exportMindMapMarkdownFile(doc, root, p.destinationDirectory)
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
@@ -2208,7 +2255,35 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             `Mind map OPML export refused: ${readiness.reasons.join(', ')}`
           )
         }
-        return exportMindMapOpmlFile(doc, p.destinationDirectory)
+        return exportMindMapOpmlFile(doc, root, p.destinationDirectory)
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.exportMindMapPortable,
+      parser: (payload) => parseMindMapPortableExportPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'exportMindMapPortable')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        const store = getMindMapStore(root)
+
+        // Keep the portable form behind the same durable snapshot proof as the
+        // editable text exports: embedded media must match the canonical map.
+        await store.flush(p.id)
+        const doc = await store.read(p.id)
+        const readiness = assessMindMapExportSnapshotReadiness({
+          snapshotRevision: p.snapshotRevision,
+          durableRevision: doc.revision,
+          expectedRevision: p.expectedRevision,
+          pendingWrites: p.pendingWrites,
+          dirty: p.dirty
+        })
+        if (!readiness.ready) {
+          throw new Error(
+            `Mind map portable export refused: ${readiness.reasons.join(', ')}`
+          )
+        }
+        return exportMindMapPortableFile(doc, root, p.destinationDirectory)
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),
@@ -2525,7 +2600,7 @@ function createMindMapAgentEventSender(
   generationId: string
 ): {
     status: (status: AgentChatStreamStatus['status'], message?: string) => void
-    chunk: (channel: 'reasoning', delta: string) => void
+    chunk: (channel: 'reasoning' | 'answer', delta: string) => void
     tool: (
       toolCall: { id: string; name: string; arguments: string },
       result?: string,
@@ -2576,6 +2651,17 @@ function createMindMapAgentEventSender(
       ...(message ? { message } : {})
     })
   }
+}
+
+/** Count all topics beneath the roots without exposing the document payload. */
+function countMindMapTopics(document: { sheets: readonly { root: unknown }[] }): number {
+  const count = (node: unknown): number => {
+    if (!node || typeof node !== 'object') return 0
+    const children = (node as { children?: unknown }).children
+    if (!Array.isArray(children)) return 0
+    return children.reduce((total, child) => total + 1 + count(child), 0)
+  }
+  return document.sheets.reduce((total, sheet) => total + count(sheet.root), 0)
 }
 
 function publishCompletedMindMapFileRead(

@@ -42,6 +42,8 @@ import type {
   MindMapCreatePayload,
   MindMapMarkdownExportPayload,
   MindMapMarkdownImportPayload,
+  MindMapPortableExportPayload,
+  MindMapPortableImportPayload,
   MindMapOpmlExportPayload,
   MindMapPngExportPayload,
   MindMapOpmlImportPayload,
@@ -122,6 +124,39 @@ function withImageAttachmentsKey(
     ...baseSets,
     ...baseSets.map((keys) => [...keys, 'imageAttachments'])
   ]
+}
+
+/** Bounds for renderer-supplied conversation history (kept strict and small). */
+const MAX_MIND_MAP_HISTORY_TURNS = 24
+const MAX_MIND_MAP_HISTORY_TOTAL_BYTES = 32 * 1024
+const MAX_MIND_MAP_HISTORY_TURN_BYTES = 8 * 1024
+
+/**
+ * Validate a bounded conversation-history envelope. Returns `null` on any
+ * invalid payload (wrong shape, unknown keys, oversized) so the strict
+ * mind-map parser rejects the whole request rather than trusting unvalidated
+ * text.
+ */
+function parseMindMapConversationHistory(
+  value: unknown
+): Array<{ role: 'user' | 'assistant'; content: string }> | null {
+  if (!Array.isArray(value) || value.length === 0) return []
+  if (value.length > MAX_MIND_MAP_HISTORY_TURNS) return null
+  const turns: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  let totalBytes = 0
+  for (const item of value) {
+    const record = requireExactKeys(item, ['role', 'content'])
+    if (!record) return null
+    if (record.role !== 'user' && record.role !== 'assistant') return null
+    if (typeof record.content !== 'string') return null
+    const content = record.content.trim()
+    if (!content) return null
+    if (Buffer.byteLength(content, 'utf8') > MAX_MIND_MAP_HISTORY_TURN_BYTES) return null
+    totalBytes += Buffer.byteLength(content, 'utf8')
+    if (totalBytes > MAX_MIND_MAP_HISTORY_TOTAL_BYTES) return null
+    turns.push({ role: record.role, content })
+  }
+  return turns
 }
 
 export function parseMindMapListPayload(value: unknown): MindMapListPayload | null {
@@ -257,15 +292,22 @@ export function parseMindMapSourceRefreshApplyPayload(
 
 export function parseMindMapGeneratePayload(value: unknown): MindMapGeneratePayload | null {
   // `generationId` was added for provider cancellation; `imageAttachments`
-  // mirrors the agent-chat image turn. Keep the original envelopes valid while
+  // mirrors the agent-chat image turn; `history` carries prior conversation
+  // turns so follow-ups keep context. Keep the original envelopes valid while
   // allowing exactly one read-only context selector (selected file or Lesson).
   const record = withImageAttachmentsKey([
     ['workspaceId', 'title', 'prompt'],
     ['workspaceId', 'title', 'prompt', 'generationId'],
+    ['workspaceId', 'title', 'prompt', 'history'],
+    ['workspaceId', 'title', 'prompt', 'history', 'generationId'],
     ['workspaceId', 'title', 'prompt', 'selectedFile'],
     ['workspaceId', 'title', 'prompt', 'selectedFile', 'generationId'],
+    ['workspaceId', 'title', 'prompt', 'selectedFile', 'history'],
+    ['workspaceId', 'title', 'prompt', 'selectedFile', 'history', 'generationId'],
     ['workspaceId', 'title', 'prompt', 'lesson'],
-    ['workspaceId', 'title', 'prompt', 'lesson', 'generationId']
+    ['workspaceId', 'title', 'prompt', 'lesson', 'generationId'],
+    ['workspaceId', 'title', 'prompt', 'lesson', 'history'],
+    ['workspaceId', 'title', 'prompt', 'lesson', 'history', 'generationId']
   ]).reduce<Record<string, unknown> | null>(
     (matched, keys) => matched ?? requireExactKeys(value, keys),
     null
@@ -287,6 +329,10 @@ export function parseMindMapGeneratePayload(value: unknown): MindMapGeneratePayl
     ? requireNonEmptyString(record.generationId)
     : undefined
   if (Object.prototype.hasOwnProperty.call(record, 'generationId') && !generationId) return null
+  const history = Object.prototype.hasOwnProperty.call(record, 'history')
+    ? parseMindMapConversationHistory(record.history)
+    : undefined
+  if (Object.prototype.hasOwnProperty.call(record, 'history') && !history) return null
   return {
     workspaceId,
     title,
@@ -294,7 +340,8 @@ export function parseMindMapGeneratePayload(value: unknown): MindMapGeneratePayl
     ...(selectedFile ? { selectedFile } : {}),
     ...(lesson ? { lesson } : {}),
     ...(imageAttachments ? { imageAttachments } : {}),
-    ...(generationId ? { generationId } : {})
+    ...(generationId ? { generationId } : {}),
+    ...(history ? { history } : {})
   }
 }
 
@@ -318,10 +365,16 @@ export function parseMindMapProposalGeneratePayload(
   const record = withImageAttachmentsKey([
     [...baseKeys, 'prompt'],
     [...baseKeys, 'prompt', 'generationId'],
+    [...baseKeys, 'prompt', 'history'],
+    [...baseKeys, 'prompt', 'history', 'generationId'],
     [...baseKeys, 'selectedFile', 'prompt'],
     [...baseKeys, 'selectedFile', 'prompt', 'generationId'],
+    [...baseKeys, 'selectedFile', 'prompt', 'history'],
+    [...baseKeys, 'selectedFile', 'prompt', 'history', 'generationId'],
     [...baseKeys, 'lesson', 'prompt'],
-    [...baseKeys, 'lesson', 'prompt', 'generationId']
+    [...baseKeys, 'lesson', 'prompt', 'generationId'],
+    [...baseKeys, 'lesson', 'prompt', 'history'],
+    [...baseKeys, 'lesson', 'prompt', 'history', 'generationId']
   ]).reduce<Record<string, unknown> | null>(
     (matched, keys) => matched ?? requireExactKeys(value, keys),
     null
@@ -357,6 +410,10 @@ export function parseMindMapProposalGeneratePayload(
     ? requireNonEmptyString(record.generationId)
     : undefined
   if (Object.prototype.hasOwnProperty.call(record, 'generationId') && !generationId) return null
+  const history = Object.prototype.hasOwnProperty.call(record, 'history')
+    ? parseMindMapConversationHistory(record.history)
+    : undefined
+  if (Object.prototype.hasOwnProperty.call(record, 'history') && !history) return null
   return {
     workspaceId,
     id,
@@ -368,7 +425,8 @@ export function parseMindMapProposalGeneratePayload(
     ...(lesson ? { lesson } : {}),
     ...(imageAttachments ? { imageAttachments } : {}),
     prompt,
-    ...(generationId ? { generationId } : {})
+    ...(generationId ? { generationId } : {}),
+    ...(history ? { history } : {})
   }
 }
 
@@ -454,6 +512,18 @@ export function parseMindMapOpmlImportPayload(
   return { workspaceId, sourcePath }
 }
 
+/** Parse the single-file StudiumX package import envelope. */
+export function parseMindMapPortableImportPayload(
+  value: unknown
+): MindMapPortableImportPayload | null {
+  const record = requireExactKeys(value, ['workspaceId', 'sourcePath'])
+  if (!record) return null
+  const workspaceId = requireNonEmptyString(record.workspaceId)
+  const sourcePath = requireNonEmptyString(record.sourcePath)
+  if (!workspaceId || !sourcePath) return null
+  return { workspaceId, sourcePath }
+}
+
 
 /**
  * Parse the Markdown export envelope.  The readiness fields are deliberately
@@ -526,6 +596,43 @@ export function parseMindMapOpmlExportPayload(value: unknown): MindMapOpmlExport
   ) {
     return null
   }
+  return {
+    workspaceId,
+    id,
+    destinationDirectory,
+    snapshotRevision,
+    expectedRevision,
+    pendingWrites: record.pendingWrites,
+    dirty: record.dirty
+  }
+}
+
+/** Parse the portable export envelope using the same readiness proof as text exports. */
+export function parseMindMapPortableExportPayload(value: unknown): MindMapPortableExportPayload | null {
+  const record = requireExactKeys(value, [
+    'workspaceId',
+    'id',
+    'destinationDirectory',
+    'snapshotRevision',
+    'expectedRevision',
+    'pendingWrites',
+    'dirty'
+  ])
+  if (!record) return null
+  const workspaceId = requireNonEmptyString(record.workspaceId)
+  const id = requireNonEmptyString(record.id)
+  const destinationDirectory = requireNonEmptyString(record.destinationDirectory)
+  const snapshotRevision = requireNonNegativeSafeInteger(record.snapshotRevision)
+  const expectedRevision = requireNonNegativeSafeInteger(record.expectedRevision)
+  if (
+    !workspaceId ||
+    !id ||
+    !destinationDirectory ||
+    snapshotRevision === null ||
+    expectedRevision === null ||
+    typeof record.pendingWrites !== 'boolean' ||
+    typeof record.dirty !== 'boolean'
+  ) return null
   return {
     workspaceId,
     id,

@@ -11,6 +11,8 @@ import { TextDecoder } from 'node:util'
 
 import { mindMapMarkdownToDocument } from '../../shared/mindmap/markdown-import'
 import type { MindMapDocumentV2 } from '../../shared/mindmap/domain/types'
+import { importMindMapInterchangeSidecar } from './mind-map-interchange'
+import type { ImportedInterchangeMedia } from './mind-map-interchange'
 
 const MAX_MARKDOWN_BYTES = 2 * 1024 * 1024
 const READ_CHUNK_BYTES = 64 * 1024
@@ -37,6 +39,15 @@ export async function importMindMapMarkdownFile(
     )
   }
   return result.document
+}
+
+/** Read and parse the source, then restore a neighbouring StudiumX media sidecar. */
+export async function importMindMapMarkdownFileWithAssets(
+  sourcePath: string,
+  workspaceRoot: string
+): Promise<ImportedInterchangeMedia> {
+  const document = await importMindMapMarkdownFile(sourcePath)
+  return importMindMapInterchangeSidecar(sourcePath, workspaceRoot, document)
 }
 
 /**

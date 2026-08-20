@@ -88,6 +88,11 @@ export function mindMapMarkdownToDocument(
     }
     if (line.trim().length === 0) continue
 
+    // Image links are an interoperable presentation detail. Exact image
+    // placement and bytes are restored from the neighbouring StudiumX
+    // sidecar manifest; the tree parser intentionally ignores these lines.
+    if (/^\s*!\[[^\]]*\]\([^)]*\)\s*$/.test(line)) continue
+
     if (documentTitle === null) {
       const heading = /^#(?!#)\s+(.+?)\s*$/.exec(line)
       if (!heading) {

@@ -1620,6 +1620,7 @@ describe('Teaching IPC gateway', () => {
         }
       ]
     }
+    const assistantMessage = '我会将导图标题调整为更清晰的学习主题。'
     mindMapGeneration.generateMindMapProposal.mockImplementationOnce(async (
       _input: unknown,
       onStream?: (delta: string) => void,
@@ -1627,7 +1628,7 @@ describe('Teaching IPC gateway', () => {
     ) => {
       onReasoning?.('Inspecting the current mind map.')
       onStream?.('{\"schemaVersion\":1}')
-      return proposal
+      return { ...proposal, assistantMessage }
     })
     registerTeachingIpcGateway(
       registration({
@@ -1645,7 +1646,11 @@ describe('Teaching IPC gateway', () => {
       selectedTopicIds: [],
       sourceRefs: [],
       prompt: 'Suggest a concise title.',
-      generationId: 'proposal-stream-1'
+      generationId: 'proposal-stream-1',
+      history: [
+        { role: 'user', content: '帮我整理这份资料。' },
+        { role: 'assistant', content: '已完成：新增 4 个节点。' }
+      ]
     }) as {
       documentId: string
       revision: number
@@ -1658,6 +1663,7 @@ describe('Teaching IPC gateway', () => {
         sourceRefs: unknown[]
       }
       proposal: typeof proposal
+      assistantMessage?: string
     }
 
     expect(result).toEqual({
@@ -1671,16 +1677,26 @@ describe('Teaching IPC gateway', () => {
         selectedTopicIds: [],
         sourceRefs: []
       },
-      proposal
+      proposal,
+      assistantMessage
     })
+    expect(result.proposal).not.toHaveProperty('assistantMessage')
     expect(load).toHaveBeenCalledTimes(1)
     expect(event.sender.send).toHaveBeenCalledWith(
       teachingEventChannels.mindMapStreamStatus,
-      { generationId: 'proposal-stream-1', step: 'calling' }
+      {
+        generationId: 'proposal-stream-1',
+        step: 'calling',
+        message: '正在读取当前导图和相关资料'
+      }
     )
     expect(event.sender.send).toHaveBeenCalledWith(
       teachingEventChannels.mindMapStreamStatus,
-      { generationId: 'proposal-stream-1', step: 'streaming' }
+      {
+        generationId: 'proposal-stream-1',
+        step: 'streaming',
+        message: '正在生成候选提案'
+      }
     )
     expect(event.sender.send).toHaveBeenCalledWith(
       teachingEventChannels.mindMapStreamChunk,
@@ -1688,7 +1704,11 @@ describe('Teaching IPC gateway', () => {
     )
     expect(event.sender.send).toHaveBeenCalledWith(
       teachingEventChannels.mindMapStreamStatus,
-      { generationId: 'proposal-stream-1', step: 'validating' }
+      {
+        generationId: 'proposal-stream-1',
+        step: 'validating',
+        message: '正在校验生成结果'
+      }
     )
     expect(event.sender.send).not.toHaveBeenCalledWith(
       teachingEventChannels.mindMapStreamStatus,
@@ -1702,7 +1722,11 @@ describe('Teaching IPC gateway', () => {
       expect.objectContaining({
         streamId: 'proposal-stream-1',
         kind: 'status',
-        payload: { streamId: 'proposal-stream-1', status: 'thinking' }
+        payload: {
+          streamId: 'proposal-stream-1',
+          status: 'thinking',
+          message: '正在读取当前导图和相关资料'
+        }
       }),
       expect.objectContaining({
         streamId: 'proposal-stream-1',
@@ -1741,7 +1765,11 @@ describe('Teaching IPC gateway', () => {
       expect.objectContaining({
         streamId: 'proposal-stream-1',
         kind: 'status',
-        payload: { streamId: 'proposal-stream-1', status: 'answering' }
+        payload: {
+          streamId: 'proposal-stream-1',
+          status: 'answering',
+          message: '正在整理候选提案'
+        }
       }),
       expect.objectContaining({
         streamId: 'proposal-stream-1',
@@ -1749,7 +1777,11 @@ describe('Teaching IPC gateway', () => {
         outcome: 'done'
       })
     ])
-    const readResult = agentEvents[2]
+    const readResult = agentEvents.find((agentEvent) => (
+      agentEvent.kind === 'tool' &&
+      agentEvent.payload.toolCall.id === 'proposal-stream-1:read:document' &&
+      agentEvent.payload.result !== undefined
+    ))
     expect(readResult?.kind).toBe('tool')
     if (readResult?.kind === 'tool') {
       expect(JSON.parse(readResult.payload.result ?? '{}')).toEqual({
@@ -1758,9 +1790,17 @@ describe('Teaching IPC gateway', () => {
       })
       expect(JSON.parse(readResult.payload.result ?? '{}')).not.toHaveProperty('content')
     }
+    // The natural-language reply is carried by the invoke result instead of
+    // a separate realtime event, so it cannot race or duplicate in the UI.
     expect(agentEvents.some((agentEvent) => (
       agentEvent.kind === 'chunk' && agentEvent.payload.channel === 'answer'
     ))).toBe(false)
+    // The provider's real reasoning stream is a first-class part of the
+    // conversation: it is forwarded on the reasoning channel so the "Think"
+    // view shows the model's actual step-by-step reasoning.
+    expect(agentEvents.some((agentEvent) => (
+      agentEvent.kind === 'chunk' && agentEvent.payload.channel === 'reasoning'
+    ))).toBe(true)
     expect(JSON.stringify(agentEvents)).not.toContain('{\"schemaVersion\":1}')
     expect(mindMapGeneration.generateMindMapProposal).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1768,6 +1808,10 @@ describe('Teaching IPC gateway', () => {
         prompt: 'Suggest a concise title.',
         settings: loadedSettings,
         document: expect.objectContaining({ id: created.id, revision: created.revision }),
+        history: [
+          { role: 'user', content: '帮我整理这份资料。' },
+          { role: 'assistant', content: '已完成：新增 4 个节点。' }
+        ],
         request: expect.objectContaining({
           schemaVersion: 1,
           scope: 'sheet',
@@ -2003,8 +2047,10 @@ describe('Teaching IPC gateway', () => {
       expect(listResult.entries).toHaveLength(2)
     }
     expect(agentEvents.some((agentEvent) => (
-      agentEvent.kind === 'chunk' && agentEvent.payload.channel === 'answer'
-    ))).toBe(false)
+      agentEvent.kind === 'chunk' &&
+      agentEvent.payload.channel === 'answer' &&
+      agentEvent.payload.delta.includes('已生成思维导图')
+    ))).toBe(true)
     expect(JSON.stringify(agentEvents)).not.toContain(sourceContent)
     expect(JSON.stringify(agentEvents)).not.toContain(secondSourceContent)
     expect(JSON.stringify(agentEvents)).not.toContain(rootPath)

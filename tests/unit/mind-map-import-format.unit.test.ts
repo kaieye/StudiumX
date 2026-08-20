@@ -9,6 +9,7 @@ describe('mindMapImportFormatForFileName', () => {
     expect(mindMapImportFormatForFileName('course.md')).toBe('markdown')
     expect(mindMapImportFormatForFileName('course.MARKDOWN')).toBe('markdown')
     expect(mindMapImportFormatForFileName('course.OPML')).toBe('opml')
+    expect(mindMapImportFormatForFileName('course.SXMIND')).toBe('portable')
   })
 
   it('uses the final extension and rejects ambiguous or unsupported names', () => {
@@ -20,6 +21,6 @@ describe('mindMapImportFormatForFileName', () => {
   })
 
   it('keeps the file-input filter aligned with the supported formats', () => {
-    expect(MIND_MAP_IMPORT_ACCEPT).toBe('.md,.markdown,.opml')
+    expect(MIND_MAP_IMPORT_ACCEPT).toBe('.md,.markdown,.opml,.sxmind')
   })
 })

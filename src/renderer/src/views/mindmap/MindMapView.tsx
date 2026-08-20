@@ -637,7 +637,9 @@ export function MindMapView() {
       const doc =
         format === 'markdown'
           ? await window.teachingSystem?.importMindMapMarkdown(payload)
-          : await window.teachingSystem?.importMindMapOpml(payload)
+          : format === 'opml'
+            ? await window.teachingSystem?.importMindMapOpml(payload)
+            : await window.teachingSystem?.importMindMapPortable(payload)
       if (doc) {
         await openDocument(doc.id)
         await loadDocuments()
@@ -724,6 +726,31 @@ export function MindMapView() {
         return
       }
       const result = await window.teachingSystem?.exportMindMapOpml({
+        workspaceId: activeWorkspace.id,
+        destinationDirectory,
+        ...snapshot
+      })
+      completeExport(format, result?.path)
+    } catch (error) {
+      failExport(format, error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handlePortableExport = async (): Promise<void> => {
+    if (!current || previewReadOnly) return
+    const format: MindMapExportFormat = 'portable'
+    startExport(format)
+    try {
+      const destinationDirectory = await pickExportDirectory(format)
+      if (!destinationDirectory) return
+      const snapshot = await flushForExport()
+      if (!snapshot) {
+        failExport(format, t('mindmap.exportNotReady'))
+        return
+      }
+      const result = await window.teachingSystem?.exportMindMapPortable({
         workspaceId: activeWorkspace.id,
         destinationDirectory,
         ...snapshot
@@ -1398,6 +1425,9 @@ export function MindMapView() {
                 </button>
                 <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleOpmlExport(); setExportMenuOpen(false) }}>
                   <FileCode size={14} /> {t('mindmap.exportOpml')}
+                </button>
+                <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handlePortableExport(); setExportMenuOpen(false) }}>
+                  <FilePlus2 size={14} /> {t('mindmap.exportPortable')}
                 </button>
                 <button type="button" className="mindmap-export-dropdown__item" role="menuitem" disabled={busy} onClick={() => { void handleSvgExport(); setExportMenuOpen(false) }}>
                   <ImageIcon size={14} /> {t('mindmap.exportSvg')}

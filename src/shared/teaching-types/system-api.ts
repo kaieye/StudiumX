@@ -154,6 +154,8 @@ import type {
   MindMapCreatePayload,
   MindMapMarkdownExportPayload,
   MindMapMarkdownImportPayload,
+  MindMapPortableExportPayload,
+  MindMapPortableImportPayload,
   MindMapOpmlExportPayload,
   MindMapOpmlImportPayload,
   MindMapPngExportPayload,
@@ -558,6 +560,8 @@ export type TeachingSystemApi = {
   importMindMapMarkdown: (payload: MindMapMarkdownImportPayload) => Promise<MindMapDocumentV2>
   /** Import the StudiumX OPML tree/notes subset, persist it, and return the document. */
   importMindMapOpml: (payload: MindMapOpmlImportPayload) => Promise<MindMapDocumentV2>
+  /** Import a single-file StudiumX package with embedded media. */
+  importMindMapPortable: (payload: MindMapPortableImportPayload) => Promise<MindMapDocumentV2>
   /** Flush pending mind map autosave before switching/closing/exporting. */
   flushMindMap: (payload: MindMapFlushPayload) => Promise<void>
   /** Preview source-anchor freshness without mutating the canonical document. */
@@ -578,6 +582,8 @@ export type TeachingSystemApi = {
   exportMindMapMarkdown: (payload: MindMapMarkdownExportPayload) => Promise<{ path: string }>
   /** Export one clean, durably acknowledged mind map as OPML. */
   exportMindMapOpml: (payload: MindMapOpmlExportPayload) => Promise<{ path: string }>
+  /** Export one clean map as a portable `.sxmind` package with embedded media. */
+  exportMindMapPortable: (payload: MindMapPortableExportPayload) => Promise<{ path: string }>
   /** Export one clean, durably acknowledged rendered sheet as SVG. */
   exportMindMapSvg: (payload: MindMapSvgExportPayload) => Promise<{ path: string }>
   /** Export one clean, durably acknowledged rendered sheet as PNG. */

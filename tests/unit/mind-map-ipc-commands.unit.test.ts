@@ -7,7 +7,9 @@ import {
   parseMindMapMarkdownImportPayload,
   parseMindMapMarkdownExportPayload,
   parseMindMapOpmlImportPayload,
+  parseMindMapPortableImportPayload,
   parseMindMapOpmlExportPayload,
+  parseMindMapPortableExportPayload,
   parseMindMapSvgExportPayload,
   parseMindMapSourceRefreshPayload,
   parseMindMapSourceRefreshApplyPayload,
@@ -284,6 +286,60 @@ describe('parseMindMapProposalGeneratePayload', () => {
         generationId: 'generation-1'
       })
     ).toEqual({ ...valid, imageAttachments: [pngAttachment], generationId: 'generation-1' })
+  })
+
+  it('accepts bounded conversation history on the proposal envelope', () => {
+    const history = [
+      { role: 'user' as const, content: '帮我整理这份资料。' },
+      { role: 'assistant' as const, content: '已完成：新增 4 个节点。' }
+    ]
+    expect(
+      parseMindMapProposalGeneratePayload({ ...valid, history })
+    ).toEqual({ ...valid, history })
+    expect(
+      parseMindMapProposalGeneratePayload({
+        ...valid,
+        history,
+        generationId: 'generation-1',
+        imageAttachments: [pngAttachment]
+      })
+    ).toEqual({ ...valid, history, generationId: 'generation-1', imageAttachments: [pngAttachment] })
+  })
+
+  it('rejects invalid conversation history on the proposal envelope', () => {
+    expect(
+      parseMindMapProposalGeneratePayload({
+        ...valid,
+        history: [{ role: 'system', content: 'nope' }]
+      })
+    ).toBeNull()
+    expect(
+      parseMindMapProposalGeneratePayload({
+        ...valid,
+        history: [{ role: 'user', content: ' ' }]
+      })
+    ).toBeNull()
+    expect(
+      parseMindMapProposalGeneratePayload({
+        ...valid,
+        history: [{ role: 'user', content: 'x', extra: true }]
+      })
+    ).toBeNull()
+    expect(
+      parseMindMapProposalGeneratePayload({
+        ...valid,
+        history: [{
+          role: 'user',
+          content: 'x'.repeat(8 * 1024 + 1)
+        }]
+      })
+    ).toBeNull()
+    expect(
+      parseMindMapProposalGeneratePayload({
+        ...valid,
+        history: Array.from({ length: 25 }, () => ({ role: 'user' as const, content: 'x' }))
+      })
+    ).toBeNull()
   })
 
   it('rejects invalid image attachments on the proposal envelope', () => {
@@ -573,6 +629,60 @@ describe('parseMindMapGeneratePayload', () => {
     ).toBeNull()
   })
 
+  it('accepts bounded conversation history on the full-document envelope', () => {
+    const history = [
+      { role: 'user' as const, content: '先帮我梳理主题。' },
+      { role: 'assistant' as const, content: '已生成第一版导图。' }
+    ]
+    expect(
+      parseMindMapGeneratePayload({
+        workspaceId: 'workspace-1',
+        title: 'Cell biology',
+        prompt: '再补充一个分支',
+        history
+      })
+    ).toEqual({
+      workspaceId: 'workspace-1',
+      title: 'Cell biology',
+      prompt: '再补充一个分支',
+      history
+    })
+    expect(
+      parseMindMapGeneratePayload({
+        workspaceId: 'workspace-1',
+        title: 'Cell biology',
+        prompt: '再补充一个分支',
+        history,
+        generationId: 'generation-1'
+      })
+    ).toEqual({
+      workspaceId: 'workspace-1',
+      title: 'Cell biology',
+      prompt: '再补充一个分支',
+      history,
+      generationId: 'generation-1'
+    })
+  })
+
+  it('rejects invalid conversation history on the full-document envelope', () => {
+    expect(
+      parseMindMapGeneratePayload({
+        workspaceId: 'workspace-1',
+        title: 'Cell biology',
+        prompt: 'Explain mitosis',
+        history: [{ role: 'assistant', content: '' }]
+      })
+    ).toBeNull()
+    expect(
+      parseMindMapGeneratePayload({
+        workspaceId: 'workspace-1',
+        title: 'Cell biology',
+        prompt: 'Explain mitosis',
+        history: [{ role: 'user', content: 'x', extra: true }]
+      })
+    ).toBeNull()
+  })
+
   it('rejects blank generation ids and unknown fields', () => {
     expect(
       parseMindMapGeneratePayload({
@@ -751,6 +861,24 @@ describe('parseMindMapOpmlImportPayload', () => {
 })
 
 
+describe('parseMindMapPortableImportPayload', () => {
+  const valid = {
+    workspaceId: 'workspace-1',
+    sourcePath: '/tmp/imports/course.sxmind'
+  }
+
+  it('accepts the workspace-scoped StudiumX package envelope', () => {
+    expect(parseMindMapPortableImportPayload(valid)).toEqual(valid)
+  })
+
+  it('rejects blank fields and unknown keys before file access', () => {
+    expect(parseMindMapPortableImportPayload({ ...valid, workspaceId: '  ' })).toBeNull()
+    expect(parseMindMapPortableImportPayload({ ...valid, sourcePath: '' })).toBeNull()
+    expect(parseMindMapPortableImportPayload({ ...valid, extra: true })).toBeNull()
+  })
+})
+
+
 describe('parseMindMapMarkdownExportPayload', () => {
   const valid = {
     workspaceId: 'workspace-1',
@@ -794,6 +922,30 @@ describe('parseMindMapOpmlExportPayload', () => {
     expect(parseMindMapOpmlExportPayload({ ...valid, expectedRevision: -1 })).toBeNull()
     expect(parseMindMapOpmlExportPayload({ ...valid, pendingWrites: 'false' })).toBeNull()
     expect(parseMindMapOpmlExportPayload({ ...valid, extra: true })).toBeNull()
+  })
+})
+
+
+describe('parseMindMapPortableExportPayload', () => {
+  const valid = {
+    workspaceId: 'workspace-1',
+    id: 'map-1',
+    destinationDirectory: '/tmp/exports',
+    snapshotRevision: 4,
+    expectedRevision: 4,
+    pendingWrites: false,
+    dirty: false
+  }
+
+  it('accepts the complete renderer readiness proof', () => {
+    expect(parseMindMapPortableExportPayload(valid)).toEqual(valid)
+  })
+
+  it('rejects missing, malformed, or extra readiness fields', () => {
+    expect(parseMindMapPortableExportPayload({ ...valid, dirty: undefined })).toBeNull()
+    expect(parseMindMapPortableExportPayload({ ...valid, expectedRevision: -1 })).toBeNull()
+    expect(parseMindMapPortableExportPayload({ ...valid, pendingWrites: 'false' })).toBeNull()
+    expect(parseMindMapPortableExportPayload({ ...valid, extra: true })).toBeNull()
   })
 })
 

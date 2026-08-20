@@ -24,6 +24,7 @@
 | [ADR-0014](0014-teaching-kernel-and-skill-authority.md) | Teaching kernel | Kernel 保持核心教学权威，Skill 只能提供受限扩展。 |
 | [ADR-0015](0015-shell-sandbox-dual-axis.md) | Shell security | workspace shell 的 approvalMode 与 sandboxMode 是独立双轴。 |
 | [ADR-0016](0016-mind-map-repository-and-ai-boundary.md) | Mind map | 导图由 revisioned repository 单写，AI 输出仅是用户草稿。 |
+| [ADR-0017](0017-mind-map-portable-media-interchange.md) | Mind map / persistence | 导图媒体在显式交换时以内嵌 `.sxmind` 或 Markdown/OPML sidecar 迁移，并经严格校验与回滚。 |
 
 ## Proposed / 设计门禁
 

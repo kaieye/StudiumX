@@ -464,20 +464,27 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
     }
   }
 
+  /** Best-effort refresh of the aggregate home-page library; never throws. */
+  const refreshLibrary = async (): Promise<void> => {
+    try {
+      const library = await window.teachingSystem?.listMindMapLibrary()
+      if (library) set({ library })
+    } catch {
+      // Best effort: the caller's scope cards are already refreshed.
+    }
+  }
+
   const refreshDocuments = async (): Promise<void> => {
     const workspace = workspaceId()
     if (!workspace) return
     const documents = await window.teachingSystem?.listMindMaps({ workspaceId: workspace })
     if (documents) set({ documents })
     // The home page shows the aggregate library; keep it fresh alongside the
-    // current scope's cards.
-    if (get().scope === 'home') {
-      try {
-        const library = await window.teachingSystem?.listMindMapLibrary()
-        if (library) set({ library })
-      } catch {
-        // Best effort: the scope cards are already refreshed above.
-      }
+    // current scope's cards. The home page is addressed by scope 'home' or the
+    // initial null scope before any folder navigation, so both must refresh the
+    // library or a freshly created/edited card stays missing or stale.
+    if (get().scope === 'home' || get().scope === null) {
+      await refreshLibrary()
     }
   }
 
@@ -710,6 +717,17 @@ export const useMindMapViewStore = create<MindMapViewState>((set, get) => {
         generationPreview: null,
         error: null
       })
+
+      // Refresh the gallery right after leaving the editor so a created or
+      // edited map's card (title, preview thumbnail, recency order) is current
+      // immediately — on the home page and inside the owning workspace folder —
+      // instead of only after a later reload or app restart. The autosave lane
+      // only refreshes the aggregate library on the home scope, so a map edited
+      // from a workspace folder would otherwise keep its stale card.
+      await refreshDocuments()
+      if (get().scope !== 'home' && get().scope !== null) {
+        await refreshLibrary()
+      }
     },
 
     discardMissingDocument,

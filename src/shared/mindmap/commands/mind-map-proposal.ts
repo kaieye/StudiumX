@@ -26,6 +26,7 @@ import type {
   MindMapCommandError,
   MindMapCommandResult
 } from './mind-map-command-types'
+import { reconcileMindMapProposalTopicIds } from './mind-map-proposal-topic-ids'
 
 /** One independently reviewable AI diff item. */
 export type MindMapProposalItem = {
@@ -55,7 +56,16 @@ export type MindMapProviderProposal = {
 
 /** Result returned by the pure provider JSON boundary. */
 export type MindMapProposalParseResult =
-  | { ok: true; proposal: MindMapProviderProposal }
+  | {
+      ok: true
+      proposal: MindMapProviderProposal
+      /**
+       * Optional learner-facing reply emitted alongside the strict proposal.
+       * It is presentation data only: it is intentionally not part of the
+       * proposal that can later cross the canonical apply boundary.
+       */
+      assistantMessage?: string
+    }
   | { ok: false; code: 'json_parse' | 'schema_invalid'; message: string }
 
 const nonEmptyIdSchema = z.string().refine((value) => value.trim().length > 0, {
@@ -518,6 +528,12 @@ const mindMapCommandProposalSchema: z.ZodType<MindMapCommand, z.ZodTypeDef, unkn
       .strict(),
     z
       .object({
+        type: z.literal('sheet.clear'),
+        sheetId: nonEmptyIdSchema
+      })
+      .strict(),
+    z
+      .object({
         type: z.literal('document.apply-theme'),
         theme: mindMapThemeProposalSchema
       })
@@ -592,19 +608,111 @@ function stripMindMapProposalCodeFence(content: string): string {
 }
 
 /**
+ * Find the first balanced JSON root in arbitrary provider text and parse it.
+ *
+ * Some models append a natural-language note, a trailing code-fence marker, or
+ * a stray brace after a complete JSON envelope. `JSON.parse` on the whole text
+ * then fails even though the envelope itself is valid. This scan walks the text
+ * once (string-aware), collects each complete `{...}`/`[...]` root, and returns
+ * the first one that parses — skipping leading prose and small non-JSON braces.
+ * It deliberately returns `null` for a genuinely truncated root so callers can
+ * repair-retry instead of accepting a partial document.
+ */
+export function salvageFirstParseableJsonRoot(text: string): unknown | null {
+  let start = -1
+  let inString = false
+  let escaped = false
+  const stack: Array<'{' | '['> = []
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+    if (character === '"') {
+      inString = true
+      continue
+    }
+    if (character === '{' || character === '[') {
+      if (start === -1) start = index
+      stack.push(character)
+      continue
+    }
+    if (character === '}' || character === ']') {
+      const opening = stack.at(-1)
+      if (!opening || (character === '}' && opening !== '{') || (character === ']' && opening !== '[')) {
+        return null
+      }
+      stack.pop()
+      if (stack.length === 0) {
+        const candidate = text.slice(start, index + 1)
+        try {
+          return JSON.parse(candidate) as unknown
+        } catch {
+          // Not a syntactically valid root; keep scanning for a later one.
+          start = -1
+        }
+      }
+    }
+  }
+  return null
+}
+
+/**
  * Parse provider text without allowing unknown fields to be silently stripped.
  * This is deliberately separate from generation/IPC so callers can validate a
  * proposal before creating review state or touching the canonical document.
  */
 export function parseMindMapProposalJson(content: string): MindMapProposalParseResult {
+  const cleaned = stripMindMapProposalCodeFence(content)
   let value: unknown
   try {
-    value = JSON.parse(stripMindMapProposalCodeFence(content)) as unknown
+    value = JSON.parse(cleaned) as unknown
   } catch {
-    return { ok: false, code: 'json_parse', message: 'mind-map proposal is not valid JSON' }
+    // Tolerate trailing prose/fence after a complete JSON envelope; a genuinely
+    // truncated root stays a `json_parse` failure so the caller can repair-retry.
+    value = salvageFirstParseableJsonRoot(cleaned)
+    if (value === null) {
+      return { ok: false, code: 'json_parse', message: 'mind-map proposal is not valid JSON' }
+    }
   }
 
-  const parsed = mindMapProposalSchema.safeParse(value)
+  // The provider may add one bounded, user-facing response beside the command
+  // envelope. Keep it out of `MindMapProviderProposal`: the renderer sends
+  // that type back through the apply IPC, where presentation text must never
+  // become mutation input. All other unknown top-level keys remain rejected.
+  let assistantMessage: string | undefined
+  let proposalValue = value
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>
+    if (Object.hasOwn(record, 'assistantMessage')) {
+      const candidate = record.assistantMessage
+      if (typeof candidate !== 'string') {
+        return {
+          ok: false,
+          code: 'schema_invalid',
+          message: 'mind-map proposal failed schema validation'
+        }
+      }
+      const trimmed = candidate.trim()
+      // Keep this response comfortably bounded for an embedded transcript.
+      // It is still sanitized again at render time before display.
+      if (!trimmed || trimmed.length > 4_000) {
+        return {
+          ok: false,
+          code: 'schema_invalid',
+          message: 'mind-map proposal failed schema validation'
+        }
+      }
+      assistantMessage = trimmed
+      const { assistantMessage: _assistantMessage, ...proposal } = record
+      proposalValue = proposal
+    }
+  }
+
+  const parsed = mindMapProposalSchema.safeParse(proposalValue)
   if (!parsed.success) {
     return {
       ok: false,
@@ -612,7 +720,11 @@ export function parseMindMapProposalJson(content: string): MindMapProposalParseR
       message: 'mind-map proposal failed schema validation'
     }
   }
-  return { ok: true, proposal: parsed.data }
+  return {
+    ok: true,
+    proposal: parsed.data,
+    ...(assistantMessage ? { assistantMessage } : {})
+  }
 }
 
 export type MindMapProposalDecision = 'accept' | 'reject'
@@ -713,7 +825,13 @@ export function applyMindMapProposal(
   items: readonly MindMapProposalItem[],
   decisions: MindMapProposalDecisions
 ): MindMapProposalApplyResult {
-  const resolution = resolveMindMapProposal(items, decisions)
+  // The apply IPC boundary receives renderer-provided data. Reconcile again
+  // here, even though host generation already does so, so stale/raw provider
+  // proposal data can never bypass this collision-safe canonical path.
+  const resolution = resolveMindMapProposal(
+    reconcileMindMapProposalTopicIds(document, items),
+    decisions
+  )
   if (resolution.command === null) {
     return {
       ok: true,

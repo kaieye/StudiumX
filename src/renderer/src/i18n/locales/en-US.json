@@ -2098,17 +2098,19 @@
       "createFailed": "Could not create the mind map. Please try again."
     },
     "import": "Import",
-    "importFormats": "Import Markdown or OPML",
+    "importFormats": "Import Markdown, OPML, or a StudiumX file",
     "importRequiresDesktopPath": "Choose a file from the desktop app to import it.",
-    "unsupportedImportFormat": "Choose an .md, .markdown, or .opml file.",
+    "unsupportedImportFormat": "Choose an .md, .markdown, .opml, or .sxmind file.",
     "exportMarkdown": "Export Markdown",
     "exportOpml": "Export OPML",
+    "exportPortable": "Export StudiumX file",
     "exportSvg": "Export SVG",
     "exportPng": "Export PNG",
     "exportNotReady": "Mind map is still saving; try again when the save completes.",
     "exportFormat": {
       "markdown": "Markdown",
       "opml": "OPML",
+      "portable": "StudiumX",
       "svg": "SVG",
       "png": "PNG"
     },
@@ -2692,6 +2694,11 @@
       "placeholder": "Write a note…",
       "inputLabel": "Node note",
       "hint": "Notes save automatically"
-    }
+    },
+    "aiProposalAppliedSummary": "Done: added {{inserted}} node(s), updated {{updated}}, moved {{moved}}, removed {{removed}}, and made {{other}} other change(s).",
+    "aiNoChangesAnswer": "I finished the analysis, but found no changes that could be applied safely. Tell me what to add, revise, move, or remove.",
+    "aiGeneratedAnswer": "The mind map was generated and saved to the current workspace.",
+    "aiCancelledAnswer": "I stopped this generation; unconfirmed results were not written to the mind map.",
+    "aiErrorAnswer": "This mind-map request did not complete. No unvalidated result was written to the map."
   }
 }

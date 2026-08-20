@@ -110,6 +110,88 @@ describe('mind-map AI proposal command adapter', () => {
     })
   })
 
+  it('accepts and applies a sheet.clear clear-page command', () => {
+    const document = makeDocument()
+    document.sheets[0]!.elements.push({
+      id: 'shape-1',
+      type: 'shape',
+      shape: 'rect',
+      position: { x: 10, y: 20 },
+      width: 80,
+      height: 40
+    })
+    document.sheets[0]!.elements.push({
+      id: 'line-1',
+      type: 'connector',
+      start: { x: 0, y: 0, anchor: { targetType: 'shape', targetId: 'shape-1' } },
+      end: { x: 40, y: 40 }
+    })
+    document.sheets[0]!.images = [{
+      id: 'img-1',
+      type: 'image',
+      assetId: 'asset-1',
+      width: 160,
+      height: 88,
+      position: { x: 40, y: 60 }
+    }]
+    document.assets = [{ id: 'asset-1', fileName: 'a.png', mimeType: 'image/png' }]
+
+    const parsed = parseMindMapProposalJson(JSON.stringify({
+      schemaVersion: 1,
+      proposalId: 'clear-page',
+      scope: 'sheet',
+      items: [{
+        id: 'clear-all',
+        command: { type: 'sheet.clear', sheetId: 'sheet-1' }
+      }]
+    }))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+
+    const result = applyMindMapProposal(document, parsed.proposal.items, { 'clear-all': 'accept' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const sheet = result.document.sheets[0]!
+    expect(sheet.root.id).toBe('root-1')
+    expect(sheet.root.children).toEqual([])
+    expect(sheet.elements).toEqual([])
+    expect(sheet.images ?? []).toEqual([])
+  })
+
+  it('reserves duplicate provider topic ids at the canonical apply boundary', () => {
+    const document = makeDocument()
+    document.sheets[0]!.root.children.push({
+      id: 'ai-topic-24',
+      title: 'Previously inserted topic',
+      children: []
+    })
+    const items: MindMapProposalItem[] = [
+      {
+        id: 'insert-next-topic',
+        command: {
+          type: 'topic.insert',
+          sheetId: 'sheet-1',
+          parentId: 'root-1',
+          node: {
+            id: 'ai-topic-24',
+            title: 'New topic from a later AI edit',
+            children: []
+          }
+        }
+      }
+    ]
+
+    const result = applyMindMapProposal(document, items, {
+      'insert-next-topic': 'accept'
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const ids = result.document.sheets[0]!.root.children.map((topic) => topic.id)
+    expect(ids).toContain('ai-topic-24')
+    expect(ids).toContain('ai-topic-24-1')
+  })
+
   it('accepts a numbering patch through strict proposal parsing', () => {
     const parsed = parseMindMapProposalJson(JSON.stringify({
       schemaVersion: 1,
@@ -345,6 +427,34 @@ describe('mind-map provider proposal parser', () => {
     expect(result).toEqual({ ok: true, proposal: value })
   })
 
+  it('separates an optional learner-facing reply from the strict mutation proposal', () => {
+    const proposal = validProposal()
+    const assistantMessage = '我会补充概念定义，并保留已有层级。'
+
+    const result = parseMindMapProposalJson(JSON.stringify({ ...proposal, assistantMessage }))
+
+    expect(result).toEqual({ ok: true, proposal, assistantMessage })
+    if (!result.ok) return
+    expect(result.proposal).not.toHaveProperty('assistantMessage')
+  })
+
+  it.each([
+    ['a non-string reply', 42],
+    ['a blank reply', '   '],
+    ['an oversized reply', 'x'.repeat(4_001)]
+  ])('rejects %s beside an otherwise valid proposal', (_label, assistantMessage) => {
+    const result = parseMindMapProposalJson(JSON.stringify({
+      ...validProposal(),
+      assistantMessage
+    }))
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'schema_invalid',
+      message: 'mind-map proposal failed schema validation'
+    })
+  })
+
   it('accepts the complete persisted theme and sheet-layout style contract', () => {
     const proposal = {
       ...validProposal(),
@@ -495,6 +605,27 @@ describe('mind-map provider proposal parser', () => {
       ).ok
     ).toBe(false)
     expect(parseMindMapProposalJson('{not-json}')).toEqual({
+      ok: false,
+      code: 'json_parse',
+      message: 'mind-map proposal is not valid JSON'
+    })
+  })
+
+  it('salvages a complete proposal from trailing provider prose or a stray fence', () => {
+    const serialized = JSON.stringify(validProposal())
+    const trailingProse = parseMindMapProposalJson(`${serialized}\n\n以上是本次建议，请审核。`)
+    expect(trailingProse.ok).toBe(true)
+    if (trailingProse.ok) expect(trailingProse.proposal).toEqual(validProposal())
+
+    const strayFence = parseMindMapProposalJson(`${serialized}\n\`\`\``)
+    expect(strayFence.ok).toBe(true)
+
+    const leadingProse = parseMindMapProposalJson(`好的，结果如下：${serialized}`)
+    expect(leadingProse.ok).toBe(true)
+  })
+
+  it('keeps a truncated root a json_parse failure so callers can repair-retry', () => {
+    expect(parseMindMapProposalJson('{"schemaVersion":1,"proposalId":"p","scope":"sheet","items":[')).toEqual({
       ok: false,
       code: 'json_parse',
       message: 'mind-map proposal is not valid JSON'

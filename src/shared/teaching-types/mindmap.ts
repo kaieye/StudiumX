@@ -264,11 +264,24 @@ export type MindMapProposalGeneratePayload = {
   imageAttachments?: AgentChatImageAttachment[]
   /** Stable correlation id shared with the existing generation cancellation path. */
   generationId?: string
+  /** Prior mind-map conversation turns so a follow-up keeps context (bounded by the host parser). */
+  history?: MindMapConversationHistoryTurn[]
 }
 
 /** Renderer-facing selected-file identity. It never includes a workspace root. */
 export type MindMapSelectedFilePayload = {
   workspacePath: string
+}
+
+/**
+ * One bounded prior exchange in the mind-map AI conversation. The renderer
+ * mirrors its transcript (user prompt + the assistant's final reply/outcome
+ * summary) into this history so a follow-up turn sees the conversation
+ * context — the model must not be treated as stateless per message.
+ */
+export type MindMapConversationHistoryTurn = {
+  role: 'user' | 'assistant'
+  content: string
 }
 
 /** Renderer-facing Lesson identity. It never includes a workspace root or body. */
@@ -281,6 +294,12 @@ export type MindMapProposalGenerateResult = {
   revision: number
   request: MindMapProposalRequest
   proposal: MindMapProviderProposal
+  /**
+   * Optional learner-facing reply from the same JSON-mode provider turn.
+   * It is never included in `proposal` and never crosses the apply mutation
+   * boundary; the renderer presents it as conversation text, never mutation input.
+   */
+  assistantMessage?: string
 }
 
 /** AI-assisted generation input; the doc is produced by the main process. */
@@ -296,6 +315,8 @@ export type MindMapGeneratePayload = {
   imageAttachments?: AgentChatImageAttachment[]
   /** Stable correlation id used by `cancelMindMapGeneration` to abort the run. */
   generationId?: string
+  /** Prior mind-map conversation turns so a follow-up keeps context (bounded by the host parser). */
+  history?: MindMapConversationHistoryTurn[]
 }
 
 /** Cancel an in-flight AI mind-map generation (propagates to the provider request). */
@@ -339,6 +360,12 @@ export type MindMapOpmlImportPayload = {
   sourcePath: string
 }
 
+/** Import a single-file StudiumX mind-map package with embedded media. */
+export type MindMapPortableImportPayload = {
+  workspaceId: string
+  sourcePath: string
+}
+
 /**
  * Renderer-side proof that the candidate selected for Markdown export is the
  * same revision the repository is expected to have after the local save lane
@@ -368,6 +395,17 @@ export type MindMapMarkdownExportPayload = {
 
 /** OPML export request with the same fail-closed renderer readiness proof as Markdown. */
 export type MindMapOpmlExportPayload = {
+  workspaceId: string
+  id: string
+  destinationDirectory: string
+  snapshotRevision: number
+  expectedRevision: number
+  pendingWrites: boolean
+  dirty: boolean
+}
+
+/** Export a clean, durably acknowledged map as one portable `.sxmind` file. */
+export type MindMapPortableExportPayload = {
   workspaceId: string
   id: string
   destinationDirectory: string

@@ -141,6 +141,7 @@ export type MindMapCommand =
   | { type: 'sheet.update-layout'; sheetId: string; patch: MindMapSheetLayoutUpdatePatch }
   | { type: 'sheet.reorder'; sheetId: string; toIndex: number }
   | { type: 'sheet.remove'; sheetId: string }
+  | { type: 'sheet.clear'; sheetId: string }
   | { type: 'document.apply-theme'; theme: MindMapTheme }
   | { type: 'transaction'; commands: MindMapCommand[] }
 

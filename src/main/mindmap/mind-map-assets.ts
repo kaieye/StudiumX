@@ -128,7 +128,7 @@ export class MindMapAssetStore {
   /** Copy one bounded embedded payload into the asset root. */
   async importFromBytes(input: MindMapAssetBytesImport): Promise<MindMapAssetRef> {
     const asset = normalizeAssetMetadata(input)
-    if (!(input.content instanceof Uint8Array)) {
+    if (!isUint8Array(input.content)) {
       throw new TypeError('Mind-map embedded asset content must be a Uint8Array.')
     }
     if (input.content.byteLength > this.maxBytes) {
@@ -410,4 +410,13 @@ async function readBoundedRegularFile(
 
 function isErrno(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error
+}
+
+/**
+ * Buffers and Uint8Arrays can cross Electron/Vitest realms. `instanceof` is
+ * realm-local, so use the typed-array internal-slot predicate plus the actual
+ * Uint8Array tag instead of rejecting otherwise valid embedded media.
+ */
+function isUint8Array(value: unknown): value is Uint8Array {
+  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === '[object Uint8Array]'
 }

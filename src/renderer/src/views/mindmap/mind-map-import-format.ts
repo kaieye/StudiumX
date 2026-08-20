@@ -1,5 +1,5 @@
 /** Formats accepted by the native mind-map import boundary. */
-export type MindMapImportFormat = 'markdown' | 'opml'
+export type MindMapImportFormat = 'markdown' | 'opml' | 'portable'
 
 /**
  * Resolve a selected file name to the matching import contract.
@@ -19,10 +19,12 @@ export function mindMapImportFormatForFileName(
       return 'markdown'
     case 'opml':
       return 'opml'
+    case 'sxmind':
+      return 'portable'
     default:
       return null
   }
 }
 
 /** Native file-input filter for all supported mind-map imports. */
-export const MIND_MAP_IMPORT_ACCEPT = '.md,.markdown,.opml'
+export const MIND_MAP_IMPORT_ACCEPT = '.md,.markdown,.opml,.sxmind'

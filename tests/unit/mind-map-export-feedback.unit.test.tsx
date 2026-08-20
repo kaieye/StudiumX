@@ -54,4 +54,10 @@ describe('MindMapExportFeedback', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('OPML export cancelled.')
   })
+
+  it('uses the StudiumX label for a portable single-file export', () => {
+    renderFeedback({ status: 'exporting', format: 'portable' })
+
+    expect(screen.getByRole('status')).toHaveTextContent('Exporting StudiumX…')
+  })
 })
