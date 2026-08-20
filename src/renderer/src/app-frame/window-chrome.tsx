@@ -108,6 +108,8 @@ export function sidebarWidthForKeyboardKey(
 export interface DesktopAppFrameProps {
   chrome: WindowChromePolicy
   sidebarCollapsed: boolean
+  /** Dim the Windows titlebar surface when an in-app modal covers the workspace. */
+  windowChromeDimmed?: boolean
   /** Hide the chrome control when the current surface intentionally has no session panel. */
   sidebarToggleVisible?: boolean
   sidebarWidth: number
@@ -120,6 +122,7 @@ export interface DesktopAppFrameProps {
 export function DesktopAppFrame({
   chrome,
   sidebarCollapsed,
+  windowChromeDimmed = false,
   sidebarToggleVisible = true,
   sidebarWidth,
   density,
@@ -130,10 +133,11 @@ export function DesktopAppFrame({
   const frameStyle = { '--sidebar-width': `${sidebarWidth}px` } as CSSProperties
   const platformClass = chrome.platformClass ? ` ${chrome.platformClass}` : ''
   const collapsedClass = sidebarCollapsed ? ' is-sidebar-collapsed' : ''
+  const dimmedChromeClass = windowChromeDimmed ? ' is-window-chrome-dimmed' : ''
 
   return (
     <div
-      className={`app-frame${platformClass}`}
+      className={`app-frame${platformClass}${dimmedChromeClass}`}
       data-window-chrome={chrome.adapter}
       style={frameStyle}
     >

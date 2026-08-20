@@ -12,10 +12,24 @@
   overflow: hidden;
   /* Keep native transparent title-bar overlays visually connected to the
      navigation rail until the renderer has painted its content. */
-  background: var(--app-shell-chrome-bg);
+  background: var(--window-chrome-surface, var(--app-shell-chrome-bg));
 }.app-frame.platform-win32 {
   --window-chrome-height: 32px;
   --window-control-overlay-width: 138px;
+  /* The transparent native overlay shows the renderer's surface underneath
+     Windows controls, so all titlebar segments share this one color. */
+  --window-chrome-surface: var(--app-shell-chrome-bg);
+}
+
+/* Settings dims the workspace with a navy-tinted veil. Match that veil in the
+   titlebar so the native drag strip does not remain as a disconnected light band. */
+.app-frame.platform-win32.is-window-chrome-dimmed {
+  --window-chrome-surface: color-mix(in srgb, var(--app-shell-chrome-bg) 66%, #182234 34%);
+  background: var(--window-chrome-surface);
+}
+
+:root[data-resolved-theme="dark"] .app-frame.platform-win32.is-window-chrome-dimmed {
+  --window-chrome-surface: color-mix(in srgb, var(--app-shell-chrome-bg) 52%, #000 48%);
 }
 
 /* ================================================================
@@ -30,7 +44,7 @@
   align-items: center;
   justify-content: flex-end;
   border-bottom: 0;
-  background: var(--app-shell-chrome-bg);
+  background: var(--window-chrome-surface, var(--app-shell-chrome-bg));
   color: var(--text);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -83,7 +97,7 @@
   height: var(--window-chrome-height);
   align-items: stretch;
   justify-content: flex-start;
-  background: var(--app-shell-chrome-bg);
+  background: var(--window-chrome-surface, var(--app-shell-chrome-bg));
   color: var(--text);
   user-select: none;
   app-region: drag;

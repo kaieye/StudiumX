@@ -331,10 +331,10 @@ export function MindMapTopicStyleInspector() {
   const textColor = fieldValue('textColor')
   const effectiveTextColor = effectiveFieldValue((style) => style.textColor)
   const effectiveFontFamily = effectiveFieldValue((style) => style.fontFamily)
-  const resolvedFont = resolveSelectedTopicFontProvenance(
+  const fontMayFallback = resolveSelectedTopicFontProvenance(
     selectedTopicEntries.map(({ topic, depth }) => ({ nodeStyle: topic.style, depth })),
     current!.theme
-  )
+  ).mayFallback
   const effectiveFontSize = effectiveFieldValue((style) => style.fontSize)
   const effectiveFontWeight = effectiveFieldValue((style) => style.fontWeight)
   const borderStyle = fieldValue('borderStyle')
@@ -465,33 +465,9 @@ export function MindMapTopicStyleInspector() {
     })
   }
   const effectiveStructureClassValue = effectiveFieldValue((style) => style.structureClass)
-  const effectiveStructureClassLabel = effectiveStructureClassValue.state === 'mixed'
-    ? t('mindmap.topicStyle.mixed')
-    : effectiveStructureClassValue.state === 'concrete'
-      ? t(`mindmap.topicStyle.layouts.${
-          MIND_MAP_TOPIC_STYLE_LAYOUT_OPTIONS.find(
-            (option) => option.value === effectiveStructureClassValue.value
-          )?.labelKey ?? 'right'
-        }`)
-      : null
-  const fontProvenanceLabel = (() => {
-    switch (resolvedFont.source) {
-      case 'local':
-        return t('mindmap.topicStyle.fontSourceLocal', { font: resolvedFont.fontFamily })
-      case 'document':
-        return t('mindmap.topicStyle.fontSourceDocument', { font: resolvedFont.fontFamily })
-      case 'theme-layer':
-        return t('mindmap.topicStyle.fontSourceThemeLayer', { font: resolvedFont.fontFamily })
-      case 'mixed':
-        return t('mindmap.topicStyle.fontSourceMixed')
-      default:
-        return t('mindmap.topicStyle.fontSourceAppFallback')
-    }
-  })()
   return (
     <section className="mindmap-topic-style mm-section">
       <div className="mm-subhead">{t('mindmap.topicStyle.styleSection')}</div>
-      <div className="mindmap-topic-style__title">{t('mindmap.topicStyle.title')}</div>
       {selectedTopics.length > 1 ? (
         <p className="mindmap-topic-style__selection-count">
           {t('mindmap.topicStyle.multiSelection', { count: selectedTopics.length })}
@@ -641,14 +617,7 @@ export function MindMapTopicStyleInspector() {
           searchLabel="Search fonts"
           noResultsLabel="No fonts found."
         />
-        <span
-          className="mindmap-topic-style__font-provenance"
-          role="status"
-          aria-label={fontProvenanceLabel}
-        >
-          {fontProvenanceLabel}
-        </span>
-        {resolvedFont.mayFallback ? (
+        {fontMayFallback ? (
           <span
             id="mindmap-topic-style-font-fallback"
             className="mindmap-topic-style__font-warning"
@@ -730,11 +699,6 @@ export function MindMapTopicStyleInspector() {
           <option value="700">{t('mindmap.topicStyle.fontWeightBold')}</option>
         </select>
       </div>
-      {effectiveStructureClassLabel ? (
-        <p className="mindmap-topic-style__effective-layout">
-          {t('mindmap.topicStyle.effectiveLayout', { layout: effectiveStructureClassLabel })}
-        </p>
-      ) : null}
       <div className="mm-row">
         <span className="mm-row__label">{t('mindmap.topicStyle.emphasis')}</span>
         <div

@@ -2275,7 +2275,6 @@
     "outline": "大纲",
     "outlineTopics": "{{count}} 个节点",
     "topicStyle": {
-      "title": "节点样式",
       "noSelection": "请选择一个节点来编辑样式。",
       "layoutLabel": "节点布局",
       "inherit": "默认",
@@ -2386,13 +2385,7 @@
         "strikethrough": "划除"
       },
       "importedFont": "请求的字体：{{font}}",
-      "fontSourceAppFallback": "字体来源：应用回退字体",
-      "fontSourceDocument": "字体来源：文档字体（{{font}}）",
-      "fontSourceThemeLayer": "字体来源：主题层（{{font}}）",
-      "fontSourceLocal": "字体来源：节点覆盖（{{font}}）",
-      "fontSourceMixed": "字体来源：混合选择",
       "fontMayFallback": "请求的导入或自定义字体可能在此应用中回退。",
-      "effectiveLayout": "当前布局：{{layout}}",
       "selected": "已选中",
       "stateInherited": "继承自主题",
       "stateNone": "显式无",

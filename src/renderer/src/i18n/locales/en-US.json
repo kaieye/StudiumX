@@ -2275,7 +2275,6 @@
     "outline": "Outline",
     "outlineTopics": "{{count}} nodes",
     "topicStyle": {
-      "title": "Node style",
       "noSelection": "Select a node to edit its style.",
       "layoutLabel": "Node layout",
       "inherit": "Inherit",
@@ -2386,13 +2385,7 @@
         "strikethrough": "Strikethrough"
       },
       "importedFont": "Requested: {{font}}",
-      "fontSourceAppFallback": "Font source: App fallback",
-      "fontSourceDocument": "Font source: Document font ({{font}})",
-      "fontSourceThemeLayer": "Font source: Theme layer ({{font}})",
-      "fontSourceLocal": "Font source: Local override ({{font}})",
-      "fontSourceMixed": "Font source: Mixed selection",
       "fontMayFallback": "Requested imported or custom font may fall back in this app.",
-      "effectiveLayout": "Effective layout: {{layout}}",
       "selected": "Selected",
       "stateInherited": "Inherited from theme",
       "stateNone": "Explicit none",

@@ -142,6 +142,23 @@ describe('window chrome policy', () => {
     expect(web.container.querySelectorAll('.window-control-btn')).toHaveLength(0)
   })
 
+  it('marks the Windows titlebar surface as dimmed while an in-app modal is open', () => {
+    const windows = renderUi(
+      <DesktopAppFrame
+        chrome={resolveWindowChromePolicy('win32')}
+        density="comfortable"
+        onSidebarToggle={vi.fn()}
+        sidebarCollapsed={false}
+        sidebarWidth={232}
+        windowChromeDimmed
+      >
+        <div>workspace</div>
+      </DesktopAppFrame>
+    )
+
+    expect(windows.container.querySelector('.app-frame')).toHaveClass('is-window-chrome-dimmed')
+  })
+
   it('can omit native session-panel controls on panel-free surfaces', () => {
     const windows = renderUi(
       <DesktopAppFrame

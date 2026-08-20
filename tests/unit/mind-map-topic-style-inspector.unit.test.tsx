@@ -141,12 +141,13 @@ function chooseTopicStyleMenuOption(menuLabel: string, optionLabel: string): voi
 }
 
 describe('MindMapTopicStyleInspector', () => {
-  it('shows the effective sheet layout for the selected topic', () => {
+  it('keeps the node style controls free of redundant explanatory copy', () => {
     render(<MindMapTopicStyleInspector />)
 
-    expect(screen.getByText('Node style')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Node layout' })).toHaveValue('studiumx.layout.logic.right')
-    expect(screen.getByText('Effective layout: Right')).toBeInTheDocument()
+    expect(screen.queryByText('Node style')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Font source:/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Effective layout: Right')).not.toBeInTheDocument()
   })
 
   it('collapses and expands the current topic and all branch topics at the same level', () => {
@@ -206,7 +207,7 @@ describe('MindMapTopicStyleInspector', () => {
       fontWeight: '600',
       structureClass: 'studiumx.layout.logic.balanced'
     })
-    expect(screen.getByText('Effective layout: Balanced')).toBeInTheDocument()
+    expect(screen.queryByText('Effective layout: Balanced')).not.toBeInTheDocument()
   })
 
   it('clears the override to inherit again and remains undoable', () => {
@@ -882,47 +883,18 @@ describe('MindMapTopicStyleInspector', () => {
     })
   })
 
-  it('shows app, document, theme-layer, and local font provenance without writing an override', () => {
+  it('keeps the imported-font fallback warning without rendering font provenance copy', () => {
     const current = useMindMapViewStore.getState().current
     if (!current) throw new Error('expected current document')
-    current.sheets[0]!.root.style = { ...current.sheets[0]!.root.style, fontFamily: undefined }
-    useMindMapViewStore.setState({ current: structuredClone(current) })
-    const { rerender } = render(<MindMapTopicStyleInspector />)
-
-    expect(screen.getByRole('status')).toHaveTextContent('Font source: App fallback')
-
-    const withDocumentFont = useMindMapViewStore.getState().current
-    if (!withDocumentFont) throw new Error('expected current document')
-    withDocumentFont.theme.fontFamily = 'Inter, system-ui, sans-serif'
-    useMindMapViewStore.setState({ current: structuredClone(withDocumentFont) })
-    rerender(<MindMapTopicStyleInspector />)
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'Font source: Document font (Inter, system-ui, sans-serif)'
-    )
-
-    const withThemeLayerFont = useMindMapViewStore.getState().current
-    if (!withThemeLayerFont) throw new Error('expected current document')
-    delete withThemeLayerFont.theme.fontFamily
-    withThemeLayerFont.theme.topicStyles = { central: { fontFamily: 'Arial, Helvetica, sans-serif' } }
-    useMindMapViewStore.setState({ current: structuredClone(withThemeLayerFont) })
-    rerender(<MindMapTopicStyleInspector />)
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'Font source: Theme layer (Arial, Helvetica, sans-serif)'
-    )
-
-    const withLocalFont = useMindMapViewStore.getState().current
-    if (!withLocalFont) throw new Error('expected current document')
-    withLocalFont.sheets[0]!.root.style = {
-      ...withLocalFont.sheets[0]!.root.style,
+    current.sheets[0]!.root.style = {
+      ...current.sheets[0]!.root.style,
       fontFamily: 'Imported native Font, sans-serif'
     }
-    useMindMapViewStore.setState({ current: structuredClone(withLocalFont) })
-    rerender(<MindMapTopicStyleInspector />)
+    useMindMapViewStore.setState({ current: structuredClone(current) })
+    render(<MindMapTopicStyleInspector />)
 
     expect(screen.getByRole('button', { name: /Imported native Font/ })).toBeInTheDocument()
-    expect(screen.getByRole('status', { name: /Font source:/ })).toHaveTextContent(
-      'Font source: Local override (Imported native Font, sans-serif)'
-    )
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.getByText('Requested imported or custom font may fall back in this app.')).toBeInTheDocument()
   })
 

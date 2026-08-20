@@ -292,6 +292,7 @@ function App() {
           sidebarCollapsed={effectiveSidebarCollapsed}
           sidebarToggleVisible={sessionPanelVisible}
           sidebarWidth={sidebarWidth}
+          windowChromeDimmed={view === 'settings'}
         >
           <Sidebar sessionPanelVisible={sessionPanelVisible} />
           <SidebarResizeHandle policy={sidebarResizePolicy} onResize={setSidebarWidth} width={sidebarWidth} />
