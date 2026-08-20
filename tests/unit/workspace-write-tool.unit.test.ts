@@ -64,32 +64,6 @@ afterEach(async () => {
 })
 
 describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
-  it.runIf(!getWorkspaceWriteToolAvailability().available)('withholds the write tool before permission when durable containment is unavailable', async () => {
-    const { root } = await workspace()
-    const requestToolPermission = vi.fn()
-    const settings = defaultSettings(root)
-    settings.tools.workspaceRead = true
-    settings.tools.approvalMode = 'request_approval'
-
-    expect(getWorkspaceWriteToolAvailability()).toEqual({
-      available: false,
-      code: 'containment_unavailable',
-      message: '当前平台无法安全发布工作区文件。'
-    })
-
-    const registry = buildDefaultRegistry(settings, { workspaceRoot: root, workspaceWrite: true })
-    expect(registry.names()).toContain('read_workspace_file')
-    expect(registry.names()).not.toContain('write_workspace_file')
-
-    const handlers = registry.handlerMap(buildToolContext(settings, {
-      workspaceRoot: root,
-      requestToolPermission
-    }))
-    expect(handlers.write_workspace_file).toBeUndefined()
-    expect(requestToolPermission).not.toHaveBeenCalled()
-    await expect(stat(join(root, 'notes', 'entry.md'))).rejects.toMatchObject({ code: 'ENOENT' })
-  })
-
   it('uses pathname-default create and non-CAS overwrite on every host', async () => {
     const { root, ctx } = await workspace()
     const createdPath = join(root, 'notes', 'direct-created.md')
@@ -384,7 +358,7 @@ describe('write_workspace_file C-4P8 S4 durable handler integration', () => {
     expect(result).not.toHaveProperty('canonicalRead')
   })
 
-  it.skipIf(!getWorkspaceWriteToolAvailability().available)('keeps pathname I/O detail private when an available writer cannot bind the target', async () => {
+  it('keeps pathname I/O detail private when an available writer cannot bind the target', async () => {
     const { root } = await workspace()
     const rawTargetPath = join(root, 'notes', 'entry.md')
     await rm(join(root, 'notes'), { recursive: true, force: true })

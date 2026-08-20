@@ -39,10 +39,10 @@ export const platformReleaseSkipBudget = {
   },
   darwin: {
     'pnpm run test:unit': {
-      testsSkipped: 5,
-      filesSkipped: 5,
+      testsSkipped: 3,
+      filesSkipped: 0,
       rationale:
-        'Five inventoried capability-gated unit tests: two Windows-only directory-fsync cases, one case-distinct filesystem case, and two complementary unavailable-containment branches (see the skip guards in tests/unit).'
+        'Three inventoried capability-gated unit tests: two Windows-only directory-fsync cases and one case-distinct filesystem case (see the skip guards in tests/unit).'
     }
   },
   linux: {

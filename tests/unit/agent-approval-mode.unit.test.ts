@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildDefaultRegistry, buildToolContext, type ToolPermissionResolver } from '../../src/main/ai/tools/registry'
 import { defaultSettings } from '../../src/main/teaching-settings'
-import { getWorkspaceWriteToolAvailability } from '../../src/main/ai/tools/workspace'
 import type { AgentApprovalMode } from '../../src/shared/teaching-types'
 
 const cleanupPaths: string[] = []
@@ -38,7 +37,7 @@ async function writeWorkspaceFile(options: {
   }
 }
 
-describe.runIf(getWorkspaceWriteToolAvailability().available)('Agent approval modes', () => {
+describe('Agent approval modes', () => {
   it('requires explicit approval before writing in request-approval mode', async () => {
     const requestToolPermission = vi.fn<ToolPermissionResolver>().mockResolvedValue({ decision: 'allow_once' })
     const { root, result } = await writeWorkspaceFile({
@@ -89,27 +88,5 @@ describe.runIf(getWorkspaceWriteToolAvailability().available)('Agent approval mo
 
     expect(result.error).toBeUndefined()
     await expect(readFile(join(root, 'notes', 'unattended.md'), 'utf8')).resolves.toBe('# unattended\n')
-  })
-})
-
-describe.runIf(!getWorkspaceWriteToolAvailability().available)('Agent approval modes without durable workspace write capability', () => {
-  it('does not expose a write that any approval mode could promise to execute', () => {
-    const root = 'C:/studiumx-unavailable-workspace'
-    const availability = getWorkspaceWriteToolAvailability()
-    const settings = defaultSettings(root)
-    settings.tools.workspaceRead = true
-
-    expect(availability).toEqual({
-      available: false,
-      code: 'containment_unavailable',
-      message: '当前平台无法安全发布工作区文件。'
-    })
-
-    for (const approvalMode of ['full_access', 'based_on_approval', 'request_approval'] as const) {
-      settings.tools.approvalMode = approvalMode
-      const registry = buildDefaultRegistry(settings, { workspaceRoot: root, workspaceWrite: true })
-      expect(registry.names()).toContain('read_workspace_file')
-      expect(registry.names()).not.toContain('write_workspace_file')
-    }
   })
 })

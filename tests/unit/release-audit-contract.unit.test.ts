@@ -100,6 +100,29 @@ describe('release audit contract', () => {
     })
   })
 
+  it('accepts only the inventoried macOS unit-test skips', () => {
+    const unitArgv = ['pnpm', 'run', 'test:unit']
+    expect(platformReleaseSkipBudget.darwin['pnpm run test:unit']).toMatchObject({
+      testsSkipped: 3,
+      filesSkipped: 0
+    })
+
+    expect(classifyAuditCommandResult(0, [
+      'Tests  5619 passed | 3 skipped (5622)'
+    ], { argv: unitArgv, platform: 'darwin' })).toEqual({
+      knownSkips: ['Tests  5619 passed | 3 skipped (5622)'],
+      unknownSkips: [],
+      failed: false
+    })
+
+    expect(classifyAuditCommandResult(0, [
+      'Tests  5619 passed | 4 skipped (5623)'
+    ], { argv: unitArgv, platform: 'darwin' })).toMatchObject({
+      unknownSkips: ['Tests  5619 passed | 4 skipped (5623)'],
+      failed: true
+    })
+  })
+
   it('uses the Windows command shell only for pnpm command shims', () => {
     expect(requiresWindowsCommandShell(['pnpm', '--version'])).toBe(true)
     expect(requiresWindowsCommandShell(['git', 'worktree', 'add'])).toBe(false)
