@@ -49,6 +49,16 @@ describe('Generation settings', () => {
     await i18n.changeLanguage('zh-CN')
   })
 
+  it('renders a title-only settings header', async () => {
+    await i18n.changeLanguage('zh-CN')
+    const { container } = renderGenerationSettings()
+    const heading = container.querySelector('.settings-panel-heading')!
+
+    expect(within(heading).getByRole('heading', { name: '生成' })).toBeInTheDocument()
+    expect(heading.querySelector('p')).toBeNull()
+    expect(within(container.querySelector('.settings-content')!).queryByText('配置后续 lesson 文件及伴随产物的教学内容。')).toBeNull()
+  })
+
   it('keeps model runtime parameters out of the generation section', async () => {
     await i18n.changeLanguage('en-US')
     const { container } = renderGenerationSettings()

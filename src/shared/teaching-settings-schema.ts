@@ -150,7 +150,8 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
       errors: true
     },
     pet: {
-      enabled: true,
+      // The pet companion is opt-in: it stays hidden unless the user enables it.
+      enabled: false,
       displayName: PET_APPEARANCE_DISPLAY_NAMES[DEFAULT_PET_APPEARANCE_ID],
       showStatusBubble: true,
       appearance: DEFAULT_PET_APPEARANCE_ID,
@@ -437,7 +438,8 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
       errors: notificationsInput.errors !== false
     },
     pet: {
-      enabled: petInput.enabled !== false,
+      // Opt-in: only an explicit `true` enables the pet; missing/anything else stays off.
+      enabled: petInput.enabled === true,
       displayName: petDisplayName,
       showStatusBubble: petInput.showStatusBubble !== false,
       appearance: petAppearance,

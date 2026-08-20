@@ -174,8 +174,22 @@ const navItems = [
   { id: 'mindmap', icon: Network }
 ] satisfies Array<{ id: WorkspaceView; icon: LucideIcon }>
 
-function shouldShowSidebarSessionPanel(view: WorkspaceView): boolean {
+export function shouldShowSidebarSessionPanel(view: WorkspaceView): boolean {
   return view !== 'workbench' && view !== 'mindmap'
+}
+
+/**
+ * While the Settings modal is open the store's `view` is 'settings', but the
+ * session panel must keep reflecting the workspace view the user came from.
+ * Deriving it from 'settings' directly would expand the panel behind the modal
+ * on immersive views (mind map / study room) and then flash it collapsing when
+ * Settings closes — exactly the jump the hidden-panel views try to avoid.
+ */
+export function effectiveViewForSessionPanel(
+  view: WorkspaceView,
+  viewBeforeSettings: WorkspaceView | null
+): WorkspaceView {
+  return view === 'settings' && viewBeforeSettings !== null ? viewBeforeSettings : view
 }
 
 function isInputComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
@@ -252,9 +266,9 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 
 function App() {
   const chrome = resolveWindowChromePolicy(window.teachingSystem?.platform ?? 'win32')
-  const { settings, sidebarCollapsed, setSidebarCollapsed, view } = useAppStore()
+  const { settings, sidebarCollapsed, setSidebarCollapsed, view, viewBeforeSettings } = useAppStore()
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth)
-  const sessionPanelVisible = shouldShowSidebarSessionPanel(view)
+  const sessionPanelVisible = shouldShowSidebarSessionPanel(effectiveViewForSessionPanel(view, viewBeforeSettings))
   const effectiveSidebarCollapsed = sidebarCollapsed || !sessionPanelVisible
   const sidebarResizePolicy = resolveSidebarResizePolicy(effectiveSidebarCollapsed)
   useEffect(() => {
@@ -930,6 +944,7 @@ function MainArea() {
   const isWindows = chrome.adapter === 'windows'
   const {
     view,
+    viewBeforeSettings,
     settingsSection,
     sidebarCollapsed,
     loading,
@@ -964,7 +979,7 @@ function MainArea() {
     clearError,
     showNotification
   } = useAppStore()
-  const sessionPanelVisible = shouldShowSidebarSessionPanel(view)
+  const sessionPanelVisible = shouldShowSidebarSessionPanel(effectiveViewForSessionPanel(view, viewBeforeSettings))
   const showInlineSidebarToggle = chrome.sidebarTogglePlacement === 'inline-topbar'
   const showSessionPanelToggle = sessionPanelVisible && showInlineSidebarToggle
 

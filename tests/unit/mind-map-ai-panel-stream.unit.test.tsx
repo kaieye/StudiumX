@@ -538,10 +538,11 @@ describe('MindMapAiPanel streaming preview', () => {
     }))
 
     // A lifecycle status is deliberately not mislabeled as model reasoning:
-    // providers that do not supply a reasoning delta still expose the actual
-    // host phase alongside the repository read boundary.
-    expect(screen.getByText('分析问题与上下文')).toBeInTheDocument()
-    expect(screen.getByText('正在读取当前导图和相关资料')).toBeInTheDocument()
+    // providers that do not supply a reasoning delta get an explicit notice,
+    // while the actual repository boundary remains a shared READ disclosure.
+    expect(screen.getByText('This model did not return reasoning that can be displayed.')).toBeInTheDocument()
+    expect(screen.queryByText('分析问题与上下文')).not.toBeInTheDocument()
+    expect(screen.queryByText('正在读取当前导图和相关资料')).not.toBeInTheDocument()
     expect(screen.getByText('READ')).toBeInTheDocument()
     expect(screen.getByText('mindmaps/generated.json')).toBeInTheDocument()
 

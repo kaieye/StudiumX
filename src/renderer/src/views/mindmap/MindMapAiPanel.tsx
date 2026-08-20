@@ -26,7 +26,10 @@ import {
   applyAgentChatToolEventToPending,
   type PendingAgentConversation
 } from '../../agent-conversation-state'
-import { buildAgentConversationPresentation } from '../../agent-conversation-presentation'
+import {
+  buildAgentConversationPresentation,
+  type AgentConversationTurnPresentation
+} from '../../agent-conversation-presentation'
 import { useAppStore } from '../../app-shell/appStore'
 import {
   OverviewModelAndReasoningPicker
@@ -456,6 +459,50 @@ function summarizeMindMapChanges(command: MindMapCommand | null): MindMapChangeS
   const summary = emptyMindMapChangeSummary()
   if (command) summarizeMindMapCommand(command, summary)
   return summary
+}
+
+/**
+ * A mind-map provider is allowed to return no learner-visible reasoning. In
+ * that case the shared process reader should not turn the host's generic
+ * lifecycle status (for example, "分析问题与上下文") into a fake Think row.
+ * Real tool rows and any provider reasoning remain untouched.
+ */
+function hasVisibleMindMapReasoning(
+  presentation: AgentConversationTurnPresentation | undefined
+): boolean {
+  return Boolean(
+    presentation?.items.some(
+      (item) => item.kind === 'reasoning' && Boolean(item.detail?.trim())
+    )
+  )
+}
+
+function isOrdinaryMindMapStatusItem(
+  item: AgentConversationTurnPresentation['items'][number]
+): boolean {
+  return item.kind === 'status' && (item.state === 'active' || item.state === 'complete')
+}
+
+/**
+ * Keep host lifecycle status in the underlying turn for diagnostics, but hide
+ * its generic status rows when the provider did not return reasoning. This
+ * leaves the shared Think/tool UI responsible for real disclosures instead of
+ * presenting a status label as if it were model thought.
+ */
+function projectMindMapProcessPresentation(
+  presentation: AgentConversationTurnPresentation
+): AgentConversationTurnPresentation {
+  if (hasVisibleMindMapReasoning(presentation)) return presentation
+
+  const items = presentation.items.filter((item) => !isOrdinaryMindMapStatusItem(item))
+  const flow = presentation.flow?.filter(
+    (entry) => entry.kind !== 'process' || !isOrdinaryMindMapStatusItem(entry.item)
+  )
+  return {
+    ...presentation,
+    items,
+    ...(flow?.length ? { flow } : { flow: undefined })
+  }
 }
 
 /** Project one dedicated mind-map event through the homepage conversation reducer. */
@@ -1468,10 +1515,17 @@ export function MindMapAiPanel({
                   <div className="mindmap-ai-panel__thread-inner overview-dialog-thread-inner">
                     {generationMessages.map((message) => {
                       const active = message.status === 'generating'
-                      const presentation = buildAgentConversationPresentation({
+                      const rawPresentation = buildAgentConversationPresentation({
                         turns: [message.agentTurn],
                         activeTurnId: active ? message.agentTurn.id : null
                       }).turns[0]
+                      const presentation = rawPresentation
+                        ? projectMindMapProcessPresentation(rawPresentation)
+                        : undefined
+                      const hasVisibleReasoning = hasVisibleMindMapReasoning(rawPresentation)
+                      const hasProcessTrace = Boolean(
+                        rawPresentation?.items.length || rawPresentation?.flow?.length
+                      )
                       return (
                         <Fragment key={message.generationId}>
                           <AgentConversationMessageFrame
@@ -1496,6 +1550,11 @@ export function MindMapAiPanel({
                               presentation={presentation}
                               compact
                             />
+                            {active && hasProcessTrace && !hasVisibleReasoning ? (
+                              <p className="mindmap-ai-panel__message-notice" role="note">
+                                {t('mindmap.aiReasoningUnavailable')}
+                              </p>
+                            ) : null}
                             {message.error ? <p className="mindmap-ai-panel__message-error">{message.error}</p> : null}
                             {message.notice ? <p className="mindmap-ai-panel__message-notice">{message.notice}</p> : null}
                             {message.status === 'error' || message.status === 'no_changes' ? (

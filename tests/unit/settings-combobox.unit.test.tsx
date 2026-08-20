@@ -23,6 +23,26 @@ describe('SettingsComboBox', () => {
     expect(onSelect).not.toHaveBeenCalled()
   })
 
+  it('renders its menu in a viewport portal so a parent card cannot clip it', () => {
+    const { container } = render(
+      <div className="settings-card">
+        <SettingsComboBox
+          value="glm-5.1"
+          options={['glm-5.1', 'glm-5.2']}
+          onInput={vi.fn()}
+          onSelect={vi.fn()}
+        />
+      </div>
+    )
+
+    fireEvent.click(screen.getByRole('combobox'))
+
+    const menu = screen.getByRole('listbox')
+    expect(container.contains(menu)).toBe(false)
+    expect(menu.parentElement).toBe(document.body)
+    expect(menu).toHaveClass('is-portal')
+  })
+
   it('filters the options as the user types', () => {
     const onInput = vi.fn()
     render(

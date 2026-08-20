@@ -160,11 +160,7 @@
 }
 
 .settings-panel-heading p {
-  max-width: 680px;
-  margin: 6px 0 0;
-  color: var(--text-muted);
-  font-size: 13.5px;
-  line-height: 1.7;
+  display: none;
 }
 
 .settings-panel-body {
@@ -401,6 +397,17 @@
   -webkit-backdrop-filter: blur(var(--lg-blur-soft, 8px));
 }
 
+/* Settings fields keep their resting border while editing; the global liquid
+   glass input focus treatment is intentionally suppressed on this page. */
+.settings-input:focus,
+.settings-number:focus,
+.settings-textarea:focus,
+.settings-combobox-input:focus {
+  border-color: var(--lg-line, var(--line));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset;
+  outline: none;
+}
+
 .settings-number {
   width: 116px;
 }
@@ -502,21 +509,14 @@
     var(--lg-shadow, 0 12px 26px rgba(20, 47, 95, 0.08));
 }
 
-.settings-select-trigger:focus-visible {
-  border-color: var(--lg-line, #c7d8ff);
-  box-shadow:
-    0 0 0 4px rgba(79, 124, 245, 0.11),
-    var(--lg-shadow, 0 12px 26px rgba(20, 47, 95, 0.08));
-}
-
+.settings-select-trigger:focus-visible,
 .settings-select.is-open .settings-select-trigger {
-  border-color: var(--lg-line, #c7d8ff);
+  border-color: var(--lg-line, var(--line));
   background:
     var(--lg-sheen, none),
-    var(--lg-glass-fill, linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(239, 245, 255, 0.98)));
-  box-shadow:
-    0 0 0 4px rgba(79, 124, 245, 0.09),
-    var(--lg-shadow-float, 0 14px 34px rgba(20, 47, 95, 0.1));
+    var(--lg-glass-fill, linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(242, 247, 255, 0.98)));
+  box-shadow: var(--lg-shadow, 0 8px 22px rgba(20, 47, 95, 0.05));
+  outline: none;
 }
 
 .settings-select-trigger-copy,
@@ -822,6 +822,14 @@
   box-shadow: var(--lg-shadow-float, 0 22px 48px rgba(20, 47, 95, 0.14), 0 4px 14px rgba(20, 47, 95, 0.06));
   backdrop-filter: blur(var(--lg-blur-strong, 16px)) saturate(var(--lg-saturate, 140%));
   -webkit-backdrop-filter: blur(var(--lg-blur-strong, 16px)) saturate(var(--lg-saturate, 140%));
+}
+
+.settings-combobox-menu.is-portal {
+  position: fixed;
+  box-sizing: border-box;
+  overflow-y: auto;
+  max-height: min(280px, calc(100vh - 16px));
+  z-index: 80;
 }
 
 .settings-status-badge {

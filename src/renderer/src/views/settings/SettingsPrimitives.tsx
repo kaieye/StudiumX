@@ -11,10 +11,11 @@ import {
 
 export function SettingsPanel({
   title,
-  subtitle,
   children
 }: {
   title: string
+  // Kept in the public shape for callers and translations that still provide
+  // the legacy copy. Settings pages intentionally render title-only headers.
   subtitle: string
   children: ReactNode
 }) {
@@ -22,7 +23,6 @@ export function SettingsPanel({
     <div className="settings-panel">
       <div className="settings-panel-heading">
         <h2>{title}</h2>
-        <p>{subtitle}</p>
       </div>
       <div className="settings-panel-body">{children}</div>
     </div>
@@ -375,6 +375,19 @@ export function SettingsSelect<T extends string>({
   )
 }
 
+type SettingsComboBoxMenuPosition = {
+  top: number
+  left: number
+  width: number
+  maxHeight: number
+}
+
+const SETTINGS_COMBOBOX_MENU_MAX_HEIGHT = 280
+const SETTINGS_COMBOBOX_MENU_GAP = 8
+const SETTINGS_COMBOBOX_VIEWPORT_PADDING = 8
+const SETTINGS_COMBOBOX_OPTION_HEIGHT = 40
+const SETTINGS_COMBOBOX_MENU_CHROME = 18
+
 export function SettingsComboBox({
   value,
   options,
@@ -392,6 +405,7 @@ export function SettingsComboBox({
 }) {
   const [open, setOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
+  const [menuPosition, setMenuPosition] = useState<SettingsComboBoxMenuPosition | null>(null)
   // Draft text remains authoritative until the settings round-trip acknowledges
   // the exact value typed or selected by the learner. This prevents a slower,
   // earlier IPC response from reverting a later free-form model entry.
@@ -437,7 +451,9 @@ export function SettingsComboBox({
 
     const handlePointerDown = (event: PointerEvent): void => {
       const target = event.target as Node
-      if (!rootRef.current?.contains(target)) setOpen(false)
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setOpen(false)
+      }
     }
 
     const handleEscape = (event: KeyboardEvent): void => {
@@ -451,6 +467,76 @@ export function SettingsComboBox({
       document.removeEventListener('keydown', handleEscape)
     }
   }, [open])
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPosition(null)
+      return
+    }
+
+    const updateMenuPosition = (): void => {
+      const trigger = rootRef.current?.querySelector<HTMLInputElement>('.settings-combobox-input')
+      if (!trigger) return
+
+      const triggerRect = trigger.getBoundingClientRect()
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+      const estimatedMenuHeight = Math.min(
+        SETTINGS_COMBOBOX_MENU_MAX_HEIGHT,
+        visibleOptions.length * SETTINGS_COMBOBOX_OPTION_HEIGHT + SETTINGS_COMBOBOX_MENU_CHROME
+      )
+      const availableBelow = Math.max(
+        0,
+        viewportHeight - triggerRect.bottom - SETTINGS_COMBOBOX_MENU_GAP - SETTINGS_COMBOBOX_VIEWPORT_PADDING
+      )
+      const availableAbove = Math.max(
+        0,
+        triggerRect.top - SETTINGS_COMBOBOX_MENU_GAP - SETTINGS_COMBOBOX_VIEWPORT_PADDING
+      )
+      const opensAbove = availableBelow < estimatedMenuHeight && availableAbove > availableBelow
+      const availableSpace = opensAbove ? availableAbove : availableBelow
+      const maxHeight = Math.max(
+        SETTINGS_COMBOBOX_OPTION_HEIGHT,
+        Math.min(SETTINGS_COMBOBOX_MENU_MAX_HEIGHT, availableSpace)
+      )
+      const menuWidth = Math.min(
+        triggerRect.width,
+        Math.max(0, viewportWidth - SETTINGS_COMBOBOX_VIEWPORT_PADDING * 2)
+      )
+      const maxTop = Math.max(
+        SETTINGS_COMBOBOX_VIEWPORT_PADDING,
+        viewportHeight - maxHeight - SETTINGS_COMBOBOX_VIEWPORT_PADDING
+      )
+      const desiredTop = opensAbove
+        ? triggerRect.top - SETTINGS_COMBOBOX_MENU_GAP - maxHeight
+        : triggerRect.bottom + SETTINGS_COMBOBOX_MENU_GAP
+      const maxLeft = Math.max(
+        SETTINGS_COMBOBOX_VIEWPORT_PADDING,
+        viewportWidth - menuWidth - SETTINGS_COMBOBOX_VIEWPORT_PADDING
+      )
+
+      setMenuPosition({
+        top: Math.min(Math.max(desiredTop, SETTINGS_COMBOBOX_VIEWPORT_PADDING), maxTop),
+        left: Math.min(Math.max(triggerRect.left, SETTINGS_COMBOBOX_VIEWPORT_PADDING), maxLeft),
+        width: menuWidth,
+        maxHeight
+      })
+    }
+
+    const handleDocumentScroll = (event: Event): void => {
+      const target = event.target
+      if (target instanceof Node && menuRef.current?.contains(target)) return
+      updateMenuPosition()
+    }
+
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    document.addEventListener('scroll', handleDocumentScroll, true)
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition)
+      document.removeEventListener('scroll', handleDocumentScroll, true)
+    }
+  }, [open, visibleOptions.length])
 
   useLayoutEffect(() => {
     if (open) optionRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' })
@@ -527,15 +613,17 @@ export function SettingsComboBox({
       </button>
 
       {open &&
+        menuPosition &&
         visibleOptions.length > 0 &&
         (() => {
           const menu = (
             <div
               aria-activedescendant={`${listId}-${highlightedIndex}`}
-              className="settings-combobox-menu"
+              className="settings-combobox-menu is-portal"
               id={listId}
               ref={menuRef}
               role="listbox"
+              style={menuPosition}
             >
               {visibleOptions.map((option, index) => {
                 const selected = option === value
@@ -563,7 +651,7 @@ export function SettingsComboBox({
               })}
             </div>
           )
-          return menu
+          return createPortal(menu, document.body)
         })()}
     </div>
   )

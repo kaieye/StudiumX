@@ -201,7 +201,6 @@ export function MindMapHomeLibrary({
           documents={visibleDocuments}
           previews={previews}
           creating={creating}
-          emptyLabel={t('mindmap.emptyFolder')}
           onCreate={onCreate}
           onOpenDocument={onOpenDocument}
           onRenameDocument={setRenameDraftFor}
@@ -339,7 +338,6 @@ function MindMapCardGrid({
   onOpenDocument,
   onRenameDocument,
   onContextMenu,
-  emptyLabel,
   renamingDocument,
   renameDraft,
   onStartRename,
@@ -353,7 +351,6 @@ function MindMapCardGrid({
   onOpenDocument: (id: string) => void | Promise<void>
   onRenameDocument: (id: string, title: string) => void | Promise<void>
   onContextMenu: (summary: MindMapSummary, x: number, y: number) => void
-  emptyLabel?: string
   renamingDocument: MindMapSummary | null
   renameDraft: string
   onStartRename: (summary: MindMapSummary) => void
@@ -377,10 +374,6 @@ function MindMapCardGrid({
           </span>
           <span className="mindmap-home-card__title">{t('mindmap.newDocument')}</span>
         </button>
-      ) : null}
-
-      {documents.length === 0 && emptyLabel ? (
-        <p className="mindmap-home__empty">{emptyLabel}</p>
       ) : null}
 
       {documents.map((summary) => {

@@ -326,6 +326,13 @@ describe('teaching settings schema', () => {
     })
   })
 
+  it('keeps the pet disabled by default unless explicitly enabled', () => {
+    expect(createTeachingSettingsDefaults(fallbackRoot).pet.enabled).toBe(false)
+    expect(normalizeTeachingSettings({}, fallbackRoot).pet.enabled).toBe(false)
+    expect(normalizeTeachingSettings({ pet: { enabled: false } }, fallbackRoot).pet.enabled).toBe(false)
+    expect(normalizeTeachingSettings({ pet: { enabled: true } }, fallbackRoot).pet.enabled).toBe(true)
+  })
+
   it('re-seeds preset providers whose models match a superseded catalog preset', () => {
     const reSeeded = normalizeTeachingSettings({
       provider: {
