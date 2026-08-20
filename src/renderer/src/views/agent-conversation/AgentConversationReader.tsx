@@ -132,10 +132,11 @@ function TeachingTurnReader({ presentation, onAction, openSourcesKey, compact }:
         <p
           id={yourTurnId}
           className="teaching-turn-panel__status teaching-turn-panel__your-turn"
-          // Keep the current learner-turn boundary as a polite status. The saved
-          // announcement below is an additional, short-lived confirmation.
-          role={needsYou ? 'status' : 'note'}
-          aria-live={needsYou ? 'polite' : 'off'}
+          // Keep a single polite status live region. When a saved announcement
+          // is present, it owns the status role so assistive technologies do not
+          // see two simultaneous status regions for the same teaching turn.
+          role={needsYou && !liveAnnouncement ? 'status' : 'note'}
+          aria-live={needsYou && !liveAnnouncement ? 'polite' : 'off'}
           aria-atomic="true"
           aria-label={presentation.accessibleNames.currentPhase}
           data-phase-state={activePhase.state}

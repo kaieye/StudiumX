@@ -38,7 +38,12 @@ export const platformReleaseSkipBudget = {
     }
   },
   darwin: {
-    // Seal after a clean Mac inventory; until then aggregate skips stay unknown.
+    'pnpm run test:unit': {
+      testsSkipped: 5,
+      filesSkipped: 5,
+      rationale:
+        'Five inventoried capability-gated unit tests: two Windows-only directory-fsync cases, one case-distinct filesystem case, and two complementary unavailable-containment branches (see the skip guards in tests/unit).'
+    }
   },
   linux: {
     // Full Linux release CI is expected to run without budgeted aggregate skips.
