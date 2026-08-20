@@ -23,9 +23,9 @@ async function createWorkspace(): Promise<string> {
 beforeAll(async () => {
   workerRoot = await mkdtemp(join(tmpdir(), 'studiumx-learning-session-worker-'))
   workerPath = join(workerRoot, 'worker.mjs')
-  // Portable esbuild spawn: Windows/pnpm usually ships bin/esbuild as a Node
-  // shim (must run under process.execPath). Linux pnpm often places the native
-  // ELF binary at that path, which Node cannot parse as JS. Detect ELF vs JS.
+  // Portable esbuild spawn: package managers may expose either a JavaScript
+  // launcher or a native ELF/Mach-O/PE executable at bin/esbuild. Native
+  // binaries must be executed directly; JavaScript launchers run under Node.
   const esbuildEntry = join(process.cwd(), 'node_modules', 'esbuild', 'bin', 'esbuild')
   const esbuildArgs = [
     join(process.cwd(), 'scripts', 'fixtures', 'learning-session-concurrency-worker.ts'),
@@ -535,9 +535,18 @@ async function isNativeExecutable(path: string): Promise<boolean> {
     const header = Buffer.alloc(4)
     const { bytesRead } = await handle.read(header, 0, 4, 0)
     if (bytesRead < 4) return false
-    // ELF: 0x7f 'E' 'L' 'F'. PE/COFF MZ is also native on Windows, but the
-    // esbuild bin entry on Windows is a JS shim, not the .exe package binary.
-    return header[0] === 0x7f && header[1] === 0x45 && header[2] === 0x4c && header[3] === 0x46
+    const magic = header.readUInt32BE(0)
+    // ELF, PE/COFF, 32/64-bit Mach-O, and universal Mach-O binaries.
+    return (
+      magic === 0x7f454c46 ||
+      header[0] === 0x4d && header[1] === 0x5a ||
+      magic === 0xfeedface ||
+      magic === 0xcefaedfe ||
+      magic === 0xfeedfacf ||
+      magic === 0xcffaedfe ||
+      magic === 0xcafebabe ||
+      magic === 0xbebafeca
+    )
   } finally {
     await handle.close()
   }

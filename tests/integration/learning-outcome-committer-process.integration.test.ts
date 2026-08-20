@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, open, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -45,10 +45,11 @@ async function createWorkspace(): Promise<string> {
 beforeAll(async () => {
   workerRoot = await mkdtemp(join(tmpdir(), 'studiumx-outcome-committer-worker-'))
   workerPath = join(workerRoot, 'worker.mjs')
-  // The esbuild launcher is JavaScript on Windows, so run it through Node rather
-  // than asking spawn/execFile to execute its extensionless script directly.
-  await runCommand(process.execPath, [
-    require.resolve('esbuild/bin/esbuild'),
+  // Package managers may expose either a JavaScript launcher or a native
+  // ELF/Mach-O/PE executable at bin/esbuild. Native binaries must be executed
+  // directly; JavaScript launchers run under Node.
+  const esbuildEntry = require.resolve('esbuild/bin/esbuild')
+  const esbuildArgs = [
     join(process.cwd(), 'scripts', 'fixtures', 'learning-outcome-committer-process-worker.ts'),
     '--bundle',
     '--platform=node',
@@ -56,7 +57,12 @@ beforeAll(async () => {
     '--target=node22',
     `--outfile=${workerPath}`,
     '--log-level=silent'
-  ])
+  ]
+  if (await isNativeExecutable(esbuildEntry)) {
+    await runCommand(esbuildEntry, esbuildArgs)
+  } else {
+    await runCommand(process.execPath, [esbuildEntry, ...esbuildArgs])
+  }
 })
 
 afterEach(async () => {
@@ -257,6 +263,30 @@ async function terminateWorker(child: ChildProcessWithoutNullStreams): Promise<v
   if (child.exitCode !== null || child.killed) return
   child.kill('SIGKILL')
   await waitForExit(child).catch(() => undefined)
+}
+
+
+async function isNativeExecutable(path: string): Promise<boolean> {
+  const handle = await open(path, 'r')
+  try {
+    const header = Buffer.alloc(4)
+    const { bytesRead } = await handle.read(header, 0, 4, 0)
+    if (bytesRead < 4) return false
+    const magic = header.readUInt32BE(0)
+    // ELF, PE/COFF, 32/64-bit Mach-O, and universal Mach-O binaries.
+    return (
+      magic === 0x7f454c46 ||
+      header[0] === 0x4d && header[1] === 0x5a ||
+      magic === 0xfeedface ||
+      magic === 0xcefaedfe ||
+      magic === 0xfeedfacf ||
+      magic === 0xcffaedfe ||
+      magic === 0xcafebabe ||
+      magic === 0xbebafeca
+    )
+  } finally {
+    await handle.close()
+  }
 }
 
 
