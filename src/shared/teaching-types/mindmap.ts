@@ -367,6 +367,19 @@ export type MindMapPortableImportPayload = {
 }
 
 /**
+ * Main-process dialog import: the native file picker and format routing run in
+ * the host so importing works identically on macOS and Windows (a renderer
+ * `File` object cannot resolve an on-disk path on every platform).
+ */
+export type MindMapImportDialogPayload = {
+  workspaceId: string
+}
+
+export type MindMapImportDialogResult =
+  | { canceled: true }
+  | { canceled: false; document: MindMapDocumentV2 }
+
+/**
  * Renderer-side proof that the candidate selected for Markdown export is the
  * same revision the repository is expected to have after the local save lane
  * has been drained.  The main process validates these values again against a

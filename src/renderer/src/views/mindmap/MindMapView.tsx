@@ -83,10 +83,6 @@ import {
 import { rasterizeMindMapSvgToPng } from './mind-map-png-export'
 import { useMindMapViewStore } from './mind-map-view-store'
 import { buildMindMapTextReplacementPatch } from './mind-map-search'
-import {
-  MIND_MAP_IMPORT_ACCEPT,
-  mindMapImportFormatForFileName
-} from './mind-map-import-format'
 import { buildRemoveTopicsCommand, canAddSummaryToTopics } from './mind-map-commands'
 import './mindmap.css'
 
@@ -433,7 +429,6 @@ export function MindMapView() {
     closeContextMenu()
     closeConnectorContextMenu()
   }, [closeConnectorContextMenu, closeContextMenu, previewReadOnly])
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const creatingRef = useRef(false)
   const exportMenuRef = useRef<HTMLDivElement | null>(null)
   const insertMenuRef = useRef<HTMLDivElement | null>(null)
@@ -615,40 +610,24 @@ export function MindMapView() {
     }
   }
 
-  const handleImport = async (file: File | null): Promise<void> => {
-    if (!file) return
-    const path = (file as File & { path?: string }).path
-    if (!path) {
-      setNotice(t('mindmap.importRequiresDesktopPath'))
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      return
-    }
-    const format = mindMapImportFormatForFileName(file.name || path)
-    if (!format) {
-      setNotice(t('mindmap.unsupportedImportFormat'))
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      return
-    }
+  const handleImport = async (): Promise<void> => {
     setNotice(null)
     setExportFeedback(null)
     setBusy(true)
     try {
-      const payload = { workspaceId: activeWorkspace.id, sourcePath: path }
-      const doc =
-        format === 'markdown'
-          ? await window.teachingSystem?.importMindMapMarkdown(payload)
-          : format === 'opml'
-            ? await window.teachingSystem?.importMindMapOpml(payload)
-            : await window.teachingSystem?.importMindMapPortable(payload)
-      if (doc) {
-        await openDocument(doc.id)
-        await loadDocuments()
-      }
+      // The native file picker and format routing run in the host so import
+      // behaves identically on macOS and Windows (a renderer File object cannot
+      // resolve an on-disk path on every platform).
+      const result = await window.teachingSystem?.importMindMapFile({
+        workspaceId: activeWorkspace.id
+      })
+      if (!result || result.canceled) return
+      await openDocument(result.document.id)
+      await loadDocuments()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -1400,22 +1379,12 @@ export function MindMapView() {
             </button>
             {exportMenuOpen ? (
               <div className="mindmap-export-dropdown__menu" role="menu">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept={MIND_MAP_IMPORT_ACCEPT}
-                  hidden
-                  onChange={(event) => {
-                    void handleImport(event.currentTarget.files?.[0] ?? null)
-                    setExportMenuOpen(false)
-                  }}
-                />
                 <button
                   type="button"
                   className="mindmap-export-dropdown__item"
                   role="menuitem"
                   disabled={busy}
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => { void handleImport(); setExportMenuOpen(false) }}
                 >
                   <Upload size={14} /> {t('mindmap.import')}
                 </button>

@@ -56,6 +56,7 @@ export {
   parseMindMapGeneratePayload,
   parseMindMapProposalGeneratePayload,
   parseMindMapCancelGenerationPayload,
+  parseMindMapImportDialogPayload,
   parseMindMapMarkdownImportPayload,
   parseMindMapOpmlImportPayload,
   parseMindMapPortableImportPayload,

@@ -40,6 +40,7 @@ import type {
   MindMapAssetReadPayload,
   MindMapCancelGenerationPayload,
   MindMapCreatePayload,
+  MindMapImportDialogPayload,
   MindMapMarkdownExportPayload,
   MindMapMarkdownImportPayload,
   MindMapPortableExportPayload,
@@ -487,6 +488,17 @@ export function parseMindMapCancelGenerationPayload(value: unknown): MindMapCanc
   return { workspaceId, generationId }
 }
 
+
+/** Parse the main-process dialog import envelope before opening any picker. */
+export function parseMindMapImportDialogPayload(
+  value: unknown
+): MindMapImportDialogPayload | null {
+  const record = requireExactKeys(value, ['workspaceId'])
+  if (!record) return null
+  const workspaceId = requireNonEmptyString(record.workspaceId)
+  if (!workspaceId) return null
+  return { workspaceId }
+}
 
 /** Parse the Markdown import envelope before any filesystem access. */
 export function parseMindMapMarkdownImportPayload(

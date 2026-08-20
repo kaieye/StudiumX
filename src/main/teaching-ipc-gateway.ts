@@ -52,7 +52,7 @@ import {
   parseCancelConversationTurnIntent,
   parseWorkspaceItemRemovePayload, parseWorkspaceRemovePayload, parseRunTeachingDoctorPayload, parseProjectTeachingTurnReviewPayload, parseDecideTeachingTurnReviewPayload, parseProjectTeachingTurnReviewHandoffPayload, parseGetTeachingTurnReviewLastBundlePayload, parseSaveTeachingTurnReviewLastBundlePayload, requireStreamId, requireString,
   requireWindowControlAction,
-  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapAssetImportPayload, parseMindMapAssetReadPayload, parseMindMapUpdatePayload, parseMindMapFlushPayload, parseMindMapSourceRefreshPayload, parseMindMapGeneratePayload, parseMindMapProposalGeneratePayload, parseMindMapCancelGenerationPayload, parseMindMapMarkdownImportPayload, parseMindMapOpmlImportPayload, parseMindMapPortableImportPayload, parseMindMapMarkdownExportPayload, parseMindMapOpmlExportPayload, parseMindMapPortableExportPayload, parseMindMapSvgExportPayload, parseMindMapPngExportPayload
+  parseMindMapListPayload, parseMindMapCreatePayload, parseMindMapAccessPayload, parseMindMapAssetImportPayload, parseMindMapAssetReadPayload, parseMindMapUpdatePayload, parseMindMapFlushPayload, parseMindMapSourceRefreshPayload, parseMindMapGeneratePayload, parseMindMapProposalGeneratePayload, parseMindMapCancelGenerationPayload, parseMindMapImportDialogPayload, parseMindMapMarkdownImportPayload, parseMindMapOpmlImportPayload, parseMindMapPortableImportPayload, parseMindMapMarkdownExportPayload, parseMindMapOpmlExportPayload, parseMindMapPortableExportPayload, parseMindMapSvgExportPayload, parseMindMapPngExportPayload
 } from './teaching-ipc-commands'
 import type { TeachingSettingsService } from './teaching-settings'
 import { resolveOptionalRegisteredWorkspaceRoot, resolveRegisteredWorkspaceRoot } from './teaching-workspace-access'
@@ -111,6 +111,7 @@ import { importMindMapMarkdownFileWithAssets } from './mindmap/markdown-import-f
 import { importMindMapOpmlFileWithAssets } from './mindmap/opml-import-file'
 import { exportMindMapOpmlFile } from './mindmap/opml-file'
 import { exportMindMapPortableFile, importMindMapPortableFile } from './mindmap/portable-file'
+import { MIND_MAP_IMPORT_EXTENSIONS, mindMapImportFormatForFileName } from '../shared/mindmap/import-format'
 import { exportMindMapSvgFile } from './mindmap/svg-file'
 import { exportMindMapPngFile } from './mindmap/png-file'
 import { parseMindMapProposalApplyPayload } from './mindmap/mind-map-proposal-ipc'
@@ -2147,6 +2148,52 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         // renderer-only loading-state change.
         await resolveMindMapWorkspaceRoot(p.workspaceId)
         return { canceled: cancelMindMapGeneration(p.generationId) }
+      },
+      reply: identityReply, streamCleanup: noStreamCleanup
+    }),
+    command({
+      channel: teachingInvokeChannels.importMindMapFile,
+      parser: (payload) => parseMindMapImportDialogPayload(payload),
+      action: async (_event, payload) => {
+        const p = requireMindMapPayload(payload, 'importMindMapFile')
+        const root = await resolveMindMapWorkspaceRoot(p.workspaceId)
+        // The native picker runs in the host so importing works identically on
+        // macOS and Windows (a renderer `File` object cannot resolve an
+        // on-disk path on every platform).
+        const options: Electron.OpenDialogOptions = {
+          title: '导入思维导图',
+          properties: ['openFile', 'dontAddToRecent'],
+          filters: [
+            {
+              name: 'Mind maps',
+              extensions: [...MIND_MAP_IMPORT_EXTENSIONS]
+            }
+          ]
+        }
+        const mainWindow = BrowserWindow.getFocusedWindow()
+        const result = mainWindow
+          ? await dialog.showOpenDialog(mainWindow, options)
+          : await dialog.showOpenDialog(options)
+        const sourcePath = result.filePaths[0]
+        if (result.canceled || !sourcePath) return { canceled: true as const }
+
+        const format = mindMapImportFormatForFileName(sourcePath)
+        if (!format) {
+          throw new Error('Unsupported mind-map import format.')
+        }
+        const imported = format === 'markdown'
+          ? await importMindMapMarkdownFileWithAssets(sourcePath, root)
+          : format === 'opml'
+            ? await importMindMapOpmlFileWithAssets(sourcePath, root)
+            : await importMindMapPortableFile(sourcePath, root)
+        const document = await persistImportedMindMap(
+          root,
+          imported.document,
+          '导入的思维导图',
+          'importMindMapFile',
+          imported.importedAssets
+        )
+        return { canceled: false as const, document }
       },
       reply: identityReply, streamCleanup: noStreamCleanup
     }),

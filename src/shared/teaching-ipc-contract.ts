@@ -138,6 +138,7 @@ export const teachingInvokeChannels = {
   deleteMindMap: 'teach:delete-mind-map',
   generateMindMap: 'teach:generate-mind-map',
   cancelMindMapGeneration: 'teach:cancel-mind-map-generation',
+  importMindMapFile: 'teach:import-mind-map-file',
   importMindMapMarkdown: 'teach:import-mind-map-markdown',
   importMindMapOpml: 'teach:import-mind-map-opml',
   importMindMapPortable: 'teach:import-mind-map-portable',

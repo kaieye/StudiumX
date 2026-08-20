@@ -162,6 +162,8 @@ import type {
   MindMapSvgExportPayload,
   MindMapGeneratePayload,
   MindMapFlushPayload,
+  MindMapImportDialogPayload,
+  MindMapImportDialogResult,
   MindMapLibrary,
   MindMapListPayload,
   MindMapProposalApplyPayload,
@@ -556,6 +558,12 @@ export type TeachingSystemApi = {
   onMindMapAgentEvent: (handler: (event: AgentRealtimeEvent) => void) => () => void
   /** Cancel an in-flight AI mind-map generation (propagates to the provider request). */
   cancelMindMapGeneration: (payload: MindMapCancelGenerationPayload) => Promise<{ canceled: boolean }>
+  /**
+   * Open the native import dialog in the host, detect the format from the
+   * selected file, and persist the imported document. Runs the whole picker +
+   * read + persist boundary in the main process so it works on every platform.
+   */
+  importMindMapFile: (payload: MindMapImportDialogPayload) => Promise<MindMapImportDialogResult>
   /** Import the StudiumX Markdown tree/notes subset, persist it, and return the document. */
   importMindMapMarkdown: (payload: MindMapMarkdownImportPayload) => Promise<MindMapDocumentV2>
   /** Import the StudiumX OPML tree/notes subset, persist it, and return the document. */
