@@ -17,10 +17,12 @@ import type {
   MindMapSheetV2,
   MindMapSummary,
   MindMapTextSpan,
+  MindMapTheme,
   MindMapTopicStyleOverride,
   MindMapTopicV2
 } from '../../../../shared/mindmap/domain/types'
 import { mindMapTopicDisplayTitle } from './mind-map-topic-markdown'
+import { resolveEffectiveTopicStyle } from './mind-map-topic-style'
 
 /**
  * Pure, deterministic O(n) tree layout for a v2 mind-map sheet.
@@ -57,6 +59,11 @@ import { mindMapTopicDisplayTitle } from './mind-map-topic-markdown'
 //   deeper:           13px/500 → CJK ≈ 13, ASCII ≈ 7
 // The measurement constants MUST stay in sync with the font-size values in
 // mindmap.css (v2 canvas section). If you change one, change the other.
+//
+// Line wrapping budgets {@link MIND_MAP_TOPIC_LABEL_GUTTER}, the horizontal
+// padding of the foreignObject labels (`.mindmap-node-input-wrap` and
+// `.mindmap-node-markdown-label` in mindmap.css), so the SVG tspan lines, the
+// markdown label and the inline editor all break at the same width.
 
 /** Depth-specific character widths for text measurement. */
 function charWidthsForDepth(depth: number): { cjk: number; ascii: number } {
@@ -86,8 +93,32 @@ export function mindMapTopicLineHeight(depth: number): number {
   return 18
 }
 
+/**
+ * Line advance actually used for wrapping vertical rhythm. A topic with a
+ * custom (theme or per-node) font size larger than the depth default must grow
+ * its line advance with the glyphs, otherwise single-line labels get clipped
+ * by the fixed depth line height. The renderer computes its label line height
+ * with the same formula so measured heights and painted baselines agree.
+ */
+export function effectiveMindMapTopicLineHeight(
+  depth: number,
+  fontSizeOverride?: number
+): number {
+  const base = mindMapTopicLineHeight(depth)
+  if (fontSizeOverride === undefined || !Number.isFinite(fontSizeOverride)) return base
+  return Math.max(base, Math.ceil(fontSizeOverride * 1.25))
+}
+
 /** Minimum width accepted by both automatic and fixed topic sizing. */
 export const MIND_MAP_NODE_MIN_WIDTH = 72
+/**
+ * Total horizontal padding inside a topic's foreignObject label (`padding:
+ * 0 10px` in mindmap.css). Wrapping and height measurement budget the same
+ * gutter the CSS label uses so the inline editor, the markdown label and the
+ * SVG tspan lines break identically — text neither reflows nor jumps when an
+ * edit commits.
+ */
+export const MIND_MAP_TOPIC_LABEL_GUTTER = 20
 /** Automatic sizing remains compact; fixed sizing can grow further. */
 export const MIND_MAP_AUTO_NODE_MAX_WIDTH = 360
 /** Maximum persisted fixed topic width. */
@@ -199,9 +230,79 @@ function isCJK(char: string): boolean {
   )
 }
 
-function measuredCharacterWidth(char: string, depth: number): number {
+/**
+ * Character advance probe used by wrapping/measuring. The canvas supplies a
+ * canvas-2D `measureText`-backed probe so laid-out widths match the fonts the
+ * browser actually renders (estimating Latin advances from a fixed table lets
+ * labels overflow or reflow while typing); pure/test callers keep the built-in
+ * per-depth estimates by omitting the probe.
+ */
+export type MindMapCharacterWidthProbe = (char: string, depth: number) => number
+
+function measuredCharacterWidth(
+  char: string,
+  depth: number,
+  measureChar?: MindMapCharacterWidthProbe
+): number {
+  if (measureChar) return measureChar(char, depth)
   const { cjk, ascii } = charWidthsForDepth(depth)
   return isCJK(char) ? cjk : ascii
+}
+
+function measurePlainTextWidth(
+  text: string,
+  depth: number,
+  measureChar?: MindMapCharacterWidthProbe
+): number {
+  let width = 0
+  for (const char of text) width += measuredCharacterWidth(char, depth, measureChar)
+  return width
+}
+
+/** Length of the trailing run of Latin (non-CJK, non-space) characters. */
+function trailingLatinWordRunLength(chars: readonly string[]): number {
+  let run = 0
+  for (let i = chars.length - 1; i >= 0; i -= 1) {
+    const char = chars[i]!
+    if (/\s/u.test(char) || isCJK(char)) break
+    run += 1
+  }
+  return run
+}
+
+/**
+ * Avoid a lonely one-or-two-character last line: when an automatically wrapped
+ * paragraph leaves less than a third of the line width on its final line, pull
+ * trailing characters (whole Latin words, so breaks stay on word boundaries)
+ * down from the previous line until the two lines read balanced. The line
+ * count never changes, so node heights stay stable. Explicit `\n` paragraphs
+ * are single-line and never rebalanced.
+ */
+function balanceLastLine(
+  lines: string[],
+  innerWidth: number,
+  depth: number,
+  measureChar?: MindMapCharacterWidthProbe
+): string[] {
+  if (lines.length < 2) return lines
+  let prev = lines[lines.length - 2]!
+  let last = lines[lines.length - 1]!
+  const minLastWidth = innerWidth / 3
+
+  while (
+    measurePlainTextWidth(last, depth, measureChar) < minLastWidth &&
+    Array.from(prev).length > 1
+  ) {
+    const prevChars = Array.from(prev)
+    const run = Math.max(1, trailingLatinWordRunLength(prevChars))
+    if (run >= prevChars.length) break
+    const moved = prevChars.splice(prevChars.length - run, run)
+    prev = prevChars.join('').trimEnd()
+    last = moved.join('') + last
+  }
+
+  if (prev === lines[lines.length - 2]! && last === lines[lines.length - 1]!) return lines
+  return [...lines.slice(0, -2), prev, last]
 }
 
 /**
@@ -215,10 +316,15 @@ function measuredCharacterWidth(char: string, depth: number): number {
  * a break point; CJK text and words wider than the available line fall back to
  * character-level wrapping.
  */
-export function wrapMindMapTopicTitle(title: string, width: number, depth: number): string[] {
+export function wrapMindMapTopicTitle(
+  title: string,
+  width: number,
+  depth: number,
+  measureChar?: MindMapCharacterWidthProbe
+): string[] {
   if (!title) return ['']
 
-  const innerWidth = Math.max(1, clampMindMapNodeWidth(width) - paddingForDepth(depth))
+  const innerWidth = Math.max(1, clampMindMapNodeWidth(width) - MIND_MAP_TOPIC_LABEL_GUTTER)
   const wrappedLines: string[] = []
 
   for (const paragraph of title.split(/\r?\n/)) {
@@ -228,6 +334,7 @@ export function wrapMindMapTopicTitle(title: string, width: number, depth: numbe
       continue
     }
 
+    const paragraphLines: string[] = []
     let start = 0
     while (start < characters.length) {
       // Whitespace used as a previous line's break point should not become
@@ -241,7 +348,7 @@ export function wrapMindMapTopicTitle(title: string, width: number, depth: numbe
 
       while (cursor < characters.length) {
         const char = characters[cursor]!
-        const nextWidth = measuredWidth + measuredCharacterWidth(char, depth)
+        const nextWidth = measuredWidth + measuredCharacterWidth(char, depth, measureChar)
         if (nextWidth > innerWidth && cursor > start) break
         measuredWidth = nextWidth
         if (/\s/u.test(char)) lastWhitespace = cursor
@@ -253,19 +360,25 @@ export function wrapMindMapTopicTitle(title: string, width: number, depth: numbe
 
       if (cursor < characters.length && lastWhitespace >= start) {
         const line = characters.slice(start, lastWhitespace).join('').trimEnd()
-        if (line) wrappedLines.push(line)
+        if (line) paragraphLines.push(line)
         start = lastWhitespace + 1
       } else {
-        wrappedLines.push(characters.slice(start, cursor).join('').trimEnd())
+        paragraphLines.push(characters.slice(start, cursor).join('').trimEnd())
         start = cursor
       }
     }
+
+    wrappedLines.push(...balanceLastLine(paragraphLines, innerWidth, depth, measureChar))
   }
 
   return wrappedLines.length > 0 ? wrappedLines : ['']
 }
 
-function measureNodeWidth(title: string, depth: number): number {
+function measureNodeWidth(
+  title: string,
+  depth: number,
+  measureChar?: MindMapCharacterWidthProbe
+): number {
   if (!title) return MIND_MAP_NODE_MIN_WIDTH
   let widestLine = 0
   let lineWidth = 0
@@ -275,19 +388,27 @@ function measureNodeWidth(title: string, depth: number): number {
       lineWidth = 0
       continue
     }
-    lineWidth += measuredCharacterWidth(char, depth)
+    lineWidth += measuredCharacterWidth(char, depth, measureChar)
   }
   widestLine = Math.max(widestLine, lineWidth)
   const paddingX = paddingForDepth(depth)
   return Math.min(MIND_MAP_AUTO_NODE_MAX_WIDTH, Math.max(MIND_MAP_NODE_MIN_WIDTH, widestLine + paddingX))
 }
 
-function measureNodeHeight(title: string, width: number, depth: number): number {
+function measureNodeHeight(
+  title: string,
+  width: number,
+  depth: number,
+  measureChar?: MindMapCharacterWidthProbe,
+  lineHeightOverride?: number
+): number {
   const baseHeight = baseHeightForDepth(depth)
   if (!title) return baseHeight
-  const lineHeight = mindMapTopicLineHeight(depth)
-  const lines = wrapMindMapTopicTitle(title, width, depth).length
-  const paddingY = baseHeight - lineHeight
+  const lineHeight = lineHeightOverride ?? mindMapTopicLineHeight(depth)
+  const lines = wrapMindMapTopicTitle(title, width, depth, measureChar).length
+  // The Y padding never goes negative: an oversized font must grow the node
+  // instead of letting the line boxes overflow the label region.
+  const paddingY = Math.max(0, baseHeight - lineHeight)
   return Math.max(baseHeight, lines * lineHeight + paddingY)
 }
 
@@ -916,7 +1037,9 @@ function precomputeSizes(
   depth: number,
   emptyTitleFallback?: string,
   reserveTopicActionButtonSpace = false,
-  attachedImages?: Map<string, MindMapImageElement[]>
+  attachedImages?: Map<string, MindMapImageElement[]>,
+  measureChar?: MindMapCharacterWidthProbe,
+  theme?: MindMapTheme
 ): void {
   // Untitled topics are rendered with a placeholder label (G3), so they are
   // measured as that placeholder rather than collapsing to the bare minimum.
@@ -926,7 +1049,7 @@ function precomputeSizes(
   const hasFixedWidth = fixedWidth !== undefined
   const measuredContentWidth = fixedWidth !== undefined
     ? clampMindMapNodeWidth(fixedWidth)
-    : measureNodeWidth(measuredTitle, depth)
+    : measureNodeWidth(measuredTitle, depth, measureChar)
   const images = attachedImages?.get(node.id) ?? []
   const hasImages = images.length > 0
   const placement = node.imagePlacement ?? 'bottom'
@@ -936,7 +1059,18 @@ function precomputeSizes(
     ? Math.max(measuredContentWidth, MIND_MAP_TOPIC_IMAGE_MIN_WIDTH, block.width)
     : measuredContentWidth
   const topicActionCount = Number(Boolean(node.note))
-  const textHeight = measureNodeHeight(measuredTitle, textWidth, depth)
+  // Match the renderer: a themed or per-node font size larger than the depth
+  // default grows the line advance (and the node) so labels never clip.
+  const effectiveStyle = theme
+    ? resolveEffectiveTopicStyle(node.style, theme, depth)
+    : node.style
+  const textHeight = measureNodeHeight(
+    measuredTitle,
+    textWidth,
+    depth,
+    measureChar,
+    effectiveMindMapTopicLineHeight(depth, effectiveStyle?.fontSize)
+  )
   const width = (vertical ? textWidth : textWidth + block.width)
     + (reserveTopicActionButtonSpace
       ? topicActionCount * MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH
@@ -944,7 +1078,7 @@ function precomputeSizes(
   const height = vertical ? textHeight + block.height : Math.max(textHeight, block.height)
   sizes.set(node.id, { width, height })
   for (const child of node.children) {
-    precomputeSizes(child, sizes, depth + 1, emptyTitleFallback, reserveTopicActionButtonSpace, attachedImages)
+    precomputeSizes(child, sizes, depth + 1, emptyTitleFallback, reserveTopicActionButtonSpace, attachedImages, measureChar, theme)
   }
 }
 
@@ -1203,6 +1337,19 @@ export type MindMapLayoutOptions = {
   reserveTopicActionButtonSpace?: boolean
   /** @deprecated Use `reserveTopicActionButtonSpace`. */
   reserveNoteButtonSpace?: boolean
+  /**
+   * Real per-character advance (px) used for wrapping and node sizing. The
+   * canvas passes a `measureText`-backed probe so laid-out widths match the
+   * fonts the browser actually renders; pure/test callers keep the built-in
+   * per-depth estimates by omitting it.
+   */
+  measureCharacterWidth?: MindMapCharacterWidthProbe
+  /**
+   * Document theme, merged per node (theme layer + node style) the same way
+   * the renderer resolves effective styles. Themed font sizes must grow the
+   * measured line advance or oversized labels clip inside the node.
+   */
+  theme?: MindMapTheme
 }
 
 export function computeMindMapLayout(
@@ -1225,7 +1372,9 @@ export function computeMindMapLayout(
     0,
     options?.emptyTitleFallback,
     options?.reserveTopicActionButtonSpace ?? options?.reserveNoteButtonSpace,
-    attachedImages
+    attachedImages,
+    options?.measureCharacterWidth,
+    options?.theme
   )
   const verticalGap = (depth: number): number => effectiveVerticalGap(sheet, depth)
 

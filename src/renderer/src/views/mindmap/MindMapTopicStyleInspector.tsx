@@ -596,11 +596,6 @@ export function MindMapTopicStyleInspector() {
           )}
         />
       </fieldset>
-      {!borderEnabled ? (
-        <p className="mindmap-topic-style__disabled-note">
-          {t('mindmap.topicStyle.borderDisabled')}
-        </p>
-      ) : null}
 
       <div className="mm-subhead">{t('mindmap.topicStyle.textSection')}</div>
       <div className="mm-row">

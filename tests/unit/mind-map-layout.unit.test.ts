@@ -8,10 +8,13 @@ import {
   computeMindMapLayout,
   computeMovedTopicPreview,
   computeTopicImageAndTextRegions,
+  effectiveMindMapTopicLineHeight,
   MIND_MAP_HORIZONTAL_GAP,
+  MIND_MAP_AUTO_NODE_MAX_WIDTH,
   MIND_MAP_NODE_MIN_WIDTH,
   MIND_MAP_TOPIC_ACTION_BUTTON_RESERVED_WIDTH,
   MIND_MAP_TOPIC_IMAGE_HEIGHT,
+  MIND_MAP_TOPIC_LABEL_GUTTER,
   MIND_MAP_VERTICAL_GAP,
   horizontalGapForDepth,
   verticalGapForDepth,
@@ -673,6 +676,54 @@ describe('computeMindMapLayout', () => {
 
     expect(fixed.width).toBe(240)
     expect(auto.width).not.toBe(240)
+  })
+
+  it('wraps against the foreignObject label gutter so editing and rendering break identically', () => {
+    // depth 1 measures CJK at 16px; at the 360px auto-width cap the usable line
+    // width must be 360 - 20 (the `padding: 0 10px` label gutter), so 21 CJK
+    // glyphs (336px) still fit on one line while 22 (352px) wrap.
+    expect(wrapMindMapTopicTitle('字'.repeat(21), MIND_MAP_AUTO_NODE_MAX_WIDTH, 1)).toEqual([
+      '字'.repeat(21)
+    ])
+    expect(wrapMindMapTopicTitle('字'.repeat(22), MIND_MAP_AUTO_NODE_MAX_WIDTH, 1).length).toBe(2)
+    expect(MIND_MAP_TOPIC_LABEL_GUTTER).toBe(20)
+  })
+
+  it('balances a wrapped paragraph instead of leaving a one-or-two character last line', () => {
+    // 23 CJK glyphs at depth 1 → naive wrap is [21, 2]; the balancer pulls
+    // characters down until the last line carries a readable share.
+    const lines = wrapMindMapTopicTitle('字'.repeat(23), MIND_MAP_AUTO_NODE_MAX_WIDTH, 1)
+
+    expect(lines.length).toBe(2)
+    expect(lines.join('')).toBe('字'.repeat(23))
+    expect(lines[1]!.length).toBeGreaterThanOrEqual(7)
+    expect(lines[0]!.length).toBeLessThanOrEqual(21)
+  })
+
+  it('never rebalances across an explicit line break', () => {
+    expect(wrapMindMapTopicTitle('一二三四五六七八九十\n尾', 240, 1)).toEqual([
+      '一二三四五六七八九十',
+      '尾'
+    ])
+  })
+
+  it('grows the line advance and node height for oversized custom font sizes', () => {
+    expect(effectiveMindMapTopicLineHeight(0, 26)).toBe(34)
+    expect(effectiveMindMapTopicLineHeight(0, 28)).toBe(35)
+    expect(effectiveMindMapTopicLineHeight(1, 12)).toBe(22)
+    expect(effectiveMindMapTopicLineHeight(2)).toBe(18)
+
+    // A wrapped root label at the 360px auto-width cap: the same line count
+    // occupies more vertical space once the glyphs outgrow the default size.
+    const title = '字'.repeat(52)
+    const root = node('a', title)
+    const themed = node('a', title)
+    const defaultSized = computeMindMapLayout(sheet(root)).nodes.find((n) => n.id === 'a')!
+    const oversized = computeMindMapLayout(sheet(themed), {
+      theme: { id: 't', topicStyles: { central: { fontSize: 28 } } } as never
+    }).nodes.find((n) => n.id === 'a')!
+
+    expect(oversized.height).toBeGreaterThan(defaultSized.height)
   })
 
   it('measures untitled topics as the placeholder when emptyTitleFallback is set', () => {

@@ -340,7 +340,6 @@ describe('MindMapTopicStyleInspector', () => {
 
     expect(screen.getByRole('button', { name: /^Border Color / })).toBeDisabled()
     expect(screen.getByRole('button', { name: /^Border Width / })).toBeDisabled()
-    expect(screen.getByText('Border color and width are unavailable while border style is None.')).toBeInTheDocument()
     expect(useMindMapViewStore.getState().current?.sheets[0]?.root.style).toMatchObject({
       stroke: '#111111',
       borderStyle: 'none',

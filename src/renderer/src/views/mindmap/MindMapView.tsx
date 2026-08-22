@@ -28,6 +28,7 @@ import { useAppStore } from '../../app-shell/appStore'
 import { MindMapAiPanel } from './MindMapAiPanel'
 import {
   MindMapCanvas,
+  type MindMapCanvasHandle,
   type MindMapCanvasLineUpdate,
   type MindMapCanvasShapeUpdate,
   type MindMapCanvasViewportAction
@@ -322,6 +323,11 @@ export function MindMapView() {
   const [utilityPanel, setUtilityPanel] = useState<MindMapUtilityPanelKind | null>(null)
   const [viewportAction, setViewportAction] = useState<MindMapCanvasViewportAction | null>(null)
   const viewportActionIdRef = useRef(0)
+  /** Settles an in-flight inline edit before actions that switch the edit target. */
+  const canvasRef = useRef<MindMapCanvasHandle | null>(null)
+  const commitPendingEdit = useCallback((): void => {
+    canvasRef.current?.commitPendingEdit()
+  }, [])
   const [zoomLevel, setZoomLevel] = useState(1)
   const [panMode, setPanMode] = useState(true)
   const [drawingShape, setDrawingShape] = useState<MindMapDrawingShape | null>(null)
@@ -445,15 +451,18 @@ export function MindMapView() {
     editingNodeId !== null,
     {
       insertChild: () => {
+        commitPendingEdit()
         if (selectedNodeId !== null) addChild(selectedNodeId)
       },
       insertSibling: () => {
+        commitPendingEdit()
         if (selectedNodeId !== null) addSibling(selectedNodeId)
       },
       outdent: () => {
         if (selectedNodeId !== null) outdent(selectedNodeId)
       },
       insertAbove: () => {
+        commitPendingEdit()
         if (selectedNodeId !== null) insertAbove(selectedNodeId)
       },
       toggleCollapse: () => {
@@ -901,6 +910,9 @@ export function MindMapView() {
 
   const handleAddChild = (): void => {
     if (previewReadOnly) return
+    // Clicking the toolbar button must not drop the text being typed into the
+    // currently edited node: settle it before the insert switches the editor.
+    commitPendingEdit()
     if (selectedNodeId) {
       addChild(selectedNodeId)
       return
@@ -910,6 +922,7 @@ export function MindMapView() {
 
   const handleAddSibling = (): void => {
     if (previewReadOnly) return
+    commitPendingEdit()
     if (selectedNodeId) addSibling(selectedNodeId)
   }
 
@@ -1229,6 +1242,7 @@ export function MindMapView() {
 
         <>
             <MindMapCanvas
+              ref={canvasRef}
               document={displayedDocument}
               activeSheetIndex={Math.max(0, displayedDocument.sheets.findIndex((s) => s.id === activeSheetId))}
               onActiveSheetChange={() => undefined}

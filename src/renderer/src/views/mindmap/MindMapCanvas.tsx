@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type {
   MouseEvent as ReactMouseEvent,
@@ -33,7 +33,8 @@ import {
   MIND_MAP_SUMMARY_RANGE_GAP,
   MIND_MAP_TOPIC_IMAGE_GAP,
   MIND_MAP_TOPIC_IMAGE_SIDE_PADDING,
-  mindMapTopicLineHeight,
+  MIND_MAP_TOPIC_LABEL_GUTTER,
+  effectiveMindMapTopicLineHeight,
   type MindMapLayoutCallout,
   type MindMapLayoutNode,
   type MindMapLayoutRelationship,
@@ -100,7 +101,8 @@ import { hasMindMapTopicMarkdown, renderMarkdownInlineHtml } from '../../markdow
 import { MindMapRichTextEditor, type MindMapRichTextEditorHandle } from './MindMapRichTextEditor'
 import { MindMapTextFormatToolbar } from './MindMapTextFormatToolbar'
 import { MindMapRichTextLabel } from './MindMapRichTextLabel'
-import type { RichTextSelectionState } from './mind-map-rich-text-dom'
+import { parseRichTextDom, type RichTextSelectionState } from './mind-map-rich-text-dom'
+import { createMindMapCharacterWidthProbe } from './mind-map-char-widths'
 import { computeAllTopicNumbers } from './mind-map-numbering'
 import {
   selectMindMapLinesInRectangle,
@@ -280,6 +282,17 @@ type CanvasProps = {
   onShapeContextMenu?: (shapeId: string, x: number, y: number) => void
   onMoveNode?: (topicId: string, toParentId: string) => void
   onOpenNote?: (nodeId: string) => void
+}
+
+/** Imperative entry points for the canvas host (the view shell). */
+export type MindMapCanvasHandle = {
+  /**
+   * Synchronously settle any in-flight node/shape label edit before the host
+   * performs an action that would switch the editing target (e.g. the
+   * "add child/sibling" toolbar buttons). Prefers the live editor DOM so
+   * in-flight IME text is not lost.
+   */
+  commitPendingEdit: () => void
 }
 
 const VIEW_PADDING = 48
@@ -737,7 +750,7 @@ function computeImageRects(
   return rects
 }
 
-export function MindMapCanvas({
+export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(function MindMapCanvas({
   document,
   activeSheetIndex,
   readOnly = false,
@@ -761,7 +774,7 @@ export function MindMapCanvas({
   onShapeContextMenu,
   onMoveNode,
   onOpenNote
-}: CanvasProps) {
+}: CanvasProps, ref) {
   const { t } = useTranslation()
   const openExternal = useAppStore((state) => state.openExternal)
   const workspaceId = useAppStore((state) => state.appState?.activeWorkspace?.id ?? null)
@@ -862,16 +875,30 @@ export function MindMapCanvas({
     return root === sheet.root ? sheet : { ...sheet, root }
   }, [editValue, editingNodeId, nodeResizeState, sheet])
 
+  // Measure topic text with the fonts the browser really renders (canvas-2D
+  // measureText) instead of the layout's fixed per-character estimates. Latin
+  // advances drift several px per glyph across fonts, which used to wrap a
+  // character or two onto a second line while typing and push labels past the
+  // node border. Falls back to the pure estimates where no 2D canvas exists
+  // (e.g. jsdom).
+  const themeFontStack = document.theme.fontFamily ?? DEFAULT_TOPIC_FONT_FAMILY
+  const characterWidthProbe = useMemo(
+    () => createMindMapCharacterWidthProbe(themeFontStack),
+    [themeFontStack]
+  )
+
   const layout = useMemo(
     () => (layoutSheet
       // G3: untitled topics are measured as the placeholder label so they
       // render as a normal-sized chip instead of a blank stub.
       ? computeMindMapLayout(layoutSheet, {
           emptyTitleFallback: t('mindmap.untitledTopic'),
-          reserveTopicActionButtonSpace: true
+          reserveTopicActionButtonSpace: true,
+          ...(characterWidthProbe ? { measureCharacterWidth: characterWidthProbe } : {}),
+          theme: document.theme
         })
       : { nodes: [], edges: [], relationships: [], callouts: [], summaries: [], boundaries: [], images: [] }),
-    [layoutSheet, t]
+    [layoutSheet, t, characterWidthProbe, document.theme]
   )
 
   const visibleAssetIds = useMemo(
@@ -1188,14 +1215,34 @@ export function MindMapCanvas({
     setSelectionBox(null)
   }, [readOnly, setEditingNodeId])
 
-  // When the store's editing node changes (e.g. F2 from the keyboard), seed the
-  // local edit buffer with that node's current title.
+  // When the store's editing node changes (e.g. F2 from the keyboard, or the
+  // insert actions that immediately open the new node), first settle any edit
+  // session that was switched away before its normal blur/Enter commit, then
+  // seed the local edit buffer with the new node's current title.
   useEffect(() => {
-    if (editingNodeId === null || !sheet) return
+    const previous = editSessionRef.current
+    if (
+      previous !== null &&
+      editingNodeId !== previous.nodeId &&
+      !previous.discarded
+    ) {
+      commitTopicEditFor(previous.nodeId, previous.text, previous.spans)
+      editSessionRef.current = null
+      // The commit above cleared the store's editing id; only continue
+      // seeding when the store actually switched to a different node.
+    }
+    if (editingNodeId === null || !sheet) {
+      editSessionRef.current = null
+      return
+    }
     const topic = findTopicNode(sheet.root, editingNodeId)
     if (topic === undefined) return
     setEditValue(topic.title)
-    setEditSpans(topic.titleFormatting ? normalizeTextSpans(topic.titleFormatting, topic.title.length) : [])
+    const spans = topic.titleFormatting
+      ? normalizeTextSpans(topic.titleFormatting, topic.title.length)
+      : []
+    setEditSpans(spans)
+    editSessionRef.current = { nodeId: editingNodeId, text: topic.title, spans, discarded: false }
   }, [editingNodeId, sheet])
 
   // The right-side inspector issues one-shot rich text style requests (span
@@ -2264,6 +2311,21 @@ export function MindMapCanvas({
     setPan((prev) => ({ x: prev.x - dx, y: prev.y - dy }))
   }
 
+  /**
+   * The in-flight edit session, maintained outside React state so a render
+   * can never lose it. The buffer is the recovery source whenever the editing
+   * target is switched away before a normal blur/Enter commit — e.g. the
+   * toolbar "add child" button, whose click can move focus off the editor
+   * without a usable blur, or any store action that assigns editingNodeId
+   * directly. `discarded` marks an explicit Escape cancel.
+   */
+  const editSessionRef = useRef<{
+    nodeId: string
+    text: string
+    spans: MindMapTextSpan[]
+    discarded: boolean
+  } | null>(null)
+
   const beginEdit = (nodeId: string, initial: string, initialSpans: MindMapTextSpan[] = []): void => {
     if (readOnly) return
     selectTopic(nodeId, false)
@@ -2272,33 +2334,51 @@ export function MindMapCanvas({
     setRichTextTarget({ kind: 'node', nodeId })
     setEditingNodeId(nodeId)
     setEditValue(initial)
-    setEditSpans(normalizeTextSpans(initialSpans, initial.length))
+    const spans = normalizeTextSpans(initialSpans, initial.length)
+    setEditSpans(spans)
+    editSessionRef.current = { nodeId, text: initial, spans, discarded: false }
   }
 
-  const commitEdit = (text = editValue, spans = editSpans): void => {
-    if (readOnly) {
-      setEditingNodeId(null)
-      setRichTextSelection(null)
-      setRichTextSelectionActive(false)
-      setRichTextTarget(null)
-      return
-    }
-    if (editingNodeId !== null && sheet) {
-      const normalizedSpans = normalizeTextSpans(spans, text.length)
-      const currentTopic = findTopicNode(sheet.root, editingNodeId)
-      const currentFormatting = currentTopic?.titleFormatting ?? []
-      const formattingChanged = JSON.stringify(normalizedSpans) !== JSON.stringify(currentFormatting)
-      updateNode(editingNodeId, {
-        title: text,
-        ...(formattingChanged
-          ? { titleFormatting: normalizedSpans.length > 0 ? normalizedSpans : null }
-          : {})
-      })
-    }
+  const clearEditingUiState = (): void => {
     setEditingNodeId(null)
     setRichTextSelection(null)
     setRichTextSelectionActive(false)
     setRichTextTarget(null)
+  }
+
+  const commitTopicEditFor = (nodeId: string, text: string, spans: MindMapTextSpan[]): void => {
+    const settlesCurrentEdit = editingNodeId === nodeId
+    if (editSessionRef.current?.nodeId === nodeId) editSessionRef.current = null
+    // Only tear down the edit UI when this commit settles the *current* edit;
+    // when the store already switched to another node (e.g. an insert action
+    // opened it), that new edit session must stay untouched.
+    if (settlesCurrentEdit) panelDeferredCommitRef.current = false
+    if (readOnly) {
+      if (settlesCurrentEdit) clearEditingUiState()
+      return
+    }
+    if (nodeId && sheet) {
+      const normalizedSpans = normalizeTextSpans(spans, text.length)
+      const currentTopic = findTopicNode(sheet.root, nodeId)
+      const currentFormatting = currentTopic?.titleFormatting ?? []
+      const formattingChanged = JSON.stringify(normalizedSpans) !== JSON.stringify(currentFormatting)
+      // Skip no-op commits: they would pollute the undo stack with empty
+      // topic.update commands (e.g. blur followed by the recovery path).
+      if (currentTopic?.title !== text || formattingChanged) {
+        updateNode(nodeId, {
+          title: text,
+          ...(formattingChanged
+            ? { titleFormatting: normalizedSpans.length > 0 ? normalizedSpans : null }
+            : {})
+        })
+      }
+    }
+    if (settlesCurrentEdit) clearEditingUiState()
+  }
+
+  const commitEdit = (text = editValue, spans = editSpans): void => {
+    if (editingNodeId === null) return
+    commitTopicEditFor(editingNodeId, text, spans)
   }
 
   // When the editor blurs into the right-side panel we keep the edit session
@@ -2316,6 +2396,40 @@ export function MindMapCanvas({
       commitShapeTextEditing(shapeTextEditing.shapeId, shapeTextEditing.value, shapeTextEditing.spans)
     }
   }
+
+  // Imperative entry point for the host view: toolbar actions that switch the
+  // editing target (add child/sibling…) must settle the current edit first.
+  // Clicking a toolbar button does not reliably blur the inline editor (and a
+  // blur into some surfaces is deliberately deferred), so without this the
+  // buffered draft would be dropped when the store assigns a new editingNodeId.
+  const commitPendingEditRef = useRef<() => void>(() => {})
+  commitPendingEditRef.current = () => {
+    if (editingNodeId !== null) {
+      // Prefer the live editor DOM so in-flight IME text is not lost.
+      const liveRoot = nodeEditorRef.current?.root
+      const liveModel = liveRoot ? parseRichTextDom(liveRoot) : null
+      commitTopicEditFor(
+        editingNodeId,
+        liveModel?.text ?? editValue,
+        liveModel?.spans ?? editSpans
+      )
+      return
+    }
+    if (shapeTextEditing) {
+      const liveRoot = shapeEditorRef.current?.root
+      const liveModel = liveRoot ? parseRichTextDom(liveRoot) : null
+      commitShapeTextEditing(
+        shapeTextEditing.shapeId,
+        liveModel?.text ?? shapeTextEditing.value,
+        liveModel?.spans ?? shapeTextEditing.spans
+      )
+    }
+  }
+  useImperativeHandle(
+    ref,
+    () => ({ commitPendingEdit: () => commitPendingEditRef.current() }),
+    []
+  )
 
   // The live selection drives the floating toolbar; the "active" flag is kept
   // for the right panel even after the editor blurs (see onBlur handling).
@@ -3614,8 +3728,22 @@ export function MindMapCanvas({
             // whenever markdown-it finds real formatting tokens. This covers
             // links, emphasis, inline code, marks, strikethrough, and math.
             const hasInlineMarkdown = hasMindMapTopicMarkdown(node.title)
-            const labelLines = wrapMindMapTopicTitle(displayTitle, textRegion.width, node.depth)
-            const labelLineHeight = mindMapTopicLineHeight(node.depth)
+            // Same measurement probe as the layout pass, so the rendered line
+            // breaks and the measured node height can never disagree.
+            const labelLines = wrapMindMapTopicTitle(
+              displayTitle,
+              textRegion.width,
+              node.depth,
+              characterWidthProbe ?? undefined
+            )
+            const labelLineHeight = effectiveMindMapTopicLineHeight(
+              node.depth,
+              styleOverride?.fontSize
+            )
+            // A wrapped (multi-line) label keeps its justified edge flush with
+            // both node borders — every line but the last stretches across the
+            // usable label width. Centred labels keep centring.
+            const justifyWrappedLabel = labelLines.length > 1 && textAlign !== 'center'
             // Keep every representation of an underline label—SVG text,
             // markdown and the textarea editor—in the same bottom-aligned
             // region. Switching into edit mode therefore replaces the label in
@@ -3630,6 +3758,9 @@ export function MindMapCanvas({
                 }
               : textRegion
             const labelGeometry = topicLabelGeometry(labelRegion.x, labelRegion.width, textAlign)
+            // Width a justified (non-final) SVG line stretches to: the same
+            // usable inner width the wrap algorithm breaks at.
+            const justifiedLineLength = labelRegion.width - MIND_MAP_TOPIC_LABEL_GUTTER
             const firstLabelLineY = labelRegion.y + labelRegion.height / 2
               - ((labelLines.length - 1) * labelLineHeight) / 2
             return (
@@ -3897,8 +4028,14 @@ export function MindMapCanvas({
                         baseStyle={{
                           ...topicTextStyle,
                           color: topicTextColor,
-                          lineHeight: 1,
-                          textAlign
+                          // Match the SVG label's per-line advance so the edit
+                          // session keeps the text at the exact spot/baseline
+                          // the committed tspans render at.
+                          lineHeight: `${labelLineHeight}px`,
+                          // Wrapped labels justify every line but the last;
+                          // the last line keeps the structural alignment.
+                          textAlign: justifyWrappedLabel ? 'justify' : textAlign,
+                          ...(justifyWrappedLabel ? { textAlignLast: textAlign } : {})
                         }}
                         autoFocus
                         selectAllOnFocus
@@ -3906,11 +4043,17 @@ export function MindMapCanvas({
                         onModelChange={(text, spans) => {
                           setEditValue(text)
                           setEditSpans(spans)
+                          if (editSessionRef.current?.nodeId === node.id) {
+                            editSessionRef.current = { ...editSessionRef.current, text, spans }
+                          }
                         }}
                         onSelectionChange={handleRichTextSelectionChange}
                         onBlur={(event, text, spans) => {
                           setEditValue(text)
                           setEditSpans(spans)
+                          if (editSessionRef.current?.nodeId === node.id) {
+                            editSessionRef.current = { ...editSessionRef.current, text, spans }
+                          }
                           // Keep the edit + selection alive when the user
                           // moves into the right-side inspector so its text
                           // controls target the selected span.
@@ -3927,7 +4070,12 @@ export function MindMapCanvas({
                           }
                           if (event.key === 'Escape') {
                             event.preventDefault()
-                            setEditingNodeId(null)
+                            // Escape cancels the edit: the recovery path must
+                            // not re-commit the buffered draft afterwards.
+                            if (editSessionRef.current?.nodeId === node.id) {
+                              editSessionRef.current = { ...editSessionRef.current, discarded: true }
+                            }
+                            clearEditingUiState()
                           }
                         }}
                       />
@@ -3946,8 +4094,9 @@ export function MindMapCanvas({
                       style={{
                         ...topicTextStyle,
                         color: topicTextColor,
-                        textAlign,
-                        lineHeight: 1.2
+                        textAlign: justifyWrappedLabel ? 'justify' : textAlign,
+                        ...(justifyWrappedLabel ? { textAlignLast: textAlign } : {}),
+                        lineHeight: `${labelLineHeight}px`
                       }}
                     >
                       <MindMapRichTextLabel
@@ -3972,8 +4121,9 @@ export function MindMapCanvas({
                       style={{
                         ...topicTextStyle,
                         color: topicTextColor,
-                        textAlign,
-                        lineHeight: 1.2
+                        textAlign: justifyWrappedLabel ? 'justify' : textAlign,
+                        ...(justifyWrappedLabel ? { textAlignLast: textAlign } : {}),
+                        lineHeight: `${labelLineHeight}px`
                       }}
                       onPointerDown={(event) => {
                         const target = event.target as HTMLElement
@@ -4015,19 +4165,33 @@ export function MindMapCanvas({
                         fill: topicTextColor
                       }}
                     >
-                      {labelLines.map((line, lineIndex) => (
-                        <tspan
-                          key={`${lineIndex}-${line}`}
-                          className="mindmap-node-label-line"
-                          x={labelGeometry.x}
-                          dy={lineIndex === 0 ? 0 : labelLineHeight}
-                        >
-                          {lineIndex === 0 && topicNumbers.get(node.id) ? (
-                            <tspan className="mindmap-node-number">{topicNumbers.get(node.id)}  </tspan>
-                          ) : null}
-                          {line}
-                        </tspan>
-                      ))}
+                      {labelLines.map((line, lineIndex) => {
+                        // Justified wrapping: every line except the last
+                        // stretches (spacing only) across the usable label
+                        // width so wrapped CJK/Latin labels read flush with
+                        // both borders. The numbered first line keeps natural
+                        // spacing — stretching across the nested number tspan
+                        // is not reliably supported.
+                        const stretchToJustify = justifyWrappedLabel
+                          && lineIndex < labelLines.length - 1
+                          && !(lineIndex === 0 && topicNumbers.get(node.id))
+                        return (
+                          <tspan
+                            key={`${lineIndex}-${line}`}
+                            className="mindmap-node-label-line"
+                            x={labelGeometry.x}
+                            dy={lineIndex === 0 ? 0 : labelLineHeight}
+                            {...(stretchToJustify
+                              ? { textLength: justifiedLineLength, lengthAdjust: 'spacing' as const }
+                              : {})}
+                          >
+                            {lineIndex === 0 && topicNumbers.get(node.id) ? (
+                              <tspan className="mindmap-node-number">{topicNumbers.get(node.id)}  </tspan>
+                            ) : null}
+                            {line}
+                          </tspan>
+                        )
+                      })}
                     </text>
                 )}
 
@@ -4545,4 +4709,4 @@ export function MindMapCanvas({
       ) : null}
     </div>
   )
-}
+})

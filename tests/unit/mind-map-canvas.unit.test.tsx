@@ -243,6 +243,40 @@ describe('MindMapCanvas accessibility', () => {
     expect([...lines].every((line) => line.getAttribute('x') === label?.getAttribute('x'))).toBe(true)
   })
 
+  it('justifies every wrapped line but the last on aligned (non-centred) labels', () => {
+    // A branch topic (left-aligned) whose CJK title wraps at the 360px
+    // auto-width cap: all lines except the final one stretch across the label
+    // width; the final line keeps its natural width. Centred labels (root)
+    // never justify.
+    const document = makeDocument()
+    document.sheets[0]!.root.children[0]!.title = '字'.repeat(45)
+    document.sheets[0]!.root.title = '根'.repeat(45)
+
+    renderCanvas(document)
+
+    const branchLabel = screen
+      .getByRole('button', { name: '字'.repeat(45) })
+      .querySelector<SVGTextElement>('.mindmap-node-label')
+    const branchLines = branchLabel?.querySelectorAll<SVGTSpanElement>('.mindmap-node-label-line') ?? []
+    expect(branchLines.length).toBeGreaterThan(1)
+    for (const [index, line] of [...branchLines].entries()) {
+      if (index < branchLines.length - 1) {
+        expect(line.getAttribute('textLength')).toBe(String(360 - 20))
+        expect(line.getAttribute('lengthAdjust')).toBe('spacing')
+      } else {
+        expect(line.getAttribute('textLength')).toBeNull()
+      }
+    }
+
+    // The centred root keeps natural line widths.
+    const rootLabel = screen
+      .getByRole('button', { name: '根'.repeat(45) })
+      .querySelector<SVGTextElement>('.mindmap-node-label')
+    const rootLines = rootLabel?.querySelectorAll<SVGTSpanElement>('.mindmap-node-label-line') ?? []
+    expect(rootLines.length).toBeGreaterThan(1)
+    expect([...rootLines].every((line) => line.getAttribute('textLength') === null)).toBe(true)
+  })
+
   it('edits a double-clicked topic in place without changing its typography or anchor', async () => {
     const user = userEvent.setup()
     const { container } = renderCanvas()
@@ -265,7 +299,7 @@ describe('MindMapCanvas accessibility', () => {
       fontSize: '26px',
       fontWeight: '600',
       letterSpacing: '0.01em',
-      lineHeight: '1',
+      lineHeight: '34px',
       textAlign: 'center'
     })
     const foreignObject = editor.closest('.mindmap-node-foreign')
@@ -341,9 +375,88 @@ describe('MindMapCanvas accessibility', () => {
       color: '#ffffff',
       fontSize: '16px',
       fontWeight: '500',
-      lineHeight: '1',
+      lineHeight: '22px',
       textAlign: 'left'
     })
+  })
+
+  it('commits the buffered edit when the editing target is switched away without a blur', async () => {
+    // Regression: clicking the toolbar "add child" button switches editingNodeId
+    // directly; if the editor blur never settles the draft first, the typed text
+    // used to be silently dropped. The session buffer must recover it.
+    const user = userEvent.setup()
+    const updateNode = vi.fn()
+    const originalUpdateNode = useMindMapViewStore.getState().updateNode
+    useMindMapViewStore.setState({ updateNode })
+
+    try {
+      renderCanvas()
+      await user.dblClick(screen.getByRole('button', { name: 'Child' }))
+      const editor = getRichTextEditor()
+      setRichText(editor, 'Typed draft')
+
+      // Simulate the store switching the edit target (insert action) with no
+      // intervening blur commit.
+      act(() => {
+        useMindMapViewStore.setState({ editingNodeId: 'root' })
+      })
+
+      expect(updateNode).toHaveBeenCalledWith('child', { title: 'Typed draft' })
+    } finally {
+      useMindMapViewStore.setState({ updateNode: originalUpdateNode })
+    }
+  })
+
+  it('exposes commitPendingEdit so the toolbar settles the draft before inserting', async () => {
+    const user = userEvent.setup()
+    const handleRef = { current: null as null | { commitPendingEdit: () => void } }
+    const updateNode = vi.fn()
+    const originalUpdateNode = useMindMapViewStore.getState().updateNode
+    useMindMapViewStore.setState({ updateNode })
+
+    try {
+      render(
+        <MindMapCanvas
+          ref={handleRef}
+          document={makeDocument()}
+          activeSheetIndex={0}
+          onActiveSheetChange={() => undefined}
+        />
+      )
+      await user.dblClick(screen.getByRole('button', { name: 'Child' }))
+      const editor = getRichTextEditor()
+      setRichText(editor, 'Draft before insert')
+
+      act(() => {
+        handleRef.current?.commitPendingEdit()
+      })
+
+      expect(updateNode).toHaveBeenCalledTimes(1)
+      expect(updateNode).toHaveBeenCalledWith('child', { title: 'Draft before insert' })
+      expect(useMindMapViewStore.getState().editingNodeId).toBeNull()
+    } finally {
+      useMindMapViewStore.setState({ updateNode: originalUpdateNode })
+    }
+  })
+
+  it('does not re-commit the draft after Escape cancels the edit', async () => {
+    const user = userEvent.setup()
+    const updateNode = vi.fn()
+    const originalUpdateNode = useMindMapViewStore.getState().updateNode
+    useMindMapViewStore.setState({ updateNode })
+
+    try {
+      renderCanvas()
+      await user.dblClick(screen.getByRole('button', { name: 'Child' }))
+      const editor = getRichTextEditor()
+      setRichText(editor, 'Cancelled draft')
+      fireEvent.keyDown(editor, { key: 'Escape' })
+
+      expect(useMindMapViewStore.getState().editingNodeId).toBeNull()
+      expect(updateNode).not.toHaveBeenCalled()
+    } finally {
+      useMindMapViewStore.setState({ updateNode: originalUpdateNode })
+    }
   })
 
   it('enters edit mode from two primary pointer activations even when no dblclick event is emitted', () => {
@@ -630,7 +743,7 @@ describe('MindMapCanvas accessibility', () => {
       color: '#ffffff',
       fontSize: '16px',
       fontWeight: '500',
-      lineHeight: '1',
+      lineHeight: '22px',
       textAlign: 'right'
     })
     expect(document.sheets[0]!.root.children[0]!.title).toBe('Child')

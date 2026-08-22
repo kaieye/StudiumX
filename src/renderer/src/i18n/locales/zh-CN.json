@@ -2312,7 +2312,6 @@
       "borderStyleDash": "虚线",
       "borderStyleHandDrawnSolid": "手绘实线",
       "borderStyleHandDrawnDash": "手绘虚线",
-      "borderDisabled": "边框线型为“无”时，边框颜色和粗细不可用。",
       "fontFamily": "字体",
       "fontSize": "字号",
       "fontWeight": "字重",
