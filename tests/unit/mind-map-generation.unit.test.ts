@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { callProvider, streamProvider } from '../../src/main/ai/provider-adapter'
+import { callProvider, ProviderAdapterError, streamProvider } from '../../src/main/ai/provider-adapter'
 import {
   cancelMindMapGeneration,
   generateMindMap,
@@ -776,5 +776,109 @@ describe('generateMindMap cancellation', () => {
     rejectStream(abortError)
     await expect(promise).rejects.toMatchObject({ kind: 'cancelled' })
     expect(cancelMindMapGeneration('gen-stream-cancel-test')).toBe(false)
+  })
+})
+
+describe('mind-map reasoning-only recovery', () => {
+  beforeEach(() => {
+    vi.mocked(callProvider).mockClear()
+    vi.mocked(streamProvider).mockClear()
+  })
+
+  function reasoningOnlyProviderError(): ProviderAdapterError {
+    // Mirrors `emptyProviderOutputError` for a streamed DeepSeek-style model
+    // that produced reasoning but no `content`.
+    const error = new ProviderAdapterError('parse', '流式响应未产生任何内容。')
+    error.kind = 'parse'
+    error.code = 'reasoning_only'
+    return error
+  }
+
+  it('recovers a proposal from a reasoning-only stream with one non-streaming repair retry', async () => {
+    const proposal = validProposal()
+    vi.mocked(streamProvider).mockRejectedValueOnce(reasoningOnlyProviderError())
+    vi.mocked(callProvider).mockResolvedValueOnce({ text: JSON.stringify(proposal) })
+
+    const result = await generateMindMapProposal(
+      proposalInput(),
+      () => undefined,
+      () => undefined
+    )
+
+    expect(result).toEqual(proposal)
+    expect(streamProvider).toHaveBeenCalledTimes(1)
+    expect(callProvider).toHaveBeenCalledTimes(1)
+    const retryCall = vi.mocked(callProvider).mock.calls[0]![0]
+    // The repair retry is fully non-streaming and escalates the output budget
+    // so a large map that was starved by provider reasoning tokens fits.
+    expect(retryCall.request.userPrompt).toContain('严格 JSON 校验')
+    expect(retryCall.request.userPrompt).toContain('只输出 JSON 对象本身')
+    expect(retryCall.settings.generator.maxOutputTokens).toBeGreaterThan(4096)
+  })
+
+  it('recovers a full document from a reasoning-only stream with one non-streaming repair retry', async () => {
+    vi.mocked(streamProvider).mockRejectedValueOnce(reasoningOnlyProviderError())
+    vi.mocked(callProvider).mockResolvedValueOnce({ text: JSON.stringify(validRawDocument()) })
+
+    const result = await generateMindMap(
+      { title: 'Test', prompt: 'Test prompt', settings: testSettings() },
+      () => undefined,
+      () => undefined
+    )
+
+    expect(result).toEqual(validRawDocument())
+    expect(streamProvider).toHaveBeenCalledTimes(1)
+    expect(callProvider).toHaveBeenCalledTimes(1)
+  })
+
+  it('repair-retries a truncated stream once with an escalated budget and keeps the preview single-shot', async () => {
+    const proposal = validProposal()
+    const truncated = '{"schemaVersion":1,"proposalId":"truncated'
+    // Deliver the payload the way a real stream does — one onToken delta — so
+    // the preview assertion exercises the renderer-facing seam.
+    vi.mocked(streamProvider).mockImplementationOnce(async (opts) => {
+      opts.callbacks.onToken?.(truncated)
+      return { text: truncated }
+    })
+    vi.mocked(callProvider).mockResolvedValueOnce({ text: JSON.stringify(proposal) })
+
+    const chunks: string[] = []
+    const result = await generateMindMapProposal(proposalInput(), (delta) => chunks.push(delta))
+
+    expect(result).toEqual(proposal)
+    expect(streamProvider).toHaveBeenCalledTimes(1)
+    expect(callProvider).toHaveBeenCalledTimes(1)
+    // The preview only ever received the first (truncated) stream — the repair
+    // is fully non-streaming, so the renderer is never fed a second payload.
+    expect(chunks).toEqual([truncated])
+    expect(vi.mocked(callProvider).mock.calls[0]![0].settings.generator.maxOutputTokens).toBeGreaterThan(4096)
+  })
+
+  it('does not repair-retry a genuine network provider error', async () => {
+    const networkError = new ProviderAdapterError('network', '网络错误')
+    networkError.kind = 'network'
+    vi.mocked(streamProvider).mockRejectedValueOnce(networkError)
+
+    await expect(generateMindMapProposal(
+      proposalInput(),
+      () => undefined,
+      () => undefined
+    )).rejects.toMatchObject({ kind: 'provider' })
+    expect(streamProvider).toHaveBeenCalledTimes(1)
+    expect(callProvider).not.toHaveBeenCalled()
+  })
+
+  it('does not repair-retry a provider error that is not an output-shape failure', async () => {
+    const unsupportedError = new ProviderAdapterError('unsupported', '不支持的 endpoint 格式')
+    unsupportedError.kind = 'unsupported'
+    vi.mocked(streamProvider).mockRejectedValueOnce(unsupportedError)
+
+    await expect(generateMindMapProposal(
+      proposalInput(),
+      () => undefined,
+      () => undefined
+    )).rejects.toMatchObject({ kind: 'provider' })
+    expect(streamProvider).toHaveBeenCalledTimes(1)
+    expect(callProvider).not.toHaveBeenCalled()
   })
 })

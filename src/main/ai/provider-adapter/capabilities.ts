@@ -67,7 +67,7 @@ export function structuredOutputReasoningPolicy(
   provider: TeachingModelProviderProfile,
   model: string
 ): StructuredOutputReasoningPolicy {
-  if (isDeepSeekReasoningProvider(provider, model)) return 'omit'
+  if (isDeepSeekReasoningProvider(provider, model)) return 'disable'
   if (isGlmReasoningProvider(provider, model)) return 'disable'
   if (isMiniMaxOpenAiProvider(provider)) return 'disable'
   if (isAnthropicClaudeProvider(provider, model)) return 'allow'
@@ -190,15 +190,14 @@ export function reasoningRequestOptions(
   if (policy === 'omit') return {}
 
   if (format === 'responses' && policy === 'disable') {
-    // Volcengine Ark enables DeepSeek thinking when this field is omitted. A
-    // strict JSON request can then exhaust max_output_tokens on reasoning and
-    // finish response.incomplete without any output_text. Keep this control
-    // host-scoped: other OpenAI-compatible Responses gateways may reject it,
-    // in which case the invocation layer retries once with policy='omit'.
-    if (
-      isDeepSeekReasoningProvider(provider, generator.model) &&
-      isVolcengineArkResponsesProvider(provider)
-    ) {
+    // DeepSeek enables thinking by default on Responses endpoints; a strict
+    // JSON request can then exhaust max_output_tokens on reasoning and settle
+    // with truncated or empty output_text. Explicitly disable thinking for
+    // every DeepSeek provider here. If a specific OpenAI-compatible Responses
+    // gateway rejects the `thinking` field, the invocation layer retries once
+    // with policy='omit' — it never turns an output-shape risk into a hard
+    // parse failure for the learner.
+    if (isDeepSeekReasoningProvider(provider, generator.model)) {
       return { thinking: { type: 'disabled' } }
     }
     return {}
@@ -217,7 +216,10 @@ export function reasoningRequestOptions(
   if (isDeepSeekReasoningProvider(provider, generator.model)) {
     // JSON 输出（response_format: json_object）与 thinking 推理模式在 OpenAI 兼容
     // 端点上互斥：推理模型会把全部输出放进 reasoning_content，导致 content 为空、
-    // JSON 提取失败甚至请求超时。课程计划等要求严格 JSON 的场景必须跳过 thinking。
+    // JSON 提取失败甚至请求超时。严格 JSON 场景显式关闭 thinking；普通对话仍保留
+    // DeepSeek 的 reasoning 控制。若兼容网关不接受 thinking，调用层会进行一次
+    // 有界的 omit 重试，而不会无限重放请求。
+    if (policy === 'disable') return { thinking: { type: 'disabled' } }
     return {
       thinking: { type: 'enabled' },
       reasoning_effort: normalizeDeepSeekReasoningEffort(effort)

@@ -57,12 +57,27 @@ export type MindMapGenerationErrorKind =
   | 'suspended'
   | 'cancelled'
 
+/**
+ * Optional provider adapter diagnosis carried on a `provider` error. It is
+ * derived from `ProviderAdapterError.code` and lets the generation layer tell
+ * an output-shape failure (model streamed reasoning but no content, or an
+ * empty answer) apart from a genuine transport/network failure. Reasoning-only
+ * and empty-output failures are recoverable with one non-streaming repair
+ * retry; transport failures must surface to the learner as-is.
+ */
+export type MindMapGenerationProviderCode =
+  | 'reasoning_only'
+  | 'empty_output'
+
 export class MindMapGenerationError extends Error {
   readonly kind: MindMapGenerationErrorKind
-  constructor(kind: MindMapGenerationErrorKind, message: string) {
+  /** Only set when `kind === 'provider'` and the adapter reported a recoverable output shape. */
+  readonly code?: MindMapGenerationProviderCode
+  constructor(kind: MindMapGenerationErrorKind, message: string, code?: MindMapGenerationProviderCode) {
     super(message)
     this.name = 'MindMapGenerationError'
     this.kind = kind
+    this.code = code
   }
 }
 
@@ -228,7 +243,24 @@ export async function generateMindMap(
     }
   }
 
-  let text = await runMindMapProvider(input, buildPrompts(), onStream, onReasoning)
+  let text: string
+  try {
+    text = await runMindMapProvider(input, buildPrompts(), onStream, onReasoning)
+  } catch (firstError) {
+    // A DeepSeek-style reasoning model may stream reasoning and settle with an
+    // empty `content` (reasoning_only) or an empty answer. That is an
+    // output-shape problem, not a network failure: retry once, non-streaming,
+    // so the provider returns a complete document instead of surfacing a
+    // "响应解析失败" parse error to the learner.
+    if (!isRepairRetryableProviderError(firstError)) throw firstError
+    text = await runMindMapProvider(
+      input,
+      buildPrompts(buildMindMapRepairInstruction(errorMessage(firstError))),
+      undefined,
+      undefined,
+      mindMapRepairOutputTokens(input.settings.generator.maxOutputTokens)
+    )
+  }
   try {
     return parseMindMapOutput(text)
   } catch (firstError) {
@@ -236,13 +268,15 @@ export async function generateMindMap(
       throw firstError
     }
     // One bounded repair retry for a truncated or trailing-garbage document.
-    // Non-streaming so the renderer preview is never fed a second concatenated
-    // JSON payload; reasoning still streams so the learner sees the repair work.
+    // Fully non-streaming so the repair is never cut short by provider
+    // reasoning tokens and the renderer preview is never fed a second
+    // concatenated JSON payload.
     text = await runMindMapProvider(
       input,
       buildPrompts(buildMindMapRepairInstruction(firstError.message)),
       undefined,
-      onReasoning
+      undefined,
+      mindMapRepairOutputTokens(input.settings.generator.maxOutputTokens)
     )
     return parseMindMapOutput(text)
   }
@@ -288,19 +322,35 @@ export async function generateMindMapProposal(
     }
   }
 
-  let text = await runMindMapProvider(input, buildPrompts(), onStream, onReasoning)
+  let text: string
+  try {
+    text = await runMindMapProvider(input, buildPrompts(), onStream, onReasoning)
+  } catch (firstError) {
+    // Same reasoning-only / empty-output recovery as full-document generation:
+    // a DeepSeek-style reasoning model that streamed no content must not become
+    // a hard "响应解析失败" provider error. Retry once, non-streaming.
+    if (!isRepairRetryableProviderError(firstError)) throw firstError
+    text = await runMindMapProvider(
+      input,
+      buildPrompts(buildMindMapRepairInstruction(errorMessage(firstError))),
+      undefined,
+      undefined,
+      mindMapRepairOutputTokens(input.settings.generator.maxOutputTokens)
+    )
+  }
   let parsed = parseMindMapProposalJson(text)
   if (!parsed.ok) {
     // One bounded repair retry: providers occasionally truncate the envelope
     // at the output-token limit or append a note/fence after a complete JSON
-    // root that even salvage cannot read. Non-streaming keeps the renderer
-    // preview from receiving a second, concatenated JSON payload; reasoning
-    // still streams so the learner sees the repair attempt.
+    // root that even salvage cannot read. Fully non-streaming so the repair is
+    // never cut short by provider reasoning tokens and the renderer preview is
+    // never fed a second, concatenated JSON payload.
     text = await runMindMapProvider(
       input,
       buildPrompts(buildMindMapRepairInstruction(parsed.message)),
       undefined,
-      onReasoning
+      undefined,
+      mindMapRepairOutputTokens(input.settings.generator.maxOutputTokens)
     )
     parsed = parseMindMapProposalJson(text)
   }
@@ -318,6 +368,36 @@ export async function generateMindMapProposal(
     items: reconcileMindMapProposalTopicIds(input.document, parsed.proposal.items),
     ...(parsed.assistantMessage ? { assistantMessage: parsed.assistantMessage } : {})
   }
+}
+
+/**
+ * A provider error that is really an output-shape problem, not a transport or
+ * network failure. DeepSeek-style reasoning models can stream `reasoning_content`
+ * and settle with an empty `content` (reasoning_only), or return an empty
+ * answer (empty_output). Both are worth one non-streaming repair retry before
+ * any message reaches the learner; everything else (network, HTTP, auth,
+ * resource boundary, cancellation) must surface unchanged.
+ */
+function isRepairRetryableProviderError(error: unknown): boolean {
+  if (!(error instanceof MindMapGenerationError) || error.kind !== 'provider') return false
+  return error.code === 'reasoning_only' || error.code === 'empty_output'
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Repair retries raise the output budget so a large document/proposal that was
+ * truncated at the learner's configured cap (or starved by provider reasoning
+ * tokens) can be returned in full. The first attempt always honors the
+ * configured budget; only the single bounded repair escalates. The effective
+ * cap is still clamped by the model catalog in the request builder.
+ */
+const MIND_MAP_REPAIR_OUTPUT_TOKENS = 32_768
+
+function mindMapRepairOutputTokens(configured: number): number {
+  return Math.max(configured, MIND_MAP_REPAIR_OUTPUT_TOKENS)
 }
 
 /**
@@ -356,9 +436,23 @@ async function runMindMapProvider(
   input: MindMapProviderCallInput,
   prompts: { systemPrompt: string; userPrompt: string },
   onStream?: (text: string) => void,
-  onReasoning?: (text: string) => void
+  onReasoning?: (text: string) => void,
+  outputTokenOverride?: number
 ): Promise<string> {
-  const provider = resolveActiveProvider(input.settings)
+  // A repair retry may raise the output budget so a large document/proposal
+  // that was truncated at the configured cap (or starved by provider
+  // reasoning tokens) can be returned in full. The first attempt always
+  // honors the learner's configured budget; only the bounded repair escalates.
+  const settings = outputTokenOverride
+    ? {
+        ...input.settings,
+        generator: {
+          ...input.settings.generator,
+          maxOutputTokens: outputTokenOverride
+        }
+      }
+    : input.settings
+  const provider = resolveActiveProvider(settings)
   if (!provider || !provider.apiKey.trim()) {
     throw new MindMapGenerationError('provider', '未配置可用的 AI Provider 或 API Key。')
   }
@@ -393,7 +487,7 @@ async function runMindMapProvider(
           }
         }
         const result = await streamProvider({
-          settings: input.settings,
+          settings,
           provider,
           request,
           callbacks,
@@ -407,7 +501,7 @@ async function runMindMapProvider(
       }
 
       const result = await callProvider({
-        settings: input.settings,
+        settings,
         provider,
         request,
         signal,
@@ -460,7 +554,13 @@ function mapGenerationError(
   }
 
   if (error instanceof ProviderAdapterError) {
-    return new MindMapGenerationError('provider', `AI 生成失败：${adapterErrorReason(error)}`)
+    // Carry the adapter's output-shape diagnosis (reasoning_only / empty_output)
+    // so the generation layer can repair-retry instead of surfacing a parse
+    // failure to the learner. Genuine transport errors have no code and pass
+    // through unchanged.
+    const code: MindMapGenerationProviderCode | undefined =
+      error.code === 'reasoning_only' || error.code === 'empty_output' ? error.code : undefined
+    return new MindMapGenerationError('provider', `AI 生成失败：${adapterErrorReason(error)}`, code)
   }
 
   const info = classifyProviderError(error)

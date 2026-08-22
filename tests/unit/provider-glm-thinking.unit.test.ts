@@ -58,9 +58,24 @@ describe('GLM thinking request options', () => {
     expect(structuredOutputReasoningPolicy(provider, 'vendor-reasoner-1')).toBe('omit')
   })
 
-  it('omits DeepSeek controls for strict structured output', () => {
+  it('disables DeepSeek thinking for strict structured output', () => {
     const { provider } = prepared('custom')
-    expect(structuredOutputReasoningPolicy(provider, 'deepseek-v4-flash')).toBe('omit')
+    expect(structuredOutputReasoningPolicy(provider, 'deepseek-v4-flash')).toBe('disable')
+  })
+
+  it('keeps DeepSeek reasoning controls for ordinary non-JSON requests', () => {
+    const { provider, generator } = prepared('custom')
+    const built = buildRequest('chat_completions', {
+      provider,
+      generator: { ...generator, model: 'deepseek-v4-flash' },
+      request: { systemPrompt: 'system', userPrompt: 'user', jsonMode: false },
+      stream: false
+    })
+    expect(JSON.parse(String(built.init.body))).toMatchObject({
+      model: 'deepseek-v4-flash',
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'high'
+    })
   })
 
   it('allows documented OpenAI reasoning controls', () => {

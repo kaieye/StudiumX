@@ -56,6 +56,115 @@ const request = {
 const validJson = '{"ok":true}'
 
 describe('structured-output compatibility fallback', () => {
+  it('disables DeepSeek thinking for strict JSON on custom OpenAI-compatible gateways', async () => {
+    const requests: Record<string, unknown>[] = []
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      requests.push(body)
+      const thinking = body.thinking as { type?: unknown } | undefined
+      if (thinking?.type !== 'disabled') {
+        return jsonResponse({
+          choices: [{
+            message: { role: 'assistant', content: '', reasoning_content: 'private reasoning' },
+            finish_reason: 'stop'
+          }],
+          usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 }
+        })
+      }
+      return jsonResponse({
+        choices: [{
+          message: { role: 'assistant', content: validJson },
+          finish_reason: 'stop'
+        }]
+      })
+    }) as typeof fetch
+
+    const settings = settingsFor('deepseek-v4-flash', 'chat_completions')
+    const result = await callProvider({
+      settings,
+      provider: settings.provider.providers[0]!,
+      request
+    })
+
+    expect(result.text).toBe(validJson)
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({
+      model: 'deepseek-v4-flash',
+      thinking: { type: 'disabled' },
+      response_format: { type: 'json_object' }
+    })
+  })
+
+  it('disables DeepSeek thinking for strict JSON streams on custom OpenAI-compatible gateways', async () => {
+    const requests: Record<string, unknown>[] = []
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      requests.push(body)
+      const thinking = body.thinking as { type?: unknown } | undefined
+      if (thinking?.type !== 'disabled') {
+        return sseResponse([
+          { choices: [{ delta: { reasoning_content: 'private reasoning' }, finish_reason: null }] },
+          { choices: [{ delta: {}, finish_reason: 'stop' }] }
+        ])
+      }
+      return sseResponse([
+        { choices: [{ delta: { content: validJson }, finish_reason: null }] },
+        { choices: [{ delta: {}, finish_reason: 'stop' }] }
+      ])
+    }) as typeof fetch
+
+    const settings = settingsFor('deepseek-v4-flash', 'chat_completions')
+    const answer: string[] = []
+    const reasoning: string[] = []
+    const result = await streamProvider({
+      settings,
+      provider: settings.provider.providers[0]!,
+      request,
+      callbacks: {
+        onToken: (delta) => answer.push(delta),
+        onReasoning: (delta) => reasoning.push(delta)
+      }
+    })
+
+    expect(result.text).toBe(validJson)
+    expect(answer).toEqual([validJson])
+    expect(reasoning).toEqual([])
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({
+      model: 'deepseek-v4-flash',
+      thinking: { type: 'disabled' },
+      response_format: { type: 'json_object' }
+    })
+  })
+
+  it('retries once without DeepSeek thinking when a custom gateway rejects the disable control', async () => {
+    const requests: Record<string, unknown>[] = []
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      requests.push(body)
+      if (requests.length === 1) {
+        return new Response('unsupported parameter: thinking', {
+          status: 400,
+          statusText: 'Bad Request',
+          headers: { 'content-type': 'text/plain' }
+        })
+      }
+      return jsonResponse({ choices: [{ message: { content: validJson } }] })
+    }) as typeof fetch
+
+    const settings = settingsFor('deepseek-v4-flash', 'chat_completions')
+    await expect(callProvider({
+      settings,
+      provider: settings.provider.providers[0]!,
+      request
+    })).resolves.toMatchObject({ text: validJson })
+
+    expect(requests).toHaveLength(2)
+    expect(requests[0]).toHaveProperty('thinking', { type: 'disabled' })
+    expect(requests[1]).not.toHaveProperty('thinking')
+    expect(requests[1]).not.toHaveProperty('reasoning_effort')
+  })
+
   it('retries one reasoning-only non-stream response without reasoning controls', async () => {
     const requests: Record<string, unknown>[] = []
     let dispatches = 0
