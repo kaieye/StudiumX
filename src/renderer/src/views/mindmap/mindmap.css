@@ -7825,6 +7825,31 @@
   pointer-events: none;
 }
 
+/* Ghost inline editor for topic labels: the always-rendered label (SVG tspans
+ * or the markdown foreignObject) stays visible underneath, so the editor's own
+ * text is fully transparent and only the caret, the selection tint and IME
+ * composition show. Entering/leaving an edit never re-rasterizes the label,
+ * which eliminates the residual ~1px zoom-dependent snap between the SVG and
+ * HTML paint paths. */
+.mindmap-node-input--ghost,
+.mindmap-node-input--ghost * {
+  /* !important: rich-text spans carry inline colours that must stay muted too,
+   * or they would double-paint on top of the rendered markdown label. */
+  color: transparent !important;
+}
+
+.mindmap-node-input--ghost::selection,
+.mindmap-node-input--ghost span::selection,
+.mindmap-node-input--ghost *::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+/* The rendered label already shows the placeholder text; the ghost editor must
+ * not paint a second one on top of it. */
+.mindmap-node-input--ghost:empty::before {
+  content: none;
+}
+
 .mindmap-node-input.mindmap-richtext {
   align-self: center;
 }

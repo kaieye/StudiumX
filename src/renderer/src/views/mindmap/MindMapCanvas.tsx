@@ -35,6 +35,7 @@ import {
   MIND_MAP_TOPIC_IMAGE_SIDE_PADDING,
   MIND_MAP_TOPIC_LABEL_GUTTER,
   effectiveMindMapTopicLineHeight,
+  measureMindMapTopicTextWidth,
   type MindMapLayoutCallout,
   type MindMapLayoutNode,
   type MindMapLayoutRelationship,
@@ -611,18 +612,35 @@ function updateTopicWidth(
   return changed ? { ...topic, children } : topic
 }
 
+function richTextSpansEqual(
+  a: readonly MindMapTextSpan[] | undefined,
+  b: readonly MindMapTextSpan[] | undefined
+): boolean {
+  return JSON.stringify(a ?? []) === JSON.stringify(b ?? [])
+}
+
 function updateTopicTitlePreview(
   topic: MindMapTopicV2,
   topicId: string,
-  title: string
+  title: string,
+  formatting?: readonly MindMapTextSpan[]
 ): MindMapTopicV2 {
   if (topic.id === topicId) {
-    return topic.title === title ? topic : { ...topic, title }
+    const titleChanged = topic.title !== title
+    const spansChanged = !richTextSpansEqual(topic.titleFormatting, formatting)
+    if (!titleChanged && !spansChanged) return topic
+    return {
+      ...topic,
+      title,
+      ...(spansChanged
+        ? { titleFormatting: formatting && formatting.length > 0 ? [...formatting] : undefined }
+        : {})
+    }
   }
 
   let changed = false
   const children = topic.children.map((child) => {
-    const next = updateTopicTitlePreview(child, topicId, title)
+    const next = updateTopicTitlePreview(child, topicId, title, formatting)
     if (next !== child) changed = true
     return next
   })
@@ -862,18 +880,19 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
 
   // Edit and resize previews stay local until commit so typing does not create
   // one undoable topic.update command per keypress. The pure layout still sees
-  // the draft title/width, keeping the topic and its connectors in sync.
+  // the draft title/width/formatting, keeping the topic, its connectors and the
+  // always-rendered label (the ghost editor's visible ink) in sync.
   const layoutSheet = useMemo(() => {
     if (!sheet) return sheet
     let root = sheet.root
     if (editingNodeId !== null) {
-      root = updateTopicTitlePreview(root, editingNodeId, editValue)
+      root = updateTopicTitlePreview(root, editingNodeId, editValue, editSpans)
     }
     if (nodeResizeState) {
       root = updateTopicWidth(root, nodeResizeState.nodeId, nodeResizeState.width)
     }
     return root === sheet.root ? sheet : { ...sheet, root }
-  }, [editValue, editingNodeId, nodeResizeState, sheet])
+  }, [editValue, editSpans, editingNodeId, nodeResizeState, sheet])
 
   // Measure topic text with the fonts the browser really renders (canvas-2D
   // measureText) instead of the layout's fixed per-character estimates. Latin
@@ -3763,6 +3782,29 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
             const justifiedLineLength = labelRegion.width - MIND_MAP_TOPIC_LABEL_GUTTER
             const firstLabelLineY = labelRegion.y + labelRegion.height / 2
               - ((labelLines.length - 1) * labelLineHeight) / 2
+            // HTML labels (markdown + the inline editor) are CSS-laid-out, so
+            // their line count can differ from the wrap algorithm's line count
+            // by one on mixed CJK/Latin titles (kerning, per-char canvas sums).
+            // Anchoring the first line box top at the first SVG line's centre
+            // minus half a line advance keeps every representation stable when
+            // the counts disagree: extra CSS lines grow downward instead of the
+            // vertically-centred stack sinking half a line into the edit.
+            const firstHtmlLineTop = firstLabelLineY - labelLineHeight / 2 - labelRegion.y
+            const htmlLabelAnchoring = {
+              alignItems: 'flex-start',
+              marginTop: `${firstHtmlLineTop}px`
+            } as const
+            // The rendered label keeps its numbering prefix during an edit;
+            // the ghost editor indents its transparent text by the prefix's
+            // measured width so the caret tracks the visible ink.
+            const numberingPrefix = topicNumbers.get(node.id)
+            const numberingPrefixWidth = numberingPrefix
+              ? measureMindMapTopicTextWidth(
+                `${numberingPrefix}  `,
+                node.depth,
+                characterWidthProbe ?? undefined
+              )
+              : 0
             return (
               <g
                 key={node.id}
@@ -4010,78 +4052,7 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
                     ))}
                   </g>
                 ) : null}
-                {isEditing ? (
-                  <foreignObject
-                    x={labelRegion.x}
-                    y={labelRegion.y}
-                    width={labelRegion.width}
-                    height={labelRegion.height}
-                    className={`mindmap-node-foreign mindmap-node-input-foreign mindmap-node-region--${imagePlacement}`}
-                  >
-                    <div className="mindmap-node-input-wrap">
-                      <MindMapRichTextEditor
-                        ref={nodeEditorRef}
-                        text={editValue}
-                        spans={editSpans}
-                        className="mindmap-node-input"
-                        ariaLabel={`${t('mindmap.editTopic')}: ${node.title}`}
-                        baseStyle={{
-                          ...topicTextStyle,
-                          color: topicTextColor,
-                          // Match the SVG label's per-line advance so the edit
-                          // session keeps the text at the exact spot/baseline
-                          // the committed tspans render at.
-                          lineHeight: `${labelLineHeight}px`,
-                          // Wrapped labels justify every line but the last;
-                          // the last line keeps the structural alignment.
-                          textAlign: justifyWrappedLabel ? 'justify' : textAlign,
-                          ...(justifyWrappedLabel ? { textAlignLast: textAlign } : {})
-                        }}
-                        autoFocus
-                        selectAllOnFocus
-                        placeholder={t('mindmap.untitledTopic')}
-                        onModelChange={(text, spans) => {
-                          setEditValue(text)
-                          setEditSpans(spans)
-                          if (editSessionRef.current?.nodeId === node.id) {
-                            editSessionRef.current = { ...editSessionRef.current, text, spans }
-                          }
-                        }}
-                        onSelectionChange={handleRichTextSelectionChange}
-                        onBlur={(event, text, spans) => {
-                          setEditValue(text)
-                          setEditSpans(spans)
-                          if (editSessionRef.current?.nodeId === node.id) {
-                            editSessionRef.current = { ...editSessionRef.current, text, spans }
-                          }
-                          // Keep the edit + selection alive when the user
-                          // moves into the right-side inspector so its text
-                          // controls target the selected span.
-                          if (isMindMapInspectorTarget(event.relatedTarget)) {
-                            panelDeferredCommitRef.current = true
-                            return
-                          }
-                          commitEdit(text, spans)
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' && !event.shiftKey) {
-                            event.preventDefault()
-                            commitEdit()
-                          }
-                          if (event.key === 'Escape') {
-                            event.preventDefault()
-                            // Escape cancels the edit: the recovery path must
-                            // not re-commit the buffered draft afterwards.
-                            if (editSessionRef.current?.nodeId === node.id) {
-                              editSessionRef.current = { ...editSessionRef.current, discarded: true }
-                            }
-                            clearEditingUiState()
-                          }
-                        }}
-                      />
-                    </div>
-                  </foreignObject>
-                ) : hasTextSpans(node.titleFormatting) ? (
+                {hasTextSpans(node.titleFormatting) ? (
                   <foreignObject
                     x={labelRegion.x}
                     y={labelRegion.y}
@@ -4096,7 +4067,8 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
                         color: topicTextColor,
                         textAlign: justifyWrappedLabel ? 'justify' : textAlign,
                         ...(justifyWrappedLabel ? { textAlignLast: textAlign } : {}),
-                        lineHeight: `${labelLineHeight}px`
+                        lineHeight: `${labelLineHeight}px`,
+                        ...htmlLabelAnchoring
                       }}
                     >
                       <MindMapRichTextLabel
@@ -4123,7 +4095,8 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
                         color: topicTextColor,
                         textAlign: justifyWrappedLabel ? 'justify' : textAlign,
                         ...(justifyWrappedLabel ? { textAlignLast: textAlign } : {}),
-                        lineHeight: `${labelLineHeight}px`
+                        lineHeight: `${labelLineHeight}px`,
+                        ...htmlLabelAnchoring
                       }}
                       onPointerDown={(event) => {
                         const target = event.target as HTMLElement
@@ -4194,6 +4167,93 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
                       })}
                     </text>
                 )}
+                {isEditing ? (
+                  // Ghost inline editor: the label above stays rendered (SVG
+                  // tspans or the markdown foreignObject) and the contentEditable
+                  // is fully transparent ink. Entering/leaving an edit therefore
+                  // never re-rasterizes the text, which removes the last ~1px
+                  // zoom-dependent snap between the two paint paths; the editor
+                  // only contributes the caret, the selection tint and IME.
+                  <foreignObject
+                    x={labelRegion.x}
+                    y={labelRegion.y}
+                    width={labelRegion.width}
+                    height={labelRegion.height}
+                    className={`mindmap-node-foreign mindmap-node-input-foreign mindmap-node-region--${imagePlacement}`}
+                  >
+                    <div className="mindmap-node-input-wrap" style={htmlLabelAnchoring}>
+                      <MindMapRichTextEditor
+                        ref={nodeEditorRef}
+                        text={editValue}
+                        spans={editSpans}
+                        className="mindmap-node-input mindmap-node-input--ghost"
+                        ariaLabel={`${t('mindmap.editTopic')}: ${node.title}`}
+                        baseStyle={{
+                          ...topicTextStyle,
+                          color: 'transparent',
+                          caretColor: topicTextColor,
+                          // Match the SVG label's per-line advance so the caret
+                          // rows land on the tspans' baseline rows.
+                          lineHeight: `${labelLineHeight}px`,
+                          // The wrap anchors the first line at the SVG label's
+                          // first line; the editor itself must not re-centre.
+                          alignSelf: 'flex-start',
+                          // The rendered label keeps its numbering prefix
+                          // during the edit; indent the transparent text by the
+                          // same measured width so the caret tracks the ink.
+                          ...(numberingPrefixWidth > 0
+                            ? { paddingLeft: `${numberingPrefixWidth}px` }
+                            : {}),
+                          // Wrapped labels justify every line but the last;
+                          // the last line keeps the structural alignment.
+                          textAlign: justifyWrappedLabel ? 'justify' : textAlign,
+                          ...(justifyWrappedLabel ? { textAlignLast: textAlign } : {})
+                        }}
+                        autoFocus
+                        selectAllOnFocus
+                        placeholder={t('mindmap.untitledTopic')}
+                        onModelChange={(text, spans) => {
+                          setEditValue(text)
+                          setEditSpans(spans)
+                          if (editSessionRef.current?.nodeId === node.id) {
+                            editSessionRef.current = { ...editSessionRef.current, text, spans }
+                          }
+                        }}
+                        onSelectionChange={handleRichTextSelectionChange}
+                        onBlur={(event, text, spans) => {
+                          setEditValue(text)
+                          setEditSpans(spans)
+                          if (editSessionRef.current?.nodeId === node.id) {
+                            editSessionRef.current = { ...editSessionRef.current, text, spans }
+                          }
+                          // Keep the edit + selection alive when the user
+                          // moves into the right-side inspector so its text
+                          // controls target the selected span.
+                          if (isMindMapInspectorTarget(event.relatedTarget)) {
+                            panelDeferredCommitRef.current = true
+                            return
+                          }
+                          commitEdit(text, spans)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault()
+                            commitEdit()
+                          }
+                          if (event.key === 'Escape') {
+                            event.preventDefault()
+                            // Escape cancels the edit: the recovery path must
+                            // not re-commit the buffered draft afterwards.
+                            if (editSessionRef.current?.nodeId === node.id) {
+                              editSessionRef.current = { ...editSessionRef.current, discarded: true }
+                            }
+                            clearEditingUiState()
+                          }
+                        }}
+                      />
+                    </div>
+                  </foreignObject>
+                ) : null}
 
                 {!isEditing ? (
                   <g className="mindmap-node-resize-control" aria-hidden="true">

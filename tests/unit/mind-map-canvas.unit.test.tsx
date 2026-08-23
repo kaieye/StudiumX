@@ -294,7 +294,9 @@ describe('MindMapCanvas accessibility', () => {
     const editor = getRichTextEditor()
     expect(editor).toHaveTextContent('Root')
     expect(editor).toHaveStyle({
-      color: 'var(--mindmap-theme-text, var(--text))',
+      // Ghost editor: the label underneath stays visible, so the editor ink
+      // is transparent and only the caret keeps the label colour.
+      color: 'rgba(0, 0, 0, 0)',
       fontFamily: 'var(--mindmap-theme-font, inherit)',
       fontSize: '26px',
       fontWeight: '600',
@@ -302,6 +304,7 @@ describe('MindMapCanvas accessibility', () => {
       lineHeight: '34px',
       textAlign: 'center'
     })
+    expect(editor.getAttribute('style')).toContain('caret-color')
     const foreignObject = editor.closest('.mindmap-node-foreign')
     const topicShape = root.querySelector<SVGElement>('.mindmap-node-rect')
     expect(foreignObject).toHaveAttribute('x', topicShape?.getAttribute('x'))
@@ -321,6 +324,58 @@ describe('MindMapCanvas accessibility', () => {
       fontSize: '26px',
       fontWeight: '600',
       letterSpacing: '0.01em'
+    })
+  })
+
+  it('anchors the inline editor first line at the displayed label first line', async () => {
+    const user = userEvent.setup()
+    renderCanvas()
+    const root = screen.getByRole('button', { name: 'Root' })
+    const label = root.querySelector<SVGTextElement>('.mindmap-node-label')
+    const firstLineY = Number(label?.getAttribute('y'))
+    const lineHeight = mindMapTopicLineHeight(0)
+
+    await user.dblClick(root)
+
+    // Ghost editor: the SVG label keeps rendering underneath the transparent
+    // contentEditable, so entering/leaving an edit never re-rasterizes the ink.
+    const labelDuringEdit = root.querySelector<SVGTextElement>('.mindmap-node-label')
+    expect(labelDuringEdit).not.toBeNull()
+    expect(labelDuringEdit).toHaveAttribute('y', String(firstLineY))
+
+    const editor = getRichTextEditor()
+    expect(editor.className).toContain('mindmap-node-input--ghost')
+    const foreignObject = editor.closest('foreignObject')
+    const regionY = Number(foreignObject?.getAttribute('y'))
+    // The wrap must pin the first CSS line box top where the SVG tspans put
+    // the first line centre, so a CSS-vs-algorithm line-count difference
+    // grows downward instead of sinking the centred stack half a line.
+    const expectedMargin = firstLineY - lineHeight / 2 - regionY
+    const wrap = editor.parentElement
+    expect(wrap).toHaveStyle({
+      alignItems: 'flex-start',
+      marginTop: `${expectedMargin}px`
+    })
+    expect(editor).toHaveStyle({ alignSelf: 'flex-start' })
+  })
+
+  it('anchors markdown labels at the same first line as the inline editor', () => {
+    const doc = makeDocument()
+    doc.sheets[0]!.root.children[0]!.title = 'Child with **bold** markdown'
+    renderCanvas(doc)
+
+    const child = screen.getByRole('button', { name: /bold/ })
+    const label = child.querySelector<HTMLElement>('.mindmap-node-markdown-label')
+    expect(label).not.toBeNull()
+    const foreignObject = label?.closest('foreignObject')
+    const lineHeight = mindMapTopicLineHeight(1)
+    const regionY = Number(foreignObject?.getAttribute('y'))
+    const regionHeight = Number(foreignObject?.getAttribute('height'))
+    // Single-line branch label: first SVG line centre = region centre.
+    const firstLineY = regionY + regionHeight / 2
+    expect(label).toHaveStyle({
+      alignItems: 'flex-start',
+      marginTop: `${firstLineY - lineHeight / 2 - regionY}px`
     })
   })
 
@@ -372,12 +427,13 @@ describe('MindMapCanvas accessibility', () => {
       topicIds: ['child']
     })
     expect(getRichTextEditor()).toHaveStyle({
-      color: '#ffffff',
+      color: 'rgba(0, 0, 0, 0)',
       fontSize: '16px',
       fontWeight: '500',
       lineHeight: '22px',
       textAlign: 'left'
     })
+    expect(getRichTextEditor().getAttribute('style')).toContain('caret-color: rgb(255, 255, 255)')
   })
 
   it('commits the buffered edit when the editing target is switched away without a blur', async () => {
@@ -688,13 +744,14 @@ describe('MindMapCanvas accessibility', () => {
     expect(childGroup).toBeTruthy()
     expect(childGroup?.getAttribute('aria-label')).toBe('Child')
 
-    // While editing, the static label (and its number) is hidden; only the
-    // raw title is shown in the edit input.
+    // While editing, the ghost editor keeps the rendered label visible
+    // (number prefix included) and only carries the raw title; its transparent
+    // text is indented by the prefix width so the caret tracks the visible ink.
     act(() => {
       useMindMapViewStore.setState({ editingNodeId: 'child' })
     })
     expect(getRichTextEditor()).toHaveTextContent('Child')
-    expect(container.querySelector('.mindmap-node-number')).toBeNull()
+    expect(container.querySelector('.mindmap-node-number')).toBeTruthy()
   })
 
   it('uses structural text alignment defaults and honors a local alignment override', () => {
@@ -740,12 +797,13 @@ describe('MindMapCanvas accessibility', () => {
 
     const input = getRichTextEditor()
     expect(input).toHaveStyle({
-      color: '#ffffff',
+      color: 'rgba(0, 0, 0, 0)',
       fontSize: '16px',
       fontWeight: '500',
       lineHeight: '22px',
       textAlign: 'right'
     })
+    expect(input.getAttribute('style')).toContain('caret-color: rgb(255, 255, 255)')
     expect(document.sheets[0]!.root.children[0]!.title).toBe('Child')
   })
 

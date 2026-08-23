@@ -259,6 +259,19 @@ function measurePlainTextWidth(
   return width
 }
 
+/**
+ * Public plain-text width under the same metrics the wrap algorithm uses, so
+ * callers (e.g. the inline editor placing its caret behind a numbering prefix)
+ * measure exactly what the rendered tspans measured.
+ */
+export function measureMindMapTopicTextWidth(
+  text: string,
+  depth: number,
+  measureChar?: MindMapCharacterWidthProbe
+): number {
+  return measurePlainTextWidth(text, depth, measureChar)
+}
+
 /** Length of the trailing run of Latin (non-CJK, non-space) characters. */
 function trailingLatinWordRunLength(chars: readonly string[]): number {
   let run = 0
