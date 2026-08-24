@@ -68,6 +68,12 @@ type MindMapAiGenerationMessage = {
   lastAgentSequence: number
   /** Monotonic renderer-local ids for host-authored answer additions. */
   answerSequence: number
+  /**
+   * Renderer-only provenance for repository IPC tool rows projected before the
+   * provider's authoritative Agent event arrives. These ids affect only the
+   * learner-facing mind-map flow; they are never persisted or sent to the host.
+   */
+  localProjectionProcessEventIds?: string[]
   /** Once an old host starts a JSON answer stream, suppress its later chunks. */
   structuredAnswerStreamActive?: boolean
   structuredAnswerBuffer?: string
@@ -490,10 +496,26 @@ function isOrdinaryMindMapStatusItem(
  * presenting a status label as if it were model thought.
  */
 function projectMindMapProcessPresentation(
+  presentation: AgentConversationTurnPresentation,
+  localProjectionProcessEventIds: readonly string[] = []
+): AgentConversationTurnPresentation {
+  const hasReasoning = hasVisibleMindMapReasoning(presentation)
+  const projected = hasReasoning
+    ? presentation
+    : projectMindMapStatusPresentation(presentation)
+  if (!hasReasoning) return projected
+
+  const flow = projectMindMapLocalToolFlow(projected.flow, localProjectionProcessEventIds)
+  if (flow === projected.flow) return projected
+  return {
+    ...projected,
+    ...(flow?.length ? { flow } : { flow: undefined })
+  }
+}
+
+function projectMindMapStatusPresentation(
   presentation: AgentConversationTurnPresentation
 ): AgentConversationTurnPresentation {
-  if (hasVisibleMindMapReasoning(presentation)) return presentation
-
   const items = presentation.items.filter((item) => !isOrdinaryMindMapStatusItem(item))
   const flow = presentation.flow?.filter(
     (entry) => entry.kind !== 'process' || !isOrdinaryMindMapStatusItem(entry.item)
@@ -503,6 +525,50 @@ function projectMindMapProcessPresentation(
     items,
     ...(flow?.length ? { flow } : { flow: undefined })
   }
+}
+
+/**
+ * A repository IPC projection can arrive before the provider's real reasoning
+ * event because the two renderer channels have different delivery paths. Keep
+ * the durable/shared turn untouched and move only those locally-owned process
+ * rows behind visible provider reasoning in this page's flow projection.
+ */
+function projectMindMapLocalToolFlow(
+  flow: AgentConversationTurnPresentation['flow'],
+  localProjectionProcessEventIds: readonly string[]
+): AgentConversationTurnPresentation['flow'] {
+  if (!flow?.length || !localProjectionProcessEventIds.length) return flow
+
+  const localIds = new Set(localProjectionProcessEventIds)
+  const isLocalRow = (entry: NonNullable<typeof flow>[number]): boolean => (
+    entry.kind === 'process' && localIds.has(processEventIdFromFlowItem(entry.item.id))
+  )
+  const localRows = flow.filter(isLocalRow)
+  if (!localRows.length) return flow
+
+  const hostFlow = flow.filter((entry) => !isLocalRow(entry))
+  const lastReasoningIndex = hostFlow.reduce((lastIndex, entry, index) => (
+    entry.kind === 'process' &&
+    entry.item.kind === 'reasoning' &&
+    Boolean(entry.item.detail?.trim())
+      ? index
+      : lastIndex
+  ), -1)
+  if (lastReasoningIndex < 0) return flow
+
+  // Insert immediately after the last real Think row. This keeps the learner-
+  // facing sequence Think → local tools while preserving every host-authored
+  // item's relative order and keeping local rows together in their own order.
+  const insertionIndex = lastReasoningIndex + 1
+  return [
+    ...hostFlow.slice(0, insertionIndex),
+    ...localRows,
+    ...hostFlow.slice(insertionIndex)
+  ]
+}
+
+function processEventIdFromFlowItem(itemId: string): string {
+  return itemId.startsWith('event:') ? itemId.slice('event:'.length) : ''
 }
 
 /** Project one dedicated mind-map event through the homepage conversation reducer. */
@@ -573,6 +639,11 @@ function applyMindMapToolProjection(
   updatedAt = new Date().toISOString()
 ): MindMapAiGenerationMessage {
   if (event.streamId !== message.generationId) return message
+  const previousProcessEvents = message.agentTurn.processEvents ?? []
+  const hadMatchingProcessEvent = previousProcessEvents.some((processEvent) => (
+    processEvent.toolCallId === event.toolCall.id &&
+    processEvent.toolName === event.toolCall.name
+  ))
   const pending = pendingConversationForMindMapMessage(message)
   const patch = applyAgentChatToolEventToPending({
     pending,
@@ -582,9 +653,22 @@ function applyMindMapToolProjection(
     updatedAt
   })
   const agentTurn = patch?.pendingAgentConversation?.turns.find((turn) => turn.id === message.agentTurn.id)
+  const projectedProcessEvent = [...(agentTurn?.processEvents ?? [])]
+    .reverse()
+    .find((processEvent) => (
+      processEvent.toolCallId === event.toolCall.id &&
+      processEvent.toolName === event.toolCall.name
+    ))
+  const localProjectionProcessEventIds = new Set(message.localProjectionProcessEventIds ?? [])
+  if (!hadMatchingProcessEvent && projectedProcessEvent) {
+    localProjectionProcessEventIds.add(projectedProcessEvent.id)
+  }
   return {
     ...message,
-    agentTurn: agentTurn ?? message.agentTurn
+    agentTurn: agentTurn ?? message.agentTurn,
+    ...(localProjectionProcessEventIds.size
+      ? { localProjectionProcessEventIds: [...localProjectionProcessEventIds] }
+      : {})
   }
 }
 
@@ -1520,7 +1604,10 @@ export function MindMapAiPanel({
                         activeTurnId: active ? message.agentTurn.id : null
                       }).turns[0]
                       const presentation = rawPresentation
-                        ? projectMindMapProcessPresentation(rawPresentation)
+                        ? projectMindMapProcessPresentation(
+                            rawPresentation,
+                            message.localProjectionProcessEventIds
+                          )
                         : undefined
                       const hasVisibleReasoning = hasVisibleMindMapReasoning(rawPresentation)
                       const hasProcessTrace = Boolean(

@@ -833,6 +833,52 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(screen.getAllByText('mindmaps/generated.json')).toHaveLength(2)
   })
 
+  it('keeps delayed provider reasoning before the locally projected edit tool', async () => {
+    const user = userEvent.setup()
+    const current = generatedDocument()
+    const proposal = { ...proposalResult(), assistantMessage: '我会先检查当前导图，再应用这次修改。' }
+    const applied = appliedProposalResult()
+    let resolveApply: ((result: MindMapProposalApplyResult) => void) | undefined
+    api.generateMindMapProposal = vi.fn(async () => proposal)
+    api.applyMindMapProposal = vi.fn(() => new Promise<MindMapProposalApplyResult>((resolve) => {
+      resolveApply = resolve
+    }))
+    api.listMindMaps = vi.fn(async () => [])
+    useMindMapViewStore.setState({
+      current,
+      selectedNodeId: null,
+      activeSheetId: 'sheet-1'
+    })
+
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+
+    const generationId = (api.generateMindMapProposal as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
+    await waitFor(() => expect(api.applyMindMapProposal).toHaveBeenCalledTimes(1))
+
+    // The apply lane has already projected its Edit row, while the provider's
+    // real reasoning event is deliberately delayed by the IPC boundary. The
+    // learner-facing order must still match the homepage conversation: Think → Edit.
+    act(() => agentEventHandler?.({
+      sequence: 2,
+      streamId: generationId,
+      kind: 'chunk',
+      createdAt: NOW,
+      payload: {
+        streamId: generationId,
+        channel: 'reasoning',
+        delta: '先检查当前导图，再应用安全的修改。'
+      }
+    }))
+
+    const log = screen.getByRole('log')
+    const thinkLabel = within(log).getByText('Think')
+    const editLabel = within(log).getByText('Edit')
+    expect(thinkLabel.compareDocumentPosition(editLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    await act(async () => resolveApply?.(applied))
+  })
   it('sends prior conversation history on follow-up turns', async () => {
     const user = userEvent.setup()
     const current = generatedDocument()
