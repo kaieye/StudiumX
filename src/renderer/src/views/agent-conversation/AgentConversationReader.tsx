@@ -460,7 +460,6 @@ function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }
   const [expanded, setExpanded] = useState(false)
   const summaryRef = useRef<HTMLSpanElement>(null)
   const contentId = `agent-process-reasoning-${item.id}`
-  const legacyLabel = safeLegacyProcessLabel(item)
 
   // During a streaming Think block, follow the newest line so the summary
   // behaves like the reference UI instead of repeatedly showing its prefix.
@@ -487,13 +486,6 @@ function ReasoningProcessRow({ item }: { item: AgentConversationProvenanceItem }
         <DisclosureLeading icon={<BrainCircuit size={13} />} expanded={expanded} />
         <span className="agent-process-disclosure-copy">
           <strong>{primaryLabel}</strong>
-          {running ? (
-            <span className="agent-process-legacy-status">
-              <span>思考中</span>
-              <span>进行中</span>
-            </span>
-          ) : null}
-          {legacyLabel ? <span className="agent-process-legacy-label">{legacyLabel}</span> : null}
           {secondary ? (
             <>
               <span className="agent-process-disclosure-separator" aria-hidden="true" />

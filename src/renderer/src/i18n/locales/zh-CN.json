@@ -2125,7 +2125,6 @@
     "aiGenerate": "生成导图",
     "aiCancel": "取消",
     "aiStreaming": "正在生成…",
-    "aiReasoningUnavailable": "此模型未返回可展示的思考内容",
     "aiStreamPreview": "预览",
     "aiStreamCancelled": "已停止生成——保留部分预览",
     "aiError": "生成失败",

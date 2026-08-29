@@ -393,7 +393,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.agent-process-legacy-status,
 .agent-process-legacy-label {
   display: inline-flex;
   flex: 0 0 auto;
@@ -404,11 +403,6 @@
   font-size: 12px;
   line-height: 20px;
   white-space: nowrap;
-}
-.agent-process-legacy-status span + span::before {
-  margin-right: 6px;
-  content: '·';
-  opacity: 0.65;
 }
 .agent-process-disclosure-separator {
   flex: 0 0 auto;

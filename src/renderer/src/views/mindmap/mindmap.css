@@ -7775,11 +7775,12 @@
 }
 
 /* Keep the AI conversation breathing room consistent with the main
- * conversation while respecting the inspector's narrow width. The process
- * transcript is a full-width child of the assistant message, so constrain it
- * explicitly to avoid horizontal overflow from long tool/status labels. */
+ * conversation while respecting the inspector's narrow width. The bottom inset
+ * keeps the last Think/tool row clear of the composer. The process transcript
+ * is a full-width child of the assistant message, so constrain it explicitly
+ * to avoid horizontal overflow from long tool/status labels. */
 .mindmap-ai-panel__thread {
-  padding: 16px 0 20px;
+  padding: 16px 0 32px;
 }
 
 .mindmap-ai-panel__thread-inner {

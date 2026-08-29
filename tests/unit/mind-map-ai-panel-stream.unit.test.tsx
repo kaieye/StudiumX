@@ -528,23 +528,23 @@ describe('MindMapAiPanel streaming preview', () => {
     const generationId = (api.generateMindMapProposal as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
 
     // The normal mind-map lifecycle channel already drives the canvas preview.
-    // It must also keep the conversation transparent when a stale preload/main
-    // bundle does not deliver the newer dedicated Agent-event channel and the
-    // provider has no separate reasoning deltas.
+    // When a stale preload/main bundle does not deliver the newer dedicated
+    // Agent-event channel, the transcript still never fabricates rows: no
+    // lifecycle status row, no locally projected tool row, no manufactured
+    // Think row — the in-flight state lives in the composer announcement.
     act(() => statusHandler?.({
       generationId,
       step: 'calling',
       message: '正在读取当前导图和相关资料'
     }))
 
-    // A lifecycle status is deliberately not mislabeled as model reasoning:
-    // providers that do not supply a reasoning delta get an explicit notice,
-    // while the actual repository boundary remains a shared READ disclosure.
-    expect(screen.getByText('This model did not return reasoning that can be displayed.')).toBeInTheDocument()
-    expect(screen.queryByText('分析问题与上下文')).not.toBeInTheDocument()
-    expect(screen.queryByText('正在读取当前导图和相关资料')).not.toBeInTheDocument()
-    expect(screen.getByText('READ')).toBeInTheDocument()
-    expect(screen.getByText('mindmaps/generated.json')).toBeInTheDocument()
+    const log = screen.getByRole('log')
+    expect(within(log).queryByText('分析问题与上下文')).not.toBeInTheDocument()
+    expect(within(log).queryByText('正在读取当前导图和相关资料')).not.toBeInTheDocument()
+    expect(within(log).queryByText('READ')).not.toBeInTheDocument()
+    expect(within(log).queryByText('Think')).not.toBeInTheDocument()
+    expect(screen.queryByText('This model did not return reasoning that can be displayed.')).not.toBeInTheDocument()
+    expect(screen.queryByText('正在分析问题并组织回答。')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
   })
@@ -783,7 +783,10 @@ describe('MindMapAiPanel streaming preview', () => {
     const providerReply = '我会重命名导图和画布，并保留现有学习内容。'
     const proposal = { ...proposalResult(), assistantMessage: providerReply }
     const applied = appliedProposalResult()
-    const generateMindMapProposal = vi.fn(async () => proposal)
+    let resolveProposal: ((result: MindMapProposalGenerateResult) => void) | undefined
+    const generateMindMapProposal = vi.fn(() => new Promise<MindMapProposalGenerateResult>((resolve) => {
+      resolveProposal = resolve
+    }))
     const applyMindMapProposal = vi.fn(async () => applied)
     api.generateMindMapProposal = generateMindMapProposal
     api.applyMindMapProposal = applyMindMapProposal
@@ -808,6 +811,26 @@ describe('MindMapAiPanel streaming preview', () => {
       sourceRefs: [],
       prompt: 'Build a study map'
     }))
+    const generationId = (generateMindMapProposal as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
+    // The host reads the canonical map before invoking the provider and
+    // publishes that real boundary on the dedicated Agent-event channel.
+    act(() => agentEventHandler?.({
+      sequence: 1,
+      streamId: generationId,
+      kind: 'tool',
+      createdAt: NOW,
+      payload: {
+        streamId: generationId,
+        toolCall: {
+          id: `${generationId}:read:document`,
+          name: 'read_workspace_file',
+          arguments: '{"path":"mindmaps/generated.json"}'
+        },
+        result: '{"ok":true,"path":"mindmaps/generated.json"}',
+        isError: false
+      }
+    }))
+    act(() => resolveProposal?.(proposal))
     await waitFor(() => expect(applyMindMapProposal).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       id: 'generated',
@@ -833,13 +856,16 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(screen.getAllByText('mindmaps/generated.json')).toHaveLength(2)
   })
 
-  it('keeps delayed provider reasoning before the locally projected edit tool', async () => {
+  it('renders model reasoning and the apply edit in true arrival order', async () => {
     const user = userEvent.setup()
     const current = generatedDocument()
     const proposal = { ...proposalResult(), assistantMessage: '我会先检查当前导图，再应用这次修改。' }
     const applied = appliedProposalResult()
+    let resolveProposal: ((result: MindMapProposalGenerateResult) => void) | undefined
     let resolveApply: ((result: MindMapProposalApplyResult) => void) | undefined
-    api.generateMindMapProposal = vi.fn(async () => proposal)
+    api.generateMindMapProposal = vi.fn(() => new Promise<MindMapProposalGenerateResult>((resolve) => {
+      resolveProposal = resolve
+    }))
     api.applyMindMapProposal = vi.fn(() => new Promise<MindMapProposalApplyResult>((resolve) => {
       resolveApply = resolve
     }))
@@ -855,11 +881,24 @@ describe('MindMapAiPanel streaming preview', () => {
     await user.click(screen.getByRole('button', { name: 'Generate' }))
 
     const generationId = (api.generateMindMapProposal as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
-    await waitFor(() => expect(api.applyMindMapProposal).toHaveBeenCalledTimes(1))
 
-    // The apply lane has already projected its Edit row, while the provider's
-    // real reasoning event is deliberately delayed by the IPC boundary. The
-    // learner-facing order must still match the homepage conversation: Think → Edit.
+    // Loop phase status events never render as transcript rows; with nothing
+    // else on the timeline yet the transcript stays empty until real events.
+    act(() => agentEventHandler?.({
+      sequence: 1,
+      streamId: generationId,
+      kind: 'status',
+      createdAt: NOW,
+      payload: { streamId: generationId, status: 'thinking', message: '正在读取当前导图和相关资料' }
+    }))
+    const logWhileThinking = screen.getByRole('log')
+    expect(within(logWhileThinking).queryByText('分析问题与上下文')).not.toBeInTheDocument()
+    expect(within(logWhileThinking).queryByText('正在读取当前导图和相关资料')).not.toBeInTheDocument()
+    expect(within(logWhileThinking).queryByText('Edit')).not.toBeInTheDocument()
+    expect(within(logWhileThinking).queryByText('Think')).not.toBeInTheDocument()
+
+    // Real provider reasoning arrives while the request is still running and
+    // immediately becomes the Think row.
     act(() => agentEventHandler?.({
       sequence: 2,
       streamId: generationId,
@@ -871,7 +910,17 @@ describe('MindMapAiPanel streaming preview', () => {
         delta: '先检查当前导图，再应用安全的修改。'
       }
     }))
+    expect(within(screen.getByRole('log')).getByText('Think')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('log')).getAllByText('先检查当前导图，再应用安全的修改。').length
+    ).toBeGreaterThan(0)
 
+    act(() => resolveProposal?.(proposal))
+
+    await waitFor(() => expect(api.applyMindMapProposal).toHaveBeenCalledTimes(1))
+
+    // The apply-phase Edit row is projected after the reasoning that precedes
+    // it, matching the homepage conversation: Think → Edit.
     const log = screen.getByRole('log')
     const thinkLabel = within(log).getByText('Think')
     const editLabel = within(log).getByText('Edit')
@@ -879,6 +928,97 @@ describe('MindMapAiPanel streaming preview', () => {
 
     await act(async () => resolveApply?.(applied))
   })
+
+  it('keeps an honest tool-only transcript when the provider streams no reasoning', async () => {
+    const user = userEvent.setup()
+    const current = generatedDocument()
+    const proposal = { ...proposalResult(), assistantMessage: '提案已生成，正在应用到当前画布。' }
+    const applied = appliedProposalResult()
+    let resolveProposal: ((result: MindMapProposalGenerateResult) => void) | undefined
+    let resolveApply: ((result: MindMapProposalApplyResult) => void) | undefined
+    api.generateMindMapProposal = vi.fn(() => new Promise<MindMapProposalGenerateResult>((resolve) => {
+      resolveProposal = resolve
+    }))
+    api.applyMindMapProposal = vi.fn(() => new Promise<MindMapProposalApplyResult>((resolve) => {
+      resolveApply = resolve
+    }))
+    api.listMindMaps = vi.fn(async () => [])
+    useMindMapViewStore.setState({
+      current,
+      selectedNodeId: null,
+      activeSheetId: 'sheet-1'
+    })
+
+    render(<MindMapAiPanel open onToggle={() => {}} />)
+    await user.click(screen.getByRole('tab', { name: /AI$/ }))
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+
+    const generationId = (api.generateMindMapProposal as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
+
+    // The model-driven transcript carries the real repository boundary. With
+    // no reasoning deltas the transcript stays honest: real rows only, no
+    // lifecycle status row, no manufactured Think row.
+    act(() => {
+      agentEventHandler?.({
+        sequence: 1,
+        streamId: generationId,
+        kind: 'status',
+        createdAt: NOW,
+        payload: { streamId: generationId, status: 'thinking', message: '正在读取当前导图和相关资料' }
+      })
+      agentEventHandler?.({
+        sequence: 2,
+        streamId: generationId,
+        kind: 'tool',
+        createdAt: NOW,
+        payload: {
+          streamId: generationId,
+          toolCall: {
+            id: `${generationId}:read:document`,
+            name: 'read_workspace_file',
+            arguments: '{"path":"mindmaps/generated.json"}'
+          },
+          result: '{"ok":true,"path":"mindmaps/generated.json"}',
+          isError: false
+        }
+      })
+    })
+    const logWhileThinking = screen.getByRole('log')
+    expect(within(logWhileThinking).getByText('READ')).toBeInTheDocument()
+    expect(within(logWhileThinking).queryByText('分析问题与上下文')).not.toBeInTheDocument()
+    expect(within(logWhileThinking).queryByText('Think')).not.toBeInTheDocument()
+    expect(within(logWhileThinking).queryByText('正在分析问题并组织回答。')).not.toBeInTheDocument()
+
+    act(() => agentEventHandler?.({
+      sequence: 3,
+      streamId: generationId,
+      kind: 'terminal',
+      createdAt: NOW,
+      outcome: 'done'
+    }))
+
+    act(() => resolveProposal?.(proposal))
+    await waitFor(() => expect(api.applyMindMapProposal).toHaveBeenCalledTimes(1))
+    expect(document.querySelector('[data-generation-status="generating"][data-stream-step="applying"]')).toBeInTheDocument()
+
+    const log = screen.getByRole('log')
+    const read = within(log).getByText('READ')
+    const edit = within(log).getByText('Edit')
+    expect(read.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(log).queryByText('Think')).not.toBeInTheDocument()
+    expect(within(log).queryByText('正在分析问题并组织回答。')).not.toBeInTheDocument()
+
+    await act(async () => resolveApply?.(applied))
+    await waitFor(() => expect(
+      document.querySelector('[data-generation-status="completed"]')
+    ).toBeInTheDocument())
+    // The settled transcript stays honest: no manufactured thought, and the
+    // real repository boundaries remain visible.
+    expect(within(screen.getByRole('log')).queryByText('Think')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('log')).getByText('READ')).toBeInTheDocument()
+    expect(within(screen.getByRole('log')).getByText('Edit')).toBeInTheDocument()
+  })
+
   it('sends prior conversation history on follow-up turns', async () => {
     const user = userEvent.setup()
     const current = generatedDocument()
@@ -932,10 +1072,14 @@ describe('MindMapAiPanel streaming preview', () => {
     const applied = appliedTopicInsertProposalResult()
     let resolveProposal: ((result: MindMapProposalGenerateResult) => void) | undefined
     let resolveApply: ((result: MindMapProposalApplyResult) => void) | undefined
+    // Captured at apply-invoke time: the reveal queue must have drained before
+    // the apply lane starts, so the whole streamed subtree is already visible.
+    let previewAtApply: ReturnType<typeof useMindMapViewStore.getState>['generationPreview']
     const generateMindMapProposal = vi.fn(() => new Promise<MindMapProposalGenerateResult>((resolve) => {
       resolveProposal = resolve
     }))
     const applyMindMapProposal = vi.fn(() => new Promise<MindMapProposalApplyResult>((resolve) => {
+      previewAtApply = useMindMapViewStore.getState().generationPreview
       resolveApply = resolve
     }))
     api.generateMindMapProposal = generateMindMapProposal
@@ -954,6 +1098,18 @@ describe('MindMapAiPanel streaming preview', () => {
     const generationId = (generateMindMapProposal as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].generationId
     expect(generationId).toEqual(expect.any(String))
 
+    // Record every non-empty preview reveal step. The reveal queue runs on real
+    // timers, so a mid-run state probe would race the 56 ms pacing; an ordered
+    // subscription log asserts the one-step-at-a-time guarantee deterministically.
+    const revealSteps: string[][] = []
+    const unsubscribeRevealRecorder = useMindMapViewStore.subscribe((state) => {
+      const preview = state.generationPreview
+      if (preview?.generationId !== generationId || preview.latestNodeIds.length === 0) return
+      const previous = revealSteps.at(-1)
+      if (previous && previous.join('\u0000') === preview.latestNodeIds.join('\u0000')) return
+      revealSteps.push([...preview.latestNodeIds])
+    })
+
     // Feed a complete item before the host promise settles. The renderer must
     // project it locally without touching the canonical document.
     act(() => chunkHandler?.({
@@ -963,25 +1119,17 @@ describe('MindMapAiPanel streaming preview', () => {
     expect(useMindMapViewStore.getState().current).toBe(current)
     act(() => resolveProposal?.(proposal))
 
-    await waitFor(() => {
-      const preview = useMindMapViewStore.getState().generationPreview
-      expect(preview?.document.sheets[0]?.root.children[0]).toMatchObject({
-        id: 'branch',
-        title: 'Branch',
-        children: []
-      })
-      expect(preview?.latestNodeIds).toEqual(['branch'])
-    })
-    expect(applyMindMapProposal).not.toHaveBeenCalled()
-
-    await waitFor(() => {
-      const preview = useMindMapViewStore.getState().generationPreview
-      expect(preview?.document.sheets[0]?.root.children[0]?.children[0]).toMatchObject({
-        id: 'leaf',
-        title: 'Leaf'
-      })
-    })
     await waitFor(() => expect(applyMindMapProposal).toHaveBeenCalledTimes(1))
+    unsubscribeRevealRecorder()
+    // The branch and its leaf were revealed as two separate parent-first steps,
+    // not one layout pop, and the apply lane started only after the whole
+    // streamed subtree was projected while the canonical document stayed
+    // untouched until the host result was adopted.
+    expect(revealSteps).toEqual([['branch'], ['leaf']])
+    expect(previewAtApply?.document.sheets[0]?.root.children[0]?.children[0]).toMatchObject({
+      id: 'leaf',
+      title: 'Leaf'
+    })
     expect(useMindMapViewStore.getState().current).toBe(current)
     const cancelButton = screen.getByRole('button', { name: 'Cancel' })
     expect(cancelButton).toBeDisabled()

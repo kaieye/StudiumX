@@ -1861,52 +1861,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
         let streamStarted = false
         let proposal
         let assistantMessage: string | undefined
-        sendStatus('calling', '正在读取当前导图和相关资料')
-        agentEvents.status('thinking', '正在读取当前导图和相关资料')
-        publishCompletedMindMapFileRead(
-          agentEvents,
-          `${generationId}:read:document`,
-          `mindmaps/${current.id}.json`
-        )
-        if (selectedFileContext) {
-          publishCompletedMindMapFileRead(
-            agentEvents,
-            `${generationId}:read:selected-file`,
-            selectedFileContext.sourceRef.workspacePath,
-            selectedFileContext.byteLength
-          )
-        }
-        if (notesContext) {
-          publishCompletedMindMapFileRead(
-            agentEvents,
-            `${generationId}:read:notes`,
-            notesContext.sourceRef.workspacePath,
-            notesContext.byteLength
-          )
-        }
-        if (lessonContext) {
-          publishCompletedMindMapFileRead(
-            agentEvents,
-            `${generationId}:read:lesson`,
-            lessonContext.sourceRef.workspacePath,
-            lessonContext.byteLength
-          )
-        }
-        if (autoSourceContext) {
-          publishCompletedMindMapWorkspaceList(
-            agentEvents,
-            `${generationId}:list:auto-source`,
-            autoSourceContext.files.map((file) => file.sourceRef.workspacePath)
-          )
-          autoSourceContext.files.forEach((file, index) => {
-            publishCompletedMindMapFileRead(
-              agentEvents,
-              `${generationId}:read:auto-source:${index}`,
-              file.sourceRef.workspacePath,
-              file.byteLength
-            )
-          })
-        }
+        sendStatus('calling', '正在准备思维导图生成')
         try {
           const generatedProposal = await generateMindMapProposal({
             title: current.title,
@@ -1920,12 +1875,12 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             notesContext,
             lessonContext,
             ...(p.imageAttachments?.length ? { imageAttachments: p.imageAttachments } : {}),
-            generationId
+            generationId,
+            workspaceRoot: root
           }, (delta) => {
             if (!streamStarted) {
               streamStarted = true
               sendStatus('streaming', '正在生成候选提案')
-              agentEvents.status('answering', '正在整理候选提案')
             }
             safeSend(event.sender, teachingEventChannels.mindMapStreamChunk, {
               generationId,
@@ -1937,6 +1892,12 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             // homepage conversation uses, so the "Think" view shows the model's
             // actual step-by-step reasoning instead of a canned milestone.
             agentEvents.chunk('reasoning', delta)
+          }, {
+            // The agent loop's own activity: model-decided tool calls, their
+            // results, loop phases, and the final no-tool answer.
+            onToolCall: (toolCall) => agentEvents.tool(toolCall),
+            onToolResult: (toolCall, result, isError) => agentEvents.tool(toolCall, result, isError),
+            onAnswer: (delta) => agentEvents.chunk('answer', delta)
           })
           const { assistantMessage: generatedAssistantMessage, ...validatedProposal } = generatedProposal
           proposal = validatedProposal
@@ -2018,39 +1979,7 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
           })
         }
         let streamStarted = false
-        sendStatus('calling', '正在读取相关资料')
-        agentEvents.status('thinking', '正在读取相关资料')
-        if (selectedFileContext) {
-          publishCompletedMindMapFileRead(
-            agentEvents,
-            `${generationId}:read:selected-file`,
-            selectedFileContext.sourceRef.workspacePath,
-            selectedFileContext.byteLength
-          )
-        }
-        if (lessonContext) {
-          publishCompletedMindMapFileRead(
-            agentEvents,
-            `${generationId}:read:lesson`,
-            lessonContext.sourceRef.workspacePath,
-            lessonContext.byteLength
-          )
-        }
-        if (autoSourceContext) {
-          publishCompletedMindMapWorkspaceList(
-            agentEvents,
-            `${generationId}:list:auto-source`,
-            autoSourceContext.files.map((file) => file.sourceRef.workspacePath)
-          )
-          autoSourceContext.files.forEach((file, index) => {
-            publishCompletedMindMapFileRead(
-              agentEvents,
-              `${generationId}:read:auto-source:${index}`,
-              file.sourceRef.workspacePath,
-              file.byteLength
-            )
-          })
-        }
+        sendStatus('calling', '正在准备思维导图生成')
         let generated: MindMapDocument
         try {
           generated = await generateMindMap({
@@ -2062,12 +1991,12 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             autoSourceContext,
             lessonContext,
             ...(p.imageAttachments?.length ? { imageAttachments: p.imageAttachments } : {}),
-            generationId
+            generationId,
+            workspaceRoot: root
           }, (delta) => {
             if (!streamStarted) {
               streamStarted = true
               sendStatus('streaming', '正在生成导图内容')
-              agentEvents.status('answering', '正在整理导图内容')
             }
             safeSend(event.sender, teachingEventChannels.mindMapStreamChunk, {
               generationId,
@@ -2078,6 +2007,10 @@ function createCommands(context: GatewayContext): GatewayCommand[] {
             // reasoning channel as the homepage conversation so the "Think"
             // view shows actual step-by-step reasoning, not a canned status.
             agentEvents.chunk('reasoning', delta)
+          }, {
+            onToolCall: (toolCall) => agentEvents.tool(toolCall),
+            onToolResult: (toolCall, result, isError) => agentEvents.tool(toolCall, result, isError),
+            onAnswer: (delta) => agentEvents.chunk('answer', delta)
           })
           sendStatus('validating', '正在校验生成结果')
         } catch (error) {
@@ -2709,65 +2642,6 @@ function countMindMapTopics(document: { sheets: readonly { root: unknown }[] }):
     return children.reduce((total, child) => total + 1 + count(child), 0)
   }
   return document.sheets.reduce((total, sheet) => total + count(sheet.root), 0)
-}
-
-function publishCompletedMindMapFileRead(
-  agentEvents: ReturnType<typeof createMindMapAgentEventSender>,
-  toolCallId: string,
-  path: string | undefined,
-  byteLength?: number
-): void {
-  if (!path) return
-  const toolCall = {
-    id: toolCallId,
-    name: 'read_workspace_file',
-    arguments: JSON.stringify({ path })
-  }
-  agentEvents.tool(toolCall)
-  agentEvents.tool(
-    toolCall,
-    JSON.stringify({
-      ok: true,
-      path,
-      ...(byteLength !== undefined ? { byteLength } : {})
-    }),
-    false
-  )
-}
-
-/**
- * Project the host-owned bounded Markdown discovery as a normal read-only tool
- * row. Only relative paths selected for provider context cross IPC; source
- * bodies, absolute workspace paths, and generated JSON remain main-process-only.
- */
-function publishCompletedMindMapWorkspaceList(
-  agentEvents: ReturnType<typeof createMindMapAgentEventSender>,
-  toolCallId: string,
-  paths: readonly (string | undefined)[]
-): void {
-  const visiblePaths = paths.filter((path): path is string => Boolean(path))
-  if (visiblePaths.length === 0) return
-  const toolCall = {
-    id: toolCallId,
-    name: 'list_workspace',
-    arguments: JSON.stringify({
-      path: '.',
-      recursive: true,
-      extensions: ['md', 'markdown', 'mdx']
-    })
-  }
-  agentEvents.tool(toolCall)
-  agentEvents.tool(
-    toolCall,
-    JSON.stringify({
-      ok: true,
-      path: '.',
-      entries: visiblePaths.map((path) => ({ path, type: 'file' })),
-      count: visiblePaths.length,
-      truncated: false
-    }),
-    false
-  )
 }
 
 function mindMapAgentTerminalForError(error: unknown): AgentStreamTerminalStatus {

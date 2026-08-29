@@ -2125,7 +2125,6 @@
     "aiGenerate": "Generate",
     "aiCancel": "Cancel",
     "aiStreaming": "Generating…",
-    "aiReasoningUnavailable": "This model did not return reasoning that can be displayed.",
     "aiStreamPreview": "Preview",
     "aiStreamCancelled": "Generation stopped — partial preview retained",
     "aiError": "Generation failed",
