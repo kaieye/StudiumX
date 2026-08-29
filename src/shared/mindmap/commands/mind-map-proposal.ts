@@ -276,16 +276,24 @@ const mindMapTopicProposalSchema: z.ZodType<MindMapTopicV2, z.ZodTypeDef, unknow
       sourceRefs: z.array(mindMapSourceRefProposalSchema).optional(),
       planning: mindMapPlanningProposalSchema.optional(),
       style: mindMapTopicStyleProposalSchema.optional(),
-      manualPosition: mindMapPointProposalSchema.optional(),
       numbering: mindMapTopicNumberingProposalSchema.optional()
     })
     .strict()
 )
 
+/**
+ * Element kinds the provider proposal surface may create. Every kind here must
+ * be covered by the canvas interaction registry `MIND_MAP_ELEMENT_INTERACTION`
+ * (renderer) and its fuse test — a kind the canvas cannot render or select yet
+ * (e.g. `free-topic`, whose layout consumer does not exist) must stay out of
+ * this list, otherwise the AI can write invisible phantom elements.
+ */
+export const MIND_MAP_PROPOSAL_ELEMENT_TYPES = ['relationship', 'boundary', 'summary', 'callout'] as const
+
 const mindMapElementBaseProposalSchema = z
   .object({
     id: nonEmptyIdSchema,
-    type: z.enum(['relationship', 'boundary', 'summary', 'callout', 'free-topic']),
+    type: z.enum(MIND_MAP_PROPOSAL_ELEMENT_TYPES),
     label: z.string().optional(),
     style: mindMapElementStyleProposalSchema.optional()
   })
@@ -320,13 +328,6 @@ const mindMapElementProposalSchema: z.ZodType<MindMapElement> = z.discriminatedU
       topicId: nonEmptyIdSchema,
       text: z.string(),
       position: mindMapPointProposalSchema.optional()
-    })
-    .strict(),
-  mindMapElementBaseProposalSchema
-    .extend({
-      type: z.literal('free-topic'),
-      topicId: nonEmptyIdSchema,
-      position: mindMapPointProposalSchema
     })
     .strict()
 ])
@@ -397,7 +398,6 @@ const mindMapTopicUpdatePatchProposalSchema: z.ZodType<MindMapTopicUpdatePatch> 
     sourceRefs: z.array(mindMapSourceRefProposalSchema).optional(),
     planning: mindMapPlanningProposalSchema.nullable().optional(),
     style: mindMapTopicStyleProposalSchema.nullable().optional(),
-    manualPosition: mindMapPointProposalSchema.nullable().optional(),
     numbering: mindMapTopicNumberingProposalSchema.nullable().optional()
   })
   .strict()

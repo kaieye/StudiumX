@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MindMapCanvas } from '../../src/renderer/src/views/mindmap/MindMapCanvas'
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
@@ -146,6 +146,24 @@ describe('MindMapCanvas callout rendering', () => {
     })
     expect(container.querySelector('.mindmap-callout-text')).toHaveStyle({
       fill: '#334455', fontFamily: 'Georgia, serif', fontSize: '17px'
+    })
+  })
+
+  it('renders an invisible whole-box hit target that selects the callout on pointer down', () => {
+    const { container } = renderCanvas([
+      { id: 'callout-1', type: 'callout', topicId: 'visible', text: 'Review this definition', position: { x: 420, y: 80 } }
+    ])
+    const hit = container.querySelector<SVGPathElement>('.mindmap-callout-hit')
+    if (!hit) throw new Error('expected callout hit target')
+
+    expect(hit).toHaveAttribute('fill', 'transparent')
+    expect(hit).toHaveAttribute('pointer-events', 'all')
+
+    fireEvent.pointerDown(hit, { button: 0, pointerId: 63 })
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'element',
+      elementId: 'callout-1',
+      elementType: 'callout'
     })
   })
 

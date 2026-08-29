@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MindMapCanvas } from '../../src/renderer/src/views/mindmap/MindMapCanvas'
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
@@ -130,6 +130,33 @@ describe('MindMapCanvas summary rendering', () => {
     })
     expect(container.querySelector('.mindmap-summary-label')).toHaveStyle({
       fill: '#334455', fontFamily: 'Georgia, serif', fontSize: '17px'
+    })
+  })
+
+  it('renders a transparent hit band that selects the summary on pointer down', () => {
+    const { container } = renderCanvas([
+      {
+        id: 'summary-1',
+        type: 'summary',
+        from: 'child-a',
+        to: 'child-c',
+        sourceTopicIds: ['child-a', 'child-b', 'child-c'],
+        label: 'Core ideas'
+      }
+    ])
+    const hit = container.querySelector<SVGPathElement>('.mindmap-summary-hit')
+    if (!hit) throw new Error('expected summary hit target')
+
+    expect(hit).toHaveAttribute('fill', 'none')
+    expect(hit).toHaveAttribute('stroke', 'transparent')
+    expect(Number(hit.getAttribute('stroke-width'))).toBeGreaterThanOrEqual(12)
+    expect(hit).toHaveAttribute('pointer-events', 'stroke')
+
+    fireEvent.pointerDown(hit, { button: 0, pointerId: 62 })
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'element',
+      elementId: 'summary-1',
+      elementType: 'summary'
     })
   })
 

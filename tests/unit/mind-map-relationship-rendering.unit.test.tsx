@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MindMapCanvas } from '../../src/renderer/src/views/mindmap/MindMapCanvas'
 import { useMindMapViewStore } from '../../src/renderer/src/views/mindmap/mind-map-view-store'
@@ -110,6 +110,24 @@ describe('MindMapCanvas relationship rendering', () => {
     expect(container.querySelector('.mindmap-relationship-label-bg')).toHaveStyle({ fill: '#FEDCBA' })
     expect(container.querySelector('.mindmap-relationship-label')).toHaveStyle({
       fill: '#334455', fontFamily: 'Georgia, serif', fontSize: '17px'
+    })
+  })
+
+  it('renders a transparent hit band that selects the relationship on pointer down', () => {
+    const { container } = renderCanvas()
+    const hit = container.querySelector<SVGPathElement>('.mindmap-relationship-hit')
+    if (!hit) throw new Error('expected relationship hit target')
+
+    expect(hit).toHaveAttribute('fill', 'none')
+    expect(hit).toHaveAttribute('stroke', 'transparent')
+    expect(Number(hit.getAttribute('stroke-width'))).toBeGreaterThanOrEqual(12)
+    expect(hit).toHaveAttribute('pointer-events', 'stroke')
+
+    fireEvent.pointerDown(hit, { button: 0, pointerId: 61 })
+    expect(useMindMapViewStore.getState().selection).toEqual({
+      kind: 'element',
+      elementId: 'rel-1',
+      elementType: 'relationship'
     })
   })
 

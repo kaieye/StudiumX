@@ -30,7 +30,7 @@ const MIND_MAP_MARKDOWN_CAPABILITY_GUIDE = `# 画布文本能力与写法
  */
 const MIND_MAP_PROPOSAL_CAPABILITY_GUIDE = `# 可用的画布编辑能力
 - \`topic.insert\` 用于新建主题；\`node.children\` 支持递归层级。每个新节点 id 必须唯一，\`title\` 可直接包含上面的 Markdown、链接和公式写法。
-- \`topic.update\` 用于修改已有主题的 title、note、labels、markers、links、formula、sourceRefs、planning、style、manualPosition 或 numbering；只使用 schema 中的字段。为了确保内容可见，公式和链接优先直接写入 title Markdown。
+- \`topic.update\` 用于修改已有主题的 title、note、labels、markers、links、formula、sourceRefs、planning、style 或 numbering；只使用 schema 中的字段。为了确保内容可见，公式和链接优先直接写入 title Markdown。
 - 需要表达主题之间的关系时，可用 \`element.create\` 创建 relationship：引用两个快照中真实存在的 topic id，并设置简短的纯文本 label。
 - 可用 \`element.create\` 创建 boundary（包围一个 topic 子树）、summary（概括一段主题范围）或 callout（附着在主题上的批注）；它们的 label/text 当前是纯文本。
 - 删除单个形状或线条（connector）：用 \`element.remove\`，\`elementId\` 必须是快照 \`elements\` 中真实存在的元素 id；删除形状会连带删除附着在它上面的线条。

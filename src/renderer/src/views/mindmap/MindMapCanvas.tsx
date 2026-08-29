@@ -50,6 +50,7 @@ import {
   resolveMindMapTopicTextStyle
 } from './mind-map-topic-text-style'
 import { resolveEdgePath, edgeStrokeWidth, lineDashPattern, taperedEdgePath } from './mind-map-edge-styles'
+import { MindMapElementHitTarget, MIND_MAP_ELEMENT_INTERACTION } from './mind-map-element-interaction'
 import { fontEntryLabel, SAFE_FONTS } from './mind-map-font-list'
 import { DEFAULT_TOPIC_FONT_FAMILY } from './mind-map-topic-display-style'
 import {
@@ -2241,9 +2242,50 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
         })),
         rect
       )
+      // Sweep the remaining element kinds through the shared interaction
+      // registry (mind-map-element-interaction). Compact kinds intersect the
+      // box like shapes and lines; a frame-like boundary only joins the
+      // selection when the box fully contains it, so sweeping inside a branch
+      // never silently grabs its enclosing frame.
+      const sweepBounds = (
+        nodes: Array<{ x: number; y: number; width: number; height: number } | undefined>
+      ): { x: number; y: number; width: number; height: number } | null => {
+        const resolved = nodes.filter((node) => node !== undefined)
+        if (resolved.length === 0) return null
+        const left = Math.min(...resolved.map((node) => node.x))
+        const top = Math.min(...resolved.map((node) => node.y))
+        const right = Math.max(...resolved.map((node) => node.x + node.width))
+        const bottom = Math.max(...resolved.map((node) => node.y + node.height))
+        return { x: left, y: top, width: right - left, height: bottom - top }
+      }
+      const sweptCandidates: Array<{ kind: MindMapElementType; id: string; bounds: { x: number; y: number; width: number; height: number } }> = [
+        ...layout.boundaries.map((boundary) => ({ kind: 'boundary' as const, id: boundary.id, bounds: boundary })),
+        ...calloutRects.map((entry) => ({ kind: 'callout' as const, id: entry.callout.id, bounds: entry })),
+        ...summaryBrackets.flatMap((bracket) => {
+          const bounds = sweepBounds([bracket.from, bracket.to])
+          return bounds ? [{ kind: 'summary' as const, id: bracket.summary.id, bounds }] : []
+        }),
+        ...layout.relationships.flatMap((relationship) => {
+          const bounds = sweepBounds([nodeById.get(relationship.from), nodeById.get(relationship.to)])
+          return bounds ? [{ kind: 'relationship' as const, id: relationship.id, bounds }] : []
+        })
+      ]
+      const sweptElementEntries = sweptCandidates.flatMap((candidate) => {
+        const spec = MIND_MAP_ELEMENT_INTERACTION[candidate.kind]
+        if (spec.presence !== 'hit-target') return []
+        const left = pan.x + candidate.bounds.x * zoom
+        const top = pan.y + candidate.bounds.y * zoom
+        const right = pan.x + (candidate.bounds.x + candidate.bounds.width) * zoom
+        const bottom = pan.y + (candidate.bounds.y + candidate.bounds.height) * zoom
+        const swept = spec.marquee === 'contain'
+          ? left >= rect.left && right <= rect.right && top >= rect.top && bottom <= rect.bottom
+          : left < rect.right && right > rect.left && top < rect.bottom && bottom > rect.top
+        return swept ? [{ id: candidate.id, type: candidate.kind }] : []
+      })
       const elementEntries = [
         ...shapeIds.map((id) => ({ id, type: 'shape' as MindMapElementType })),
-        ...lineIds.map((id) => ({ id, type: 'connector' as MindMapElementType }))
+        ...lineIds.map((id) => ({ id, type: 'connector' as MindMapElementType })),
+        ...sweptElementEntries
       ]
       // Topics, shapes, and lines can all be swept by the same marquee. A
       // drag that catches more than one kind becomes a hybrid selection so
@@ -3404,6 +3446,19 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
             if (!from || !to) return null
             const labelPosition = relationshipLabelPosition(from, to)
             const endpointLabel = `${from.title || t('mindmap.untitledTopic')} → ${to.title || t('mindmap.untitledTopic')}`
+            const relationshipPathD = relationshipElementPath(
+              from,
+              to,
+              relationship.style?.lineShape,
+              {
+                ...(relationship.style?.beginArrow
+                  ? { beginArrow: relationship.style.beginArrow }
+                  : {}),
+                ...(relationship.style?.endArrow
+                  ? { endArrow: relationship.style.endArrow }
+                  : {})
+              }
+            )
             return (
               <g
                 key={relationship.id}
@@ -3423,19 +3478,7 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
               >
                 <path
                   className="mindmap-relationship"
-                  d={relationshipElementPath(
-                    from,
-                    to,
-                    relationship.style?.lineShape,
-                    {
-                      ...(relationship.style?.beginArrow
-                        ? { beginArrow: relationship.style.beginArrow }
-                        : {}),
-                      ...(relationship.style?.endArrow
-                        ? { endArrow: relationship.style.endArrow }
-                        : {})
-                    }
-                  )}
+                  d={relationshipPathD}
                   markerStart={relationship.style?.beginArrow && relationship.style.beginArrow !== 'none'
                     ? `url(#mindmap-rel-arrow-${relationship.style.beginArrow})`
                     : undefined}
@@ -3458,6 +3501,14 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
                 >
                   <title>{relationship.label || endpointLabel}</title>
                 </path>
+                {/* The visible stroke stays pointer-events:none so it never
+                 * steals topic gestures; the registry-declared hit band is
+                 * what makes the relationship selectable/deletable. */}
+                <MindMapElementHitTarget
+                  kind="relationship"
+                  d={relationshipPathD}
+                  strokeWidth={relationship.style?.strokeWidth ?? 1.35}
+                />
                 {relationship.label ? (
                   <>
                     <rect
@@ -3544,6 +3595,18 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
                         : {})
                 }}
               />
+              {/* The visible box stays pointer-events:none; the registry-
+               * declared hit target is what makes the callout selectable and
+               * deletable like a free-drawn shape. */}
+              <MindMapElementHitTarget
+                kind="callout"
+                d={elementOutlinePath({
+                  x: rect.x,
+                  y: rect.y,
+                  width: rect.width,
+                  height: rect.height
+                }, rect.callout.style?.outlineShape)}
+              />
               <text
                 className="mindmap-callout-text"
                 x={rect.x + rect.width / 2}
@@ -3610,6 +3673,14 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
                   style={{ stroke: strokeColor, ...lineStyleProps }}
                   aria-hidden="true"
                 />
+                {/* The visible brace stays pointer-events:none so its thin
+                 * stroke never steals topic gestures; the registry-declared
+                 * hit band is what makes the summary selectable/removable. */}
+                <MindMapElementHitTarget
+                  kind="summary"
+                  d={summaryPath(bracket)}
+                  strokeWidth={lineStyleProps.strokeWidth}
+                />
                 {bracket.outputTopic === undefined && bracket.summary.label ? (
                   <text
                     className="mindmap-summary-label"
@@ -3638,6 +3709,12 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
 
           {layout.boundaries.map((boundary) => {
             const bColor = boundary.style?.stroke ?? branchColor(document.theme, 0) ?? '#8E8E93'
+            const boundaryPathD = elementOutlinePath({
+              x: boundary.x,
+              y: boundary.y,
+              width: boundary.width,
+              height: boundary.height
+            }, boundary.style?.outlineShape)
             return (
               <g
                 key={boundary.id}
@@ -3657,12 +3734,7 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
               >
                 <path
                   className="mindmap-boundary"
-                  d={elementOutlinePath({
-                    x: boundary.x,
-                    y: boundary.y,
-                    width: boundary.width,
-                    height: boundary.height
-                  }, boundary.style?.outlineShape)}
+                  d={boundaryPathD}
                   style={{
                     stroke: bColor,
                     strokeWidth: boundary.style?.strokeWidth ?? 1.5,
@@ -3672,6 +3744,15 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
                     fill: boundary.style?.fill ?? bColor,
                     fillOpacity: boundary.style?.fill ? 1 : 0.06
                   }}
+                />
+                {/* The visible frame and its translucent fill stay
+                 * pointer-events:none so empty space inside the boundary keeps
+                 * panning and marquee gestures; the registry-declared hit band
+                 * along the outline is what makes it selectable/removable. */}
+                <MindMapElementHitTarget
+                  kind="boundary"
+                  d={boundaryPathD}
+                  strokeWidth={boundary.style?.strokeWidth ?? 1.5}
                 />
                 {boundary.label ? (
                   <text

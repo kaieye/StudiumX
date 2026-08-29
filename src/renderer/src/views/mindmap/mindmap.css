@@ -919,6 +919,15 @@
   pointer-events: none;
 }
 
+/* The visible stroke above stays non-interactive; this invisible twin (rendered
+ * by the canvas with a generous screen-constant width) is the pointer target
+ * that makes the relationship selectable and deletable. */
+.mindmap-relationship-hit {
+  fill: none;
+  stroke: transparent;
+  pointer-events: stroke;
+}
+
 /* Freehand connector drawings use the same visual language as relationships,
  * but stay solid by default so users can distinguish a deliberate drawing from
  * the historical semantic relationship layer. */
@@ -1178,6 +1187,14 @@
   pointer-events: none;
 }
 
+/* The visible box above stays non-interactive; this invisible twin is the
+ * whole-box pointer target that makes the callout selectable and deletable. */
+.mindmap-callout-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+
 .mindmap-callout-text {
   fill: var(--text);
   font-size: 11px;
@@ -1195,6 +1212,15 @@
   stroke-linejoin: miter;
   opacity: 0.8;
   pointer-events: none;
+}
+
+/* The visible brace above stays non-interactive; this invisible twin (rendered
+ * by the canvas with a generous screen-constant width) is the pointer target
+ * that makes the summary selectable and deletable. */
+.mindmap-summary-hit {
+  fill: none;
+  stroke: transparent;
+  pointer-events: stroke;
 }
 
 .mindmap-summary-label {
@@ -1369,6 +1395,17 @@
 .mindmap-boundary {
   opacity: 0.85;
   pointer-events: none;
+}
+
+/* The visible frame above (and its translucent fill) stays non-interactive so
+ * empty space inside the boundary keeps pan/marquee gestures; this invisible
+ * twin along the outline — rendered by the canvas with a generous
+ * screen-constant width — is the pointer target that makes the boundary
+ * selectable and deletable. */
+.mindmap-boundary-hit {
+  fill: none;
+  stroke: transparent;
+  pointer-events: stroke;
 }
 
 .mindmap-boundary-label {
