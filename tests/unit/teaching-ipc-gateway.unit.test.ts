@@ -1687,7 +1687,7 @@ describe('Teaching IPC gateway', () => {
       {
         generationId: 'proposal-stream-1',
         step: 'calling',
-        message: '正在读取当前导图和相关资料'
+        message: '正在准备思维导图生成'
       }
     )
     expect(event.sender.send).toHaveBeenCalledWith(
@@ -1717,42 +1717,8 @@ describe('Teaching IPC gateway', () => {
     const agentEvents = event.sender.send.mock.calls
       .filter(([channel]) => channel === teachingEventChannels.mindMapAgentEvent)
       .map(([, payload]) => payload as AgentRealtimeEvent)
-    expect(agentEvents.map((agentEvent) => agentEvent.sequence)).toEqual([1, 2, 3, 4, 5, 6])
+    expect(agentEvents.map((agentEvent) => agentEvent.sequence)).toEqual([1, 2])
     expect(agentEvents).toEqual([
-      expect.objectContaining({
-        streamId: 'proposal-stream-1',
-        kind: 'status',
-        payload: {
-          streamId: 'proposal-stream-1',
-          status: 'thinking',
-          message: '正在读取当前导图和相关资料'
-        }
-      }),
-      expect.objectContaining({
-        streamId: 'proposal-stream-1',
-        kind: 'tool',
-        payload: expect.objectContaining({
-          streamId: 'proposal-stream-1',
-          toolCall: {
-            id: 'proposal-stream-1:read:document',
-            name: 'read_workspace_file',
-            arguments: JSON.stringify({ path: `mindmaps/${created.id}.json` })
-          }
-        })
-      }),
-      expect.objectContaining({
-        streamId: 'proposal-stream-1',
-        kind: 'tool',
-        payload: expect.objectContaining({
-          streamId: 'proposal-stream-1',
-          toolCall: {
-            id: 'proposal-stream-1:read:document',
-            name: 'read_workspace_file',
-            arguments: JSON.stringify({ path: `mindmaps/${created.id}.json` })
-          },
-          isError: false
-        })
-      }),
       expect.objectContaining({
         streamId: 'proposal-stream-1',
         kind: 'chunk',
@@ -1764,32 +1730,10 @@ describe('Teaching IPC gateway', () => {
       }),
       expect.objectContaining({
         streamId: 'proposal-stream-1',
-        kind: 'status',
-        payload: {
-          streamId: 'proposal-stream-1',
-          status: 'answering',
-          message: '正在整理候选提案'
-        }
-      }),
-      expect.objectContaining({
-        streamId: 'proposal-stream-1',
         kind: 'terminal',
         outcome: 'done'
       })
     ])
-    const readResult = agentEvents.find((agentEvent) => (
-      agentEvent.kind === 'tool' &&
-      agentEvent.payload.toolCall.id === 'proposal-stream-1:read:document' &&
-      agentEvent.payload.result !== undefined
-    ))
-    expect(readResult?.kind).toBe('tool')
-    if (readResult?.kind === 'tool') {
-      expect(JSON.parse(readResult.payload.result ?? '{}')).toEqual({
-        ok: true,
-        path: `mindmaps/${created.id}.json`
-      })
-      expect(JSON.parse(readResult.payload.result ?? '{}')).not.toHaveProperty('content')
-    }
     // The natural-language reply is carried by the invoke result instead of
     // a separate realtime event, so it cannot race or duplicate in the UI.
     expect(agentEvents.some((agentEvent) => (
@@ -1822,7 +1766,12 @@ describe('Teaching IPC gateway', () => {
         })
       }),
       expect.any(Function),
-      expect.any(Function)
+      expect.any(Function),
+      expect.objectContaining({
+        onToolCall: expect.any(Function),
+        onToolResult: expect.any(Function),
+        onAnswer: expect.any(Function)
+      })
     )
     expect(update).not.toHaveBeenCalled()
     await expect(store.read(created.id)).resolves.toMatchObject({
@@ -1891,7 +1840,12 @@ describe('Teaching IPC gateway', () => {
         })
       }),
       expect.any(Function),
-      expect.any(Function)
+      expect.any(Function),
+      expect.objectContaining({
+        onToolCall: expect.any(Function),
+        onToolResult: expect.any(Function),
+        onAnswer: expect.any(Function)
+      })
     )
     const generatedInput = mindMapGeneration.generateMindMapProposal.mock.calls[0]?.[0] as {
       autoSourceContext?: { files: Array<{ sourceRef: { workspacePath?: string }; content: string }> }
@@ -1974,7 +1928,12 @@ describe('Teaching IPC gateway', () => {
         })
       }),
       expect.any(Function),
-      expect.any(Function)
+      expect.any(Function),
+      expect.objectContaining({
+        onToolCall: expect.any(Function),
+        onToolResult: expect.any(Function),
+        onAnswer: expect.any(Function)
+      })
     )
     expect(result).toMatchObject({
       title: '资料分析',
@@ -1988,35 +1947,15 @@ describe('Teaching IPC gateway', () => {
       .filter(([channel]) => channel === teachingEventChannels.mindMapAgentEvent)
       .map(([, payload]) => payload as AgentRealtimeEvent)
     const toolEvents = agentEvents.filter((agentEvent) => agentEvent.kind === 'tool')
-    expect(toolEvents).toEqual(expect.arrayContaining([
+    // The host-side agent loop performs the auto-source reads; the gateway only
+    // surfaces the canonical write it performs itself (ADR-0016 persistence).
+    expect(toolEvents).toEqual([
       expect.objectContaining({
         payload: expect.objectContaining({
           toolCall: {
-            id: 'create-stream-1:list:auto-source',
-            name: 'list_workspace',
-            arguments: JSON.stringify({
-              path: '.',
-              recursive: true,
-              extensions: ['md', 'markdown', 'mdx']
-            })
-          }
-        })
-      }),
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          toolCall: {
-            id: expect.stringMatching(/^create-stream-1:read:auto-source:\d+$/),
-            name: 'read_workspace_file',
-            arguments: JSON.stringify({ path: '资料分析/基础速算与比重.md' })
-          }
-        })
-      }),
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          toolCall: {
-            id: expect.stringMatching(/^create-stream-1:read:auto-source:\d+$/),
-            name: 'read_workspace_file',
-            arguments: JSON.stringify({ path: '资料分析/盐水与混合.md' })
+            id: `create-stream-1:write:${result.id}`,
+            name: 'write_workspace_file',
+            arguments: JSON.stringify({ path: `mindmaps/${result.id}.json` })
           }
         })
       }),
@@ -2026,25 +1965,21 @@ describe('Teaching IPC gateway', () => {
             id: `create-stream-1:write:${result.id}`,
             name: 'write_workspace_file',
             arguments: JSON.stringify({ path: `mindmaps/${result.id}.json` })
-          }
+          },
+          isError: false
         })
       })
-    ]))
-    const listResultEvent = toolEvents.find((agentEvent) => (
-      agentEvent.kind === 'tool' &&
-      agentEvent.payload.toolCall.id === 'create-stream-1:list:auto-source' &&
+    ])
+    const writeResultEvent = toolEvents.find((agentEvent) => (
+      agentEvent.payload.toolCall.id === `create-stream-1:write:${result.id}` &&
       agentEvent.payload.result !== undefined
     ))
-    expect(listResultEvent?.kind).toBe('tool')
-    if (listResultEvent?.kind === 'tool') {
-      const listResult = JSON.parse(listResultEvent.payload.result ?? '{}') as {
-        entries?: Array<{ path?: string }>
-      }
-      expect(listResult.entries?.map((entry) => entry.path)).toEqual(expect.arrayContaining([
-        '资料分析/基础速算与比重.md',
-        '资料分析/盐水与混合.md'
-      ]))
-      expect(listResult.entries).toHaveLength(2)
+    expect(writeResultEvent?.kind).toBe('tool')
+    if (writeResultEvent?.kind === 'tool') {
+      expect(JSON.parse(writeResultEvent.payload.result ?? '{}')).toMatchObject({
+        ok: true,
+        path: `mindmaps/${result.id}.json`
+      })
     }
     expect(agentEvents.some((agentEvent) => (
       agentEvent.kind === 'chunk' &&
@@ -2175,7 +2110,12 @@ describe('Teaching IPC gateway', () => {
         })
       }),
       expect.any(Function),
-      expect.any(Function)
+      expect.any(Function),
+      expect.objectContaining({
+        onToolCall: expect.any(Function),
+        onToolResult: expect.any(Function),
+        onAnswer: expect.any(Function)
+      })
     )
     expect(update).not.toHaveBeenCalled()
     await expect(store.read(created.id)).resolves.toMatchObject({
@@ -2297,7 +2237,12 @@ describe('Teaching IPC gateway', () => {
         })
       }),
       expect.any(Function),
-      expect.any(Function)
+      expect.any(Function),
+      expect.objectContaining({
+        onToolCall: expect.any(Function),
+        onToolResult: expect.any(Function),
+        onAnswer: expect.any(Function)
+      })
     )
     expect(update).not.toHaveBeenCalled()
 
@@ -2414,7 +2359,12 @@ describe('Teaching IPC gateway', () => {
         })
       }),
       expect.any(Function),
-      expect.any(Function)
+      expect.any(Function),
+      expect.objectContaining({
+        onToolCall: expect.any(Function),
+        onToolResult: expect.any(Function),
+        onAnswer: expect.any(Function)
+      })
     )
     expect(update).not.toHaveBeenCalled()
     await expect(store.read(created.id)).resolves.toMatchObject({
