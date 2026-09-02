@@ -26,7 +26,7 @@
     "model": "your-model-id",
     "endpointFormat": "chat_completions",
     "temperature": 0.4,
-    "maxOutputTokens": 4096,
+    "maxOutputTokens": 12800,
     "lessonDurationMinutes": 15,
     "includeRetrievalPractice": true,
     "generateReference": true,

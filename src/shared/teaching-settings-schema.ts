@@ -37,6 +37,15 @@ const MAX_UI_FONT_SCALE = 1.2
 const LEGACY_PET_DEFAULT_DISPLAY_NAMES = new Set(['小搭档'])
 const BUILT_IN_PET_DISPLAY_NAMES = new Set(Object.values(PET_APPEARANCE_DISPLAY_NAMES))
 
+/** Current persisted teaching-settings schema version (v3). */
+export const TEACHING_SETTINGS_VERSION = 3
+/**
+ * Previous maxOutputTokens default carried by pre-v3 records. v3 raises the
+ * default to 12800 and moves users still on this old default forward; explicit
+ * non-default choices are preserved.
+ */
+export const LEGACY_MAX_OUTPUT_TOKENS_DEFAULT = 4096
+
 function isBuiltInPetDisplayName(value: string): boolean {
   return BUILT_IN_PET_DISPLAY_NAMES.has(value) || LEGACY_PET_DEFAULT_DISPLAY_NAMES.has(value)
 }
@@ -65,7 +74,7 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
   const activeProvider = providers[0]!
 
   return {
-    version: 2,
+    version: TEACHING_SETTINGS_VERSION,
     locale: 'zh-CN',
     theme: 'system',
     uiFontScale: DEFAULT_UI_FONT_SCALE,
@@ -83,7 +92,7 @@ export function createTeachingSettingsDefaults(defaultRoot: string): TeachingSet
       model: activeProvider.models[1] ?? activeProvider.models[0] ?? '',
       endpointFormat: activeProvider.endpointFormat,
       temperature: 0.4,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 12800,
       lessonDurationMinutes: 15,
       includeRetrievalPractice: true,
       generateReference: true,
@@ -333,7 +342,7 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
   const proxyInput = recordOf(providerInput.proxy)
 
   return {
-    version: 2,
+    version: TEACHING_SETTINGS_VERSION,
     locale: record.locale === 'en-US' ? 'en-US' : 'zh-CN',
     theme: record.theme === 'light' || record.theme === 'dark' || record.theme === 'system'
       ? record.theme
@@ -353,7 +362,12 @@ export function normalizeTeachingSettings(input: unknown, fallbackDefaultRoot: s
       model,
       endpointFormat: normalizeEndpointFormat(generatorInput.endpointFormat, generatorProvider.endpointFormat),
       temperature: clampNumber(generatorInput.temperature, 0, 2, defaults.generator.temperature),
-      maxOutputTokens: Math.round(clampNumber(generatorInput.maxOutputTokens, 512, 32768, defaults.generator.maxOutputTokens)),
+      // v3 raised the maxOutputTokens default from 4096 to 12800. Users still on
+      // the old default are moved to the new default; explicit choices win.
+      maxOutputTokens: incomingVersion < TEACHING_SETTINGS_VERSION &&
+        generatorInput.maxOutputTokens === LEGACY_MAX_OUTPUT_TOKENS_DEFAULT
+        ? defaults.generator.maxOutputTokens
+        : Math.round(clampNumber(generatorInput.maxOutputTokens, 512, 32768, defaults.generator.maxOutputTokens)),
       lessonDurationMinutes: Math.round(clampNumber(generatorInput.lessonDurationMinutes, 5, 60, defaults.generator.lessonDurationMinutes)),
       includeRetrievalPractice: generatorInput.includeRetrievalPractice !== false,
       generateReference: generatorInput.generateReference !== false,

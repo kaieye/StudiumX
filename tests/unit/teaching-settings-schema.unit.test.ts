@@ -13,7 +13,7 @@ describe('teaching settings schema', () => {
   it('creates the same complete default document for main and renderer callers', () => {
     expect(createTeachingSettingsDefaults('')).toEqual(emptySettings)
     expect(createTeachingSettingsDefaults(fallbackRoot)).toMatchObject({
-      version: 2,
+      version: 3,
       workspace: { defaultRoot: fallbackRoot },
       worktree: { rootPath: 'C:\\StudiumX\\workspace\\.worktrees' },
       tools: { enabled: true, workspaceShell: true },
@@ -69,7 +69,7 @@ describe('teaching settings schema', () => {
       { version: 1, appBehavior: { closeAction: 'quit', closeToTray: false } },
       fallbackRoot
     )
-    expect(migrated.version).toBe(2)
+    expect(migrated.version).toBe(3)
     expect(migrated.appBehavior.closeAction).toBe('tray')
     expect(migrated.appBehavior.closeToTray).toBe(true)
   })
@@ -79,9 +79,35 @@ describe('teaching settings schema', () => {
       { version: 2, appBehavior: { closeAction: 'quit', closeToTray: false } },
       fallbackRoot
     )
-    expect(preserved.version).toBe(2)
+    expect(preserved.version).toBe(3)
     expect(preserved.appBehavior.closeAction).toBe('quit')
     expect(preserved.appBehavior.closeToTray).toBe(false)
+  })
+  it('migrates pre-v3 records still on the old 4096 maxOutputTokens default to 12800', () => {
+    const migrated = normalizeTeachingSettings(
+      { version: 2, generator: { maxOutputTokens: 4096 } },
+      fallbackRoot
+    )
+    expect(migrated.version).toBe(3)
+    expect(migrated.generator.maxOutputTokens).toBe(12800)
+  })
+
+  it('preserves an explicit non-default maxOutputTokens across the v3 migration', () => {
+    const preserved = normalizeTeachingSettings(
+      { version: 2, generator: { maxOutputTokens: 8192 } },
+      fallbackRoot
+    )
+    expect(preserved.version).toBe(3)
+    expect(preserved.generator.maxOutputTokens).toBe(8192)
+  })
+
+  it('does not re-migrate an explicit old-default value on already-v3 records', () => {
+    const kept = normalizeTeachingSettings(
+      { version: 3, generator: { maxOutputTokens: 4096 } },
+      fallbackRoot
+    )
+    expect(kept.version).toBe(3)
+    expect(kept.generator.maxOutputTokens).toBe(4096)
   })
 
   it('defaults, clamps, and rounds persisted pet sizes explicitly', () => {
@@ -240,7 +266,7 @@ describe('teaching settings schema', () => {
 
     const custom = normalized.provider.providers.find((provider) => provider.id === 'custom')!
     expect(normalized).toMatchObject({
-      version: 2,
+      version: 3,
       locale: 'zh-CN',
       theme: 'system',
       uiFontScale: 1.2,

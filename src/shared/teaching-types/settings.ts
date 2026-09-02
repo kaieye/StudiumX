@@ -184,9 +184,10 @@ export type PetNotificationPreferences = {
 }
 
 // The type name `TeachingSettingsV1` is retained to avoid a wide rename churn;
-// the persisted schema marker is now `2` (close-to-tray became the default).
+// the persisted schema marker is now `3` (v3 raised the maxOutputTokens default
+// from 4096 to 12800 for new and upgraded installs).
 export type TeachingSettingsV1 = {
-  version: 2
+  version: 3
   locale: LocalePreference
   theme: ThemePreference
   uiFontScale: number

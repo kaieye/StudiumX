@@ -69,7 +69,7 @@ describe('critical durable JSON consumers', () => {
     const loaded = await new TeachingSettingsService({ userDataPath, defaultRoot }).load()
 
     expect(loaded.workspace.defaultRoot).toBe(defaultRoot)
-    await expect(readFile(settingsPath, 'utf8')).resolves.toContain('"version": 2')
+    await expect(readFile(settingsPath, 'utf8')).resolves.toContain('"version": 3')
     await expect(readFile(`${settingsPath}.bak`, 'utf8')).resolves.toBe(legacyShape)
     if (process.platform !== 'win32') expect((await stat(settingsPath)).mode & 0o777).toBe(0o600)
     if (process.platform !== 'win32') expect((await stat(`${settingsPath}.bak`)).mode & 0o777).toBe(0o600)
@@ -123,8 +123,8 @@ describe('critical durable JSON consumers', () => {
 
     const loaded = await new TeachingSettingsService({ userDataPath, defaultRoot }).load()
 
-    expect(loaded.version).toBe(2)
-    await expect(readFile(settingsPath, 'utf8')).resolves.toContain('"version": 2')
+    expect(loaded.version).toBe(3)
+    await expect(readFile(settingsPath, 'utf8')).resolves.toContain('"version": 3')
     await expect(readFile(`${settingsPath}.bak`, 'utf8')).resolves.toBe('[]')
   })
 
