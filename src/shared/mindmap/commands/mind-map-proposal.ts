@@ -661,6 +661,35 @@ export function salvageFirstParseableJsonRoot(text: string): unknown | null {
 }
 
 /**
+ * Unwrap a single-purpose `{"arguments": "<json string>"}` provider wrapper.
+ * Some OpenAI-compatible hosts double-encode tool arguments this way. The
+ * wrapper is accepted only when `arguments` is the only field (optionally with
+ * a bounded `assistantMessage`); anything else survives the strict schema check
+ * so a malformed envelope is still reported precisely.
+ */
+export function unwrapModelArgumentsEnvelope(value: unknown): {
+  value: unknown
+  assistantMessage?: string
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { value }
+  const record = value as Record<string, unknown>
+  const argsValue = record.arguments
+  if (typeof argsValue !== 'string' || !argsValue.trim()) return { value }
+  const wrapperKeys = Object.keys(record).filter((key) => key !== 'arguments')
+  if (wrapperKeys.some((key) => key !== 'assistantMessage')) return { value }
+  let inner: unknown
+  try {
+    inner = JSON.parse(argsValue)
+  } catch {
+    return { value }
+  }
+  const assistantMessage = wrapperKeys.includes('assistantMessage') && typeof record.assistantMessage === 'string'
+    ? record.assistantMessage
+    : undefined
+  return { value: inner, ...(assistantMessage ? { assistantMessage } : {}) }
+}
+
+/**
  * Parse provider text without allowing unknown fields to be silently stripped.
  * This is deliberately separate from generation/IPC so callers can validate a
  * proposal before creating review state or touching the canonical document.
@@ -679,11 +708,16 @@ export function parseMindMapProposalJson(content: string): MindMapProposalParseR
     }
   }
 
+  // Some providers double-encode the envelope as `{"arguments": "<json string>"}`.
+  // Unwrap that single-purpose wrapper before the strict schema check.
+  const unwrapped = unwrapModelArgumentsEnvelope(value)
+  value = unwrapped.value
+
   // The provider may add one bounded, user-facing response beside the command
   // envelope. Keep it out of `MindMapProviderProposal`: the renderer sends
   // that type back through the apply IPC, where presentation text must never
   // become mutation input. All other unknown top-level keys remain rejected.
-  let assistantMessage: string | undefined
+  let assistantMessage: string | undefined = unwrapped.assistantMessage
   let proposalValue = value
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const record = value as Record<string, unknown>

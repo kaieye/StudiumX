@@ -538,6 +538,29 @@ describe('mind-map provider proposal parser', () => {
     expect(parseMindMapProposalJson('```json\n' + serialized + '\n```').ok).toBe(true)
     expect(parseMindMapProposalJson('```\n' + serialized + '\n```').ok).toBe(true)
   })
+  it('unwraps a single-purpose {\"arguments\": \"...\"} provider double-encoding', () => {
+    const serialized = JSON.stringify(validProposal())
+    const wrapped = JSON.stringify({ arguments: serialized })
+    const result = parseMindMapProposalJson(wrapped)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.proposal).toEqual(validProposal())
+  })
+
+  it('carries a bounded assistantMessage out of the double-encoded wrapper', () => {
+    const serialized = JSON.stringify(validProposal())
+    const wrapped = JSON.stringify({ arguments: serialized, assistantMessage: '按章节生成完整导图。' })
+    const result = parseMindMapProposalJson(wrapped)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.assistantMessage).toBe('按章节生成完整导图。')
+  })
+
+  it('does not unwrap a wrapper that carries unrelated fields', () => {
+    const serialized = JSON.stringify(validProposal())
+    const wrapped = JSON.stringify({ arguments: serialized, surprise: true })
+    const result = parseMindMapProposalJson(wrapped)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.code).toBe('schema_invalid')
+  })
 
   it.each([
     ['root', { unexpected: true }],

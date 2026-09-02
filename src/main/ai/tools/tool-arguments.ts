@@ -23,6 +23,11 @@ export function parseToolArguments(raw: string): unknown {
   try {
     return JSON.parse(raw)
   } catch {
+    // Models occasionally emit near-JSON tool arguments (unquoted property
+    // names, trailing commas). Repair those quirks conservatively before
+    // rejecting; a repaired value still passes each tool's own validation.
+    const repaired = repairModelJsonObject(raw)
+    if (repaired !== null) return repaired
     throw new ToolArgumentParseError()
   }
 }
@@ -96,4 +101,89 @@ export function missingToolPathMessage(args: unknown, locale: 'zh' | 'en' = 'zh'
       : `缺少参数 path。请使用 path（不要使用 ${nearMiss}）。`
   }
   return locale === 'en' ? 'Missing path.' : '缺少参数 path。'
+}
+
+/**
+ * Conservative repair for the common JSON quirks LLMs emit in tool arguments.
+ *
+ * Only used after strict `JSON.parse` fails. It never invents values: it quotes
+ * bare property names and drops trailing commas, then re-parses. Genuinely
+ * truncated or malformed input still yields `null` and is rejected.
+ */
+export function repairModelJsonObject(raw: string): unknown | null {
+  const repaired = repairModelJsonSyntax(raw)
+  if (repaired === null) return null
+  try {
+    return JSON.parse(repaired) as unknown
+  } catch {
+    return null
+  }
+}
+
+function repairModelJsonSyntax(text: string): string | null {
+  let out = ''
+  let inString = false
+  let escaped = false
+  let expectKey = false
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!
+    if (inString) {
+      out += character
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+    if (character === '"') {
+      inString = true
+      expectKey = false
+      out += character
+      continue
+    }
+    if (character === '{') {
+      expectKey = true
+      out += character
+      continue
+    }
+    if (character === '[') {
+      expectKey = false
+      out += character
+      continue
+    }
+    if (character === ',') {
+      expectKey = true
+      out += character
+      continue
+    }
+    if (character === '}' || character === ']') {
+      // Drop a trailing comma (and surrounding whitespace) before a closer.
+      out = out.replace(/[ \t\r\n,]+$/, '')
+      expectKey = false
+      out += character
+      continue
+    }
+    if (character === ':') {
+      expectKey = false
+      out += character
+      continue
+    }
+    if (expectKey && /[A-Za-z_$]/.test(character)) {
+      let end = index
+      while (end < text.length && /[A-Za-z0-9_$-]/.test(text[end]!)) end += 1
+      const key = text.slice(index, end)
+      let next = end
+      while (next < text.length && /[ \t\r\n]/.test(text[next]!)) next += 1
+      if (text[next] === ':') {
+        out += `"${key}"`
+        index = end - 1
+        expectKey = false
+        continue
+      }
+      out += character
+      continue
+    }
+    if (!/[ \t\r\n]/.test(character)) expectKey = false
+    out += character
+  }
+  return out
 }

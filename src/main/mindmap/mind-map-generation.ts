@@ -24,6 +24,7 @@ import type { MindMapDocument } from '../../shared/mindmap/mind-map-types'
 import {
   parseMindMapProposalJson,
   salvageFirstParseableJsonRoot,
+  unwrapModelArgumentsEnvelope,
   type MindMapProposalScope,
   type MindMapProviderProposal
 } from '../../shared/mindmap/commands/mind-map-proposal'
@@ -173,6 +174,8 @@ export function parseMindMapOutput(raw: string): MindMapDocument {
       throw new MindMapGenerationError('invalid_output', '模型输出不是有效 JSON')
     }
   }
+  // Unwrap a provider double-encoding of the full document envelope.
+  parsed = unwrapModelArgumentsEnvelope(parsed).value
 
   const result = mindMapDocumentSchema.safeParse(parsed)
   if (!result.success) {

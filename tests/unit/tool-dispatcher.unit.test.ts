@@ -76,6 +76,18 @@ describe('strict tool argument parsing', () => {
     expect(() => parseToolArguments('not json')).toThrow(ToolArgumentParseError)
     expect(() => parseToolArguments('{')).toThrow(ToolArgumentParseError)
   })
+
+  it('repairs model JSON quirks: unquoted property names and trailing commas', () => {
+    expect(parseToolArguments('{path: "notes.md", offset: 0}')).toEqual({ path: 'notes.md', offset: 0 })
+    expect(parseToolArguments('{"items": [1, 2,], "tags": {"a": 1,}}')).toEqual({ items: [1, 2], tags: { a: 1 } })
+    expect(parseToolArguments('{ "nested" : { inner_key: "value", }, }')).toEqual({ nested: { inner_key: 'value' } })
+  })
+
+  it('still rejects input that cannot be conservatively repaired', () => {
+    expect(() => parseToolArguments('{path: notes.md}')).toThrow(ToolArgumentParseError)
+    expect(() => parseToolArguments('{"a": }')).toThrow(ToolArgumentParseError)
+    expect(() => parseToolArguments('{unterminated')).toThrow(ToolArgumentParseError)
+  })
 })
 
 describe('ToolDispatcher', () => {
