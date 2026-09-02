@@ -588,4 +588,100 @@ describe('structured-output compatibility fallback', () => {
     })
     expect(fetches).toBe(2)
   })
+
+  it('retries a reasoning-only non-JSON chat stream once with thinking disabled', async () => {
+    const requests: Record<string, unknown>[] = []
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      requests.push(body)
+      if (requests.length === 1) {
+        // DeepSeek Responses stream: thinking enabled, only reasoning, no tool call.
+        return sseResponse([
+          { type: 'response.reasoning_summary_text.delta', delta: 'private plan' },
+          {
+            type: 'response.completed',
+            response: { status: 'completed', usage: { input_tokens: 3, output_tokens: 5, total_tokens: 8 } }
+          }
+        ])
+      }
+      // Retry with thinking disabled: the non-streaming response carries the tool call.
+      return jsonResponse({
+        output: [{
+          type: 'function_call',
+          call_id: 'call_1',
+          name: 'submit_mind_map_document',
+          arguments: '{"schemaVersion":2,"title":"T","sheets":[]}'
+        }],
+        usage: { input_tokens: 2, output_tokens: 4, total_tokens: 6 }
+      })
+    }) as typeof fetch
+
+    const settings = settingsFor('deepseek-v4-flash-ga-260731', 'responses')
+    const reasoning: string[] = []
+    const result = await streamChatProvider({
+      settings,
+      provider: settings.provider.providers[0]!,
+      request: {
+        messages: [
+          { role: 'system', content: 'Return a mind map.' },
+          { role: 'user', content: '根据 notes.md 生成思维导图' }
+        ],
+        tools: [{
+          type: 'function',
+          function: {
+            name: 'submit_mind_map_document',
+            description: 'Submit the mind map document.',
+            parameters: { type: 'object', properties: {} }
+          }
+        }],
+        jsonMode: false
+      },
+      callbacks: { onReasoning: (delta) => reasoning.push(delta) }
+    })
+
+    expect(result.toolCalls).toHaveLength(1)
+    expect(result.toolCalls[0]!.function.name).toBe('submit_mind_map_document')
+    expect(reasoning).toEqual(['private plan'])
+    expect(requests).toHaveLength(2)
+    expect(requests[0]).toHaveProperty('reasoning')
+    expect(requests[1]).toMatchObject({ thinking: { type: 'disabled' } })
+    expect(requests[1]).not.toHaveProperty('reasoning')
+  })
+
+  it('stops after one reasoning-disabled retry when a non-JSON chat stream stays reasoning-only', async () => {
+    const requests: Record<string, unknown>[] = []
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      requests.push(body)
+      if (requests.length === 1) {
+        return sseResponse([
+          { type: 'response.reasoning_summary_text.delta', delta: 'private plan' },
+          { type: 'response.completed', response: { status: 'completed' } }
+        ])
+      }
+      return jsonResponse({
+        output_text: '',
+        output: [{ type: 'reasoning', summary: [{ type: 'summary_text', text: 'still private' }] }],
+        usage: { input_tokens: 2, output_tokens: 3, total_tokens: 5 }
+      })
+    }) as typeof fetch
+
+    const settings = settingsFor('deepseek-v4-flash-ga-260731', 'responses')
+    await expect(streamChatProvider({
+      settings,
+      provider: settings.provider.providers[0]!,
+      request: {
+        messages: [
+          { role: 'system', content: 'Return a mind map.' },
+          { role: 'user', content: '根据 notes.md 生成思维导图' }
+        ],
+        jsonMode: false
+      },
+      callbacks: {}
+    })).rejects.toMatchObject({ kind: 'parse', code: 'reasoning_only' })
+
+    expect(requests).toHaveLength(2)
+    expect(requests[0]).toHaveProperty('reasoning')
+    expect(requests[1]).toMatchObject({ thinking: { type: 'disabled' } })
+  })
 })

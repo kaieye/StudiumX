@@ -93,7 +93,7 @@ export async function callTextInvocation(opts: InvocationBase & {
     }))
     const text = extractText(format, parsed)
     if (!text) {
-      throw emptyProviderOutputError(format, parsed, 'Provider 响应未包含可用的文本内容。', opts.request.jsonMode)
+      throw emptyProviderOutputError(format, parsed, 'Provider 响应未包含可用的文本内容。')
     }
     return { text, usage: extractUsage(format, parsed) }
   }, fallbackState)
@@ -121,7 +121,7 @@ export async function streamTextInvocation(opts: InvocationBase & {
       const parsed = await response.json()
       const text = extractText(format, parsed)
       if (!text) {
-        throw emptyProviderOutputError(format, parsed, 'Provider 响应未包含可用的文本内容。', opts.request.jsonMode)
+        throw emptyProviderOutputError(format, parsed, 'Provider 响应未包含可用的文本内容。')
       }
       emitStreamingText(opts.callbacks, text)
       return { text, usage: extractUsage(format, parsed) }
@@ -138,7 +138,6 @@ export async function streamTextInvocation(opts: InvocationBase & {
         format,
         result,
         '流式响应未产生任何内容。',
-        opts.request.jsonMode,
         result.hadReasoning === true,
         result.usage
       )
@@ -209,8 +208,7 @@ export async function streamChatInvocation(opts: InvocationBase & {
         throw emptyProviderOutputError(
           format,
           parsed,
-          'Provider 响应未包含可用的文本内容或工具调用。',
-          opts.request.jsonMode === true
+          'Provider 响应未包含可用的文本内容或工具调用。'
         )
       }
       const finishReason = extractFinishReason(format, parsed)
@@ -238,7 +236,6 @@ export async function streamChatInvocation(opts: InvocationBase & {
         format,
         streamed,
         '流式响应未返回任何内容或工具调用。',
-        opts.request.jsonMode === true,
         streamed.hadReasoning === true,
         streamed.usage
       )
@@ -281,8 +278,12 @@ export async function streamChatInvocation(opts: InvocationBase & {
     }
     // Preserve the historical non-stream recovery for ordinary chat streams,
     // but do not turn a strict-JSON empty response into an unbounded retry.
-    if (error instanceof ProviderAdapterError && error.code === 'empty_output' && opts.request.jsonMode !== true) {
+    if (error instanceof ProviderAdapterError && opts.request.jsonMode !== true && (error.code === 'empty_output' || error.code === 'reasoning_only')) {
       if (!opts.signal?.aborted) {
+        // A reasoning-only stream means the provider burned the whole output budget on
+        // thinking (DeepSeek Responses etc.). Disable reasoning on the retry so it can
+        // actually produce content or a tool call instead of failing again.
+        if (error.code === 'reasoning_only') fallbackState.reasoningPolicy = 'disable'
         try {
           const fallback = await requestChatJson(opts, undefined, fallbackState)
           emitStreamingChat(opts.callbacks, fallback.result)
@@ -313,7 +314,7 @@ async function requestTextWithoutCallbacks(
   }))
   const text = extractText(format, parsed)
   if (!text) {
-    throw emptyProviderOutputError(format, parsed, 'Provider 响应未包含可用的文本内容。', opts.request.jsonMode)
+    throw emptyProviderOutputError(format, parsed, 'Provider 响应未包含可用的文本内容。')
   }
   return { text, usage: extractUsage(format, parsed) }
 }
@@ -344,8 +345,7 @@ async function requestChatJson(
       throw emptyProviderOutputError(
         format,
         parsed,
-        'Provider 响应未包含可用的文本内容或工具调用。',
-        opts.request.jsonMode === true
+        'Provider 响应未包含可用的文本内容或工具调用。'
       )
     }
     const finishReason = extractFinishReason(format, parsed)
@@ -504,7 +504,6 @@ function emptyProviderOutputError(
   format: Parameters<typeof hasReasoningContent>[0],
   body: unknown,
   message: string,
-  jsonMode: boolean,
   hadReasoningOverride?: boolean,
   usageOverride?: ProviderUsage
 ): ProviderAdapterError {
@@ -512,7 +511,7 @@ function emptyProviderOutputError(
   return new ProviderAdapterError(
     'parse',
     message,
-    jsonMode && hadReasoning ? 'reasoning_only' : 'empty_output',
+    hadReasoning ? 'reasoning_only' : 'empty_output',
     usageOverride ?? extractUsage(format, body)
   )
 }
