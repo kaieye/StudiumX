@@ -7771,10 +7771,33 @@
 }
 
 .mindmap-image-resize-handle {
-  fill: var(--surface-solid);
-  stroke: var(--mm-focus, #438EFF);
-  stroke-width: 1.5;
+  /* Resize affordances are hit regions only: the edge cursor is the hint,
+   * matching the free-shape and node resize patterns. No visible "button" is
+   * drawn so the image stays unobscured. */
+  fill: transparent;
+  stroke: none;
+  opacity: 0;
+  pointer-events: all;
+}
+
+.mindmap-image-resize-handle--nw,
+.mindmap-image-resize-handle--se {
   cursor: nwse-resize;
+}
+
+.mindmap-image-resize-handle--ne,
+.mindmap-image-resize-handle--sw {
+  cursor: nesw-resize;
+}
+
+.mindmap-image-resize-handle--n,
+.mindmap-image-resize-handle--s {
+  cursor: ns-resize;
+}
+
+.mindmap-image-resize-handle--e,
+.mindmap-image-resize-handle--w {
+  cursor: ew-resize;
 }
 
 .mindmap-image-delete-button {

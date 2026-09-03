@@ -59,6 +59,41 @@ function makeDocumentWithEditableDrawnShape(): MindMapDocumentV2 {
   return document
 }
 
+function makeDocumentWithRootNote(): MindMapDocumentV2 {
+  const document = makeDocument()
+  document.sheets[0]!.root.note = 'Root note content'
+  return document
+}
+
+function makeDocumentWithFreeImage(): MindMapDocumentV2 {
+  const document = makeDocument()
+  document.sheets[0]!.images = [{
+    id: 'image-1',
+    type: 'image',
+    assetId: 'asset-1',
+    width: 160,
+    height: 88,
+    position: { x: 300, y: 200 }
+  }]
+  document.assets = [{ id: 'asset-1', fileName: 'photo.png', mimeType: 'image/png' }]
+  return document
+}
+
+function makeDocumentWithAttachedImage(): MindMapDocumentV2 {
+  const document = makeDocument()
+  document.sheets[0]!.root.imagePlacement = 'bottom'
+  document.sheets[0]!.images = [{
+    id: 'image-1',
+    type: 'image',
+    assetId: 'asset-1',
+    width: 160,
+    height: 88,
+    topicId: 'root'
+  }]
+  document.assets = [{ id: 'asset-1', fileName: 'photo.png', mimeType: 'image/png' }]
+  return document
+}
+
 function renderCanvas(document = makeDocument()) {
   return render(
     <MindMapCanvas
@@ -2363,5 +2398,108 @@ describe('MindMapCanvas drawing tools', () => {
 
     expect(onUpdateShape).toHaveBeenCalledTimes(1)
     expect(onUpdateShape).toHaveBeenCalledWith('shape-1', { label: 'Keyboard label' })
+  })
+
+  it('uses invisible resize zones along every image edge and corner instead of a visible handle', () => {
+    const { container } = renderCanvas(makeDocumentWithFreeImage())
+    const image = screen.getByRole('button', { name: 'photo.png' })
+    fireEvent.pointerDown(image, { button: 0, pointerId: 7, clientX: 300, clientY: 200 })
+    fireEvent.pointerUp(container.querySelector('.mindmap-svg'), { pointerId: 7, clientX: 300, clientY: 200 })
+
+    const zones = [...container.querySelectorAll<SVGRectElement>('[data-mindmap-image-resize-edge]')]
+    expect(zones.map((zone) => zone.dataset.mindmapImageResizeEdge)).toEqual([
+      'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'
+    ])
+    for (const zone of zones) {
+      expect(zone).toHaveAttribute('fill', 'transparent')
+      expect(zone).toHaveAttribute('stroke', 'none')
+    }
+
+    // The old bottom-right "adjustment button" is gone: every resize element is
+    // an invisible hit region, never a filled/stroked control.
+    const handles = [...container.querySelectorAll<SVGRectElement>('.mindmap-image-resize-handle')]
+    expect(handles).toHaveLength(8)
+    expect(handles.some((handle) => handle.getAttribute('fill') !== 'transparent')).toBe(false)
+  })
+
+  it('resizes a selected free image from its north-west corner once and keeps the opposite edges fixed', () => {
+    const updateImage = vi.fn()
+    const originalUpdateImage = useMindMapViewStore.getState().updateImage
+    useMindMapViewStore.setState({ updateImage })
+
+    try {
+      const { container } = renderCanvas(makeDocumentWithFreeImage())
+      const svg = container.querySelector('.mindmap-svg')
+      const image = screen.getByRole('button', { name: 'photo.png' })
+      fireEvent.pointerDown(image, { button: 0, pointerId: 8, clientX: 300, clientY: 200 })
+      fireEvent.pointerUp(svg, { pointerId: 8, clientX: 300, clientY: 200 })
+
+      const northWest = container.querySelector<SVGRectElement>('[data-mindmap-image-resize-edge="nw"]')
+      if (!northWest) throw new Error('expected north-west image resize zone')
+      if (!svg) throw new Error('expected mind map svg')
+
+      fireEvent.pointerDown(northWest, { button: 0, pointerId: 9, clientX: 300, clientY: 200 })
+      fireEvent.pointerMove(svg, { pointerId: 9, clientX: 150, clientY: 100 })
+      expect(updateImage).not.toHaveBeenCalled()
+
+      fireEvent.pointerUp(svg, { pointerId: 9, clientX: 150, clientY: 100 })
+
+      expect(updateImage).toHaveBeenCalledTimes(1)
+      expect(updateImage).toHaveBeenCalledWith('image-1', {
+        width: 310,
+        height: 188,
+        position: { x: 150, y: 100 }
+      })
+    } finally {
+      useMindMapViewStore.setState({ updateImage: originalUpdateImage })
+    }
+  })
+
+  it('resizes an attached image by width/height only so its block keeps it centered', () => {
+    const updateImage = vi.fn()
+    const originalUpdateImage = useMindMapViewStore.getState().updateImage
+    useMindMapViewStore.setState({ updateImage })
+
+    try {
+      const { container } = renderCanvas(makeDocumentWithAttachedImage())
+      const svg = container.querySelector('.mindmap-svg')
+      const image = screen.getByRole('button', { name: 'photo.png' })
+      fireEvent.pointerDown(image, { button: 0, pointerId: 10, clientX: 300, clientY: 200 })
+      fireEvent.pointerUp(svg, { pointerId: 10, clientX: 300, clientY: 200 })
+
+      const southEast = container.querySelector<SVGRectElement>('[data-mindmap-image-resize-edge="se"]')
+      if (!southEast) throw new Error('expected south-east image resize zone')
+      if (!svg) throw new Error('expected mind map svg')
+
+      fireEvent.pointerDown(southEast, { button: 0, pointerId: 11, clientX: 460, clientY: 288 })
+      fireEvent.pointerMove(svg, { pointerId: 11, clientX: 520, clientY: 348 })
+      fireEvent.pointerUp(svg, { pointerId: 11, clientX: 520, clientY: 348 })
+
+      expect(updateImage).toHaveBeenCalledTimes(1)
+      expect(updateImage).toHaveBeenCalledWith('image-1', { width: 220, height: 148 })
+    } finally {
+      useMindMapViewStore.setState({ updateImage: originalUpdateImage })
+    }
+  })
+
+  it('keeps the note affordance clickable in read-only previews so notes stay viewable', () => {
+    const onOpenNote = vi.fn()
+    render(
+      <MindMapCanvas
+        document={makeDocumentWithRootNote()}
+        activeSheetIndex={0}
+        readOnly
+        onActiveSheetChange={() => undefined}
+        onOpenNote={onOpenNote}
+      />
+    )
+
+    const noteButton = screen.getByRole('button', { name: 'Notes: Root', exact: true })
+    fireEvent.pointerDown(noteButton, { button: 0, pointerId: 12, clientX: 100, clientY: 100 })
+    fireEvent.pointerUp(noteButton, { button: 0, pointerId: 12, clientX: 100, clientY: 100 })
+    fireEvent.click(noteButton, { button: 0 })
+
+    expect(onOpenNote).toHaveBeenCalledTimes(1)
+    expect(onOpenNote).toHaveBeenCalledWith('root')
   })
 })

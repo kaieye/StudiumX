@@ -49,6 +49,7 @@ describe('MindMapTopicPopover', () => {
       current: null,
       activeSheetId: null,
       selectedNodeId: null,
+      generationPreview: null,
       updateNode: useMindMapViewStore.getState().updateNode
     })
   })
@@ -91,6 +92,32 @@ describe('MindMapTopicPopover', () => {
 
     fireEvent.pointerDown(document.body)
     expect(onClose).toHaveBeenCalledTimes(2)
+  })
+
+  it('resolves the note from the AI preview document and stays read-only', () => {
+    const previewDocument: MindMapDocumentV2 = {
+      ...makeDocument(),
+      id: 'mind-map-notes-preview',
+      sheets: [{
+        ...makeDocument().sheets[0]!,
+        root: { ...makeDocument().sheets[0]!.root, note: 'Preview note content' }
+      }]
+    }
+    useMindMapViewStore.setState({
+      current: makeDocument(),
+      generationPreview: {
+        generationId: 'generation-1',
+        document: previewDocument,
+        revision: 3,
+        latestNodeIds: []
+      }
+    })
+
+    render(<MindMapTopicPopover nodeId="root" section="note" readOnly onClose={() => undefined} />)
+
+    const textbox = screen.getByRole('textbox', { name: 'Node note' })
+    expect(textbox).toHaveValue('Preview note content')
+    expect(textbox).toHaveAttribute('readonly')
   })
 
   it('does not treat the opening pointer event as an outside click', () => {

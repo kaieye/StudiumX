@@ -1267,9 +1267,10 @@ export function MindMapView() {
               onOpenNote={(nodeId) => setTopicPopover({ nodeId, section: 'note' })}
             />
             <MindMapTopicPopover
-              nodeId={previewReadOnly ? null : topicPopover?.nodeId ?? null}
+              nodeId={topicPopover?.nodeId ?? null}
               section={topicPopover?.section ?? 'note'}
               positionRevision={canvasViewportRevision}
+              readOnly={previewReadOnly}
               onClose={() => setTopicPopover(null)}
             />
             <div className="mindmap-sheet-dock">

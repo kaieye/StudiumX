@@ -16,6 +16,11 @@ type MindMapTopicPopoverProps = {
   section: MindMapTopicPopoverSection
   /** Incremented by the canvas when pan/zoom changes so the anchor follows the node. */
   positionRevision?: number
+  /**
+   * Open the card as a read-only viewer (AI generation previews). Note content
+   * is still resolved from the preview document so it is actually visible.
+   */
+  readOnly?: boolean
   onClose: () => void
 }
 
@@ -46,10 +51,12 @@ export function MindMapTopicPopover({
   nodeId,
   section,
   positionRevision = 0,
+  readOnly = false,
   onClose
 }: MindMapTopicPopoverProps) {
   const { t } = useTranslation()
   const current = useMindMapViewStore((state) => state.current)
+  const generationPreview = useMindMapViewStore((state) => state.generationPreview)
   const activeSheetId = useMindMapViewStore((state) => state.activeSheetId)
   const updateNode = useMindMapViewStore((state) => state.updateNode)
   const noteInputRef = useRef<HTMLTextAreaElement>(null)
@@ -58,7 +65,14 @@ export function MindMapTopicPopover({
   const outsideClickArmedRef = useRef(false)
   const allowImmediateOutsideClickRef = useRef(false)
 
-  const selectedTopic = findTopicForSheet(current, activeSheetId, nodeId)
+  // During an AI generation preview the canvas renders the preview document,
+  // so the note card must resolve topics from that same document (the
+  // canonical `current` does not contain proposal notes until applied).
+  const selectedTopic = findTopicForSheet(
+    generationPreview?.document ?? current,
+    activeSheetId,
+    nodeId
+  )
 
   const positionPopover = useCallback((): void => {
     const popover = popoverRef.current
@@ -195,7 +209,11 @@ export function MindMapTopicPopover({
           value={selectedTopic.note ?? ''}
           placeholder={t('mindmap.notesPopover.placeholder')}
           aria-label={t('mindmap.notesPopover.inputLabel')}
-          onChange={(event) => updateNode(selectedTopic.id, { note: event.currentTarget.value || null })}
+          readOnly={readOnly}
+          onChange={(event) => {
+            if (readOnly) return
+            updateNode(selectedTopic.id, { note: event.currentTarget.value || null })
+          }}
         />
       ) : section === 'markers' ? (
         <MindMapMarkersPanel />

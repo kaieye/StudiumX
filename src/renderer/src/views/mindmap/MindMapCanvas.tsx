@@ -19,7 +19,10 @@ import type {
   MindMapTextSpan,
   MindMapTopicV2
 } from '../../../../shared/mindmap/domain/types'
-import type { MindMapCommand } from '../../../../shared/mindmap/commands'
+import type {
+  MindMapCommand,
+  MindMapImageUpdatePatch
+} from '../../../../shared/mindmap/commands'
 import { classifyExternalDestination } from '../../../../shared/external-destination'
 import { hasTextSpans, normalizeTextSpans } from '../../../../shared/mindmap/text-spans'
 import { MARKER_DEFS } from './mind-map-marker-icons'
@@ -325,6 +328,13 @@ const MIND_MAP_SHAPE_RESIZE_HANDLES: readonly MindMapShapeResizeHandle[] = [
 ]
 /** Invisible hit-zone thickness for shape edge resizing (document pixels). */
 const MIND_MAP_SHAPE_RESIZE_EDGE_HIT_SIZE = 10
+/** Invisible hit-zone thickness for image edge resizing (document pixels). */
+const MIND_MAP_IMAGE_RESIZE_EDGE_HIT_SIZE = 10
+/** Minimum useful image size in document pixels (matches the shape editing floor). */
+const MIND_MAP_IMAGE_MINIMUM_SIZE = 24
+const MIND_MAP_IMAGE_RESIZE_HANDLES: readonly MindMapShapeResizeHandle[] = [
+  'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'
+]
 
 /**
  * Default visual properties for a free-drawn shape that carries no explicit
@@ -815,7 +825,7 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
   const toggleCollapse = useMindMapViewStore((s) => s.toggleCollapse)
   const selectImage = useMindMapViewStore((s) => s.selectImage)
   const moveImage = useMindMapViewStore((s) => s.moveImage)
-  const resizeImage = useMindMapViewStore((s) => s.resizeImage)
+  const updateImage = useMindMapViewStore((s) => s.updateImage)
   const dispatchCommand = useMindMapViewStore((s) => s.dispatchCommand)
 
   const sheetCount = document.sheets.length
@@ -848,11 +858,17 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
     /** The 4-region node we are currently hovering (for the drop highlight). */
     dropRegion: { topicId: string; region: MindMapImagePlacement } | null
   } | null>(null)
+  // Image resize follows the free-shape interaction pattern: a local preview
+  // tracks the pointer and one commit is issued on release, so dragging does
+  // not append an undo entry per pointermove. All eight bounding-box handles
+  // are supported; attached images stay centered in their topic block while
+  // free images keep the opposite edge anchored.
   const [imageResizeState, setImageResizeState] = useState<{
     imageId: string
+    handle: MindMapShapeResizeHandle
     startPointer: Vec2
-    startWidth: number
-    startHeight: number
+    startRect: MindMapDrawRect
+    currentRect: MindMapDrawRect
   } | null>(null)
   // Free-shape gestures are intentionally local previews. Like tldraw's
   // translating/resizing states, this avoids appending a history command for
@@ -2785,6 +2801,7 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
 
   const startImageResize = (
     imageId: string,
+    handle: MindMapShapeResizeHandle,
     event: ReactPointerEvent<SVGSVGElement | SVGGElement>
   ): void => {
     if (readOnly) return
@@ -2792,28 +2809,59 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
     event.preventDefault()
     const rect = imageRects.find((candidate) => candidate.id === imageId)
     selectImage(imageId)
+    const startRect: MindMapDrawRect = rect
+      ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+      : { x: 0, y: 0, width: MIND_MAP_IMAGE_MINIMUM_SIZE, height: MIND_MAP_IMAGE_MINIMUM_SIZE }
     setImageResizeState({
       imageId,
+      handle,
       startPointer: { x: event.clientX, y: event.clientY },
-      startWidth: rect?.width ?? 160,
-      startHeight: rect?.height ?? 88
+      startRect,
+      currentRect: startRect
     })
   }
 
   const updateImageResize = (event: ReactPointerEvent<SVGSVGElement>): void => {
     const resize = imageResizeState
     if (!resize) return
-    const dx = (event.clientX - resize.startPointer.x) / Math.max(zoom, 0.01)
-    const dy = (event.clientY - resize.startPointer.y) / Math.max(zoom, 0.01)
-    const nextWidth = Math.max(24, Math.round(resize.startWidth + dx))
-    const nextHeight = Math.max(24, Math.round(resize.startHeight + dy))
-    if (nextWidth !== resize.startWidth || nextHeight !== resize.startHeight) {
-      resizeImage(resize.imageId, nextWidth, nextHeight)
+    const delta = {
+      x: (event.clientX - resize.startPointer.x) / Math.max(zoom, 0.01),
+      y: (event.clientY - resize.startPointer.y) / Math.max(zoom, 0.01)
     }
+    const nextRect = resizeMindMapDrawRect(
+      resize.startRect,
+      resize.handle,
+      delta,
+      MIND_MAP_IMAGE_MINIMUM_SIZE
+    )
+    if (
+      nextRect.width === resize.currentRect.width &&
+      nextRect.height === resize.currentRect.height &&
+      nextRect.x === resize.currentRect.x &&
+      nextRect.y === resize.currentRect.y
+    ) {
+      return
+    }
+    setImageResizeState({ ...resize, currentRect: nextRect })
   }
 
   const endImageResize = (): void => {
+    const resize = imageResizeState
     setImageResizeState(null)
+    if (!resize || readOnly) return
+    const { imageId, startRect, currentRect } = resize
+    const width = Math.round(currentRect.width)
+    const height = Math.round(currentRect.height)
+    if (width === Math.round(startRect.width) && height === Math.round(startRect.height)) return
+    const image = sheet?.images?.find((candidate) => candidate.id === imageId)
+    const patch: MindMapImageUpdatePatch = { width, height }
+    // Attached images derive their x/y from the topic's image block (and stay
+    // centered when the size changes), so only free images persist the drag's
+    // opposite-edge-anchored position.
+    if (image && image.topicId === undefined && image.position !== undefined) {
+      patch.position = { x: Math.round(currentRect.x), y: Math.round(currentRect.y) }
+    }
+    updateImage(imageId, patch)
   }
 
   const deleteImage = (imageId: string): void => {
@@ -2832,10 +2880,27 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
     selectCanvas()
   }
 
-  const imageRects = useMemo(
-    () => computeImageRects(sheet, nodeById),
-    [sheet, nodeById]
-  )
+  const imageRects = useMemo(() => {
+    const rects = computeImageRects(sheet, nodeById)
+    const resize = imageResizeState
+    if (resize) {
+      const index = rects.findIndex((candidate) => candidate.id === resize.imageId)
+      if (index !== -1) {
+        const existing = rects[index]
+        const preview = resize.currentRect
+        rects[index] = {
+          ...existing,
+          width: preview.width,
+          height: preview.height,
+          // Attached images stay centered in their topic block (x/y is derived
+          // from the layout), so only free images carry the drag's
+          // opposite-edge-anchored x/y into the preview.
+          ...(existing.attached ? {} : { x: preview.x, y: preview.y })
+        }
+      }
+    }
+    return rects
+  }, [sheet, nodeById, imageResizeState])
 
   // Keep the live preview and persisted-line rendering on the same geometry
   // path. Bound endpoints recompute from current target bounds, so a line
@@ -4085,21 +4150,27 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
                       className={`mindmap-node-topic-action-group mindmap-node-note-button-group${action.kind === 'note' ? ' mindmap-note-indicator' : ''}`}
                       data-topic-action={action.kind}
                       role="button"
-                      tabIndex={readOnly ? -1 : 0}
-                      aria-disabled={readOnly || undefined}
+                      tabIndex={readOnly && action.kind !== 'note' ? -1 : 0}
+                      aria-disabled={readOnly && action.kind !== 'note' ? true : undefined}
                       aria-label={actionLabel}
                       onPointerDown={(event) => {
-                        if (readOnly) return
+                        // Keep the press from starting a node drag or marquee
+                        // even in read-only previews; only the editable path
+                        // prevents the default focus behaviour.
                         event.stopPropagation()
+                        if (readOnly) return
                         event.preventDefault()
                       }}
                       onClick={(event) => {
-                        if (readOnly) return
+                        // The note affordance stays viewable in read-only
+                        // previews (AI proposals): clicking it opens a
+                        // read-only note card instead of doing nothing.
+                        if (readOnly && action.kind !== 'note') return
                         event.stopPropagation()
                         action.onOpen?.(node.id)
                       }}
                       onKeyDown={(event) => {
-                        if (readOnly) return
+                        if (readOnly && action.kind !== 'note') return
                         if (event.key !== 'Enter' && event.key !== ' ') return
                         event.preventDefault()
                         event.stopPropagation()
@@ -4570,15 +4641,25 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, CanvasProps>(functi
                       rx={6}
                       pointerEvents="none"
                     />
-                    <rect
-                      className="mindmap-image-resize-handle"
-                      x={rect.x + rect.width - 9}
-                      y={rect.y + rect.height - 9}
-                      width={12}
-                      height={12}
-                      rx={3}
-                      onPointerDown={(event) => startImageResize(rect.id, event)}
-                    />
+                    {MIND_MAP_IMAGE_RESIZE_HANDLES.map((handle) => {
+                      const resizeHitSize = MIND_MAP_IMAGE_RESIZE_EDGE_HIT_SIZE / Math.max(zoom, 0.01)
+                      const hitRect = shapeResizeHitRect(rect, handle, resizeHitSize)
+                      return (
+                        <rect
+                          key={handle}
+                          className={`mindmap-image-resize-handle mindmap-image-resize-handle--${handle}`}
+                          data-mindmap-image-resize-handle={handle}
+                          data-mindmap-image-resize-edge={handle}
+                          x={hitRect.x}
+                          y={hitRect.y}
+                          width={hitRect.width}
+                          height={hitRect.height}
+                          fill="transparent"
+                          stroke="none"
+                          onPointerDown={(event) => startImageResize(rect.id, handle, event)}
+                        />
+                      )
+                    })}
                     <g
                       className="mindmap-image-delete-button"
                       role="button"
