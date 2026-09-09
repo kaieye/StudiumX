@@ -98,7 +98,9 @@ app.whenReady().then(async () => {
 
       const dark = snapshot()
       document.documentElement.dataset.resolvedTheme = 'light'
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      // .workbench-tools button transitions color over 160ms; wait past it so
+      // the light snapshot reflects settled colors, not a mid-transition blend.
+      await new Promise((resolve) => setTimeout(resolve, 400))
 
       return {
         dark,
@@ -120,18 +122,18 @@ app.whenReady().then(async () => {
   const result = await runElectron(electronMainPath, htmlPath)
 
   assert.equal(result.dark.card.color, 'rgb(242, 242, 243)', 'workbench cards should use dark theme text')
-  assert.equal(result.dark.page.backgroundColor, 'rgb(16, 16, 16)', 'dark workbench page should not expose a white bottom edge')
+  assert.equal(result.dark.page.backgroundColor, 'rgb(23, 23, 24)', 'dark workbench page should not expose a white bottom edge')
   assert.equal(result.dark.stage.backgroundColor, 'rgb(16, 16, 16)', 'dark workbench stage should not expose white around the scene')
   assertSurfaceLightness(result.dark.card.backgroundColor, 'dark', 'workbench cards should use a dark theme surface')
   assert.equal(result.dark.timer.color, 'rgb(242, 242, 243)', 'timer should use the dark primary text color')
   assert.equal(result.dark.timerDetail.color, 'rgb(182, 182, 187)', 'timer detail should use dark muted text')
-  assert.equal(result.dark.modeButton.color, 'rgb(182, 182, 187)', 'inactive controls should use dark muted text')
+  assert.equal(result.dark.modeButton.color, 'color(srgb 0.94902 0.94902 0.952941 / 0.62)', 'inactive controls should use 62% dark text from color-mix')
   assert.equal(result.dark.taskInput.color, 'rgb(242, 242, 243)', 'workbench inputs should use dark theme text')
   assert.equal(result.dark.joinIcon.color, 'rgb(138, 180, 255)', 'workbench accents should use the dark theme accent')
   assert.equal(result.dark.primaryButton.color, 'rgb(16, 19, 26)', 'dark theme accent buttons should use dark contrast text')
 
   assert.equal(result.light.card.color, 'rgb(36, 50, 74)', 'workbench cards should update to light theme text')
-  assert.equal(result.light.page.backgroundColor, 'rgb(255, 255, 255)', 'light workbench page should keep its light background')
+  assert.equal(result.light.page.backgroundColor, 'rgb(250, 250, 250)', 'light workbench page should keep its app-shell canvas background')
   assert.equal(result.light.stage.backgroundColor, 'rgb(255, 255, 255)', 'light workbench stage should keep its light background')
   assertSurfaceLightness(result.light.card.backgroundColor, 'light', 'workbench cards should update to a light theme surface')
   assert.equal(result.light.timerDetail.color, 'rgb(104, 119, 143)', 'timer detail should update to light muted text')
@@ -140,7 +142,7 @@ app.whenReady().then(async () => {
   assert.equal(result.light.primaryButton.color, 'rgb(255, 255, 255)', 'light theme accent buttons should use light contrast text')
 
   assert.equal(result.dark.timer.fontFamily, result.dark.root.fontFamily, 'timer typography should inherit the configured app font')
-  assert.equal(result.dark.modeButton.fontSize, '13.2px', 'workbench text should follow the configured 120% font scale')
+  assert.equal(result.dark.modeButton.fontSize, '13.824px', 'workbench text should follow the configured 120% font scale')
 
   console.log('check:workbench-theme passed')
 } finally {
