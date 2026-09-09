@@ -27,8 +27,10 @@ const [
   lessonStyleSample,
   workspace,
   workspaceLifecycle,
-  settings,
+  settingsSchema,
+  settingsService,
   ipcCommands,
+  workspaceIpcCommands,
   mainIndex,
   preload,
   app,
@@ -52,8 +54,10 @@ const [
   readFile('src/renderer/src/lesson-style-sample.ts', 'utf8'),
   readFile('src/main/teaching-workspace.ts', 'utf8'),
   readFile('src/main/teaching-workspace/lifecycle.ts', 'utf8'),
+  readFile('src/shared/teaching-settings-schema.ts', 'utf8'),
   readFile('src/main/teaching-settings.ts', 'utf8'),
   readFile('src/main/teaching-ipc-commands.ts', 'utf8'),
+  readFile('src/main/teaching-workspace-ipc-commands.ts', 'utf8'),
   readFile('src/main/index.ts', 'utf8'),
   readFile('src/preload/index.ts', 'utf8'),
   readFile('src/renderer/src/App.tsx', 'utf8'),
@@ -391,8 +395,8 @@ assert.match(
 
 assert.match(
   workspace,
-  /atomicWriteFile\(join\(workspace\.rootPath, 'assets', 'lesson\.css'\), lessonStyleCss\(styleId\)\)/,
-  'applyLessonStyle should overwrite assets/lesson.css with the selected theme'
+  /replaceDurably\(\{[\s\S]*?path: join\(workspace\.rootPath, 'assets', 'lesson\.css'\),\s*content: lessonStyleCss\(styleId\),/,
+  'applyLessonStyle should overwrite assets/lesson.css with the selected theme via a durable replace'
 )
 
 assert.match(
@@ -407,9 +411,15 @@ assert.ok(
 )
 
 assert.match(
-  settings,
+  settingsSchema,
   /lessonStyleId: normalizeLessonStyleId\(workspaceInput\.lessonStyleId\)/,
-  'settings normalization should validate workspace.lessonStyleId'
+  'shared settings schema normalization should validate workspace.lessonStyleId'
+)
+
+assert.match(
+  settingsService,
+  /normalizeTeachingSettings\(/,
+  'teaching settings service should delegate to the shared schema normalization'
 )
 
 assert.match(
@@ -420,8 +430,14 @@ assert.match(
 
 assert.match(
   mainIndex,
-  /ipcMain\.handle\(teachingInvokeChannels\.applyLessonStyle/,
-  'main process should register the teach:apply-lesson-style handler'
+  /registerTeachingIpcGateway\(/,
+  'main process should compose the teach:apply-lesson-style handler through the IPC gateway'
+)
+
+assert.match(
+  workspaceIpcCommands,
+  /command\(\{ channel: teachingInvokeChannels\.applyLessonStyle, parser: \(payload\) => parseApplyLessonStylePayload\(payload\), action: \(_event, payload\) => service\.applyLessonStyle\(payload\)/,
+  'workspace IPC command group should wire apply-lesson-style with its strict parser'
 )
 
 assert.match(
@@ -458,13 +474,13 @@ assert.match(
 
 assert.match(
   app,
-  /role="tab" aria-selected="true" className="is-active"[\s\S]*role="tab" aria-selected="false" disabled/,
-  'the resource home tabs should preserve the main tab semantics'
+  /className="resource-entry-card"[\s\S]*onClick=\{entry\.onOpen\}/,
+  'the resource home should render section entry cards that open each resource section'
 )
 
 assert.match(
   app,
-  /<Settings size=\{15\} \/>[\s\S]*<Palette size=\{22\} \/>[\s\S]*<SlidersHorizontal size=\{15\} \/>/,
+  /<SlidersHorizontal size=\{15\} \/>[\s\S]*<Palette size=\{22\} \/>/,
   'the resource home should preserve the main resource icon hierarchy'
 )
 
@@ -537,8 +553,14 @@ assert.match(
 
 assert.match(
   rendererSettings,
+  /createTeachingSettingsDefaults\(''\)/,
+  'renderer fallback settings should be built from the shared schema defaults'
+)
+
+assert.match(
+  settingsSchema,
   /lessonStyleId: DEFAULT_LESSON_STYLE_ID/,
-  'renderer fallback settings should include the default lesson style'
+  'shared schema defaults should include the default lesson style'
 )
 
 assert.match(css, /\.style-gallery \{/, 'styles.css should lay out the gallery')
