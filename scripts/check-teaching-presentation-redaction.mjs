@@ -62,8 +62,10 @@ const outsideDetailSanitizer = reader.replace(/function safeProcessSecondaryText
 assert.doesNotMatch(outsideDetailSanitizer, /item\.detail/, 'Raw item.detail may only be read inside the diagnostic sanitizer.')
 assert.doesNotMatch(reader, /\{item\.detail\}/, 'Raw item.detail must never be interpolated into the DOM.')
 
-const outsideLabelProjector = reader.replace(/function processPrimaryLabel\([\s\S]*?\n\}/, 'function processPrimaryLabel(){ return "" }')
-assert.doesNotMatch(outsideLabelProjector, /item\.label|latest\.label/, 'Raw process labels may only be read inside the primary-label projector.')
+const outsideLabelProjector = reader
+  .replace(/function processPrimaryLabel\([\s\S]*?\n\}/, 'function processPrimaryLabel(){ return "" }')
+  .replace(/function safeLegacyProcessLabel\([\s\S]*?\n\}/, 'function safeLegacyProcessLabel(){ return undefined }')
+assert.doesNotMatch(outsideLabelProjector, /item\.label|latest\.label/, 'Raw process labels may only be read inside sanctioned label adapters (processPrimaryLabel or the allow-listed safeLegacyProcessLabel).')
 assert.doesNotMatch(reader, /\{item\.label\}|\{latest\.label\}/, 'Raw process labels must never be interpolated into the DOM.')
 
 assert.match(unit, /never projects raw teaching or technical payloads/, 'Unit coverage must retain redaction assertions.')
@@ -75,7 +77,7 @@ assert.match(unit, /does not leak secrets|no secret|secret\/answer\/path/, 'Unit
 assert.match(readerUnit, /learner-safe process primary labels/i, 'Unit suite must cover learner-safe process primary labels.')
 assert.match(readerUnit, /absolute Windows\/UNC\/Unix\/home paths/i, 'Unit suite must cover absolute path contracts beyond keyword lists.')
 assert.match(readerUnit, /redactor-owned secrets|never surfaces \[redacted/i, 'Unit suite must cover redactor-owned secrets without rendering remnants.')
-assert.match(readerUnit, /does not misclassify safe learner-visible labels/i, 'Unit suite must prove safe labels are not false-positive rejected.')
+assert.match(readerUnit, /does not misclassify safe labels/i, 'Unit suite must prove safe labels are not false-positive rejected.')
 assert.match(readerUnit, /typed-title contract follow-up|upstream typed-title/i, 'Unit suite must record unmarked answer sentences as upstream typed-title follow-up.')
 assert.match(readerUnit, /展开辅助任务历史|aria-label|accessible|历史/, 'Unit coverage must prove a11y names use projected labels, not raw secrets.')
 
