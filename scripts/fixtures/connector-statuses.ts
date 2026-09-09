@@ -9,7 +9,6 @@ import type { TeachingSettingsV1 } from '../../src/shared/teaching-types'
 
 function settings(): TeachingSettingsV1 {
   const value = defaultSettings(join(tmpdir(), 'studiumx-connectors-fixture'))
-  value.tools.enabled = true
   value.tools.workspaceRead = true
   value.tools.webSearch = true
   value.tools.webFetch = true
@@ -59,7 +58,9 @@ async function main(): Promise<void> {
   assert.equal(byId.get('local_search')?.state, 'available')
 
   const value = settings()
-  value.tools.enabled = false
+  value.tools.workspaceRead = false
+  value.tools.webSearch = false
+  value.tools.webFetch = false
   const disabledResult = await buildConnectorStatuses(value, workspace, { probeCommand: probeOk })
   const disabledById = new Map(disabledResult.connectors.map((connector) => [connector.id, connector]))
   assert.equal(disabledById.get('workspace_files')?.state, 'disabled')
