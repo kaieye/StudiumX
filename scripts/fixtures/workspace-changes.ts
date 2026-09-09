@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { execFile as execFileCallback } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import {
@@ -165,7 +165,7 @@ try {
   await git(workspaceRoot, ['worktree', 'add', '-b', 'feature/checkpoint-worktree', linkedWorktreeRoot])
   const linkedBefore = await captureWorkspaceChangeSnapshot(linkedWorktreeRoot)
   assert.equal(linkedBefore.git.available, true, linkedBefore.git.message)
-  assert.equal(linkedBefore.git.repositoryRoot, resolve(linkedWorktreeRoot))
+  assert.equal(linkedBefore.git.repositoryRoot, await realpath(linkedWorktreeRoot))
   await writeFile(join(linkedWorktreeRoot, 'worktree-lesson.md'), '# Linked worktree lesson\n', 'utf8')
   const linkedSummary = await summarizeWorkspaceChanges({
     workspaceId: 'workspace-linked-worktree',
@@ -176,7 +176,7 @@ try {
     affectedPaths: ['worktree-lesson.md']
   })
   assert.ok(linkedSummary, linkedBefore.git.message)
-  assert.equal(linkedSummary.git.repositoryRoot, resolve(linkedWorktreeRoot))
+  assert.equal(linkedSummary.git.repositoryRoot, await realpath(linkedWorktreeRoot))
   assert.deepEqual(linkedSummary.changedFiles.map((file) => file.relativePath), ['worktree-lesson.md'])
 
   const nonGitRoot = join(tempRoot, 'non-git')
