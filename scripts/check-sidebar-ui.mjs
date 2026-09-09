@@ -63,8 +63,8 @@ assert.match(
 
 assert.match(
   app,
-  /const openImportLocation = useAppStore\(\(s\) => s\.openImportLocation\)/,
-  'import dialog should expose a system file manager action for managing folders'
+  /className="ghost-button import-dialog-choose-button"[\s\S]*onClick=\{\(\) => void onImportWorkspace\(\)\.then/,
+  'import dialog should expose a native folder picker for choosing the workspace folder'
 )
 
 assert.match(
@@ -111,8 +111,8 @@ assert.doesNotMatch(
 
 assert.match(
   app,
-  /itemKind === 'directory'\s*\?\s*t\('sidebar\.removeDialog\.kindFolder'\)/,
-  'folder removal dialog should label directory targets as folders'
+  /t\('sidebar\.removeDialog\.title', \{ name: itemName \}\)/,
+  'removal dialog should label the target by its name'
 )
 
 assert.doesNotMatch(
@@ -291,7 +291,7 @@ assert.doesNotMatch(
 
 assert.match(
   appRoot,
-  /<Sidebar \/>\s*<SidebarResizeHandle policy=\{sidebarResizePolicy\} onResize=\{setSidebarWidth\} width=\{sidebarWidth\} \/>\s*<MainArea \/>/,
+  /<Sidebar sessionPanelVisible=\{sessionPanelVisible\} \/>\s*<SidebarResizeHandle policy=\{sidebarResizePolicy\} onResize=\{setSidebarWidth\} width=\{sidebarWidth\} \/>\s*<MainArea \/>/,
   'the adjustable divider should live between the complete session pane and the conversation area'
 )
 
@@ -411,13 +411,13 @@ assert.doesNotMatch(
 
 assert.match(
   app,
-  /\{readingResourceHtml \? \(\s*<>\s*\{showInlineSidebarToggle && renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\}[\s\S]*className=\{`icon-button reader-preview-back\$\{isWindows \? ' reader-preview-back--alone' : ''\}`\}[\s\S]*onClick=\{closeResourceHtmlPreview\}/,
+  /\{readingResourceHtml \? \(\s*<>\s*\{showSessionPanelToggle && renderSidebarToggle\('icon-button reader-sidebar-toggle'\)\}[\s\S]*className=\{`icon-button reader-preview-back\$\{isWindows \? ' reader-preview-back--alone' : ''\}`\}[\s\S]*onClick=\{closeResourceHtmlPreview\}/,
   'resource HTML reader views should render the inline floating sidebar button only on platforms without chrome-level placement'
 )
 
 assert.match(
   app,
-  /\) : readingCourseHtml \|\| readingMarkdown \? \(\s*showInlineSidebarToggle \? renderSidebarToggle\('icon-button reader-sidebar-toggle'\) : null\s*\) : \(\s*<header className="topbar">/,
+  /\) : readingCourseHtml \|\| readingMarkdown \? \(\s*showSessionPanelToggle \? renderSidebarToggle\('icon-button reader-sidebar-toggle'\) : null\s*\) : \(\s*<DesktopTopbar/,
   'lesson HTML and Markdown reader views should keep the inline floating sidebar toggle only on platforms without chrome-level placement'
 )
 
@@ -513,8 +513,8 @@ assert.match(
 
 assert.match(
   css,
-  /\.workspace-node-row\.is-selected\.is-html-file,[\s\S]*\.workspace-node-row\.is-selected\.is-markdown-file,[\s\S]*\.workspace-node-row\.is-selected\.is-conversation \{[\s\S]*box-shadow:/,
-  'selected HTML files, Markdown documents, and course conversations should receive selected-row shadow styling'
+  /\.workspace-node-row\.is-selected\.is-html-file,[\s\S]*\.workspace-node-row\.is-selected\.is-markdown-file,[\s\S]*\.workspace-node-row\.is-selected\.is-conversation,[\s\S]*\.workspace-node-row\.is-selected\.is-workspace-folder,[\s\S]*\.workspace-node-row\.is-selected\.is-course-folder,[\s\S]*\.workspace-node-row\.is-selected\.is-content-folder \{[\s\S]*background: rgba\(20, 47, 95, 0\.09\);[\s\S]*box-shadow: none;/,
+  'selected HTML files, Markdown documents, and course conversations should share the neutral selected-row fill'
 )
 
 assert.doesNotMatch(
@@ -525,13 +525,13 @@ assert.doesNotMatch(
 
 assert.match(
   css,
-  /\.workspace-node-row\.is-workspace-folder,[\s\S]*\.workspace-node-row\.is-course-folder \{[\s\S]*box-shadow: none;/,
+  /\.workspace-node-row\.is-workspace-folder,[\s\S]*\.workspace-node-row\.is-course-folder,[\s\S]*\.workspace-node-row\.is-content-folder \{[\s\S]*box-shadow: none;/,
   'workspace and course folders should not have sidebar row shadows'
 )
 
 assert.match(
   css,
-  /\.workspace-conversation-row\.is-selected \{[\s\S]*background: rgb\(241, 243, 245\);[\s\S]*box-shadow: none;/,
+  /\.workspace-conversation-row\.is-selected \{[\s\S]*background: rgba\(20, 47, 95, 0\.09\);[\s\S]*box-shadow: none;/,
   'selected temporary conversations should use the current neutral selected-row treatment'
 )
 
