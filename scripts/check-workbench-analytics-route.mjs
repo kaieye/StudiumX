@@ -7,10 +7,12 @@ import {
   workbenchRouteParamValue
 } from '../src/renderer/src/views/workbench/workbenchRoute.ts'
 
-const [workbenchSource, routeSource, cssSource] = await Promise.all([
+const [workbenchSource, routeSource, cssSource, runtimeSource, tasksSource] = await Promise.all([
   readFile('src/renderer/src/views/workbench/OfficeWorkbench.tsx', 'utf8'),
   readFile('src/renderer/src/views/workbench/workbenchRoute.ts', 'utf8'),
-  readFile('src/renderer/src/views/workbench/workbench-analytics-entry.css', 'utf8')
+  readFile('src/renderer/src/views/workbench/workbench-analytics-entry.css', 'utf8'),
+  readFile('src/renderer/src/views/workbench/office-scene-runtime.ts', 'utf8'),
+  readFile('src/renderer/src/views/workbench/WorkbenchTasks.tsx', 'utf8')
 ])
 
 assert.equal(parseWorkbenchRoute(''), 'room')
@@ -95,22 +97,51 @@ assert.match(
 )
 assert.match(
   workbenchSource,
-  /const closeStudyAnalytics[\s\S]*restoreAnalyticsFabFocusRef\.current = true[\s\S]*navigateWorkbenchRoute\('room', 'replace'\)[\s\S]*setRoute\('room'\)/,
+  /const closeStudyAnalytics[\s\S]*restoreAnalyticsFocusRef\.current = true[\s\S]*setOpenTasksPanelForAnalytics\(true\)[\s\S]*navigateWorkbenchRoute\('room', 'replace'\)[\s\S]*setRoute\('room'\)/,
   'analytics back should canonicalize room locally even when history is unavailable'
 )
-assert.match(workbenchSource, /analyticsFabRef\.current\?\.focus\(\{ preventScroll: true \}\)/)
-assert.match(workbenchSource, /if \(route !== 'room'\) return[\s\S]*new ResizeObserver/)
-assert.match(workbenchSource, /if \(route !== 'room'\) return[\s\S]*canvas\.addEventListener\('pointermove'/)
-assert.match(workbenchSource, /if \(route !== 'room'\) return[\s\S]*requestAnimationFrame\(render\)/)
-assert.match(workbenchSource, /<WorkbenchAnalyticsPage onBack=\{closeStudyAnalytics\} \/>/)
-assert.match(workbenchSource, /ChartColumn[\s\S]*aria-label="打开学习分析"[\s\S]*学习分析/)
+assert.match(workbenchSource, /analyticsButtonRef\.current\?\.focus\(\{ preventScroll: true \}\)/)
+assert.match(
+  workbenchSource,
+  /if \(route !== 'room'\) return[\s\S]*createOfficeSceneRuntime\(\{[\s\S]*runtime\.mount\(\)[\s\S]*runtime\.update\(seatState\)[\s\S]*runtime\.dispose\(\)/,
+  'room scene should mount through the runtime only while route is room and dispose on leave'
+)
+assert.match(
+  runtimeSource,
+  /new ResizeObserver\(updateCanvasSize\)[\s\S]*resizeObserver\.observe\(stage\)/,
+  'scene runtime should observe stage size changes while mounted'
+)
+assert.match(
+  runtimeSource,
+  /animationFrame = requestAnimationFrame\(/,
+  'scene runtime should drive canvas renders through requestAnimationFrame'
+)
+assert.doesNotMatch(
+  runtimeSource,
+  /addEventListener\('pointermove'/,
+  'scene runtime has no inline canvas pointermove listener contract'
+)
+assert.match(
+  workbenchSource,
+  /<WorkbenchAnalyticsPage[\s\S]*?onBack=\{closeStudyAnalytics\}/,
+  'analytics page should be wired to closeStudyAnalytics back handler'
+)
+assert.match(
+  tasksSource,
+  /aria-label="打开学习分析"[\s\S]*<ChartColumn[\s\S]*<span>学习分析<\/span>/,
+  'analytics entry button should remain discoverable in the task panel'
+)
+assert.match(
+  workbenchSource,
+  /<WorkbenchTasks[\s\S]*onOpenAnalytics=\{openStudyAnalytics\}/,
+  'task panel should be wired to openStudyAnalytics'
+)
 
-assert.match(cssSource, /\.workbench-analytics-fab \{[\s\S]*min-height: 44px/)
-assert.match(cssSource, /\.workbench-analytics-fab:active \{[\s\S]*scale\(0\.97\)/)
-assert.match(cssSource, /\.workbench-analytics-fab:focus-visible/)
+assert.match(cssSource, /\.workbench-analytics-back \{[\s\S]*min-height: 44px/)
+assert.match(cssSource, /\.workbench-analytics-back:active \{[\s\S]*scale\(var\(--lg-press-scale, 0\.97\)\)/)
+assert.match(cssSource, /\.workbench-analytics-back:focus-visible/)
 assert.match(cssSource, /-webkit-app-region: no-drag/)
 assert.match(cssSource, /@media \(prefers-reduced-motion: reduce\)/)
 assert.match(cssSource, /@media \(prefers-reduced-transparency: reduce\)/)
-assert.match(cssSource, /:root\[data-resolved-theme='dark'\] \.workbench-analytics-fab/)
 
 console.log('workbench analytics route checks passed')
