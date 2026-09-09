@@ -45,8 +45,8 @@ for (const [index, manifestSource] of manifestSources.entries()) {
 assert.match(source, /PET_CATALOG\.map\(\(pet\) =>/, 'the pet resource page should render the bundled pet catalog')
 assert.match(
   source,
-  /updateSettings\(\{ pet: \{ appearance: pet\.id \} \}\)/,
-  'selecting a pet should persist its appearance id'
+  /updateSettings\(\{ pet: \{ appearance: pet\.id, displayName: nextDisplayName \} \}\)/,
+  'selecting a pet should persist its appearance id and follow-on display name'
 )
 assert.match(
   source,
@@ -117,8 +117,8 @@ assert.match(rendererSettingsSource, /emptySettings = createTeachingSettingsDefa
 assert.match(rendererSettingsSource, /normalizeRendererSettings[\s\S]*normalizeTeachingSettings/, 'renderer settings should normalize stale appearances through the shared schema')
 assert.match(
   appSource,
-  /resource-installed-icon--pets[\s\S]*?<PetSprite appearance=\{petAppearance\}[\s\S]*?state="idle"/,
-  'the installed resource shortcut should show the selected pet'
+  /icon: 'pets' as const,\s*onOpen: onOpenPets/,
+  'the resource home should expose a pets entry card that opens the pet library'
 )
 assert.match(
   appSource,
