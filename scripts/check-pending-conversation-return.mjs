@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
 const app = await readFile('src/renderer/src/App.tsx', 'utf8')
+const navigator = await readFile('src/renderer/src/app-shell/teaching-workspace-navigator.tsx', 'utf8')
 const appStore = await readFile('src/renderer/src/app-shell/appStore.ts', 'utf8')
 const stateModule = await readFile('src/renderer/src/agent-conversation-state.ts', 'utf8')
 const projectionModule = await readFile('src/renderer/src/agent-conversation-projection.ts', 'utf8')
@@ -47,8 +48,8 @@ assert.match(
 )
 
 assert.match(
-  app,
-  /conversation\.pending\s*\?\s*restorePendingAgentConversation\(\)\s*:\s*void loadAgentConversation\(conversation\.id,\s*conversation\.workspaceId\)/,
+  navigator,
+  /conversation\.pending \? onRestorePendingAgentConversation\(\) : void onLoadAgentConversation\(conversation\.id, conversation\.workspaceId, 'temporary'\)/,
   'clicking the pending sidebar row should restore local streaming turns instead of reading from disk'
 )
 
