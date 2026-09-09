@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { defaultSettings } from '../../src/main/teaching-settings'
+import { SkillLibraryService } from '../../src/main/skill-library'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 
 let tempRoot = ''
@@ -14,10 +16,17 @@ try {
   const settings = defaultSettings(defaultRoot)
   settings.provider.providers = settings.provider.providers.map((provider) => ({ ...provider, apiKey: '' }))
 
+  const skillLibraryService = new SkillLibraryService({
+    builtInRoots: [join(process.cwd(), 'resources', 'builtin-skills')],
+    personalRoot: join(tempRoot, '.studiumx', 'skills')
+  })
+  await skillLibraryService.installSkill('teach')
+
   const service = new TeachingWorkspaceService({
     registryPath: join(tempRoot, 'user-data', 'studiumx-workspaces.json'),
     defaultRoot,
-    settingsProvider: async () => settings
+    settingsProvider: async () => settings,
+    skillLibraryService
   })
 
   const state = await service.createWorkspace({ name: 'learn', prompt: '学习目标、可信资源、课程讲义和复习记录沉淀为本地文件。' })
@@ -29,6 +38,7 @@ try {
 
   const result = await service.generateLesson({
     workspaceId: workspace.id,
+    actionId: randomUUID(),
     prompt: '我只需要了解一下概念就行了',
     messages: [
       { role: 'user', content: '我想学习springboot' },
@@ -50,6 +60,7 @@ try {
 
   const customCourse = await service.generateLesson({
     workspaceId: workspace.id,
+    actionId: randomUUID(),
     prompt: '继续学习 Spring Boot 配置',
     courseName: 'Spring Boot Track',
     messages: []
