@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -22,6 +22,13 @@ const states = [
 const appearances = ['boba', 'lulu-capybara', 'shinchan', 'usagi']
 const port = await availablePort()
 const userDataPath = await mkdtemp(join(tmpdir(), 'studiumx-pet-animation-'))
+// The pet companion is opt-in, so a fresh profile hides the mascot. Seed
+// settings to enable it before launching the built renderer.
+await writeFile(
+  join(userDataPath, 'studiumx-settings.json'),
+  JSON.stringify({ pet: { enabled: true } }, null, 2) + '\n',
+  { mode: 0o600 }
+)
 const child = spawn(electronPath, [
   `--remote-debugging-port=${port}`,
   `--user-data-dir=${userDataPath}`,
@@ -66,14 +73,24 @@ try {
         }
         throw new Error('Timed out waiting for button text: ' + labels.join(', '))
       }
+      const waitForEntryCard = async (labels, timeout = 5000) => {
+        const deadline = Date.now() + timeout
+        while (Date.now() < deadline) {
+          const button = [...document.querySelectorAll('button.resource-entry-card')]
+            .find((candidate) => labels.some((label) => candidate.innerText.includes(label)))
+          if (button) return button
+          await wait(100)
+        }
+        throw new Error('Timed out waiting for resource entry card: ' + labels.join(', '))
+      }
       const mascot = await waitFor('.app-pet-mascot')
       mascot.click()
       const assistantOpened = Boolean(await waitFor('#pet-assistant-dialog'))
 
       const resourceButton = await waitForButtonText(['资源', 'Resources'])
       resourceButton.click()
-      const petButton = await waitFor('button[aria-label="宠物"], button[aria-label="Pet"]')
-      petButton.click()
+      const petCard = await waitForEntryCard(['宠物', 'Pet'])
+      petCard.click()
       await waitFor('.pet-preview-controls')
 
       const controls = [...document.querySelectorAll('.pet-preview-controls button')]
