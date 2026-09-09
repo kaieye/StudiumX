@@ -1,8 +1,9 @@
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { isPathInsideRoot } from './path-access'
+import { isRealPathInsideRoot } from './path-access'
 import {
   GIT_BRANCH_TIMEOUT_MS,
+  canonicalizeGitPath,
   classifyGitRepositoryFailure,
   openTeachingGitRepository,
   sameGitPath,
@@ -55,7 +56,11 @@ export async function listGitWorktreesForWorkspace(
         branch: worktree.branch,
         head: worktree.head,
         isPrimary: sameGitPath(worktree.path, primaryWorktreePath),
-        isManaged: isPathInsideRoot(worktreeRoot, worktree.path),
+        // Git reports worktree paths through their resolved (realpath) form,
+        // while the configured root is user-supplied and may be a symlink
+        // alias (e.g. /var -> /private/var on macOS). Compare on resolved
+        // paths so managed detection does not silently miss real worktrees.
+        isManaged: await isRealPathInsideRoot(worktreeRoot, worktree.path),
         createdAt: await readCreatedAt(worktree.path)
       }))
     )
@@ -79,7 +84,8 @@ export async function removeGitWorktreeForWorkspace(input: {
   try {
     const listed = await listGitWorktreesForWorkspace(input.workspaceRoot, input.worktreeRoot)
     if (!listed.ok) return { ok: false, message: listed.message }
-    const target = listed.worktrees.find((worktree) => sameGitPath(worktree.path, input.worktreePath))
+    const canonicalWorktreePath = await canonicalizeGitPath(input.worktreePath).catch(() => resolve(input.worktreePath))
+    const target = listed.worktrees.find((worktree) => sameGitPath(worktree.path, canonicalWorktreePath))
     if (!target) {
       return { ok: false, message: 'Worktree not found.' }
     }

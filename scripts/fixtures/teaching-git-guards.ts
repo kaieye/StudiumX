@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile as execFileCallback } from 'node:child_process'
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -122,12 +122,13 @@ try {
   await git(workspaceRoot, ['worktree', 'add', '-b', 'feature/managed-worktree', managedWorktreePath])
   const worktreeBranches = await getGitBranchesForWorkspace(managedWorktreePath)
   assert.equal(worktreeBranches.ok, true, 'linked worktrees should retain their own canonical repository root')
-  assert.equal(worktreeBranches.ok && worktreeBranches.repositoryRoot, resolve(managedWorktreePath))
-  assert.equal(worktreeBranches.ok && worktreeBranches.primaryRepositoryRoot, resolve(workspaceRoot))
+  assert.equal(worktreeBranches.ok && worktreeBranches.repositoryRoot, await realpath(managedWorktreePath))
+  assert.equal(worktreeBranches.ok && worktreeBranches.primaryRepositoryRoot, await realpath(workspaceRoot))
 
   const worktreeList = await listGitWorktreesForWorkspace(workspaceRoot, managedWorktreeRoot)
   assert.equal(worktreeList.ok, true)
-  const managedWorktree = worktreeList.ok && worktreeList.worktrees.find((row) => row.path === resolve(managedWorktreePath))
+  const canonicalManagedWorktreePath = await realpath(managedWorktreePath)
+  const managedWorktree = worktreeList.ok && worktreeList.worktrees.find((row) => row.path === canonicalManagedWorktreePath)
   assert.ok(managedWorktree?.isManaged)
   assert.equal(managedWorktree?.isPrimary, false)
 
