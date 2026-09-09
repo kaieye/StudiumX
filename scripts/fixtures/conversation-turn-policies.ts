@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 import { buildMemoryConsentPrompt } from '../../src/shared/teaching-memory-capture'
 import { createLessonToolLifecycle } from '../../src/main/teaching-conversation-lesson-tool'
 import { resolveDirectMemoryConsent } from '../../src/main/teaching-conversation-memory'
-import { buildAgentChatSystemPrompt } from '../../src/main/teaching-conversation-prompt'
+import { buildAgentChatSystemPrompt, composeTeachingUserTurn } from '../../src/main/teaching-conversation-prompt'
 import { deriveConversationTurnContext } from '../../src/main/teaching-conversation-turn-context'
 
-const workspace = { rootPath: 'C:/workspace' }
+const workspace = { rootPath: 'C:/workspace', workspaceToolAccessGranted: true }
 const temporary = deriveConversationTurnContext({
   mode: 'temporary',
   workspace,
@@ -28,6 +28,16 @@ const teaching = deriveConversationTurnContext({
 assert.equal(teaching.workspaceRoot, workspace.rootPath)
 assert.equal(teaching.workspaceToolsEnabled, true)
 assert.equal(teaching.lessonToolEnabled, true)
+
+const teachingWithoutTrust = deriveConversationTurnContext({
+  mode: 'teaching',
+  workspace: { rootPath: 'C:/workspace' },
+  toolsEnabled: true,
+  hasLessonGenerator: true
+})
+assert.equal(teachingWithoutTrust.workspaceRoot, undefined, 'teaching mode without an explicit trust grant must not bind workspace file tools')
+assert.equal(teachingWithoutTrust.workspaceToolsEnabled, false)
+assert.equal(teachingWithoutTrust.lessonToolEnabled, true, 'lesson generation stays gated on teaching mode, not on file-tool trust')
 
 const candidate = {
   content: '学习者画像（背景/场景）：用户是高中生，准备两周内掌握函数概念。',
@@ -92,15 +102,24 @@ await assert.rejects(() => failedEntries[0]!.handler(validBrief), /本轮不要�
 await assert.rejects(() => failedEntries[0]!.handler(validBrief), /已经尝试 generate_lesson 且失败/)
 assert.equal(failedAttempts, 1, 'a failed lesson pipeline must not be retried within the same turn')
 
-const temporaryPrompt = buildAgentChatSystemPrompt({
+const temporarySystemPrompt = buildAgentChatSystemPrompt({
   mode: 'temporary',
   lessonToolEnabled: false,
+  skillReferences: []
+})
+assert.match(temporarySystemPrompt, /你是 StudiumX 的临时会话助手/)
+assert.doesNotMatch(temporarySystemPrompt, /你是 StudiumX 的教学助手/)
+assert.doesNotMatch(temporarySystemPrompt, /当前是临时会话/, 'turn-varying temporary context must stay out of the stable system prefix')
+
+const temporaryUserTurn = composeTeachingUserTurn({
+  mode: 'temporary',
   skillReferences: [],
   temporaryContext: { learnerProfiles: ['高中生'], courses: [{ name: '函数入门', lessonCount: 2, sessionCount: 1 }] },
   visiblePageContext: '当前页面是函数课程概览。'
 })
-assert.match(temporaryPrompt, /当前是临时会话/)
-assert.match(temporaryPrompt, /当前页面是函数课程概览/)
-assert.doesNotMatch(temporaryPrompt, /你是 StudiumX 的教学助手/)
+assert.match(temporaryUserTurn, /<temporary-chat-context>/)
+assert.match(temporaryUserTurn, /当前是临时会话/)
+assert.match(temporaryUserTurn, /当前页面是函数课程概览/)
+assert.doesNotMatch(temporaryUserTurn, /你是 StudiumX 的教学助手/)
 
 console.log('conversation turn policy checks ok')
