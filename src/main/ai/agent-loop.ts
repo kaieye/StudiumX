@@ -17,6 +17,7 @@ import {
   type ContextCompactionOptions,
   type RequestContextProjectionTrace
 } from './request-context-projection'
+import type { ContextWindowEstimateSource } from './context-compactor'
 import type { ToolHandlerMap, ToolRuntimeEvent } from './tools/registry'
 import type { ToolExecutionResult } from './tools/execution'
 import { executeToolBatch } from './tools/batch-dispatch'
@@ -72,6 +73,28 @@ class ContextUnrecoverableError extends Error {
     super(CONTEXT_UNRECOVERABLE_MESSAGE)
     this.name = 'ContextUnrecoverableError'
   }
+}
+
+/**
+ * True when a request projection is known to exceed the effective context
+ * window. Only provider-advertised windows (configured, catalog, or a
+ * model-name hint) are authoritative for a pre-dispatch fail-closed decision.
+ * The conservative default is an estimation floor for unknown models, not an
+ * advertised constraint: failing on it while also reserving the full max-output
+ * ceiling would make tool use impossible for every unknown/custom provider.
+ * For that source the provider itself is the authority — an overflow surfaces
+ * through provider recovery, one forced compaction retry, then
+ * context_unrecoverable.
+ */
+function projectionExceedsWindow(projection: {
+  estimatedTokens: number
+  contextWindowTokens: number
+  contextWindowSource: ContextWindowEstimateSource
+}): boolean {
+  return (
+    projection.contextWindowSource !== 'conservative_default' &&
+    projection.estimatedTokens >= projection.contextWindowTokens
+  )
 }
 
 export type AgentLoopDiagnostic = {
@@ -275,6 +298,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       messages: ChatMessage[]
       estimatedTokens: number
       contextWindowTokens: number
+      contextWindowSource: ContextWindowEstimateSource
     }>
     invoke: (messages: ChatMessage[]) => Promise<T>
   }): Promise<T> => {
@@ -282,7 +306,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
     let overflowRecoveryAttempted = false
     for (;;) {
       const projection = await input.prepare(overflowRecoveryAttempted)
-      if (projection.estimatedTokens >= projection.contextWindowTokens) {
+      if (projectionExceedsWindow(projection)) {
         throw new ContextUnrecoverableError()
       }
       try {
@@ -421,8 +445,10 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<RunAgentL
       })
       // Never dispatch a request whose final projection is already known not to
       // fit the advertised context window. This applies to normal sends as well
-      // as the one forced overflow-recovery compaction attempt.
-      if (projection.estimatedTokens >= projection.contextWindowTokens) {
+      // as the one forced overflow-recovery compaction attempt. Unknown models
+      // have no advertised window (conservative_default), so their provider is
+      // the authority on fit; dispatch and let overflow recovery decide.
+      if (projectionExceedsWindow(projection)) {
         return execution.failed(
           transcript,
           true,

@@ -88,6 +88,77 @@ describe('runAgentLoop ADR-0010 context governance', () => {
     expect(fetchCalls).toBe(0)
   })
 
+  it('dispatches to the provider when only the conservative default window is exceeded', async () => {
+    let fetchCalls = 0
+    let estimate: { totalTokens: number } | undefined
+    globalThis.fetch = (async () => {
+      fetchCalls += 1
+      return jsonResponse({ choices: [{ message: { role: 'assistant', content: 'accepted by provider' } }] })
+    }) as typeof fetch
+
+    const unknownSettings = settings()
+    unknownSettings.generator.model = 'fake-chat-model'
+    unknownSettings.generator.maxOutputTokens = 12_800
+    const unknownProvider: TeachingModelProviderProfile = {
+      ...provider(),
+      id: 'custom-unknown',
+      baseUrl: 'https://unknown.example/v1',
+      models: ['fake-chat-model']
+    }
+
+    const result = await runAgentLoop({
+      settings: unknownSettings,
+      provider: unknownProvider,
+      // Message tokens plus the 12.8k output reserve exceed the 16k conservative
+      // fallback, but that window is only an estimate for an unknown model — the
+      // provider must decide whether the request fits, not a pre-dispatch guess.
+      messages: [{ role: 'user', content: 'x'.repeat(12_000) }],
+      tools: [],
+      toolHandlers: {},
+      callbacks: {
+        onEvent: (event) => {
+          if (event.type === 'context_estimated') estimate = event.estimate
+        }
+      }
+    })
+
+    expect(estimate?.totalTokens).toBeGreaterThanOrEqual(16_000)
+    expect(result.stopReason).toBe('final_answer')
+    expect(result.finalText).toBe('accepted by provider')
+    expect(fetchCalls).toBe(1)
+  })
+
+  it('lets a real provider overflow fail closed under the conservative default', async () => {
+    let fetchCalls = 0
+    globalThis.fetch = (async () => {
+      fetchCalls += 1
+      return contextOverflowResponse()
+    }) as typeof fetch
+
+    const unknownSettings = settings()
+    unknownSettings.generator.model = 'fake-chat-model'
+    const unknownProvider: TeachingModelProviderProfile = {
+      ...provider(),
+      id: 'custom-unknown',
+      baseUrl: 'https://unknown.example/v1',
+      models: ['fake-chat-model']
+    }
+
+    const result = await runAgentLoop({
+      settings: unknownSettings,
+      provider: unknownProvider,
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [],
+      toolHandlers: {}
+    })
+
+    // The conservative window never pre-empts dispatch; the provider's own
+    // overflow governs: one normal send plus one forced compaction retry, then
+    // context_unrecoverable rather than an unbounded loop.
+    expect(result.stopReason).toBe('context_unrecoverable')
+    expect(fetchCalls).toBe(2)
+  })
+
   it('uses the catalog-capped output ceiling for request fit and the serialized provider request', async () => {
     const requestBodies: Array<Record<string, unknown>> = []
     const outputReserves: number[] = []
