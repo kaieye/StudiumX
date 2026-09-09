@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const [app, workbench, leaderboard, css] = await Promise.all([
+const [app, workbench, leaderboard, shellCss, cardsCss, scheduleCss, immersiveCss, timerCss] = await Promise.all([
   readFile('src/renderer/src/App.tsx', 'utf8'),
   readFile('src/renderer/src/views/workbench/OfficeWorkbench.tsx', 'utf8'),
   readFile('src/renderer/src/views/workbench/WorkbenchLeaderboard.tsx', 'utf8'),
-  readFile('src/renderer/src/views/workbench/office-workbench.css', 'utf8')
+  readFile('src/renderer/src/views/workbench/office-workbench-css/office-workbench-shell.css', 'utf8'),
+  readFile('src/renderer/src/views/workbench/office-workbench-css/office-workbench-cards.css', 'utf8'),
+  readFile('src/renderer/src/views/workbench/office-workbench-css/office-workbench-schedule.css', 'utf8'),
+  readFile('src/renderer/src/views/workbench/office-workbench-css/office-workbench-immersive.css', 'utf8'),
+  readFile('src/renderer/src/views/workbench/office-workbench-css/office-workbench-timer.css', 'utf8')
 ])
+
+// office-workbench.css is a thin aggregator; the cascade lives in its partials.
+const finalCss = [shellCss, cardsCss, scheduleCss, immersiveCss, timerCss].join('\n')
 
 assert.doesNotMatch(app, /StudySpace|view === 'studio'|id: 'studio'/, 'app should no longer expose the old study space page')
 
@@ -30,7 +37,7 @@ assert.match(
 
 assert.match(
   workbench,
-  /<WorkbenchLeaderboard[\s\S]*members=\{viewModel\.roomMembers\}[\s\S]*presenceStatus=\{presence\.status\}[\s\S]*spaceCode=\{snapshot\.spaceCode\}[\s\S]*\/>/,
+  /<WorkbenchLeaderboard[\s\S]*members=\{leaderboardMembers\}[\s\S]*presenceStatus=\{presence\.status\}[\s\S]*spaceCode=\{snapshot\.spaceCode\}[\s\S]*\/>/,
   'workbench should pass the live heartbeat status and room code into the leaderboard'
 )
 
@@ -52,7 +59,7 @@ assert.doesNotMatch(
   'removed study space page should no longer render heartbeat-specific UI'
 )
 
-assert.match(css, /\.workbench-heartbeat-dot \{/, 'workbench heartbeat dot should have dedicated styling')
-assert.doesNotMatch(css, /workbench-presence-card|workbench-presence-proof/, 'old expanded heartbeat panel styles should be removed')
+assert.match(finalCss, /\.workbench-heartbeat-dot \{/, 'workbench heartbeat dot should have dedicated styling')
+assert.doesNotMatch(finalCss, /workbench-presence-card|workbench-presence-proof/, 'old expanded heartbeat panel styles should be removed')
 
 console.log('workbench presence checks passed')
