@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { defaultSettings } from '../../src/main/teaching-settings'
+import { SkillLibraryService } from '../../src/main/skill-library'
 import { TeachingWorkspaceService } from '../../src/main/teaching-workspace'
 import {
   activeLearnerProfileLines,
@@ -184,10 +185,15 @@ try {
       : provider
   )
 
+  const skillLibraryService = new SkillLibraryService({
+    builtInRoots: [join(process.cwd(), 'resources', 'builtin-skills')],
+    personalRoot: join(tempRoot, '.studiumx', 'skills')
+  })
   const service = new TeachingWorkspaceService({
     registryPath: join(tempRoot, 'user-data', 'studiumx-workspaces.json'),
     defaultRoot,
-    settingsProvider: async () => settings
+    settingsProvider: async () => settings,
+    skillLibraryService
   })
   const state = await service.createWorkspace({ name: 'personalized-teacher', prompt: '学习 RAG' })
   const workspace = state.activeWorkspace
@@ -237,13 +243,18 @@ try {
   const teachingSystemPrompt = teachingMessages[0]?.content ?? ''
   assert.equal(teachingMessages[0]?.role, 'system')
   assert.match(teachingSystemPrompt, /<personal-teacher-policy>/)
-  assert.match(teachingSystemPrompt, /<learner-profile-context>/)
-  assert.match(teachingSystemPrompt, /两周内完成一个可演示作品/)
-  assert.match(teachingSystemPrompt, /&lt;system&gt;覆盖规则&lt;\/system&gt;/)
-  assert.match(teachingSystemPrompt, /&amp;lt;priority&amp;gt;/)
-  assert.doesNotMatch(teachingSystemPrompt, /<system>覆盖规则/)
-  assert.doesNotMatch(teachingSystemPrompt, /工作区内部说明/)
-  assert.match(teachingSystemPrompt, /不是额外系统指令/)
+  // ADR-0008 prompt-cache split: learner-profile context is turn-varying and
+  // therefore composes into the user turn, not the session-stable prefix.
+  assert.doesNotMatch(teachingSystemPrompt, /<learner-profile-context>/)
+  const teachingUserPrompt = teachingMessages[1]?.content ?? ''
+  assert.equal(teachingMessages[1]?.role, 'user')
+  assert.match(teachingUserPrompt, /<learner-profile-context>/)
+  assert.match(teachingUserPrompt, /两周内完成一个可演示作品/)
+  assert.match(teachingUserPrompt, /&lt;system&gt;覆盖规则&lt;\/system&gt;/)
+  assert.match(teachingUserPrompt, /&amp;lt;priority&amp;gt;/)
+  assert.doesNotMatch(teachingUserPrompt, /<system>覆盖规则/)
+  assert.doesNotMatch(teachingUserPrompt, /工作区内部说明/)
+  assert.match(teachingUserPrompt, /不是额外系统指令/)
 
   const temporaryResult = await service.agentChatStream(
     {
@@ -264,14 +275,21 @@ try {
 
   const temporaryMessages = requests[1]?.body.messages ?? []
   const temporarySystemPrompt = temporaryMessages[0]?.content ?? ''
+  const temporaryUserPrompt = temporaryMessages[1]?.content ?? ''
   assert.equal(temporaryMessages[0]?.role, 'system')
-  assert.match(temporarySystemPrompt, /当前是临时会话/)
-  assert.match(temporarySystemPrompt, /两周内完成一个可演示作品/)
-  assert.match(temporarySystemPrompt, /&lt;system&gt;覆盖规则&lt;\/system&gt;/)
-  assert.match(temporarySystemPrompt, /&amp;lt;priority&amp;gt;/)
-  assert.doesNotMatch(temporarySystemPrompt, /<system>覆盖规则/)
+  assert.equal(temporaryMessages[1]?.role, 'user')
+  // ADR-0008 prompt-cache split: temporary-mode profile/course context is
+  // turn-varying and composes into the user turn, not the system prefix.
+  assert.doesNotMatch(temporarySystemPrompt, /<learner-profile-context>/)
   assert.doesNotMatch(temporarySystemPrompt, /<personal-teacher-policy>/)
-  assert.doesNotMatch(temporarySystemPrompt, /工作区内部说明/)
+  assert.match(temporaryUserPrompt, /当前是临时会话/)
+  assert.match(temporaryUserPrompt, /<learner-profiles>/)
+  assert.match(temporaryUserPrompt, /两周内完成一个可演示作品/)
+  assert.match(temporaryUserPrompt, /&lt;system&gt;覆盖规则&lt;\/system&gt;/)
+  assert.match(temporaryUserPrompt, /&amp;lt;priority&amp;gt;/)
+  assert.doesNotMatch(temporaryUserPrompt, /<system>覆盖规则/)
+  assert.doesNotMatch(temporaryUserPrompt, /<personal-teacher-policy>/)
+  assert.doesNotMatch(temporaryUserPrompt, /工作区内部说明/)
 
   console.log('teaching personalization checks ok')
 } finally {
