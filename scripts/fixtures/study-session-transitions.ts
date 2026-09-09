@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { studyModes, studyRooms } from '../../src/renderer/src/study-space/constants'
+import { defaultStudySnapshot, studyModes, studyRooms } from '../../src/renderer/src/study-space/constants'
 import { resolveStudySeatConflict, studyRoomSeatCount } from '../../src/renderer/src/study-space/domain'
 import {
   addStudyTask,
@@ -25,17 +25,16 @@ import {
 } from '../../src/renderer/src/study-space/session/transitions'
 import type { StudySnapshot } from '../../src/renderer/src/study-space/types'
 
+// Built on the canonical default so this fixture tracks the StudySnapshot
+// shape (timer plans, simulation window, daily XP) as the model evolves.
 const snapshot: StudySnapshot = {
+  ...defaultStudySnapshot,
   clientId: 'studiumx-client',
   nickname: 'Learner',
   spaceCode: 'PUBLIC',
   presenceRelayUrl: 'wss://broker.emqx.io:8084/mqtt',
-  signalId: 'reading',
-  modeId: 'free',
   contractText: '',
   contractLocked: false,
-  ambientEnabled: true,
-  ambientVolume: 0.5,
   roomId: 'silent',
   seatIndex: 0,
   seatClaimedAt: 1000,
@@ -92,11 +91,20 @@ assert.equal(presetIdle.remainingSeconds, 45 * 60)
 assert.equal(studyRooms.length, 4)
 const studyRoom = studyRooms[0]!
 
-assert.equal(joinStudySpace(snapshot, ' room-ab12 ', 3000).spaceCode, 'AB12')
-assert.equal(joinStudySpace(snapshot, ' room-ab12 ', 3000).seatClaimedAt, 3000)
-assert.equal(joinStudySpace(snapshot, ' public ', 3000).seatClaimedAt, snapshot.seatClaimedAt)
-assert.equal(joinStudySpace(snapshot, 'x').spaceCode, 'PUBLIC')
-assert.equal(setStudySpaceCode(snapshot, 'ROOM-NEW', 3100).spaceCode, 'NEW')
+// Room codes are fixed five-letter/digit tokens: a valid code is preserved,
+// while legacy, dashed or oversized values (PUBLIC, room-123, x) receive a
+// fresh random room instead of a shared default (session-snapshot policy).
+const joinedValid = joinStudySpace(snapshot, ' ab12c ', 3000)
+assert.equal(joinedValid.spaceCode, 'AB12C')
+assert.equal(joinedValid.seatClaimedAt, 3000)
+const joinedPublic = joinStudySpace(snapshot, ' public ', 3000)
+assert.match(joinedPublic.spaceCode, /^[A-Z0-9]{5}$/)
+assert.notEqual(joinedPublic.spaceCode, snapshot.spaceCode)
+assert.equal(joinedPublic.seatClaimedAt, 3000)
+assert.match(joinStudySpace(snapshot, 'x').spaceCode, /^[A-Z0-9]{5}$/)
+// setStudySpaceCode is the raw room-adoption setter (presence sync), so it
+// stores the value verbatim instead of normalizing to a five-char code.
+assert.equal(setStudySpaceCode(snapshot, 'ROOM-NEW', 3100).spaceCode, 'ROOM-NEW')
 assert.equal(setStudySpaceCode(snapshot, 'AB12CD', 3100).spaceCode, 'AB12CD')
 assert.equal(setStudySpaceCode(snapshot, 'AB12CD', 3100).seatClaimedAt, 3100)
 
@@ -145,7 +153,7 @@ const examMode = studyModes.find((mode) => mode.id === 'exam')!
 const selectedMode = selectStudyModeSnapshot(snapshot, examMode)
 assert.equal(selectedMode.modeId, 'exam')
 assert.equal(selectedMode.roomId, 'exam')
-assert.equal(selectedMode.ambientEnabled, false)
+assert.equal(selectedMode.timerMode, 'focus')
 
 const contract = toggleStudyContract(snapshot, 'Fallback contract')
 assert.equal(contract.contractText, 'Fallback contract')
