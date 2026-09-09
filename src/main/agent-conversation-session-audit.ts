@@ -575,7 +575,7 @@ function parseAuditRecords(raw: Buffer): ParsedAuditRecord[] {
     const record = value as Record<string, unknown>
     records.push({
       record,
-      nonTraceJson: JSON.stringify(withoutAuditTrace(record)),
+      nonTraceJson: auditRecordNonTraceJson(record),
       traceState: auditTraceState(record)
     })
   }
@@ -612,7 +612,7 @@ function canonicalSessionHeaderIdentityJsons(header: AgentConversationSessionAud
   if (Object.prototype.hasOwnProperty.call(header, 'workspaceId')) {
     const { workspaceId: _workspaceId, ...legacy } = withoutAuditTrace(header as unknown as Record<string, unknown>)
     delete legacy.title
-    jsons.push(JSON.stringify(legacy))
+    jsons.push(canonicalAuditJson(legacy))
   }
   return jsons
 }
@@ -620,7 +620,7 @@ function canonicalSessionHeaderIdentityJsons(header: AgentConversationSessionAud
 function stableSessionHeaderIdentityJson(record: Record<string, unknown>): string {
   const stable = withoutAuditTrace(record)
   delete stable.title
-  return JSON.stringify(stable)
+  return canonicalAuditJson(stable)
 }
 
 function canonicalNonTraceAuditJsons(
@@ -628,13 +628,13 @@ function canonicalNonTraceAuditJsons(
   allowLegacySessionHeader: boolean
 ): string[] {
   const canonical = withoutAuditTrace(line as unknown as Record<string, unknown>)
-  const jsons = [JSON.stringify(canonical)]
+  const jsons = [canonicalAuditJson(canonical)]
   // The first session-audit writer predated workspace identity in the header.
   // Retain that one legacy canonical shape without permitting arbitrary missing
   // or extra fields in any current record.
   if (allowLegacySessionHeader && Object.prototype.hasOwnProperty.call(canonical, 'workspaceId')) {
     const { workspaceId: _workspaceId, ...legacy } = canonical
-    jsons.push(JSON.stringify(legacy))
+    jsons.push(canonicalAuditJson(legacy))
   }
   // Older audit rows were emitted before a branch/session write consistently
   // carried metadataVersion on pre-existing turns. That version is derived
@@ -642,9 +642,68 @@ function canonicalNonTraceAuditJsons(
   // while continuing to reject every other shape change.
   if (canonical.type === 'turn' && Object.prototype.hasOwnProperty.call(canonical, 'metadataVersion')) {
     const { metadataVersion: _metadataVersion, ...legacy } = canonical
-    jsons.push(JSON.stringify(legacy))
+    jsons.push(canonicalAuditJson(legacy))
+  }
+  // An artifact's archivedAt is a writer-assigned timestamp that legitimately
+  // changes when an idempotent retry re-archives identical content; it is not
+  // part of the artifact's content identity (sha256/bytes/lines/relativePath).
+  // Accept that one volatile difference while rejecting every other shape change.
+  if (canonical.type === 'child_run' || canonical.type === 'tool_result_diagnostic') {
+    const normalized = canonicalAuditJson(withoutArtifactArchivedAt(canonical))
+    if (!jsons.includes(normalized)) jsons.push(normalized)
   }
   return jsons
+}
+
+/**
+ * Canonical non-trace identity for one parsed audit record. Artifact refs carry
+ * a writer-assigned archivedAt that a durable retry may legitimately reassign
+ * when it re-archives the same content; that timestamp is excluded so an
+ * otherwise identical artifact entry is not mistaken for a divergent record.
+ */
+function auditRecordNonTraceJson(record: Record<string, unknown>): string {
+  const withoutTrace = withoutAuditTrace(record)
+  if (record.type === 'child_run' || record.type === 'tool_result_diagnostic') {
+    return canonicalAuditJson(withoutArtifactArchivedAt(withoutTrace))
+  }
+  return canonicalAuditJson(withoutTrace)
+}
+
+/**
+ * Order-insensitive canonical JSON for an audit record body. JSON object key
+ * order is not part of an audit row's meaning: a durable read normalizes
+ * metadata into a different key order than the original writer, and that must
+ * not be mistaken for a divergent canonical body. Real value changes still
+ * produce a different canonical string and are rejected.
+ */
+function canonicalAuditJson(value: unknown): string {
+  return JSON.stringify(sortAuditObjectKeys(value))
+}
+
+function sortAuditObjectKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortAuditObjectKeys)
+  if (value !== null && typeof value === 'object') {
+    const next: Record<string, unknown> = {}
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      next[key] = sortAuditObjectKeys((value as Record<string, unknown>)[key])
+    }
+    return next
+  }
+  return value
+}
+
+/** Deep-strips archivedAt (a volatile write-time stamp) from a parsed audit record. */
+function withoutArtifactArchivedAt(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutArtifactArchivedAt)
+  if (value !== null && typeof value === 'object') {
+    const next: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (key === 'archivedAt') continue
+      next[key] = withoutArtifactArchivedAt(child)
+    }
+    return next
+  }
+  return value
 }
 
 function withoutAuditTrace(record: Record<string, unknown>): Record<string, unknown> {

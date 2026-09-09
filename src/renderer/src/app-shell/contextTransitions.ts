@@ -1,4 +1,5 @@
 import { courseRelativePathForAgentConversation } from '../../../shared/agent-conversation-catalog'
+import { sanitizeAgentConversationTurns } from '../../../shared/agent-conversation-turns'
 import { courseRelativePathFromWorkspacePath } from '../../../shared/teaching-placement'
 import type {
   AgentChatTurn,
@@ -252,7 +253,10 @@ export function openAgentConversationContext(input: {
       selectedLessonPath: null,
       previewUrl: ''
     },
-    agentTurns: input.conversation.turns,
+    // Durable reads preserve per-turn identity; the UI folds any consecutive
+    // assistant turns here so legacy/multi-step transcripts still render as
+    // one reply card instead of multiple planning cards.
+    agentTurns: sanitizeAgentConversationTurns(input.conversation.turns),
     activeConversationId: input.conversation.id,
     agentStatus: '',
     agentToolsSupported: null,

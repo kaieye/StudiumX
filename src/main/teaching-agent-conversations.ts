@@ -265,7 +265,20 @@ export function hasAgentParentTurnCommit(
   return hasPersistedAgentParentTurnProof(turns, runId, proofDigest)
 }
 
-export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[] {
+/**
+ * Parses an arbitrary turn payload into durable conversation turns.
+ *
+ * By default the result is also collapsed into one assistant turn per user
+ * turn, matching the durable shape production writes. Durable reads must opt
+ * out (`collapseAssistantTurns: false`) so persisted turn identity is returned
+ * verbatim: the audit and continuation flow rely on read→write round-trips
+ * keeping each turn id's canonical body stable. Collapsing for display remains
+ * a UI projection concern.
+ */
+export function normalizeAgentConversationTurns(
+  turns: unknown,
+  options: { collapseAssistantTurns?: boolean } = {}
+): AgentChatTurn[] {
   if (!Array.isArray(turns)) return []
   const now = new Date().toISOString()
   const normalized: AgentChatTurn[] = []
@@ -330,6 +343,7 @@ export function normalizeAgentConversationTurns(turns: unknown): AgentChatTurn[]
       createdAt: typeof record.createdAt === 'string' ? record.createdAt : now
     })
   }
+  if (options.collapseAssistantTurns === false) return normalized
   return sanitizeAgentConversationTurns(normalized)
 }
 
@@ -501,7 +515,11 @@ export async function parseAgentConversationRecordSource(
   if (!parsed || typeof parsed !== 'object') throw new Error('Conversation record is invalid.')
   const record = parsed as Record<string, unknown>
   if (record.id !== id) throw new Error('Conversation record id does not match its JSON basename.')
-  const turns = normalizeAgentConversationTurns(record.turns)
+  // Durable reads are identity-preserving: never merge consecutive assistant
+  // turns here. The audit/ledger compare read→write round-trips, and merging
+  // would silently rewrite a persisted turn id's canonical body. The UI folds
+  // consecutive assistant turns at its own projection boundary.
+  const turns = normalizeAgentConversationTurns(record.turns, { collapseAssistantTurns: false })
   const createdAt = typeof record.createdAt === 'string' ? record.createdAt : new Date().toISOString()
   const updatedAt = typeof record.updatedAt === 'string' ? record.updatedAt : createdAt
   const title = cleanText(record.title) || deriveConversationTitle(turns, createdAt)
