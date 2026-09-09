@@ -50,7 +50,7 @@ try {
   )
 
   const journalText = await readFile(journal.path, 'utf8')
-  assert.match(journalText, /\[warn\] captured warning {"source":"fixture"}/)
+  assert.match(journalText, /\[warn\] captured warning \[console value omitted\]/)
   assert.match(journalText, /\[error\] Error: captured failure/)
   assert.match(journalText, /tail-marker/)
   assert.match(await journal.readTail(20), /tail-marker\n$/)
