@@ -44,8 +44,8 @@ assert.doesNotMatch(
 
 assert.match(reader, /teaching-turn-panel__your-turn/, 'Stable your-turn region class is required.')
 assert.match(reader, /teaching-your-turn-\$\{presentation\.focusKey\}/, 'Your-turn region id must be stable per focusKey.')
-assert.match(reader, /role=\{needsYou \? 'status' : 'note'\}/, 'Your-turn region must use status when it is the learner turn.')
-assert.match(reader, /aria-live=\{needsYou \? 'polite' : 'off'\}/, 'Your-turn announcements must stay polite and gated.')
+assert.match(reader, /role=\{needsYou && !liveAnnouncement \? 'status' : 'note'\}/, 'Your-turn region must use status when it is the learner turn and no saved announcement owns the live region.')
+assert.match(reader, /aria-live=\{needsYou && !liveAnnouncement \? 'polite' : 'off'\}/, 'Your-turn announcements must stay polite and gated.')
 assert.match(reader, /openSourcesKey|openTeachingSourcesKey/, 'show_source must open the sources disclosure.')
 assert.doesNotMatch(reader, /aria-live="assertive"/, 'Learner status must not use assertive live announcements.')
 
