@@ -91,7 +91,7 @@ try {
     }
   })()`)
 
-  assert.equal(result.page.background, 'rgb(16, 16, 16)', 'dark workbench page should use the app theme background')
+  assert.equal(result.page.background, 'rgb(23, 23, 24)', 'dark workbench page should use the app-shell theme background')
   assert.equal(result.stage.background, 'rgb(16, 16, 16)', 'dark workbench stage should use the app theme background')
   assert.ok(
     result.canvas.bottom.whiteRatio < 0.05,
@@ -107,7 +107,16 @@ try {
 } finally {
   if (child.exitCode === null) {
     const closed = new Promise((resolveClose) => child.once('close', resolveClose))
+    // Electron may ignore SIGTERM on macOS (the app stays resident); fall back
+    // to SIGKILL so the gate does not hang in cleanup after a passing run.
     child.kill()
+    await Promise.race([
+      closed,
+      new Promise((resolveTimeout) => setTimeout(() => {
+        if (child.exitCode === null) child.kill('SIGKILL')
+        resolveTimeout()
+      }, 2000))
+    ])
     await closed
   }
   await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
