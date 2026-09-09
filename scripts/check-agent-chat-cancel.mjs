@@ -5,6 +5,8 @@ const [
   systemApiTypes,
   preload,
   gateway,
+  gatewayContext,
+  agentChatCommands,
   app,
   appStore,
   agentLoop,
@@ -14,6 +16,8 @@ const [
   readFile('src/shared/teaching-types/system-api.ts', 'utf8'),
   readFile('src/preload/index.ts', 'utf8'),
   readFile('src/main/teaching-ipc-gateway.ts', 'utf8'),
+  readFile('src/main/teaching-ipc-gateway-context.ts', 'utf8'),
+  readFile('src/main/ai/agent-chat-ipc-commands.ts', 'utf8'),
   readFile('src/renderer/src/App.tsx', 'utf8'),
   readFile('src/renderer/src/app-shell/appStore.ts', 'utf8'),
   readFile('src/main/ai/agent-loop.ts', 'utf8'),
@@ -34,9 +38,9 @@ assert.match(
 )
 
 assert.match(
-  gateway,
-  /type GatewayContext = TeachingIpcRegistration & \{[\s\S]*?activeAgentChatStreams: Map<string, AbortController>/,
-  'teaching IPC gateway should own active agent chat AbortControllers'
+  gatewayContext,
+  /export type GatewayContext = TeachingIpcRegistration & \{[\s\S]*?activeAgentChatStreams: Map<string, AbortController>/,
+  'teaching IPC gateway context should own active agent chat AbortControllers'
 )
 
 assert.match(
@@ -46,21 +50,27 @@ assert.match(
 )
 
 assert.match(
-  gateway,
+  agentChatCommands,
   /channel: teachingInvokeChannels\.agentChatStream[\s\S]*?context\.activeAgentChatStreams\.set\(streamId, controller\)/,
   'agent chat stream should register its AbortController before invoking the service'
 )
 
 assert.match(
-  gateway,
+  agentChatCommands,
   /channel: teachingInvokeChannels\.cancelAgentChatStream[\s\S]*?context\.activeAgentChatStreams\.get\(streamId\)[\s\S]*?controller\.abort\(\)[\s\S]*?context\.activeAgentChatStreams\.delete\(streamId\)/,
-  'teaching IPC gateway should abort and retire the matching stream on cancel'
+  'agent chat command group should abort and retire the matching stream on cancel'
 )
 
 assert.match(
   appStore,
-  /cancelAgentChat:\s*async\s*\(\)\s*=>[\s\S]*createAgentConversationTurnRunner\(get, set\)\.cancel\(\)/,
+  /cancelAgentChat:\s*async\s*\(\)\s*=>[\s\S]*getAgentConversationTurnRunner\(\)\.cancel\(\)/,
   'renderer store should delegate active conversation cancellation to its turn runner'
+)
+
+assert.match(
+  appStore,
+  /agentConversationTurnRunner \?\?= createAgentConversationTurnRunner\(get, set\)/,
+  'the store should memoize its agent conversation turn runner'
 )
 
 assert.match(
@@ -71,8 +81,8 @@ assert.match(
 
 assert.match(
   app,
-  /canCancelAgentChat && !inputValue\.trim\(\)\s*\? <Square size=\{16\} \/>/,
-  'empty composer send button should become a stop button while the active turn is running'
+  /const shouldCancel = canCancelAgentChat && !inputValue\.trim\(\) && !hasDraftImages[\s\S]*\{shouldCancel\s*\? <Square size=\{16\} \/>/,
+  'empty composer send button should become a stop button while the active turn is running (and no image draft is attached)'
 )
 
 assert.match(
