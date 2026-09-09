@@ -99,10 +99,10 @@ try {
     'user memory should precede scored in-scope records, which should rank before the limit is applied'
   )
   const diagnosticsAfterSelection = await store.diagnostics()
-  assert.deepEqual(
-    diagnosticsAfterSelection.lastInjectedIds,
-    ['user-unrelated', 'ranked-top', 'ranked-low', 'project-same'],
-    'diagnostics should report the exact selected Memory IDs'
+  assert.equal(
+    diagnosticsAfterSelection.lastInjectedCount,
+    4,
+    'diagnostics should report the exact count of selected Memory records'
   )
 
   const betaSelection = await store.retrieve({
@@ -132,7 +132,7 @@ try {
   assert.deepEqual(disabledBySettings, [], 'disabled Memory settings must prevent every injection')
   const diagnosticsWhenDisabled = await store.diagnostics()
   assert.equal(diagnosticsWhenDisabled.enabled, false)
-  assert.deepEqual(diagnosticsWhenDisabled.lastInjectedIds, [], 'disabled recall must clear stale injection telemetry')
+  assert.equal(diagnosticsWhenDisabled.lastInjectedCount, 0, 'disabled recall must clear stale injection telemetry')
 
   console.log('teaching memory recall ok')
 } finally {
