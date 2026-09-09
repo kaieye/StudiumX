@@ -23,14 +23,19 @@ try {
   await rm(tempRoot, { recursive: true, force: true })
 }
 
-const [dialog, session] = await Promise.all([
+const [dialog, session, localeZh, assistantTodo] = await Promise.all([
   readFile('src/renderer/src/views/pet/PetAssistantDialog.tsx', 'utf8'),
-  readFile('src/renderer/src/study-space/session/useStudySession.ts', 'utf8')
+  readFile('src/renderer/src/study-space/session/useStudySession.ts', 'utf8'),
+  readFile('src/renderer/src/i18n/locales/zh-CN.json', 'utf8'),
+  readFile('src/renderer/src/study-space/assistantTodo.ts', 'utf8')
 ])
 
-assert.match(dialog, /appendTodoOutputContract/, 'pet dialog should request structured todo output')
-assert.match(dialog, /appendAssistantTodoTasks/, 'pet dialog should import confirmed AI tasks')
-assert.match(dialog, /加入今日清单/, 'pet dialog should show an explicit todo import action')
+assert.match(dialog, /AssistantTodoCapture\.preparePrompt/, 'pet dialog should request structured todo output')
+assert.match(dialog, /AssistantTodoCapture\.importTasks/, 'pet dialog should import confirmed AI tasks')
+assert.match(dialog, /resources\.pets\.assistant\.actions\.addTodo/, 'pet dialog should surface an explicit todo import action')
+assert.match(localeZh, /加入今日清单/, 'the todo import action label must be localized')
+assert.match(assistantTodo, /appendTodoOutputContract/, 'assistant todo module keeps the structured output contract')
+assert.match(assistantTodo, /appendAssistantTodoTasks/, 'assistant todo module keeps the confirmed-task import path')
 assert.match(session, /STUDY_TASKS_CHANGED_EVENT/, 'open study sessions should receive imported todo updates')
 
 console.log('assistant todo integration checks passed')
