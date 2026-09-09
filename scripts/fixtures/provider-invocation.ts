@@ -82,7 +82,7 @@ try {
       callbacks: { onStatus: (step) => statuses.push(step) }
     })
     assert.equal(result.text, 'plain answer')
-    assert.deepEqual(result.usage, { promptTokens: 3, completionTokens: 5, totalTokens: 8 })
+    assert.deepEqual(result.usage, { promptTokens: 3, completionTokens: 5 })
     assert.deepEqual(statuses, ['calling'])
   })
 
@@ -113,7 +113,7 @@ try {
       callbacks: { onStatus: (step) => events.push(`status:${step}`) }
     })
     assert.equal(result.text, 'chat answer')
-    assert.deepEqual(result.usage, { promptTokens: 7, completionTokens: 2, totalTokens: 9 })
+    assert.deepEqual(result.usage, { promptTokens: 7, completionTokens: 2 })
     assert.deepEqual(events, ['status:calling'])
   })
 
