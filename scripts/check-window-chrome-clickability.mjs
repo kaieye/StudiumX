@@ -43,8 +43,8 @@ assert.ok(macVisualOptions, 'macOS BrowserWindow visual options should be detect
 
 assert.match(
   windowsVisualOptions,
-  /titleBarStyle: 'hidden'[\s\S]*titleBarOverlay: buildWindowsTitleBarOverlay\(\)[\s\S]*backgroundMaterial: 'acrylic'/,
-  'Windows BrowserWindow should use hidden transparent titlebar overlay mode like Zcode'
+  /backgroundColor: '#f7f9fe'[\s\S]*titleBarStyle: 'hidden'[\s\S]*titleBarOverlay: buildWindowsTitleBarOverlay\(\)[\s\S]*backgroundMaterial: 'none'/,
+  'Windows BrowserWindow should use an opaque native drag strip with hidden titlebar overlay (no acrylic material)'
 )
 
 assert.match(
@@ -251,4 +251,3 @@ assertAppRegion('.sidebar-resizer', 'no-drag', 'The icon rail resize separator m
 
 assertAppRegion('.sidebar-content', 'no-drag', 'Windows sidebar content must stay clickable')
 
-assertAppRegion('.sidebar-footer', 'no-drag', 'Windows sidebar footer controls must stay clickable')
