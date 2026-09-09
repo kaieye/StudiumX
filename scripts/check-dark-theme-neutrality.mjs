@@ -56,17 +56,15 @@ try {
       <div class="segmented-control"></div>
       <div class="settings-select-menu"></div>
     </section>
-    <section class="remove-dialog">
-      <div class="remove-dialog-options">
-        <button class="remove-dialog-option" type="button">
-          <span class="remove-dialog-option-icon"></span>
-          <span><strong>Remove from list only</strong><small>Keep local files.</small></span>
-        </button>
-        <button class="remove-dialog-option is-danger" type="button">
-          <span class="remove-dialog-option-icon"></span>
-          <span><strong>Remove from disk</strong><small>Delete local files.</small></span>
-        </button>
-      </div>
+    <section class="remove-dialog-backdrop">
+      <section class="remove-dialog remove-dialog-confirmation" role="dialog" aria-modal="true">
+        <div class="remove-dialog-header"><span class="remove-dialog-icon" aria-hidden="true"></span><h2>Remove workspace</h2></div>
+        <p class="remove-dialog-detail">This removes the item from StudiumX. Files on disk are not deleted.</p>
+        <div class="remove-dialog-footer">
+          <button class="remove-dialog-cancel-button" type="button">Cancel</button>
+          <button class="remove-dialog-confirm-button" type="button">Remove</button>
+        </div>
+      </section>
     </section>
   </body>
 </html>`,
@@ -109,10 +107,10 @@ app.whenReady().then(async () => {
         segmentedControl: background('.segmented-control'),
         settingsSelectMenu: background('.settings-select-menu'),
         removeDialog: background('.remove-dialog'),
-        removeListOption: background('.remove-dialog-option:not(.is-danger)'),
-        removeDiskOption: background('.remove-dialog-option.is-danger'),
-        removeListOptionIcon: background('.remove-dialog-option:not(.is-danger) .remove-dialog-option-icon'),
-        removeDiskOptionIcon: background('.remove-dialog-option.is-danger .remove-dialog-option-icon')
+        removeDialogBackdrop: background('.remove-dialog-backdrop'),
+        removeDialogCancelButton: background('.remove-dialog-cancel-button'),
+        removeDialogConfirmButton: background('.remove-dialog-confirm-button'),
+        removeDialogIcon: background('.remove-dialog-header .remove-dialog-icon')
       }
     })()
   \`)
@@ -129,8 +127,12 @@ app.whenReady().then(async () => {
 
   const result = await runElectron(electronMainPath, htmlPath)
 
+  // Accent chips and the danger confirm button are allowed to carry a tint
+  // (amber/red) while still needing a dark surface; everything else must be
+  // a neutral dark surface rather than blue-tinted.
+  const darkOnly = (selector) => selector.endsWith('Icon') || selector === 'removeDialogConfirmButton'
   for (const [selector, color] of Object.entries(result)) {
-    if (selector.endsWith('Icon')) {
+    if (darkOnly(selector)) {
       assertDarkSurface(selector, color)
     } else {
       assertNeutralDarkSurface(selector, color)
