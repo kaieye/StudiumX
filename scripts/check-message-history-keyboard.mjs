@@ -67,13 +67,13 @@ assert.match(
 
 assert.match(
   app,
-  /const submitTeachingPrompt = \(value:\s*string\):\s*void => \{[\s\S]*?rememberAgentInput\(prompt\)[\s\S]*?agentChat\(prompt,\s*\{ mode:\s*'teaching', skillIds:/,
+  /const submitTeachingPrompt = \(value:\s*string,\s*attachments\?: AgentChatImageAttachment\[\]\):\s*void => \{[\s\S]*?if \(typedText\) rememberAgentInput\(typedText\)[\s\S]*?agentChat\(prompt,\s*\{\s*mode: 'teaching',\s*skillIds:/,
   'teaching submits should remember the outgoing prompt before routing to the conversation'
 )
 
 assert.match(
   app,
-  /const submitChatPrompt = \(value:\s*string\):\s*void => \{[\s\S]*rememberAgentInput\(prompt\)[\s\S]*agentChat\(prompt,\s*\{ mode:\s*'temporary', skillIds:/,
+  /const submitChatPrompt = \(value:\s*string,\s*attachments\?: AgentChatImageAttachment\[\]\):\s*void => \{[\s\S]*?if \(typedText\) rememberAgentInput\(typedText\)[\s\S]*?agentChat\(prompt,\s*\{\s*mode: 'temporary',\s*skillIds:/,
   'chat submits should remember the outgoing prompt text'
 )
 
