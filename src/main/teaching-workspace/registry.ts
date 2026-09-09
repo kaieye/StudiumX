@@ -1,5 +1,5 @@
 import { dirname, resolve } from 'node:path'
-import { isPathInsideRoot } from '../path-access'
+import { isRealPathInsideRoot } from '../path-access'
 
 /** The only persisted positive grant. Its absence is intentionally untrusted. */
 export type AgentWorkspaceTrust = 'trusted'
@@ -138,15 +138,17 @@ export function samePath(left: string, right: string): boolean {
   return resolve(left) === resolve(right)
 }
 
-export function assertSafeWorkspaceRootForRemoval(rootPath: string, managedRoots: string[]): void {
+export async function assertSafeWorkspaceRootForRemoval(rootPath: string, managedRoots: string[]): Promise<void> {
   const root = resolve(rootPath)
   if (samePath(root, dirname(root))) {
     throw new Error('Cannot remove a filesystem root as a workspace.')
   }
   const removableRoots = [...new Set(managedRoots.map((item) => item.trim()).filter(Boolean).map((item) => resolve(item)))]
-  const isManagedWorkspace = removableRoots.some((managedRoot) =>
-    !samePath(root, managedRoot) && isPathInsideRoot(managedRoot, root)
-  )
+  const isManagedWorkspace = (await Promise.all(
+    removableRoots.map(async (managedRoot) =>
+      !samePath(root, managedRoot) && (await isRealPathInsideRoot(managedRoot, root))
+    )
+  )).some(Boolean)
   if (!isManagedWorkspace) {
     throw new Error(
       'Only workspaces inside the configured StudiumX workspace root can be removed from disk. Remove this imported workspace from the list instead.'

@@ -1941,7 +1941,7 @@ export class TeachingWorkspaceService {
     const mode = payload.mode ?? 'disk'
     if (mode === 'disk') {
       const settings = await this.loadSettings()
-      assertSafeWorkspaceRootForRemoval(workspace.rootPath, [this.defaultRoot, settings.workspace.defaultRoot])
+      await assertSafeWorkspaceRootForRemoval(workspace.rootPath, [this.defaultRoot, settings.workspace.defaultRoot])
       await rm(workspace.rootPath, { recursive: true, force: true })
     }
     const workspaces = orderRegistryWorkspaces(registry.workspaces.filter((entry) => entry.id !== workspace.id))
