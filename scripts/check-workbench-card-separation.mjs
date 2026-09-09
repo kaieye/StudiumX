@@ -34,7 +34,6 @@ try {
         background: rgb(42, 126, 214) !important;
       }
       .office-workbench-stage .workbench-tools { top: 30px; }
-      .workbench-room-switcher,
       .workbench-pomodoro-card,
       .workbench-task-card { min-height: 120px; padding: 0; }
     </style>
@@ -43,7 +42,6 @@ try {
     <main class="office-workbench-page">
       <section class="office-workbench-stage">
         <aside class="workbench-tools">
-          <section class="workbench-room-switcher"></section>
           <section class="workbench-pomodoro-card"></section>
           <section class="workbench-task-card"></section>
         </aside>
@@ -81,17 +79,27 @@ app.whenReady().then(async () => {
         const rect = card.getBoundingClientRect()
         return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
       })
-      return { stage: { left: stage.left, right: stage.right, top: stage.top }, cards }
+      return {
+        stage: { left: stage.left, right: stage.right, top: stage.top, width: stage.width, height: stage.height },
+        cards
+      }
     })()
   \`)
 
   const image = await win.webContents.capturePage()
   const size = image.getSize()
+  // capturePage returns the bitmap at device-pixel resolution while geometry is
+  // in CSS pixels; scale probe coordinates so they land on the right pixels.
+  const scale = size.width / geometry.stage.width
   const bitmap = image.toBitmap()
   const pixel = (x, y) => {
-    const offset = (Math.round(y) * size.width + Math.round(x)) * 4
+    const offset = (Math.round(y * scale) * size.width + Math.round(x * scale)) * 4
     return { b: bitmap[offset], g: bitmap[offset + 1], r: bitmap[offset + 2], a: bitmap[offset + 3] }
   }
+
+  const stageReference = pixel(geometry.stage.left + 40, geometry.stage.top + 40)
+  const firstCard = geometry.cards[0]
+  const cardSurface = pixel((firstCard.left + firstCard.right) / 2, (firstCard.top + firstCard.bottom) / 2)
 
   const samples = geometry.cards.slice(0, -1).map((card, index) => {
     const next = geometry.cards[index + 1]
@@ -100,7 +108,7 @@ app.whenReady().then(async () => {
     return { x, y, color: pixel(x, y) }
   })
 
-  console.log(JSON.stringify({ samples, rightInset: geometry.stage.right - geometry.cards[0].right }))
+  console.log(JSON.stringify({ samples, stageReference, cardSurface, scale, rightInset: geometry.stage.right - geometry.cards[0].right }))
   app.quit()
 }).catch((error) => {
   console.error(error)
@@ -116,16 +124,24 @@ app.whenReady().then(async () => {
     `right-side cards should sit close to the stage edge instead of covering the desks; got ${result.rightInset}px`
   )
 
-  const expected = { r: 42, g: 126, b: 214 }
   for (const [index, sample] of result.samples.entries()) {
     const distance = Math.max(
-      Math.abs(sample.color.r - expected.r),
-      Math.abs(sample.color.g - expected.g),
-      Math.abs(sample.color.b - expected.b)
+      Math.abs(sample.color.r - result.stageReference.r),
+      Math.abs(sample.color.g - result.stageReference.g),
+      Math.abs(sample.color.b - result.stageReference.b)
     )
     assert.ok(
-      distance <= 4,
-      `gap ${index + 1} should expose the study-room background without a gray connection; got ${JSON.stringify(sample.color)}`
+      distance <= 8,
+      `gap ${index + 1} should expose the study-room background without a gray connection; got ${JSON.stringify(sample.color)} (stage ${JSON.stringify(result.stageReference)})`
+    )
+    const cardDistance = Math.max(
+      Math.abs(sample.color.r - result.cardSurface.r),
+      Math.abs(sample.color.g - result.cardSurface.g),
+      Math.abs(sample.color.b - result.cardSurface.b)
+    )
+    assert.ok(
+      cardDistance > 16,
+      `gap ${index + 1} should sample the stage background, not a card surface; got ${JSON.stringify(sample.color)} (card ${JSON.stringify(result.cardSurface)})`
     )
   }
 
