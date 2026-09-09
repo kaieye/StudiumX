@@ -59,7 +59,7 @@ try {
 
   const service = new SkillLibraryService({ builtInRoots: [builtInRoot], personalRoot })
   const initial = await service.listSkills()
-  assert.equal(initial.rootPath, personalRoot)
+  assert.equal(service.personalRoot, personalRoot)
   assert.equal(initial.skills.length, 1)
   assert.deepEqual(initial.skills[0], {
     id: 'teach',
@@ -69,7 +69,7 @@ try {
     category: 'learning',
     icon: 'graduation-cap',
     author: 'StudiumX',
-    command: '/teach',
+    command: '/skill:teach',
     source: 'builtin',
     installed: false,
     version: '1.2.3',
@@ -87,7 +87,6 @@ try {
 
   const installed = await service.installSkill('teach')
   assert.equal(installed.installed, true)
-  assert.equal(installed.installedPath, join(personalRoot, 'teach'))
   assert.equal(await readFile(join(personalRoot, 'teach', 'REFERENCE.md'), 'utf8'), '# Reference\n')
   assert.equal(
     await readFile(join(personalSharedRoot, 'domain-primitives.md'), 'utf8'),
@@ -113,7 +112,6 @@ try {
   const afterInstall = await service.listSkills()
   assert.equal(afterInstall.skills.length, 1)
   assert.equal(afterInstall.skills[0]?.installed, true)
-  assert.equal(afterInstall.skills[0]?.installedPath, join(personalRoot, 'teach'))
 
   const references = await service.readInstalledSkillReferences(['teach', '../escape', 'teach'])
   assert.equal(references.length, 1)

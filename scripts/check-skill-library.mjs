@@ -15,7 +15,7 @@ try {
     readFile(join(process.cwd(), 'src', 'renderer', 'src', 'views', 'resources', 'SkillLibrary.tsx'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'renderer', 'src', 'skills', 'SkillSlashMenu.tsx'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'main', 'index.ts'), 'utf8'),
-    readFile(join(process.cwd(), 'src', 'main', 'teaching-ipc-gateway.ts'), 'utf8'),
+    readFile(join(process.cwd(), 'src', 'main', 'teaching-workspace-ipc-commands.ts'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'preload', 'index.ts'), 'utf8'),
     readFile(join(process.cwd(), 'src', 'shared', 'teaching-ipc-contract.ts'), 'utf8'),
     readFile(join(process.cwd(), 'package.json'), 'utf8'),
@@ -27,19 +27,24 @@ try {
   assert.match(app, /<ResourceHome[\s\S]*onOpenSkills=/)
   assert.match(skillView, /window\.teachingSystem\.installSkill\(skill\.id\)/)
   assert.match(skillView, /announceSkillCatalogChanged\(\)/)
-  assert.match(skillView, /<strong>\{skill\.name\}<\/strong>/)
+  assert.match(skillView, /<strong>\{copy\.name\}<\/strong>/)
   assert.doesNotMatch(skillView, /<code>\{skill\.command\}<\/code>/)
   assert.match(slashMenu, /event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'/)
   assert.match(slashMenu, /event\.key === 'Enter' \|\| event\.key === 'Tab'/)
   assert.match(slashMenu, /event\.key === 'Escape'/)
   assert.match(mainIndex, /join\(process\.resourcesPath, 'builtin-skills'\)/)
-  assert.match(ipcGateway, /teachingInvokeChannels\.installSkill/)
+  assert.match(ipcGateway, /channel: teachingInvokeChannels\.installSkill/)
   assert.match(preload, /installSkill: \(skillId\) => ipcRenderer\.invoke\(teachingInvokeChannels\.installSkill, skillId\)/)
   assert.match(contract, /listSkills: 'teach:list-skills'/)
   assert.match(contract, /installSkill: 'teach:install-skill'/)
   assert.deepEqual(JSON.parse(packageJson).build.extraResources, [
     { from: 'resources/builtin-skills', to: 'builtin-skills' },
-    { from: 'resources/sandbox', to: 'sandbox' }
+    { from: 'resources/sandbox', to: 'sandbox' },
+    { from: 'build/trayTemplate.png', to: 'trayTemplate.png' },
+    { from: 'build/trayTemplate@2x.png', to: 'trayTemplate@2x.png' },
+    { from: 'build/trayIcon.png', to: 'trayIcon.png' },
+    { from: 'build/trayIcon@2x.png', to: 'trayIcon@2x.png' },
+    { from: 'build/icon.ico', to: 'icon.ico' }
   ])
   assert.match(builtinSkill, /name: teach/)
   assert.match(builtinSkill, /category: learning/)
